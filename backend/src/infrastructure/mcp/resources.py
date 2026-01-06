@@ -5,14 +5,15 @@ from typing import Any, Dict, Optional
 
 from mcp.types import Resource
 
-from .utils.markdown import find_markdown_files, get_doc_by_id, read_markdown_file
+from .utils.markdown import find_markdown_files, get_doc_by_id, read_markdown_file, slice_markdown
 
 
 class BlueprintResources:
     """Manages blueprint document resources."""
     
-    def __init__(self, docs_dir: Path):
+    def __init__(self, docs_dir: Path, storage_dir: Optional[Path] = None):
         self.docs_dir = docs_dir
+        self.storage_dir = storage_dir or docs_dir.parent / "backend" / "storage"
     
     def list_resources(self) -> list[Resource]:
         """List all available blueprint resources."""
@@ -41,7 +42,7 @@ class BlueprintResources:
             mimeType="text/markdown"
         ))
         
-        # Individual sections
+        # Individual sections from static docs
         for md_file in find_markdown_files(self.docs_dir):
             try:
                 frontmatter, _ = read_markdown_file(md_file)
@@ -69,14 +70,37 @@ class BlueprintResources:
             except Exception:
                 continue
         
-        # Analyzed repositories (would be fetched from cloud API)
-        # These are placeholders - actual implementation would connect to cloud
-        resources.append(Resource(
-            uri="blueprint://analyzed",
-            name="Analyzed Repositories",
-            description="List of all analyzed repositories",
-            mimeType="text/markdown"
-        ))
+        # Analyzed repositories (dynamically from storage)
+        blueprints_dir = self.storage_dir / "blueprints"
+        if blueprints_dir.exists():
+            for repo_dir in blueprints_dir.iterdir():
+                if repo_dir.is_dir():
+                    repo_id = repo_dir.name
+                    blueprint_file = repo_dir / "backend_blueprint.md"
+                    if blueprint_file.exists():
+                        # Full blueprint resource
+                        resources.append(Resource(
+                            uri=f"blueprint://analyzed/{repo_id}",
+                            name=f"Repository Blueprint: {repo_id}",
+                            description=f"Generated backend architecture for {repo_id}",
+                            mimeType="text/markdown"
+                        ))
+                        
+                        # Granular sections
+                        try:
+                            content = blueprint_file.read_text(encoding='utf-8')
+                            sections = slice_markdown(content)
+                            for section_id in sections.keys():
+                                if section_id == "introduction":
+                                    continue
+                                resources.append(Resource(
+                                    uri=f"blueprint://analyzed/{repo_id}/{section_id}",
+                                    name=f"{repo_id} - {section_id.replace('-', ' ').title()}",
+                                    description=f"Granular section '{section_id}' for {repo_id}",
+                                    mimeType="text/markdown"
+                                ))
+                        except Exception:
+                            continue
         
         # Unified blueprints
         resources.append(Resource(
@@ -112,8 +136,17 @@ class BlueprintResources:
         elif uri == "blueprint://analyzed":
             return self._get_analyzed_repositories()
         elif uri.startswith("blueprint://analyzed/"):
-            repo_id = uri.replace("blueprint://analyzed/", "")
-            return self._get_repository_blueprint(repo_id)
+            path_parts = uri.replace("blueprint://analyzed/", "").split("/")
+            repo_id = path_parts[0]
+            
+            if len(path_parts) == 1:
+                # Full blueprint
+                return self._get_repository_blueprint(repo_id)
+            else:
+                # Specific section
+                section_id = path_parts[1]
+                return self._get_repository_section(repo_id, section_id)
+                
         elif uri == "blueprint://unified":
             return self._get_unified_blueprints()
         elif uri.startswith("blueprint://unified/"):
@@ -124,13 +157,43 @@ class BlueprintResources:
     
     def _get_analyzed_repositories(self) -> tuple[str, str]:
         """Get list of analyzed repositories."""
-        # Would fetch from cloud API
-        return "text/markdown", "# Analyzed Repositories\n\n(List would be fetched from cloud API)"
+        blueprints_dir = self.storage_dir / "blueprints"
+        if not blueprints_dir.exists():
+            return "text/markdown", "# Analyzed Repositories\n\nNo analyzed repositories found."
+            
+        repo_ids = [d.name for d in blueprints_dir.iterdir() if d.is_dir() and (d / "backend_blueprint.md").exists()]
+        
+        markdown = "# Analyzed Repositories\n\n"
+        if not repo_ids:
+            markdown += "No successfully analyzed repositories found."
+        else:
+            for rid in repo_ids:
+                markdown += f"- **{rid}** (`blueprint://analyzed/{rid}`)\n"
+                
+        return "text/markdown", markdown
     
     def _get_repository_blueprint(self, repo_id: str) -> tuple[str, str]:
         """Get repository blueprint."""
-        # Would fetch from cloud storage
-        return "text/markdown", f"# Blueprint for Repository {repo_id}\n\n(Would fetch from cloud storage)"
+        blueprint_file = self.storage_dir / "blueprints" / repo_id / "backend_blueprint.md"
+        if not blueprint_file.exists():
+            return "text/markdown", f"# Blueprint for {repo_id}\n\nBlueprint not found."
+            
+        return "text/markdown", blueprint_file.read_text(encoding='utf-8')
+        
+    def _get_repository_section(self, repo_id: str, section_id: str) -> tuple[str, str]:
+        """Get specific section of a repository blueprint."""
+        blueprint_file = self.storage_dir / "blueprints" / repo_id / "backend_blueprint.md"
+        if not blueprint_file.exists():
+            return "text/markdown", f"# Section {section_id} for {repo_id}\n\nBlueprint not found."
+            
+        content = blueprint_file.read_text(encoding='utf-8')
+        sections = slice_markdown(content)
+        
+        section_content = sections.get(section_id)
+        if not section_content:
+            return "text/markdown", f"# Section {section_id} for {repo_id}\n\nSection not found. Available: {', '.join(sections.keys())}"
+            
+        return "text/markdown", section_content
     
     def _get_unified_blueprints(self) -> tuple[str, str]:
         """Get list of unified blueprints."""

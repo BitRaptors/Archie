@@ -50,6 +50,8 @@ if [ ! -d ".venv" ]; then
     pip install -r requirements.txt
 else
     source .venv/bin/activate
+    # Ensure all requirements are up to date (including newly added packages like mcp)
+    pip install -q -r requirements.txt 2>/dev/null || true
 fi
 
 # Start backend in background

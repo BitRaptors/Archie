@@ -4,16 +4,17 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from .resources import BlueprintResources
-from .utils.markdown import get_doc_by_id
+from .utils.markdown import get_doc_by_id, slice_markdown
 from .validators import review_component, validate_file_structure, validate_layer_compliance
 
 
 class BlueprintTools:
     """Manages blueprint query and validation tools."""
     
-    def __init__(self, docs_dir: Path):
+    def __init__(self, docs_dir: Path, storage_dir: Optional[Path] = None):
         self.docs_dir = docs_dir
-        self.resources = BlueprintResources(docs_dir)
+        self.storage_dir = storage_dir or docs_dir.parent / "backend" / "storage"
+        self.resources = BlueprintResources(docs_dir, storage_dir=self.storage_dir)
     
     def get_pattern(self, pattern_id: str) -> str:
         """Get detailed information about an architectural pattern.
@@ -287,138 +288,57 @@ class BlueprintTools:
         return review_component(code, component_type, stack)
     
     def list_analyzed_repositories(self) -> str:
-        """List all analyzed repositories.
+        """List all successfully analyzed repositories."""
+        blueprints_dir = self.storage_dir / "blueprints"
+        if not blueprints_dir.exists():
+            return "No analyzed repositories found."
+            
+        repo_ids = [d.name for d in blueprints_dir.iterdir() if d.is_dir() and (d / "backend_blueprint.md").exists()]
         
-        Returns:
-            List of analyzed repositories with their status
-        """
-        # Would connect to cloud API to get repositories
-        return "List of analyzed repositories (would connect to cloud API)"
+        if not repo_ids:
+            return "No successfully analyzed repositories found."
+            
+        response = "# Analyzed Repositories\n\n"
+        for rid in repo_ids:
+            response += f"- **{rid}**\n"
+        
+        return response
     
     def get_repository_blueprint(self, repo_id: str) -> str:
-        """Get generated blueprint for a repository.
+        """Get the full backend blueprint for a repository."""
+        blueprint_file = self.storage_dir / "blueprints" / repo_id / "backend_blueprint.md"
+        if not blueprint_file.exists():
+            return f"Blueprint for repository '{repo_id}' not found."
+            
+        return blueprint_file.read_text(encoding='utf-8')
         
-        Args:
-            repo_id: Repository ID
+    def list_repository_sections(self, repo_id: str) -> str:
+        """List all available sections in a repository's blueprint."""
+        blueprint_file = self.storage_dir / "blueprints" / repo_id / "backend_blueprint.md"
+        if not blueprint_file.exists():
+            return f"Blueprint for repository '{repo_id}' not found."
+            
+        content = blueprint_file.read_text(encoding='utf-8')
+        sections = slice_markdown(content)
         
-        Returns:
-            Blueprint markdown content
-        """
-        # Would fetch from cloud storage
-        return f"Blueprint for repository {repo_id} (would fetch from cloud)"
-    
-    def get_repository_patterns(self, repo_id: str) -> str:
-        """Get detected patterns for a repository.
+        response = f"# Blueprint Sections for {repo_id}\n\n"
+        for section_id in sections.keys():
+            response += f"- `{section_id}`\n"
+            
+        return response
         
-        Args:
-            repo_id: Repository ID
+    def get_repository_section(self, repo_id: str, section_id: str) -> str:
+        """Get a specific section from a repository's blueprint."""
+        blueprint_file = self.storage_dir / "blueprints" / repo_id / "backend_blueprint.md"
+        if not blueprint_file.exists():
+            return f"Blueprint for repository '{repo_id}' not found."
+            
+        content = blueprint_file.read_text(encoding='utf-8')
+        sections = slice_markdown(content)
         
-        Returns:
-            List of detected patterns
-        """
-        # Would fetch from cloud API
-        return f"Patterns for repository {repo_id} (would fetch from cloud)"
-    
-    def compare_repositories(self, repo_ids: list[str]) -> str:
-        """Compare multiple repositories.
-        
-        Args:
-            repo_ids: List of repository IDs to compare
-        
-        Returns:
-            Comparison analysis
-        """
-        return f"Comparison of repositories: {', '.join(repo_ids)}"
-    
-    def create_unified_blueprint(
-        self,
-        repository_ids: list[str],
-        name: str | None = None
-    ) -> str:
-        """Create unified blueprint from multiple repositories.
-        
-        Args:
-            repository_ids: List of repository IDs
-            name: Optional name for unified blueprint
-        
-        Returns:
-            Unified blueprint ID
-        """
-        return f"Created unified blueprint from {len(repository_ids)} repositories"
-    
-    def get_unified_blueprint(self, blueprint_id: str) -> str:
-        """Get unified blueprint document.
-        
-        Args:
-            blueprint_id: Unified blueprint ID
-        
-        Returns:
-            Unified blueprint markdown content
-        """
-        return f"Unified blueprint {blueprint_id} (would fetch from cloud)"
-    
-    def list_unified_blueprints(self) -> str:
-        """List all unified blueprints.
-        
-        Returns:
-            List of unified blueprints
-        """
-        return "List of unified blueprints (would fetch from cloud)"
-    
-    def analyze_repository(
-        self,
-        repository_id: str,
-        prompt_config: dict[str, str] | None = None
-    ) -> str:
-        """Trigger analysis for a repository with custom prompt configuration.
-        
-        Args:
-            repository_id: Repository ID to analyze
-            prompt_config: Optional custom prompt configuration per category
-        
-        Returns:
-            Analysis ID
-        """
-        return f"Started analysis for repository {repository_id}"
-    
-    def get_analysis_prompts(self) -> str:
-        """List available prompts (default + custom).
-        
-        Returns:
-            List of available prompts
-        """
-        return "List of available prompts (would fetch from cloud API)"
-    
-    def get_prompt_details(self, prompt_id: str) -> str:
-        """Get prompt template and variables.
-        
-        Args:
-            prompt_id: Prompt ID
-        
-        Returns:
-            Prompt details
-        """
-        return f"Prompt details for {prompt_id} (would fetch from cloud)"
-    
-    def validate_code_with_prompt(
-        self,
-        code: str,
-        prompt_id: str,
-        context: dict | None = None
-    ) -> dict:
-        """Validate code using custom prompt.
-        
-        Args:
-            code: Code to validate
-            prompt_id: Prompt ID to use for validation
-            context: Optional context for prompt variables
-        
-        Returns:
-            Validation results
-        """
-        return {
-            "valid": True,
-            "issues": [],
-            "suggestions": []
-        }
+        section_content = sections.get(section_id)
+        if not section_content:
+            return f"Section '{section_id}' not found in blueprint for '{repo_id}'. Available sections: {', '.join(sections.keys())}"
+            
+        return section_content
 

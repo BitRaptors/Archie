@@ -21,8 +21,10 @@ from .resources import BlueprintResources
 from .tools import BlueprintTools
 
 # Determine directories (relative to this file)
-DOCS_DIR = Path(__file__).parent.parent / "DOCS"
-STORAGE_DIR = Path(__file__).parent.parent / "backend" / "storage"
+# backend/src/infrastructure/mcp/server.py -> parent x 4 is backend/ -> parent x 5 is root
+ROOT_DIR = Path(__file__).parent.parent.parent.parent.parent.absolute()
+DOCS_DIR = ROOT_DIR / "DOCS"
+STORAGE_DIR = ROOT_DIR / "backend" / "storage"
 
 # Initialize server
 try:
