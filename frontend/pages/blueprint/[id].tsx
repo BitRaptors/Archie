@@ -3,6 +3,8 @@ import { useRouter } from 'next/router'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface BlueprintData {
   analysis_id: string
@@ -126,9 +128,11 @@ export default function BlueprintView() {
           Blueprint Document
         </div>
         <div className="p-8">
-          <pre className="whitespace-pre-wrap font-mono text-sm bg-gray-50 p-6 rounded border overflow-x-auto">
-            {blueprint.content}
-          </pre>
+          <div className="prose prose-blue max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {blueprint.content}
+            </ReactMarkdown>
+          </div>
         </div>
       </div>
 
