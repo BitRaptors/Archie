@@ -12,7 +12,13 @@ from application.services.phased_blueprint_generator import PhasedBlueprintGener
 
 
 class AnalysisService:
-    """Service for orchestrating repository analysis."""
+    """Service for orchestrating repository analysis.
+    
+    Uses RAG-based retrieval for comprehensive codebase analysis:
+    1. Index repository: Generate embeddings for all code files
+    2. Phased analysis: For each phase, retrieve semantically relevant code
+    3. Synthesis: Generate comprehensive blueprint from all phases
+    """
 
     def __init__(
         self,
@@ -108,10 +114,15 @@ class AnalysisService:
             repo = await self._repository_repo.get_by_id(analysis.repository_id)
             repo_name = repo.full_name if repo else analysis.repository_id
             
-            # Generate comprehensive blueprint through phased AI analysis
+            # Generate comprehensive blueprint through phased AI analysis with RAG
+            # The generator will:
+            # 1. Index the repository (generate embeddings for all code)
+            # 2. For each phase, retrieve semantically relevant code
+            # 3. Analyze with full codebase visibility
             blueprint = await self._phased_blueprint_generator.generate(
                 repo_path=repo_path,
                 repository_name=repo_name,
+                repository_id=analysis.repository_id,  # Enable RAG retrieval
                 file_tree=file_tree,
                 dependencies=dependencies,
                 config_files=config_files,

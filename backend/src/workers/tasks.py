@@ -10,6 +10,7 @@ from infrastructure.persistence.repository_repository import SupabaseRepositoryR
 from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
 from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
+from infrastructure.storage.temp_storage import TempStorage
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
 
 
@@ -47,9 +48,14 @@ async def startup(ctx):
     # Initialize only what's needed for phased blueprint generation
     structure_analyzer = StructureAnalyzer()
     settings = get_settings()
-    phased_blueprint_generator = PhasedBlueprintGenerator(settings)
     
-    print(f"Worker startup: Analysis infrastructure initialized")
+    # Pass supabase_client to enable RAG-based retrieval
+    phased_blueprint_generator = PhasedBlueprintGenerator(
+        settings=settings,
+        supabase_client=supabase_client,  # Enable RAG for full codebase analysis
+    )
+    
+    print(f"Worker startup: Analysis infrastructure initialized with RAG enabled")
     
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,

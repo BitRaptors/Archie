@@ -105,9 +105,14 @@ async def start_analysis(
         storage=storage,
     )
     
-    # Create only what's needed
+    # Create only what's needed for analysis
     structure_analyzer = StructureAnalyzer()
-    phased_blueprint_generator = PhasedBlueprintGenerator(settings)
+    
+    # Pass supabase_client to enable RAG-based retrieval
+    phased_blueprint_generator = PhasedBlueprintGenerator(
+        settings=settings,
+        supabase_client=supabase_client,  # Enable RAG for full codebase analysis
+    )
     
     # Create analysis service
     analysis_service = AnalysisService(

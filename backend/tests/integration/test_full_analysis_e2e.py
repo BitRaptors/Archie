@@ -70,7 +70,12 @@ async def services(container):
     from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
     from config.settings import get_settings
     settings = get_settings()
-    phased_blueprint_generator = PhasedBlueprintGenerator(settings)
+    
+    # Pass supabase_client to enable RAG-based retrieval for full codebase analysis
+    phased_blueprint_generator = PhasedBlueprintGenerator(
+        settings=settings,
+        supabase_client=supabase_client,  # Enable RAG for comprehensive analysis
+    )
 
     # Create analysis service
     analysis_service = AnalysisService(
