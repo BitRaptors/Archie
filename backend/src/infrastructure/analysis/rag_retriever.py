@@ -14,18 +14,20 @@ class RAGRetriever:
     3. Retrieve relevant code for specific analysis tasks
     """
 
-    def __init__(self, supabase_client):
+    def __init__(self, supabase_client, progress_callback=None):
         """Initialize RAG retriever.
         
         Args:
             supabase_client: Supabase client for database access
+            progress_callback: Optional async callback function(analysis_id, event_type, message) for progress logging
         """
         settings = get_settings()
         self._model = SentenceTransformer(settings.embedding_model)
         self._client = supabase_client
         self._embedding_dim = 384  # all-MiniLM-L6-v2 dimension
+        self._progress_callback = progress_callback
 
-    async def index_repository(self, repository_id: str, repo_path: Path) -> dict[str, Any]:
+    async def index_repository(self, repository_id: str, repo_path: Path, analysis_id: str | None = None) -> dict[str, Any]:
         """Index a repository by generating embeddings for all code files.
         
         Uses chunking strategy:
@@ -44,8 +46,12 @@ class RAGRetriever:
         embeddings_batch = []
         
         code_files = self._find_code_files(repo_path)
+        total_files = len(code_files)
         
-        for file_path in code_files:
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", f"Found {total_files} code files to index")
+        
+        for idx, file_path in enumerate(code_files):
             try:
                 content = file_path.read_text(encoding="utf-8", errors="ignore")
                 relative_path = str(file_path.relative_to(repo_path))
@@ -74,9 +80,21 @@ class RAGRetriever:
                 stats["files"] += 1
                 stats["total_lines"] += len(content.splitlines())
                 
+                # Log progress for every 10 files or important files
+                if self._progress_callback and analysis_id:
+                    if stats["files"] % 10 == 0 or idx == 0:
+                        relative_path = str(file_path.relative_to(repo_path))
+                        await self._progress_callback(
+                            analysis_id, 
+                            "INFO", 
+                            f"Indexing file {stats['files']}/{total_files}: {relative_path} ({len(chunks)} chunks)"
+                        )
+                
                 # Batch insert every 100 embeddings to avoid memory issues
                 if len(embeddings_batch) >= 100:
                     await self._batch_insert_embeddings(embeddings_batch)
+                    if self._progress_callback and analysis_id:
+                        await self._progress_callback(analysis_id, "INFO", f"Saved {len(embeddings_batch)} embeddings to database")
                     embeddings_batch = []
                     
             except Exception:
@@ -86,6 +104,15 @@ class RAGRetriever:
         # Insert remaining embeddings
         if embeddings_batch:
             await self._batch_insert_embeddings(embeddings_batch)
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(analysis_id, "INFO", f"Saved final batch of {len(embeddings_batch)} embeddings")
+        
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, 
+                "INFO", 
+                f"Indexing complete: {stats['files']} files, {stats['chunks']} chunks, {stats['total_lines']} total lines"
+            )
         
         return stats
 

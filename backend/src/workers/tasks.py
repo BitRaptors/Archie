@@ -123,7 +123,9 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
         
         # Clone repository
         print(f"analyze_repository: Cloning repository to {temp_dir}")
+        await analysis_service._log_event(analysis_id, "INFO", f"Checking out code to: {temp_dir}")
         repo_path = await repo_service.clone_repository(repo, token, temp_dir)
+        await analysis_service._log_event(analysis_id, "INFO", f"Repository cloned successfully to: {repo_path}")
         print(f"analyze_repository: Repository cloned to {repo_path}")
         
         # Run analysis (this will handle its own errors and mark analysis as failed)

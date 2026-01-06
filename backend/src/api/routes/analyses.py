@@ -137,8 +137,14 @@ async def stream_analysis_progress(
 async def get_blueprint(
     analysis_id: str,
     request: Request,
+    type: Optional[str] = "backend",
 ):
-    """Get generated blueprint for an analysis (basic blueprint, backward compatible)."""
+    """Get generated blueprint for an analysis.
+    
+    Args:
+        analysis_id: ID of the analysis
+        type: Type of blueprint to fetch ("backend" or "frontend"), defaults to "backend"
+    """
     analysis_repo = await get_analysis_repo(request)
     analysis = await analysis_repo.get_by_id(analysis_id)
     
@@ -155,119 +161,49 @@ async def get_blueprint(
     container = request.app.container
     storage = container.storage()
     
-    # Blueprint is stored at: blueprints/{repository_id}/blueprint.md
-    blueprint_path = f"blueprints/{analysis.repository_id}/blueprint.md"
-    
-    try:
-        blueprint_content_bytes = await storage.read(blueprint_path)
-        # Decode bytes to string if needed
-        if isinstance(blueprint_content_bytes, bytes):
-            blueprint_content = blueprint_content_bytes.decode('utf-8')
-        else:
-            blueprint_content = blueprint_content_bytes
-        
-        return {
-            "analysis_id": analysis_id,
-            "repository_id": analysis.repository_id,
-            "content": blueprint_content,
-            "path": blueprint_path,
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Blueprint not found: {str(e)}"
-        )
-
-
-@router.get("/{analysis_id}/blueprint/backend")
-async def get_backend_blueprint(
-    analysis_id: str,
-    request: Request,
-):
-    """Get backend architecture blueprint for an analysis."""
-    analysis_repo = await get_analysis_repo(request)
-    analysis = await analysis_repo.get_by_id(analysis_id)
-    
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    
-    if analysis.status != "completed":
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Analysis is not completed. Current status: {analysis.status}"
-        )
-    
-    # Get storage from container
-    container = request.app.container
-    storage = container.storage()
-    
-    # Backend blueprint is stored at: blueprints/{repository_id}/backend_blueprint.md
-    blueprint_path = f"blueprints/{analysis.repository_id}/backend_blueprint.md"
-    
-    try:
-        blueprint_content_bytes = await storage.read(blueprint_path)
-        # Decode bytes to string if needed
-        if isinstance(blueprint_content_bytes, bytes):
-            blueprint_content = blueprint_content_bytes.decode('utf-8')
-        else:
-            blueprint_content = blueprint_content_bytes
-        
-        return {
-            "analysis_id": analysis_id,
-            "repository_id": analysis.repository_id,
-            "type": "backend",
-            "content": blueprint_content,
-            "path": blueprint_path,
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Backend blueprint not found. This may be a frontend-only repository. Error: {str(e)}"
-        )
-
-
-@router.get("/{analysis_id}/blueprint/frontend")
-async def get_frontend_blueprint(
-    analysis_id: str,
-    request: Request,
-):
-    """Get frontend architecture blueprint for an analysis."""
-    analysis_repo = await get_analysis_repo(request)
-    analysis = await analysis_repo.get_by_id(analysis_id)
-    
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    
-    if analysis.status != "completed":
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Analysis is not completed. Current status: {analysis.status}"
-        )
-    
-    # Get storage from container
-    container = request.app.container
-    storage = container.storage()
-    
-    # Frontend blueprint is stored at: blueprints/{repository_id}/frontend_blueprint.md
-    blueprint_path = f"blueprints/{analysis.repository_id}/frontend_blueprint.md"
-    
-    try:
-        blueprint_content_bytes = await storage.read(blueprint_path)
-        # Decode bytes to string if needed
-        if isinstance(blueprint_content_bytes, bytes):
-            blueprint_content = blueprint_content_bytes.decode('utf-8')
-        else:
-            blueprint_content = blueprint_content_bytes
-        
+    # Determine blueprint path based on type
+    if type == "frontend":
+        # Frontend analysis not implemented yet - return honeypot
         return {
             "analysis_id": analysis_id,
             "repository_id": analysis.repository_id,
             "type": "frontend",
-            "content": blueprint_content,
-            "path": blueprint_path,
+            "content": "# Frontend Architecture Blueprint\n\n**Coming Soon**\n\nThe frontend analysis engine is currently being developed. Once implemented, this section will contain a deep dive into the frontend architecture, including component patterns, state management, and more.",
+            "path": f"blueprints/{analysis.repository_id}/frontend_blueprint.md"
         }
+    
+    # Backend blueprint path
+    blueprint_path = f"blueprints/{analysis.repository_id}/backend_blueprint.md"
+    blueprint_type = "backend"
+    
+    # If new path doesn't exist, check old path (treat old blueprint.md as backend_blueprint.md)
+    if not await storage.exists(blueprint_path):
+        old_path = f"blueprints/{analysis.repository_id}/blueprint.md"
+        if await storage.exists(old_path):
+            blueprint_path = old_path
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Backend blueprint not found at: {blueprint_path}"
+            )
+    
+    try:
+        blueprint_content_bytes = await storage.read(blueprint_path)
+        # Decode bytes to string if needed
+        if isinstance(blueprint_content_bytes, bytes):
+            blueprint_content = blueprint_content_bytes.decode('utf-8')
+        else:
+            blueprint_content = blueprint_content_bytes
     except Exception as e:
         raise HTTPException(
             status_code=404, 
-            detail=f"Frontend blueprint not found. This may be a backend-only repository. Error: {str(e)}"
+            detail=f"Error reading backend blueprint from {blueprint_path}: {str(e)}"
         )
+    
+    return {
+        "analysis_id": analysis_id,
+        "repository_id": analysis.repository_id,
+        "type": blueprint_type,
+        "content": blueprint_content,
+        "path": blueprint_path,
+    }

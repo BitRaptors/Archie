@@ -36,6 +36,8 @@ class AnalysisService:
         self._structure_analyzer = structure_analyzer
         self._persistent_storage = persistent_storage
         self._phased_blueprint_generator = phased_blueprint_generator
+        # Set progress callback on generator to use our logging
+        self._phased_blueprint_generator._progress_callback = self._log_event
 
     async def _log_event(self, analysis_id: str, event_type: str, message: str, details: dict | None = None) -> None:
         """Log an analysis event."""
@@ -81,9 +83,13 @@ class AnalysisService:
         try:
             # Phase 1: Structure scan (data extraction only)
             await self._log_event(analysis_id, "PHASE_START", "Phase 1: Scanning file structure")
+            await self._log_event(analysis_id, "INFO", f"Analyzing repository structure at: {repo_path}")
             analysis.update_progress(10)
             await self._analysis_repo.update(analysis)
             structure_data = await self._structure_analyzer.analyze(repo_path)
+            file_count = len(structure_data.get("files", [])) if structure_data else 0
+            dir_count = len(structure_data.get("directories", [])) if structure_data else 0
+            await self._log_event(analysis_id, "INFO", f"Structure scan complete: {file_count} files, {dir_count} directories")
             await self._log_event(analysis_id, "PHASE_END", "Phase 1 complete: File structure indexed")
 
             # Phase 2: Prepare data for phased analysis
@@ -92,20 +98,27 @@ class AnalysisService:
             await self._analysis_repo.update(analysis)
             
             # Extract file tree
+            await self._log_event(analysis_id, "INFO", "Formatting file tree structure...")
             file_tree = self._format_file_tree(structure_data)
             
             # Extract dependencies
+            await self._log_event(analysis_id, "INFO", "Extracting dependencies from package files...")
             dependencies = await self._extract_dependencies(repo_path)
+            await self._log_event(analysis_id, "INFO", f"Dependencies extracted: {len(dependencies.split('```')) - 1} dependency files found")
             
             # Extract config files
+            await self._log_event(analysis_id, "INFO", "Extracting configuration files...")
             config_files = await self._extract_config_files(repo_path)
+            await self._log_event(analysis_id, "INFO", f"Configuration files extracted: {len(config_files)} files")
             
             # Extract code samples
+            await self._log_event(analysis_id, "INFO", "Extracting representative code samples...")
             code_samples = await self._extract_code_samples(repo_path, structure_data)
+            await self._log_event(analysis_id, "INFO", f"Code samples extracted: {len(code_samples)} files")
             
             await self._log_event(analysis_id, "PHASE_END", "Phase 2 complete: Repository data prepared")
 
-            # Phase 3-8: Phased blueprint generation (AI-driven)
+            # Phase 3: Phased blueprint generation (AI-driven)
             await self._log_event(analysis_id, "PHASE_START", "Phase 3: Running phased AI analysis")
             analysis.update_progress(30)
             await self._analysis_repo.update(analysis)
@@ -114,56 +127,59 @@ class AnalysisService:
             repo = await self._repository_repo.get_by_id(analysis.repository_id)
             repo_name = repo.full_name if repo else analysis.repository_id
             
-            # Generate comprehensive blueprint through phased AI analysis with RAG
-            # The generator will:
-            # 1. Index the repository (generate embeddings for all code)
-            # 2. For each phase, retrieve semantically relevant code
-            # 3. Analyze with full codebase visibility
-            blueprint = await self._phased_blueprint_generator.generate(
+            # Generate Backend Blueprint
+            await self._log_event(analysis_id, "INFO", "Starting backend architecture analysis...")
+            backend_blueprint = await self._phased_blueprint_generator.generate(
                 repo_path=repo_path,
                 repository_name=repo_name,
-                repository_id=analysis.repository_id,  # Enable RAG retrieval
+                repository_id=analysis.repository_id,
+                analysis_id=analysis_id,
                 file_tree=file_tree,
                 dependencies=dependencies,
                 config_files=config_files,
                 code_samples=code_samples,
+                blueprint_type="backend",
             )
             
-            # Update progress as phases complete
-            await self._log_event(analysis_id, "INFO", "Discovery phase complete")
-            analysis.update_progress(40)
-            await self._analysis_repo.update(analysis)
+            # Validate blueprint was generated
+            if not backend_blueprint:
+                raise ValueError("Backend blueprint generation returned None or empty result")
+            if not isinstance(backend_blueprint, str):
+                raise ValueError(f"Backend blueprint is not a string, got: {type(backend_blueprint)}")
+            if len(backend_blueprint.strip()) == 0:
+                raise ValueError("Backend blueprint is empty")
             
-            await self._log_event(analysis_id, "INFO", "Layer identification complete")
-            analysis.update_progress(50)
-            await self._analysis_repo.update(analysis)
-            
-            await self._log_event(analysis_id, "INFO", "Pattern extraction complete")
-            analysis.update_progress(60)
-            await self._analysis_repo.update(analysis)
-            
-            await self._log_event(analysis_id, "INFO", "Communication analysis complete")
-            analysis.update_progress(70)
-            await self._analysis_repo.update(analysis)
-            
-            await self._log_event(analysis_id, "INFO", "Technology inventory complete")
-            analysis.update_progress(80)
-            await self._analysis_repo.update(analysis)
-            
-            await self._log_event(analysis_id, "INFO", "Final synthesis complete")
+            await self._log_event(analysis_id, "INFO", f"Backend blueprint generation complete ({len(backend_blueprint)} characters)")
             analysis.update_progress(90)
             await self._analysis_repo.update(analysis)
             
-            await self._log_event(analysis_id, "PHASE_END", "Phase 3 complete: Comprehensive blueprint generated")
+            await self._log_event(analysis_id, "PHASE_END", "Phase 3 complete: Backend blueprint generated")
 
             # Phase 4: Save blueprint
             await self._log_event(analysis_id, "PHASE_START", "Phase 4: Saving blueprint")
             analysis.update_progress(95)
             await self._analysis_repo.update(analysis)
             
-            blueprint_path = f"blueprints/{analysis.repository_id}/blueprint.md"
-            await self._persistent_storage.save(blueprint_path, blueprint)
-            await self._log_event(analysis_id, "INFO", "Blueprint saved")
+            # Save backend blueprint
+            backend_blueprint_path = f"blueprints/{analysis.repository_id}/backend_blueprint.md"
+            try:
+                await self._log_event(analysis_id, "INFO", f"Saving blueprint to: {backend_blueprint_path}")
+                saved_path = await self._persistent_storage.save(backend_blueprint_path, backend_blueprint)
+                await self._log_event(analysis_id, "INFO", f"Backend blueprint saved to: {backend_blueprint_path} (resolved: {saved_path})")
+                
+                # Verify the file was actually saved
+                file_exists = await self._persistent_storage.exists(backend_blueprint_path)
+                if not file_exists:
+                    error_msg = f"WARNING: Blueprint file not found after save at: {backend_blueprint_path}"
+                    await self._log_event(analysis_id, "ERROR", error_msg)
+                    raise FileNotFoundError(error_msg)
+                else:
+                    await self._log_event(analysis_id, "INFO", f"Verified: Blueprint file exists at: {backend_blueprint_path}")
+            except Exception as save_error:
+                await self._log_event(analysis_id, "ERROR", f"Failed to save blueprint: {str(save_error)}")
+                import traceback
+                await self._log_event(analysis_id, "ERROR", f"Traceback: {traceback.format_exc()}")
+                raise
             
             await self._log_event(analysis_id, "PHASE_END", "Phase 4 complete: Blueprint saved")
 

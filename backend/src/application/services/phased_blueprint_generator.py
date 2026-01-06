@@ -20,18 +20,20 @@ class PhasedBlueprintGenerator:
     relevant code for each analysis phase.
     """
 
-    def __init__(self, settings: Settings, supabase_client=None):
+    def __init__(self, settings: Settings, supabase_client=None, progress_callback=None):
         """Initialize phased blueprint generator.
         
         Args:
             settings: Application settings for AI configuration
             supabase_client: Supabase client for RAG retrieval (optional)
+            progress_callback: Optional async callback function(analysis_id, event_type, message) for progress logging
         """
         self._settings = settings
         self._prompt_loader = PromptLoader()
         self._client = AsyncAnthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else None
         self._model = settings.default_ai_model
-        self._rag_retriever = RAGRetriever(supabase_client) if supabase_client else None
+        self._progress_callback = progress_callback
+        self._rag_retriever = RAGRetriever(supabase_client, progress_callback) if supabase_client else None
         self._supabase_client = supabase_client
 
     async def generate(
@@ -39,10 +41,12 @@ class PhasedBlueprintGenerator:
         repo_path: Path,
         repository_name: str,
         repository_id: str | None = None,
+        analysis_id: str | None = None,
         file_tree: str = "",
         dependencies: str = "",
         config_files: dict[str, str] | None = None,
         code_samples: dict[str, str] | None = None,
+        blueprint_type: str = "backend",
     ) -> str:
         """Generate comprehensive architecture blueprint through phased analysis.
         
@@ -52,10 +56,12 @@ class PhasedBlueprintGenerator:
             repo_path: Path to cloned repository
             repository_name: Name of the repository
             repository_id: UUID of the repository (for RAG retrieval)
+            analysis_id: UUID of the analysis (for progress logging)
             file_tree: Compressed file tree structure
             dependencies: Parsed dependencies (requirements.txt, package.json, etc.)
             config_files: Key configuration files content
             code_samples: Fallback code samples if RAG not available
+            blueprint_type: Type of blueprint to generate ("backend" or "frontend")
         
         Returns:
             Complete architecture blueprint markdown document
@@ -70,11 +76,17 @@ class PhasedBlueprintGenerator:
         rag_enabled = self._rag_retriever and repository_id
         if rag_enabled:
             try:
-                await self._rag_retriever.index_repository(repository_id, repo_path)
+                if self._progress_callback and analysis_id:
+                    await self._progress_callback(analysis_id, "INFO", "Starting repository indexing for semantic search...")
+                await self._rag_retriever.index_repository(repository_id, repo_path, analysis_id)
             except Exception:
                 rag_enabled = False  # Fall back to sample-based analysis
+                if self._progress_callback and analysis_id:
+                    await self._progress_callback(analysis_id, "INFO", "RAG indexing failed, falling back to sample-based analysis")
         
         # Phase 1: Discovery - understand project purpose and structure
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 1: Analyzing project structure and discovery...")
         phase1_result = await self._run_phase1_discovery(
             repository_name=repository_name,
             repository_id=repository_id,
@@ -84,8 +96,12 @@ class PhasedBlueprintGenerator:
             config_files=config_files,
             rag_enabled=rag_enabled,
         )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 1 complete: Project discovery finished")
         
         # Phase 2: Layer Identification - identify architectural layers
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 2: Identifying architectural layers...")
         phase2_result = await self._run_phase2_layers(
             repository_name=repository_name,
             repository_id=repository_id,
@@ -95,8 +111,12 @@ class PhasedBlueprintGenerator:
             code_samples=code_samples,
             rag_enabled=rag_enabled,
         )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 2 complete: Layer architecture identified")
         
         # Phase 3: Pattern Extraction - identify design patterns
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 3: Extracting design patterns...")
         phase3_result = await self._run_phase3_patterns(
             repository_name=repository_name,
             repository_id=repository_id,
@@ -106,8 +126,12 @@ class PhasedBlueprintGenerator:
             code_samples=code_samples,
             rag_enabled=rag_enabled,
         )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 3 complete: Design patterns extracted")
         
         # Phase 4: Communication Analysis - how components communicate
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 4: Analyzing communication patterns...")
         previous_phases = {
             "discovery": phase1_result,
             "layers": phase2_result,
@@ -121,8 +145,12 @@ class PhasedBlueprintGenerator:
             code_samples=code_samples,
             rag_enabled=rag_enabled,
         )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 4 complete: Communication patterns analyzed")
         
         # Phase 5: Technology Inventory - complete tech stack
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 5: Inventorying technology stack...")
         all_phases = {
             "discovery": phase1_result,
             "layers": phase2_result,
@@ -137,9 +165,13 @@ class PhasedBlueprintGenerator:
             dependencies=dependencies,
             rag_enabled=rag_enabled,
         )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Phase 5 complete: Technology inventory complete")
         
-        # Final Synthesis: Generate comprehensive blueprint
-        final_blueprint = await self._run_final_synthesis(
+        # Final Synthesis: Generate comprehensive backend blueprint
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Generating backend architecture blueprint...")
+        final_blueprint = await self._run_backend_synthesis(
             repository_name=repository_name,
             phase1_discovery=phase1_result,
             phase2_layers=phase2_result,
@@ -408,7 +440,7 @@ class PhasedBlueprintGenerator:
         
         return response.content[0].text
 
-    async def _run_final_synthesis(
+    async def _run_backend_synthesis(
         self,
         repository_name: str,
         phase1_discovery: str,
@@ -418,8 +450,8 @@ class PhasedBlueprintGenerator:
         phase5_technology: str,
         code_samples: str,
     ) -> str:
-        """Run Final Synthesis: Generate comprehensive blueprint document."""
-        prompt = self._prompt_loader.get_prompt_by_key("final_synthesis")
+        """Run Backend Synthesis: Generate comprehensive backend blueprint document."""
+        prompt = self._prompt_loader.get_prompt_by_key("backend_synthesis")
         
         prompt_text = prompt.render({
             "repository_name": repository_name,
@@ -438,6 +470,7 @@ class PhasedBlueprintGenerator:
         )
         
         return response.content[0].text
+
 
     def _format_code_samples(self, code_samples: dict[str, str], limit: int = 10) -> str:
         """Format code samples for inclusion in prompts.

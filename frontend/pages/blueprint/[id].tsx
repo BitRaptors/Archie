@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm'
 interface BlueprintData {
   analysis_id: string
   repository_id: string
+  type?: string
   content: string
   path: string
 }
@@ -36,44 +37,58 @@ export default function BlueprintView() {
   const router = useRouter()
   const { id } = router.query
   const { token, isAuthenticated } = useAuth()
-  const [blueprint, setBlueprint] = useState<BlueprintData | null>(null)
+  const [backendBlueprint, setBackendBlueprint] = useState<BlueprintData | null>(null)
+  const [frontendBlueprint, setFrontendBlueprint] = useState<BlueprintData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchBlueprints = useCallback(async () => {
     if (!id || !token || !isAuthenticated) return
+
+    setIsLoading(true)
+    setError(null)
 
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
     
-    fetch(`${API_URL}/api/v1/analyses/${id}/blueprint`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => {
-        if (!res.ok) {
-          if (res.status === 404) {
-            throw new Error('Blueprint not found. The analysis may not be completed yet.')
-          }
-          if (res.status === 400) {
-            return res.json().then(data => {
-              throw new Error(data.detail || 'Analysis is not completed')
-            })
-          }
-          throw new Error(`Failed to load blueprint: ${res.statusText}`)
+    try {
+      // Fetch backend blueprint
+      const backendRes = await fetch(`${API_URL}/api/v1/analyses/${id}/blueprint?type=backend`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      
+      if (!backendRes.ok) {
+        if (backendRes.status === 400) {
+          const data = await backendRes.json()
+          throw new Error(data.detail || 'Analysis is not completed')
         }
-        return res.json()
+        throw new Error(`Failed to load backend blueprint: ${backendRes.statusText}`)
+      }
+      const backendData = await backendRes.json()
+      setBackendBlueprint(backendData)
+
+      // Fetch frontend blueprint
+      const frontendRes = await fetch(`${API_URL}/api/v1/analyses/${id}/blueprint?type=frontend`, {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .then(data => {
-        setBlueprint(data)
-        setIsLoading(false)
-      })
-      .catch(err => {
-        setIsLoading(false)
-        setError(err.message)
-      })
+      
+      if (frontendRes.ok) {
+        const frontendData = await frontendRes.json()
+        setFrontendBlueprint(frontendData)
+      }
+
+      setIsLoading(false)
+    } catch (err: any) {
+      setIsLoading(false)
+      setError(err.message)
+    }
   }, [id, token, isAuthenticated])
 
+  useEffect(() => {
+    fetchBlueprints()
+  }, [fetchBlueprints])
+
   // Download blueprint as markdown file
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback((blueprint: BlueprintData | null) => {
     if (!blueprint?.content) return
 
     // Create blob with markdown content
@@ -81,8 +96,8 @@ export default function BlueprintView() {
     
     // Generate filename from path or use default
     const filename = blueprint.path 
-      ? blueprint.path.split('/').pop() || 'blueprint.md'
-      : 'blueprint.md'
+      ? blueprint.path.split('/').pop() || `${blueprint.type}_blueprint.md`
+      : `${blueprint.type}_blueprint.md`
     
     // Create download link and trigger download
     const url = URL.createObjectURL(blob)
@@ -95,7 +110,7 @@ export default function BlueprintView() {
     // Cleanup
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
-  }, [blueprint])
+  }, [])
 
   if (!isAuthenticated) return <div className="p-8">Please authenticate first.</div>
   if (!id) return <div className="p-8">Loading...</div>
@@ -137,7 +152,7 @@ export default function BlueprintView() {
     )
   }
 
-  if (!blueprint) {
+  if (!backendBlueprint && !isLoading && !error) {
     return (
       <div className="container mx-auto p-8 max-w-6xl">
         <div className="mb-8">
@@ -158,14 +173,6 @@ export default function BlueprintView() {
           <p className="text-gray-500 text-sm mt-1">Analysis ID: {id}</p>
         </div>
         <div className="flex gap-3">
-          <button
-            onClick={handleDownload}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-medium transition-colors"
-            title="Download blueprint.md"
-          >
-            <DownloadIcon className="w-4 h-4" />
-            Download
-          </button>
           <Link 
             href={`/analysis/${id}`}
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded text-gray-700"
@@ -175,15 +182,65 @@ export default function BlueprintView() {
         </div>
       </div>
 
-      <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-        <div className="bg-gray-50 border-b px-6 py-3 font-semibold text-gray-700">
-          Blueprint Document
+      <div className="space-y-8">
+        {/* Backend Blueprint Section */}
+        <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+          <div className="bg-gray-50 border-b px-6 py-3">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-gray-700">Backend Architecture</span>
+              {backendBlueprint && (
+                <button
+                  onClick={() => handleDownload(backendBlueprint)}
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                >
+                  <DownloadIcon className="w-4 h-4" />
+                  Download MD
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="p-8">
+            {backendBlueprint ? (
+              <div className="prose prose-blue max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {backendBlueprint.content}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <p className="text-gray-500 italic text-center">Backend blueprint not available.</p>
+            )}
+          </div>
         </div>
-        <div className="p-8">
-          <div className="prose prose-blue max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {blueprint.content}
-            </ReactMarkdown>
+
+        {/* Frontend Blueprint Section */}
+        <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+          <div className="bg-gray-50 border-b px-6 py-3">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-gray-700">Frontend Architecture</span>
+              {frontendBlueprint && !frontendBlueprint.content.includes("Coming Soon") && (
+                <button
+                  onClick={() => handleDownload(frontendBlueprint)}
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                >
+                  <DownloadIcon className="w-4 h-4" />
+                  Download MD
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="p-8">
+            {frontendBlueprint ? (
+              <div className="prose prose-blue max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {frontendBlueprint.content}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+                <p className="text-gray-600">Loading frontend blueprint...</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

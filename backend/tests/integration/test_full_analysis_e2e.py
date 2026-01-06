@@ -244,10 +244,31 @@ async def test_complete_analysis_workflow_e2e(container, github_token, services)
         
         # PHASE 8: Verify Blueprint
         print("\n[8/8] Verifying blueprint generation...")
-        blueprint_path = f"blueprints/{repository.id}/blueprint.md"
+        blueprint_path = f"blueprints/{repository.id}/backend_blueprint.md"
+        
+        # Check if file exists
+        file_exists = await storage.exists(blueprint_path)
+        print(f"  Checking if blueprint exists at: {blueprint_path}")
+        print(f"  File exists: {file_exists}")
+        
+        if not file_exists:
+            # List what files exist in the directory
+            from pathlib import Path
+            from config.settings import get_settings
+            settings = get_settings()
+            base_path = Path(settings.storage_path)
+            repo_dir = base_path / f"blueprints/{repository.id}"
+            if repo_dir.exists():
+                files = list(repo_dir.glob("*"))
+                print(f"  Files in directory: {[f.name for f in files]}")
+            else:
+                print(f"  Directory does not exist: {repo_dir}")
+            raise FileNotFoundError(f"Blueprint not found at {blueprint_path}")
         
         try:
             blueprint_content = await storage.read(blueprint_path)
+            if isinstance(blueprint_content, bytes):
+                blueprint_content = blueprint_content.decode('utf-8')
             print(f"✓ Blueprint generated: {len(blueprint_content)} characters")
             print(f"  Location: {blueprint_path}")
             
