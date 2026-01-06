@@ -85,16 +85,13 @@ class Container(containers.DeclarativeContainer):
         storage=storage,
     )
     
-    # Analysis infrastructure placeholder providers
+    # Analysis infrastructure - only what's needed
     structure_analyzer = providers.Singleton(object)
-    embedding_generator = providers.Singleton(object)
-    ast_extractor = providers.Singleton(object)
-    pattern_detector = providers.Singleton(object)
-    semantic_pattern_finder = providers.Singleton(object)
-    blueprint_analyzer = providers.Singleton(object)
-    blueprint_generator = providers.Singleton(object)
-    prompt_service = providers.Singleton(object)
-    temp_storage = providers.Singleton(object)
+    
+    # Phased blueprint generator
+    phased_blueprint_generator = providers.Singleton(
+        lambda: None  # Will be initialized in worker with actual Settings
+    )
 
     analysis_service = providers.Singleton(
         AnalysisService,
@@ -102,13 +99,6 @@ class Container(containers.DeclarativeContainer):
         repository_repo=repository_repository,
         event_repo=analysis_event_repository,
         structure_analyzer=structure_analyzer,
-        embedding_generator=embedding_generator,
-        ast_extractor=ast_extractor,
-        pattern_detector=pattern_detector,
-        semantic_pattern_finder=semantic_pattern_finder,
-        blueprint_analyzer=blueprint_analyzer,
-        blueprint_generator=blueprint_generator,
-        prompt_service=prompt_service,
-        temp_storage=temp_storage,
         persistent_storage=storage,
+        phased_blueprint_generator=phased_blueprint_generator,
     )

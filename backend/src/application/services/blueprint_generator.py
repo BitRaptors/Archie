@@ -3,6 +3,7 @@ from typing import Any
 from application.services.prompt_service import PromptService
 from infrastructure.ai.blueprint_analyzer import BlueprintAnalyzer
 from config.constants import PromptCategory
+from infrastructure.prompts.prompt_loader import PromptLoader
 
 
 class BlueprintGenerator:
@@ -16,6 +17,7 @@ class BlueprintGenerator:
         """Initialize blueprint generator."""
         self._prompt_service = prompt_service
         self._analyzer = blueprint_analyzer
+        self._prompt_loader = PromptLoader()
 
     async def generate(
         self,
@@ -44,25 +46,17 @@ class BlueprintGenerator:
                 "code_samples": "",
             })
         else:
-            synthesis_prompt = f"""Generate a comprehensive architecture blueprint for repository: {repository_id}
-
-Directory Structure:
-{structure_summary}
-
-Architectural Patterns:
-{patterns_summary}
-
-AI Analysis Summary:
-{analysis_summary}
-
-Format as markdown with sections:
-1. Overview
-2. Architecture Structure
-3. Key Patterns and Design Decisions
-4. Technology Stack
-5. Code Organization
-6. Recommendations
-"""
+            # Use default prompt from prompts.json
+            default_prompt = self._prompt_loader.get_prompt_by_category(PromptCategory.BLUEPRINT_SYNTHESIS)
+            if default_prompt:
+                synthesis_prompt = default_prompt.render({
+                    "repository_id": repository_id,
+                    "structure_summary": structure_summary,
+                    "patterns_summary": patterns_summary,
+                    "analysis_summary": analysis_summary,
+                })
+            else:
+                raise ValueError("Default prompt for blueprint_synthesis not found in prompts.json")
         
         # Use analyzer to generate blueprint
         response = self._analyzer._client.messages.create(

@@ -91,10 +91,13 @@ async def start_analysis(
     # Create services with resolved repositories
     from application.services.repository_service import RepositoryService
     from application.services.analysis_service import AnalysisService
-    from infrastructure.storage.local_storage import LocalStorage
+    from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
+    from infrastructure.analysis.structure_analyzer import StructureAnalyzer
+    from config.settings import get_settings
     
     storage = container.storage()
     github_service = container.github_service()
+    settings = get_settings()
     
     repo_service = RepositoryService(
         repository_repo=repo_repo,
@@ -102,22 +105,18 @@ async def start_analysis(
         storage=storage,
     )
     
-    # Create analysis service with all dependencies
-    # Note: Some dependencies are placeholders (object), but that's OK for now
+    # Create only what's needed
+    structure_analyzer = StructureAnalyzer()
+    phased_blueprint_generator = PhasedBlueprintGenerator(settings)
+    
+    # Create analysis service
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,
         repository_repo=repo_repo,
         event_repo=event_repo,
-        structure_analyzer=object(),
-        embedding_generator=object(),
-        ast_extractor=object(),
-        pattern_detector=object(),
-        semantic_pattern_finder=object(),
-        blueprint_analyzer=object(),
-        blueprint_generator=object(),
-        prompt_service=object(),
-        temp_storage=object(),
+        structure_analyzer=structure_analyzer,
         persistent_storage=storage,
+        phased_blueprint_generator=phased_blueprint_generator,
     )
     
     try:

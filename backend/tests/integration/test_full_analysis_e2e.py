@@ -20,18 +20,6 @@ from infrastructure.persistence.repository_repository import SupabaseRepositoryR
 from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
 from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
-from infrastructure.analysis.ast_extractor import ASTExtractor
-from infrastructure.analysis.embedding_generator import EmbeddingGenerator
-from infrastructure.analysis.pattern_detector import PatternDetector
-from infrastructure.analysis.semantic_pattern_finder import SemanticPatternFinder
-from infrastructure.analysis.query_embedder import QueryEmbedder
-from infrastructure.analysis.vector_store import PgVectorStore
-from infrastructure.ai.blueprint_analyzer import BlueprintAnalyzer
-from application.services.blueprint_generator import BlueprintGenerator
-from application.services.prompt_service import PromptService
-from domain.entities.analysis_prompt import AnalysisPrompt
-from domain.interfaces.repositories import IRepository
-from infrastructure.storage.temp_storage import TempStorage
 from domain.entities.user import User
 from config.constants import AnalysisStatus
 
@@ -77,49 +65,21 @@ async def services(container):
         storage=storage,
     )
     
-    # Initialize analysis infrastructure
+    # Initialize only what's needed
     structure_analyzer = StructureAnalyzer()
-    ast_extractor = ASTExtractor()
-    query_embedder = QueryEmbedder()
-    vector_store = PgVectorStore(supabase_client)
-    embedding_generator = EmbeddingGenerator(vector_store)
-    semantic_pattern_finder = SemanticPatternFinder(vector_store, query_embedder)
-    pattern_detector = PatternDetector(semantic_pattern_finder)
-    
-    # Mock prompt repository
-    class MockPromptRepository(IRepository[AnalysisPrompt, str]):
-        async def get_by_id(self, id: str) -> AnalysisPrompt | None:
-            return None
-        async def add(self, entity: AnalysisPrompt) -> AnalysisPrompt:
-            return entity
-        async def update(self, entity: AnalysisPrompt) -> AnalysisPrompt:
-            return entity
-        async def delete(self, id: str) -> None:
-            pass
-        async def get_all(self, limit: int = 100, offset: int = 0) -> list[AnalysisPrompt]:
-            return []
-    
-    prompt_repo = MockPromptRepository()
-    prompt_service = PromptService(prompt_repo)
-    blueprint_analyzer = BlueprintAnalyzer(prompt_service)
-    blueprint_generator = BlueprintGenerator(prompt_service, blueprint_analyzer)
-    temp_storage = TempStorage()
-    
+    from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
+    from config.settings import get_settings
+    settings = get_settings()
+    phased_blueprint_generator = PhasedBlueprintGenerator(settings)
+
     # Create analysis service
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,
         repository_repo=repo_repo,
         event_repo=event_repo,
         structure_analyzer=structure_analyzer,
-        embedding_generator=embedding_generator,
-        ast_extractor=ast_extractor,
-        pattern_detector=pattern_detector,
-        semantic_pattern_finder=semantic_pattern_finder,
-        blueprint_analyzer=blueprint_analyzer,
-        blueprint_generator=blueprint_generator,
-        prompt_service=prompt_service,
-        temp_storage=temp_storage,
         persistent_storage=storage,
+        phased_blueprint_generator=phased_blueprint_generator,
     )
     
     return {
@@ -207,8 +167,10 @@ async def test_complete_analysis_workflow_e2e(container, github_token, services)
         
         # PHASE 4: Repository Cloning
         print("\n[4/8] Testing repository cloning...")
-        temp_storage = TempStorage()
-        temp_dir = temp_storage.get_base_path()
+        from pathlib import Path
+        import tempfile
+        temp_dir = Path(tempfile.gettempdir()) / "test_repos"
+        temp_dir.mkdir(parents=True, exist_ok=True)
         
         repo_path = await repo_service.clone_repository(repository, github_token, temp_dir)
         print(f"✓ Repository cloned to: {repo_path}")

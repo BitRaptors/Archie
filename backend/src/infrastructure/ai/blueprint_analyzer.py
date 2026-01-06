@@ -4,6 +4,7 @@ import anthropic
 from config.settings import get_settings
 from application.services.prompt_service import PromptService
 from config.constants import PromptCategory
+from infrastructure.prompts.prompt_loader import PromptLoader
 
 
 class BlueprintAnalyzer:
@@ -20,6 +21,7 @@ class BlueprintAnalyzer:
             self._client = None
             self._model = None
         self._prompt_service = prompt_service
+        self._prompt_loader = PromptLoader()
 
     async def analyze(
         self,
@@ -83,19 +85,15 @@ class BlueprintAnalyzer:
                 "ast_summary": ast_summary,
             })
         else:
-            prompt_text = f"""Analyze the directory structure and provide architectural insights.
-
-Directory Structure Summary:
-{structure_summary}
-
-Code Structure Summary:
-{ast_summary}
-
-Provide a high-level architectural analysis focusing on:
-1. Main architectural patterns
-2. Key modules and their responsibilities
-3. Technology stack and dependencies
-4. Overall code organization"""
+            # Use default prompt from prompts.json
+            default_prompt = self._prompt_loader.get_prompt_by_category(PromptCategory.DIRECTORY_SUMMARY)
+            if default_prompt:
+                prompt_text = default_prompt.render({
+                    "structure_summary": structure_summary,
+                    "ast_summary": ast_summary,
+                })
+            else:
+                raise ValueError("Default prompt for directory_summary not found in prompts.json")
         
         # Call Claude
         response = self._client.messages.create(
@@ -200,15 +198,14 @@ Provide a high-level architectural analysis focusing on:
                 "patterns_found": patterns_summary,
             })
         else:
-            prompt_text = f"""Analyze the architectural patterns found in this codebase:
-
-{patterns_summary}
-
-Provide insights on:
-1. Architectural patterns and their implementation
-2. Design patterns used
-3. Code organization patterns
-4. Potential improvements or anti-patterns"""
+            # Use default prompt from prompts.json
+            default_prompt = self._prompt_loader.get_prompt_by_category(PromptCategory.PATTERNS)
+            if default_prompt:
+                prompt_text = default_prompt.render({
+                    "patterns_summary": patterns_summary,
+                })
+            else:
+                raise ValueError("Default prompt for patterns not found in prompts.json")
         
         # Call Claude
         response = self._client.messages.create(
@@ -270,18 +267,15 @@ Provide insights on:
                 "ast_summary": ast_summary,
             })
         else:
-            prompt_text = f"""Evaluate software engineering principles for this codebase:
-
-{structure_summary}
-
-{ast_summary}
-
-Evaluate against principles like:
-1. SOLID principles
-2. DRY (Don't Repeat Yourself)
-3. Separation of Concerns
-4. Modularity and cohesion
-5. Code maintainability"""
+            # Use default prompt from prompts.json
+            default_prompt = self._prompt_loader.get_prompt_by_category(PromptCategory.PRINCIPLES)
+            if default_prompt:
+                prompt_text = default_prompt.render({
+                    "structure_summary": structure_summary,
+                    "ast_summary": ast_summary,
+                })
+            else:
+                raise ValueError("Default prompt for principles not found in prompts.json")
         
         # Call Claude
         response = self._client.messages.create(

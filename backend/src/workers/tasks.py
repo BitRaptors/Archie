@@ -3,8 +3,6 @@ from arq.connections import RedisSettings
 from pathlib import Path
 from application.services.analysis_service import AnalysisService
 from application.services.repository_service import RepositoryService
-from infrastructure.storage.temp_storage import TempStorage
-from infrastructure.storage.local_storage import LocalStorage
 from config.settings import get_settings
 from config.container import Container
 from infrastructure.persistence.user_repository import SupabaseUserRepository
@@ -12,17 +10,7 @@ from infrastructure.persistence.repository_repository import SupabaseRepositoryR
 from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
 from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
-from infrastructure.analysis.ast_extractor import ASTExtractor
-from infrastructure.analysis.embedding_generator import EmbeddingGenerator
-from infrastructure.analysis.pattern_detector import PatternDetector
-from infrastructure.analysis.semantic_pattern_finder import SemanticPatternFinder
-from infrastructure.analysis.query_embedder import QueryEmbedder
-from infrastructure.analysis.vector_store import PgVectorStore
-from infrastructure.ai.blueprint_analyzer import BlueprintAnalyzer
-from application.services.blueprint_generator import BlueprintGenerator
-from application.services.prompt_service import PromptService
-from domain.entities.analysis_prompt import AnalysisPrompt
-from domain.interfaces.repositories import IRepository
+from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
 
 
 async def startup(ctx):
@@ -56,49 +44,10 @@ async def startup(ctx):
     )
     print(f"Worker startup: Repository service created: {type(repo_service)}")
     
-    # Initialize analysis infrastructure components
-    # 1. Simple analyzers (no dependencies)
+    # Initialize only what's needed for phased blueprint generation
     structure_analyzer = StructureAnalyzer()
-    ast_extractor = ASTExtractor()
-    query_embedder = QueryEmbedder()
-    
-    # 2. Vector store (needs supabase_client)
-    vector_store = PgVectorStore(supabase_client)
-    
-    # 3. Embedding generator (needs vector_store)
-    embedding_generator = EmbeddingGenerator(vector_store)
-    
-    # 4. Semantic pattern finder (needs vector_store and query_embedder)
-    semantic_pattern_finder = SemanticPatternFinder(vector_store, query_embedder)
-    
-    # 5. Pattern detector (needs semantic_pattern_finder)
-    pattern_detector = PatternDetector(semantic_pattern_finder)
-    
-    # 6. Prompt service (needs a prompt repository - create a simple mock for now)
-    # TODO: Create proper prompt repository implementation
-    class MockPromptRepository(IRepository[AnalysisPrompt, str]):
-        async def get_by_id(self, id: str) -> AnalysisPrompt | None:
-            return None
-        async def add(self, entity: AnalysisPrompt) -> AnalysisPrompt:
-            return entity
-        async def update(self, entity: AnalysisPrompt) -> AnalysisPrompt:
-            return entity
-        async def delete(self, id: str) -> None:
-            pass
-        async def get_all(self, limit: int = 100, offset: int = 0) -> list[AnalysisPrompt]:
-            return []
-    
-    prompt_repo = MockPromptRepository()
-    prompt_service = PromptService(prompt_repo)
-    
-    # 7. Blueprint analyzer (needs prompt_service)
-    blueprint_analyzer = BlueprintAnalyzer(prompt_service)
-    
-    # 8. Blueprint generator (needs prompt_service and blueprint_analyzer)
-    blueprint_generator = BlueprintGenerator(prompt_service, blueprint_analyzer)
-    
-    # 9. Temp storage
-    temp_storage = TempStorage()
+    settings = get_settings()
+    phased_blueprint_generator = PhasedBlueprintGenerator(settings)
     
     print(f"Worker startup: Analysis infrastructure initialized")
     
@@ -107,15 +56,8 @@ async def startup(ctx):
         repository_repo=repo_repo,
         event_repo=event_repo,
         structure_analyzer=structure_analyzer,
-        embedding_generator=embedding_generator,
-        ast_extractor=ast_extractor,
-        pattern_detector=pattern_detector,
-        semantic_pattern_finder=semantic_pattern_finder,
-        blueprint_analyzer=blueprint_analyzer,
-        blueprint_generator=blueprint_generator,
-        prompt_service=prompt_service,
-        temp_storage=temp_storage,
         persistent_storage=storage,
+        phased_blueprint_generator=phased_blueprint_generator,
     )
     print(f"Worker startup: Analysis service created: {type(analysis_service)}")
     

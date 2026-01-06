@@ -3,6 +3,7 @@ from typing import Any
 import anthropic
 from config.settings import get_settings
 from infrastructure.storage.storage_interface import IStorage
+from infrastructure.prompts.prompt_loader import PromptLoader
 
 
 class UnifiedBlueprintGenerator:
@@ -14,6 +15,7 @@ class UnifiedBlueprintGenerator:
         self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         self._model = settings.default_ai_model
         self._storage = storage
+        self._prompt_loader = PromptLoader()
 
     async def generate(
         self,
@@ -34,22 +36,13 @@ class UnifiedBlueprintGenerator:
         # Identify common patterns
         common_patterns = self._identify_common_patterns(all_patterns, len(repository_ids))
         
-        # Generate unified blueprint using AI
-        prompt = f"""Generate a unified architecture blueprint from {len(repository_ids)} repositories.
-
-Common Patterns: {common_patterns}
-All Patterns: {all_patterns}
-
-Create a blueprint with:
-1. Overview (repos included)
-2. Common Patterns (with frequency)
-3. Pattern Variations
-4. Structure Conventions
-5. Principles
-6. Implementation Guide
-7. Comparison Matrix
-
-Format as markdown."""
+        # Generate unified blueprint using AI - load prompt from prompts.json
+        unified_prompt = self._prompt_loader.get_unified_blueprint_prompt()
+        prompt = unified_prompt.render({
+            "repository_count": str(len(repository_ids)),
+            "common_patterns": str(common_patterns),
+            "all_patterns": str(all_patterns),
+        })
         
         response = self._client.messages.create(
             model=self._model,

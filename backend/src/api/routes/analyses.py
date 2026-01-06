@@ -138,7 +138,7 @@ async def get_blueprint(
     analysis_id: str,
     request: Request,
 ):
-    """Get generated blueprint for an analysis."""
+    """Get generated blueprint for an analysis (basic blueprint, backward compatible)."""
     analysis_repo = await get_analysis_repo(request)
     analysis = await analysis_repo.get_by_id(analysis_id)
     
@@ -176,4 +176,98 @@ async def get_blueprint(
         raise HTTPException(
             status_code=404, 
             detail=f"Blueprint not found: {str(e)}"
+        )
+
+
+@router.get("/{analysis_id}/blueprint/backend")
+async def get_backend_blueprint(
+    analysis_id: str,
+    request: Request,
+):
+    """Get backend architecture blueprint for an analysis."""
+    analysis_repo = await get_analysis_repo(request)
+    analysis = await analysis_repo.get_by_id(analysis_id)
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    if analysis.status != "completed":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Analysis is not completed. Current status: {analysis.status}"
+        )
+    
+    # Get storage from container
+    container = request.app.container
+    storage = container.storage()
+    
+    # Backend blueprint is stored at: blueprints/{repository_id}/backend_blueprint.md
+    blueprint_path = f"blueprints/{analysis.repository_id}/backend_blueprint.md"
+    
+    try:
+        blueprint_content_bytes = await storage.read(blueprint_path)
+        # Decode bytes to string if needed
+        if isinstance(blueprint_content_bytes, bytes):
+            blueprint_content = blueprint_content_bytes.decode('utf-8')
+        else:
+            blueprint_content = blueprint_content_bytes
+        
+        return {
+            "analysis_id": analysis_id,
+            "repository_id": analysis.repository_id,
+            "type": "backend",
+            "content": blueprint_content,
+            "path": blueprint_path,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Backend blueprint not found. This may be a frontend-only repository. Error: {str(e)}"
+        )
+
+
+@router.get("/{analysis_id}/blueprint/frontend")
+async def get_frontend_blueprint(
+    analysis_id: str,
+    request: Request,
+):
+    """Get frontend architecture blueprint for an analysis."""
+    analysis_repo = await get_analysis_repo(request)
+    analysis = await analysis_repo.get_by_id(analysis_id)
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    if analysis.status != "completed":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Analysis is not completed. Current status: {analysis.status}"
+        )
+    
+    # Get storage from container
+    container = request.app.container
+    storage = container.storage()
+    
+    # Frontend blueprint is stored at: blueprints/{repository_id}/frontend_blueprint.md
+    blueprint_path = f"blueprints/{analysis.repository_id}/frontend_blueprint.md"
+    
+    try:
+        blueprint_content_bytes = await storage.read(blueprint_path)
+        # Decode bytes to string if needed
+        if isinstance(blueprint_content_bytes, bytes):
+            blueprint_content = blueprint_content_bytes.decode('utf-8')
+        else:
+            blueprint_content = blueprint_content_bytes
+        
+        return {
+            "analysis_id": analysis_id,
+            "repository_id": analysis.repository_id,
+            "type": "frontend",
+            "content": blueprint_content,
+            "path": blueprint_path,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Frontend blueprint not found. This may be a backend-only repository. Error: {str(e)}"
         )
