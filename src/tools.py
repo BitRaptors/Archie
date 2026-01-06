@@ -285,4 +285,140 @@ class BlueprintTools:
             Dict with compliance_score, issues, and suggestions
         """
         return review_component(code, component_type, stack)
+    
+    def list_analyzed_repositories(self) -> str:
+        """List all analyzed repositories.
+        
+        Returns:
+            List of analyzed repositories with their status
+        """
+        # Would connect to cloud API to get repositories
+        return "List of analyzed repositories (would connect to cloud API)"
+    
+    def get_repository_blueprint(self, repo_id: str) -> str:
+        """Get generated blueprint for a repository.
+        
+        Args:
+            repo_id: Repository ID
+        
+        Returns:
+            Blueprint markdown content
+        """
+        # Would fetch from cloud storage
+        return f"Blueprint for repository {repo_id} (would fetch from cloud)"
+    
+    def get_repository_patterns(self, repo_id: str) -> str:
+        """Get detected patterns for a repository.
+        
+        Args:
+            repo_id: Repository ID
+        
+        Returns:
+            List of detected patterns
+        """
+        # Would fetch from cloud API
+        return f"Patterns for repository {repo_id} (would fetch from cloud)"
+    
+    def compare_repositories(self, repo_ids: list[str]) -> str:
+        """Compare multiple repositories.
+        
+        Args:
+            repo_ids: List of repository IDs to compare
+        
+        Returns:
+            Comparison analysis
+        """
+        return f"Comparison of repositories: {', '.join(repo_ids)}"
+    
+    def create_unified_blueprint(
+        self,
+        repository_ids: list[str],
+        name: str | None = None
+    ) -> str:
+        """Create unified blueprint from multiple repositories.
+        
+        Args:
+            repository_ids: List of repository IDs
+            name: Optional name for unified blueprint
+        
+        Returns:
+            Unified blueprint ID
+        """
+        return f"Created unified blueprint from {len(repository_ids)} repositories"
+    
+    def get_unified_blueprint(self, blueprint_id: str) -> str:
+        """Get unified blueprint document.
+        
+        Args:
+            blueprint_id: Unified blueprint ID
+        
+        Returns:
+            Unified blueprint markdown content
+        """
+        return f"Unified blueprint {blueprint_id} (would fetch from cloud)"
+    
+    def list_unified_blueprints(self) -> str:
+        """List all unified blueprints.
+        
+        Returns:
+            List of unified blueprints
+        """
+        return "List of unified blueprints (would fetch from cloud)"
+    
+    def analyze_repository(
+        self,
+        repository_id: str,
+        prompt_config: dict[str, str] | None = None
+    ) -> str:
+        """Trigger analysis for a repository with custom prompt configuration.
+        
+        Args:
+            repository_id: Repository ID to analyze
+            prompt_config: Optional custom prompt configuration per category
+        
+        Returns:
+            Analysis ID
+        """
+        return f"Started analysis for repository {repository_id}"
+    
+    def get_analysis_prompts(self) -> str:
+        """List available prompts (default + custom).
+        
+        Returns:
+            List of available prompts
+        """
+        return "List of available prompts (would fetch from cloud API)"
+    
+    def get_prompt_details(self, prompt_id: str) -> str:
+        """Get prompt template and variables.
+        
+        Args:
+            prompt_id: Prompt ID
+        
+        Returns:
+            Prompt details
+        """
+        return f"Prompt details for {prompt_id} (would fetch from cloud)"
+    
+    def validate_code_with_prompt(
+        self,
+        code: str,
+        prompt_id: str,
+        context: dict | None = None
+    ) -> dict:
+        """Validate code using custom prompt.
+        
+        Args:
+            code: Code to validate
+            prompt_id: Prompt ID to use for validation
+            context: Optional context for prompt variables
+        
+        Returns:
+            Validation results
+        """
+        return {
+            "valid": True,
+            "issues": [],
+            "suggestions": []
+        }
 

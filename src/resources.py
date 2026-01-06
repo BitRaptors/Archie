@@ -69,6 +69,23 @@ class BlueprintResources:
             except Exception:
                 continue
         
+        # Analyzed repositories (would be fetched from cloud API)
+        # These are placeholders - actual implementation would connect to cloud
+        resources.append(Resource(
+            uri="blueprint://analyzed",
+            name="Analyzed Repositories",
+            description="List of all analyzed repositories",
+            mimeType="text/markdown"
+        ))
+        
+        # Unified blueprints
+        resources.append(Resource(
+            uri="blueprint://unified",
+            name="Unified Blueprints",
+            description="List of unified blueprints from multiple repositories",
+            mimeType="text/markdown"
+        ))
+        
         return resources
     
     def get_resource(self, uri: str) -> Optional[tuple[str, str]]:
@@ -92,8 +109,38 @@ class BlueprintResources:
         elif uri.startswith("blueprint://shared/"):
             doc_id = uri.replace("blueprint://shared/", "")
             return self._get_doc_by_id(doc_id)
+        elif uri == "blueprint://analyzed":
+            return self._get_analyzed_repositories()
+        elif uri.startswith("blueprint://analyzed/"):
+            repo_id = uri.replace("blueprint://analyzed/", "")
+            return self._get_repository_blueprint(repo_id)
+        elif uri == "blueprint://unified":
+            return self._get_unified_blueprints()
+        elif uri.startswith("blueprint://unified/"):
+            blueprint_id = uri.replace("blueprint://unified/", "")
+            return self._get_unified_blueprint(blueprint_id)
         
         return None
+    
+    def _get_analyzed_repositories(self) -> tuple[str, str]:
+        """Get list of analyzed repositories."""
+        # Would fetch from cloud API
+        return "text/markdown", "# Analyzed Repositories\n\n(List would be fetched from cloud API)"
+    
+    def _get_repository_blueprint(self, repo_id: str) -> tuple[str, str]:
+        """Get repository blueprint."""
+        # Would fetch from cloud storage
+        return "text/markdown", f"# Blueprint for Repository {repo_id}\n\n(Would fetch from cloud storage)"
+    
+    def _get_unified_blueprints(self) -> tuple[str, str]:
+        """Get list of unified blueprints."""
+        # Would fetch from cloud API
+        return "text/markdown", "# Unified Blueprints\n\n(List would be fetched from cloud API)"
+    
+    def _get_unified_blueprint(self, blueprint_id: str) -> tuple[str, str]:
+        """Get unified blueprint content."""
+        # Would fetch from cloud storage
+        return "text/markdown", f"# Unified Blueprint {blueprint_id}\n\n(Would fetch from cloud storage)"
     
     def _get_full_blueprint(self, stack: str) -> tuple[str, str]:
         """Get full blueprint content for a stack."""
