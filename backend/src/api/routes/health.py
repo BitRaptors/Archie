@@ -17,5 +17,3 @@ async def get_project_path():
     # backend/src/api/routes/health.py -> go up 4 levels to get to project root
     project_root = Path(__file__).parent.parent.parent.parent.parent.absolute()
     return {"path": str(project_root)}
-
-

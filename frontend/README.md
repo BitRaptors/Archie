@@ -15,7 +15,7 @@ This is the frontend application for the Repository Analysis System.
 npm run dev
 ```
 
-The application will be available at http://localhost:3000
+The application will be available at http://localhost:4000
 
 ## Environment Variables
 

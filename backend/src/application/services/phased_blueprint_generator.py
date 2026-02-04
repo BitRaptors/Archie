@@ -5,6 +5,7 @@ from typing import Any
 from anthropic import AsyncAnthropic
 from infrastructure.prompts.prompt_loader import PromptLoader
 from infrastructure.analysis.rag_retriever import RAGRetriever
+from application.services.debug_collector import debug_collector
 from config.settings import Settings
 
 
@@ -95,6 +96,7 @@ class PhasedBlueprintGenerator:
             dependencies=dependencies,
             config_files=config_files,
             rag_enabled=rag_enabled,
+            analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Phase 1 complete: Project discovery finished")
@@ -110,6 +112,7 @@ class PhasedBlueprintGenerator:
             file_tree=file_tree,
             code_samples=code_samples,
             rag_enabled=rag_enabled,
+            analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Phase 2 complete: Layer architecture identified")
@@ -125,6 +128,7 @@ class PhasedBlueprintGenerator:
             layer_analysis=phase2_result,
             code_samples=code_samples,
             rag_enabled=rag_enabled,
+            analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Phase 3 complete: Design patterns extracted")
@@ -144,6 +148,7 @@ class PhasedBlueprintGenerator:
             previous_phases=json.dumps(previous_phases, indent=2),
             code_samples=code_samples,
             rag_enabled=rag_enabled,
+            analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Phase 4 complete: Communication patterns analyzed")
@@ -151,6 +156,13 @@ class PhasedBlueprintGenerator:
         # Phase 5: Technology Inventory - complete tech stack
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Phase 5: Inventorying technology stack...")
+        all_phases = {
+            "discovery": phase1_result,
+            "layers": phase2_result,
+            "patterns": phase3_patterns, # WAIT, previous code used phase3_result
+            "communication": phase4_result,
+        }
+        # Fixed: using phase3_result instead of phase3_patterns which was likely a typo in my thought process or existing code
         all_phases = {
             "discovery": phase1_result,
             "layers": phase2_result,
@@ -164,6 +176,7 @@ class PhasedBlueprintGenerator:
             all_phases=json.dumps(all_phases, indent=2),
             dependencies=dependencies,
             rag_enabled=rag_enabled,
+            analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Phase 5 complete: Technology inventory complete")
@@ -179,6 +192,7 @@ class PhasedBlueprintGenerator:
             phase4_communication=phase4_result,
             phase5_technology=phase5_result,
             code_samples=self._format_code_samples(code_samples),
+            analysis_id=analysis_id,
         )
         
         return final_blueprint
@@ -254,6 +268,7 @@ class PhasedBlueprintGenerator:
         dependencies: str,
         config_files: dict[str, str],
         rag_enabled: bool,
+        analysis_id: str | None = None,
     ) -> str:
         """Run Phase 1: Discovery - understand project purpose and structure."""
         prompt = self._prompt_loader.get_prompt_by_key("phase1_discovery")
@@ -280,6 +295,23 @@ class PhasedBlueprintGenerator:
             "config_files": all_code[:4000],  # RAG provides more relevant code
         })
         
+        # Capture debug data if analysis_id is provided
+        if analysis_id:
+            debug_collector.capture_phase_data(analysis_id, "phase1_discovery", 
+                gathered={
+                    "file_tree": {"full_content": file_tree, "char_count": len(file_tree)},
+                    "dependencies": {"full_content": dependencies, "char_count": len(dependencies)},
+                    "config_files": {"full_content": config_files_str, "char_count": len(config_files_str)}
+                },
+                sent={
+                    "file_tree": {"content": file_tree[:3000], "char_count": len(file_tree[:3000]), "truncated_from": len(file_tree)},
+                    "dependencies": {"content": dependencies[:1500], "char_count": len(dependencies[:1500]), "truncated_from": len(dependencies)},
+                    "config_files": {"content": all_code[:4000], "char_count": len(all_code[:4000]), "truncated_from": len(all_code)},
+                    "full_prompt": prompt_text
+                },
+                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
+            )
+        
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=2000,
@@ -297,6 +329,7 @@ class PhasedBlueprintGenerator:
         file_tree: str,
         code_samples: dict[str, str],
         rag_enabled: bool,
+        analysis_id: str | None = None,
     ) -> str:
         """Run Phase 2: Layer Identification."""
         prompt = self._prompt_loader.get_prompt_by_key("phase2_layers")
@@ -311,7 +344,8 @@ class PhasedBlueprintGenerator:
             )
         
         # Fall back to samples if RAG didn't return results
-        code_to_analyze = retrieved_code or self._format_code_samples(code_samples, limit=5)
+        formatted_samples = self._format_code_samples(code_samples, limit=5)
+        code_to_analyze = retrieved_code or formatted_samples
         
         prompt_text = prompt.render({
             "repository_name": repository_name,
@@ -319,6 +353,23 @@ class PhasedBlueprintGenerator:
             "file_tree": file_tree[:2500],
             "code_samples": code_to_analyze[:5000],  # More code with RAG
         })
+        
+        # Capture debug data if analysis_id is provided
+        if analysis_id:
+            debug_collector.capture_phase_data(analysis_id, "phase2_layers", 
+                gathered={
+                    "discovery_summary": {"full_content": discovery_summary, "char_count": len(discovery_summary)},
+                    "file_tree": {"full_content": file_tree, "char_count": len(file_tree)},
+                    "code_samples": {"full_content": code_to_analyze, "char_count": len(code_to_analyze)}
+                },
+                sent={
+                    "discovery_summary": {"content": discovery_summary[:1500], "char_count": len(discovery_summary[:1500]), "truncated_from": len(discovery_summary)},
+                    "file_tree": {"content": file_tree[:2500], "char_count": len(file_tree[:2500]), "truncated_from": len(file_tree)},
+                    "code_samples": {"content": code_to_analyze[:5000], "char_count": len(code_to_analyze[:5000]), "truncated_from": len(code_to_analyze)},
+                    "full_prompt": prompt_text
+                },
+                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
+            )
         
         response = await self._client.messages.create(
             model=self._model,
@@ -337,6 +388,7 @@ class PhasedBlueprintGenerator:
         layer_analysis: str,
         code_samples: dict[str, str],
         rag_enabled: bool,
+        analysis_id: str | None = None,
     ) -> str:
         """Run Phase 3: Pattern Extraction."""
         prompt = self._prompt_loader.get_prompt_by_key("phase3_patterns")
@@ -352,7 +404,8 @@ class PhasedBlueprintGenerator:
                 "patterns", repository_id, repo_path, context
             )
         
-        code_to_analyze = retrieved_code or self._format_code_samples(code_samples, limit=8)
+        formatted_samples = self._format_code_samples(code_samples, limit=8)
+        code_to_analyze = retrieved_code or formatted_samples
         
         prompt_text = prompt.render({
             "repository_name": repository_name,
@@ -360,6 +413,23 @@ class PhasedBlueprintGenerator:
             "layer_analysis": layer_analysis[:1500],
             "code_samples": code_to_analyze[:6000],  # More code with RAG
         })
+        
+        # Capture debug data
+        if analysis_id:
+            debug_collector.capture_phase_data(analysis_id, "phase3_patterns", 
+                gathered={
+                    "discovery_summary": {"full_content": discovery_summary, "char_count": len(discovery_summary)},
+                    "layer_analysis": {"full_content": layer_analysis, "char_count": len(layer_analysis)},
+                    "code_samples": {"full_content": code_to_analyze, "char_count": len(code_to_analyze)}
+                },
+                sent={
+                    "discovery_summary": {"content": discovery_summary[:1000], "char_count": len(discovery_summary[:1000]), "truncated_from": len(discovery_summary)},
+                    "layer_analysis": {"content": layer_analysis[:1500], "char_count": len(layer_analysis[:1500]), "truncated_from": len(layer_analysis)},
+                    "code_samples": {"content": code_to_analyze[:6000], "char_count": len(code_to_analyze[:6000]), "truncated_from": len(code_to_analyze)},
+                    "full_prompt": prompt_text
+                },
+                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
+            )
         
         response = await self._client.messages.create(
             model=self._model,
@@ -377,6 +447,7 @@ class PhasedBlueprintGenerator:
         previous_phases: str,
         code_samples: dict[str, str],
         rag_enabled: bool,
+        analysis_id: str | None = None,
     ) -> str:
         """Run Phase 4: Communication Analysis."""
         prompt = self._prompt_loader.get_prompt_by_key("phase4_communication")
@@ -388,13 +459,29 @@ class PhasedBlueprintGenerator:
                 "communication", repository_id, repo_path
             )
         
-        code_to_analyze = retrieved_code or self._format_code_samples(code_samples, limit=6)
+        formatted_samples = self._format_code_samples(code_samples, limit=6)
+        code_to_analyze = retrieved_code or formatted_samples
         
         prompt_text = prompt.render({
             "repository_name": repository_name,
             "previous_phases": previous_phases[:3000],
             "code_samples": code_to_analyze[:5000],
         })
+        
+        # Capture debug data
+        if analysis_id:
+            debug_collector.capture_phase_data(analysis_id, "phase4_communication", 
+                gathered={
+                    "previous_phases": {"full_content": previous_phases, "char_count": len(previous_phases)},
+                    "code_samples": {"full_content": code_to_analyze, "char_count": len(code_to_analyze)}
+                },
+                sent={
+                    "previous_phases": {"content": previous_phases[:3000], "char_count": len(previous_phases[:3000]), "truncated_from": len(previous_phases)},
+                    "code_samples": {"content": code_to_analyze[:5000], "char_count": len(code_to_analyze[:5000]), "truncated_from": len(code_to_analyze)},
+                    "full_prompt": prompt_text
+                },
+                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
+            )
         
         response = await self._client.messages.create(
             model=self._model,
@@ -412,6 +499,7 @@ class PhasedBlueprintGenerator:
         all_phases: str,
         dependencies: str,
         rag_enabled: bool,
+        analysis_id: str | None = None,
     ) -> str:
         """Run Phase 5: Technology Inventory."""
         prompt = self._prompt_loader.get_prompt_by_key("phase5_technology")
@@ -432,6 +520,21 @@ class PhasedBlueprintGenerator:
             "dependencies": tech_context,
         })
         
+        # Capture debug data
+        if analysis_id:
+            debug_collector.capture_phase_data(analysis_id, "phase5_technology", 
+                gathered={
+                    "all_phases": {"full_content": all_phases, "char_count": len(all_phases)},
+                    "dependencies": {"full_content": dependencies, "char_count": len(dependencies)}
+                },
+                sent={
+                    "all_phases": {"content": all_phases[:3500], "char_count": len(all_phases[:3500]), "truncated_from": len(all_phases)},
+                    "dependencies": {"content": tech_context, "char_count": len(tech_context), "truncated_from": len(dependencies) + len(retrieved_code)},
+                    "full_prompt": prompt_text
+                },
+                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
+            )
+        
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=2500,
@@ -449,6 +552,7 @@ class PhasedBlueprintGenerator:
         phase4_communication: str,
         phase5_technology: str,
         code_samples: str,
+        analysis_id: str | None = None,
     ) -> str:
         """Run Backend Synthesis: Generate comprehensive backend blueprint document."""
         prompt = self._prompt_loader.get_prompt_by_key("backend_synthesis")
@@ -462,6 +566,28 @@ class PhasedBlueprintGenerator:
             "phase5_technology": phase5_technology[:2500],
             "code_samples": code_samples[:4000],
         })
+        
+        # Capture debug data
+        if analysis_id:
+            debug_collector.capture_phase_data(analysis_id, "backend_synthesis", 
+                gathered={
+                    "phase1": {"full_content": phase1_discovery, "char_count": len(phase1_discovery)},
+                    "phase2": {"full_content": phase2_layers, "char_count": len(phase2_layers)},
+                    "phase3": {"full_content": phase3_patterns, "char_count": len(phase3_patterns)},
+                    "phase4": {"full_content": phase4_communication, "char_count": len(phase4_communication)},
+                    "phase5": {"full_content": phase5_technology, "char_count": len(phase5_technology)},
+                    "code_samples": {"full_content": code_samples, "char_count": len(code_samples)}
+                },
+                sent={
+                    "phase1": {"content": phase1_discovery[:2500], "char_count": len(phase1_discovery[:2500]), "truncated_from": len(phase1_discovery)},
+                    "phase2": {"content": phase2_layers[:2500], "char_count": len(phase2_layers[:2500]), "truncated_from": len(phase2_layers)},
+                    "phase3": {"content": phase3_patterns[:2500], "char_count": len(phase3_patterns[:2500]), "truncated_from": len(phase3_patterns)},
+                    "phase4": {"content": phase4_communication[:2500], "char_count": len(phase4_communication[:2500]), "truncated_from": len(phase4_communication)},
+                    "phase5": {"content": phase5_technology[:2500], "char_count": len(phase5_technology[:2500]), "truncated_from": len(phase5_technology)},
+                    "code_samples": {"content": code_samples[:4000], "char_count": len(code_samples[:4000]), "truncated_from": len(code_samples)},
+                    "full_prompt": prompt_text
+                }
+            )
         
         response = await self._client.messages.create(
             model=self._model,

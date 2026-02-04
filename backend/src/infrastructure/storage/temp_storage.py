@@ -12,10 +12,11 @@ class TempStorage(IStorage):
     def __init__(self, base_path: Path | None = None):
         """Initialize temporary storage."""
         if base_path:
-            self._base_path = base_path
+            self._base_path = Path(base_path).resolve()
         else:
             settings = get_settings()
-            self._base_path = Path(settings.temp_storage_path)
+            # Resolve to absolute path to avoid issues with relative paths
+            self._base_path = Path(settings.temp_storage_path).resolve()
         self._base_path.mkdir(parents=True, exist_ok=True)
 
     async def save(self, path: str, content: bytes | str) -> str:

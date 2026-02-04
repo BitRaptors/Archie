@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { DebugView } from '@/components/DebugView'
 
 interface BlueprintData {
   analysis_id: string
@@ -37,13 +38,24 @@ export default function BlueprintView() {
   const router = useRouter()
   const { id } = router.query
   const { token, isAuthenticated } = useAuth()
+  const [mounted, setMounted] = useState(false)
   const [backendBlueprint, setBackendBlueprint] = useState<BlueprintData | null>(null)
   const [frontendBlueprint, setFrontendBlueprint] = useState<BlueprintData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'backend' | 'frontend' | 'mcp'>('backend')
+  const [activeTab, setActiveTab] = useState<'backend' | 'frontend' | 'mcp' | 'debug'>('backend')
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [debugData, setDebugData] = useState<any>({
+    gathered: {},
+    phases: [],
+    summary: {}
+  })
+
+  // Fix hydration error by only checking auth after mount
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const fetchBlueprints = useCallback(async () => {
     if (!id || !token || !isAuthenticated) return
@@ -79,6 +91,21 @@ export default function BlueprintView() {
         setFrontendBlueprint(frontendData)
       }
 
+      // Fetch final debug data via SSE stream (since no debug endpoint)
+      const eventSource = new EventSource(`${API_URL}/api/v1/analyses/${id}/stream`)
+      eventSource.addEventListener('debug_complete', (e) => {
+        const data = JSON.parse(e.data)
+        setDebugData(data)
+        eventSource.close()
+      })
+      
+      // Fallback: if we don't get debug_complete within 5s, close
+      setTimeout(() => {
+        if (eventSource.readyState !== EventSource.CLOSED) {
+          eventSource.close()
+        }
+      }, 5000)
+
       setIsLoading(false)
     } catch (err: any) {
       setIsLoading(false)
@@ -107,9 +134,11 @@ export default function BlueprintView() {
   }, [token, isAuthenticated])
 
   useEffect(() => {
-    fetchBlueprints()
-    fetchProjectPath()
-  }, [fetchBlueprints, fetchProjectPath])
+    if (mounted) {
+      fetchBlueprints()
+      fetchProjectPath()
+    }
+  }, [mounted, fetchBlueprints, fetchProjectPath])
 
   // Download blueprint as markdown file
   const handleDownload = useCallback((blueprint: BlueprintData | null) => {
@@ -178,8 +207,54 @@ export default function BlueprintView() {
     })
   }, [getMcpConfig])
 
-  if (!isAuthenticated) return <div className="p-8">Please authenticate first.</div>
-  if (!id) return <div className="p-8">Loading...</div>
+  // Show loading state during SSR/hydration
+  if (!mounted) {
+    return (
+      <div className="container mx-auto p-8 max-w-6xl">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">Loading...</h1>
+        </div>
+        <div className="bg-white border rounded-lg p-8 text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <p className="text-gray-600">Loading blueprint...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Check authentication only after mount
+  if (!isAuthenticated) {
+    return (
+      <div className="container mx-auto p-8 max-w-6xl">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">Authentication Required</h1>
+        </div>
+        <div className="bg-white border rounded-lg p-8 text-center">
+          <p className="text-gray-600 mb-4">Please authenticate first.</p>
+          <Link 
+            href="/auth" 
+            className="inline-block bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
+          >
+            Go to Authentication
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  if (!id) {
+    return (
+      <div className="container mx-auto p-8 max-w-6xl">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">Loading...</h1>
+        </div>
+        <div className="bg-white border rounded-lg p-8 text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <p className="text-gray-600">Loading blueprint ID...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (
@@ -279,6 +354,21 @@ export default function BlueprintView() {
           }`}
         >
           MCP Server Setup
+        </button>
+        <button
+          onClick={() => setActiveTab('debug')}
+          className={`px-6 py-3 font-medium text-sm transition-colors relative flex items-center ${
+            activeTab === 'debug' 
+              ? 'text-blue-600 border-b-2 border-blue-600' 
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Debug Data & Prompts
+          {debugData.phases.length > 0 && (
+            <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full text-[10px]">
+              {debugData.phases.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -450,7 +540,7 @@ export default function BlueprintView() {
     "architecture-cloud": {
       "transport": {
         "type": "sse",
-        "url": "${typeof window !== 'undefined' ? window.location.origin.replace('3000', '8000') : 'http://localhost:8000'}/api/v1/mcp/sse"
+        "url": "${typeof window !== 'undefined' ? window.location.origin.replace('4000', '8000') : 'http://localhost:8000'}/api/v1/mcp/sse"
       }
     }
   }
@@ -462,10 +552,17 @@ export default function BlueprintView() {
                   <li>In Cursor Settings, click <strong>+ Add New MCP Server</strong>.</li>
                   <li>Name it <code>Architecture Cloud</code>.</li>
                   <li>Set Type to <code>SSE</code> or use the transport configuration above.</li>
-                  <li>Paste the configuration with the URL: <code>{typeof window !== 'undefined' ? window.location.origin.replace('3000', '8000') : 'http://localhost:8000'}/api/v1/mcp/sse</code></li>
+                  <li>Paste the configuration with the URL: <code>{typeof window !== 'undefined' ? window.location.origin.replace('4000', '8000') : 'http://localhost:8000'}/api/v1/mcp/sse</code></li>
                 </ol>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Debug Tab */}
+        {activeTab === 'debug' && (
+          <div className="bg-white border rounded-lg shadow-sm overflow-hidden p-8">
+            <DebugView data={debugData.phases.length > 0 ? debugData : null} />
           </div>
         )}
       </div>

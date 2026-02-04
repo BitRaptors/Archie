@@ -7,6 +7,7 @@ from domain.interfaces.repositories import IAnalysisRepository, IAnalysisEventRe
 from config.container import Container
 from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
 from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
+from application.services.debug_collector import debug_collector
 import asyncio
 import json
 
@@ -79,6 +80,10 @@ async def stream_analysis_progress(
     
     async def event_generator():
         last_event_id = None
+        sent_completion = False
+        sent_phases = set()
+        sent_gathered = False
+        
         while True:
             # Check if client disconnected
             if await request.is_disconnected():
@@ -87,7 +92,7 @@ async def stream_analysis_progress(
             # Get latest analysis state
             analysis = await analysis_repo.get_by_id(analysis_id)
             if not analysis:
-                yield {"event": "error", "data": "Analysis not found"}
+                yield {"event": "error", "data": json.dumps({"message": "Analysis not found"})}
                 break
 
             # Send current status
@@ -98,6 +103,71 @@ async def stream_analysis_progress(
                     "progress": analysis.progress_percentage,
                 }),
             }
+
+            # Handle Debug Data
+            debug_data = debug_collector.get_data(analysis_id)
+            
+            # Send gathered data once
+            if debug_data.get("gathered") and not sent_gathered:
+                yield {
+                    "event": "debug_gathered",
+                    "data": json.dumps(debug_data["gathered"]),
+                }
+                sent_gathered = True
+                
+            # Send new phases
+            for phase_info in debug_data.get("phases", []):
+                phase_name = phase_info["phase"]
+                if phase_name not in sent_phases:
+                    yield {
+                        "event": "debug_phase",
+                        "data": json.dumps(phase_info),
+                    }
+                    sent_phases.add(phase_name)
+
+            # Check if analysis is complete - send final event and break
+            if analysis.status in ["completed", "failed"]:
+                if not sent_completion:
+                    # Final debug data check
+                    debug_data = debug_collector.get_data(analysis_id)
+                    yield {
+                        "event": "debug_complete",
+                        "data": json.dumps(debug_data),
+                    }
+                    
+                    # Send any remaining events first
+                    events = await event_repo.get_by_analysis_id(analysis_id)
+                    if last_event_id:
+                        found = False
+                        for e in events:
+                            if found:
+                                yield {
+                                    "event": "log",
+                                    "data": json.dumps({
+                                        "id": e.id,
+                                        "type": e.event_type,
+                                        "message": e.message,
+                                        "created_at": e.created_at.isoformat(),
+                                    }),
+                                }
+                                last_event_id = e.id
+                            if e.id == last_event_id:
+                                found = True
+                    
+                    # Send completion event
+                    yield {
+                        "event": "complete",
+                        "data": json.dumps({
+                            "status": analysis.status,
+                            "progress": analysis.progress_percentage,
+                        }),
+                    }
+                    sent_completion = True
+                    # Keep connection open briefly to allow client to receive completion event
+                    # Client should close connection on receiving 'complete' event
+                    await asyncio.sleep(1)
+                # Exit loop - connection will close naturally
+                break
 
             # Get new events
             events = await event_repo.get_by_analysis_id(analysis_id)
@@ -124,9 +194,6 @@ async def stream_analysis_progress(
                     }),
                 }
                 last_event_id = e.id
-
-            if analysis.status in ["completed", "failed"]:
-                break
 
             await asyncio.sleep(2)
     

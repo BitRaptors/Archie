@@ -112,6 +112,13 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
     temp_storage = TempStorage()
     temp_dir = temp_storage.get_base_path()
     
+    # Log current working directory for debugging
+    import os
+    cwd = os.getcwd()
+    print(f"analyze_repository: Current working directory: {cwd}")
+    await analysis_service._log_event(analysis_id, "INFO", f"Worker working directory: {cwd}")
+    await analysis_service._log_event(analysis_id, "INFO", f"Temp storage base path: {temp_dir}")
+    
     try:
         # Get repository
         print(f"analyze_repository: Getting repository {repository_id}")
@@ -125,8 +132,27 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
         print(f"analyze_repository: Cloning repository to {temp_dir}")
         await analysis_service._log_event(analysis_id, "INFO", f"Checking out code to: {temp_dir}")
         repo_path = await repo_service.clone_repository(repo, token, temp_dir)
+        
+        # Ensure repo_path is absolute
+        repo_path = Path(repo_path).resolve()
+        
         await analysis_service._log_event(analysis_id, "INFO", f"Repository cloned successfully to: {repo_path}")
+        await analysis_service._log_event(analysis_id, "INFO", f"Repository path (absolute): {repo_path}")
         print(f"analyze_repository: Repository cloned to {repo_path}")
+        
+        # Verify the clone before proceeding
+        if not repo_path.exists():
+            raise RuntimeError(f"Repository path does not exist after clone: {repo_path}")
+        if not repo_path.is_dir():
+            raise RuntimeError(f"Repository path is not a directory: {repo_path}")
+        
+        # Check directory contents
+        items = list(repo_path.iterdir())
+        await analysis_service._log_event(analysis_id, "INFO", f"Repository directory has {len(items)} items after clone")
+        if items:
+            sample = [item.name for item in items[:5] if not item.name.startswith('.')]
+            if sample:
+                await analysis_service._log_event(analysis_id, "INFO", f"Sample items after clone: {', '.join(sample)}")
         
         # Run analysis (this will handle its own errors and mark analysis as failed)
         print(f"analyze_repository: Running analysis pipeline")

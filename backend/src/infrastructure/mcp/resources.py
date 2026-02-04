@@ -11,66 +11,61 @@ from .utils.markdown import find_markdown_files, get_doc_by_id, read_markdown_fi
 class BlueprintResources:
     """Manages blueprint document resources."""
     
-    def __init__(self, docs_dir: Path, storage_dir: Optional[Path] = None):
+    def __init__(self, docs_dir: Path, storage_dir: Optional[Path] = None, repository_repository=None):
         self.docs_dir = docs_dir
         self.storage_dir = storage_dir or docs_dir.parent / "backend" / "storage"
+        self._repository_repository = repository_repository
+        self._repo_cache: Dict[str, str] = {}  # Cache: repo_id -> "owner/name"
+        self._repo_repo_initialized = False
     
-    def list_resources(self) -> list[Resource]:
+    async def _ensure_repo_repository(self):
+        """Lazily initialize repository repository if database is available."""
+        if self._repo_repo_initialized:
+            return
+        
+        if self._repository_repository is None:
+            try:
+                from infrastructure.persistence.supabase_client import get_supabase_client_async
+                from infrastructure.persistence.repository_repository import SupabaseRepositoryRepository
+                
+                # Use async client
+                supabase_client = await get_supabase_client_async()
+                self._repository_repository = SupabaseRepositoryRepository(client=supabase_client)
+            except Exception:
+                # If database connection fails, repository_repository stays None
+                # Resources will fall back to using UUIDs
+                pass
+        
+        self._repo_repo_initialized = True
+    
+    async def _get_repo_display_name(self, repo_id: str) -> str:
+        """Get display name for repository (owner/name) or fall back to UUID."""
+        if repo_id in self._repo_cache:
+            return self._repo_cache[repo_id]
+        
+        # Ensure repository repository is initialized
+        await self._ensure_repo_repository()
+        
+        # Try to fetch from database if repository_repository is available
+        if self._repository_repository:
+            try:
+                repo = await self._repository_repository.get_by_id(repo_id)
+                if repo:
+                    display_name = f"{repo.owner}/{repo.name}"
+                    self._repo_cache[repo_id] = display_name
+                    return display_name
+            except Exception:
+                # If database lookup fails, fall back to UUID
+                pass
+        
+        # Fall back to UUID
+        return repo_id
+    
+    async def list_resources(self) -> list[Resource]:
         """List all available blueprint resources."""
         resources = []
         
-        # Full blueprints
-        resources.append(Resource(
-            uri="blueprint://backend",
-            name="Backend Architecture Blueprint",
-            description="Complete backend architecture documentation",
-            mimeType="text/markdown"
-        ))
-        
-        resources.append(Resource(
-            uri="blueprint://frontend",
-            name="Frontend Architecture Blueprint",
-            description="Complete frontend architecture documentation",
-            mimeType="text/markdown"
-        ))
-        
-        # Pattern index
-        resources.append(Resource(
-            uri="blueprint://patterns",
-            name="All Patterns",
-            description="Index of all architectural patterns",
-            mimeType="text/markdown"
-        ))
-        
-        # Individual sections from static docs
-        for md_file in find_markdown_files(self.docs_dir):
-            try:
-                frontmatter, _ = read_markdown_file(md_file)
-                doc_id = frontmatter.get('id')
-                title = frontmatter.get('title', md_file.stem)
-                category = frontmatter.get('category', 'unknown')
-                
-                if doc_id:
-                    # Create URI based on category and ID
-                    if category == 'backend':
-                        uri = f"blueprint://backend/{doc_id}"
-                    elif category == 'frontend':
-                        uri = f"blueprint://frontend/{doc_id}"
-                    elif category == 'shared':
-                        uri = f"blueprint://shared/{doc_id}"
-                    else:
-                        continue
-                    
-                    resources.append(Resource(
-                        uri=uri,
-                        name=title,
-                        description=f"{category.title()} architecture: {title}",
-                        mimeType="text/markdown"
-                    ))
-            except Exception:
-                continue
-        
-        # Analyzed repositories (dynamically from storage)
+        # Analyzed repositories (dynamically from storage) - this is the main feature
         blueprints_dir = self.storage_dir / "blueprints"
         if blueprints_dir.exists():
             for repo_dir in blueprints_dir.iterdir():
@@ -78,11 +73,14 @@ class BlueprintResources:
                     repo_id = repo_dir.name
                     blueprint_file = repo_dir / "backend_blueprint.md"
                     if blueprint_file.exists():
+                        # Get display name (owner/name or UUID)
+                        display_name = await self._get_repo_display_name(repo_id)
+                        
                         # Full blueprint resource
                         resources.append(Resource(
                             uri=f"blueprint://analyzed/{repo_id}",
-                            name=f"Repository Blueprint: {repo_id}",
-                            description=f"Generated backend architecture for {repo_id}",
+                            name=f"Repository Blueprint: {display_name}",
+                            description=f"Generated backend architecture for {display_name}",
                             mimeType="text/markdown"
                         ))
                         
@@ -93,22 +91,15 @@ class BlueprintResources:
                             for section_id in sections.keys():
                                 if section_id == "introduction":
                                     continue
+                                section_title = section_id.replace('-', ' ').title()
                                 resources.append(Resource(
                                     uri=f"blueprint://analyzed/{repo_id}/{section_id}",
-                                    name=f"{repo_id} - {section_id.replace('-', ' ').title()}",
-                                    description=f"Granular section '{section_id}' for {repo_id}",
+                                    name=f"{display_name} - {section_title}",
+                                    description=f"Granular section '{section_id}' for {display_name}",
                                     mimeType="text/markdown"
                                 ))
                         except Exception:
                             continue
-        
-        # Unified blueprints
-        resources.append(Resource(
-            uri="blueprint://unified",
-            name="Unified Blueprints",
-            description="List of unified blueprints from multiple repositories",
-            mimeType="text/markdown"
-        ))
         
         return resources
     
@@ -118,22 +109,7 @@ class BlueprintResources:
         Returns:
             Tuple of (mime_type, content) or None if not found
         """
-        if uri == "blueprint://backend":
-            return self._get_full_blueprint("backend")
-        elif uri == "blueprint://frontend":
-            return self._get_full_blueprint("frontend")
-        elif uri == "blueprint://patterns":
-            return self._get_patterns_index()
-        elif uri.startswith("blueprint://backend/"):
-            doc_id = uri.replace("blueprint://backend/", "")
-            return self._get_doc_by_id(doc_id)
-        elif uri.startswith("blueprint://frontend/"):
-            doc_id = uri.replace("blueprint://frontend/", "")
-            return self._get_doc_by_id(doc_id)
-        elif uri.startswith("blueprint://shared/"):
-            doc_id = uri.replace("blueprint://shared/", "")
-            return self._get_doc_by_id(doc_id)
-        elif uri == "blueprint://analyzed":
+        if uri == "blueprint://analyzed":
             return self._get_analyzed_repositories()
         elif uri.startswith("blueprint://analyzed/"):
             path_parts = uri.replace("blueprint://analyzed/", "").split("/")
@@ -146,12 +122,6 @@ class BlueprintResources:
                 # Specific section
                 section_id = path_parts[1]
                 return self._get_repository_section(repo_id, section_id)
-                
-        elif uri == "blueprint://unified":
-            return self._get_unified_blueprints()
-        elif uri.startswith("blueprint://unified/"):
-            blueprint_id = uri.replace("blueprint://unified/", "")
-            return self._get_unified_blueprint(blueprint_id)
         
         return None
     

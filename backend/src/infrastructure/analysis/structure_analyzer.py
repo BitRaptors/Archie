@@ -13,14 +13,43 @@ class StructureAnalyzer:
 
     async def analyze(self, repo_path: Path) -> dict[str, Any]:
         """Analyze repository structure."""
+        # Resolve path to absolute
+        repo_path = Path(repo_path).resolve()
+        
         structure = {
             "file_tree": [],
             "technologies": [],
             "directory_structure": {},
         }
 
+        # Verify path before processing
+        if not repo_path.exists():
+            import logging
+            logging.error(f"Structure analyzer: Path does not exist: {repo_path}")
+            return structure
+        
+        if not repo_path.is_dir():
+            import logging
+            logging.error(f"Structure analyzer: Path is not a directory: {repo_path}")
+            return structure
+        
+        # Check what's actually in the directory
+        try:
+            items = list(repo_path.iterdir())
+            import logging
+            logging.info(f"Structure analyzer: Found {len(items)} items in {repo_path}")
+            if items:
+                sample = [item.name for item in items[:5]]
+                logging.info(f"Structure analyzer: Sample items: {sample}")
+        except Exception as e:
+            import logging
+            logging.error(f"Structure analyzer: Cannot list directory {repo_path}: {e}")
+
         # Build file tree
         structure["file_tree"] = self._build_file_tree(repo_path)
+        
+        import logging
+        logging.info(f"Structure analyzer: Built file tree with {len(structure['file_tree'])} items")
 
         # Detect technologies
         structure["technologies"] = self._detect_technologies(repo_path)
@@ -34,33 +63,106 @@ class StructureAnalyzer:
         """Build file tree structure."""
         tree = []
         
+        # Verify repo_path exists and is a directory
+        repo_path = Path(repo_path).resolve()
+        if not repo_path.exists():
+            import logging
+            logging.warning(f"Repository path does not exist: {repo_path}")
+            return tree
+        if not repo_path.is_dir():
+            import logging
+            logging.warning(f"Repository path is not a directory: {repo_path}")
+            return tree
+        
+        items_checked = 0
+        items_added = 0
+        items_skipped_hidden = 0
+        items_skipped_errors = 0
+        
         def walk_dir(path: Path, depth: int = 0):
+            nonlocal items_checked, items_added, items_skipped_hidden, items_skipped_errors
             if depth > max_depth:
                 return
             
             try:
-                for item in path.iterdir():
+                items = list(path.iterdir())
+                for item in items:
+                    items_checked += 1
+                    
+                    # Skip hidden files/folders except .git
                     if item.name.startswith(".") and item.name != ".git":
+                        items_skipped_hidden += 1
                         continue
                     
-                    node = {
-                        "name": item.name,
-                        "path": str(item.relative_to(repo_path)),
-                        "type": "directory" if item.is_dir() else "file",
-                    }
-                    
-                    if item.is_file():
-                        node["size"] = item.stat().st_size
-                        node["extension"] = item.suffix
-                    
-                    tree.append(node)
-                    
-                    if item.is_dir() and depth < max_depth:
-                        walk_dir(item, depth + 1)
-            except PermissionError:
-                pass
+                    try:
+                        # Ensure item is relative to repo_path
+                        try:
+                            rel_path = item.relative_to(repo_path)
+                        except ValueError:
+                            # Item is outside repo_path (shouldn't happen, but handle it)
+                            items_skipped_errors += 1
+                            continue
+                        
+                        node = {
+                            "name": item.name,
+                            "path": str(rel_path),
+                            "type": "directory" if item.is_dir() else "file",
+                        }
+                        
+                        if item.is_file():
+                            try:
+                                node["size"] = item.stat().st_size
+                                node["extension"] = item.suffix
+                            except (OSError, PermissionError) as e:
+                                # Skip files we can't read
+                                items_skipped_errors += 1
+                                continue
+                        
+                        tree.append(node)
+                        items_added += 1
+                        
+                        # Recursively walk directories
+                        if item.is_dir() and depth < max_depth:
+                            walk_dir(item, depth + 1)
+                    except (OSError, PermissionError) as e:
+                        # Skip items we can't access
+                        items_skipped_errors += 1
+                        continue
+                    except Exception as e:
+                        # Log unexpected errors for debugging
+                        import logging
+                        logging.warning(f"Unexpected error processing {item}: {e}")
+                        items_skipped_errors += 1
+                        continue
+            except (PermissionError, OSError) as e:
+                # Directory not readable
+                import logging
+                logging.warning(f"Cannot read directory {path}: {e}")
+            except Exception as e:
+                # Log unexpected errors
+                import logging
+                logging.error(f"Unexpected error in walk_dir for {path}: {e}", exc_info=True)
         
-        walk_dir(repo_path)
+        try:
+            walk_dir(repo_path)
+            
+            # Log summary for debugging
+            import logging
+            logging.debug(
+                f"Structure analyzer: checked={items_checked}, added={items_added}, "
+                f"skipped_hidden={items_skipped_hidden}, skipped_errors={items_skipped_errors}"
+            )
+            
+            if items_checked > 0 and items_added == 0:
+                logging.warning(
+                    f"Structure analyzer found {items_checked} items but added 0 to tree. "
+                    f"All items may be hidden or inaccessible. Path: {repo_path}"
+                )
+        except Exception as e:
+            # If root directory can't be read, log it
+            import logging
+            logging.error(f"Cannot read root directory {repo_path}: {e}", exc_info=True)
+        
         return tree
 
     def _detect_technologies(self, repo_path: Path) -> list[str]:

@@ -102,7 +102,7 @@ FRONTEND_PID=$!
 cd ..
 
 # Wait for Next.js to start and extract the port
-FRONTEND_PORT=3000
+FRONTEND_PORT=4000
 for i in {1..10}; do
     sleep 1
     # Try to extract port from Next.js output

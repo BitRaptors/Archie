@@ -9,6 +9,7 @@ from domain.exceptions.domain_exceptions import NotFoundError
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
 from infrastructure.storage.storage_interface import IStorage
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
+from application.services.debug_collector import debug_collector
 
 
 class AnalysisService:
@@ -84,11 +85,74 @@ class AnalysisService:
             # Phase 1: Structure scan (data extraction only)
             await self._log_event(analysis_id, "PHASE_START", "Phase 1: Scanning file structure")
             await self._log_event(analysis_id, "INFO", f"Analyzing repository structure at: {repo_path}")
+            # Verify repo_path exists and resolve it
+            repo_path_obj = Path(repo_path) if not isinstance(repo_path, Path) else repo_path
+            repo_path_obj = repo_path_obj.resolve()  # Resolve to absolute path
+            
+            await self._log_event(analysis_id, "INFO", f"Repository path (resolved): {repo_path_obj}")
+            
+            if not repo_path_obj.exists():
+                await self._log_event(analysis_id, "ERROR", f"Repository path does not exist: {repo_path_obj}")
+            elif not repo_path_obj.is_dir():
+                await self._log_event(analysis_id, "ERROR", f"Repository path is not a directory: {repo_path_obj}")
+            else:
+                # Count items in directory for debugging
+                try:
+                    items = list(repo_path_obj.iterdir())
+                    await self._log_event(analysis_id, "INFO", f"Repository directory contains {len(items)} items at root level")
+                    
+                    # List first few items for debugging
+                    all_items = [item.name for item in items]
+                    visible_items = [item.name for item in items if not item.name.startswith('.')][:10]
+                    
+                    if all_items:
+                        await self._log_event(analysis_id, "INFO", f"All items in root (first 10): {', '.join(all_items[:10])}")
+                    if visible_items:
+                        await self._log_event(analysis_id, "INFO", f"Visible items in root: {', '.join(visible_items[:5])}")
+                    else:
+                        await self._log_event(analysis_id, "WARNING", f"No visible items found in root directory. All {len(items)} items are hidden (start with '.')")
+                        
+                        # Check if .git exists (should always be there after clone)
+                        git_dir = repo_path_obj / ".git"
+                        if git_dir.exists():
+                            await self._log_event(analysis_id, "INFO", ".git directory exists - repository was cloned successfully")
+                        else:
+                            await self._log_event(analysis_id, "ERROR", ".git directory does NOT exist - repository may not have been cloned correctly!")
+                except Exception as e:
+                    await self._log_event(analysis_id, "ERROR", f"Cannot read repository directory: {str(e)}")
+                    import traceback
+                    await self._log_event(analysis_id, "ERROR", f"Traceback: {traceback.format_exc()}")
+            
             analysis.update_progress(10)
             await self._analysis_repo.update(analysis)
-            structure_data = await self._structure_analyzer.analyze(repo_path)
-            file_count = len(structure_data.get("files", [])) if structure_data else 0
-            dir_count = len(structure_data.get("directories", [])) if structure_data else 0
+            
+            # Call structure analyzer with detailed logging
+            await self._log_event(analysis_id, "INFO", f"Calling structure analyzer with path: {repo_path_obj}")
+            await self._log_event(analysis_id, "INFO", f"Path exists: {repo_path_obj.exists()}, is_dir: {repo_path_obj.is_dir() if repo_path_obj.exists() else False}")
+            
+            try:
+                structure_data = await self._structure_analyzer.analyze(repo_path_obj)
+                await self._log_event(analysis_id, "INFO", f"Structure analyzer returned data: {bool(structure_data)}")
+                
+                if structure_data:
+                    await self._log_event(analysis_id, "INFO", f"Structure data keys: {list(structure_data.keys())}")
+                else:
+                    await self._log_event(analysis_id, "ERROR", "Structure analyzer returned None or empty data!")
+            except Exception as e:
+                await self._log_event(analysis_id, "ERROR", f"Structure analyzer raised exception: {str(e)}")
+                import traceback
+                await self._log_event(analysis_id, "ERROR", f"Traceback: {traceback.format_exc()}")
+                raise
+            
+            # Count files and directories from file_tree
+            file_tree = structure_data.get("file_tree", []) if structure_data else []
+            await self._log_event(analysis_id, "INFO", f"File tree from structure_data: {len(file_tree)} items")
+            
+            if file_tree:
+                await self._log_event(analysis_id, "INFO", f"First 5 items in file_tree: {[item.get('path', 'unknown') for item in file_tree[:5]]}")
+            
+            file_count = len([node for node in file_tree if node.get("type") == "file"])
+            dir_count = len([node for node in file_tree if node.get("type") == "directory"])
             await self._log_event(analysis_id, "INFO", f"Structure scan complete: {file_count} files, {dir_count} directories")
             await self._log_event(analysis_id, "PHASE_END", "Phase 1 complete: File structure indexed")
 
@@ -97,24 +161,54 @@ class AnalysisService:
             analysis.update_progress(20)
             await self._analysis_repo.update(analysis)
             
+            # Validate structure_data is still valid before Phase 2
+            if not structure_data:
+                await self._log_event(analysis_id, "ERROR", "structure_data is None at start of Phase 2!")
+                raise ValueError("structure_data is None - structure analysis failed")
+            
+            file_tree_from_data = structure_data.get("file_tree", [])
+            await self._log_event(analysis_id, "INFO", f"Phase 2: structure_data has {len(file_tree_from_data)} items in file_tree")
+            
+            if not file_tree_from_data:
+                await self._log_event(analysis_id, "ERROR", "file_tree is empty at start of Phase 2!")
+                await self._log_event(analysis_id, "ERROR", f"structure_data keys: {list(structure_data.keys())}")
+                await self._log_event(analysis_id, "ERROR", f"structure_data['file_tree'] type: {type(file_tree_from_data)}")
+                raise ValueError("file_tree is empty - structure analysis returned no files")
+            
             # Extract file tree
             await self._log_event(analysis_id, "INFO", "Formatting file tree structure...")
             file_tree = self._format_file_tree(structure_data)
+            await self._log_event(analysis_id, "INFO", f"Formatted file tree length: {len(file_tree.split(chr(10))) if file_tree else 0} lines")
             
             # Extract dependencies
             await self._log_event(analysis_id, "INFO", "Extracting dependencies from package files...")
-            dependencies = await self._extract_dependencies(repo_path)
-            await self._log_event(analysis_id, "INFO", f"Dependencies extracted: {len(dependencies.split('```')) - 1} dependency files found")
+            dependencies = await self._extract_dependencies(repo_path_obj)
+            # Count dependency files found (each "**filename:**" indicates a file)
+            if dependencies and "No dependency files found" not in dependencies:
+                # Count occurrences of "**" pattern (each file has "**path:**")
+                dep_count = dependencies.count("**") // 2
+            else:
+                dep_count = 0
+            await self._log_event(analysis_id, "INFO", f"Dependencies extracted: {dep_count} dependency files found")
             
             # Extract config files
             await self._log_event(analysis_id, "INFO", "Extracting configuration files...")
-            config_files = await self._extract_config_files(repo_path)
+            config_files = await self._extract_config_files(repo_path_obj)
             await self._log_event(analysis_id, "INFO", f"Configuration files extracted: {len(config_files)} files")
             
             # Extract code samples
             await self._log_event(analysis_id, "INFO", "Extracting representative code samples...")
-            code_samples = await self._extract_code_samples(repo_path, structure_data)
+            code_samples = await self._extract_code_samples(repo_path_obj, structure_data)
             await self._log_event(analysis_id, "INFO", f"Code samples extracted: {len(code_samples)} files")
+            
+            # Capture gathered data for debug view
+            debug_collector.capture_gathered_data(analysis_id, {
+                "file_tree_raw": file_tree,
+                "dependencies_raw": dependencies,
+                "config_files": config_files,
+                "code_samples": code_samples,
+                "rag_indexing": {} # Will be updated by RAG retriever later if indexing happens
+            })
             
             await self._log_event(analysis_id, "PHASE_END", "Phase 2 complete: Repository data prepared")
 
@@ -130,7 +224,7 @@ class AnalysisService:
             # Generate Backend Blueprint
             await self._log_event(analysis_id, "INFO", "Starting backend architecture analysis...")
             backend_blueprint = await self._phased_blueprint_generator.generate(
-                repo_path=repo_path,
+                repo_path=repo_path_obj,
                 repository_name=repo_name,
                 repository_id=analysis.repository_id,
                 analysis_id=analysis_id,
@@ -197,66 +291,234 @@ class AnalysisService:
 
     def _format_file_tree(self, structure_data: dict[str, Any]) -> str:
         """Format structure data as a compressed file tree."""
-        if not structure_data or "directories" not in structure_data:
+        if not structure_data or "file_tree" not in structure_data:
             return "No structure data available"
         
-        lines = []
-        for directory in structure_data["directories"][:50]:  # Limit to first 50 dirs
-            lines.append(f"📁 {directory}")
+        file_tree = structure_data["file_tree"]
+        if not file_tree:
+            return "No files found in repository"
         
-        if "files" in structure_data:
-            for file_info in structure_data["files"][:100]:  # Limit to first 100 files
-                if isinstance(file_info, dict):
-                    lines.append(f"📄 {file_info.get('path', 'unknown')}")
-                else:
-                    lines.append(f"📄 {file_info}")
+        lines = []
+        # Format first 150 items (mix of files and directories)
+        for node in file_tree[:150]:
+            node_type = node.get("type", "file")
+            node_path = node.get("path", node.get("name", "unknown"))
+            icon = "📁" if node_type == "directory" else "📄"
+            lines.append(f"{icon} {node_path}")
+        
+        if len(file_tree) > 150:
+            lines.append(f"... and {len(file_tree) - 150} more items")
         
         return "\n".join(lines)
 
     async def _extract_dependencies(self, repo_path: Path) -> str:
-        """Extract dependencies from package files."""
+        """Extract dependencies from package files recursively."""
         dependencies = []
         
-        # Python dependencies
-        requirements_file = repo_path / "requirements.txt"
-        if requirements_file.exists():
-            try:
-                content = requirements_file.read_text()
-                dependencies.append(f"**requirements.txt:**\n```\n{content[:1000]}\n```")
-            except Exception:
-                pass
+        # Ignore common build/dependency directories
+        ignore_patterns = {
+            "node_modules", ".git", "venv", "__pycache__", ".next",
+            "dist", "build", "target", ".gradle", ".idea", ".venv",
+            "env", ".env", "vendor", "coverage", ".nyc_output",
+        }
         
-        # Node dependencies
-        package_json = repo_path / "package.json"
-        if package_json.exists():
+        # Find all requirements.txt files recursively
+        for requirements_file in repo_path.rglob("requirements.txt"):
+            # Skip if in ignored directory
+            if any(pattern in str(requirements_file) for pattern in ignore_patterns):
+                continue
+            
             try:
-                content = package_json.read_text()
-                dependencies.append(f"**package.json:**\n```json\n{content[:1000]}\n```")
+                content = requirements_file.read_text(encoding="utf-8", errors="ignore")
+                # Get relative path from repo root
+                rel_path = requirements_file.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```\n{content[:1000]}\n```")
             except Exception:
-                pass
+                continue
+        
+        # Find all package.json files recursively
+        for package_json in repo_path.rglob("package.json"):
+            # Skip if in ignored directory
+            if any(pattern in str(package_json) for pattern in ignore_patterns):
+                continue
+            
+            try:
+                content = package_json.read_text(encoding="utf-8", errors="ignore")
+                # Get relative path from repo root
+                rel_path = package_json.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```json\n{content[:1000]}\n```")
+            except Exception:
+                continue
+        
+        # Find all pyproject.toml files recursively (Python projects using modern tooling)
+        for pyproject_toml in repo_path.rglob("pyproject.toml"):
+            if any(pattern in str(pyproject_toml) for pattern in ignore_patterns):
+                continue
+            
+            try:
+                content = pyproject_toml.read_text(encoding="utf-8", errors="ignore")
+                rel_path = pyproject_toml.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```toml\n{content[:1000]}\n```")
+            except Exception:
+                continue
+        
+        # Find all Gemfile files recursively (Ruby projects)
+        for gemfile in repo_path.rglob("Gemfile"):
+            if any(pattern in str(gemfile) for pattern in ignore_patterns):
+                continue
+            
+            try:
+                content = gemfile.read_text(encoding="utf-8", errors="ignore")
+                rel_path = gemfile.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```ruby\n{content[:1000]}\n```")
+            except Exception:
+                continue
+        
+        # Find all Cargo.toml files recursively (Rust projects)
+        for cargo_toml in repo_path.rglob("Cargo.toml"):
+            if any(pattern in str(cargo_toml) for pattern in ignore_patterns):
+                continue
+            
+            try:
+                content = cargo_toml.read_text(encoding="utf-8", errors="ignore")
+                rel_path = cargo_toml.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```toml\n{content[:1000]}\n```")
+            except Exception:
+                continue
+        
+        # Find all go.mod files recursively (Go projects)
+        for go_mod in repo_path.rglob("go.mod"):
+            if any(pattern in str(go_mod) for pattern in ignore_patterns):
+                continue
+            
+            try:
+                content = go_mod.read_text(encoding="utf-8", errors="ignore")
+                rel_path = go_mod.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```\n{content[:1000]}\n```")
+            except Exception:
+                continue
         
         return "\n\n".join(dependencies) if dependencies else "No dependency files found"
 
     async def _extract_config_files(self, repo_path: Path) -> dict[str, str]:
-        """Extract key configuration files."""
+        """Extract key configuration files recursively."""
         config_files = {}
         
-        config_patterns = [
-            ".env.example",
-            "config.py",
-            "settings.py",
-            "docker-compose.yml",
-            "Dockerfile",
+        # Ignore common build/dependency directories
+        ignore_patterns = {
+            "node_modules", ".git", "venv", "__pycache__", ".next",
+            "dist", "build", "target", ".gradle", ".idea", ".venv",
+            "env", ".env", "vendor", "coverage", ".nyc_output",
+        }
+        
+        # Common configuration file patterns (exact matches)
+        exact_config_patterns = [
+            # Environment files
+            ".env.example", ".env.sample", ".env.template",
+            # Docker
+            "docker-compose.yml", "docker-compose.yaml", "Dockerfile", ".dockerignore",
+            # Firebase
+            "firebase.json", ".firebaserc", "firestore.rules",
+            # Deployment
+            "vercel.json", "netlify.toml", ".vercelignore", ".netlifyignore",
+            # Python config
+            "config.py", "settings.py", "setup.py", "setup.cfg", "tox.ini", "pytest.ini",
+            # TypeScript/JavaScript config
+            "tsconfig.json", "jsconfig.json",
+            # CI/CD
+            ".gitlab-ci.yml",
+            # Other common config files
+            ".editorconfig", ".gitignore",
         ]
         
-        for pattern in config_patterns:
-            config_file = repo_path / pattern
-            if config_file.exists():
+        # Patterns with extensions (search for base name with any extension)
+        config_base_names = [
+            # Build tools
+            "webpack.config", "vite.config", "next.config", "nuxt.config",
+            "rollup.config", "esbuild.config", "swc.config",
+            # CSS config
+            "tailwind.config", "postcss.config",
+            # Testing
+            "jest.config", "vitest.config",
+            # Linting/Formatting
+            ".eslintrc", ".prettierrc",
+            # TypeScript config variants
+            "tsconfig",
+        ]
+        
+        # Extension patterns to check
+        config_extensions = [".json", ".js", ".ts", ".mjs", ".cjs", ".yml", ".yaml", ".toml"]
+        
+        # Search for exact patterns
+        for pattern in exact_config_patterns:
+            for config_file in repo_path.rglob(pattern):
+                # Skip if in ignored directory
+                if any(ip in str(config_file) for ip in ignore_patterns):
+                    continue
+                
                 try:
-                    content = config_file.read_text()
-                    config_files[pattern] = content[:500]  # Limit content
+                    content = config_file.read_text(encoding="utf-8", errors="ignore")
+                    rel_path = config_file.relative_to(repo_path)
+                    config_files[str(rel_path)] = content[:1000]
                 except Exception:
-                    pass
+                    continue
+        
+        # Search for base names with various extensions
+        for base_name in config_base_names:
+            for ext in config_extensions:
+                pattern = f"{base_name}{ext}"
+                for config_file in repo_path.rglob(pattern):
+                    if any(ip in str(config_file) for ip in ignore_patterns):
+                        continue
+                    
+                    try:
+                        content = config_file.read_text(encoding="utf-8", errors="ignore")
+                        rel_path = config_file.relative_to(repo_path)
+                        config_files[str(rel_path)] = content[:1000]
+                    except Exception:
+                        continue
+        
+        # Search for CI/CD workflow files
+        for workflow_file in (repo_path / ".github" / "workflows").rglob("*.yml"):
+            if any(ip in str(workflow_file) for ip in ignore_patterns):
+                continue
+            try:
+                content = workflow_file.read_text(encoding="utf-8", errors="ignore")
+                rel_path = workflow_file.relative_to(repo_path)
+                config_files[str(rel_path)] = content[:1000]
+            except Exception:
+                pass
+        
+        for workflow_file in (repo_path / ".github" / "workflows").rglob("*.yaml"):
+            if any(ip in str(workflow_file) for ip in ignore_patterns):
+                continue
+            try:
+                content = workflow_file.read_text(encoding="utf-8", errors="ignore")
+                rel_path = workflow_file.relative_to(repo_path)
+                config_files[str(rel_path)] = content[:1000]
+            except Exception:
+                pass
+        
+        # Search for .circleci/config.yml
+        circleci_config = repo_path / ".circleci" / "config.yml"
+        if circleci_config.exists():
+            try:
+                content = circleci_config.read_text(encoding="utf-8", errors="ignore")
+                rel_path = circleci_config.relative_to(repo_path)
+                config_files[str(rel_path)] = content[:1000]
+            except Exception:
+                pass
+        
+        # Search for pyproject.toml (Python modern config)
+        for pyproject in repo_path.rglob("pyproject.toml"):
+            if any(ip in str(pyproject) for ip in ignore_patterns):
+                continue
+            try:
+                content = pyproject.read_text(encoding="utf-8", errors="ignore")
+                rel_path = pyproject.relative_to(repo_path)
+                config_files[str(rel_path)] = content[:1000]
+            except Exception:
+                continue
         
         return config_files
 
@@ -264,15 +526,20 @@ class AnalysisService:
         """Extract representative code samples."""
         code_samples = {}
         
-        # Get a diverse set of files
-        if "files" in structure_data:
+        # Get a diverse set of files from file_tree
+        if structure_data and "file_tree" in structure_data:
             files_to_sample = []
             
-            # Prioritize important file types
-            for file_info in structure_data["files"][:50]:
-                file_path = file_info.get("path") if isinstance(file_info, dict) else file_info
-                if any(ext in str(file_path) for ext in [".py", ".ts", ".tsx", ".js", ".jsx"]):
-                    files_to_sample.append(file_path)
+            # Filter for code files from file_tree
+            for node in structure_data["file_tree"]:
+                if node.get("type") == "file":
+                    file_path = node.get("path", node.get("name", ""))
+                    if any(ext in str(file_path) for ext in [".py", ".ts", ".tsx", ".js", ".jsx"]):
+                        files_to_sample.append(file_path)
+                
+                # Limit initial search
+                if len(files_to_sample) >= 50:
+                    break
             
             # Read up to 10 files
             for file_path in files_to_sample[:10]:

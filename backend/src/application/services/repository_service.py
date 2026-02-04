@@ -78,13 +78,32 @@ class RepositoryService:
         if repo_path.exists():
             shutil.rmtree(repo_path)
         
+        # Ensure temp_dir exists
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
         # Clone with token authentication
         clone_url = f"https://{token}@github.com/{repo.full_name}.git"
-        subprocess.run(
+        result = subprocess.run(
             ["git", "clone", "--depth", "1", clone_url, str(repo_path)],
             check=True,
             capture_output=True,
+            text=True,
         )
+        
+        # Verify clone succeeded - check if directory exists and has content
+        if not repo_path.exists():
+            raise RuntimeError(f"Repository clone failed: directory {repo_path} does not exist after clone")
+        
+        if not repo_path.is_dir():
+            raise RuntimeError(f"Repository clone failed: {repo_path} is not a directory")
+        
+        # Check if repository has any content (at least .git should be there)
+        items = list(repo_path.iterdir())
+        if len(items) == 0:
+            raise RuntimeError(f"Repository clone failed: directory {repo_path} is empty after clone")
+        
+        # Resolve to absolute path to avoid any path resolution issues
+        repo_path = repo_path.resolve()
         
         return repo_path
 

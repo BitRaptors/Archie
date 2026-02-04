@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 from sentence_transformers import SentenceTransformer
 from config.settings import get_settings
+from application.services.debug_collector import debug_collector
 
 
 class RAGRetriever:
@@ -113,6 +114,10 @@ class RAGRetriever:
                 "INFO", 
                 f"Indexing complete: {stats['files']} files, {stats['chunks']} chunks, {stats['total_lines']} total lines"
             )
+        
+        # Capture debug stats
+        if analysis_id:
+            debug_collector.capture_rag_stats(analysis_id, stats)
         
         return stats
 
