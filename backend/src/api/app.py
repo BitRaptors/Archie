@@ -7,6 +7,7 @@ from config.container import Container
 from config.settings import get_settings
 from domain.exceptions.domain_exceptions import DomainException
 from api.middleware.error_handler import domain_exception_handler
+from application.services.analysis_data_collector import analysis_data_collector
 
 
 @asynccontextmanager
@@ -14,6 +15,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan for initializing resources."""
     # Initialize container resources
     await app.container.init_resources()
+    
+    # Initialize analysis_data_collector with Supabase client for cross-process persistence
+    supabase_client = await app.container.supabase_client()
+    analysis_data_collector.initialize(supabase_client)
+    
     yield
     # Shutdown resources
     await app.container.shutdown_resources()

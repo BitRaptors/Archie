@@ -4,6 +4,7 @@ import pytest
 import os
 import uuid
 from dotenv import load_dotenv
+from unittest.mock import MagicMock
 
 # Add src to path
 src_path = str(Path(__file__).parent.parent.parent / "src")
@@ -23,6 +24,8 @@ from infrastructure.persistence.repository_repository import SupabaseRepositoryR
 from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
 from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
 from infrastructure.storage.local_storage import LocalStorage
+from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
+from infrastructure.analysis.structure_analyzer import StructureAnalyzer
 
 
 @pytest.fixture
@@ -79,20 +82,20 @@ async def test_analyze_bitraptors_raptamagochi(container, github_token):
         storage=storage,
     )
     
+    # Create mock dependencies for AnalysisService
+    structure_analyzer = StructureAnalyzer()
+    
+    # Create mock phased blueprint generator
+    mock_generator = MagicMock(spec=PhasedBlueprintGenerator)
+    mock_generator._progress_callback = None
+    
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,
         repository_repo=repo_repo,
         event_repo=event_repo,
-        structure_analyzer=object(),
-        embedding_generator=object(),
-        ast_extractor=object(),
-        pattern_detector=object(),
-        semantic_pattern_finder=object(),
-        blueprint_analyzer=object(),
-        blueprint_generator=object(),
-        prompt_service=object(),
-        temp_storage=object(),
+        structure_analyzer=structure_analyzer,
         persistent_storage=storage,
+        phased_blueprint_generator=mock_generator,
     )
     
     # Ensure user exists

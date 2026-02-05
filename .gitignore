@@ -91,6 +91,7 @@ coverage.xml
 # Project Specific
 backend/storage/
 backend/temp/
+backend/.debug_data/
 blueprints/
 analysis_data/
 *.db

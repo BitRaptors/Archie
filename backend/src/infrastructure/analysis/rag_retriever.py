@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 from sentence_transformers import SentenceTransformer
 from config.settings import get_settings
-from application.services.debug_collector import debug_collector
+from application.services.analysis_data_collector import analysis_data_collector
 
 
 class RAGRetriever:
@@ -27,6 +27,18 @@ class RAGRetriever:
         self._client = supabase_client
         self._embedding_dim = 384  # all-MiniLM-L6-v2 dimension
         self._progress_callback = progress_callback
+        self._custom_queries = {}  # Custom queries from observation phase
+    
+    def set_custom_queries(self, custom_queries: dict[str, list[str]]) -> None:
+        """Set custom queries generated from observation phase.
+        
+        These queries are specific to the observed architecture style
+        and will be used instead of (or in addition to) default queries.
+        
+        Args:
+            custom_queries: Dictionary of phase -> list of custom query strings
+        """
+        self._custom_queries = custom_queries or {}
 
     async def index_repository(self, repository_id: str, repo_path: Path, analysis_id: str | None = None) -> dict[str, Any]:
         """Index a repository by generating embeddings for all code files.
@@ -115,9 +127,9 @@ class RAGRetriever:
                 f"Indexing complete: {stats['files']} files, {stats['chunks']} chunks, {stats['total_lines']} total lines"
             )
         
-        # Capture debug stats
+        # Capture RAG stats
         if analysis_id:
-            debug_collector.capture_rag_stats(analysis_id, stats)
+            await analysis_data_collector.capture_rag_stats(analysis_id, stats)
         
         return stats
 
@@ -419,7 +431,26 @@ class RAGRetriever:
         return chunks
 
     def _get_phase_queries(self, phase: str, context: dict[str, Any] | None) -> list[str]:
-        """Get optimized queries for each analysis phase."""
+        """Get optimized queries for each analysis phase.
+        
+        If custom queries were set from the observation phase, use those.
+        Otherwise fall back to default queries.
+        """
+        # Check for custom queries from observation phase
+        if self._custom_queries and phase in self._custom_queries:
+            custom = self._custom_queries[phase]
+            if custom:
+                # Combine custom queries with a few defaults for robustness
+                default_fallbacks = {
+                    "discovery": ["main entry point", "configuration"],
+                    "layers": ["service", "repository", "controller"],
+                    "patterns": ["pattern implementation", "factory"],
+                    "communication": ["API endpoint", "event handler"],
+                    "technology": ["import from require"],
+                }
+                return custom + default_fallbacks.get(phase, [])[:2]
+        
+        # Default queries (for traditional architectures or when no custom queries)
         queries = {
             "discovery": [
                 "main entry point application startup initialization",

@@ -5,20 +5,21 @@ from typing import Any
 from anthropic import AsyncAnthropic
 from infrastructure.prompts.prompt_loader import PromptLoader
 from infrastructure.analysis.rag_retriever import RAGRetriever
-from application.services.debug_collector import debug_collector
+from application.services.analysis_data_collector import analysis_data_collector
 from config.settings import Settings
 
 
 class PhasedBlueprintGenerator:
     """Generates comprehensive architecture blueprints through phased AI analysis.
     
-    This generator uses a hybrid approach:
-    1. RAG-based retrieval: Semantically search entire codebase for relevant code
-    2. Structure analysis: Understand overall project organization
-    3. Phased AI analysis: Build understanding incrementally across 6 phases
+    This generator uses an OBSERVATION-FIRST approach:
+    1. Full File Scan: Extract signatures from ALL files (not just RAG matches)
+    2. Pattern Detection: AI observes patterns WITHOUT predefined assumptions
+    3. Dynamic Queries: Generate RAG queries based on what was ACTUALLY observed
+    4. Phased Analysis: Build understanding incrementally with targeted retrieval
     
-    This allows analyzing codebases of ANY size by retrieving only the most
-    relevant code for each analysis phase.
+    This allows analyzing ANY architecture style - traditional layered, actor-based,
+    event-sourced, CQRS, Flux, or completely custom patterns.
     """
 
     def __init__(self, settings: Settings, supabase_client=None, progress_callback=None):
@@ -85,10 +86,30 @@ class PhasedBlueprintGenerator:
                 if self._progress_callback and analysis_id:
                     await self._progress_callback(analysis_id, "INFO", "RAG indexing failed, falling back to sample-based analysis")
         
-        # Phase 1: Discovery - understand project purpose and structure
+        # PHASE 0: Observation-first full file scan (architecture-agnostic)
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 1: Analyzing project structure and discovery...")
-        phase1_result = await self._run_phase1_discovery(
+            await self._progress_callback(analysis_id, "INFO", "Phase 0: Full file signature scan (architecture-agnostic observation)...")
+        
+        observation_result = await self._run_observation_phase(
+            repo_path=repo_path,
+            repository_name=repository_name,
+            analysis_id=analysis_id,
+        )
+        
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Observation complete - detected architecture style and patterns")
+        
+        # Update RAG queries based on observations (if RAG is enabled)
+        custom_rag_queries = None
+        if rag_enabled and observation_result:
+            custom_rag_queries = await self._generate_dynamic_rag_queries(observation_result, analysis_id)
+            if self._rag_retriever:
+                self._rag_retriever.set_custom_queries(custom_rag_queries)
+        
+        # Discovery: understand project purpose and structure
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Analyzing project structure and discovery...")
+        discovery_result = await self._run_discovery_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
             repo_path=repo_path,
@@ -97,100 +118,94 @@ class PhasedBlueprintGenerator:
             config_files=config_files,
             rag_enabled=rag_enabled,
             analysis_id=analysis_id,
+            observation_result=observation_result,  # Pass observation insights
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 1 complete: Project discovery finished")
+            await self._progress_callback(analysis_id, "INFO", "Project discovery finished")
         
-        # Phase 2: Layer Identification - identify architectural layers
+        # Layers: identify architectural layers
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 2: Identifying architectural layers...")
-        phase2_result = await self._run_phase2_layers(
+            await self._progress_callback(analysis_id, "INFO", "Identifying architectural layers...")
+        layers_result = await self._run_layers_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
             repo_path=repo_path,
-            discovery_summary=phase1_result,
+            discovery_summary=discovery_result,
             file_tree=file_tree,
             code_samples=code_samples,
             rag_enabled=rag_enabled,
             analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 2 complete: Layer architecture identified")
+            await self._progress_callback(analysis_id, "INFO", "Layer architecture identified")
         
-        # Phase 3: Pattern Extraction - identify design patterns
+        # Patterns: identify design patterns
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 3: Extracting design patterns...")
-        phase3_result = await self._run_phase3_patterns(
+            await self._progress_callback(analysis_id, "INFO", "Extracting design patterns...")
+        patterns_result = await self._run_patterns_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
             repo_path=repo_path,
-            discovery_summary=phase1_result,
-            layer_analysis=phase2_result,
+            discovery_summary=discovery_result,
+            layer_analysis=layers_result,
             code_samples=code_samples,
             rag_enabled=rag_enabled,
             analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 3 complete: Design patterns extracted")
+            await self._progress_callback(analysis_id, "INFO", "Design patterns extracted")
         
-        # Phase 4: Communication Analysis - how components communicate
+        # Communication: how components communicate
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 4: Analyzing communication patterns...")
-        previous_phases = {
-            "discovery": phase1_result,
-            "layers": phase2_result,
-            "patterns": phase3_result,
+            await self._progress_callback(analysis_id, "INFO", "Analyzing communication patterns...")
+        previous_analyses = {
+            "discovery": discovery_result,
+            "layers": layers_result,
+            "patterns": patterns_result,
         }
-        phase4_result = await self._run_phase4_communication(
+        communication_result = await self._run_communication_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
             repo_path=repo_path,
-            previous_phases=json.dumps(previous_phases, indent=2),
+            previous_analyses=json.dumps(previous_analyses, indent=2),
             code_samples=code_samples,
             rag_enabled=rag_enabled,
             analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 4 complete: Communication patterns analyzed")
+            await self._progress_callback(analysis_id, "INFO", "Communication patterns analyzed")
         
-        # Phase 5: Technology Inventory - complete tech stack
+        # Technology: complete tech stack inventory
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 5: Inventorying technology stack...")
-        all_phases = {
-            "discovery": phase1_result,
-            "layers": phase2_result,
-            "patterns": phase3_patterns, # WAIT, previous code used phase3_result
-            "communication": phase4_result,
+            await self._progress_callback(analysis_id, "INFO", "Inventorying technology stack...")
+        all_analyses = {
+            "discovery": discovery_result,
+            "layers": layers_result,
+            "patterns": patterns_result,
+            "communication": communication_result,
         }
-        # Fixed: using phase3_result instead of phase3_patterns which was likely a typo in my thought process or existing code
-        all_phases = {
-            "discovery": phase1_result,
-            "layers": phase2_result,
-            "patterns": phase3_result,
-            "communication": phase4_result,
-        }
-        phase5_result = await self._run_phase5_technology(
+        technology_result = await self._run_technology_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
             repo_path=repo_path,
-            all_phases=json.dumps(all_phases, indent=2),
+            all_analyses=json.dumps(all_analyses, indent=2),
             dependencies=dependencies,
             rag_enabled=rag_enabled,
             analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Phase 5 complete: Technology inventory complete")
+            await self._progress_callback(analysis_id, "INFO", "Technology inventory complete")
         
         # Final Synthesis: Generate comprehensive backend blueprint
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Generating backend architecture blueprint...")
         final_blueprint = await self._run_backend_synthesis(
             repository_name=repository_name,
-            phase1_discovery=phase1_result,
-            phase2_layers=phase2_result,
-            phase3_patterns=phase3_result,
-            phase4_communication=phase4_result,
-            phase5_technology=phase5_result,
+            discovery=discovery_result,
+            layers=layers_result,
+            patterns=patterns_result,
+            communication=communication_result,
+            technology=technology_result,
             code_samples=self._format_code_samples(code_samples),
             analysis_id=analysis_id,
         )
@@ -199,18 +214,18 @@ class PhasedBlueprintGenerator:
 
     async def _retrieve_relevant_code(
         self,
-        phase: str,
+        stage: str,
         repository_id: str,
         repo_path: Path,
         context: dict[str, Any] | None = None,
     ) -> str:
-        """Retrieve relevant code chunks for a phase using RAG.
+        """Retrieve relevant code chunks for an analysis stage using RAG.
         
         Args:
-            phase: Current analysis phase
+            stage: Current analysis stage (discovery, layers, patterns, etc.)
             repository_id: UUID of the repository
             repo_path: Path to cloned repository
-            context: Context from previous phases
+            context: Context from previous stages
             
         Returns:
             Formatted string of relevant code chunks
@@ -220,7 +235,7 @@ class PhasedBlueprintGenerator:
         
         try:
             chunks = await self._rag_retriever.retrieve_for_phase(
-                phase=phase,
+                phase=stage,
                 repository_id=repository_id,
                 context=context,
             )
@@ -259,7 +274,7 @@ class PhasedBlueprintGenerator:
         except Exception:
             return ""
 
-    async def _run_phase1_discovery(
+    async def _run_discovery_analysis(
         self,
         repository_name: str,
         repository_id: str | None,
@@ -269,9 +284,13 @@ class PhasedBlueprintGenerator:
         config_files: dict[str, str],
         rag_enabled: bool,
         analysis_id: str | None = None,
+        observation_result: str = "",
     ) -> str:
-        """Run Phase 1: Discovery - understand project purpose and structure."""
-        prompt = self._prompt_loader.get_prompt_by_key("phase1_discovery")
+        """Run Discovery analysis: understand project purpose and structure.
+        
+        Enhanced with observation results from the full file scan phase.
+        """
+        prompt = self._prompt_loader.get_prompt_by_key("discovery")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -288,16 +307,21 @@ class PhasedBlueprintGenerator:
         # Combine static samples with RAG-retrieved code
         all_code = retrieved_code or config_files_str[:1000]
         
+        # Include observation insights in the prompt
+        observation_context = ""
+        if observation_result:
+            observation_context = f"\n\n## Architecture Observations (from full file scan)\n{observation_result[:2000]}\n\nUse these observations to inform your discovery analysis."
+        
         prompt_text = prompt.render({
             "repository_name": repository_name,
-            "file_tree": file_tree[:3000],  # Increased limit with RAG
+            "file_tree": file_tree[:3000],
             "dependencies": dependencies[:1500],
-            "config_files": all_code[:4000],  # RAG provides more relevant code
+            "config_files": all_code[:4000] + observation_context,
         })
         
-        # Capture debug data if analysis_id is provided
+        # Capture analysis data if analysis_id is provided
         if analysis_id:
-            debug_collector.capture_phase_data(analysis_id, "phase1_discovery", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "discovery", 
                 gathered={
                     "file_tree": {"full_content": file_tree, "char_count": len(file_tree)},
                     "dependencies": {"full_content": dependencies, "char_count": len(dependencies)},
@@ -320,7 +344,7 @@ class PhasedBlueprintGenerator:
         
         return response.content[0].text
 
-    async def _run_phase2_layers(
+    async def _run_layers_analysis(
         self,
         repository_name: str,
         repository_id: str | None,
@@ -331,14 +355,14 @@ class PhasedBlueprintGenerator:
         rag_enabled: bool,
         analysis_id: str | None = None,
     ) -> str:
-        """Run Phase 2: Layer Identification."""
-        prompt = self._prompt_loader.get_prompt_by_key("phase2_layers")
+        """Run Layers analysis: identify architectural layers."""
+        prompt = self._prompt_loader.get_prompt_by_key("layers")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
         if rag_enabled and repository_id:
             # Pass discovery context for smarter retrieval
-            context = {"phase": "discovery", "summary": discovery_summary[:500]}
+            context = {"stage": "discovery", "summary": discovery_summary[:500]}
             retrieved_code = await self._retrieve_relevant_code(
                 "layers", repository_id, repo_path, context
             )
@@ -351,12 +375,12 @@ class PhasedBlueprintGenerator:
             "repository_name": repository_name,
             "discovery_summary": discovery_summary[:1500],
             "file_tree": file_tree[:2500],
-            "code_samples": code_to_analyze[:5000],  # More code with RAG
+            "code_samples": code_to_analyze[:5000],
         })
         
-        # Capture debug data if analysis_id is provided
+        # Capture analysis data if analysis_id is provided
         if analysis_id:
-            debug_collector.capture_phase_data(analysis_id, "phase2_layers", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "layers", 
                 gathered={
                     "discovery_summary": {"full_content": discovery_summary, "char_count": len(discovery_summary)},
                     "file_tree": {"full_content": file_tree, "char_count": len(file_tree)},
@@ -379,7 +403,7 @@ class PhasedBlueprintGenerator:
         
         return response.content[0].text
 
-    async def _run_phase3_patterns(
+    async def _run_patterns_analysis(
         self,
         repository_name: str,
         repository_id: str | None,
@@ -390,8 +414,8 @@ class PhasedBlueprintGenerator:
         rag_enabled: bool,
         analysis_id: str | None = None,
     ) -> str:
-        """Run Phase 3: Pattern Extraction."""
-        prompt = self._prompt_loader.get_prompt_by_key("phase3_patterns")
+        """Run Patterns analysis: identify design patterns."""
+        prompt = self._prompt_loader.get_prompt_by_key("patterns")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -411,12 +435,12 @@ class PhasedBlueprintGenerator:
             "repository_name": repository_name,
             "discovery_summary": discovery_summary[:1000],
             "layer_analysis": layer_analysis[:1500],
-            "code_samples": code_to_analyze[:6000],  # More code with RAG
+            "code_samples": code_to_analyze[:6000],
         })
         
-        # Capture debug data
+        # Capture analysis data
         if analysis_id:
-            debug_collector.capture_phase_data(analysis_id, "phase3_patterns", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "patterns", 
                 gathered={
                     "discovery_summary": {"full_content": discovery_summary, "char_count": len(discovery_summary)},
                     "layer_analysis": {"full_content": layer_analysis, "char_count": len(layer_analysis)},
@@ -439,18 +463,18 @@ class PhasedBlueprintGenerator:
         
         return response.content[0].text
 
-    async def _run_phase4_communication(
+    async def _run_communication_analysis(
         self,
         repository_name: str,
         repository_id: str | None,
         repo_path: Path,
-        previous_phases: str,
+        previous_analyses: str,
         code_samples: dict[str, str],
         rag_enabled: bool,
         analysis_id: str | None = None,
     ) -> str:
-        """Run Phase 4: Communication Analysis."""
-        prompt = self._prompt_loader.get_prompt_by_key("phase4_communication")
+        """Run Communication analysis: how components communicate."""
+        prompt = self._prompt_loader.get_prompt_by_key("communication")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -464,19 +488,19 @@ class PhasedBlueprintGenerator:
         
         prompt_text = prompt.render({
             "repository_name": repository_name,
-            "previous_phases": previous_phases[:3000],
+            "previous_analyses": previous_analyses[:3000],
             "code_samples": code_to_analyze[:5000],
         })
         
-        # Capture debug data
+        # Capture analysis data
         if analysis_id:
-            debug_collector.capture_phase_data(analysis_id, "phase4_communication", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "communication", 
                 gathered={
-                    "previous_phases": {"full_content": previous_phases, "char_count": len(previous_phases)},
+                    "previous_analyses": {"full_content": previous_analyses, "char_count": len(previous_analyses)},
                     "code_samples": {"full_content": code_to_analyze, "char_count": len(code_to_analyze)}
                 },
                 sent={
-                    "previous_phases": {"content": previous_phases[:3000], "char_count": len(previous_phases[:3000]), "truncated_from": len(previous_phases)},
+                    "previous_analyses": {"content": previous_analyses[:3000], "char_count": len(previous_analyses[:3000]), "truncated_from": len(previous_analyses)},
                     "code_samples": {"content": code_to_analyze[:5000], "char_count": len(code_to_analyze[:5000]), "truncated_from": len(code_to_analyze)},
                     "full_prompt": prompt_text
                 },
@@ -491,18 +515,18 @@ class PhasedBlueprintGenerator:
         
         return response.content[0].text
 
-    async def _run_phase5_technology(
+    async def _run_technology_analysis(
         self,
         repository_name: str,
         repository_id: str | None,
         repo_path: Path,
-        all_phases: str,
+        all_analyses: str,
         dependencies: str,
         rag_enabled: bool,
         analysis_id: str | None = None,
     ) -> str:
-        """Run Phase 5: Technology Inventory."""
-        prompt = self._prompt_loader.get_prompt_by_key("phase5_technology")
+        """Run Technology analysis: complete tech stack inventory."""
+        prompt = self._prompt_loader.get_prompt_by_key("technology")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -516,19 +540,19 @@ class PhasedBlueprintGenerator:
         
         prompt_text = prompt.render({
             "repository_name": repository_name,
-            "all_phases": all_phases[:3500],
+            "all_analyses": all_analyses[:3500],
             "dependencies": tech_context,
         })
         
-        # Capture debug data
+        # Capture analysis data
         if analysis_id:
-            debug_collector.capture_phase_data(analysis_id, "phase5_technology", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "technology", 
                 gathered={
-                    "all_phases": {"full_content": all_phases, "char_count": len(all_phases)},
+                    "all_analyses": {"full_content": all_analyses, "char_count": len(all_analyses)},
                     "dependencies": {"full_content": dependencies, "char_count": len(dependencies)}
                 },
                 sent={
-                    "all_phases": {"content": all_phases[:3500], "char_count": len(all_phases[:3500]), "truncated_from": len(all_phases)},
+                    "all_analyses": {"content": all_analyses[:3500], "char_count": len(all_analyses[:3500]), "truncated_from": len(all_analyses)},
                     "dependencies": {"content": tech_context, "char_count": len(tech_context), "truncated_from": len(dependencies) + len(retrieved_code)},
                     "full_prompt": prompt_text
                 },
@@ -546,11 +570,11 @@ class PhasedBlueprintGenerator:
     async def _run_backend_synthesis(
         self,
         repository_name: str,
-        phase1_discovery: str,
-        phase2_layers: str,
-        phase3_patterns: str,
-        phase4_communication: str,
-        phase5_technology: str,
+        discovery: str,
+        layers: str,
+        patterns: str,
+        communication: str,
+        technology: str,
         code_samples: str,
         analysis_id: str | None = None,
     ) -> str:
@@ -559,31 +583,31 @@ class PhasedBlueprintGenerator:
         
         prompt_text = prompt.render({
             "repository_name": repository_name,
-            "phase1_discovery": phase1_discovery[:2500],
-            "phase2_layers": phase2_layers[:2500],
-            "phase3_patterns": phase3_patterns[:2500],
-            "phase4_communication": phase4_communication[:2500],
-            "phase5_technology": phase5_technology[:2500],
+            "discovery": discovery[:2500],
+            "layers": layers[:2500],
+            "patterns": patterns[:2500],
+            "communication": communication[:2500],
+            "technology": technology[:2500],
             "code_samples": code_samples[:4000],
         })
         
-        # Capture debug data
+        # Capture analysis data
         if analysis_id:
-            debug_collector.capture_phase_data(analysis_id, "backend_synthesis", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "backend_synthesis", 
                 gathered={
-                    "phase1": {"full_content": phase1_discovery, "char_count": len(phase1_discovery)},
-                    "phase2": {"full_content": phase2_layers, "char_count": len(phase2_layers)},
-                    "phase3": {"full_content": phase3_patterns, "char_count": len(phase3_patterns)},
-                    "phase4": {"full_content": phase4_communication, "char_count": len(phase4_communication)},
-                    "phase5": {"full_content": phase5_technology, "char_count": len(phase5_technology)},
+                    "discovery": {"full_content": discovery, "char_count": len(discovery)},
+                    "layers": {"full_content": layers, "char_count": len(layers)},
+                    "patterns": {"full_content": patterns, "char_count": len(patterns)},
+                    "communication": {"full_content": communication, "char_count": len(communication)},
+                    "technology": {"full_content": technology, "char_count": len(technology)},
                     "code_samples": {"full_content": code_samples, "char_count": len(code_samples)}
                 },
                 sent={
-                    "phase1": {"content": phase1_discovery[:2500], "char_count": len(phase1_discovery[:2500]), "truncated_from": len(phase1_discovery)},
-                    "phase2": {"content": phase2_layers[:2500], "char_count": len(phase2_layers[:2500]), "truncated_from": len(phase2_layers)},
-                    "phase3": {"content": phase3_patterns[:2500], "char_count": len(phase3_patterns[:2500]), "truncated_from": len(phase3_patterns)},
-                    "phase4": {"content": phase4_communication[:2500], "char_count": len(phase4_communication[:2500]), "truncated_from": len(phase4_communication)},
-                    "phase5": {"content": phase5_technology[:2500], "char_count": len(phase5_technology[:2500]), "truncated_from": len(phase5_technology)},
+                    "discovery": {"content": discovery[:2500], "char_count": len(discovery[:2500]), "truncated_from": len(discovery)},
+                    "layers": {"content": layers[:2500], "char_count": len(layers[:2500]), "truncated_from": len(layers)},
+                    "patterns": {"content": patterns[:2500], "char_count": len(patterns[:2500]), "truncated_from": len(patterns)},
+                    "communication": {"content": communication[:2500], "char_count": len(communication[:2500]), "truncated_from": len(communication)},
+                    "technology": {"content": technology[:2500], "char_count": len(technology[:2500]), "truncated_from": len(technology)},
                     "code_samples": {"content": code_samples[:4000], "char_count": len(code_samples[:4000]), "truncated_from": len(code_samples)},
                     "full_prompt": prompt_text
                 }
@@ -634,3 +658,364 @@ Unable to analyze architecture without AI service configuration.
 
 Please configure the Anthropic API key to enable full blueprint generation.
 """
+
+    async def _run_observation_phase(
+        self,
+        repo_path: Path,
+        repository_name: str,
+        analysis_id: str | None = None,
+    ) -> str:
+        """Run observation-first full file scan.
+        
+        This phase scans ALL code files and extracts signatures to give the AI
+        a complete view of the codebase WITHOUT predefined pattern assumptions.
+        
+        The AI observes what's there and describes the architecture style,
+        whether it's layered, actor-based, event-sourced, or completely custom.
+        
+        Args:
+            repo_path: Path to cloned repository
+            repository_name: Name of the repository
+            analysis_id: UUID of the analysis
+            
+        Returns:
+            Observation result describing detected architecture style and patterns
+        """
+        # Extract file signatures from ALL code files
+        file_signatures = await self._extract_all_file_signatures(repo_path, analysis_id)
+        
+        if not file_signatures:
+            return "No code files found for observation."
+        
+        # Build the observation prompt
+        prompt_text = f"""## Architecture Observation - {repository_name}
+
+**CRITICAL INSTRUCTIONS:**
+You are analyzing a codebase to understand its architecture. Your goal is to OBSERVE and DESCRIBE what exists, NOT to categorize it into known patterns.
+
+**DO NOT:**
+- Assume this is a "layered architecture", "MVC", "Clean Architecture", or any specific pattern
+- Look for patterns that match your training data
+- Force observations into predefined categories
+
+**DO:**
+- Describe the ACTUAL file organization you see
+- Identify how files relate to each other based on naming and imports
+- Note any conventions unique to this codebase
+- Describe the architectural style in plain language
+- Identify what makes this codebase unique
+
+## File Signatures (Every code file in the repository)
+
+{file_signatures}
+
+## Your Task
+
+1. **Describe the Organization**: How are files/modules organized? What's the directory structure communicating?
+
+2. **Identify Components**: What are the main types of components? (Don't assume - observe from class names, file names, imports)
+
+3. **Trace Dependencies**: Based on imports, how do components relate to each other?
+
+4. **Detect Patterns**: What patterns or conventions are being used? (Could be standard, could be custom)
+
+5. **Architecture Style**: In plain language, describe the architectural style. Examples:
+   - "Actor-based with message passing"
+   - "Event-sourced with CQRS separation"
+   - "Feature-sliced with co-located concerns"
+   - "Traditional layered with services and repositories"
+   - "Functional core with imperative shell"
+   - Or describe something completely unique
+
+6. **Key Queries**: What specific terms/patterns should we search for to understand this codebase better?
+
+Provide your analysis in JSON format:
+```json
+{{
+  "organization_style": "Brief description of how files are organized",
+  "detected_components": [
+    {{"type": "component type observed", "naming_pattern": "how they're named", "examples": ["file1.ext", "file2.ext"]}}
+  ],
+  "dependency_flow": "How dependencies flow between components",
+  "architecture_style": "Plain language description of the architecture",
+  "unique_patterns": ["Patterns unique to this codebase"],
+  "standard_patterns_if_any": ["Any recognizable patterns, if present"],
+  "key_search_terms": ["Terms to search for to understand this architecture better"],
+  "concerns": ["Any architectural concerns or unusual patterns noted"]
+}}
+```"""
+
+        # Capture analysis data
+        if analysis_id:
+            await analysis_data_collector.capture_phase_data(
+                analysis_id, 
+                "observation",
+                gathered={"file_signatures": {"full_content": file_signatures, "char_count": len(file_signatures)}},
+                sent={"file_signatures": {"content": file_signatures, "char_count": len(file_signatures)}, "full_prompt": prompt_text}
+            )
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+        
+        return response.content[0].text
+
+    async def _extract_all_file_signatures(
+        self,
+        repo_path: Path,
+        analysis_id: str | None = None,
+    ) -> str:
+        """Extract signatures from ALL code files in the repository.
+        
+        For each file, extracts:
+        - File path
+        - Import statements (first 30 lines)
+        - Class/function signatures (names only, not implementation)
+        
+        This gives the AI visibility into the ENTIRE codebase structure
+        without needing to fit full file contents in context.
+        
+        Args:
+            repo_path: Path to repository
+            analysis_id: For progress logging
+            
+        Returns:
+            Formatted string of all file signatures
+        """
+        import re
+        
+        code_extensions = {
+            ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
+            ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
+            ".kt", ".scala", ".m", ".mm",  # Added Objective-C
+        }
+        
+        ignore_patterns = {
+            "node_modules", ".git", "venv", "__pycache__", ".next",
+            "dist", "build", "target", ".gradle", ".idea", ".venv",
+            "env", ".env", "vendor", "coverage", ".nyc_output", "Pods",
+        }
+        
+        signatures = []
+        file_count = 0
+        max_files = 300  # Limit to keep within token budget
+        
+        for ext in code_extensions:
+            for file_path in repo_path.rglob(f"*{ext}"):
+                if file_count >= max_files:
+                    break
+                    
+                if any(pattern in str(file_path) for pattern in ignore_patterns):
+                    continue
+                
+                try:
+                    content = file_path.read_text(encoding="utf-8", errors="ignore")
+                    relative_path = str(file_path.relative_to(repo_path))
+                    
+                    # Extract signature components
+                    signature = self._extract_file_signature(content, relative_path, ext)
+                    if signature:
+                        signatures.append(signature)
+                        file_count += 1
+                        
+                except Exception:
+                    continue
+            
+            if file_count >= max_files:
+                break
+        
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, 
+                "INFO", 
+                f"Extracted signatures from {file_count} code files"
+            )
+        
+        return "\n\n".join(signatures)
+
+    def _extract_file_signature(self, content: str, file_path: str, ext: str) -> str:
+        """Extract signature from a single file.
+        
+        Extracts:
+        - Imports (first 30 lines that contain import/require/use statements)
+        - Class/struct/interface definitions (just the signature line)
+        - Function/method definitions (just the signature line)
+        - Export statements (for JS/TS)
+        
+        Args:
+            content: File content
+            file_path: Relative file path
+            ext: File extension
+            
+        Returns:
+            Formatted signature string (~200-400 chars per file)
+        """
+        import re
+        
+        lines = content.split('\n')
+        
+        # Extract imports (limit to first 30 lines containing imports)
+        imports = []
+        import_patterns = {
+            '.py': r'^(?:from|import)\s+',
+            '.js': r'^(?:import|const.*require|export)',
+            '.jsx': r'^(?:import|const.*require|export)',
+            '.ts': r'^(?:import|const.*require|export)',
+            '.tsx': r'^(?:import|const.*require|export)',
+            '.java': r'^(?:import|package)\s+',
+            '.go': r'^(?:import|package)\s+',
+            '.rs': r'^(?:use|mod|extern)\s+',
+            '.swift': r'^(?:import|@)',
+            '.kt': r'^(?:import|package)\s+',
+            '.cs': r'^(?:using|namespace)\s+',
+            '.rb': r'^(?:require|include|extend)',
+            '.php': r'^(?:use|namespace|require|include)',
+            '.m': r'^(?:#import|#include|@import)',
+            '.mm': r'^(?:#import|#include|@import)',
+        }
+        
+        pattern = import_patterns.get(ext, r'^(?:import|from|use|require)')
+        for line in lines[:50]:
+            if re.match(pattern, line.strip()):
+                imports.append(line.strip())
+                if len(imports) >= 15:
+                    break
+        
+        # Extract class/struct/interface/protocol definitions
+        definitions = []
+        def_patterns = [
+            r'^(?:export\s+)?(?:abstract\s+)?(?:class|struct|interface|protocol|enum|type)\s+\w+',
+            r'^(?:public|private|internal|open|final)?\s*(?:class|struct|interface|enum)\s+\w+',
+            r'^(?:actor)\s+\w+',  # Swift actors
+            r'^(?:data\s+)?class\s+\w+',  # Kotlin
+            r'^(?:object)\s+\w+',  # Kotlin/Scala
+            r'^type\s+\w+\s+=',  # TypeScript type aliases
+        ]
+        
+        for line in lines:
+            for pattern in def_patterns:
+                if re.match(pattern, line.strip()):
+                    # Get just the signature part
+                    sig = line.strip()
+                    if len(sig) > 100:
+                        sig = sig[:100] + "..."
+                    definitions.append(sig)
+                    break
+            if len(definitions) >= 10:
+                break
+        
+        # Extract function/method definitions
+        functions = []
+        func_patterns = [
+            r'^(?:export\s+)?(?:async\s+)?(?:function|def|func|fn)\s+\w+',
+            r'^(?:public|private|protected|internal|open|override)?\s*(?:async\s+)?(?:func|def)\s+\w+',
+            r'^\s*(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?\(',  # Arrow functions
+            r'^(?:public|private|protected)?\s*\w+\s*\([^)]*\)\s*(?:->|:)',  # Method signatures
+        ]
+        
+        for line in lines:
+            for pattern in func_patterns:
+                if re.match(pattern, line.strip()):
+                    sig = line.strip()
+                    if len(sig) > 80:
+                        sig = sig[:80] + "..."
+                    functions.append(sig)
+                    break
+            if len(functions) >= 15:
+                break
+        
+        # Build signature output
+        parts = [f"**{file_path}**"]
+        
+        if imports:
+            parts.append(f"imports: {', '.join(imports[:5])}" + ("..." if len(imports) > 5 else ""))
+        
+        if definitions:
+            parts.append("definitions:")
+            for d in definitions[:5]:
+                parts.append(f"  {d}")
+        
+        if functions:
+            parts.append("functions:")
+            for f in functions[:8]:
+                parts.append(f"  {f}")
+        
+        return '\n'.join(parts)
+
+    async def _generate_dynamic_rag_queries(
+        self,
+        observation_result: str,
+        analysis_id: str | None = None,
+    ) -> dict[str, list[str]]:
+        """Generate custom RAG queries based on observation results.
+        
+        Instead of using predefined queries like "service layer" or "repository pattern",
+        this generates queries specific to the observed architecture style.
+        
+        Args:
+            observation_result: JSON output from observation phase
+            analysis_id: For progress logging
+            
+        Returns:
+            Dictionary of phase -> custom queries
+        """
+        import json
+        
+        try:
+            # Try to parse JSON from observation result
+            json_match = observation_result
+            if "```json" in observation_result:
+                json_match = observation_result.split("```json")[1].split("```")[0]
+            
+            observation = json.loads(json_match)
+            
+            # Extract key search terms from observation
+            key_terms = observation.get("key_search_terms", [])
+            components = observation.get("detected_components", [])
+            style = observation.get("architecture_style", "")
+            
+            # Build custom queries for each phase
+            custom_queries = {
+                "discovery": key_terms[:4] if key_terms else ["main entry point", "configuration"],
+                "layers": [],
+                "patterns": [],
+                "communication": [],
+                "technology": ["import from require module"],
+            }
+            
+            # Add component-specific queries
+            for comp in components[:5]:
+                naming = comp.get("naming_pattern", "")
+                comp_type = comp.get("type", "")
+                if naming or comp_type:
+                    custom_queries["layers"].append(f"{naming} {comp_type}".strip())
+            
+            # Add pattern-specific queries
+            patterns = observation.get("unique_patterns", []) + observation.get("standard_patterns_if_any", [])
+            for pattern in patterns[:5]:
+                custom_queries["patterns"].append(pattern)
+            
+            # Add architecture-style specific queries
+            if "actor" in style.lower():
+                custom_queries["communication"].extend(["actor message receive", "mailbox queue"])
+            elif "event" in style.lower():
+                custom_queries["communication"].extend(["event store append", "event handler"])
+            elif "flux" in style.lower() or "redux" in style.lower():
+                custom_queries["communication"].extend(["reducer action state", "dispatch"])
+            else:
+                custom_queries["communication"].extend(key_terms[:3])
+            
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(
+                    analysis_id,
+                    "INFO",
+                    f"Generated {sum(len(v) for v in custom_queries.values())} custom RAG queries based on observations"
+                )
+            
+            return custom_queries
+            
+        except Exception:
+            # Fall back to default queries if parsing fails
+            return {}

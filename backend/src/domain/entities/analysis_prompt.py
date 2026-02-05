@@ -1,6 +1,6 @@
 """Analysis prompt domain entity."""
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Self
 import uuid
 
@@ -32,7 +32,7 @@ class AnalysisPrompt:
         is_default: bool = False,
     ) -> Self:
         """Factory method for creating new prompts."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return cls(
             id=str(uuid.uuid4()),
             user_id=user_id,

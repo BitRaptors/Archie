@@ -3,6 +3,7 @@ from arq.connections import RedisSettings
 from pathlib import Path
 from application.services.analysis_service import AnalysisService
 from application.services.repository_service import RepositoryService
+from application.services.analysis_data_collector import analysis_data_collector
 from config.settings import get_settings
 from config.container import Container
 from infrastructure.persistence.user_repository import SupabaseUserRepository
@@ -25,6 +26,10 @@ async def startup(ctx):
     # CRITICAL: Resolve supabase_client Resource first
     supabase_client = await container.supabase_client()
     print(f"Worker startup: Supabase client resolved: {type(supabase_client)}")
+    
+    # Initialize analysis_data_collector with Supabase client for cross-process persistence
+    analysis_data_collector.initialize(supabase_client)
+    print("Worker startup: Analysis data collector initialized with Supabase")
     
     # Manually create repositories with resolved client
     user_repo = SupabaseUserRepository(client=supabase_client)

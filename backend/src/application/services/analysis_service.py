@@ -1,15 +1,20 @@
 """Analysis service orchestrator."""
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from domain.entities.analysis import Analysis
 from domain.entities.repository import Repository
 from domain.entities.analysis_event import AnalysisEvent
-from domain.interfaces.repositories import IRepository, IAnalysisEventRepository
+from domain.interfaces.repositories import (
+    IRepository,
+    IAnalysisEventRepository,
+    IRepositoryArchitectureRepository,
+)
 from domain.exceptions.domain_exceptions import NotFoundError
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
 from infrastructure.storage.storage_interface import IStorage
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
-from application.services.debug_collector import debug_collector
+from application.services.analysis_data_collector import analysis_data_collector
+from application.services.architecture_extractor import ArchitectureExtractor
 
 
 class AnalysisService:
@@ -29,6 +34,8 @@ class AnalysisService:
         structure_analyzer: StructureAnalyzer,
         persistent_storage: IStorage,
         phased_blueprint_generator: PhasedBlueprintGenerator,
+        architecture_repo: Optional[IRepositoryArchitectureRepository] = None,
+        architecture_extractor: Optional[ArchitectureExtractor] = None,
     ):
         """Initialize analysis service."""
         self._analysis_repo = analysis_repo
@@ -37,6 +44,8 @@ class AnalysisService:
         self._structure_analyzer = structure_analyzer
         self._persistent_storage = persistent_storage
         self._phased_blueprint_generator = phased_blueprint_generator
+        self._architecture_repo = architecture_repo
+        self._architecture_extractor = architecture_extractor or ArchitectureExtractor()
         # Set progress callback on generator to use our logging
         self._phased_blueprint_generator._progress_callback = self._log_event
 
@@ -201,8 +210,8 @@ class AnalysisService:
             code_samples = await self._extract_code_samples(repo_path_obj, structure_data)
             await self._log_event(analysis_id, "INFO", f"Code samples extracted: {len(code_samples)} files")
             
-            # Capture gathered data for debug view
-            debug_collector.capture_gathered_data(analysis_id, {
+            # Capture gathered data for analysis data view
+            await analysis_data_collector.capture_gathered_data(analysis_id, {
                 "file_tree_raw": file_tree,
                 "dependencies_raw": dependencies,
                 "config_files": config_files,
@@ -276,6 +285,27 @@ class AnalysisService:
                 raise
             
             await self._log_event(analysis_id, "PHASE_END", "Phase 4 complete: Blueprint saved")
+
+            # Phase 5: Extract and store architecture rules
+            if self._architecture_repo:
+                await self._log_event(analysis_id, "PHASE_START", "Phase 5: Extracting architecture rules")
+                analysis.update_progress(97)
+                await self._analysis_repo.update(analysis)
+                
+                try:
+                    await self._extract_and_store_architecture_rules(
+                        analysis_id=analysis_id,
+                        repository_id=analysis.repository_id,
+                        blueprint_content=backend_blueprint,
+                    )
+                    await self._log_event(analysis_id, "PHASE_END", "Phase 5 complete: Architecture rules extracted")
+                except Exception as arch_error:
+                    # Log but don't fail the analysis if rule extraction fails
+                    await self._log_event(
+                        analysis_id,
+                        "WARNING",
+                        f"Architecture rule extraction failed (non-fatal): {str(arch_error)}"
+                    )
 
             # Complete analysis
             await self._log_event(analysis_id, "INFO", "Analysis completed successfully")
@@ -554,3 +584,103 @@ class AnalysisService:
                         pass
         
         return code_samples
+
+    async def _extract_and_store_architecture_rules(
+        self,
+        analysis_id: str,
+        repository_id: str,
+        blueprint_content: str,
+    ) -> None:
+        """Extract architecture rules from blueprint and store them.
+        
+        This creates learned architecture rules from the generated blueprint,
+        which can then be used for architecture enforcement.
+        
+        Args:
+            analysis_id: ID of the analysis
+            repository_id: ID of the repository
+            blueprint_content: Generated blueprint content
+        """
+        if not self._architecture_repo:
+            return
+        
+        await self._log_event(
+            analysis_id,
+            "INFO",
+            "Extracting architecture rules from blueprint..."
+        )
+        
+        # Delete existing learned rules for this repository
+        try:
+            deleted = await self._architecture_repo.delete_by_repository_id(repository_id)
+            if deleted > 0:
+                await self._log_event(
+                    analysis_id,
+                    "INFO",
+                    f"Deleted {deleted} existing architecture rules"
+                )
+        except Exception as e:
+            await self._log_event(
+                analysis_id,
+                "WARNING",
+                f"Could not delete existing rules: {str(e)}"
+            )
+        
+        # Extract rules from blueprint
+        # Use a generic blueprint_id since this is learned architecture
+        rules = await self._architecture_extractor.extract_from_blueprint(
+            blueprint_content,
+            blueprint_id=f"learned-{repository_id}",
+        )
+        
+        await self._log_event(
+            analysis_id,
+            "INFO",
+            f"Extracted {len(rules)} architecture rules from blueprint"
+        )
+        
+        # Convert to learned rules with repository_id
+        learned_rules = []
+        for rule in rules:
+            from domain.entities.architecture_rule import ArchitectureRule
+            learned_rule = ArchitectureRule.create_learned_rule(
+                repository_id=repository_id,
+                analysis_id=analysis_id,
+                rule_type=rule.rule_type,
+                rule_id=rule.rule_id,
+                name=rule.name,
+                rule_data=rule.rule_data,
+                description=rule.description,
+                confidence=0.9,  # High confidence for blueprint-derived rules
+                source_files=None,
+            )
+            learned_rules.append(learned_rule)
+        
+        # Store rules
+        if learned_rules:
+            try:
+                stored = await self._architecture_repo.add_many(learned_rules)
+                await self._log_event(
+                    analysis_id,
+                    "INFO",
+                    f"Stored {len(stored)} architecture rules for repository"
+                )
+            except Exception as e:
+                await self._log_event(
+                    analysis_id,
+                    "WARNING",
+                    f"Could not store some rules: {str(e)}"
+                )
+                # Try storing one by one
+                stored_count = 0
+                for rule in learned_rules:
+                    try:
+                        await self._architecture_repo.add(rule)
+                        stored_count += 1
+                    except Exception:
+                        pass
+                await self._log_event(
+                    analysis_id,
+                    "INFO",
+                    f"Stored {stored_count} rules individually"
+                )

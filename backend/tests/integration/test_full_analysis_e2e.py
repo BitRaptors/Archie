@@ -108,7 +108,7 @@ async def test_complete_analysis_workflow_e2e(container, github_token, services)
     2. Repository fetching and creation
     3. Analysis initialization
     4. Repository cloning
-    5. All 6 analysis phases
+    5. All 7 analysis phases (including observation-first architecture detection)
     6. Event logging
     7. Blueprint generation
     8. Cleanup
@@ -188,13 +188,14 @@ async def test_complete_analysis_workflow_e2e(container, github_token, services)
         
         # PHASE 5: Run Full Analysis Pipeline
         print("\n[5/8] Running complete analysis pipeline...")
-        print("  This will execute all 6 phases:")
-        print("    Phase 1: Structure scan")
-        print("    Phase 2: Embedding generation")
-        print("    Phase 3: AST extraction")
-        print("    Phase 4: Pattern discovery")
-        print("    Phase 5: AI analysis")
-        print("    Phase 6: Blueprint synthesis")
+        print("  This will execute all 7 phases:")
+        print("    Phase 0: Observation (architecture-agnostic file signature scan)")
+        print("    Phase 1: Discovery (initial structure analysis)")
+        print("    Phase 2: Layers (architectural layer identification)")
+        print("    Phase 3: Patterns (design pattern detection)")
+        print("    Phase 4: Communication (API/integration patterns)")
+        print("    Phase 5: Technology (tech stack analysis)")
+        print("    Phase 6: Synthesis (blueprint generation)")
         
         # Run the analysis
         try:

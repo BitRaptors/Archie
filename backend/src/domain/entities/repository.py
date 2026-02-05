@@ -1,6 +1,6 @@
 """Repository domain entity."""
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Self
 import uuid
 
@@ -34,7 +34,7 @@ class Repository:
         default_branch: str = "main",
     ) -> Self:
         """Factory method for creating new repositories."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return cls(
             id=str(uuid.uuid4()),
             user_id=user_id,

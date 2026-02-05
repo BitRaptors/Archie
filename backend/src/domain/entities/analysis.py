@@ -1,6 +1,6 @@
 """Analysis domain entity."""
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Self
 import uuid
 from config.constants import AnalysisStatus
@@ -23,7 +23,7 @@ class Analysis:
     @classmethod
     def create(cls, repository_id: str) -> Self:
         """Factory method for creating new analyses."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return cls(
             id=str(uuid.uuid4()),
             repository_id=repository_id,
@@ -38,26 +38,26 @@ class Analysis:
     def start(self) -> None:
         """Mark analysis as started."""
         self.status = AnalysisStatus.IN_PROGRESS
-        self.started_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
 
     def update_progress(self, percentage: int) -> None:
         """Update analysis progress."""
         self.progress_percentage = min(100, max(0, percentage))
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def complete(self) -> None:
         """Mark analysis as completed."""
         self.status = AnalysisStatus.COMPLETED
         self.progress_percentage = 100
-        self.completed_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
 
     def fail(self, error_message: str) -> None:
         """Mark analysis as failed."""
         self.status = AnalysisStatus.FAILED
         self.error_message = error_message
-        self.completed_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
 
 

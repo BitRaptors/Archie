@@ -43,7 +43,7 @@ export default function BlueprintView() {
   const [frontendBlueprint, setFrontendBlueprint] = useState<BlueprintData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'backend' | 'frontend' | 'mcp' | 'debug'>('backend')
+  const [activeTab, setActiveTab] = useState<'backend' | 'frontend' | 'claude' | 'cursor' | 'mcp' | 'debug'>('backend')
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [debugData, setDebugData] = useState<any>({
@@ -51,6 +51,11 @@ export default function BlueprintView() {
     phases: [],
     summary: {}
   })
+  const [agentFiles, setAgentFiles] = useState<{
+    claude_md: string
+    cursor_rules: string
+    agents_md: string
+  } | null>(null)
 
   // Fix hydration error by only checking auth after mount
   useEffect(() => {
@@ -91,20 +96,35 @@ export default function BlueprintView() {
         setFrontendBlueprint(frontendData)
       }
 
-      // Fetch final debug data via SSE stream (since no debug endpoint)
-      const eventSource = new EventSource(`${API_URL}/api/v1/analyses/${id}/stream`)
-      eventSource.addEventListener('debug_complete', (e) => {
-        const data = JSON.parse(e.data)
-        setDebugData(data)
-        eventSource.close()
-      })
-      
-      // Fallback: if we don't get debug_complete within 5s, close
-      setTimeout(() => {
-        if (eventSource.readyState !== EventSource.CLOSED) {
-          eventSource.close()
+      // Fetch analysis data via REST endpoint
+      try {
+        const analysisDataRes = await fetch(`${API_URL}/api/v1/analyses/${id}/analysis-data`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        
+        if (analysisDataRes.ok) {
+          const analysisDataResult = await analysisDataRes.json()
+          setDebugData(analysisDataResult)
         }
-      }, 5000)
+      } catch (err) {
+        console.error('Failed to fetch analysis data:', err)
+        // Analysis data is optional, don't fail the whole page
+      }
+
+      // Fetch agent files (CLAUDE.md, Cursor rules)
+      try {
+        const agentFilesRes = await fetch(`${API_URL}/api/v1/analyses/${id}/agent-files`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        
+        if (agentFilesRes.ok) {
+          const agentFilesResult = await agentFilesRes.json()
+          setAgentFiles(agentFilesResult)
+        }
+      } catch (err) {
+        console.error('Failed to fetch agent files:', err)
+        // Agent files are optional, don't fail the whole page
+      }
 
       setIsLoading(false)
     } catch (err: any) {
@@ -346,6 +366,26 @@ export default function BlueprintView() {
           Frontend Architecture
         </button>
         <button
+          onClick={() => setActiveTab('claude')}
+          className={`px-6 py-3 font-medium text-sm transition-colors relative ${
+            activeTab === 'claude' 
+              ? 'text-green-600 border-b-2 border-green-600' 
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          CLAUDE.md
+        </button>
+        <button
+          onClick={() => setActiveTab('cursor')}
+          className={`px-6 py-3 font-medium text-sm transition-colors relative ${
+            activeTab === 'cursor' 
+              ? 'text-purple-600 border-b-2 border-purple-600' 
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Cursor Rules
+        </button>
+        <button
           onClick={() => setActiveTab('mcp')}
           className={`px-6 py-3 font-medium text-sm transition-colors relative ${
             activeTab === 'mcp' 
@@ -363,7 +403,7 @@ export default function BlueprintView() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          Debug Data & Prompts
+          Analysis Data & Prompts
           {debugData.phases.length > 0 && (
             <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full text-[10px]">
               {debugData.phases.length}
@@ -435,6 +475,114 @@ export default function BlueprintView() {
                   <div className="mt-6 inline-block bg-blue-50 text-blue-700 px-4 py-2 rounded-full text-sm font-medium">
                     Coming Soon
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* CLAUDE.md Tab */}
+        {activeTab === 'claude' && (
+          <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+            <div className="bg-green-50 border-b px-6 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold text-green-800">CLAUDE.md</span>
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">AI Agent Instructions</span>
+                </div>
+                {agentFiles?.claude_md && (
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([agentFiles.claude_md], { type: 'text/markdown;charset=utf-8' })
+                      const url = URL.createObjectURL(blob)
+                      const link = document.createElement('a')
+                      link.href = url
+                      link.download = 'CLAUDE.md'
+                      document.body.appendChild(link)
+                      link.click()
+                      document.body.removeChild(link)
+                      URL.revokeObjectURL(url)
+                    }}
+                    className="text-sm text-green-600 hover:text-green-800 font-medium flex items-center gap-1"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Download
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="p-8">
+              <div className="bg-green-50 border-l-4 border-green-400 p-4 mb-6">
+                <p className="text-sm text-green-800">
+                  <strong>What is CLAUDE.md?</strong> This file provides architecture guidance that AI coding assistants 
+                  (like Claude, ChatGPT, or GitHub Copilot) read automatically. Place it in your project root so AI 
+                  assistants understand your codebase structure.
+                </p>
+              </div>
+              {agentFiles?.claude_md ? (
+                <div className="prose prose-green max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {agentFiles.claude_md}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mb-4"></div>
+                  <p className="text-gray-500">Loading CLAUDE.md...</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Cursor Rules Tab */}
+        {activeTab === 'cursor' && (
+          <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+            <div className="bg-purple-50 border-b px-6 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold text-purple-800">.cursor/rules/architecture.md</span>
+                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">Cursor IDE Rules</span>
+                </div>
+                {agentFiles?.cursor_rules && (
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([agentFiles.cursor_rules], { type: 'text/markdown;charset=utf-8' })
+                      const url = URL.createObjectURL(blob)
+                      const link = document.createElement('a')
+                      link.href = url
+                      link.download = 'architecture.md'
+                      document.body.appendChild(link)
+                      link.click()
+                      document.body.removeChild(link)
+                      URL.revokeObjectURL(url)
+                    }}
+                    className="text-sm text-purple-600 hover:text-purple-800 font-medium flex items-center gap-1"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Download
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="p-8">
+              <div className="bg-purple-50 border-l-4 border-purple-400 p-4 mb-6">
+                <p className="text-sm text-purple-800">
+                  <strong>What are Cursor Rules?</strong> Place this file at <code>.cursor/rules/architecture.md</code> in your 
+                  project. Cursor IDE will automatically apply these rules when using AI features, ensuring generated code 
+                  follows your architecture patterns.
+                </p>
+              </div>
+              {agentFiles?.cursor_rules ? (
+                <div className="prose prose-purple max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {agentFiles.cursor_rules}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mb-4"></div>
+                  <p className="text-gray-500">Loading Cursor rules...</p>
                 </div>
               )}
             </div>
@@ -562,7 +710,11 @@ export default function BlueprintView() {
         {/* Debug Tab */}
         {activeTab === 'debug' && (
           <div className="bg-white border rounded-lg shadow-sm overflow-hidden p-8">
-            <DebugView data={debugData.phases.length > 0 ? debugData : null} />
+            <DebugView data={
+              (debugData.phases.length > 0 || Object.keys(debugData.gathered || {}).length > 0) 
+                ? debugData 
+                : null
+            } />
           </div>
         )}
       </div>

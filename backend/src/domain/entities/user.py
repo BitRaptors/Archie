@@ -1,6 +1,6 @@
 """User domain entity."""
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Self
 import uuid
 
@@ -17,7 +17,7 @@ class User:
     @classmethod
     def create(cls, github_token_encrypted: str) -> Self:
         """Factory method for creating new users."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return cls(
             id=str(uuid.uuid4()),
             github_token_encrypted=github_token_encrypted,
@@ -27,6 +27,6 @@ class User:
     def update_token(self, github_token_encrypted: str) -> None:
         """Update GitHub token with timestamp."""
         self.github_token_encrypted = github_token_encrypted
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
 

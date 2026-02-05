@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Self
 import uuid
 
@@ -29,7 +29,7 @@ class AnalysisEvent:
             event_type=event_type,
             message=message,
             details=details,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
 

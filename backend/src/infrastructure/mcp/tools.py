@@ -1,7 +1,7 @@
 """Tool implementations for querying and validating architecture."""
-
+import json
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from .resources import BlueprintResources
 from .utils.markdown import get_doc_by_id, slice_markdown
@@ -341,4 +341,324 @@ class BlueprintTools:
             return f"Section '{section_id}' not found in blueprint for '{repo_id}'. Available sections: {', '.join(sections.keys())}"
             
         return section_content
+
+
+class ArchitectureTools:
+    """Tools for architecture enforcement and validation.
+    
+    These tools work with the learned and reference architecture system
+    to provide AI agents with architecture guidance and validation.
+    """
+    
+    def __init__(
+        self,
+        resolver=None,
+        validator=None,
+        generator=None,
+    ):
+        """Initialize architecture tools.
+        
+        Args:
+            resolver: ArchitectureResolver instance
+            validator: ArchitectureValidator instance
+            generator: AgentFileGenerator instance
+        """
+        self._resolver = resolver
+        self._validator = validator
+        self._generator = generator
+    
+    async def get_architecture_for_repo(
+        self,
+        repository_id: str,
+        section: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Get the full resolved architecture for a repository.
+        
+        Combines reference architecture (if configured) with learned architecture
+        according to the repository's merge strategy.
+        
+        Args:
+            repository_id: ID of the repository
+            section: Optional section to retrieve (all, layers, patterns, locations, principles)
+        
+        Returns:
+            Dictionary with architecture rules
+        """
+        if not self._resolver:
+            return {"error": "Architecture resolver not configured"}
+        
+        try:
+            architecture = await self._resolver.get_rules_for_repository(repository_id)
+            
+            if section and section != "all":
+                # Filter by section/rule type
+                section_to_type = {
+                    "layers": "layer",
+                    "patterns": "pattern",
+                    "locations": "location",
+                    "principles": "principle",
+                    "dependencies": "dependency",
+                    "conventions": "convention",
+                    "boundaries": "boundary",
+                }
+                
+                rule_type = section_to_type.get(section)
+                if rule_type:
+                    rules = architecture.get_rules_by_type(rule_type)
+                    return {
+                        "repository_id": repository_id,
+                        "section": section,
+                        "rules_count": len(rules),
+                        "rules": [r.to_dict() for r in rules],
+                    }
+            
+            # Return full architecture
+            return architecture.to_dict()
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def validate_code(
+        self,
+        repository_id: str,
+        file_path: str,
+        code_content: str,
+    ) -> dict[str, Any]:
+        """Validate code against architecture rules before writing.
+        
+        Use this tool to check if proposed code follows the architecture
+        rules for a repository.
+        
+        Args:
+            repository_id: ID of the repository
+            file_path: Proposed file path
+            code_content: Code content to validate
+        
+        Returns:
+            Dictionary with validation result
+        """
+        if not self._validator:
+            return {"error": "Architecture validator not configured"}
+        
+        try:
+            result = await self._validator.validate_file(
+                repository_id=repository_id,
+                file_path=file_path,
+                content=code_content,
+            )
+            
+            return result.to_dict()
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def check_file_location(
+        self,
+        repository_id: str,
+        file_path: str,
+    ) -> dict[str, Any]:
+        """Check if a proposed file path follows architecture conventions.
+        
+        Use this tool before creating new files to ensure they're in the
+        correct location.
+        
+        Args:
+            repository_id: ID of the repository
+            file_path: Proposed file path
+        
+        Returns:
+            Dictionary with location check result
+        """
+        if not self._validator:
+            return {"error": "Architecture validator not configured"}
+        
+        try:
+            result = await self._validator.check_file_location(
+                repository_id=repository_id,
+                file_path=file_path,
+            )
+            
+            return {
+                "file_path": file_path,
+                "is_valid": result.is_valid,
+                "violations": [v.to_dict() for v in result.violations],
+                "suggestion": result.violations[0].suggestion if result.violations else None,
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def get_implementation_guide(
+        self,
+        repository_id: str,
+        feature_type: str,
+    ) -> dict[str, Any]:
+        """Get step-by-step implementation guide for a feature type.
+        
+        Provides guidance on where to place files and what patterns to use
+        based on the repository's architecture.
+        
+        Args:
+            repository_id: ID of the repository
+            feature_type: Type of feature (e.g., "api_endpoint", "service", "entity")
+        
+        Returns:
+            Dictionary with implementation steps
+        """
+        if not self._resolver:
+            return {"error": "Architecture resolver not configured"}
+        
+        try:
+            architecture = await self._resolver.get_rules_for_repository(repository_id)
+            
+            # Build implementation guide based on architecture rules
+            guide = {
+                "feature_type": feature_type,
+                "steps": [],
+                "file_locations": [],
+                "patterns_to_use": [],
+                "imports_allowed": [],
+                "imports_forbidden": [],
+            }
+            
+            # Get relevant location rules
+            location_rules = architecture.get_rules_by_type("location")
+            for rule in location_rules:
+                purpose = rule.rule_data.get("purpose", "").lower()
+                path = rule.rule_data.get("path", "")
+                
+                # Match feature type to locations
+                type_lower = feature_type.lower()
+                if type_lower in purpose or type_lower in path.lower():
+                    guide["file_locations"].append({
+                        "path": path,
+                        "purpose": rule.rule_data.get("purpose", ""),
+                    })
+            
+            # Get relevant patterns
+            pattern_rules = architecture.get_pattern_rules()
+            for rule in pattern_rules:
+                usage = rule.rule_data.get("usage", "").lower()
+                if feature_type.lower() in usage or feature_type.lower() in rule.name.lower():
+                    guide["patterns_to_use"].append({
+                        "pattern": rule.name,
+                        "description": rule.description,
+                    })
+            
+            # Get dependency rules
+            dep_rules = architecture.get_dependency_rules()
+            for rule in dep_rules:
+                allowed = rule.rule_data.get("allowed_imports", [])
+                forbidden = rule.rule_data.get("forbidden_imports", [])
+                guide["imports_allowed"].extend(allowed)
+                guide["imports_forbidden"].extend(forbidden)
+            
+            # Build steps
+            if guide["file_locations"]:
+                loc = guide["file_locations"][0]
+                guide["steps"].append(f"1. Create file in: {loc['path']}")
+            
+            if guide["patterns_to_use"]:
+                pattern = guide["patterns_to_use"][0]
+                guide["steps"].append(f"2. Follow pattern: {pattern['pattern']}")
+            
+            if guide["imports_allowed"]:
+                guide["steps"].append(f"3. Import from: {', '.join(guide['imports_allowed'][:5])}")
+            
+            if guide["imports_forbidden"]:
+                guide["steps"].append(f"4. Do NOT import from: {', '.join(guide['imports_forbidden'][:5])}")
+            
+            return guide
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def configure_architecture(
+        self,
+        repository_id: str,
+        reference_blueprint_id: Optional[str] = None,
+        merge_strategy: str = "learned_primary",
+    ) -> dict[str, Any]:
+        """Configure architecture sources for a repository.
+        
+        Args:
+            repository_id: ID of the repository
+            reference_blueprint_id: Optional blueprint to use as reference
+            merge_strategy: How to merge rules (learned_primary, reference_primary, etc.)
+        
+        Returns:
+            Configuration result
+        """
+        if not self._resolver:
+            return {"error": "Architecture resolver not configured"}
+        
+        try:
+            config = await self._resolver.configure_repository(
+                repository_id=repository_id,
+                reference_blueprint_id=reference_blueprint_id,
+                merge_strategy=merge_strategy,
+            )
+            
+            return {
+                "repository_id": config.repository_id,
+                "reference_blueprint_id": config.reference_blueprint_id,
+                "use_learned_architecture": config.use_learned_architecture,
+                "merge_strategy": config.merge_strategy,
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def list_reference_blueprints(self) -> dict[str, Any]:
+        """List all available reference architecture blueprints.
+        
+        Returns:
+            List of available blueprint IDs
+        """
+        if not self._resolver:
+            return {"error": "Architecture resolver not configured"}
+        
+        try:
+            blueprints = await self._resolver._architecture_rule_repo.list_blueprints()
+            
+            return {
+                "blueprints": blueprints,
+                "count": len(blueprints),
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def generate_claude_md(
+        self,
+        repository_id: str,
+        repository_name: str,
+    ) -> dict[str, Any]:
+        """Generate CLAUDE.md content for a repository.
+        
+        Args:
+            repository_id: Repository ID
+            repository_name: Human-readable name
+        
+        Returns:
+            Generated CLAUDE.md content
+        """
+        if not self._resolver or not self._generator:
+            return {"error": "Generator not configured"}
+        
+        try:
+            architecture = await self._resolver.get_rules_for_repository(repository_id)
+            content = await self._generator.generate_claude_md(
+                repository_id=repository_id,
+                repository_name=repository_name,
+                architecture=architecture,
+            )
+            
+            return {
+                "repository_id": repository_id,
+                "content": content,
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
 

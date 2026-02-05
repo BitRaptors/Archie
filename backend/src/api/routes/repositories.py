@@ -34,9 +34,17 @@ async def list_repositories(
     github_service = container.github_service()
     
     try:
+        # Debug: log first and last 4 chars of token
+        if token:
+            print(f"DEBUG: Token received: {token[:4]}...{token[-4:]} (length: {len(token)})")
+        else:
+            print("DEBUG: No token received")
         repos = await github_service.list_repositories(token, limit=limit)
         return repos
     except Exception as e:
+        import traceback
+        print(f"Error listing repositories: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
