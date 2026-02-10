@@ -69,10 +69,15 @@ export default function BlueprintView() {
     setError(null)
 
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    const isWorkspace = router.query.source === 'workspace'
     
     try {
-      // Fetch backend blueprint
-      const backendRes = await fetch(`${API_URL}/api/v1/analyses/${id}/blueprint?type=backend`, {
+      // Fetch backend blueprint — workspace uses repo_id, analysis page uses analysis_id
+      const backendUrl = isWorkspace
+        ? `${API_URL}/api/v1/workspace/repositories/${id}/blueprint`
+        : `${API_URL}/api/v1/analyses/${id}/blueprint?type=backend`
+
+      const backendRes = await fetch(backendUrl, {
         headers: { Authorization: `Bearer ${token}` },
       })
       
@@ -86,44 +91,47 @@ export default function BlueprintView() {
       const backendData = await backendRes.json()
       setBackendBlueprint(backendData)
 
-      // Fetch frontend blueprint
-      const frontendRes = await fetch(`${API_URL}/api/v1/analyses/${id}/blueprint?type=frontend`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      
-      if (frontendRes.ok) {
-        const frontendData = await frontendRes.json()
-        setFrontendBlueprint(frontendData)
-      }
-
-      // Fetch analysis data via REST endpoint
-      try {
-        const analysisDataRes = await fetch(`${API_URL}/api/v1/analyses/${id}/analysis-data`, {
+      // Fetch frontend blueprint (only available via analysis route)
+      if (!isWorkspace) {
+        const frontendRes = await fetch(`${API_URL}/api/v1/analyses/${id}/blueprint?type=frontend`, {
           headers: { Authorization: `Bearer ${token}` },
         })
-        
-        if (analysisDataRes.ok) {
-          const analysisDataResult = await analysisDataRes.json()
-          setDebugData(analysisDataResult)
+        if (frontendRes.ok) {
+          const frontendData = await frontendRes.json()
+          setFrontendBlueprint(frontendData)
         }
-      } catch (err) {
-        console.error('Failed to fetch analysis data:', err)
-        // Analysis data is optional, don't fail the whole page
       }
 
-      // Fetch agent files (CLAUDE.md, Cursor rules)
+      // Fetch analysis data (only available via analysis route)
+      if (!isWorkspace) {
+        try {
+          const analysisDataRes = await fetch(`${API_URL}/api/v1/analyses/${id}/analysis-data`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (analysisDataRes.ok) {
+            const analysisDataResult = await analysisDataRes.json()
+            setDebugData(analysisDataResult)
+          }
+        } catch (err) {
+          console.error('Failed to fetch analysis data:', err)
+        }
+      }
+
+      // Fetch agent files — workspace uses repo_id, analysis page uses analysis_id
       try {
-        const agentFilesRes = await fetch(`${API_URL}/api/v1/analyses/${id}/agent-files`, {
+        const agentUrl = isWorkspace
+          ? `${API_URL}/api/v1/workspace/repositories/${id}/agent-files`
+          : `${API_URL}/api/v1/analyses/${id}/agent-files`
+
+        const agentFilesRes = await fetch(agentUrl, {
           headers: { Authorization: `Bearer ${token}` },
         })
-        
         if (agentFilesRes.ok) {
           const agentFilesResult = await agentFilesRes.json()
           setAgentFiles(agentFilesResult)
         }
       } catch (err) {
         console.error('Failed to fetch agent files:', err)
-        // Agent files are optional, don't fail the whole page
       }
 
       setIsLoading(false)
@@ -131,7 +139,7 @@ export default function BlueprintView() {
       setIsLoading(false)
       setError(err.message)
     }
-  }, [id, token, isAuthenticated])
+  }, [id, token, isAuthenticated, router.query.source])
 
   const fetchProjectPath = useCallback(async () => {
     if (!token || !isAuthenticated) return
@@ -323,13 +331,20 @@ export default function BlueprintView() {
     )
   }
 
+  const isWorkspace = router.query.source === 'workspace'
+
   return (
     <div className="container mx-auto p-8 max-w-6xl">
       <div className="mb-8 flex justify-between items-center">
         <div>
-          <Link href="/" className="text-blue-500 hover:underline mb-2 inline-block">← Back to Repositories</Link>
+          <Link
+            href={isWorkspace ? '/workspace' : '/'}
+            className="text-blue-500 hover:underline mb-2 inline-block"
+          >
+            {isWorkspace ? '← Back to Workspace' : '← Back to Repositories'}
+          </Link>
           <h1 className="text-3xl font-bold">Architecture Blueprint</h1>
-          <p className="text-gray-500 text-sm mt-1">Analysis ID: {id}</p>
+          {!isWorkspace && <p className="text-gray-500 text-sm mt-1">Analysis ID: {id}</p>}
         </div>
         <div className="flex gap-3">
           <Link 

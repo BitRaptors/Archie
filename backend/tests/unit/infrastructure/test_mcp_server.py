@@ -63,10 +63,13 @@ class TestGetActiveRepoId:
     async def test_returns_none_when_repo_is_none(self):
         """When _user_profile_repo was never set (DB unavailable at startup)."""
         import infrastructure.mcp.server as srv_mod
+        from unittest.mock import AsyncMock, patch
         original = srv_mod._user_profile_repo
         try:
             srv_mod._user_profile_repo = None
-            result = await srv_mod._get_active_repo_id()
+            # Prevent _ensure_user_profile_repo from hitting the real DB
+            with patch.object(srv_mod, "_ensure_user_profile_repo", new=AsyncMock()):
+                result = await srv_mod._get_active_repo_id()
             assert result is None
         finally:
             srv_mod._user_profile_repo = original

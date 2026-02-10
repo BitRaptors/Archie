@@ -102,7 +102,7 @@ function RepoCard({
           </button>
         )}
         <Link
-          href={`/blueprint/${repo.repo_id}`}
+          href={`/blueprint/${repo.repo_id}?source=workspace`}
           className="text-sm px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-100 transition-colors text-center"
         >
           Blueprint

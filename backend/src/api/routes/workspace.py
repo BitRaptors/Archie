@@ -205,6 +205,47 @@ async def get_agent_files(repo_id: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Blueprint by repository ID
+# ---------------------------------------------------------------------------
+
+@router.get("/repositories/{repo_id}/blueprint")
+async def get_repository_blueprint(
+    repo_id: str,
+    request: Request,
+    format: str = "markdown",
+):
+    """Get the blueprint for a repository directly by repo_id.
+
+    This is the workspace-oriented endpoint (no analysis_id needed).
+    The structured blueprint.json is the single source of truth.
+    """
+    storage = _get_storage(request)
+    blueprint = await _load_structured_blueprint(storage, repo_id)
+
+    if not blueprint:
+        raise HTTPException(
+            status_code=404,
+            detail="Structured blueprint (blueprint.json) not found for this repository.",
+        )
+
+    if format == "json":
+        return {
+            "repository_id": repo_id,
+            "type": "backend",
+            "format": "json",
+            "structured": blueprint.model_dump(),
+        }
+
+    from application.services.blueprint_renderer import render_blueprint_markdown
+    return {
+        "repository_id": repo_id,
+        "type": "backend",
+        "format": "markdown",
+        "content": render_blueprint_markdown(blueprint),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Delete repository analysis
 # ---------------------------------------------------------------------------
 
