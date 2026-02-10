@@ -1,29 +1,28 @@
+#!/usr/bin/env python3
+"""Entry point for the MCP server (Cursor integration).
+
+Ensures backend/src is on sys.path so all internal imports
+(domain.*, infrastructure.*, etc.) resolve correctly.
+"""
+
 import os
 import sys
 from pathlib import Path
 
-# Add the current directory to sys.path so we can import from src
-current_dir = Path(__file__).parent.absolute()
-sys.path.append(str(current_dir))
+# Project root and backend source
+project_root = Path(__file__).parent.absolute()
+backend_src = project_root / "backend" / "src"
+
+# Add backend/src to sys.path so bare imports like
+# `from domain.entities.blueprint import ...` work.
+for p in [str(project_root), str(backend_src)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+os.chdir(str(project_root))
 
 if __name__ == "__main__":
-    from backend.src.infrastructure.mcp.server import server
-    from mcp.server.stdio import stdio_server
+    from infrastructure.mcp.server import main
     import asyncio
-    
-    # Ensure we're in the right directory
-    os.chdir(str(current_dir))
-    
-    async def run_stdio():
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options()
-            )
 
-    try:
-        asyncio.run(run_stdio())
-    except KeyboardInterrupt:
-        pass
-
+    asyncio.run(main())

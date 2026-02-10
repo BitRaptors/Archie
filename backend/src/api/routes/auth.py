@@ -2,23 +2,26 @@
 from fastapi import APIRouter, Depends, HTTPException
 from api.dto.requests import GitHubAuthRequest
 from application.services.github_service import GitHubService
-from cryptography.fernet import Fernet
 from config.settings import get_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def get_encryption_key() -> bytes:
-    """Get encryption key for tokens."""
+@router.get("/config")
+async def get_auth_config():
+    """Return whether a server-side GitHub token is configured.
+    
+    The frontend uses this to decide whether to prompt the user for a token
+    or to skip authentication entirely.
+    """
     settings = get_settings()
-    # In production, use a proper key from secrets
-    key = settings.supabase_jwt_secret.encode()[:32].ljust(32, b'0')
-    return Fernet.generate_key()  # Simplified - should use proper key management
+    has_token = bool(settings.github_token and settings.github_token.strip())
+    return {"server_token_configured": has_token}
 
 
 @router.post("/github")
 async def authenticate_github(request: GitHubAuthRequest):
-    """Store GitHub token."""
+    """Validate and store a user-provided GitHub token."""
     github_service = GitHubService()
     
     # Validate token
@@ -26,20 +29,12 @@ async def authenticate_github(request: GitHubAuthRequest):
     if not is_valid:
         raise HTTPException(status_code=401, detail="Invalid GitHub token")
     
-    # Encrypt token
-    key = get_encryption_key()
-    fernet = Fernet(key)
-    encrypted_token = fernet.encrypt(request.token.encode())
-    
-    # Store in database (would use user repository)
-    # For now, return success
     return {"status": "authenticated"}
 
 
 @router.get("/status")
 async def get_auth_status():
     """Check authentication status."""
-    # Would check if user is authenticated
     return {"authenticated": False}
 
 

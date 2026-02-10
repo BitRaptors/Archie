@@ -63,7 +63,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(DomainException, domain_exception_handler)
 
     # Register routes
-    from api.routes import auth, repositories, analyses, unified_blueprints, prompts, health, mcp
+    from api.routes import auth, repositories, analyses, unified_blueprints, prompts, health, mcp, workspace
     
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(repositories.router, prefix="/api/v1")
@@ -72,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(prompts.router, prefix="/api/v1")
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(mcp.router, prefix="/api/v1")
+    app.include_router(workspace.router, prefix="/api/v1")
 
     @app.get("/health")
     async def health():

@@ -6,10 +6,11 @@ from application.services.repository_service import RepositoryService
 from application.services.analysis_data_collector import analysis_data_collector
 from config.settings import get_settings
 from config.container import Container
-from infrastructure.persistence.user_repository import SupabaseUserRepository
-from infrastructure.persistence.repository_repository import SupabaseRepositoryRepository
-from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
-from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
+from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+from infrastructure.persistence.user_repository import UserRepository
+from infrastructure.persistence.repository_repository import RepositoryRepository
+from infrastructure.persistence.analysis_repository import AnalysisRepository
+from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
 from infrastructure.storage.temp_storage import TempStorage
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
@@ -31,11 +32,12 @@ async def startup(ctx):
     analysis_data_collector.initialize(supabase_client)
     print("Worker startup: Analysis data collector initialized with Supabase")
     
-    # Manually create repositories with resolved client
-    user_repo = SupabaseUserRepository(client=supabase_client)
-    repo_repo = SupabaseRepositoryRepository(client=supabase_client)
-    analysis_repo = SupabaseAnalysisRepository(client=supabase_client)
-    event_repo = SupabaseAnalysisEventRepository(client=supabase_client)
+    # Wrap Supabase client in DB adapter and create repositories
+    db = SupabaseAdapter(supabase_client)
+    user_repo = UserRepository(db=db)
+    repo_repo = RepositoryRepository(db=db)
+    analysis_repo = AnalysisRepository(db=db)
+    event_repo = AnalysisEventRepository(db=db)
     print(f"Worker startup: Repositories created: {type(repo_repo)}")
     
     # Create services with resolved repositories
@@ -111,7 +113,8 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
     
     # Get analysis repository to update status on errors
     supabase_client = await container.supabase_client()
-    analysis_repo = SupabaseAnalysisRepository(client=supabase_client)
+    db = SupabaseAdapter(supabase_client)
+    analysis_repo = AnalysisRepository(db=db)
     
     # Use temporary storage for cloning
     temp_storage = TempStorage()

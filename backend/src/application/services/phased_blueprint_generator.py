@@ -6,6 +6,7 @@ from anthropic import AsyncAnthropic
 from infrastructure.prompts.prompt_loader import PromptLoader
 from infrastructure.analysis.rag_retriever import RAGRetriever
 from application.services.analysis_data_collector import analysis_data_collector
+from domain.entities.blueprint import StructuredBlueprint
 from config.settings import Settings
 
 
@@ -49,7 +50,7 @@ class PhasedBlueprintGenerator:
         config_files: dict[str, str] | None = None,
         code_samples: dict[str, str] | None = None,
         blueprint_type: str = "backend",
-    ) -> str:
+    ) -> dict[str, Any]:
         """Generate comprehensive architecture blueprint through phased analysis.
         
         Uses RAG-based retrieval to analyze the ENTIRE codebase, not just samples.
@@ -66,10 +67,13 @@ class PhasedBlueprintGenerator:
             blueprint_type: Type of blueprint to generate ("backend" or "frontend")
         
         Returns:
-            Complete architecture blueprint markdown document
+            Dict with keys:
+              - "structured": dict (the JSON blueprint)
+              - "markdown": str  (rendered human-readable markdown)
         """
         if not self._client:
-            return self._generate_mock_blueprint(repository_name)
+            mock_md = self._generate_mock_blueprint(repository_name)
+            return {"structured": {}, "markdown": mock_md}
         
         config_files = config_files or {}
         code_samples = code_samples or {}
@@ -196,11 +200,12 @@ class PhasedBlueprintGenerator:
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Technology inventory complete")
         
-        # Final Synthesis: Generate comprehensive backend blueprint
+        # Final Synthesis: Generate structured JSON blueprint
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Generating backend architecture blueprint...")
-        final_blueprint = await self._run_backend_synthesis(
+            await self._progress_callback(analysis_id, "INFO", "Generating structured architecture blueprint...")
+        synthesis_result = await self._run_backend_synthesis(
             repository_name=repository_name,
+            repository_id=repository_id or "",
             discovery=discovery_result,
             layers=layers_result,
             patterns=patterns_result,
@@ -210,7 +215,7 @@ class PhasedBlueprintGenerator:
             analysis_id=analysis_id,
         )
         
-        return final_blueprint
+        return synthesis_result
 
     async def _retrieve_relevant_code(
         self,
@@ -570,6 +575,7 @@ class PhasedBlueprintGenerator:
     async def _run_backend_synthesis(
         self,
         repository_name: str,
+        repository_id: str,
         discovery: str,
         layers: str,
         patterns: str,
@@ -577,8 +583,12 @@ class PhasedBlueprintGenerator:
         technology: str,
         code_samples: str,
         analysis_id: str | None = None,
-    ) -> str:
-        """Run Backend Synthesis: Generate comprehensive backend blueprint document."""
+    ) -> dict[str, Any]:
+        """Run Backend Synthesis: Generate structured JSON blueprint + rendered markdown.
+        
+        Returns:
+            Dict with "structured" (dict) and "markdown" (str).
+        """
         prompt = self._prompt_loader.get_prompt_by_key("backend_synthesis")
         
         prompt_text = prompt.render({
@@ -615,11 +625,77 @@ class PhasedBlueprintGenerator:
         
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=4000,  # Large output for comprehensive document
+            max_tokens=8000,  # Larger for comprehensive JSON output
             messages=[{"role": "user", "content": prompt_text}],
         )
         
-        return response.content[0].text
+        raw_text = response.content[0].text
+        
+        # Parse the structured JSON from AI response
+        structured_data = self._parse_structured_response(raw_text, repository_name, repository_id)
+        
+        # Validate and create Pydantic model
+        blueprint = StructuredBlueprint.model_validate(structured_data)
+        
+        # Ensure meta fields are populated
+        if not blueprint.meta.repository:
+            blueprint.meta.repository = repository_name
+        if not blueprint.meta.repository_id:
+            blueprint.meta.repository_id = repository_id
+        
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id,
+                "INFO",
+                f"Blueprint generated: {len(json.dumps(structured_data))} chars JSON",
+            )
+        
+        return {
+            "structured": blueprint.model_dump(),
+        }
+
+    def _parse_structured_response(
+        self, raw_text: str, repository_name: str, repository_id: str
+    ) -> dict:
+        """Parse JSON from AI response, handling common formatting issues."""
+        text = raw_text.strip()
+        
+        # Strip markdown code fences if present
+        if text.startswith("```"):
+            # Remove opening fence (with optional language tag)
+            first_newline = text.index("\n")
+            text = text[first_newline + 1:]
+            # Remove closing fence
+            if text.rstrip().endswith("```"):
+                text = text.rstrip()[:-3].rstrip()
+        
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Try to find JSON object in the response
+            brace_start = text.find("{")
+            brace_end = text.rfind("}")
+            if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
+                try:
+                    return json.loads(text[brace_start:brace_end + 1])
+                except json.JSONDecodeError:
+                    pass
+            
+            # Fallback: return minimal valid structure with raw text in decisions
+            return {
+                "meta": {
+                    "repository": repository_name,
+                    "repository_id": repository_id,
+                    "architecture_style": "Could not parse structured output",
+                },
+                "decisions": {
+                    "architectural_style": {
+                        "title": "Architecture Style",
+                        "chosen": "See raw analysis",
+                        "rationale": raw_text[:3000],
+                    }
+                },
+            }
 
 
     def _format_code_samples(self, code_samples: dict[str, str], limit: int = 10) -> str:

@@ -1,478 +1,356 @@
-"""Agent file generator service for creating CLAUDE.md and Cursor rules."""
-import logging
+"""Generate agent instruction files (CLAUDE.md, Cursor rules) from structured blueprint JSON.
+
+All outputs derive from the same StructuredBlueprint, ensuring consistency
+across CLAUDE.md, Cursor rules, MCP tools, and the human-readable markdown.
+"""
+from __future__ import annotations
+
 from datetime import datetime, timezone
-from typing import Any
 
-from anthropic import AsyncAnthropic
-
-from domain.entities.architecture_rule import ArchitectureRule
-from domain.entities.resolved_architecture import ResolvedArchitecture
-from infrastructure.prompts.prompt_loader import PromptLoader
-
-logger = logging.getLogger(__name__)
+from domain.entities.blueprint import StructuredBlueprint
 
 
-class AgentFileGenerator:
-    """Generates instruction files for AI coding agents.
-    
-    Creates:
-    - CLAUDE.md for Claude/general AI agents
-    - .cursor/rules/architecture.md for Cursor IDE
-    - AGENTS.md for multi-agent systems
+def generate_claude_md(blueprint: StructuredBlueprint) -> str:
+    """Generate CLAUDE.md from structured blueprint data.
+
+    CLAUDE.md is placed in the project root so AI coding assistants
+    (Claude Code, ChatGPT, Copilot, etc.) read it automatically.
+    It focuses on actionable rules and quick-reference tables.
     """
-    
-    def __init__(
-        self,
-        ai_client: AsyncAnthropic | None = None,
-        prompt_loader: PromptLoader | None = None,
-        model: str = "claude-sonnet-4-20250514",
-    ):
-        """Initialize generator.
-        
-        Args:
-            ai_client: Optional Anthropic client for AI-enhanced generation
-            prompt_loader: Loader for prompts
-            model: AI model to use
-        """
-        self._ai_client = ai_client
-        self._prompt_loader = prompt_loader
-        self._model = model
-    
-    async def generate_claude_md(
-        self,
-        repository_id: str,
-        repository_name: str,
-        architecture: ResolvedArchitecture,
-    ) -> str:
-        """Generate CLAUDE.md content.
-        
-        Args:
-            repository_id: Repository ID
-            repository_name: Human-readable repository name
-            architecture: Resolved architecture rules
-            
-        Returns:
-            CLAUDE.md content as string
-        """
-        timestamp = datetime.now(timezone.utc).isoformat()
-        
-        # Try AI-enhanced generation if available
-        if self._ai_client and self._prompt_loader:
-            ai_content = await self._generate_with_ai(
-                "worker_generate_claude_md",
-                repository_name=repository_name,
-                repository_id=repository_id,
-                architecture_rules=self._format_rules_for_prompt(architecture.rules),
-                timestamp=timestamp,
-            )
-            if ai_content:
-                return ai_content
-        
-        # Fallback to template-based generation
-        return self._generate_claude_md_template(
-            repository_id=repository_id,
-            repository_name=repository_name,
-            architecture=architecture,
-            timestamp=timestamp,
-        )
-    
-    async def generate_cursor_rules(
-        self,
-        repository_name: str,
-        architecture: ResolvedArchitecture,
-    ) -> str:
-        """Generate .cursor/rules/architecture.md content.
-        
-        Args:
-            repository_name: Repository name
-            architecture: Resolved architecture rules
-            
-        Returns:
-            Cursor rules content
-        """
-        # Try AI-enhanced generation
-        if self._ai_client and self._prompt_loader:
-            ai_content = await self._generate_with_ai(
-                "worker_generate_cursor_rules",
-                repository_name=repository_name,
-                architecture_rules=self._format_rules_for_prompt(architecture.rules),
-            )
-            if ai_content:
-                return ai_content
-        
-        # Fallback to template
-        return self._generate_cursor_rules_template(
-            repository_name=repository_name,
-            architecture=architecture,
-        )
-    
-    async def generate_agents_md(
-        self,
-        repository_name: str,
-        architecture: ResolvedArchitecture,
-    ) -> str:
-        """Generate AGENTS.md content for multi-agent systems.
-        
-        Args:
-            repository_name: Repository name
-            architecture: Resolved architecture rules
-            
-        Returns:
-            AGENTS.md content
-        """
-        return self._generate_agents_md_template(
-            repository_name=repository_name,
-            architecture=architecture,
-        )
-    
-    async def _generate_with_ai(
-        self,
-        prompt_key: str,
-        **variables: Any,
-    ) -> str | None:
-        """Generate content using AI.
-        
-        Args:
-            prompt_key: Key for prompt in prompts.json
-            **variables: Variables for prompt template
-            
-        Returns:
-            Generated content or None
-        """
-        if not self._ai_client or not self._prompt_loader:
-            return None
-        
-        try:
-            prompt_template = self._prompt_loader.get_prompt_by_key(prompt_key)
-            if not prompt_template:
-                return None
-            
-            if hasattr(prompt_template, 'render'):
-                prompt = prompt_template.render(variables)
-            else:
-                prompt = str(prompt_template).format(**variables)
-            
-            response = await self._ai_client.messages.create(
-                model=self._model,
-                max_tokens=4000,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            
-            return response.content[0].text
-            
-        except Exception as e:
-            logger.warning(f"AI generation failed: {e}")
-            return None
-    
-    def _format_rules_for_prompt(self, rules: list[ArchitectureRule]) -> str:
-        """Format rules for inclusion in a prompt.
-        
-        Args:
-            rules: Architecture rules
-            
-        Returns:
-            Formatted string
-        """
-        import json
-        
-        formatted = []
-        for rule in rules[:50]:  # Limit to avoid token overflow
-            formatted.append({
-                "rule_type": rule.rule_type,
-                "rule_id": rule.rule_id,
-                "name": rule.name,
-                "description": rule.description,
-                "rule_data": rule.rule_data,
-            })
-        
-        return json.dumps(formatted, indent=2)
-    
-    def _generate_claude_md_template(
-        self,
-        repository_id: str,
-        repository_name: str,
-        architecture: ResolvedArchitecture,
-        timestamp: str,
-    ) -> str:
-        """Generate CLAUDE.md using template.
-        
-        Args:
-            repository_id: Repository ID
-            repository_name: Repository name
-            architecture: Resolved architecture
-            timestamp: Generation timestamp
-            
-        Returns:
-            CLAUDE.md content
-        """
-        lines = [
-            "# CLAUDE.md",
-            "",
-            "> Auto-generated architecture guidance for AI coding agents.",
-            f"> Repository: {repository_name}",
-            f"> Last updated: {timestamp}",
-            "",
-            "## Architecture Overview",
-            "",
-            f"This repository has **{len(architecture.rules)}** architecture rules derived from analysis.",
-            f"- Learned rules: {architecture.learned_rules_count}",
-            f"- Reference rules: {architecture.reference_rules_count}",
-            f"- Merge strategy: {architecture.get_merge_strategy()}",
-            "",
-        ]
-        
-        # File Organization
-        location_rules = architecture.get_rules_by_type("location")
-        if location_rules:
-            lines.extend([
-                "## File Organization",
-                "",
-                "| Location | Purpose |",
-                "|----------|---------|",
-            ])
-            for rule in location_rules[:15]:
-                path = rule.rule_data.get("path", "")
-                purpose = rule.rule_data.get("purpose", rule.description or "")[:50]
-                lines.append(f"| `{path}` | {purpose} |")
+    timestamp = datetime.now(timezone.utc).isoformat()
+    repo = blueprint.meta.repository or "Unknown Repository"
+    style = blueprint.meta.architecture_style or "Not determined"
+
+    lines: list[str] = []
+
+    # ── Header ────────────────────────────────────────────────────────
+    lines.append("# CLAUDE.md")
+    lines.append("")
+    lines.append(f"> Architecture guidance for **{repo}**")
+    lines.append(f"> Style: {style}")
+    lines.append(f"> Generated: {timestamp}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # ── Architecture Overview ─────────────────────────────────────────
+    ad = blueprint.decisions.architectural_style
+    if ad.chosen:
+        lines.append("## Architecture Overview")
+        lines.append("")
+        lines.append(f"**Style:** {ad.chosen}")
+        lines.append("")
+        if ad.rationale:
+            lines.append(ad.rationale)
             lines.append("")
-        
-        # Dependency Rules
-        dep_rules = architecture.get_dependency_rules()
-        layer_rules = architecture.get_layer_rules()
-        
-        if dep_rules or layer_rules:
-            lines.extend([
-                "## Dependency Rules",
-                "",
-            ])
-            
-            # Extract allowed/forbidden from rules
-            allowed = []
-            forbidden = []
-            
-            for rule in dep_rules + layer_rules:
-                rule_data = rule.rule_data
-                allowed.extend(rule_data.get("allowed_imports", []))
-                forbidden.extend(rule_data.get("forbidden_imports", []))
-                
-                # Layer dependencies
-                if rule.rule_type == "layer":
-                    depends_on = rule_data.get("depends_on", [])
-                    if depends_on:
-                        allowed.append(f"{rule.name} can import from: {', '.join(depends_on)}")
-            
-            if allowed:
-                lines.append("### Allowed")
-                for item in allowed[:10]:
-                    lines.append(f"- {item}")
+
+    # ── Dependency Rules ──────────────────────────────────────────────
+    if blueprint.architecture_rules.dependency_constraints:
+        lines.append("## Dependency Rules")
+        lines.append("")
+        for dc in blueprint.architecture_rules.dependency_constraints:
+            label = dc.source_description or dc.source_pattern
+            lines.append(f"### {label}")
+            lines.append("")
+            if dc.allowed_imports:
+                lines.append("**Allowed imports:**")
+                for a in dc.allowed_imports:
+                    lines.append(f"- `{a}`")
+            if dc.forbidden_imports:
+                lines.append("**Forbidden imports:**")
+                for f in dc.forbidden_imports:
+                    lines.append(f"- `{f}`")
+            if dc.rationale:
                 lines.append("")
-            
-            if forbidden:
-                lines.append("### Forbidden")
-                for item in forbidden[:10]:
-                    lines.append(f"- {item}")
-                lines.append("")
-        
-        # Conventions
-        convention_rules = architecture.get_convention_rules()
-        if convention_rules:
-            lines.extend([
-                "## Naming Conventions",
-                "",
-            ])
-            for rule in convention_rules[:10]:
-                pattern = rule.rule_data.get("pattern", rule.description or rule.name)
-                lines.append(f"- {pattern}")
+                lines.append(f"*{dc.rationale}*")
             lines.append("")
-        
-        # Boundaries
-        boundary_rules = architecture.get_boundary_rules()
-        if boundary_rules:
-            lines.extend([
-                "## Component Boundaries",
-                "",
-            ])
-            for rule in boundary_rules[:10]:
-                boundary = rule.rule_data.get("boundary", "")
-                relationship = rule.rule_data.get("relationship", rule.description or "")
-                if boundary or relationship:
-                    lines.append(f"- {boundary}: {relationship}")
+
+    # ── File Placement ────────────────────────────────────────────────
+    if blueprint.architecture_rules.file_placement_rules:
+        lines.append("## File Placement")
+        lines.append("")
+        lines.append("| Component Type | Location | Naming | Example |")
+        lines.append("|---------------|----------|--------|---------|")
+        for fp in blueprint.architecture_rules.file_placement_rules:
+            lines.append(
+                f"| {fp.component_type} | `{fp.location}` | `{fp.naming_pattern}` | `{fp.example}` |"
+            )
+        lines.append("")
+
+    # ── Where to Put Code (quick reference) ───────────────────────────
+    if blueprint.quick_reference.where_to_put_code:
+        lines.append("## Where to Put Code")
+        lines.append("")
+        for comp_type, loc in blueprint.quick_reference.where_to_put_code.items():
+            lines.append(f"- **{comp_type}** → `{loc}`")
+        lines.append("")
+
+    # ── Naming Conventions ────────────────────────────────────────────
+    if blueprint.architecture_rules.naming_conventions:
+        lines.append("## Naming Conventions")
+        lines.append("")
+        for nc in blueprint.architecture_rules.naming_conventions:
+            examples = ", ".join(f"`{e}`" for e in nc.examples[:4])
+            lines.append(f"- **{nc.scope}**: {nc.pattern} (e.g. {examples})")
+        lines.append("")
+
+    # ── Communication Patterns ────────────────────────────────────────
+    if blueprint.communication.pattern_selection_guide:
+        lines.append("## Pattern Selection")
+        lines.append("")
+        lines.append("| Scenario | Pattern | Rationale |")
+        lines.append("|----------|---------|-----------|")
+        for psg in blueprint.communication.pattern_selection_guide:
+            lines.append(f"| {psg.scenario} | {psg.pattern} | {psg.rationale} |")
+        lines.append("")
+
+    # ── Error Mapping ─────────────────────────────────────────────────
+    if blueprint.quick_reference.error_mapping:
+        lines.append("## Error Mapping")
+        lines.append("")
+        lines.append("| Error | Status Code |")
+        lines.append("|-------|------------|")
+        for em in blueprint.quick_reference.error_mapping:
+            lines.append(f"| `{em.error}` | {em.status_code} |")
+        lines.append("")
+
+    # ── Before You Code ───────────────────────────────────────────────
+    lines.append("## Before You Code")
+    lines.append("")
+    lines.append("1. Check the **Where to Put Code** table above for the correct file location.")
+    lines.append("2. Follow the **Naming Conventions** for the component type you're creating.")
+    lines.append("3. Respect **Dependency Rules** — never import from forbidden modules.")
+    lines.append("4. If adding a new communication path, consult the **Pattern Selection** guide.")
+    lines.append("")
+
+    # ── MCP Tools ─────────────────────────────────────────────────────
+    lines.append("## MCP Tools Available")
+    lines.append("")
+    lines.append("This repository has architecture tools available via MCP:")
+    lines.append("")
+    lines.append("- `validate_import` — Check if an import is allowed")
+    lines.append("- `where_to_put` — Find the correct location for a component")
+    lines.append("- `check_naming` — Verify a name follows conventions")
+    lines.append("- `get_repository_blueprint` — Get the full architecture blueprint")
+    lines.append("")
+
+    # ── Footer ────────────────────────────────────────────────────────
+    lines.append("---")
+    lines.append("*Auto-generated from structured architecture analysis. Place in project root.*")
+
+    return "\n".join(lines)
+
+
+def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
+    """Generate .cursor/rules/architecture.md from structured blueprint data.
+
+    Cursor reads this file automatically and applies the rules when
+    generating code via AI features.
+    """
+    repo = blueprint.meta.repository or "Unknown Repository"
+    style = blueprint.meta.architecture_style or "Not determined"
+
+    # Auto-detect globs from the technology stack
+    globs = _detect_globs(blueprint)
+    globs_str = ", ".join(f'"{g}"' for g in globs) if globs else '"**/*"'
+
+    lines: list[str] = []
+
+    # ── Frontmatter ───────────────────────────────────────────────────
+    lines.append("---")
+    lines.append(f"description: Architecture rules for {repo}")
+    lines.append(f"globs: [{globs_str}]")
+    lines.append("---")
+    lines.append("")
+
+    # ── Overview ──────────────────────────────────────────────────────
+    lines.append(f"# {repo} Architecture Rules")
+    lines.append("")
+    lines.append(f"**Architecture style:** {style}")
+    lines.append("")
+
+    # ── Structure ─────────────────────────────────────────────────────
+    if blueprint.components.components:
+        lines.append("## Components")
+        lines.append("")
+        for comp in blueprint.components.components:
+            lines.append(f"### {comp.name}")
+            lines.append(f"- **Location:** `{comp.location}`")
+            lines.append(f"- **Responsibility:** {comp.responsibility}")
+            if comp.depends_on:
+                lines.append(f"- **Depends on:** {', '.join(comp.depends_on)}")
             lines.append("")
-        
-        # Before You Code section
-        lines.extend([
-            "## Before You Code",
-            "",
-            "When adding new code:",
-            "",
-            "1. Check the File Organization section to find the correct location",
-            "2. Review the Dependency Rules to understand what you can import",
-            "3. Follow the Naming Conventions for consistent naming",
-            "4. Respect Component Boundaries to maintain separation of concerns",
-            "",
-            "## MCP Tools Available",
-            "",
-            "This repository has architecture tools available via MCP:",
-            "",
-            "- `get_architecture_for_repo` - Get full architecture rules",
-            "- `validate_code` - Validate code before committing",
-            "- `check_file_location` - Verify file placement",
-            "- `get_implementation_guide` - Get implementation guidance",
-            "",
-            "---",
-            "*This file is auto-generated. Do not edit manually.*",
-        ])
-        
-        return "\n".join(lines)
-    
-    def _generate_cursor_rules_template(
-        self,
-        repository_name: str,
-        architecture: ResolvedArchitecture,
-    ) -> str:
-        """Generate Cursor rules using template.
-        
-        Args:
-            repository_name: Repository name
-            architecture: Resolved architecture
-            
-        Returns:
-            Cursor rules content
-        """
-        # Determine file globs based on rules
-        globs = set()
-        for rule in architecture.rules:
-            if rule.rule_data:
-                path = rule.rule_data.get("path", "")
-                if path:
-                    if path.endswith("/"):
-                        globs.add(f"{path}**/*")
-                    else:
-                        globs.add(path)
-        
-        if not globs:
-            globs = {"**/*.py", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"}
-        
-        globs_str = ", ".join(f'"{g}"' for g in sorted(list(globs))[:10])
-        
-        lines = [
-            "---",
-            f"description: Architecture rules for {repository_name}",
-            f"globs: [{globs_str}]",
-            "---",
-            "",
-            "# Architecture Rules",
-            "",
-            "## Overview",
-            "",
-            f"This codebase has {len(architecture.rules)} architecture rules.",
-            "",
-        ]
-        
-        # File structure
-        location_rules = architecture.get_rules_by_type("location")
-        if location_rules:
-            lines.extend([
-                "## File Structure",
-                "",
-            ])
-            for rule in location_rules[:10]:
-                path = rule.rule_data.get("path", "")
-                purpose = rule.rule_data.get("purpose", "")[:80]
-                lines.append(f"- `{path}`: {purpose}")
+
+    # ── Dependency Rules ──────────────────────────────────────────────
+    if blueprint.architecture_rules.dependency_constraints:
+        lines.append("## Dependency Rules")
+        lines.append("")
+        for dc in blueprint.architecture_rules.dependency_constraints:
+            label = dc.source_description or dc.source_pattern
+            lines.append(f"### {label} (`{dc.source_pattern}`)")
             lines.append("")
-        
-        # Dependencies
-        dep_rules = architecture.get_dependency_rules()
-        if dep_rules:
-            lines.extend([
-                "## Dependencies",
-                "",
-            ])
-            for rule in dep_rules[:10]:
-                imports = rule.rule_data.get("imports", [])
-                if imports:
-                    lines.append(f"- {rule.name}: imports {', '.join(imports[:5])}")
+            if dc.allowed_imports:
+                lines.append("Allowed:")
+                for a in dc.allowed_imports:
+                    lines.append(f"- `{a}`")
+            if dc.forbidden_imports:
+                lines.append("Forbidden:")
+                for f in dc.forbidden_imports:
+                    lines.append(f"- `{f}`")
             lines.append("")
-        
-        # Patterns
-        pattern_rules = architecture.get_pattern_rules()
-        if pattern_rules:
-            lines.extend([
-                "## Patterns",
-                "",
-            ])
-            for rule in pattern_rules[:10]:
-                lines.append(f"- **{rule.name}**: {(rule.description or '')[:100]}")
+
+    # ── File Placement ────────────────────────────────────────────────
+    if blueprint.architecture_rules.file_placement_rules:
+        lines.append("## File Placement")
+        lines.append("")
+        for fp in blueprint.architecture_rules.file_placement_rules:
+            lines.append(f"- **{fp.component_type}** → `{fp.location}` (pattern: `{fp.naming_pattern}`)")
+        lines.append("")
+
+    # ── Naming Conventions ────────────────────────────────────────────
+    if blueprint.architecture_rules.naming_conventions:
+        lines.append("## Naming Conventions")
+        lines.append("")
+        for nc in blueprint.architecture_rules.naming_conventions:
+            examples = ", ".join(f"`{e}`" for e in nc.examples[:3])
+            lines.append(f"- **{nc.scope}**: {nc.pattern} — e.g. {examples}")
+        lines.append("")
+
+    # ── Patterns ──────────────────────────────────────────────────────
+    if blueprint.communication.patterns:
+        lines.append("## Communication Patterns")
+        lines.append("")
+        for pat in blueprint.communication.patterns:
+            lines.append(f"### {pat.name}")
+            lines.append(f"- **When:** {pat.when_to_use}")
+            lines.append(f"- **How:** {pat.how_it_works}")
             lines.append("")
-        
-        # Anti-patterns
-        anti_rules = architecture.get_rules_by_type("anti_pattern")
-        if anti_rules:
-            lines.extend([
-                "## Anti-Patterns",
-                "",
-            ])
-            for rule in anti_rules[:10]:
-                lines.append(f"- {rule.description or rule.name}")
-            lines.append("")
-        
-        return "\n".join(lines)
-    
-    def _generate_agents_md_template(
-        self,
-        repository_name: str,
-        architecture: ResolvedArchitecture,
-    ) -> str:
-        """Generate AGENTS.md using template.
-        
-        Args:
-            repository_name: Repository name
-            architecture: Resolved architecture
-            
-        Returns:
-            AGENTS.md content
-        """
-        lines = [
-            "# AGENTS.md",
-            "",
-            f"Multi-agent architecture guidance for {repository_name}.",
-            "",
-            "## Agent Roles",
-            "",
-            "### Analysis Agent",
-            "- Scans codebase and extracts architecture rules",
-            "- Uses pure observation (no predefined patterns)",
-            "- Outputs structured rules to database",
-            "",
-            "### Validation Agent",
-            "- Validates code changes against architecture",
-            "- Reports violations with suggested fixes",
-            "- Integrates with CI/CD pipelines",
-            "",
-            "### Sync Agent",
-            "- Detects changes since last analysis",
-            "- Recommends full re-analysis vs incremental updates",
-            "- Tracks affected rules",
-            "",
-            "## Architecture Summary",
-            "",
-            f"- Total rules: {len(architecture.rules)}",
-            f"- Learned: {architecture.learned_rules_count}",
-            f"- Reference: {architecture.reference_rules_count}",
-            "",
-            "## Key Rules for Agents",
-            "",
-        ]
-        
-        # Add most important rules
-        for rule in architecture.rules[:20]:
-            lines.append(f"- **{rule.rule_type}**: {rule.name}")
-        
-        lines.extend([
-            "",
-            "---",
-            "*Auto-generated from architecture analysis.*",
-        ])
-        
-        return "\n".join(lines)
+
+    # ── Anti-Patterns ─────────────────────────────────────────────────
+    if blueprint.architecture_rules.dependency_constraints:
+        lines.append("## Anti-Patterns")
+        lines.append("")
+        for dc in blueprint.architecture_rules.dependency_constraints:
+            for fi in dc.forbidden_imports:
+                label = dc.source_description or dc.source_pattern
+                lines.append(f"- Do NOT import `{fi}` from `{dc.source_pattern}` ({label})")
+        lines.append("")
+
+    # ── Footer ────────────────────────────────────────────────────────
+    lines.append("---")
+    lines.append("*Auto-generated from structured architecture analysis.*")
+
+    return "\n".join(lines)
+
+
+def generate_agents_md(blueprint: StructuredBlueprint) -> str:
+    """Generate AGENTS.md from structured blueprint data."""
+    timestamp = datetime.now(timezone.utc).isoformat()
+    repo = blueprint.meta.repository or "Unknown Repository"
+    repo_id = blueprint.meta.repository_id or ""
+
+    lines: list[str] = []
+
+    lines.append("# AGENTS.md")
+    lines.append("")
+    lines.append(f"> Multi-agent system guidance for **{repo}**")
+    lines.append(f"> Repository ID: {repo_id}")
+    lines.append(f"> Generated: {timestamp}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Blueprint sections overview
+    sections = []
+    if blueprint.decisions.architectural_style.chosen:
+        sections.append(f"- Architecture: {blueprint.decisions.architectural_style.chosen}")
+    if blueprint.components.components:
+        sections.append(f"- Components: {len(blueprint.components.components)}")
+    if blueprint.architecture_rules.dependency_constraints:
+        sections.append(f"- Dependency rules: {len(blueprint.architecture_rules.dependency_constraints)}")
+    if blueprint.architecture_rules.file_placement_rules:
+        sections.append(f"- File placement rules: {len(blueprint.architecture_rules.file_placement_rules)}")
+    if blueprint.communication.patterns:
+        sections.append(f"- Communication patterns: {len(blueprint.communication.patterns)}")
+
+    if sections:
+        lines.append("## Blueprint Summary")
+        lines.append("")
+        lines.extend(sections)
+        lines.append("")
+
+    lines.append("## Agent Roles")
+    lines.append("")
+    lines.append("### Architecture Analysis Agent")
+    lines.append("- Analyzes codebase structure and patterns")
+    lines.append("- Discovers actual architecture without predefined assumptions")
+    lines.append("- Generates structured JSON blueprint as single source of truth")
+    lines.append("")
+    lines.append("### Code Generation Agent")
+    lines.append("- Follows discovered architecture patterns")
+    lines.append("- Places new code in correct locations per file placement rules")
+    lines.append("- Respects dependency constraints")
+    lines.append("")
+    lines.append("### Validation Agent")
+    lines.append("- Validates code changes against architecture rules")
+    lines.append("- Checks imports, file locations, and naming conventions")
+    lines.append("- Reports violations with severity levels")
+    lines.append("")
+
+    lines.append("## Integration")
+    lines.append("")
+    lines.append("### MCP Server")
+    lines.append("Connect to the architecture MCP server for:")
+    lines.append("- `validate_import` — Check if an import is allowed")
+    lines.append("- `where_to_put` — Find correct file location")
+    lines.append("- `check_naming` — Verify naming conventions")
+    lines.append("- `get_repository_blueprint` — Get full blueprint")
+    lines.append("")
+    lines.append("### File Placement")
+    lines.append("- `CLAUDE.md` — Project root (AI assistant guidance)")
+    lines.append("- `.cursor/rules/architecture.md` — Cursor IDE integration")
+    lines.append("- `AGENTS.md` — Multi-agent system configuration")
+    lines.append("")
+    lines.append("---")
+    lines.append("*Auto-generated from structured architecture analysis.*")
+
+    return "\n".join(lines)
+
+
+def _detect_globs(blueprint: StructuredBlueprint) -> list[str]:
+    """Detect file extension globs from the technology stack."""
+    ext_map = {
+        "python": "**/*.py",
+        "typescript": "**/*.ts",
+        "javascript": "**/*.js",
+        "java": "**/*.java",
+        "go": "**/*.go",
+        "rust": "**/*.rs",
+        "swift": "**/*.swift",
+        "kotlin": "**/*.kt",
+        "ruby": "**/*.rb",
+        "php": "**/*.php",
+        "c#": "**/*.cs",
+        "c++": "**/*.cpp",
+    }
+
+    globs = set()
+    for entry in blueprint.technology.stack:
+        name_lower = entry.name.lower()
+        for lang, glob in ext_map.items():
+            if lang in name_lower:
+                globs.add(glob)
+
+        # Also check for React/Next.js etc.
+        if "react" in name_lower or "next" in name_lower:
+            globs.add("**/*.tsx")
+            globs.add("**/*.jsx")
+
+    # Check file placement rules for extensions
+    for fp in blueprint.architecture_rules.file_placement_rules:
+        if fp.naming_pattern:
+            ext = fp.naming_pattern.rsplit(".", 1)[-1] if "." in fp.naming_pattern else ""
+            if ext and len(ext) <= 4:
+                globs.add(f"**/*.{ext}")
+
+    return sorted(globs) if globs else ["**/*"]

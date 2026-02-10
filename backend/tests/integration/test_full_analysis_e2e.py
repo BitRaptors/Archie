@@ -15,10 +15,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 from config.container import Container
 from application.services.repository_service import RepositoryService
 from application.services.analysis_service import AnalysisService
-from infrastructure.persistence.user_repository import SupabaseUserRepository
-from infrastructure.persistence.repository_repository import SupabaseRepositoryRepository
-from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
-from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
+from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+from infrastructure.persistence.user_repository import UserRepository
+from infrastructure.persistence.repository_repository import RepositoryRepository
+from infrastructure.persistence.analysis_repository import AnalysisRepository
+from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
 from domain.entities.user import User
 from config.constants import AnalysisStatus
@@ -49,10 +50,11 @@ async def services(container):
     supabase_client = await container.supabase_client()
     
     # Create repositories
-    user_repo = SupabaseUserRepository(client=supabase_client)
-    repo_repo = SupabaseRepositoryRepository(client=supabase_client)
-    analysis_repo = SupabaseAnalysisRepository(client=supabase_client)
-    event_repo = SupabaseAnalysisEventRepository(client=supabase_client)
+    db = SupabaseAdapter(supabase_client)
+    user_repo = UserRepository(db=db)
+    repo_repo = RepositoryRepository(db=db)
+    analysis_repo = AnalysisRepository(db=db)
+    event_repo = AnalysisEventRepository(db=db)
     
     # Create storage and GitHub service
     storage = container.storage()
@@ -243,9 +245,9 @@ async def test_complete_analysis_workflow_e2e(container, github_token, services)
         print(f"  Phase starts: {len(phase_starts)}")
         print(f"  Phase ends: {len(phase_ends)}")
         
-        # PHASE 8: Verify Blueprint
+        # PHASE 8: Verify Blueprint (JSON — single source of truth)
         print("\n[8/8] Verifying blueprint generation...")
-        blueprint_path = f"blueprints/{repository.id}/backend_blueprint.md"
+        blueprint_path = f"blueprints/{repository.id}/blueprint.json"
         
         # Check if file exists
         file_exists = await storage.exists(blueprint_path)
@@ -253,7 +255,6 @@ async def test_complete_analysis_workflow_e2e(container, github_token, services)
         print(f"  File exists: {file_exists}")
         
         if not file_exists:
-            # List what files exist in the directory
             from pathlib import Path
             from config.settings import get_settings
             settings = get_settings()
@@ -273,12 +274,12 @@ async def test_complete_analysis_workflow_e2e(container, github_token, services)
             print(f"✓ Blueprint generated: {len(blueprint_content)} characters")
             print(f"  Location: {blueprint_path}")
             
-            # Verify blueprint has content
-            assert len(blueprint_content) > 100
-            print("✓ Blueprint has substantial content")
+            import json as _json
+            data = _json.loads(blueprint_content)
+            assert "meta" in data
+            print("✓ Blueprint JSON is valid and contains meta")
         except Exception as e:
             print(f"✗ Blueprint verification failed: {str(e)}")
-            # Don't fail the test if blueprint isn't generated (it's optional)
         
         # CLEANUP
         print("\n[CLEANUP] Cleaning up temporary files...")

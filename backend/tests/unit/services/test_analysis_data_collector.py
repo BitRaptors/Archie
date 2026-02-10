@@ -224,28 +224,36 @@ class UserService:
         assert summary["total_chars_sent"] == 303  # 100 + 200 + 3
 
 
-class TestSupabaseAnalysisDataRepository:
-    """Tests for SupabaseAnalysisDataRepository."""
+class TestAnalysisDataRepository:
+    """Tests for AnalysisDataRepository."""
     
     @pytest.fixture
-    def mock_supabase_client(self):
-        """Create a mock Supabase client."""
-        mock = AsyncMock()
+    def mock_db_client(self):
+        """Create a mock DatabaseClient."""
+        mock = MagicMock()
         mock_table = AsyncMock()
+        mock_table.select = MagicMock(return_value=mock_table)
+        mock_table.eq = MagicMock(return_value=mock_table)
+        mock_table.order = MagicMock(return_value=mock_table)
+        mock_table.maybe_single = MagicMock(return_value=mock_table)
+        mock_table.insert = MagicMock(return_value=mock_table)
+        mock_table.update = MagicMock(return_value=mock_table)
+        mock_table.delete = MagicMock(return_value=mock_table)
+        mock_table.execute = AsyncMock(return_value=MagicMock(data=[]))
         mock.table = MagicMock(return_value=mock_table)
         return mock, mock_table
     
     @pytest.fixture
-    def repository(self, mock_supabase_client):
+    def repository(self, mock_db_client):
         """Create repository instance."""
-        from infrastructure.persistence.analysis_data_repository import SupabaseAnalysisDataRepository
-        client, _ = mock_supabase_client
-        return SupabaseAnalysisDataRepository(client)
+        from infrastructure.persistence.analysis_data_repository import AnalysisDataRepository
+        db, _ = mock_db_client
+        return AnalysisDataRepository(db)
     
     @pytest.mark.asyncio
-    async def test_get_by_analysis_id_returns_empty_list(self, repository, mock_supabase_client):
+    async def test_get_by_analysis_id_returns_empty_list(self, repository, mock_db_client):
         """Test get_by_analysis_id returns empty list when no data."""
-        client, mock_table = mock_supabase_client
+        client, mock_table = mock_db_client
         mock_table.select = MagicMock(return_value=mock_table)
         mock_table.eq = MagicMock(return_value=mock_table)
         mock_table.order = MagicMock(return_value=mock_table)
@@ -257,9 +265,9 @@ class TestSupabaseAnalysisDataRepository:
         client.table.assert_called_with("analysis_data")
     
     @pytest.mark.asyncio
-    async def test_get_by_analysis_id_returns_data(self, repository, mock_supabase_client):
+    async def test_get_by_analysis_id_returns_data(self, repository, mock_db_client):
         """Test get_by_analysis_id returns data rows."""
-        client, mock_table = mock_supabase_client
+        client, mock_table = mock_db_client
         mock_table.select = MagicMock(return_value=mock_table)
         mock_table.eq = MagicMock(return_value=mock_table)
         mock_table.order = MagicMock(return_value=mock_table)
@@ -273,9 +281,9 @@ class TestSupabaseAnalysisDataRepository:
         assert len(result) == 2
     
     @pytest.mark.asyncio
-    async def test_get_by_type_returns_none_when_not_found(self, repository, mock_supabase_client):
+    async def test_get_by_type_returns_none_when_not_found(self, repository, mock_db_client):
         """Test get_by_type returns None when no matching data."""
-        client, mock_table = mock_supabase_client
+        client, mock_table = mock_db_client
         mock_table.select = MagicMock(return_value=mock_table)
         mock_table.eq = MagicMock(return_value=mock_table)
         mock_table.maybe_single = MagicMock(return_value=mock_table)
@@ -286,9 +294,9 @@ class TestSupabaseAnalysisDataRepository:
         assert result is None
     
     @pytest.mark.asyncio
-    async def test_upsert_inserts_new_entry(self, repository, mock_supabase_client):
+    async def test_upsert_inserts_new_entry(self, repository, mock_db_client):
         """Test upsert creates new entry when not exists."""
-        client, mock_table = mock_supabase_client
+        client, mock_table = mock_db_client
         
         # Mock get_by_type to return None (not exists)
         mock_table.select = MagicMock(return_value=mock_table)
@@ -304,9 +312,9 @@ class TestSupabaseAnalysisDataRepository:
         mock_table.insert.assert_called()
     
     @pytest.mark.asyncio
-    async def test_delete_by_analysis_id(self, repository, mock_supabase_client):
+    async def test_delete_by_analysis_id(self, repository, mock_db_client):
         """Test delete_by_analysis_id removes all entries."""
-        client, mock_table = mock_supabase_client
+        client, mock_table = mock_db_client
         mock_table.delete = MagicMock(return_value=mock_table)
         mock_table.eq = MagicMock(return_value=mock_table)
         mock_table.execute = AsyncMock(return_value=MagicMock(data=[{"id": "1"}, {"id": "2"}]))

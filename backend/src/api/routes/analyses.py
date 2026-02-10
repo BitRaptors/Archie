@@ -4,10 +4,17 @@ from sse_starlette.sse import EventSourceResponse
 from typing import List, Optional
 from api.dto.responses import AnalysisResponse, AnalysisEventResponse
 from domain.interfaces.repositories import IAnalysisRepository, IAnalysisEventRepository
+from domain.entities.blueprint import StructuredBlueprint
 from config.container import Container
-from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
-from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
+from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+from infrastructure.persistence.analysis_repository import AnalysisRepository
+from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
 from application.services.analysis_data_collector import analysis_data_collector
+from application.services.agent_file_generator import (
+    generate_claude_md,
+    generate_cursor_rules,
+    generate_agents_md,
+)
 import asyncio
 import json
 
@@ -18,14 +25,16 @@ async def get_analysis_repo(request: Request) -> IAnalysisRepository:
     """Get analysis repository with resolved dependencies."""
     container = request.app.container
     supabase_client = await container.supabase_client()
-    return SupabaseAnalysisRepository(client=supabase_client)
+    db = SupabaseAdapter(supabase_client)
+    return AnalysisRepository(db=db)
 
 
 async def get_event_repo(request: Request) -> IAnalysisEventRepository:
     """Get analysis event repository with resolved dependencies."""
     container = request.app.container
     supabase_client = await container.supabase_client()
-    return SupabaseAnalysisEventRepository(client=supabase_client)
+    db = SupabaseAdapter(supabase_client)
+    return AnalysisEventRepository(db=db)
 
 
 @router.get("/", response_model=List[AnalysisResponse])
@@ -235,8 +244,8 @@ async def get_agent_files(
 ):
     """Get generated agent instruction files (CLAUDE.md, Cursor rules).
     
-    These files are generated from the blueprint to provide AI assistants
-    with quick reference guides.
+    These files are generated from the structured JSON blueprint to ensure
+    consistency across all outputs.
     
     Args:
         analysis_id: ID of the analysis
@@ -260,367 +269,36 @@ async def get_agent_files(
     container = request.app.container
     storage = container.storage()
     
-    # Try to load existing agent files first
-    claude_md_path = f"blueprints/{analysis.repository_id}/CLAUDE.md"
-    cursor_rules_path = f"blueprints/{analysis.repository_id}/.cursor/rules/architecture.md"
-    agents_md_path = f"blueprints/{analysis.repository_id}/AGENTS.md"
+    # Load structured JSON blueprint (single source of truth)
+    blueprint = await _load_structured_blueprint(storage, analysis.repository_id)
     
-    claude_md = None
-    cursor_rules = None
-    agents_md = None
-    
-    # Try to read existing files
-    try:
-        if await storage.exists(claude_md_path):
-            content = await storage.read(claude_md_path)
-            claude_md = content.decode('utf-8') if isinstance(content, bytes) else content
-    except Exception:
-        pass
-    
-    try:
-        if await storage.exists(cursor_rules_path):
-            content = await storage.read(cursor_rules_path)
-            cursor_rules = content.decode('utf-8') if isinstance(content, bytes) else content
-    except Exception:
-        pass
-    
-    try:
-        if await storage.exists(agents_md_path):
-            content = await storage.read(agents_md_path)
-            agents_md = content.decode('utf-8') if isinstance(content, bytes) else content
-    except Exception:
-        pass
-    
-    # If no files exist, generate from blueprint
-    if not claude_md or not cursor_rules:
-        # Load blueprint
-        blueprint_path = f"blueprints/{analysis.repository_id}/backend_blueprint.md"
-        if not await storage.exists(blueprint_path):
-            blueprint_path = f"blueprints/{analysis.repository_id}/blueprint.md"
-        
-        blueprint_content = ""
-        try:
-            if await storage.exists(blueprint_path):
-                content = await storage.read(blueprint_path)
-                blueprint_content = content.decode('utf-8') if isinstance(content, bytes) else content
-        except Exception:
-            pass
-        
-        # Generate simple files from blueprint
-        if not claude_md:
-            claude_md = _generate_claude_md_from_blueprint(
-                analysis.repository_id, 
-                blueprint_content
-            )
-        
-        if not cursor_rules:
-            cursor_rules = _generate_cursor_rules_from_blueprint(
-                analysis.repository_id,
-                blueprint_content
-            )
-        
-        if not agents_md:
-            agents_md = _generate_agents_md(analysis.repository_id, blueprint_content)
+    if not blueprint:
+        raise HTTPException(
+            status_code=404,
+            detail="Structured blueprint (blueprint.json) not found. Re-analyze to generate.",
+        )
     
     return {
-        "claude_md": claude_md or "# CLAUDE.md\n\nNo architecture rules extracted yet.",
-        "cursor_rules": cursor_rules or "---\ndescription: Architecture rules\nglobs: [\"**/*\"]\n---\n\n# Architecture Rules\n\nNo rules extracted yet.",
-        "agents_md": agents_md or "# AGENTS.md\n\nNo agent configuration available.",
+        "claude_md": generate_claude_md(blueprint),
+        "cursor_rules": generate_cursor_rules(blueprint),
+        "agents_md": generate_agents_md(blueprint),
     }
 
 
-def _extract_all_sections(content: str) -> list[tuple[str, str]]:
-    """Extract all ## sections from markdown content.
-    
-    Returns list of (section_title, section_content) tuples.
-    """
-    import re
-    
-    sections = []
-    # Find all ## headers and their content
-    pattern = r'^## ([^\n]+)\n(.*?)(?=\n## |\Z)'
-    matches = re.findall(pattern, content, re.MULTILINE | re.DOTALL)
-    
-    for title, body in matches:
-        sections.append((title.strip(), body.strip()))
-    
-    return sections
+async def _load_structured_blueprint(storage, repository_id: str) -> StructuredBlueprint | None:
+    """Try to load the structured JSON blueprint from storage."""
+    json_path = f"blueprints/{repository_id}/blueprint.json"
+    try:
+        if await storage.exists(json_path):
+            content = await storage.read(json_path)
+            text = content.decode("utf-8") if isinstance(content, bytes) else content
+            data = json.loads(text)
+            return StructuredBlueprint.model_validate(data)
+    except Exception:
+        pass
+    return None
 
 
-def _get_blueprint_title(content: str) -> str:
-    """Extract the main title from blueprint."""
-    lines = content.split('\n')
-    for line in lines:
-        if line.startswith('# ') and not line.startswith('## '):
-            return line[2:].strip()
-    return "Architecture Blueprint"
-
-
-def _truncate_section(content: str, max_chars: int = 3000) -> str:
-    """Truncate content intelligently at paragraph boundaries."""
-    if len(content) <= max_chars:
-        return content
-    
-    # Try to truncate at a paragraph boundary
-    truncated = content[:max_chars]
-    last_para = truncated.rfind('\n\n')
-    if last_para > max_chars * 0.7:
-        truncated = truncated[:last_para]
-    
-    return truncated + "\n\n*[Section truncated for brevity - see full blueprint for details]*"
-
-
-def _generate_claude_md_from_blueprint(repository_id: str, blueprint_content: str) -> str:
-    """Generate CLAUDE.md content from blueprint.
-    
-    This is fully architecture and language agnostic - it extracts whatever
-    was discovered during analysis without imposing any assumptions.
-    """
-    from datetime import datetime, timezone
-    
-    timestamp = datetime.now(timezone.utc).isoformat()
-    
-    if not blueprint_content or len(blueprint_content.strip()) < 100:
-        return f"""# CLAUDE.md
-
-> Auto-generated architecture guidance for AI coding agents.
-> Repository ID: {repository_id}
-> Generated: {timestamp}
-
-## No Blueprint Available
-
-The architecture blueprint has not been generated yet or is empty.
-Run an analysis to generate architecture documentation.
-"""
-    
-    # Get the original title
-    title = _get_blueprint_title(blueprint_content)
-    
-    # Extract all sections from the blueprint
-    sections = _extract_all_sections(blueprint_content)
-    
-    lines = [
-        "# CLAUDE.md",
-        "",
-        f"# {title}",
-        "",
-        "> This file contains architecture guidance extracted from codebase analysis.",
-        "> AI coding assistants should follow these patterns when working with this codebase.",
-        f"> Repository ID: {repository_id}",
-        f"> Generated: {timestamp}",
-        "",
-        "---",
-        "",
-    ]
-    
-    # Include all sections from the blueprint, with appropriate truncation
-    # Prioritize certain sections but include everything that was discovered
-    priority_keywords = ['overview', 'principle', 'layer', 'structure', 'pattern', 'dependency', 'rule']
-    secondary_keywords = ['communication', 'error', 'contract', 'interface']
-    
-    included_sections = set()
-    
-    # First pass: high priority sections (fuller content)
-    for section_title, section_body in sections:
-        title_lower = section_title.lower()
-        if any(kw in title_lower for kw in priority_keywords):
-            lines.append(f"## {section_title}")
-            lines.append("")
-            lines.append(_truncate_section(section_body, 3500))
-            lines.append("")
-            included_sections.add(section_title)
-    
-    # Second pass: secondary sections (moderate truncation)
-    for section_title, section_body in sections:
-        if section_title in included_sections:
-            continue
-        title_lower = section_title.lower()
-        if any(kw in title_lower for kw in secondary_keywords):
-            lines.append(f"## {section_title}")
-            lines.append("")
-            lines.append(_truncate_section(section_body, 2000))
-            lines.append("")
-            included_sections.add(section_title)
-    
-    # Third pass: remaining sections (more truncated)
-    for section_title, section_body in sections:
-        if section_title in included_sections:
-            continue
-        # Skip table of contents and summary sections
-        if 'table of contents' in section_title.lower() or 'toc' in section_title.lower():
-            continue
-        lines.append(f"## {section_title}")
-        lines.append("")
-        lines.append(_truncate_section(section_body, 1500))
-        lines.append("")
-    
-    lines.extend([
-        "---",
-        "",
-        "*This file is auto-generated from architecture analysis. Place in project root for AI assistants to read automatically.*",
-    ])
-    
-    return "\n".join(lines)
-
-
-def _generate_cursor_rules_from_blueprint(repository_id: str, blueprint_content: str) -> str:
-    """Generate Cursor rules from blueprint.
-    
-    Fully architecture and language agnostic - extracts patterns
-    discovered during analysis without hardcoded assumptions.
-    """
-    import re
-    
-    if not blueprint_content or len(blueprint_content.strip()) < 100:
-        return """---
-description: Architecture rules from codebase analysis
-globs: ["**/*"]
----
-
-# Architecture Rules
-
-No architecture blueprint available. Run analysis first.
-"""
-    
-    # Auto-detect file extensions mentioned in the blueprint
-    extensions = set()
-    ext_pattern = r'\*\.([a-zA-Z0-9]+)'
-    found_exts = re.findall(ext_pattern, blueprint_content)
-    for ext in found_exts:
-        if ext.lower() in ['py', 'ts', 'tsx', 'js', 'jsx', 'swift', 'kt', 'java', 'go', 'rs', 'rb', 'php', 'cs', 'cpp', 'c', 'h', 'm', 'mm']:
-            extensions.add(f"**/*.{ext.lower()}")
-    
-    # Also detect from file paths mentioned (e.g., src/main.py, App.tsx)
-    path_pattern = r'[a-zA-Z0-9_/]+\.([a-zA-Z0-9]+)'
-    found_paths = re.findall(path_pattern, blueprint_content)
-    for ext in found_paths:
-        if ext.lower() in ['py', 'ts', 'tsx', 'js', 'jsx', 'swift', 'kt', 'java', 'go', 'rs', 'rb', 'php', 'cs', 'cpp', 'c', 'h', 'm', 'mm']:
-            extensions.add(f"**/*.{ext.lower()}")
-    
-    if not extensions:
-        globs = '["**/*"]'
-    else:
-        globs = json.dumps(sorted(list(extensions)))
-    
-    # Get title and sections
-    title = _get_blueprint_title(blueprint_content)
-    sections = _extract_all_sections(blueprint_content)
-    
-    lines = [
-        "---",
-        f"description: {title}",
-        f"globs: {globs}",
-        "---",
-        "",
-        f"# {title}",
-        "",
-        "> Architecture rules extracted from codebase analysis.",
-        "> Cursor will apply these rules when generating code.",
-        "",
-    ]
-    
-    # Include sections most relevant for code generation
-    # No hardcoded assumptions - include what was discovered
-    code_relevant_keywords = ['layer', 'structure', 'pattern', 'dependency', 'rule', 'principle', 
-                              'convention', 'interface', 'contract', 'component', 'module']
-    
-    for section_title, section_body in sections:
-        title_lower = section_title.lower()
-        # Include sections that are relevant for code generation
-        if any(kw in title_lower for kw in code_relevant_keywords):
-            lines.append(f"## {section_title}")
-            lines.append("")
-            lines.append(_truncate_section(section_body, 2500))
-            lines.append("")
-    
-    # If no sections matched, include the first few sections as-is
-    if len(lines) < 15 and sections:
-        for section_title, section_body in sections[:5]:
-            if f"## {section_title}" not in "\n".join(lines):
-                lines.append(f"## {section_title}")
-                lines.append("")
-                lines.append(_truncate_section(section_body, 2000))
-                lines.append("")
-    
-    lines.extend([
-        "---",
-        "",
-        "*Auto-generated from architecture analysis. Place at `.cursor/rules/architecture.md`*",
-    ])
-    
-    return "\n".join(lines)
-
-
-def _generate_agents_md(repository_id: str, blueprint_content: str = "") -> str:
-    """Generate AGENTS.md content.
-    
-    Provides guidance for multi-agent systems based on actual analysis.
-    """
-    from datetime import datetime, timezone
-    
-    timestamp = datetime.now(timezone.utc).isoformat()
-    
-    # Extract key info from blueprint if available
-    title = _get_blueprint_title(blueprint_content) if blueprint_content else "Codebase"
-    sections = _extract_all_sections(blueprint_content) if blueprint_content else []
-    
-    # Build section summary
-    section_list = ""
-    if sections:
-        section_list = "\n".join([f"- {s[0]}" for s in sections[:15]])
-    
-    return f"""# AGENTS.md
-
-> Multi-agent system guidance for this codebase.
-> Repository ID: {repository_id}
-> Generated: {timestamp}
-
-## Codebase: {title}
-
-This codebase has been analyzed and documented. The architecture blueprint contains the following sections:
-
-{section_list if section_list else "- No sections extracted yet"}
-
-## Agent Roles
-
-### Architecture Analysis Agent
-- Analyzes codebase structure and patterns
-- Extracts architecture rules from code
-- Generates documentation based on observations
-- Does NOT impose predefined patterns - discovers actual architecture
-
-### Code Generation Agent
-- Follows discovered architecture patterns
-- Places new code in correct locations based on structure
-- Maintains consistency with existing patterns
-- Respects dependency rules discovered in analysis
-
-### Validation Agent
-- Validates code changes against discovered architecture
-- Reports deviations from established patterns
-- Suggests corrections based on codebase conventions
-
-### Sync Agent
-- Detects changes since last analysis
-- Identifies when re-analysis is needed
-- Tracks architecture drift over time
-
-## Integration
-
-### MCP Server
-Connect to the architecture MCP server to:
-- Query architecture rules programmatically
-- Validate code against discovered patterns
-- Get contextual implementation guidance
-
-### File Placement
-- `CLAUDE.md` - Place in project root for AI assistants
-- `.cursor/rules/architecture.md` - Cursor IDE integration
-- `AGENTS.md` - Multi-agent system configuration
-
----
-*Auto-generated from architecture analysis.*
-"""
 
 
 @router.get("/{analysis_id}/blueprint")
@@ -628,12 +306,14 @@ async def get_blueprint(
     analysis_id: str,
     request: Request,
     type: Optional[str] = "backend",
+    format: Optional[str] = "markdown",
 ):
     """Get generated blueprint for an analysis.
     
     Args:
         analysis_id: ID of the analysis
         type: Type of blueprint to fetch ("backend" or "frontend"), defaults to "backend"
+        format: Output format ("markdown" for human-readable, "json" for structured), defaults to "markdown"
     """
     analysis_repo = await get_analysis_repo(request)
     analysis = await analysis_repo.get_by_id(analysis_id)
@@ -662,38 +342,32 @@ async def get_blueprint(
             "path": f"blueprints/{analysis.repository_id}/frontend_blueprint.md"
         }
     
-    # Backend blueprint path
-    blueprint_path = f"blueprints/{analysis.repository_id}/backend_blueprint.md"
-    blueprint_type = "backend"
-    
-    # If new path doesn't exist, check old path (treat old blueprint.md as backend_blueprint.md)
-    if not await storage.exists(blueprint_path):
-        old_path = f"blueprints/{analysis.repository_id}/blueprint.md"
-        if await storage.exists(old_path):
-            blueprint_path = old_path
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Backend blueprint not found at: {blueprint_path}"
-            )
-    
-    try:
-        blueprint_content_bytes = await storage.read(blueprint_path)
-        # Decode bytes to string if needed
-        if isinstance(blueprint_content_bytes, bytes):
-            blueprint_content = blueprint_content_bytes.decode('utf-8')
-        else:
-            blueprint_content = blueprint_content_bytes
-    except Exception as e:
+    # Load the structured blueprint (single source of truth)
+    blueprint = await _load_structured_blueprint(storage, analysis.repository_id)
+    if not blueprint:
         raise HTTPException(
-            status_code=404, 
-            detail=f"Error reading backend blueprint from {blueprint_path}: {str(e)}"
+            status_code=404,
+            detail="Structured blueprint (blueprint.json) not found. Re-analyze to generate.",
         )
+    
+    # JSON format: return the raw model
+    if format == "json":
+        return {
+            "analysis_id": analysis_id,
+            "repository_id": analysis.repository_id,
+            "type": "backend",
+            "format": "json",
+            "structured": blueprint.model_dump(),
+        }
+    
+    # Markdown format: render on-the-fly from JSON
+    from application.services.blueprint_renderer import render_blueprint_markdown
+    blueprint_content = render_blueprint_markdown(blueprint)
     
     return {
         "analysis_id": analysis_id,
         "repository_id": analysis.repository_id,
-        "type": blueprint_type,
+        "type": "backend",
+        "format": "markdown",
         "content": blueprint_content,
-        "path": blueprint_path,
     }

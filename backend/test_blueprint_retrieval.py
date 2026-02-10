@@ -9,7 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from config.container import Container
-from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
+from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+from infrastructure.persistence.analysis_repository import AnalysisRepository
 from infrastructure.storage.local_storage import LocalStorage
 from config.settings import get_settings
 
@@ -27,7 +28,8 @@ async def test_blueprint_retrieval(analysis_id: str):
     try:
         # Get analysis
         supabase_client = await container.supabase_client()
-        analysis_repo = SupabaseAnalysisRepository(client=supabase_client)
+        db = SupabaseAdapter(supabase_client)
+        analysis_repo = AnalysisRepository(db=db)
         analysis = await analysis_repo.get_by_id(analysis_id)
         
         if not analysis:
@@ -51,8 +53,8 @@ async def test_blueprint_retrieval(analysis_id: str):
         print(f"  - Base path: {storage._base_path}")
         print(f"  - Settings path: {settings.storage_path}")
         
-        # Check for blueprint
-        blueprint_path = f"blueprints/{analysis.repository_id}/backend_blueprint.md"
+        # Check for blueprint (JSON — single source of truth)
+        blueprint_path = f"blueprints/{analysis.repository_id}/blueprint.json"
         print(f"\n✓ Checking for blueprint:")
         print(f"  - Path: {blueprint_path}")
         

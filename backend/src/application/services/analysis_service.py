@@ -1,4 +1,5 @@
 """Analysis service orchestrator."""
+import json
 from pathlib import Path
 from typing import Any, Optional
 from domain.entities.analysis import Analysis
@@ -230,9 +231,9 @@ class AnalysisService:
             repo = await self._repository_repo.get_by_id(analysis.repository_id)
             repo_name = repo.full_name if repo else analysis.repository_id
             
-            # Generate Backend Blueprint
+            # Generate Backend Blueprint (dual format: JSON + Markdown)
             await self._log_event(analysis_id, "INFO", "Starting backend architecture analysis...")
-            backend_blueprint = await self._phased_blueprint_generator.generate(
+            blueprint_result = await self._phased_blueprint_generator.generate(
                 repo_path=repo_path_obj,
                 repository_name=repo_name,
                 repository_id=analysis.repository_id,
@@ -244,40 +245,46 @@ class AnalysisService:
                 blueprint_type="backend",
             )
             
-            # Validate blueprint was generated
-            if not backend_blueprint:
+            # Validate blueprint was generated (returns dict with "structured" and optionally "markdown")
+            if not blueprint_result:
                 raise ValueError("Backend blueprint generation returned None or empty result")
-            if not isinstance(backend_blueprint, str):
-                raise ValueError(f"Backend blueprint is not a string, got: {type(backend_blueprint)}")
-            if len(backend_blueprint.strip()) == 0:
-                raise ValueError("Backend blueprint is empty")
+            if not isinstance(blueprint_result, dict):
+                raise ValueError(f"Backend blueprint is not a dict, got: {type(blueprint_result)}")
             
-            await self._log_event(analysis_id, "INFO", f"Backend blueprint generation complete ({len(backend_blueprint)} characters)")
+            structured_blueprint = blueprint_result.get("structured", {})
+            
+            if not structured_blueprint:
+                raise ValueError("Backend structured blueprint is empty")
+            
+            await self._log_event(
+                analysis_id, "INFO",
+                f"Backend blueprint generated: "
+                f"{len(json.dumps(structured_blueprint))} chars JSON"
+            )
             analysis.update_progress(90)
             await self._analysis_repo.update(analysis)
             
             await self._log_event(analysis_id, "PHASE_END", "Phase 3 complete: Backend blueprint generated")
 
-            # Phase 4: Save blueprint
+            # Phase 4: Save structured JSON blueprint (single source of truth)
             await self._log_event(analysis_id, "PHASE_START", "Phase 4: Saving blueprint")
             analysis.update_progress(95)
             await self._analysis_repo.update(analysis)
             
-            # Save backend blueprint
-            backend_blueprint_path = f"blueprints/{analysis.repository_id}/backend_blueprint.md"
+            json_blueprint_path = f"blueprints/{analysis.repository_id}/blueprint.json"
             try:
-                await self._log_event(analysis_id, "INFO", f"Saving blueprint to: {backend_blueprint_path}")
-                saved_path = await self._persistent_storage.save(backend_blueprint_path, backend_blueprint)
-                await self._log_event(analysis_id, "INFO", f"Backend blueprint saved to: {backend_blueprint_path} (resolved: {saved_path})")
+                json_content = json.dumps(structured_blueprint, indent=2, ensure_ascii=False)
+                await self._persistent_storage.save(json_blueprint_path, json_content)
+                await self._log_event(analysis_id, "INFO", f"Structured blueprint saved to: {json_blueprint_path}")
                 
                 # Verify the file was actually saved
-                file_exists = await self._persistent_storage.exists(backend_blueprint_path)
+                file_exists = await self._persistent_storage.exists(json_blueprint_path)
                 if not file_exists:
-                    error_msg = f"WARNING: Blueprint file not found after save at: {backend_blueprint_path}"
+                    error_msg = f"WARNING: Blueprint file not found after save at: {json_blueprint_path}"
                     await self._log_event(analysis_id, "ERROR", error_msg)
                     raise FileNotFoundError(error_msg)
                 else:
-                    await self._log_event(analysis_id, "INFO", f"Verified: Blueprint file exists at: {backend_blueprint_path}")
+                    await self._log_event(analysis_id, "INFO", f"Verified: Blueprint file exists at: {json_blueprint_path}")
             except Exception as save_error:
                 await self._log_event(analysis_id, "ERROR", f"Failed to save blueprint: {str(save_error)}")
                 import traceback
@@ -293,10 +300,16 @@ class AnalysisService:
                 await self._analysis_repo.update(analysis)
                 
                 try:
+                    # Render markdown on-the-fly for the legacy rule extractor
+                    from application.services.blueprint_renderer import render_blueprint_markdown
+                    from domain.entities.blueprint import StructuredBlueprint as _SB
+                    _bp = _SB.model_validate(structured_blueprint)
+                    _md = render_blueprint_markdown(_bp)
+                    
                     await self._extract_and_store_architecture_rules(
                         analysis_id=analysis_id,
                         repository_id=analysis.repository_id,
-                        blueprint_content=backend_blueprint,
+                        blueprint_content=_md,
                     )
                     await self._log_event(analysis_id, "PHASE_END", "Phase 5 complete: Architecture rules extracted")
                 except Exception as arch_error:

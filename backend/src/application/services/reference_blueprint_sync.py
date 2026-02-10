@@ -212,8 +212,9 @@ async def create_sync_cli():
     from supabase import create_client
     
     from config.settings import settings
+    from infrastructure.persistence.supabase_adapter import SupabaseAdapter
     from infrastructure.persistence.architecture_rule_repository import (
-        SupabaseArchitectureRuleRepository,
+        ArchitectureRuleRepository,
     )
     
     parser = argparse.ArgumentParser(description="Sync reference blueprints to database")
@@ -231,11 +232,12 @@ async def create_sync_cli():
     
     args = parser.parse_args()
     
-    # Create Supabase client
+    # Create Supabase client and wrap in adapter
     client = create_client(settings.supabase_url, settings.supabase_key)
+    db = SupabaseAdapter(client)
     
     # Create repository
-    repo = SupabaseArchitectureRuleRepository(client)
+    repo = ArchitectureRuleRepository(db)
     
     # Create sync service
     sync = ReferenceBlueprintSync(args.docs_dir, repo)

@@ -1,7 +1,8 @@
 """Analysis data collector for pipeline with Supabase persistence."""
 from typing import Any, Dict
 from datetime import datetime, timezone
-from infrastructure.persistence.analysis_data_repository import SupabaseAnalysisDataRepository
+from infrastructure.persistence.analysis_data_repository import AnalysisDataRepository
+from infrastructure.persistence.supabase_adapter import SupabaseAdapter
 
 
 class AnalysisDataCollector:
@@ -13,14 +14,14 @@ class AnalysisDataCollector:
     3. Truncation metrics
     4. RAG retrieval results
     
-    Data is persisted to Supabase so it can be accessed across processes (worker -> API).
+    Data is persisted to the database so it can be accessed across processes (worker -> API).
     """
     
     def __init__(self):
         # In-memory cache keyed by analysis_id for performance during analysis
         self._data: Dict[str, Dict[str, Any]] = {}
-        # Repository for Supabase persistence (initialized later)
-        self._repository: SupabaseAnalysisDataRepository | None = None
+        # Repository for persistence (initialized later)
+        self._repository: AnalysisDataRepository | None = None
         self._initialized = False
     
     def initialize(self, supabase_client) -> None:
@@ -31,7 +32,8 @@ class AnalysisDataCollector:
         Args:
             supabase_client: The Supabase async client
         """
-        self._repository = SupabaseAnalysisDataRepository(supabase_client)
+        db = SupabaseAdapter(supabase_client)
+        self._repository = AnalysisDataRepository(db)
         self._initialized = True
     
     @property
@@ -42,8 +44,9 @@ class AnalysisDataCollector:
     async def get_data(self, analysis_id: str) -> Dict[str, Any]:
         """Get analysis data for a specific analysis.
         
-        First checks memory cache, then loads from Supabase if not found.
-        If cached data has no phases, reloads from Supabase (handles cross-process data).
+        Always loads from Supabase to ensure cross-process correctness.
+        The worker writes phase data progressively while the API reads it.
+        In-memory cache is only used as fallback when Supabase is unavailable.
         
         Args:
             analysis_id: The analysis UUID
@@ -51,27 +54,18 @@ class AnalysisDataCollector:
         Returns:
             Analysis data dict with gathered, phases, and summary
         """
-        # Check memory cache first
-        if analysis_id in self._data:
-            cached = self._data[analysis_id]
-            # If cached data has no phases, try reloading from Supabase
-            # This handles the case where worker saved data but API has stale cache
-            if not cached.get("phases") and self.is_initialized:
-                data = await self._load_from_supabase(analysis_id)
-                if data.get("phases"):
-                    self._data[analysis_id] = data
-                    return data
-            return cached
-        
-        # Load from Supabase if initialized
+        # Always load from Supabase for cross-process correctness
         if self.is_initialized:
             data = await self._load_from_supabase(analysis_id)
-            # Cache in memory for future access
             if data.get("phases") or data.get("gathered"):
                 self._data[analysis_id] = data
-            return data
+                return data
         
-        # Return empty structure if not initialized
+        # Fall back to in-memory cache (same-process writes, e.g. inside the worker)
+        if analysis_id in self._data:
+            return self._data[analysis_id]
+        
+        # Return empty structure if nothing found
         return {"gathered": {}, "phases": [], "summary": {}}
     
     async def _load_from_supabase(self, analysis_id: str) -> Dict[str, Any]:

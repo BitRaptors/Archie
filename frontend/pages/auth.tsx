@@ -1,21 +1,39 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
+import { useRouter } from 'next/router'
 import Link from 'next/link'
 
 export default function AuthPage() {
   const [token, setToken] = useState('')
-  const { authenticate, isLoading, error } = useAuth()
+  const { authenticate, isLoading, error, serverTokenMode, isAuthenticated } = useAuth()
+  const router = useRouter()
+
+  // If server has its own token, skip the auth page entirely
+  useEffect(() => {
+    if (!isLoading && serverTokenMode && isAuthenticated) {
+      router.replace('/')
+    }
+  }, [isLoading, serverTokenMode, isAuthenticated, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
       await authenticate(token)
-      // Redirect will happen in the authenticate function
     } catch (err) {
-      // Error is handled in the context and displayed below
       console.error('Authentication error:', err)
     }
+  }
+
+  // Show nothing while redirecting in server-token mode
+  if (isLoading || (serverTokenMode && isAuthenticated)) {
+    return (
+      <div className="container mx-auto p-8">
+        <div className="max-w-2xl mx-auto">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

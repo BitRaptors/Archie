@@ -1,11 +1,10 @@
 """Analysis data repository implementation for storing debug/intermediate data."""
 from typing import Any
-from supabase import Client
-from postgrest.exceptions import APIError
+from domain.interfaces.database import DatabaseClient, DatabaseError
 
 
-class SupabaseAnalysisDataRepository:
-    """Supabase implementation of analysis data repository.
+class AnalysisDataRepository:
+    """Analysis data repository.
     
     Used to store and retrieve debug data collected during analysis phases.
     Data types include:
@@ -16,46 +15,30 @@ class SupabaseAnalysisDataRepository:
 
     TABLE = "analysis_data"
 
-    def __init__(self, client: Client):
-        """Initialize analysis data repository."""
-        self._client = client
+    def __init__(self, db: DatabaseClient):
+        self._db = db
 
     async def get_by_analysis_id(self, analysis_id: str) -> list[dict]:
-        """Get all data entries for a specific analysis.
-        
-        Args:
-            analysis_id: The analysis UUID
-            
-        Returns:
-            List of data entries with data_type and data fields
-        """
+        """Get all data entries for a specific analysis."""
         try:
             result = await (
-                self._client.table(self.TABLE)
+                self._db.table(self.TABLE)
                 .select("*")
                 .eq("analysis_id", analysis_id)
                 .order("created_at", desc=False)
                 .execute()
             )
             return result.data if result.data else []
-        except APIError as e:
+        except DatabaseError as e:
             if e.code == "204" or "204" in str(e):
                 return []
             raise
 
     async def get_by_type(self, analysis_id: str, data_type: str) -> dict | None:
-        """Get a specific data entry by analysis_id and data_type.
-        
-        Args:
-            analysis_id: The analysis UUID
-            data_type: The type of data (e.g., 'debug_gathered')
-            
-        Returns:
-            The data entry or None if not found
-        """
+        """Get a specific data entry by analysis_id and data_type."""
         try:
             result = await (
-                self._client.table(self.TABLE)
+                self._db.table(self.TABLE)
                 .select("*")
                 .eq("analysis_id", analysis_id)
                 .eq("data_type", data_type)
@@ -63,40 +46,25 @@ class SupabaseAnalysisDataRepository:
                 .execute()
             )
             return result.data if result and result.data else None
-        except APIError as e:
+        except DatabaseError as e:
             if e.code == "204" or "204" in str(e):
                 return None
             raise
 
     async def upsert(self, analysis_id: str, data_type: str, data: dict) -> dict:
-        """Insert or update a data entry.
-        
-        If an entry with the same analysis_id and data_type exists, it updates.
-        Otherwise, creates a new entry.
-        
-        Args:
-            analysis_id: The analysis UUID
-            data_type: The type of data
-            data: The JSONB data to store
-            
-        Returns:
-            The created/updated entry
-        """
-        # Check if entry exists
+        """Insert or update a data entry."""
         existing = await self.get_by_type(analysis_id, data_type)
         
         if existing:
-            # Update existing entry
             result = await (
-                self._client.table(self.TABLE)
+                self._db.table(self.TABLE)
                 .update({"data": data})
                 .eq("id", existing["id"])
                 .execute()
             )
         else:
-            # Insert new entry
             result = await (
-                self._client.table(self.TABLE)
+                self._db.table(self.TABLE)
                 .insert({
                     "analysis_id": analysis_id,
                     "data_type": data_type,
@@ -108,16 +76,9 @@ class SupabaseAnalysisDataRepository:
         return result.data[0] if result.data else {}
 
     async def delete_by_analysis_id(self, analysis_id: str) -> int:
-        """Delete all data entries for an analysis.
-        
-        Args:
-            analysis_id: The analysis UUID
-            
-        Returns:
-            Number of entries deleted
-        """
+        """Delete all data entries for an analysis."""
         result = await (
-            self._client.table(self.TABLE)
+            self._db.table(self.TABLE)
             .delete()
             .eq("analysis_id", analysis_id)
             .execute()
@@ -125,17 +86,9 @@ class SupabaseAnalysisDataRepository:
         return len(result.data) if result.data else 0
 
     async def delete_by_type(self, analysis_id: str, data_type: str) -> bool:
-        """Delete a specific data entry.
-        
-        Args:
-            analysis_id: The analysis UUID
-            data_type: The type of data to delete
-            
-        Returns:
-            True if deleted, False if not found
-        """
+        """Delete a specific data entry."""
         result = await (
-            self._client.table(self.TABLE)
+            self._db.table(self.TABLE)
             .delete()
             .eq("analysis_id", analysis_id)
             .eq("data_type", data_type)

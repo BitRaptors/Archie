@@ -4,15 +4,25 @@ from typing import List, Optional
 from api.dto.requests import CreateRepositoryRequest, StartAnalysisRequest
 from api.dto.responses import RepositoryResponse, AnalysisResponse
 from application.services.github_service import GitHubService
+from config.settings import get_settings
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 
 
-def get_token_from_header(request: Request) -> Optional[str]:
-    """Extract Bearer token from Authorization header."""
+def resolve_github_token(request: Request) -> Optional[str]:
+    """Resolve GitHub token: header first, then fall back to env GITHUB_TOKEN."""
+    # 1. Check Authorization header (user-provided token)
     authorization = request.headers.get("Authorization", "")
     if authorization and authorization.startswith("Bearer "):
-        return authorization.replace("Bearer ", "")
+        header_token = authorization.replace("Bearer ", "").strip()
+        if header_token:
+            return header_token
+    
+    # 2. Fall back to server-side env token
+    settings = get_settings()
+    if settings.github_token and settings.github_token.strip():
+        return settings.github_token.strip()
+    
     return None
 
 
@@ -23,8 +33,7 @@ async def list_repositories(
     offset: int = 0,
 ):
     """List user's repositories."""
-    # Extract token from Authorization header
-    token = get_token_from_header(request)
+    token = resolve_github_token(request)
     
     if not token:
         return []
@@ -34,14 +43,18 @@ async def list_repositories(
     github_service = container.github_service()
     
     try:
-        # Debug: log first and last 4 chars of token
-        if token:
-            print(f"DEBUG: Token received: {token[:4]}...{token[-4:]} (length: {len(token)})")
-        else:
-            print("DEBUG: No token received")
         repos = await github_service.list_repositories(token, limit=limit)
         return repos
     except Exception as e:
+        from domain.exceptions.domain_exceptions import AuthorizationError
+        
+        # Check if it's an authorization error (invalid/expired token)
+        if isinstance(e, AuthorizationError) or "401" in str(e) or "Bad credentials" in str(e):
+            raise HTTPException(
+                status_code=401, 
+                detail="GitHub token is invalid or expired. Please re-authenticate."
+            )
+        
         import traceback
         print(f"Error listing repositories: {str(e)}")
         traceback.print_exc()
@@ -74,10 +87,9 @@ async def start_analysis(
     analysis_request: StartAnalysisRequest | None = None,
 ):
     """Start analysis for a repository."""
-    # Extract token
-    token = get_token_from_header(request)
+    token = resolve_github_token(request)
     if not token:
-        raise HTTPException(status_code=401, detail="Missing GitHub token")
+        raise HTTPException(status_code=401, detail="No GitHub token available. Set GITHUB_TOKEN in .env or provide a token.")
 
     # Get container
     container = request.app.container
@@ -85,16 +97,18 @@ async def start_analysis(
     # CRITICAL: Resolve supabase_client Resource first to ensure it's initialized
     supabase_client = await container.supabase_client()
     
-    # Manually create repositories with resolved client to avoid Future issues
-    from infrastructure.persistence.user_repository import SupabaseUserRepository
-    from infrastructure.persistence.repository_repository import SupabaseRepositoryRepository
-    from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
-    from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
+    # Wrap Supabase client in DB adapter and create repositories
+    from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+    from infrastructure.persistence.user_repository import UserRepository
+    from infrastructure.persistence.repository_repository import RepositoryRepository
+    from infrastructure.persistence.analysis_repository import AnalysisRepository
+    from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
     
-    user_repo = SupabaseUserRepository(client=supabase_client)
-    repo_repo = SupabaseRepositoryRepository(client=supabase_client)
-    analysis_repo = SupabaseAnalysisRepository(client=supabase_client)
-    event_repo = SupabaseAnalysisEventRepository(client=supabase_client)
+    db = SupabaseAdapter(supabase_client)
+    user_repo = UserRepository(db=db)
+    repo_repo = RepositoryRepository(db=db)
+    analysis_repo = AnalysisRepository(db=db)
+    event_repo = AnalysisEventRepository(db=db)
     
     # Create services with resolved repositories
     from application.services.repository_service import RepositoryService

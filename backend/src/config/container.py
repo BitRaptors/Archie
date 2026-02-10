@@ -1,15 +1,16 @@
 """Dependency injection container."""
 from dependency_injector import containers, providers
-from supabase import create_async_client, Client
+from supabase import create_async_client
 import redis.asyncio as redis
 from arq import create_pool
 from arq.connections import RedisSettings
 from config.settings import get_settings
 
-from infrastructure.persistence.repository_repository import SupabaseRepositoryRepository
-from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
-from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
-from infrastructure.persistence.user_repository import SupabaseUserRepository
+from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+from infrastructure.persistence.repository_repository import RepositoryRepository
+from infrastructure.persistence.analysis_repository import AnalysisRepository
+from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
+from infrastructure.persistence.user_repository import UserRepository
 from application.services.github_service import GitHubService
 from application.services.repository_service import RepositoryService
 from application.services.analysis_service import AnalysisService
@@ -40,6 +41,12 @@ class Container(containers.DeclarativeContainer):
         supabase_key=settings.provided.supabase_key,
     )
 
+    # DB abstraction layer -- repositories depend on this, not on Supabase
+    db = providers.Factory(
+        SupabaseAdapter,
+        client=supabase_client,
+    )
+
     # ARQ Pool - Using a Resource for async initialization
     @staticmethod
     async def _create_arq_pool(redis_url: str):
@@ -56,23 +63,22 @@ class Container(containers.DeclarativeContainer):
         base_path=settings.provided.storage_path,
     )
 
-    # Repositories - Using Factory so they're created after supabase_client is resolved
-    # We'll ensure supabase_client is initialized before accessing these
+    # Repositories -- using the DB abstraction
     user_repository = providers.Factory(
-        SupabaseUserRepository,
-        client=supabase_client,
+        UserRepository,
+        db=db,
     )
     repository_repository = providers.Factory(
-        SupabaseRepositoryRepository,
-        client=supabase_client,
+        RepositoryRepository,
+        db=db,
     )
     analysis_repository = providers.Factory(
-        SupabaseAnalysisRepository,
-        client=supabase_client,
+        AnalysisRepository,
+        db=db,
     )
     analysis_event_repository = providers.Factory(
-        SupabaseAnalysisEventRepository,
-        client=supabase_client,
+        AnalysisEventRepository,
+        db=db,
     )
 
     # Services

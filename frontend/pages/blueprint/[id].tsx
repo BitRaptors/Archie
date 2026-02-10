@@ -167,10 +167,8 @@ export default function BlueprintView() {
     // Create blob with markdown content
     const blob = new Blob([blueprint.content], { type: 'text/markdown;charset=utf-8' })
     
-    // Generate filename from path or use default
-    const filename = blueprint.path 
-      ? blueprint.path.split('/').pop() || `${blueprint.type}_blueprint.md`
-      : `${blueprint.type}_blueprint.md`
+    // Generate filename
+    const filename = `${blueprint.type}_blueprint.md`
     
     // Create download link and trigger download
     const url = URL.createObjectURL(blob)
@@ -334,6 +332,12 @@ export default function BlueprintView() {
           <p className="text-gray-500 text-sm mt-1">Analysis ID: {id}</p>
         </div>
         <div className="flex gap-3">
+          <Link 
+            href="/workspace"
+            className="px-4 py-2 bg-blue-50 hover:bg-blue-100 rounded text-blue-600"
+          >
+            Workspace
+          </Link>
           <Link 
             href={`/analysis/${id}`}
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded text-gray-700"

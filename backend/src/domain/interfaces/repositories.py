@@ -6,6 +6,7 @@ from domain.entities.repository import Repository
 from domain.entities.analysis import Analysis
 from domain.entities.analysis_event import AnalysisEvent
 from domain.entities.architecture_rule import ArchitectureRule, RepositoryArchitectureConfig
+from domain.entities.user_profile import UserProfile
 
 T = TypeVar("T")
 ID = TypeVar("ID")
@@ -190,4 +191,27 @@ class IRepositoryArchitectureConfigRepository(ABC):
     @abstractmethod
     async def delete(self, repository_id: str) -> bool:
         """Delete config for a repository."""
+        ...
+
+
+class IUserProfileRepository(ABC):
+    """Interface for user profile repository.
+
+    Single-row design for now. When multi-user support is added,
+    methods will accept a ``user_id`` parameter.
+    """
+
+    @abstractmethod
+    async def get_default(self) -> UserProfile | None:
+        """Get the default (single) user profile."""
+        ...
+
+    @abstractmethod
+    async def upsert(self, profile: UserProfile) -> UserProfile:
+        """Insert or update a user profile."""
+        ...
+
+    @abstractmethod
+    async def set_active_repo(self, repo_id: str | None) -> None:
+        """Set (or clear) the active repository."""
         ...

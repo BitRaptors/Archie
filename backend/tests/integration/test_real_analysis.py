@@ -19,10 +19,11 @@ from config.settings import get_settings
 from application.services.repository_service import RepositoryService
 from application.services.analysis_service import AnalysisService
 from domain.entities.user import User
-from infrastructure.persistence.user_repository import SupabaseUserRepository
-from infrastructure.persistence.repository_repository import SupabaseRepositoryRepository
-from infrastructure.persistence.analysis_repository import SupabaseAnalysisRepository
-from infrastructure.persistence.analysis_event_repository import SupabaseAnalysisEventRepository
+from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+from infrastructure.persistence.user_repository import UserRepository
+from infrastructure.persistence.repository_repository import RepositoryRepository
+from infrastructure.persistence.analysis_repository import AnalysisRepository
+from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
 from infrastructure.storage.local_storage import LocalStorage
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
@@ -64,13 +65,14 @@ async def test_analyze_bitraptors_raptamagochi(container, github_token):
     print(f"Supabase client initialized: {type(supabase_client)}")
     
     # Now create repositories with the resolved client
-    user_repo = SupabaseUserRepository(client=supabase_client)
-    repo_repo = SupabaseRepositoryRepository(client=supabase_client)
-    analysis_repo = SupabaseAnalysisRepository(client=supabase_client)
-    event_repo = SupabaseAnalysisEventRepository(client=supabase_client)
+    db = SupabaseAdapter(supabase_client)
+    user_repo = UserRepository(db=db)
+    repo_repo = RepositoryRepository(db=db)
+    analysis_repo = AnalysisRepository(db=db)
+    event_repo = AnalysisEventRepository(db=db)
     
     print(f"User repo type: {type(user_repo)}")
-    print(f"User repo client type: {type(user_repo._client)}")
+    print(f"User repo db type: {type(user_repo._db)}")
     
     # Create services with resolved repositories
     storage = container.storage()
@@ -153,7 +155,8 @@ async def test_repository_service_get_or_create(container, github_token):
     
     # Ensure supabase client is initialized
     supabase_client = await container.supabase_client()
-    repo_repo = SupabaseRepositoryRepository(client=supabase_client)
+    db = SupabaseAdapter(supabase_client)
+    repo_repo = RepositoryRepository(db=db)
     
     storage = container.storage()
     github_service = container.github_service()

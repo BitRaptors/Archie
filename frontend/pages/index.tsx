@@ -9,17 +9,20 @@ import { useRouter } from 'next/router'
 export default function Home() {
   const [mounted, setMounted] = useState(false)
   const [analyzing, setAnalyzing] = useState<Set<string>>(new Set())
-  const { isAuthenticated, token } = useAuth()
-  const { data: repos, isLoading } = useRepositoriesQuery()
+  const { isAuthenticated, token, logout, isLoading: authLoading, serverTokenMode } = useAuth()
+  const { data: repos, isLoading, error, isError } = useRepositoriesQuery()
   const router = useRouter()
+  
+  // Check if error is an auth error (401)
+  const isAuthError = isError && (error as any)?.response?.status === 401
 
   // Fix hydration error by only rendering after mount
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  // Show loading state during SSR/hydration
-  if (!mounted) {
+  // Show loading state during SSR/hydration or while checking auth config
+  if (!mounted || authLoading) {
     return (
       <div className="container mx-auto p-8">
         <div className="max-w-2xl mx-auto">
@@ -74,13 +77,75 @@ export default function Home() {
     }
   }
 
+  // Handle re-authentication
+  const handleReauth = () => {
+    logout()
+    router.push('/auth')
+  }
+
   return (
     <div className="container mx-auto p-8">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold mb-6">Your Repositories</h1>
+        
+        {/* Auth Error State */}
+        {isAuthError && serverTokenMode && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
+            <div className="flex items-start gap-3">
+              <svg className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <h3 className="text-red-800 font-semibold">Server GitHub Token Invalid</h3>
+                <p className="text-red-600 mt-1">
+                  The <code className="bg-red-100 px-1 rounded text-sm">GITHUB_TOKEN</code> configured in the backend <code className="bg-red-100 px-1 rounded text-sm">.env</code> file is invalid or expired. Please update it and restart the server.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        {isAuthError && !serverTokenMode && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
+            <div className="flex items-start gap-3">
+              <svg className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <h3 className="text-red-800 font-semibold">GitHub Token Invalid or Expired</h3>
+                <p className="text-red-600 mt-1">
+                  Your GitHub token is no longer valid. This can happen if the token was revoked or has expired.
+                </p>
+                <button
+                  onClick={handleReauth}
+                  className="mt-4 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors"
+                >
+                  Re-authenticate with GitHub
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Generic Error State */}
+        {isError && !isAuthError && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6">
+            <div className="flex items-start gap-3">
+              <svg className="w-6 h-6 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <h3 className="text-yellow-800 font-semibold">Failed to Load Repositories</h3>
+                <p className="text-yellow-600 mt-1">
+                  {(error as any)?.message || 'An error occurred while fetching your repositories.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
         {isLoading ? (
           <p className="text-gray-600">Loading repositories...</p>
-        ) : repos && repos.length > 0 ? (
+        ) : !isError && repos && repos.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {repos.map((repo) => {
               const repoKey = `${repo.owner}/${repo.name}`
@@ -124,9 +189,9 @@ export default function Home() {
               )
             })}
           </div>
-        ) : (
+        ) : !isError ? (
           <p className="text-gray-600">No repositories found. Start by analyzing a repository.</p>
-        )}
+        ) : null}
       </div>
     </div>
   )

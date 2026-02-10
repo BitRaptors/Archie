@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # AI Providers
     anthropic_api_key: str = Field(...)  # Claude API
-    default_ai_model: str = Field(default="claude-3-haiku-20240307")
+    default_ai_model: str = Field(default="claude-3-5-haiku-20241022")
 
     # Embedding Model
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
