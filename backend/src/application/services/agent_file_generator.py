@@ -114,6 +114,36 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
             lines.append(f"| `{em.error}` | {em.status_code} |")
         lines.append("")
 
+    # ── Frontend Quick Reference ──────────────────────────────────────
+    fe = blueprint.frontend
+    has_frontend = fe.framework or fe.ui_components or fe.routing or fe.data_fetching
+
+    if has_frontend:
+        lines.append("## Frontend Architecture")
+        lines.append("")
+        if fe.framework:
+            lines.append(f"**Framework:** {fe.framework}")
+            lines.append("")
+        if fe.rendering_strategy:
+            lines.append(f"**Rendering:** {fe.rendering_strategy}")
+            lines.append("")
+        if fe.styling:
+            lines.append(f"**Styling:** {fe.styling}")
+            lines.append("")
+        sm = fe.state_management
+        if sm.approach:
+            lines.append(f"**State management:** {sm.approach}")
+            if sm.server_state:
+                lines.append(f"  - Server state: {sm.server_state}")
+            if sm.local_state:
+                lines.append(f"  - Local state: {sm.local_state}")
+            lines.append("")
+        if fe.key_conventions:
+            lines.append("**Conventions:**")
+            for conv in fe.key_conventions:
+                lines.append(f"- {conv}")
+            lines.append("")
+
     # ── Before You Code ───────────────────────────────────────────────
     lines.append("## Before You Code")
     lines.append("")
@@ -226,6 +256,25 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
             lines.append(f"- **How:** {pat.how_it_works}")
             lines.append("")
 
+    # ── Frontend ──────────────────────────────────────────────────────
+    fe = blueprint.frontend
+    if fe.framework or fe.ui_components or fe.data_fetching:
+        lines.append("## Frontend Architecture")
+        lines.append("")
+        if fe.framework:
+            lines.append(f"- **Framework:** {fe.framework}")
+        if fe.rendering_strategy:
+            lines.append(f"- **Rendering:** {fe.rendering_strategy}")
+        if fe.styling:
+            lines.append(f"- **Styling:** {fe.styling}")
+        sm = fe.state_management
+        if sm.approach:
+            lines.append(f"- **State management:** {sm.approach}")
+        if fe.key_conventions:
+            for conv in fe.key_conventions:
+                lines.append(f"- {conv}")
+        lines.append("")
+
     # ── Anti-Patterns ─────────────────────────────────────────────────
     if blueprint.architecture_rules.dependency_constraints:
         lines.append("## Anti-Patterns")
@@ -272,6 +321,12 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
         sections.append(f"- File placement rules: {len(blueprint.architecture_rules.file_placement_rules)}")
     if blueprint.communication.patterns:
         sections.append(f"- Communication patterns: {len(blueprint.communication.patterns)}")
+
+    if blueprint.meta.platforms:
+        sections.append(f"- Platforms: {', '.join(blueprint.meta.platforms)}")
+    fe = blueprint.frontend
+    if fe.framework:
+        sections.append(f"- Frontend framework: {fe.framework}")
 
     if sections:
         lines.append("## Blueprint Summary")

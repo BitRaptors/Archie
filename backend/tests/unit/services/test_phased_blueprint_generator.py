@@ -1,9 +1,6 @@
 """Tests for PhasedBlueprintGenerator with observation-first architecture."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
-import tempfile
-import os
 
 
 class TestPhasedBlueprintGenerator:

@@ -1,13 +1,15 @@
 """Structured blueprint schema for architecture warden.
 
-This module defines the Pydantic models for the dual-format blueprint output.
+This module defines the Pydantic models for the unified blueprint output.
 The structured JSON is the single source of truth from which all outputs
 (markdown, CLAUDE.md, Cursor rules, MCP tools) are derived.
+
+The schema is platform-agnostic: it captures backend, frontend, mobile,
+and full-stack applications in a single unified blueprint.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +23,7 @@ class ConfidenceScores(BaseModel):
     components: float = 0.0
     communication: float = 0.0
     technology: float = 0.0
+    frontend: float = 0.0
 
 
 class BlueprintMeta(BaseModel):
@@ -28,8 +31,9 @@ class BlueprintMeta(BaseModel):
     repository: str = ""
     repository_id: str = ""
     analyzed_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    schema_version: str = "1.0.0"
+    schema_version: str = "2.0.0"
     architecture_style: str = ""
+    platforms: list[str] = Field(default_factory=list)  # e.g. ["backend", "web-frontend", "mobile-ios"]
     confidence: ConfidenceScores = Field(default_factory=ConfidenceScores)
 
 
@@ -107,6 +111,7 @@ class Component(BaseModel):
     name: str = ""
     location: str = ""
     responsibility: str = ""
+    platform: str = ""  # backend | frontend | shared | ""
     depends_on: list[str] = Field(default_factory=list)
     exposes_to: list[str] = Field(default_factory=list)
     key_interfaces: list[KeyInterface] = Field(default_factory=list)
@@ -202,13 +207,67 @@ class Technology(BaseModel):
     run_commands: dict[str, str] = Field(default_factory=dict)  # dev, test, prod, worker
 
 
+# ── Frontend ─────────────────────────────────────────────────────────────────
+
+class UIComponent(BaseModel):
+    """A UI component or page in the frontend."""
+    name: str = ""
+    location: str = ""
+    component_type: str = ""  # page | layout | feature | shared | primitive
+    description: str = ""
+    props: list[str] = Field(default_factory=list)
+    children: list[str] = Field(default_factory=list)
+
+
+class StateManagement(BaseModel):
+    """How state is managed in the frontend."""
+    approach: str = ""  # e.g. "React Query + Context", "Redux Toolkit", "Zustand"
+    global_state: list[dict[str, str]] = Field(default_factory=list)
+    server_state: str = ""  # e.g. "TanStack Query", "SWR", "Apollo"
+    local_state: str = ""  # e.g. "useState", "useReducer"
+    rationale: str = ""
+
+
+class Route(BaseModel):
+    """A frontend route / page."""
+    path: str = ""
+    component: str = ""
+    description: str = ""
+    auth_required: bool = False
+
+
+class DataFetchingPattern(BaseModel):
+    """A data fetching pattern used in the frontend."""
+    name: str = ""
+    mechanism: str = ""  # e.g. "React Query hook", "fetch in loader", "SSR getServerSideProps"
+    when_to_use: str = ""
+    examples: list[str] = Field(default_factory=list)
+
+
+class Frontend(BaseModel):
+    """Frontend-specific architecture details.
+
+    Populated when the codebase contains a web or mobile frontend.
+    Left empty for backend-only projects.
+    """
+    framework: str = ""  # e.g. "Next.js 14", "React Native 0.73", "Vue 3"
+    rendering_strategy: str = ""  # SSR | SSG | CSR | ISR | hybrid
+    ui_components: list[UIComponent] = Field(default_factory=list)
+    state_management: StateManagement = Field(default_factory=StateManagement)
+    routing: list[Route] = Field(default_factory=list)
+    data_fetching: list[DataFetchingPattern] = Field(default_factory=list)
+    styling: str = ""  # e.g. "Tailwind CSS", "CSS Modules", "Styled Components"
+    key_conventions: list[str] = Field(default_factory=list)
+
+
 # ── Top-Level Blueprint ──────────────────────────────────────────────────────
 
 class StructuredBlueprint(BaseModel):
     """The complete structured blueprint — single source of truth.
 
     All outputs (markdown, CLAUDE.md, Cursor rules, MCP queries) are
-    derived from this model.
+    derived from this model. Supports backend, frontend, and full-stack
+    applications in a single unified schema.
     """
     meta: BlueprintMeta = Field(default_factory=BlueprintMeta)
     architecture_rules: ArchitectureRules = Field(default_factory=ArchitectureRules)
@@ -217,3 +276,4 @@ class StructuredBlueprint(BaseModel):
     communication: Communication = Field(default_factory=Communication)
     quick_reference: QuickReference = Field(default_factory=QuickReference)
     technology: Technology = Field(default_factory=Technology)
+    frontend: Frontend = Field(default_factory=Frontend)

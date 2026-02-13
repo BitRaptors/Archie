@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(python3 -m pytest:*)",
+      "Bash(ls:*)",
+      "Bash(pip3 list:*)",
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(PYTHONPATH=src python -m pytest:*)",
+      "Bash(ruff check:*)",
+      "Bash(PYTHONPATH=backend/src python -m pytest:*)",
+      "WebSearch"
+    ]
+  }
+}

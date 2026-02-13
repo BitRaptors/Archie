@@ -21,6 +21,8 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
     lines.append(f"> **Architecture style:** {style}")
     lines.append(f"> **Analyzed:** {bp.meta.analyzed_at}")
     lines.append(f"> **Schema version:** {bp.meta.schema_version}")
+    if bp.meta.platforms:
+        lines.append(f"> **Platforms:** {', '.join(bp.meta.platforms)}")
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -121,7 +123,8 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
         lines.append("")
 
     for comp in bp.components.components:
-        lines.append(f"### {comp.name}")
+        platform_tag = f" [{comp.platform}]" if comp.platform else ""
+        lines.append(f"### {comp.name}{platform_tag}")
         lines.append("")
         lines.append(f"**Location:** `{comp.location}`")
         lines.append("")
@@ -261,6 +264,93 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             lines.append("```")
             lines.append(tmpl.code)
             lines.append("```")
+            lines.append("")
+
+    # ── 7. Frontend Architecture ──────────────────────────────────────
+    fe = bp.frontend
+    has_frontend = fe.framework or fe.ui_components or fe.routing or fe.data_fetching
+
+    if has_frontend:
+        lines.append("## 7. Frontend Architecture")
+        lines.append("")
+        if fe.framework:
+            lines.append(f"**Framework:** {fe.framework}")
+            lines.append("")
+        if fe.rendering_strategy:
+            lines.append(f"**Rendering strategy:** {fe.rendering_strategy}")
+            lines.append("")
+        if fe.styling:
+            lines.append(f"**Styling:** {fe.styling}")
+            lines.append("")
+
+        # State management
+        sm = fe.state_management
+        if sm.approach:
+            lines.append("### State Management")
+            lines.append("")
+            lines.append(f"**Approach:** {sm.approach}")
+            lines.append("")
+            if sm.server_state:
+                lines.append(f"- **Server state:** {sm.server_state}")
+            if sm.local_state:
+                lines.append(f"- **Local state:** {sm.local_state}")
+            if sm.rationale:
+                lines.append(f"- **Rationale:** {sm.rationale}")
+            lines.append("")
+            if sm.global_state:
+                lines.append("**Global stores:**")
+                lines.append("")
+                for gs in sm.global_state:
+                    store = gs.get("store", gs.get("name", ""))
+                    purpose = gs.get("purpose", "")
+                    lines.append(f"- `{store}` — {purpose}")
+                lines.append("")
+
+        # UI Components
+        if fe.ui_components:
+            lines.append("### UI Components")
+            lines.append("")
+            lines.append("| Name | Type | Location | Description |")
+            lines.append("|------|------|----------|-------------|")
+            for uc in fe.ui_components:
+                lines.append(
+                    f"| {uc.name} | {uc.component_type} | `{uc.location}` | {uc.description} |"
+                )
+            lines.append("")
+
+        # Routing
+        if fe.routing:
+            lines.append("### Routing")
+            lines.append("")
+            lines.append("| Path | Component | Auth | Description |")
+            lines.append("|------|-----------|------|-------------|")
+            for r in fe.routing:
+                auth = "Yes" if r.auth_required else "No"
+                lines.append(f"| `{r.path}` | {r.component} | {auth} | {r.description} |")
+            lines.append("")
+
+        # Data Fetching
+        if fe.data_fetching:
+            lines.append("### Data Fetching Patterns")
+            lines.append("")
+            for df in fe.data_fetching:
+                lines.append(f"#### {df.name}")
+                lines.append("")
+                lines.append(f"**Mechanism:** {df.mechanism}")
+                lines.append("")
+                if df.when_to_use:
+                    lines.append(f"**When to use:** {df.when_to_use}")
+                    lines.append("")
+                if df.examples:
+                    lines.append("**Examples:** " + ", ".join(f"`{e}`" for e in df.examples))
+                    lines.append("")
+
+        # Key Conventions
+        if fe.key_conventions:
+            lines.append("### Frontend Conventions")
+            lines.append("")
+            for conv in fe.key_conventions:
+                lines.append(f"- {conv}")
             lines.append("")
 
     # ── Footer ────────────────────────────────────────────────────────

@@ -201,3 +201,4 @@ class WorkerSettings:
     functions = [analyze_repository]
     on_startup = startup
     on_shutdown = shutdown
+    job_timeout = get_settings().analysis_timeout_seconds  # Default: 3600s (1 hour)

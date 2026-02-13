@@ -40,10 +40,9 @@ export default function BlueprintView() {
   const { token, isAuthenticated } = useAuth()
   const [mounted, setMounted] = useState(false)
   const [backendBlueprint, setBackendBlueprint] = useState<BlueprintData | null>(null)
-  const [frontendBlueprint, setFrontendBlueprint] = useState<BlueprintData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'backend' | 'frontend' | 'claude' | 'cursor' | 'mcp' | 'debug'>('backend')
+  const [activeTab, setActiveTab] = useState<'backend' | 'claude' | 'cursor' | 'mcp' | 'debug'>('backend')
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [debugData, setDebugData] = useState<any>({
@@ -90,17 +89,6 @@ export default function BlueprintView() {
       }
       const backendData = await backendRes.json()
       setBackendBlueprint(backendData)
-
-      // Fetch frontend blueprint (only available via analysis route)
-      if (!isWorkspace) {
-        const frontendRes = await fetch(`${API_URL}/api/v1/analyses/${id}/blueprint?type=frontend`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (frontendRes.ok) {
-          const frontendData = await frontendRes.json()
-          setFrontendBlueprint(frontendData)
-        }
-      }
 
       // Fetch analysis data (only available via analysis route)
       if (!isWorkspace) {
@@ -372,17 +360,7 @@ export default function BlueprintView() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          Backend Architecture
-        </button>
-        <button
-          onClick={() => setActiveTab('frontend')}
-          className={`px-6 py-3 font-medium text-sm transition-colors relative ${
-            activeTab === 'frontend' 
-              ? 'text-blue-600 border-b-2 border-blue-600' 
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Frontend Architecture
+          Blueprint
         </button>
         <button
           onClick={() => setActiveTab('claude')}
@@ -437,7 +415,7 @@ export default function BlueprintView() {
           <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
             <div className="bg-gray-50 border-b px-6 py-3">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-gray-700">Backend Architecture Blueprint</span>
+                <span className="font-semibold text-gray-700">Architecture Blueprint</span>
                 {backendBlueprint && (
                   <button
                     onClick={() => handleDownload(backendBlueprint)}
@@ -458,43 +436,6 @@ export default function BlueprintView() {
                 </div>
               ) : (
                 <p className="text-gray-500 italic text-center">Backend blueprint not available.</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Frontend Tab */}
-        {activeTab === 'frontend' && (
-          <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-            <div className="bg-gray-50 border-b px-6 py-3">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-gray-700">Frontend Architecture Blueprint</span>
-                {frontendBlueprint && !frontendBlueprint.content.includes("Coming Soon") && (
-                  <button
-                    onClick={() => handleDownload(frontendBlueprint)}
-                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Download MD
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="p-8">
-              {frontendBlueprint ? (
-                <div className="prose prose-blue max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {frontendBlueprint.content}
-                  </ReactMarkdown>
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <h3 className="text-xl font-semibold text-gray-800 mb-2">Frontend Analysis Engine</h3>
-                  <p className="text-gray-600">The specialized frontend analysis engine is currently under development.</p>
-                  <div className="mt-6 inline-block bg-blue-50 text-blue-700 px-4 py-2 rounded-full text-sm font-medium">
-                    Coming Soon
-                  </div>
-                </div>
               )}
             </div>
           </div>

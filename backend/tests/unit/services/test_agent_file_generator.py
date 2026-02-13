@@ -244,7 +244,7 @@ class TestGenerateCursorRules:
         lines = content.split("\n")
         assert lines[0] == "---"
         # Find the closing ---
-        closing = [i for i, l in enumerate(lines[1:], 1) if l == "---"]
+        closing = [i for i, line in enumerate(lines[1:], 1) if line == "---"]
         assert len(closing) >= 1, "Missing closing YAML frontmatter"
 
     def test_contains_description(self, sample_blueprint):

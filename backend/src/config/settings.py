@@ -33,7 +33,9 @@ class Settings(BaseSettings):
 
     # AI Providers
     anthropic_api_key: str = Field(...)  # Claude API
-    default_ai_model: str = Field(default="claude-3-5-haiku-20241022")
+    default_ai_model: str = Field(default="claude-haiku-4-5-20251001")  # Fast model for intermediate phases
+    synthesis_ai_model: str = Field(default="claude-haiku-4-5-20251001")  # Model for final synthesis (supports up to 64K output tokens)
+    synthesis_max_tokens: int = Field(default=10000)  # Max output tokens for synthesis phases
 
     # Embedding Model
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")

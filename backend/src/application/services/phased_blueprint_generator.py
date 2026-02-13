@@ -33,8 +33,13 @@ class PhasedBlueprintGenerator:
         """
         self._settings = settings
         self._prompt_loader = PromptLoader()
-        self._client = AsyncAnthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else None
-        self._model = settings.default_ai_model
+        self._client = AsyncAnthropic(
+            api_key=settings.anthropic_api_key,
+            timeout=600.0,  # 10 min timeout for API calls (synthesis with Sonnet can be slow)
+        ) if settings.anthropic_api_key else None
+        self._model = settings.default_ai_model  # Fast model for intermediate phases
+        self._synthesis_model = getattr(settings, "synthesis_ai_model", settings.default_ai_model)  # Capable model for synthesis
+        self._synthesis_max_tokens = getattr(settings, "synthesis_max_tokens", 10000)
         self._progress_callback = progress_callback
         self._rag_retriever = RAGRetriever(supabase_client, progress_callback) if supabase_client else None
         self._supabase_client = supabase_client
@@ -200,21 +205,60 @@ class PhasedBlueprintGenerator:
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Technology inventory complete")
         
+        # Detect platforms from discovery result
+        has_frontend = self._detect_frontend(discovery_result, file_tree, dependencies)
+
+        # Frontend Analysis (if frontend detected)
+        frontend_result = ""
+        if has_frontend:
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(analysis_id, "INFO", "Analyzing frontend architecture...")
+            frontend_result = await self._run_frontend_analysis(
+                repository_name=repository_name,
+                repository_id=repository_id,
+                repo_path=repo_path,
+                previous_analyses=json.dumps({
+                    "discovery": discovery_result,
+                    "layers": layers_result,
+                    "patterns": patterns_result,
+                }, indent=2),
+                code_samples=code_samples,
+                rag_enabled=rag_enabled,
+                analysis_id=analysis_id,
+            )
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(analysis_id, "INFO", "Frontend architecture analyzed")
+
         # Final Synthesis: Generate structured JSON blueprint
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Generating structured architecture blueprint...")
-        synthesis_result = await self._run_backend_synthesis(
-            repository_name=repository_name,
-            repository_id=repository_id or "",
-            discovery=discovery_result,
-            layers=layers_result,
-            patterns=patterns_result,
-            communication=communication_result,
-            technology=technology_result,
-            code_samples=self._format_code_samples(code_samples),
-            analysis_id=analysis_id,
-        )
-        
+            await self._progress_callback(analysis_id, "INFO", "Generating unified architecture blueprint...")
+
+        if has_frontend:
+            synthesis_result = await self._run_unified_synthesis(
+                repository_name=repository_name,
+                repository_id=repository_id or "",
+                discovery=discovery_result,
+                layers=layers_result,
+                patterns=patterns_result,
+                communication=communication_result,
+                technology=technology_result,
+                frontend_analysis=frontend_result,
+                code_samples=self._format_code_samples(code_samples),
+                analysis_id=analysis_id,
+            )
+        else:
+            synthesis_result = await self._run_backend_synthesis(
+                repository_name=repository_name,
+                repository_id=repository_id or "",
+                discovery=discovery_result,
+                layers=layers_result,
+                patterns=patterns_result,
+                communication=communication_result,
+                technology=technology_result,
+                code_samples=self._format_code_samples(code_samples),
+                analysis_id=analysis_id,
+            )
+
         return synthesis_result
 
     async def _retrieve_relevant_code(
@@ -623,33 +667,199 @@ class PhasedBlueprintGenerator:
                 }
             )
         
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id,
+                "INFO",
+                f"Using synthesis model: {self._synthesis_model} (max_tokens={self._synthesis_max_tokens})",
+            )
+
         response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=8000,  # Larger for comprehensive JSON output
+            model=self._synthesis_model,
+            max_tokens=self._synthesis_max_tokens,
             messages=[{"role": "user", "content": prompt_text}],
         )
-        
+
         raw_text = response.content[0].text
-        
+
         # Parse the structured JSON from AI response
         structured_data = self._parse_structured_response(raw_text, repository_name, repository_id)
-        
+
         # Validate and create Pydantic model
         blueprint = StructuredBlueprint.model_validate(structured_data)
-        
+
         # Ensure meta fields are populated
         if not blueprint.meta.repository:
             blueprint.meta.repository = repository_name
         if not blueprint.meta.repository_id:
             blueprint.meta.repository_id = repository_id
-        
+
         if self._progress_callback and analysis_id:
             await self._progress_callback(
                 analysis_id,
                 "INFO",
                 f"Blueprint generated: {len(json.dumps(structured_data))} chars JSON",
             )
-        
+
+        return {
+            "structured": blueprint.model_dump(),
+        }
+
+    def _detect_frontend(self, discovery_result: str, file_tree: str, dependencies: str) -> bool:
+        """Detect whether the repository contains frontend code.
+
+        Checks the discovery result and file tree for common frontend indicators
+        such as package.json with React/Vue/Angular, frontend directories,
+        .tsx/.jsx/.vue files, etc.
+        """
+        combined = (discovery_result + file_tree + dependencies).lower()
+        frontend_indicators = [
+            "react", "next.js", "nextjs", "vue", "angular", "svelte",
+            "nuxt", "remix", "gatsby", "expo", "react-native", "react native",
+            "swiftui", "jetpack compose", "flutter",
+            ".tsx", ".jsx", ".vue", ".svelte",
+            "web-frontend", "frontend",
+            "pages/", "components/", "src/app/", "app/src/main",
+            "package.json",
+        ]
+        return any(indicator in combined for indicator in frontend_indicators)
+
+    async def _run_frontend_analysis(
+        self,
+        repository_name: str,
+        repository_id: str | None,
+        repo_path: Path,
+        previous_analyses: str,
+        code_samples: dict[str, str],
+        rag_enabled: bool,
+        analysis_id: str | None = None,
+    ) -> str:
+        """Run Frontend analysis: UI components, state, routing, data fetching."""
+        prompt = self._prompt_loader.get_prompt_by_key("frontend_analysis")
+
+        # Get relevant code via RAG if available
+        retrieved_code = ""
+        if rag_enabled and repository_id:
+            retrieved_code = await self._retrieve_relevant_code(
+                "frontend_analysis", repository_id, repo_path
+            )
+
+        formatted_samples = self._format_code_samples(code_samples, limit=8)
+        code_to_analyze = retrieved_code or formatted_samples
+
+        prompt_text = prompt.render({
+            "repository_name": repository_name,
+            "previous_analyses": previous_analyses[:3000],
+            "code_samples": code_to_analyze[:6000],
+        })
+
+        if analysis_id:
+            await analysis_data_collector.capture_phase_data(analysis_id, "frontend_analysis",
+                gathered={
+                    "previous_analyses": {"full_content": previous_analyses, "char_count": len(previous_analyses)},
+                    "code_samples": {"full_content": code_to_analyze, "char_count": len(code_to_analyze)}
+                },
+                sent={
+                    "previous_analyses": {"content": previous_analyses[:3000], "char_count": len(previous_analyses[:3000]), "truncated_from": len(previous_analyses)},
+                    "code_samples": {"content": code_to_analyze[:6000], "char_count": len(code_to_analyze[:6000]), "truncated_from": len(code_to_analyze)},
+                    "full_prompt": prompt_text
+                },
+                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
+            )
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+
+        return response.content[0].text
+
+    async def _run_unified_synthesis(
+        self,
+        repository_name: str,
+        repository_id: str,
+        discovery: str,
+        layers: str,
+        patterns: str,
+        communication: str,
+        technology: str,
+        frontend_analysis: str,
+        code_samples: str,
+        analysis_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Run Unified Synthesis: Generate structured JSON blueprint covering all platforms.
+
+        Returns:
+            Dict with "structured" (dict).
+        """
+        prompt = self._prompt_loader.get_prompt_by_key("unified_synthesis")
+
+        prompt_text = prompt.render({
+            "repository_name": repository_name,
+            "discovery": discovery[:2500],
+            "layers": layers[:2500],
+            "patterns": patterns[:2500],
+            "communication": communication[:2500],
+            "technology": technology[:2500],
+            "frontend_analysis": frontend_analysis[:3000],
+            "code_samples": code_samples[:4000],
+        })
+
+        if analysis_id:
+            await analysis_data_collector.capture_phase_data(analysis_id, "unified_synthesis",
+                gathered={
+                    "discovery": {"full_content": discovery, "char_count": len(discovery)},
+                    "layers": {"full_content": layers, "char_count": len(layers)},
+                    "patterns": {"full_content": patterns, "char_count": len(patterns)},
+                    "communication": {"full_content": communication, "char_count": len(communication)},
+                    "technology": {"full_content": technology, "char_count": len(technology)},
+                    "frontend_analysis": {"full_content": frontend_analysis, "char_count": len(frontend_analysis)},
+                    "code_samples": {"full_content": code_samples, "char_count": len(code_samples)}
+                },
+                sent={
+                    "discovery": {"content": discovery[:2500], "char_count": len(discovery[:2500]), "truncated_from": len(discovery)},
+                    "layers": {"content": layers[:2500], "char_count": len(layers[:2500]), "truncated_from": len(layers)},
+                    "patterns": {"content": patterns[:2500], "char_count": len(patterns[:2500]), "truncated_from": len(patterns)},
+                    "communication": {"content": communication[:2500], "char_count": len(communication[:2500]), "truncated_from": len(communication)},
+                    "technology": {"content": technology[:2500], "char_count": len(technology[:2500]), "truncated_from": len(technology)},
+                    "frontend_analysis": {"content": frontend_analysis[:3000], "char_count": len(frontend_analysis[:3000]), "truncated_from": len(frontend_analysis)},
+                    "code_samples": {"content": code_samples[:4000], "char_count": len(code_samples[:4000]), "truncated_from": len(code_samples)},
+                    "full_prompt": prompt_text
+                }
+            )
+
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id,
+                "INFO",
+                f"Using synthesis model: {self._synthesis_model} (max_tokens={self._synthesis_max_tokens})",
+            )
+
+        response = await self._client.messages.create(
+            model=self._synthesis_model,
+            max_tokens=self._synthesis_max_tokens,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+
+        raw_text = response.content[0].text
+
+        structured_data = self._parse_structured_response(raw_text, repository_name, repository_id)
+
+        blueprint = StructuredBlueprint.model_validate(structured_data)
+
+        if not blueprint.meta.repository:
+            blueprint.meta.repository = repository_name
+        if not blueprint.meta.repository_id:
+            blueprint.meta.repository_id = repository_id
+
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id,
+                "INFO",
+                f"Unified blueprint generated: {len(json.dumps(structured_data))} chars JSON",
+            )
+
         return {
             "structured": blueprint.model_dump(),
         }
@@ -657,45 +867,153 @@ class PhasedBlueprintGenerator:
     def _parse_structured_response(
         self, raw_text: str, repository_name: str, repository_id: str
     ) -> dict:
-        """Parse JSON from AI response, handling common formatting issues."""
+        """Parse JSON from AI response, handling truncation and formatting issues."""
         text = raw_text.strip()
-        
+
         # Strip markdown code fences if present
         if text.startswith("```"):
-            # Remove opening fence (with optional language tag)
             first_newline = text.index("\n")
             text = text[first_newline + 1:]
-            # Remove closing fence
             if text.rstrip().endswith("```"):
                 text = text.rstrip()[:-3].rstrip()
-        
+
+        # Extract JSON substring
+        brace_start = text.find("{")
+        if brace_start != -1:
+            text = text[brace_start:]
+
+        # Attempt 1: direct parse
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            # Try to find JSON object in the response
-            brace_start = text.find("{")
-            brace_end = text.rfind("}")
-            if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
+            pass
+
+        # Attempt 2: find last valid closing brace
+        brace_end = text.rfind("}")
+        if brace_end != -1:
+            try:
+                return json.loads(text[:brace_end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        # Attempt 3: repair truncated JSON
+        repaired = self._repair_truncated_json(text)
+        if repaired:
+            return repaired
+
+        # Final fallback — should rarely reach here after repair
+        return {
+            "meta": {
+                "repository": repository_name,
+                "repository_id": repository_id,
+                "architecture_style": "Could not parse structured output",
+            },
+            "decisions": {
+                "architectural_style": {
+                    "title": "Architecture Style",
+                    "chosen": "See raw analysis",
+                    "rationale": raw_text[:3000],
+                }
+            },
+        }
+
+    @staticmethod
+    def _repair_truncated_json(text: str) -> dict | None:
+        """Attempt to repair truncated JSON by closing open structures.
+
+        Walks the string tracking nesting of {, [, and string literals.
+        When the string ends prematurely, it closes everything that was left
+        open so the result is valid JSON (with partial data).
+        """
+        # Trim any trailing incomplete value (e.g. a truncated string or number)
+        # First, close any open string
+        in_string = False
+        escape_next = False
+        open_stack: list[str] = []  # tracks '{' and '['
+
+        i = 0
+        last_good = 0  # position after last structurally complete token
+
+        while i < len(text):
+            ch = text[i]
+
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+
+            if ch == '\\' and in_string:
+                escape_next = True
+                i += 1
+                continue
+
+            if ch == '"' and not escape_next:
+                in_string = not in_string
+                if not in_string:
+                    last_good = i + 1
+                i += 1
+                continue
+
+            if in_string:
+                i += 1
+                continue
+
+            # Outside string
+            if ch in ('{', '['):
+                open_stack.append(ch)
+                i += 1
+                continue
+            if ch == '}':
+                if open_stack and open_stack[-1] == '{':
+                    open_stack.pop()
+                last_good = i + 1
+                i += 1
+                continue
+            if ch == ']':
+                if open_stack and open_stack[-1] == '[':
+                    open_stack.pop()
+                last_good = i + 1
+                i += 1
+                continue
+
+            i += 1
+
+        if not open_stack:
+            # JSON wasn't actually truncated structurally — nothing to repair
+            return None
+
+        # Truncate to last structurally sound position, then build closing sequence
+        # Strategy: cut back to the last complete key-value or array element,
+        # then close all open structures.
+        repaired = text[:last_good] if last_good > 0 else text
+
+        # Remove any trailing commas or colons that would make JSON invalid
+        repaired = repaired.rstrip()
+        while repaired and repaired[-1] in (',', ':', '"'):
+            repaired = repaired[:-1].rstrip()
+
+        # Close all open structures in reverse order
+        for bracket in reversed(open_stack):
+            if bracket == '{':
+                repaired += '}'
+            elif bracket == '[':
+                repaired += ']'
+
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            # One more attempt: be more aggressive — cut back further
+            # Find the last comma before our cut point and try from there
+            cut = repaired.rfind(',')
+            if cut > 0:
+                aggressive = repaired[:cut]
+                for bracket in reversed(open_stack):
+                    aggressive += '}' if bracket == '{' else ']'
                 try:
-                    return json.loads(text[brace_start:brace_end + 1])
+                    return json.loads(aggressive)
                 except json.JSONDecodeError:
                     pass
-            
-            # Fallback: return minimal valid structure with raw text in decisions
-            return {
-                "meta": {
-                    "repository": repository_name,
-                    "repository_id": repository_id,
-                    "architecture_style": "Could not parse structured output",
-                },
-                "decisions": {
-                    "architectural_style": {
-                        "title": "Architecture Style",
-                        "chosen": "See raw analysis",
-                        "rationale": raw_text[:3000],
-                    }
-                },
-            }
+            return None
 
 
     def _format_code_samples(self, code_samples: dict[str, str], limit: int = 10) -> str:
@@ -860,8 +1178,6 @@ Provide your analysis in JSON format:
         Returns:
             Formatted string of all file signatures
         """
-        import re
-        
         code_extensions = {
             ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
             ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
@@ -1084,12 +1400,21 @@ Provide your analysis in JSON format:
                 custom_queries["communication"].extend(key_terms[:3])
             
             if self._progress_callback and analysis_id:
+                total = sum(len(v) for v in custom_queries.values())
                 await self._progress_callback(
                     analysis_id,
                     "INFO",
-                    f"Generated {sum(len(v) for v in custom_queries.values())} custom RAG queries based on observations"
+                    f"Generated {total} custom RAG queries based on observations"
                 )
-            
+                # Log each phase's queries so the user can see them in the process log
+                for phase, queries in custom_queries.items():
+                    if queries:
+                        await self._progress_callback(
+                            analysis_id,
+                            "INFO",
+                            f"  RAG [{phase}]: {', '.join(queries)}"
+                        )
+
             return custom_queries
             
         except Exception:
