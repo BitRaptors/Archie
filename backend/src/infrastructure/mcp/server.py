@@ -1,7 +1,10 @@
-"""MCP server for architecture blueprints."""
+"""MCP server for architecture blueprints.
+
+All tools operate on the structured JSON blueprint — the single source of truth.
+No static markdown reference files are used.
+"""
 
 import sys
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -21,18 +24,20 @@ from .tools import BlueprintTools
 
 # Determine directories (relative to this file)
 ROOT_DIR = Path(__file__).parent.parent.parent.parent.parent.absolute()
-DOCS_DIR = ROOT_DIR / "DOCS"
 STORAGE_DIR = ROOT_DIR / "backend" / "storage"
 
 # Initialize managers
-resources_manager = BlueprintResources(DOCS_DIR, storage_dir=STORAGE_DIR)
-tools_manager = BlueprintTools(DOCS_DIR, storage_dir=STORAGE_DIR)
+resources_manager = BlueprintResources(storage_dir=STORAGE_DIR)
+tools_manager = BlueprintTools(storage_dir=STORAGE_DIR)
 
 # ---------------------------------------------------------------------------
-# Active repository helper (reads from DB on every call — always fresh)
+# Active repository helper
 # ---------------------------------------------------------------------------
 
 _user_profile_repo = None
+
+# Last-known active repo — compared on each request to detect changes.
+_last_active_repo_id: Optional[str] = None
 
 
 async def _ensure_user_profile_repo():
@@ -49,9 +54,11 @@ async def _ensure_user_profile_repo():
         client = await get_supabase_client_async()
         db = SupabaseAdapter(client)
         _user_profile_repo = UserProfileRepository(db=db)
-    except Exception:
-        # If DB is unavailable, repo stays None — tools will report no active repo
-        pass
+    except Exception as exc:
+        print(
+            f"⚠ MCP: Failed to initialise UserProfileRepository: {exc}",
+            file=sys.stderr,
+        )
 
 
 async def _get_active_repo_id() -> Optional[str]:
@@ -62,8 +69,28 @@ async def _get_active_repo_id() -> Optional[str]:
     try:
         profile = await _user_profile_repo.get_default()
         return profile.active_repo_id if profile else None
-    except Exception:
+    except Exception as exc:
+        print(f"⚠ MCP: Failed to query active repo: {exc}", file=sys.stderr)
         return None
+
+
+async def _notify_if_repo_changed(srv: Server, current_id: Optional[str]):
+    """Send ``resources/list_changed`` if the active repo changed since last check.
+
+    Called inline from request handlers — no background tasks required.
+    """
+    global _last_active_repo_id
+    if current_id == _last_active_repo_id:
+        return
+    old = _last_active_repo_id
+    _last_active_repo_id = current_id
+    print(f"✓ MCP: Active repo changed: {old} → {current_id}", file=sys.stderr)
+    try:
+        session = srv.request_context.session
+        await session.send_resource_list_changed()
+        print("✓ MCP: Sent resources/list_changed notification", file=sys.stderr)
+    except Exception as exc:
+        print(f"⚠ MCP: Could not send list_changed: {exc}", file=sys.stderr)
 
 
 NO_ACTIVE_REPO_MSG = (
@@ -86,8 +113,10 @@ def create_server():
 
     @srv.list_resources()
     async def list_resources() -> list[Resource]:
+        global _last_active_repo_id
         all_resources = await resources_manager.list_resources()
         active_id = await _get_active_repo_id()
+        _last_active_repo_id = active_id  # seed baseline for change detection
         if not active_id:
             return all_resources  # show everything when nothing is active
         # Only expose resources belonging to the active repo
@@ -101,15 +130,16 @@ def create_server():
         from mcp.server.lowlevel.helper_types import ReadResourceContents
         uri_str = str(uri)
 
-        # Reject reads for non-active repos
-        active_id = await _get_active_repo_id()
-        if active_id and "analyzed/" in uri_str:
-            # Extract repo_id from URI: blueprint://analyzed/<repo_id>[/...]
-            parts = uri_str.replace("blueprint://analyzed/", "").split("/")
-            if parts and parts[0] != active_id:
-                raise ValueError(
-                    f"Resource belongs to a different repository. Active: {active_id}"
-                )
+        # Always resolve to the active repo so stale cached URIs
+        # (containing an old repo UUID) still serve current data.
+        if uri_str.startswith("blueprint://analyzed/"):
+            active_id = await _get_active_repo_id()
+            await _notify_if_repo_changed(srv, active_id)
+            if active_id:
+                path_parts = uri_str.replace("blueprint://analyzed/", "").split("/")
+                if path_parts:
+                    path_parts[0] = active_id
+                    uri_str = "blueprint://analyzed/" + "/".join(path_parts)
 
         result = resources_manager.get_resource(uri_str)
         if result:
@@ -118,84 +148,30 @@ def create_server():
         raise ValueError(f"Resource not found: {uri_str}")
 
     # ------------------------------------------------------------------
-    # Tools
+    # Tools — all operate on the active repository's blueprint JSON
     # ------------------------------------------------------------------
 
     @srv.list_tools()
     async def list_tools() -> list[Tool]:
         return [
-            # ── Reference architecture tools (no repo needed) ─────────
-            Tool(
-                name="get_pattern",
-                description="Get detailed information about an architectural pattern by ID",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "pattern_id": {
-                            "type": "string",
-                            "description": "Pattern identifier (e.g., 'context-hook', 'service-registry')"
-                        }
-                    },
-                    "required": ["pattern_id"]
-                }
-            ),
-            Tool(
-                name="list_patterns",
-                description="List all available patterns with summaries",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "stack": {
-                            "type": "string",
-                            "enum": ["backend", "frontend"],
-                            "description": "Optional filter by stack"
-                        }
-                    }
-                }
-            ),
-            Tool(
-                name="get_layer_rules",
-                description="Get what a specific layer can/cannot do",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "layer": {
-                            "type": "string",
-                            "enum": ["presentation", "application", "domain", "infrastructure"],
-                            "description": "Layer name"
-                        }
-                    },
-                    "required": ["layer"]
-                }
-            ),
-            Tool(
-                name="get_principle",
-                description="Get a specific principle (e.g., 'SRP', 'colocation')",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "principle_name": {
-                            "type": "string",
-                            "description": "Principle name or acronym"
-                        }
-                    },
-                    "required": ["principle_name"]
-                }
-            ),
-            # ── Active-repo tools (no repo_id parameter) ─────────────
             Tool(
                 name="get_repository_blueprint",
-                description="Get the full generated architecture blueprint for the active repository.",
+                description=(
+                    "Get the full architecture blueprint for the active repository. "
+                    "Contains layer rules, component boundaries, dependency constraints, "
+                    "and naming conventions. Use list_repository_sections + get_repository_section "
+                    "for token-efficient partial reads."
+                ),
                 inputSchema={"type": "object", "properties": {}}
             ),
             Tool(
                 name="list_repository_sections",
-                description="List all addressable sections in the active repository's blueprint.",
+                description="List all addressable section IDs in the active repository's blueprint. Use with get_repository_section to fetch specific sections.",
                 inputSchema={"type": "object", "properties": {}}
             ),
             Tool(
                 name="get_repository_section",
-                description="Get a specific section from the active repository's blueprint (token-efficient).",
+                description="Get a specific section from the active repository's blueprint by slug. Token-efficient alternative to reading the full blueprint.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -209,7 +185,12 @@ def create_server():
             ),
             Tool(
                 name="validate_import",
-                description="Check if an import is allowed by the architecture rules. Returns violation details if forbidden.",
+                description=(
+                    "REQUIRED before adding imports. Checks if an import is allowed by the project's "
+                    "architecture dependency rules. Returns VIOLATION (blocked), ALLOWED (permitted), "
+                    "or UNGUARDED (no rule covers it — verify manually). Always call this before "
+                    "writing import statements."
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -221,7 +202,11 @@ def create_server():
             ),
             Tool(
                 name="where_to_put",
-                description="Find the correct file location for a new component type (e.g. 'service', 'controller', 'entity').",
+                description=(
+                    "REQUIRED before creating new files. Returns the correct directory, naming pattern, "
+                    "and example for a given component type. Call this to determine where new services, "
+                    "controllers, entities, repositories, etc. should be placed."
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -232,7 +217,10 @@ def create_server():
             ),
             Tool(
                 name="check_naming",
-                description="Check if a name follows the project's naming conventions.",
+                description=(
+                    "Validates a proposed name against the project's naming conventions. "
+                    "Call this before naming new classes, functions, or files to ensure consistency."
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -248,25 +236,9 @@ def create_server():
     async def call_tool(name: str, arguments: dict):
         from mcp.types import TextContent
 
-        # ── Reference tools (no active repo required) ─────────────────
-        if name == "get_pattern":
-            result = tools_manager.get_pattern(arguments["pattern_id"])
-            return [TextContent(type="text", text=result)]
-
-        elif name == "list_patterns":
-            result = tools_manager.list_patterns(arguments.get("stack"))
-            return [TextContent(type="text", text=result)]
-
-        elif name == "get_layer_rules":
-            result = tools_manager.get_layer_rules(arguments["layer"])
-            return [TextContent(type="text", text=result)]
-
-        elif name == "get_principle":
-            result = tools_manager.get_principle(arguments["principle_name"])
-            return [TextContent(type="text", text=result)]
-
-        # ── Active-repo tools ─────────────────────────────────────────
+        # All tools require an active repo
         repo_id = await _get_active_repo_id()
+        await _notify_if_repo_changed(srv, repo_id)
         if not repo_id:
             return [TextContent(type="text", text=NO_ACTIVE_REPO_MSG)]
 

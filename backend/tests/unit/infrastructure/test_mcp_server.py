@@ -105,15 +105,13 @@ class TestServerToolFiltering:
         assert srv_mod.NO_ACTIVE_REPO_MSG
         assert "active repository" in srv_mod.NO_ACTIVE_REPO_MSG.lower()
 
-    def test_list_tools_does_not_include_list_analyzed_repositories(self):
-        """list_analyzed_repositories was removed from tools."""
+    def test_no_reference_tools_in_server(self):
+        """Reference tools (get_pattern, list_patterns, etc.) were removed."""
         import infrastructure.mcp.server as srv_mod
-        server = srv_mod.create_server()
-        # The tool names are defined in the list_tools handler
-        # Check the source doesn't reference it
         import inspect
         source = inspect.getsource(srv_mod.create_server)
-        assert "list_analyzed_repositories" not in source
+        for removed_tool in ["get_pattern", "list_patterns", "get_layer_rules", "get_principle"]:
+            assert removed_tool not in source, f"{removed_tool} should be removed"
 
     def test_repo_tools_have_no_repo_id_parameter(self):
         """All repo-specific tool schemas should NOT have repo_id."""

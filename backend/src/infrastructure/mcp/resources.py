@@ -5,13 +5,13 @@ source of truth).  Human-readable markdown is rendered on-the-fly via
 ``blueprint_renderer.render_blueprint_markdown``.
 """
 import json as _json
+import re
 from pathlib import Path
 from typing import Dict, Optional
 
 from mcp.types import Resource
 
 from domain.entities.blueprint import StructuredBlueprint
-from .utils.markdown import find_markdown_files, get_doc_by_id, read_markdown_file, slice_markdown
 
 
 def _load_blueprint(repo_dir: Path) -> Optional[StructuredBlueprint]:
@@ -32,12 +32,37 @@ def _render_markdown(bp: StructuredBlueprint) -> str:
     return render_blueprint_markdown(bp)
 
 
+def _slugify(text: str) -> str:
+    """Convert text to a URL-friendly slug."""
+    text = re.sub(r'^\d+(\.\d+)*\s*', '', text)
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+
+
+def _slice_markdown(content: str) -> Dict[str, str]:
+    """Slice markdown content by ## headers."""
+    sections: Dict[str, str] = {}
+    parts = re.split(r'^(##\s+.*)$', content, flags=re.MULTILINE)
+
+    if parts:
+        intro = parts[0].strip()
+        if intro:
+            sections["introduction"] = intro
+
+    for i in range(1, len(parts), 2):
+        header_line = parts[i]
+        header_text = header_line.replace('##', '').strip()
+        slug = _slugify(header_text)
+        section_content = parts[i + 1].strip() if i + 1 < len(parts) else ""
+        sections[slug] = f"{header_line}\n\n{section_content}"
+
+    return sections
+
+
 class BlueprintResources:
     """Manages blueprint document resources."""
 
-    def __init__(self, docs_dir: Path, storage_dir: Optional[Path] = None, repository_repository=None):
-        self.docs_dir = docs_dir
-        self.storage_dir = storage_dir or docs_dir.parent / "backend" / "storage"
+    def __init__(self, storage_dir: Path, repository_repository=None):
+        self.storage_dir = storage_dir
         self._repository_repository = repository_repository
         self._repo_cache: Dict[str, str] = {}
         self._repo_repo_initialized = False
@@ -60,8 +85,12 @@ class BlueprintResources:
                 supabase_client = await get_supabase_client_async()
                 db = SupabaseAdapter(supabase_client)
                 self._repository_repository = RepositoryRepository(db=db)
-            except Exception:
-                pass
+            except Exception as exc:
+                import sys
+                print(
+                    f"⚠ MCP Resources: Failed to init RepositoryRepository: {exc}",
+                    file=sys.stderr,
+                )
 
         self._repo_repo_initialized = True
 
@@ -117,23 +146,23 @@ class BlueprintResources:
             # Full blueprint resource
             resources.append(Resource(
                 uri=f"blueprint://analyzed/{repo_id}",
-                name=f"Repository Blueprint: {display_name}",
-                description=f"Generated backend architecture for {display_name}",
+                name="Repository Blueprint",
+                description=f"Full architecture blueprint for {display_name}",
                 mimeType="text/markdown",
             ))
 
             # Granular sections (rendered on the fly)
             try:
                 markdown = _render_markdown(bp)
-                sections = slice_markdown(markdown)
+                sections = _slice_markdown(markdown)
                 for section_id in sections:
                     if section_id == "introduction":
                         continue
                     section_title = section_id.replace("-", " ").title()
                     resources.append(Resource(
                         uri=f"blueprint://analyzed/{repo_id}/{section_id}",
-                        name=f"{display_name} - {section_title}",
-                        description=f"Granular section '{section_id}' for {display_name}",
+                        name=section_title,
+                        description=f"Section '{section_id}' for {display_name}",
                         mimeType="text/markdown",
                     ))
             except Exception:
@@ -211,7 +240,7 @@ class BlueprintResources:
             return "text/markdown", f"# Section {section_id} for {repo_id}\n\nBlueprint not found."
 
         markdown = _render_markdown(bp)
-        sections = slice_markdown(markdown)
+        sections = _slice_markdown(markdown)
         section_content = sections.get(section_id)
         if not section_content:
             return "text/markdown", (
@@ -219,61 +248,3 @@ class BlueprintResources:
                 f"Section not found. Available: {', '.join(sections.keys())}"
             )
         return "text/markdown", section_content
-
-    # ------------------------------------------------------------------
-    # Reference-doc helpers (unchanged — these read static DOCS/)
-    # ------------------------------------------------------------------
-
-    def _get_full_blueprint(self, stack: str) -> tuple[str, str]:
-        """Get full blueprint content for a stack."""
-        stack_dir = self.docs_dir / stack
-        if not stack_dir.exists():
-            return "text/markdown", f"# {stack.title()} Architecture Blueprint\n\nNot found."
-
-        index_file = stack_dir / "_index.md"
-        if index_file.exists():
-            _, content = read_markdown_file(index_file)
-            return "text/markdown", content
-
-        return "text/markdown", f"# {stack.title()} Architecture Blueprint\n\nIndex file not found."
-
-    def _get_patterns_index(self) -> tuple[str, str]:
-        """Get index of all patterns."""
-        patterns = []
-
-        for stack_name in ("backend", "frontend"):
-            patterns_dir = self.docs_dir / stack_name / "patterns"
-            if not patterns_dir.exists():
-                continue
-            for md_file in patterns_dir.glob("*.md"):
-                if md_file.name == "_index.md":
-                    continue
-                try:
-                    frontmatter, content = read_markdown_file(md_file)
-                    patterns.append({
-                        "id": frontmatter.get("id", md_file.stem),
-                        "title": frontmatter.get("title", md_file.stem),
-                        "category": stack_name,
-                        "tags": frontmatter.get("tags", []),
-                    })
-                except Exception:
-                    continue
-
-        markdown = "# Architectural Patterns\n\n"
-        for cat in ("backend", "frontend"):
-            markdown += f"## {cat.title()} Patterns\n\n"
-            for p in [x for x in patterns if x["category"] == cat]:
-                markdown += f"- **{p['title']}** (`{p['id']}`)\n"
-                if p.get("tags"):
-                    markdown += f"  Tags: {', '.join(p['tags'])}\n"
-            markdown += "\n"
-
-        return "text/markdown", markdown
-
-    def _get_doc_by_id(self, doc_id: str) -> Optional[tuple[str, str]]:
-        """Get document content by ID."""
-        result = get_doc_by_id(self.docs_dir, doc_id)
-        if result:
-            _, _, content = result
-            return "text/markdown", content
-        return None

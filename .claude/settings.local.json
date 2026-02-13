@@ -12,7 +12,8 @@
       "Bash(PYTHONPATH=src python -m pytest:*)",
       "Bash(ruff check:*)",
       "Bash(PYTHONPATH=backend/src python -m pytest:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(PYTHONPATH=src .venv/bin/python -m pytest:*)"
     ]
   }
 }
