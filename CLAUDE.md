@@ -33,23 +33,14 @@ npm run build     # Production build
 npm run lint      # ESLint
 ```
 
-### MCP Server (standalone)
-```bash
-python run_server.py
-```
-
-### Cross-platform startup (both servers)
-```bash
-python start-dev.py
-```
+### MCP Server
+The MCP server runs as part of the FastAPI backend via SSE transport at `/mcp/sse`.
 
 ## Architecture
 
 ### Monorepo Layout
 - `backend/` — Python FastAPI, Clean Architecture (DDD layers)
 - `frontend/` — Next.js 14 + React 18 + TypeScript + Tailwind
-- `DOCS/` — Reference architecture blueprints used during analysis
-- Root-level `run_server.py`, `run_mcp.py` — MCP server entry points
 
 ### Backend Layers (`backend/src/`)
 - **`api/`** — FastAPI routes, DTOs, middleware. Routes registered in `api/app.py`.
@@ -58,6 +49,7 @@ python start-dev.py
   - `phased_blueprint_generator.py` — Multi-phase AI analysis pipeline (observation → discovery → layers → patterns → communication → technology → [frontend] → synthesis)
   - `blueprint_renderer.py` — Deterministic JSON→Markdown renderer
   - `agent_file_generator.py` — Generates CLAUDE.md, Cursor rules, AGENTS.md from blueprint JSON
+  - `delivery_service.py` — Pushes architecture outputs to target GitHub repos (via PR or direct commit)
 - **`application/agents/`** — Background workers: `orchestrator.py` coordinates `analysis_worker.py`, `sync_worker.py`, `validation_worker.py`
 - **`domain/entities/`** — Pydantic models. `blueprint.py` defines `StructuredBlueprint` (schema v2.0.0) — the central data model everything derives from.
 - **`domain/interfaces/`** — Repository interfaces (ports)
@@ -83,7 +75,10 @@ All AI prompts live in `backend/prompts.json` (38KB). Each key maps to a phase o
 Supabase PostgreSQL with pgvector. Migrations in `backend/migrations/` (16 SQL files). Key tables: `repositories`, `analyses`, `blueprints`, `unified_blueprints`, `analysis_data`, `embeddings`, `architecture_rules`.
 
 ### MCP Server
-Defined in `backend/src/infrastructure/mcp/`. Exposes tools (`validate_import`, `where_to_put`, `check_naming`, `get_repository_blueprint`) and resources (reference blueprints, generated analyses). Reads from `backend/storage/`.
+Defined in `backend/src/infrastructure/mcp/`. Served via SSE transport at `/mcp/sse` (mounted in `api/app.py` as raw ASGI app via Starlette). Exposes tools (`validate_import`, `where_to_put`, `check_naming`, `get_repository_blueprint`) and resources. The delivery pipeline can push `.mcp.json` and `.cursor/mcp.json` configs to target repos.
+
+### Delivery Pipeline
+`delivery_service.py` + `api/routes/delivery.py` + `infrastructure/external/github_push_client.py`. Pushes generated outputs (CLAUDE.md, AGENTS.md, Cursor rules, MCP configs) to a target GitHub repository via branch+PR or direct commit. Uses PyGithub Trees API for atomic multi-file commits.
 
 ## Key Patterns
 
