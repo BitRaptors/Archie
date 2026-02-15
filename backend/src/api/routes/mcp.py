@@ -1,49 +1,71 @@
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse
+"""MCP SSE transport routes.
 
-router = APIRouter()
+Mounts the MCP server over SSE using the SDK's SseServerTransport.
+Two ASGI endpoints:
+  GET  /mcp/sse       — SSE stream (client connects here)
+  POST /mcp/messages  — client sends JSON-RPC messages here
+"""
+import logging
 
-# Try to import MCP - if not available, endpoints will return helpful errors
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+from starlette.requests import Request
+
+logger = logging.getLogger(__name__)
+
+# Try to import MCP — graceful degradation if not installed.
 try:
-    from infrastructure.mcp.server import server
+    from mcp.server.sse import SseServerTransport
+    from infrastructure.mcp.server import server as mcp_server
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
-    server = None
+    mcp_server = None
 
-@router.get("/mcp/sse")
-async def sse_endpoint(request: Request):
-    """MCP SSE endpoint for network connections."""
-    if not MCP_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="MCP package not installed. Please install it with: pip install mcp>=1.0.0"
+# The SSE transport directs clients to POST to this relative path.
+# When the Starlette sub-app is mounted at /mcp, the full path becomes /mcp/messages.
+_sse_transport = SseServerTransport("/messages") if MCP_AVAILABLE else None
+
+
+async def handle_sse(request: Request):
+    """GET /mcp/sse — establish an SSE stream with the MCP client."""
+    logger.info("MCP SSE client connecting")
+    async with _sse_transport.connect_sse(
+        request.scope, request.receive, request._send
+    ) as (read_stream, write_stream):
+        await mcp_server.run(
+            read_stream,
+            write_stream,
+            mcp_server.create_initialization_options(),
         )
-    
-    # For now, return a message that SSE transport is being implemented
-    # The actual SSE implementation will be added once we verify the correct MCP API
-    return JSONResponse(
-        status_code=501,
-        content={
-            "message": "SSE transport is being implemented",
-            "note": "For now, use the local stdio transport via run_mcp.py"
-        }
-    )
 
-@router.post("/mcp/messages")
-async def messages_endpoint(request: Request):
-    """MCP messages endpoint for network connections."""
-    if not MCP_AVAILABLE:
-        raise HTTPException(
+
+# Build the Starlette sub-application.
+# - /sse uses a normal endpoint (connect_sse is a blocking context manager → works fine)
+# - /messages mounts handle_post_message directly as an ASGI app
+#   (it sends its own response via raw ASGI send, so it can't be a Route endpoint)
+if MCP_AVAILABLE and _sse_transport is not None:
+    mcp_app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages", app=_sse_transport.handle_post_message),
+        ],
+    )
+else:
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+
+    async def _unavailable(scope, receive, send):
+        response = StarletteJSONResponse(
+            {"error": "MCP not installed. pip install mcp>=1.0.0"},
             status_code=503,
-            detail="MCP package not installed. Please install it with: pip install mcp>=1.0.0"
         )
-    
-    return JSONResponse(
-        status_code=501,
-        content={
-            "message": "SSE transport is being implemented",
-            "note": "For now, use the local stdio transport via run_mcp.py"
-        }
-    )
+        await response(scope, receive, send)
 
+    mcp_app = Starlette(
+        routes=[
+            Route("/sse", endpoint=lambda r: StarletteJSONResponse(
+                {"error": "MCP not installed"}, status_code=503
+            )),
+            Mount("/messages", app=_unavailable),
+        ],
+    )

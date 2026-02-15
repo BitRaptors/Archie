@@ -13,7 +13,15 @@
       "Bash(ruff check:*)",
       "Bash(PYTHONPATH=backend/src python -m pytest:*)",
       "WebSearch",
-      "Bash(PYTHONPATH=src .venv/bin/python -m pytest:*)"
+      "Bash(PYTHONPATH=src .venv/bin/python -m pytest:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(.venv/bin/pip show:*)",
+      "Bash(PYTHONPATH=src .venv/bin/python:*)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(/tmp/mcp_stderr.log -c \"\nimport asyncio\nfrom mcp.client.sse import sse_client\nfrom mcp.client.session import ClientSession\n\nasync def test_sse\\(\\):\n    print\\(''Connecting to MCP SSE...'', flush=True\\)\n    async with sse_client\\(''http://localhost:8000/mcp/sse''\\) as \\(read, write\\):\n        async with ClientSession\\(read, write\\) as session:\n            result = await session.initialize\\(\\)\n            print\\(f''OK: Connected to \"\"{result.serverInfo.name}\"\"'', flush=True\\)\n            \n            tools_result = await session.list_tools\\(\\)\n            tool_names = [t.name for t in tools_result.tools]\n            print\\(f''OK: {len\\(tool_names\\)} tools: {tool_names}'', flush=True\\)\n            \n            res_result = await session.list_resources\\(\\)\n            print\\(f''OK: {len\\(res_result.resources\\)} resources'', flush=True\\)\n            \n            r = await session.call_tool\\(''where_to_put'', {''component_type'': ''service''}\\)\n            text = r.content[0].text\n            print\\(f''OK: where_to_put -> {len\\(text\\)} chars'', flush=True\\)\n\n            r2 = await session.call_tool\\(''validate_import'', {\n                ''source_file'': ''src/api/routes/users.py'',\n                ''target_import'': ''src/infrastructure/db''\n            }\\)\n            print\\(f''OK: validate_import -> {len\\(r2.content[0].text\\)} chars'', flush=True\\)\n\n            r3 = await session.call_tool\\(''check_naming'', {\n                ''scope'': ''classes'',\n                ''name'': ''UserService''\n            }\\)\n            print\\(f''OK: check_naming -> {len\\(r3.content[0].text\\)} chars'', flush=True\\)\n            \n            print\\(''ALL SSE TESTS PASSED'', flush=True\\)\n\nasyncio.run\\(test_sse\\(\\)\\)\n\")"
     ]
   }
 }

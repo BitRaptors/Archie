@@ -11,6 +11,7 @@ import {
   useDeleteRepository,
 } from '@/hooks/api/useWorkspace'
 import type { WorkspaceRepository } from '@/services/workspace'
+import DeliveryPanel from '@/components/DeliveryPanel'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -238,9 +239,7 @@ function McpConfigPanel() {
     {
       mcpServers: {
         'architecture-blueprints': {
-          command: 'python',
-          args: ['run_mcp.py'],
-          cwd: '${workspaceFolder}/backend',
+          url: 'http://localhost:8000/mcp/sse',
         },
       },
     },
@@ -345,6 +344,7 @@ export default function WorkspacePage() {
           </p>
 
           <AgentFilePanel repoId={activeRepoId} />
+          <DeliveryPanel repoId={activeRepoId} />
           <McpConfigPanel />
         </div>
       )}

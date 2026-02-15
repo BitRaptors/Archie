@@ -14,6 +14,7 @@ from infrastructure.persistence.user_repository import UserRepository
 from application.services.github_service import GitHubService
 from application.services.repository_service import RepositoryService
 from application.services.analysis_service import AnalysisService
+from application.services.delivery_service import DeliveryService
 from infrastructure.storage.local_storage import LocalStorage
 
 
@@ -107,4 +108,9 @@ class Container(containers.DeclarativeContainer):
         structure_analyzer=structure_analyzer,
         persistent_storage=storage,
         phased_blueprint_generator=phased_blueprint_generator,
+    )
+
+    delivery_service = providers.Singleton(
+        DeliveryService,
+        storage=storage,
     )
