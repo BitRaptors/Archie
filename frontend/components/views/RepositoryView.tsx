@@ -10,6 +10,7 @@ import { Search, GitBranch, ArrowRight, Github, Star, CheckCircle2 } from 'lucid
 import { useAuth } from '@/hooks/useAuth'
 import { useSetActiveRepository } from '@/hooks/api/useWorkspace'
 import { cn } from '@/lib/utils'
+import { theme } from '@/lib/theme'
 
 interface RepositoryViewProps {
     onAnalyze: (id: string, name: string) => void
@@ -90,7 +91,7 @@ export function RepositoryView({ onAnalyze, activeRepoId }: RepositoryViewProps)
                     return (
                         <Card key={repo.id} className={cn(
                             "group transition-all flex flex-col",
-                            isActive ? "border-indigo-500 ring-1 ring-indigo-500 shadow-md bg-indigo-50/5" : "hover:border-primary/50"
+                            isActive ? theme.active.card : "hover:border-primary/50"
                         )}>
                             <CardHeader className="flex-1">
                                 <div className="flex items-start justify-between">
@@ -99,14 +100,14 @@ export function RepositoryView({ onAnalyze, activeRepoId }: RepositoryViewProps)
                                         <span className="truncate max-w-[180px]" title={repo.full_name}>{repo.name}</span>
                                     </div>
                                     {isActive ? (
-                                        <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 border-indigo-200">
+                                        <Badge variant="secondary" className={theme.active.badge}>
                                             Active
                                         </Badge>
                                     ) : (
                                         <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="h-8 w-8 text-muted-foreground hover:text-indigo-600"
+                                            className={cn("h-8 w-8 text-muted-foreground", theme.interactive.ghostBrand)}
                                             onClick={() => handleSetActive(repo.id)}
                                             disabled={isSettingActive}
                                         >
@@ -120,7 +121,7 @@ export function RepositoryView({ onAnalyze, activeRepoId }: RepositoryViewProps)
                             </CardHeader>
                             <CardContent>
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                                    <div className={cn("w-2 h-2 rounded-full", theme.brand.languageDot)} />
                                     {repo.language || "Unknown"}
                                     <span className="mx-1">•</span>
                                     <GitBranch className="w-3 h-3" />
@@ -141,7 +142,7 @@ export function RepositoryView({ onAnalyze, activeRepoId }: RepositoryViewProps)
                                         variant="secondary"
                                         size="icon"
                                         disabled
-                                        className="bg-indigo-100 text-indigo-700"
+                                        className={theme.active.checkBtn}
                                     >
                                         <CheckCircle2 className="w-4 h-4" />
                                     </Button>

@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DebugView } from '@/components/DebugView' // Assumes this exists and works
 import { ArrowRight, Terminal, Activity, CheckCircle2, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { theme } from '@/lib/theme'
 import { useAuth } from '@/hooks/useAuth'
 
 interface AnalysisEvent {
@@ -227,24 +228,24 @@ export function AnalysisView({ analysisId, onViewBlueprint, onBack }: AnalysisVi
                 </div>
 
                 {activeTab === 'timeline' ? (
-                    <Card className="flex-1 overflow-hidden flex flex-col bg-slate-950 border-slate-800 shadow-inner">
+                    <Card className={cn("flex-1 overflow-hidden flex flex-col", theme.console.bg)}>
                         <div className="flex-1 overflow-y-auto p-4 font-mono text-sm space-y-2">
                             {events.length === 0 ? (
-                                <div className="flex items-center justify-center h-full text-slate-500">
+                                <div className={cn("flex items-center justify-center h-full", theme.console.waiting)}>
                                     <span className="animate-pulse">Waiting for analysis stream...</span>
                                 </div>
                             ) : (
                                 events.map((e, i) => (
-                                    <div key={i} className="flex gap-3 text-slate-300">
-                                        <span className="text-slate-600 shrink-0 select-none">
+                                    <div key={i} className={cn("flex gap-3", theme.console.text)}>
+                                        <span className={cn("shrink-0 select-none", theme.console.timestamp)}>
                                             {new Date(e.created_at).toLocaleTimeString()}
                                         </span>
                                         <div className="flex-1 break-words">
                                             <span className={cn(
                                                 "font-bold mr-2",
-                                                e.type === 'PHASE_START' && "text-blue-400",
-                                                e.type === 'PHASE_END' && "text-green-400",
-                                                e.type === 'ERROR' && "text-red-400",
+                                                e.type === 'PHASE_START' && theme.consoleEvent.phaseStart,
+                                                e.type === 'PHASE_END' && theme.consoleEvent.phaseEnd,
+                                                e.type === 'ERROR' && theme.consoleEvent.error,
                                             )}>
                                                 [{e.type}]
                                             </span>
@@ -254,10 +255,10 @@ export function AnalysisView({ analysisId, onViewBlueprint, onBack }: AnalysisVi
                                 ))
                             )}
                             {status?.status === 'completed' && events.length > 0 && (
-                                <div className="pt-4 pb-2 border-t border-slate-800 mt-4 flex justify-center">
+                                <div className={cn("pt-4 pb-2 border-t mt-4 flex justify-center", theme.console.separator)}>
                                     <Button
                                         onClick={() => onViewBlueprint(analysisId)}
-                                        className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-lg shadow-emerald-500/20"
+                                        className={cn("gap-2", theme.status.successBtn)}
                                     >
                                         <CheckCircle2 className="w-4 h-4" />
                                         View Blueprint

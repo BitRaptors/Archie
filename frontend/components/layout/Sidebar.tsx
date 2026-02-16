@@ -2,6 +2,7 @@ import Link from "next/link"
 import { useRouter } from "next/router"
 import { useAuth } from "@/hooks/useAuth"
 import { cn } from "@/lib/utils"
+import { theme } from "@/lib/theme"
 import {
     LayoutDashboard,
     GitBranch,
@@ -39,18 +40,18 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
             <div className="space-y-4 py-4">
                 <div className="px-3 py-2 border-b mb-2">
                     <h2 className="mb-4 px-4 text-lg font-semibold tracking-tight flex items-center gap-2">
-                        <Ghost className="w-5 h-5 text-indigo-500" />
+                        <Ghost className={cn("w-5 h-5", theme.brand.icon)} />
                         <span>Architecture</span>
                     </h2>
 
                     {activeProject && (
                         <button
-                            className="w-full text-left px-4 py-3 bg-indigo-50/50 rounded-lg border border-indigo-100 mb-2 hover:bg-indigo-100/50 transition-all group"
+                            className={cn("w-full text-left px-4 py-3 rounded-lg mb-2 transition-all group", theme.active.sidebarContext)}
                             onClick={() => onActiveClick?.(activeProject.repo_id, activeProject.name)}
                         >
-                            <p className="text-[10px] uppercase font-bold text-indigo-500 mb-1 tracking-wider">Active Context</p>
+                            <p className={cn("text-[10px] uppercase font-bold mb-1 tracking-wider", theme.active.sidebarContextLabel)}>Active Context</p>
                             <div className="flex items-center gap-2 text-sm font-medium truncate">
-                                <FileJson className="w-3.5 h-3.5 text-indigo-500 group-hover:scale-110 transition-transform" />
+                                <FileJson className={cn("w-3.5 h-3.5 group-hover:scale-110 transition-transform", theme.active.iconColor)} />
                                 <span className="truncate">{activeProject.name}</span>
                             </div>
                         </button>
@@ -94,11 +95,11 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                                     variant={activeRepoId === item.repo_id ? "secondary" : "ghost"}
                                     className={cn(
                                         "w-full justify-start font-normal text-sm gap-2 h-9",
-                                        activeRepoId === item.repo_id && "bg-indigo-50/30 text-indigo-600 hover:bg-indigo-50/50 border border-indigo-100/50"
+                                        activeRepoId === item.repo_id && theme.active.sidebarItem
                                     )}
                                     onClick={() => onHistoryClick?.(item.repo_id, item.name)}
                                 >
-                                    <GitBranch className={cn("h-3.5 w-3.5", activeRepoId === item.repo_id ? "text-indigo-500" : "text-muted-foreground")} />
+                                    <GitBranch className={cn("h-3.5 w-3.5", activeRepoId === item.repo_id ? theme.active.iconColor : "text-muted-foreground")} />
                                     <span className="truncate">{item.name}</span>
                                 </Button>
                             ))

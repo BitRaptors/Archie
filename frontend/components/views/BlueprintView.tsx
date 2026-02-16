@@ -13,6 +13,7 @@ import { useActiveRepository, useSetActiveRepository, useDeleteRepository, useWo
 import { useDeliveryApply } from '@/hooks/api/useDelivery'
 import { useRepositoriesQuery } from '@/hooks/api/useRepositoriesQuery'
 import { cn } from '@/lib/utils'
+import { theme } from '@/lib/theme'
 import { DebugView } from '@/components/DebugView'
 import { Progress } from '@/components/ui/progress' // Assuming progress exists or I will create it
 
@@ -243,8 +244,8 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         className={cn(
                             "h-9 gap-2 shadow-lg",
                             needsSync
-                                ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/30 animate-pulse"
-                                : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/20"
+                                ? theme.status.syncRequired
+                                : theme.interactive.ctaLarge
                         )}
                         onClick={() => {
                             setDeliveryResult(null)
@@ -265,7 +266,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                     setNeedsSync(true)
                                 }
                             }}
-                            className={cn(isActive && "bg-indigo-100 text-indigo-700 hover:bg-indigo-100")}
+                            className={cn(isActive && theme.active.blueprintBtn)}
                         >
                             {isActive ? (
                                 <><Check className="w-4 h-4 mr-2" /> Active Blueprint</>
@@ -292,7 +293,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         active={activeTab === 'claude'}
                         onClick={() => setActiveTab('claude')}
                         icon={<FileText className="w-4 h-4" />}
-                        className="text-green-600 data-[active=true]:border-green-600 data-[active=true]:bg-green-50/50"
+                        className={theme.featureTab.claude}
                     >
                         CLAUDE.md
                     </TabButton>
@@ -300,7 +301,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         active={activeTab === 'cursor'}
                         onClick={() => setActiveTab('cursor')}
                         icon={<Terminal className="w-4 h-4" />}
-                        className="text-purple-600 data-[active=true]:border-purple-600 data-[active=true]:bg-purple-50/50"
+                        className={theme.featureTab.cursor}
                     >
                         Cursor Rules
                     </TabButton>
@@ -316,11 +317,11 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                             active={activeTab === 'debug'}
                             onClick={() => setActiveTab('debug')}
                             icon={<Code className="w-4 h-4" />}
-                            className="text-amber-600 data-[active=true]:border-amber-600 data-[active=true]:bg-amber-50/50"
+                            className={theme.featureTab.debug}
                         >
                             Analysis Data & Prompts
                             {debugData?.phases?.length > 0 && (
-                                <Badge variant="secondary" className="ml-2 bg-amber-100 text-amber-700 border-amber-200 h-5 px-1.5 min-w-[1.25rem] flex items-center justify-center">
+                                <Badge variant="secondary" className={cn("ml-2 h-5 px-1.5 min-w-[1.25rem] flex items-center justify-center", theme.featureTab.debugBadge)}>
                                     {debugData.phases.length}
                                 </Badge>
                             )}
@@ -402,11 +403,11 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                     {/* Sync Panel Overlay */}
                     {isSyncPanelOpen && (
                         <div className="fixed inset-0 z-[100] flex justify-end animate-in fade-in duration-300">
-                            <div className="absolute inset-0 bg-slate-950/20 backdrop-blur-sm" onClick={() => setIsSyncPanelOpen(false)} />
+                            <div className={cn("absolute inset-0", theme.surface.overlay)} onClick={() => setIsSyncPanelOpen(false)} />
                             <div className="relative w-full max-w-xl bg-white shadow-2xl border-l flex flex-col animate-in slide-in-from-right duration-500 fill-mode-forwards">
-                                <div className="p-6 border-b flex items-center justify-between bg-slate-50/50">
+                                <div className={cn("p-6 border-b flex items-center justify-between", theme.surface.footer)}>
                                     <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-indigo-600 rounded-lg shadow-lg shadow-indigo-200">
+                                        <div className={cn("p-2", theme.brand.syncIcon)}>
                                             <Zap className="w-5 h-5 text-white fill-current" />
                                         </div>
                                         <div>
@@ -422,37 +423,37 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                 <div className="flex-1 overflow-y-auto p-8 space-y-8">
                                     {/* Status HUD */}
                                     <div className="grid grid-cols-2 gap-4">
-                                        <Card className="p-4 bg-emerald-50/50 border-emerald-100/50 shadow-sm">
-                                            <div className="flex items-center gap-2 text-emerald-600 mb-2">
+                                        <Card className={cn("p-4 shadow-sm", theme.status.successHud)}>
+                                            <div className={cn("flex items-center gap-2 mb-2", theme.status.successHudIcon)}>
                                                 <Shield className="w-4 h-4" />
                                                 <span className="text-[10px] font-bold uppercase tracking-widest leading-none">Status</span>
                                             </div>
-                                            <div className="text-xl font-bold text-slate-900 leading-none">Verified</div>
-                                            <p className="text-[10px] text-emerald-600/70 mt-1 uppercase font-bold">Ready for push</p>
+                                            <div className="text-xl font-bold text-foreground leading-none">Verified</div>
+                                            <p className={cn("text-[10px] mt-1 uppercase font-bold", theme.status.successHudSubtext)}>Ready for push</p>
                                         </Card>
-                                        <Card className="p-4 bg-slate-50 border-slate-200 shadow-sm">
-                                            <div className="flex items-center gap-2 text-slate-500 mb-2">
+                                        <Card className={cn("p-4 shadow-sm", theme.surface.panelStrong)}>
+                                            <div className="flex items-center gap-2 text-muted-foreground mb-2">
                                                 <Rocket className="w-4 h-4" />
                                                 <span className="text-[10px] font-bold uppercase tracking-widest leading-none">Target</span>
                                             </div>
-                                            <div className="text-xl font-bold text-slate-900 leading-none truncate" title={syncSettings.targetRepo || "None selected"}>
+                                            <div className="text-xl font-bold text-foreground leading-none truncate" title={syncSettings.targetRepo || "None selected"}>
                                                 {syncSettings.targetRepo.split('/')[1] || "—"}
                                             </div>
-                                            <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold truncate">{syncSettings.targetRepo || "Select repo below"}</p>
+                                            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold truncate">{syncSettings.targetRepo || "Select repo below"}</p>
                                         </Card>
                                     </div>
 
                                     {/* Configuration */}
-                                    <div className="space-y-6 bg-slate-50/50 p-6 rounded-xl border border-slate-100 shadow-inner">
+                                    <div className={cn("space-y-6 p-6 rounded-xl", theme.surface.config)}>
                                         <div className="space-y-4">
-                                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest block">Destination Repository</label>
+                                            <label className="text-[11px] font-black text-muted-foreground uppercase tracking-widest block">Destination Repository</label>
                                             <select
                                                 value={syncSettings.targetRepo}
                                                 onChange={(e) => {
                                                     setSyncSettings(prev => ({ ...prev, targetRepo: e.target.value }))
                                                     setDeliveryResult(null)
                                                 }}
-                                                className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-white shadow-sm font-medium focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-sm"
+                                                className={cn("w-full h-11 px-4 rounded-lg border bg-white shadow-sm font-medium transition-all outline-none text-sm", theme.surface.inputBorder, theme.interactive.focusRing)}
                                             >
                                                 <option value="">Select a repository...</option>
                                                 {repos?.map((r) => (
@@ -462,7 +463,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                         </div>
 
                                         <div className="space-y-4">
-                                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest block">Sync Strategy</label>
+                                            <label className="text-[11px] font-black text-muted-foreground uppercase tracking-widest block">Sync Strategy</label>
                                             <div className="flex p-1 bg-white border rounded-lg shadow-sm">
                                                 <button
                                                     onClick={() => {
@@ -471,7 +472,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                                     }}
                                                     className={cn(
                                                         "flex-1 py-2 text-xs font-bold rounded-md transition-all",
-                                                        syncSettings.strategy === 'pr' ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"
+                                                        syncSettings.strategy === 'pr' ? theme.interactive.strategyActive : theme.interactive.strategyInactive
                                                     )}
                                                 >
                                                     Pull Request
@@ -483,7 +484,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                                     }}
                                                     className={cn(
                                                         "flex-1 py-2 text-xs font-bold rounded-md transition-all",
-                                                        syncSettings.strategy === 'commit' ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50"
+                                                        syncSettings.strategy === 'commit' ? theme.interactive.strategyActive : theme.interactive.strategyInactive
                                                     )}
                                                 >
                                                     Direct Commit
@@ -495,7 +496,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                     {/* Pipeline Activity & Directives (Preserved from tab) */}
                                     <div className="space-y-6">
                                         <div className="space-y-3">
-                                            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                            <h4 className="text-[11px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2">
                                                 <Terminal className="w-3.5 h-3.5" /> Recent Activity
                                             </h4>
                                             <div className="space-y-2">
@@ -503,22 +504,22 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                                     { time: '10m ago', task: 'Architectural map updated', status: 'success' },
                                                     { time: '1h ago', task: 'Security scan completed', status: 'success' },
                                                 ].map((log, i) => (
-                                                    <div key={i} className="flex items-center justify-between text-xs py-2 border-b border-slate-50">
+                                                    <div key={i} className={cn("flex items-center justify-between text-xs py-2 border-b", theme.surface.divider)}>
                                                         <div className="flex items-center gap-2">
                                                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                                            <span className="text-slate-600">{log.task}</span>
+                                                            <span className="text-foreground/80">{log.task}</span>
                                                         </div>
-                                                        <span className="text-[10px] text-slate-400 font-medium">{log.time}</span>
+                                                        <span className="text-[10px] text-muted-foreground font-medium">{log.time}</span>
                                                     </div>
                                                 ))}
                                             </div>
                                         </div>
 
                                         <div className="space-y-3">
-                                            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                            <h4 className="text-[11px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2">
                                                 <Code className="w-3.5 h-3.5" /> Active Directives
                                             </h4>
-                                            <div className="bg-slate-950 rounded-lg p-4 font-mono text-[10px] text-slate-400 overflow-x-auto border border-slate-800 shadow-inner leading-relaxed">
+                                            <div className={cn("rounded-lg p-4 font-mono text-[10px] overflow-x-auto leading-relaxed", theme.console.directives)}>
                                                 {`# Delivery Manifest
 context: architecture-mcp
 source: ${backendBlueprint?.repository_id || 'active'}
@@ -555,9 +556,9 @@ strategy: ${syncSettings.strategy === 'pr' ? 'pull-request' : 'force-sync'}`}
                                     )}
                                 </div>
 
-                                <div className="p-8 border-t bg-slate-50/50">
+                                <div className={cn("p-8 border-t", theme.surface.footer)}>
                                     <Button
-                                        className="w-full h-12 bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-xl shadow-indigo-500/20 gap-3 group"
+                                        className={cn("w-full h-12 gap-3 group", theme.interactive.ctaLarge)}
                                         disabled={!syncSettings.targetRepo || deliveryApply.isPending}
                                         onClick={() => {
                                             if (!syncSettings.targetRepo) return;

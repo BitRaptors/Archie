@@ -6,6 +6,8 @@ import { useDeliveryApply } from '@/hooks/api/useDelivery'
 import { useAuth } from '@/hooks/useAuth'
 import { SERVER_TOKEN } from '@/context/auth'
 import type { DeliveryRequest } from '@/services/delivery'
+import { cn } from '@/lib/utils'
+import { theme } from '@/lib/theme'
 
 const OUTPUT_OPTIONS = [
   { key: 'claude_md', label: 'CLAUDE.md' },
@@ -51,12 +53,12 @@ export default function DeliveryPanel({ repoId }: { repoId: string }) {
   return (
     <div className="border rounded-lg mt-6 p-5">
       <h3 className="font-semibold mb-1">Deliver to Repository</h3>
-      <p className="text-sm text-gray-500 mb-4">
+      <p className="text-sm text-muted-foreground mb-4">
         Push architecture outputs to a GitHub repository via PR or direct commit.
       </p>
 
       {/* Target repo */}
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label className="block text-sm font-medium text-foreground/80 mb-1">
         Target repository
       </label>
       <select
@@ -76,7 +78,7 @@ export default function DeliveryPanel({ repoId }: { repoId: string }) {
       </select>
 
       {/* Output checkboxes */}
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label className="block text-sm font-medium text-foreground/80 mb-1">
         Outputs
       </label>
       <div className="flex gap-4 mb-4">
@@ -86,7 +88,7 @@ export default function DeliveryPanel({ repoId }: { repoId: string }) {
               type="checkbox"
               checked={outputs.includes(opt.key)}
               onChange={() => toggleOutput(opt.key)}
-              className="rounded border-gray-300"
+              className={cn("rounded", theme.surface.inputBorder)}
             />
             {opt.label}
           </label>
@@ -94,27 +96,25 @@ export default function DeliveryPanel({ repoId }: { repoId: string }) {
       </div>
 
       {/* Strategy toggle */}
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label className="block text-sm font-medium text-foreground/80 mb-1">
         Strategy
       </label>
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setStrategy('pr')}
-          className={`text-sm px-3 py-1.5 rounded border transition-colors ${
-            strategy === 'pr'
-              ? 'bg-blue-500 text-white border-blue-500'
-              : 'text-gray-600 border-gray-300 hover:border-gray-400'
-          }`}
+          className={cn(
+            "text-sm px-3 py-1.5 rounded border transition-colors",
+            strategy === 'pr' ? theme.interactive.strategyActive : theme.interactive.strategyInactive
+          )}
         >
           Pull Request
         </button>
         <button
           onClick={() => setStrategy('commit')}
-          className={`text-sm px-3 py-1.5 rounded border transition-colors ${
-            strategy === 'commit'
-              ? 'bg-blue-500 text-white border-blue-500'
-              : 'text-gray-600 border-gray-300 hover:border-gray-400'
-          }`}
+          className={cn(
+            "text-sm px-3 py-1.5 rounded border transition-colors",
+            strategy === 'commit' ? theme.interactive.strategyActive : theme.interactive.strategyInactive
+          )}
         >
           Direct Commit
         </button>
@@ -124,7 +124,7 @@ export default function DeliveryPanel({ repoId }: { repoId: string }) {
       <button
         onClick={handleDeliver}
         disabled={!canDeliver}
-        className="text-sm px-5 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className={cn("text-sm px-5 py-2 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed", theme.interactive.cta)}
       >
         {applyMutation.isPending ? (
           <span className="flex items-center gap-2">
@@ -149,24 +149,24 @@ export default function DeliveryPanel({ repoId }: { repoId: string }) {
 
       {/* Success feedback */}
       {applyMutation.isSuccess && (
-        <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded text-sm">
-          <p className="font-medium text-green-800">Delivered successfully!</p>
+        <div className={cn("mt-4 p-3 rounded text-sm", theme.status.successPanel)}>
+          <p className={theme.status.successText}>Delivered successfully!</p>
           {applyMutation.data.pr_url && (
             <a
               href={applyMutation.data.pr_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 hover:underline mt-1 inline-block"
+              className={cn("mt-1 inline-block", theme.brand.link)}
             >
               View Pull Request
             </a>
           )}
           {applyMutation.data.commit_sha && (
-            <p className="text-green-600 mt-1">
+            <p className={cn("mt-1", theme.status.successSubtext)}>
               Commit: <code className="text-xs">{applyMutation.data.commit_sha}</code>
             </p>
           )}
-          <p className="text-gray-500 mt-1">
+          <p className="text-muted-foreground mt-1">
             Files: {applyMutation.data.files_delivered.join(', ')}
           </p>
         </div>
@@ -174,9 +174,9 @@ export default function DeliveryPanel({ repoId }: { repoId: string }) {
 
       {/* Error feedback */}
       {applyMutation.isError && (
-        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-sm">
-          <p className="font-medium text-red-800">Delivery failed</p>
-          <p className="text-red-600 mt-1">
+        <div className={cn("mt-4 p-3 rounded text-sm", theme.status.errorPanel)}>
+          <p className={theme.status.errorTitle}>Delivery failed</p>
+          <p className={cn("mt-1", theme.status.errorText)}>
             {(applyMutation.error as any)?.response?.data?.detail ??
               (applyMutation.error as Error).message}
           </p>
