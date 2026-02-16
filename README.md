@@ -70,7 +70,7 @@ cp frontend/.env.example frontend/.env.local
 
 ### 2. Run database migrations
 
-Apply all 16 migrations in `backend/migrations/` to your Supabase project (SQL editor or CLI).
+Run the initial migration `backend/migrations/001_initial_setup.sql` in your Supabase project (SQL editor or CLI). This single file creates all tables, indexes, and functions.
 
 ### 3. Start the application
 

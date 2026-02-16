@@ -135,7 +135,7 @@ architecture-blueprints/
 │   │   │   ├── settings.py             # Pydantic settings from .env.local
 │   │   │   └── container.py            # DI container
 │   │   └── main.py                     # Entry point
-│   ├── migrations/                     # 16 SQL migration files
+│   ├── migrations/                     # Database migrations (single initial setup)
 │   ├── prompts.json                    # All AI prompts (~38KB)
 │   ├── requirements.txt
 │   └── tests/
@@ -157,10 +157,11 @@ architecture-blueprints/
 │   └── package.json
 ├── docs/
 │   └── ARCHITECTURE.md                 # This file
-├── CLAUDE.md                           # AI assistant guidance for this repo
 ├── README.md                           # Project overview
 ├── GITHUB_TOKEN_GUIDE.md               # GitHub PAT setup guide
-└── start.bat                           # Windows startup script
+├── start-dev.sh                        # Linux/Mac startup script
+├── start-dev.py                        # Cross-platform startup script
+└── start-dev.bat                       # Windows startup script
 ```
 
 ---
@@ -575,7 +576,7 @@ All routes are prefixed with `/api/v1` and registered in `api/app.py`.
 
 ## Database Schema
 
-PostgreSQL hosted on Supabase with pgvector extension. Migrations in `backend/migrations/`.
+PostgreSQL hosted on Supabase with pgvector extension. A single initial migration in `backend/migrations/001_initial_setup.sql` creates all tables, indexes, and functions.
 
 ### Tables
 
