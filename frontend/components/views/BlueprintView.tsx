@@ -506,7 +506,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                                 ].map((log, i) => (
                                                     <div key={i} className={cn("flex items-center justify-between text-xs py-2 border-b", theme.surface.divider)}>
                                                         <div className="flex items-center gap-2">
-                                                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                                            <div className={cn("w-1.5 h-1.5 rounded-full", "bg-teal")} />
                                                             <span className="text-foreground/80">{log.task}</span>
                                                         </div>
                                                         <span className="text-[10px] text-muted-foreground font-medium">{log.time}</span>
@@ -530,8 +530,8 @@ strategy: ${syncSettings.strategy === 'pr' ? 'pull-request' : 'force-sync'}`}
                                     </div>
 
                                     {deliveryResult && (
-                                        <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl animate-in fade-in slide-in-from-top-2 duration-300">
-                                            <div className="flex items-center gap-2 text-emerald-700 font-bold text-xs mb-2">
+                                        <div className={cn("p-4 rounded-xl animate-in fade-in slide-in-from-top-2 duration-300", theme.status.successPanel)}>
+                                            <div className={cn("flex items-center gap-2 font-bold text-xs mb-2", theme.status.successText)}>
                                                 <CheckCircle2 className="w-4 h-4" />
                                                 DELIVERED SUCCESSFULLY
                                             </div>
@@ -539,7 +539,7 @@ strategy: ${syncSettings.strategy === 'pr' ? 'pull-request' : 'force-sync'}`}
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
-                                                    className="w-full bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 gap-2"
+                                                    className="w-full bg-white border-teal-200 text-teal-700 hover:bg-teal-50 hover:text-teal-800 gap-2"
                                                     asChild
                                                 >
                                                     <a href={deliveryResult.pr_url} target="_blank" rel="noopener noreferrer">
@@ -548,7 +548,7 @@ strategy: ${syncSettings.strategy === 'pr' ? 'pull-request' : 'force-sync'}`}
                                                     </a>
                                                 </Button>
                                             ) : (
-                                                <div className="text-[10px] text-emerald-600 font-mono break-all bg-white/50 p-2 rounded border border-emerald-100">
+                                                <div className={cn("text-[10px] font-mono break-all bg-white/50 p-2 rounded border-teal-100", theme.status.successSubtext)}>
                                                     Commit: {deliveryResult.commit_sha}
                                                 </div>
                                             )}
