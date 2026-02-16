@@ -50,6 +50,7 @@ The AI agent in your IDE connects to the MCP server. Before it creates a file, i
 - Node.js 18+
 - A [Supabase](https://supabase.com) project (PostgreSQL + pgvector)
 - An [Anthropic API key](https://console.anthropic.com)
+- Redis (optional) — if installed, analysis runs in a separate worker process via ARQ; without it, analysis runs in-process automatically
 
 ### 1. Clone and configure environment
 

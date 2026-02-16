@@ -34,6 +34,17 @@ cleanup() {
     exit 0
 }
 
+# Check if Redis is reachable
+check_redis() {
+    if command -v redis-cli &>/dev/null; then
+        redis-cli ping &>/dev/null 2>&1
+        return $?
+    fi
+    # No redis-cli available, try a TCP connection
+    (echo > /dev/tcp/localhost/6379) &>/dev/null 2>&1
+    return $?
+}
+
 # Trap Ctrl+C
 trap cleanup SIGINT SIGTERM
 
@@ -58,11 +69,16 @@ fi
 python src/main.py &
 BACKEND_PID=$!
 
-# Start ARQ worker in background
-echo -e "${BLUE}👷 Starting ARQ worker...${NC}"
-export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-python -m arq workers.tasks.WorkerSettings &
-WORKER_PID=$!
+# Start ARQ worker only if Redis is available
+WORKER_PID=""
+if check_redis; then
+    echo -e "${BLUE}👷 Starting ARQ worker...${NC}"
+    export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+    python -m arq workers.tasks.WorkerSettings &
+    WORKER_PID=$!
+else
+    echo -e "${YELLOW}ℹ️  Redis not available — analysis will run in-process (no ARQ worker needed)${NC}"
+fi
 cd ..
 
 # Wait a moment for backend to start
@@ -74,13 +90,11 @@ if ! kill -0 $BACKEND_PID 2>/dev/null; then
     exit 1
 fi
 
-if ! kill -0 $WORKER_PID 2>/dev/null; then
-    echo -e "${RED}❌ Worker failed to start${NC}"
-    exit 1
-fi
-
 echo -e "${GREEN}✅ Backend running on http://localhost:8000 (PID: $BACKEND_PID)${NC}"
-echo -e "${GREEN}✅ Worker running (PID: $WORKER_PID)${NC}\n"
+if [ -n "$WORKER_PID" ] && kill -0 $WORKER_PID 2>/dev/null; then
+    echo -e "${GREEN}✅ Worker running (PID: $WORKER_PID)${NC}"
+fi
+echo ""
 
 # Start Frontend
 echo -e "${BLUE}📦 Starting frontend server...${NC}"

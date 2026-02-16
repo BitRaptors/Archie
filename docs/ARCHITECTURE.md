@@ -56,7 +56,7 @@ The core workflow:
 | AI | Anthropic Claude API | Multi-phase architecture analysis |
 | Code parsing | tree-sitter (Python, JS, TS grammars) | AST-based code chunking |
 | GitHub API | PyGithub | Repository cloning, file reads, branch/PR creation |
-| Task queue | ARQ (Redis-backed) | Background analysis jobs |
+| Task queue | ARQ (Redis-backed, optional) | Background analysis jobs (falls back to in-process without Redis) |
 | MCP | mcp SDK + sse-starlette | Model Context Protocol server over SSE |
 | Storage | Local filesystem (default), GCS, S3 | Blueprint and temp file storage |
 | Linting | Ruff | Fast Python linter and formatter |
@@ -78,7 +78,7 @@ The core workflow:
 | Component | Technology |
 |-----------|-----------|
 | Database hosting | Supabase (managed PostgreSQL) |
-| Cache/Queue | Redis |
+| Cache/Queue | Redis (optional) |
 | Hosting | Any platform supporting Python + Node.js |
 
 ---
@@ -670,7 +670,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 # Optional
 GITHUB_TOKEN=ghp_...               # Server-side GitHub token (users can also provide their own)
-REDIS_URL=redis://localhost:6379    # Required for background task queue
+REDIS_URL=redis://localhost:6379    # Optional — enables ARQ worker for background analysis; without it, analysis runs in-process
 ENVIRONMENT=development
 DEBUG=true
 HOST=0.0.0.0

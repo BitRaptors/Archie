@@ -52,7 +52,10 @@ class Container(containers.DeclarativeContainer):
     @staticmethod
     async def _create_arq_pool(redis_url: str):
         try:
-            pool = await create_pool(RedisSettings.from_dsn(redis_url))
+            settings = RedisSettings.from_dsn(redis_url)
+            settings.conn_timeout = 2  # Fast fail if Redis is not running
+            settings.conn_retries = 1
+            pool = await create_pool(settings)
             return pool
         except Exception as e:
             print(f"Warning: Redis/ARQ unavailable ({e}). Analysis will run in-process.")

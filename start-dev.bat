@@ -35,6 +35,16 @@ if not exist ".venv" (
 
 REM Start backend in new window
 start "Backend Server" cmd /k "python src\main.py"
+
+REM Check if Redis is available and start worker if so
+redis-cli ping >nul 2>&1
+if %ERRORLEVEL% == 0 (
+    echo 👷 Starting ARQ worker...
+    set PYTHONPATH=%CD%\src;%PYTHONPATH%
+    start "ARQ Worker" cmd /k "python -m arq workers.tasks.WorkerSettings"
+) else (
+    echo ℹ️  Redis not available — analysis will run in-process
+)
 cd ..
 
 timeout /t 2 /nobreak >nul
@@ -53,21 +63,18 @@ if not exist "node_modules" (
 )
 
 REM Start frontend in new window
-REM Note: Windows batch script can't easily detect the port, so we'll show a message
-REM The user should check the frontend window for the actual port
 start "Frontend Server" cmd /k "npm run dev"
 cd ..
 
 timeout /t 3 /nobreak >nul
 
 echo ✅ Frontend server started
-echo ⚠️  Check the Frontend Server window for the actual port (may be 3000, 3001, 3002, etc.)
 echo.
 echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ✨ Repository Analysis System is running!
 echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo Backend:  http://localhost:8000
-echo Frontend: Check the Frontend Server window for the port
+echo Frontend: http://localhost:4000
 echo API Docs: http://localhost:8000/docs
 echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo.
@@ -76,4 +83,3 @@ echo Close those windows to stop the servers.
 echo.
 
 pause
-
