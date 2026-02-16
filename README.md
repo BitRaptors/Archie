@@ -95,6 +95,15 @@ npm install && npm run dev
 
 Backend runs on `http://localhost:8000`, frontend on `http://localhost:4000`.
 
+**Analysis execution modes:** The system automatically selects how analysis runs based on Redis availability:
+
+| Mode | When | How it works |
+|------|------|-------------|
+| **ARQ Worker** (Redis) | `redis-cli ping` succeeds | `start-dev.sh` launches a separate ARQ worker process (`python -m workers.worker`). Analysis jobs are enqueued to Redis and executed in the worker. |
+| **In-Process** (no Redis) | Redis not installed or unreachable | Analysis runs directly in the FastAPI process via `asyncio.create_task()`. No extra setup needed. |
+
+Both modes produce identical results — they call the same `analysis_service.run_analysis()` pipeline. The in-process mode is simpler to set up; the ARQ worker mode keeps the API responsive during long analyses.
+
 ### 4. Get a GitHub token
 
 You need a GitHub Personal Access Token for repository access: [github.com/settings/tokens](https://github.com/settings/tokens) → Generate new token (classic) → select `repo` + `read:user` scopes.

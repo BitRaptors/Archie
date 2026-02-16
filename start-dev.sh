@@ -71,13 +71,24 @@ BACKEND_PID=$!
 
 # Start ARQ worker only if Redis is available
 WORKER_PID=""
+ANALYSIS_MODE=""
 if check_redis; then
-    echo -e "${BLUE}👷 Starting ARQ worker...${NC}"
+    ANALYSIS_MODE="arq"
+    echo -e "${BLUE}👷 Starting ARQ worker (Redis detected)...${NC}"
     export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-    python -m arq workers.tasks.WorkerSettings &
+    python -m workers.worker &
     WORKER_PID=$!
 else
-    echo -e "${YELLOW}ℹ️  Redis not available — analysis will run in-process (no ARQ worker needed)${NC}"
+    ANALYSIS_MODE="in-process"
+    if ! command -v redis-cli &>/dev/null && ! (echo > /dev/tcp/localhost/6379) &>/dev/null 2>&1; then
+        ANALYSIS_REASON="redis-cli not found and port 6379 not reachable"
+    elif command -v redis-cli &>/dev/null; then
+        ANALYSIS_REASON="redis-cli ping failed (Redis not running?)"
+    else
+        ANALYSIS_REASON="could not connect to localhost:6379"
+    fi
+    echo -e "${YELLOW}ℹ️  Redis not available — analysis will run in-process${NC}"
+    echo -e "${YELLOW}   Reason: ${ANALYSIS_REASON}${NC}"
 fi
 cd ..
 
@@ -159,6 +170,11 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "${BLUE}Backend:${NC}  http://localhost:8000"
 echo -e "${BLUE}Frontend:${NC} http://localhost:${FRONTEND_PORT}"
 echo -e "${BLUE}API Docs:${NC} http://localhost:8000/docs"
+if [ "$ANALYSIS_MODE" = "arq" ]; then
+    echo -e "${BLUE}Analysis:${NC} ARQ worker (Redis-backed background jobs)"
+else
+    echo -e "${BLUE}Analysis:${NC} In-process (running inside FastAPI server)"
+fi
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${YELLOW}Press Ctrl+C to stop both servers${NC}\n"
 

@@ -118,6 +118,9 @@ architecture-blueprints/
 │   │   │       ├── analysis_worker.py    # Runs analysis pipeline
 │   │   │       ├── sync_worker.py        # Blueprint sync
 │   │   │       └── validation_worker.py  # Code validation
+│   │   ├── workers/                      # ARQ task queue (Redis-backed)
+│   │   │   ├── worker.py                # Entry point (Python 3.14+ compatible)
+│   │   │   └── tasks.py                 # Task definitions, WorkerSettings, startup/shutdown
 │   │   ├── domain/                       # Domain layer
 │   │   │   ├── entities/                 # Pydantic models
 │   │   │   │   ├── blueprint.py          # StructuredBlueprint (central model)
@@ -211,6 +214,71 @@ Services receive all dependencies through constructor injection. No service inst
 - **RAG fallback** — If RAG indexing fails or Supabase is unavailable, analysis falls back to static code samples
 - **Analysis data collector** — Shared singleton that persists per-phase analysis data to Supabase, initialized on app startup
 - **Frontend auto-detection** — `_detect_frontend()` checks for React, Vue, Angular, Next.js, Flutter, SwiftUI indicators and branches to unified synthesis when found
+
+### Background Task Execution (ARQ vs In-Process)
+
+Analysis runs as a background task. The system supports two execution modes, selected automatically at runtime:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   POST /{owner}/{repo}/analyze                   │
+│                   (api/routes/repositories.py)                   │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Create Analysis entity (status: pending → in_progress)       │
+│  2. Resolve arq_pool from container                             │
+├──────────────────────┬──────────────────────────────────────────┤
+│  arq_pool != None    │  arq_pool == None                        │
+│  (Redis available)   │  (no Redis)                              │
+├──────────────────────┼──────────────────────────────────────────┤
+│  arq_pool.enqueue_   │  asyncio.create_task(                    │
+│  job("analyze_       │    _run_in_process()                     │
+│  repository", ...)   │  )                                       │
+├──────────────────────┼──────────────────────────────────────────┤
+│  ARQ Worker picks    │  Runs directly in the                    │
+│  up job from Redis   │  FastAPI event loop                      │
+├──────────────────────┴──────────────────────────────────────────┤
+│            Both paths call analysis_service.run_analysis()       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Mode 1: ARQ Worker (with Redis)
+
+When Redis is available, analysis runs in a separate ARQ worker process:
+
+- **Entry point:** `workers/worker.py` → calls `arq.run_worker(WorkerSettings)`
+- **Task definitions:** `workers/tasks.py` defines `WorkerSettings`, `startup()`, `shutdown()`, and `analyze_repository()` task
+- **Startup:** `start-dev.sh` checks Redis availability and launches the worker via `python -m workers.worker`
+- **Lifecycle:** Worker `startup()` initializes a full DI container, resolves Supabase client, creates all services, and stores them in the ARQ context dict. `shutdown()` cleans up container resources.
+- **Python 3.14+ compatibility:** `worker.py` ensures an event loop exists before calling `run_worker()`, because Python 3.14 removed automatic event loop creation in `asyncio.get_event_loop()`
+
+#### Mode 2: In-Process (without Redis)
+
+When Redis is unavailable, analysis runs directly in the FastAPI process:
+
+- **Fallback detection:** `Container._create_arq_pool()` attempts to connect to Redis with a 2-second timeout and 1 retry. If it fails, it returns `None` and prints a warning.
+- **Execution:** The route handler creates an `asyncio.create_task()` that clones the repo and calls `analysis_service.run_analysis()` directly
+- **Error handling:** Both paths wrap the analysis in try/except and mark the `Analysis` entity as failed if an error occurs
+
+#### Key Files
+
+| File | Role |
+|------|------|
+| `config/container.py` | `_create_arq_pool()` — connects to Redis or returns `None` |
+| `api/routes/repositories.py` | `start_analysis()` — dispatches to ARQ or in-process based on `arq_pool` |
+| `workers/worker.py` | ARQ worker entry point with Python 3.14 event loop fix |
+| `workers/tasks.py` | `WorkerSettings`, `startup()`, `shutdown()`, `analyze_repository()` task |
+| `start-dev.sh` | Checks Redis, starts worker only if available |
+
+#### Tests
+
+Both workflows are tested in `tests/unit/workers/test_analysis_workflows.py`:
+
+- Worker entry point event loop compatibility (Python 3.14 simulation)
+- Container ARQ pool graceful fallback (timeout, connection refused → `None`)
+- Route dispatch to ARQ when pool available
+- In-process fallback when pool is `None`
+- Worker startup/shutdown lifecycle
+- Task execution, clone failure handling, missing services detection
 
 ---
 
@@ -755,13 +823,15 @@ tests/unit/
 │   ├── test_delivery_service.py        # Delivery + merge logic
 │   ├── test_unified_features.py        # Frontend detection, unified pipeline
 │   └── ...
+├── workers/
+│   └── test_analysis_workflows.py      # ARQ + in-process workflow tests (23 tests)
 └── infrastructure/
     ├── test_github_push_client.py      # GitHub API operations
     ├── test_mcp_utils.py               # MCP tools and resources
     └── ...
 ```
 
-Current test count: **366+ unit tests**.
+Current test count: **389 unit tests**.
 
 ### Test Conventions
 
