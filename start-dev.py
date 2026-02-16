@@ -48,22 +48,33 @@ def check_env_files():
         sys.exit(1)
 
 
+def check_redis():
+    """Check if Redis is reachable on localhost:6379."""
+    import socket
+    try:
+        s = socket.create_connection(("localhost", 6379), timeout=1)
+        s.close()
+        return True
+    except (ConnectionRefusedError, OSError):
+        return False
+
+
 def start_backend():
-    """Start the backend server"""
+    """Start the backend server and optionally the ARQ worker."""
     global backend_process
-    
+
     print(f"{BLUE}📦 Starting backend server...{NC}")
-    
+
     backend_dir = Path("backend")
     venv_python = backend_dir / ".venv" / "bin" / "python"
-    
+
     # Check if virtual environment exists
     if not venv_python.exists():
         print(f"{YELLOW}⚠️  Virtual environment not found. Creating...{NC}")
         subprocess.run(["python3", "-m", "venv", ".venv"], cwd=backend_dir, check=True)
         subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=True)
         subprocess.run([str(venv_python), "-m", "pip", "install", "-r", "requirements.txt"], cwd=backend_dir, check=True)
-    
+
     # Start backend
     backend_process = subprocess.Popen(
         [str(venv_python), "src/main.py"],
@@ -71,7 +82,23 @@ def start_backend():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    
+
+    # Start ARQ worker only if Redis is available
+    worker_process = None
+    if check_redis():
+        print(f"{BLUE}👷 Starting ARQ worker...{NC}")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(backend_dir / "src") + os.pathsep + env.get("PYTHONPATH", "")
+        worker_process = subprocess.Popen(
+            [str(venv_python), "-m", "arq", "workers.tasks.WorkerSettings"],
+            cwd=backend_dir,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    else:
+        print(f"{YELLOW}ℹ️  Redis not available — analysis will run in-process (no ARQ worker needed){NC}")
+
     # Wait a moment and check if it started
     time.sleep(2)
     if backend_process.poll() is not None:
@@ -79,8 +106,11 @@ def start_backend():
         stdout, stderr = backend_process.communicate()
         print(stderr.decode())
         sys.exit(1)
-    
-    print(f"{GREEN}✅ Backend running on http://localhost:8000 (PID: {backend_process.pid}){NC}\n")
+
+    print(f"{GREEN}✅ Backend running on http://localhost:8000 (PID: {backend_process.pid}){NC}")
+    if worker_process and worker_process.poll() is None:
+        print(f"{GREEN}✅ Worker running (PID: {worker_process.pid}){NC}")
+    print()
     return backend_process
 
 

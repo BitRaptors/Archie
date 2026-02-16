@@ -35,6 +35,19 @@ async def list_repositories(
     """List user's repositories."""
     token = resolve_github_token(request)
     
+    # Debug: Log token source
+    authorization = request.headers.get("Authorization", "")
+    has_user_token = bool(authorization and authorization.startswith("Bearer "))
+    settings = get_settings()
+    has_server_token = bool(settings.github_token and settings.github_token.strip())
+    
+    print(f"[DEBUG] list_repositories:")
+    print(f"  - User token provided: {has_user_token}")
+    print(f"  - Server token configured: {has_server_token}")
+    print(f"  - Using token: {'Yes' if token else 'No'}")
+    if token:
+        print(f"  - Token prefix: {token[:10]}...")
+    
     if not token:
         return []
     
@@ -50,9 +63,10 @@ async def list_repositories(
         
         # Check if it's an authorization error (invalid/expired token)
         if isinstance(e, AuthorizationError) or "401" in str(e) or "Bad credentials" in str(e):
+            token_source = "user-provided" if has_user_token else "server environment"
             raise HTTPException(
                 status_code=401, 
-                detail="GitHub token is invalid or expired. Please re-authenticate."
+                detail=f"GitHub token ({token_source}) is invalid or expired. Please check your token and re-authenticate."
             )
         
         import traceback
@@ -175,22 +189,56 @@ async def start_analysis(
         prompt_config = analysis_request.prompt_config if analysis_request else None
         analysis = await analysis_service.start_analysis(repository.id, prompt_config)
         
-        # 3. Enqueue background task
-        try:
-            arq_pool = await container.arq_pool()
-            await arq_pool.enqueue_job(
-                "analyze_repository",
-                analysis_id=analysis.id,
-                repository_id=repository.id,
-                token=token,
-                prompt_config=prompt_config,
-            )
-        except Exception as queue_err:
-            # Still return the analysis record, but it will stay in pending
-            # Or fail it immediately
-            analysis.fail(f"Failed to queue: {str(queue_err)}")
-            await analysis_repo.update(analysis)
-            raise HTTPException(status_code=500, detail=f"Task queue error: {str(queue_err)}")
+        # 3. Run analysis — prefer ARQ worker, fall back to in-process
+        arq_pool = await container.arq_pool()
+        if arq_pool is not None:
+            try:
+                await arq_pool.enqueue_job(
+                    "analyze_repository",
+                    analysis_id=analysis.id,
+                    repository_id=repository.id,
+                    token=token,
+                    prompt_config=prompt_config,
+                )
+            except Exception as queue_err:
+                analysis.fail(f"Failed to queue: {str(queue_err)}")
+                await analysis_repo.update(analysis)
+                raise HTTPException(status_code=500, detail=f"Task queue error: {str(queue_err)}")
+        else:
+            # No Redis/ARQ available — run analysis in-process as background task
+            import asyncio
+            from infrastructure.storage.temp_storage import TempStorage
+
+            async def _run_in_process():
+                temp_storage = TempStorage()
+                temp_dir = temp_storage.get_base_path()
+                try:
+                    repo_obj = await repo_service.get_repository(repository.id)
+                    repo_path = await repo_service.clone_repository(repo_obj, token, temp_dir)
+                    await analysis_service.run_analysis(
+                        analysis_id=analysis.id,
+                        repo_path=repo_path,
+                        token=token,
+                        prompt_config=prompt_config,
+                    )
+                except Exception as e:
+                    print(f"In-process analysis error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    try:
+                        a = await analysis_repo.get_by_id(analysis.id)
+                        if a and a.status != "failed":
+                            a.fail(str(e))
+                            await analysis_repo.update(a)
+                    except Exception:
+                        pass
+                finally:
+                    try:
+                        await repo_service.cleanup_temp_repository(temp_dir)
+                    except Exception:
+                        pass
+
+            asyncio.create_task(_run_in_process())
         
         return analysis
     except Exception as e:

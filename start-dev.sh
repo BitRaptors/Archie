@@ -34,6 +34,17 @@ cleanup() {
     exit 0
 }
 
+# Check if Redis is reachable
+check_redis() {
+    if command -v redis-cli &>/dev/null; then
+        redis-cli ping &>/dev/null 2>&1
+        return $?
+    fi
+    # No redis-cli available, try a TCP connection
+    (echo > /dev/tcp/localhost/6379) &>/dev/null 2>&1
+    return $?
+}
+
 # Trap Ctrl+C
 trap cleanup SIGINT SIGTERM
 
@@ -58,11 +69,27 @@ fi
 python src/main.py &
 BACKEND_PID=$!
 
-# Start ARQ worker in background
-echo -e "${BLUE}👷 Starting ARQ worker...${NC}"
-export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-python -m arq workers.tasks.WorkerSettings &
-WORKER_PID=$!
+# Start ARQ worker only if Redis is available
+WORKER_PID=""
+ANALYSIS_MODE=""
+if check_redis; then
+    ANALYSIS_MODE="arq"
+    echo -e "${BLUE}👷 Starting ARQ worker (Redis detected)...${NC}"
+    export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+    python -m workers.worker &
+    WORKER_PID=$!
+else
+    ANALYSIS_MODE="in-process"
+    if ! command -v redis-cli &>/dev/null && ! (echo > /dev/tcp/localhost/6379) &>/dev/null 2>&1; then
+        ANALYSIS_REASON="redis-cli not found and port 6379 not reachable"
+    elif command -v redis-cli &>/dev/null; then
+        ANALYSIS_REASON="redis-cli ping failed (Redis not running?)"
+    else
+        ANALYSIS_REASON="could not connect to localhost:6379"
+    fi
+    echo -e "${YELLOW}ℹ️  Redis not available — analysis will run in-process${NC}"
+    echo -e "${YELLOW}   Reason: ${ANALYSIS_REASON}${NC}"
+fi
 cd ..
 
 # Wait a moment for backend to start
@@ -74,13 +101,11 @@ if ! kill -0 $BACKEND_PID 2>/dev/null; then
     exit 1
 fi
 
-if ! kill -0 $WORKER_PID 2>/dev/null; then
-    echo -e "${RED}❌ Worker failed to start${NC}"
-    exit 1
-fi
-
 echo -e "${GREEN}✅ Backend running on http://localhost:8000 (PID: $BACKEND_PID)${NC}"
-echo -e "${GREEN}✅ Worker running (PID: $WORKER_PID)${NC}\n"
+if [ -n "$WORKER_PID" ] && kill -0 $WORKER_PID 2>/dev/null; then
+    echo -e "${GREEN}✅ Worker running (PID: $WORKER_PID)${NC}"
+fi
+echo ""
 
 # Start Frontend
 echo -e "${BLUE}📦 Starting frontend server...${NC}"
@@ -145,6 +170,11 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "${BLUE}Backend:${NC}  http://localhost:8000"
 echo -e "${BLUE}Frontend:${NC} http://localhost:${FRONTEND_PORT}"
 echo -e "${BLUE}API Docs:${NC} http://localhost:8000/docs"
+if [ "$ANALYSIS_MODE" = "arq" ]; then
+    echo -e "${BLUE}Analysis:${NC} ARQ worker (Redis-backed background jobs)"
+else
+    echo -e "${BLUE}Analysis:${NC} In-process (running inside FastAPI server)"
+fi
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${YELLOW}Press Ctrl+C to stop both servers${NC}\n"
 
