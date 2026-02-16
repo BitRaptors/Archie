@@ -3,9 +3,7 @@
 Covers:
 - PhasedBlueprintGenerator wiring with DatabasePromptLoader vs file-based PromptLoader
 - PromptService edit -> cache invalidation -> next analysis picks up new template
-- Seed -> load -> render round-trip with real prompts.json
 """
-from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -13,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock
 from domain.entities.analysis_prompt import AnalysisPrompt
 from infrastructure.prompts.database_prompt_loader import DatabasePromptLoader
 from infrastructure.prompts.prompt_loader import PromptLoader
-from infrastructure.prompts.prompt_seeder import seed_default_prompts
 from application.services.prompt_service import PromptService
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
 
@@ -101,9 +98,6 @@ def sample_prompt():
     )
 
 
-PROMPTS_JSON_PATH = Path(__file__).parent.parent.parent.parent / "prompts.json"
-
-
 # ── Tests ────────────────────────────────────────────────────────────────────
 
 
@@ -183,33 +177,3 @@ class TestPromptIntegration:
         assert loaded_v2.prompt_template == "Updated template for {repository_name} with new instructions."
         assert loaded_v2.prompt_template != original_template
 
-    @pytest.mark.asyncio
-    async def test_seed_then_load_then_render(self):
-        """Full round-trip: seed from prompts.json -> load via DatabasePromptLoader -> render."""
-        prompt_repo = MockPromptRepo()
-
-        # Seed from the real prompts.json file
-        count = await seed_default_prompts(prompt_repo, prompts_file=PROMPTS_JSON_PATH)
-        assert count > 0, "Seeder should have inserted prompts from prompts.json"
-
-        # Create a loader backed by the seeded in-memory repo
-        loader = DatabasePromptLoader(prompt_repo)
-
-        # Load the "discovery" prompt
-        discovery = await loader.get_prompt_by_key("discovery")
-        assert discovery is not None
-        assert discovery.key == "discovery"
-        assert discovery.name == "Discovery Analysis"
-        assert "repository_name" in discovery.variables
-
-        # Render with test context
-        rendered = discovery.render({
-            "repository_name": "test-repo",
-            "file_tree": "src/\n  main.py\n  utils.py",
-            "dependencies": "fastapi>=0.100.0",
-            "config_files": "pyproject.toml",
-        })
-
-        assert "test-repo" in rendered, (
-            "Rendered discovery prompt should contain the repository name"
-        )

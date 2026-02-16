@@ -15,7 +15,6 @@ from infrastructure.analysis.structure_analyzer import StructureAnalyzer
 from infrastructure.storage.temp_storage import TempStorage
 from infrastructure.persistence.prompt_repository import PromptRepository
 from infrastructure.prompts.database_prompt_loader import DatabasePromptLoader
-from infrastructure.prompts.prompt_seeder import seed_default_prompts
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
 
 
@@ -61,10 +60,6 @@ async def startup(ctx):
 
     # Build DB-backed prompt loader for the worker
     prompt_repo = PromptRepository(db=db)
-    try:
-        await seed_default_prompts(prompt_repo)
-    except Exception as e:
-        print(f"Worker startup: Prompt seeder skipped (run migration 002_prompt_management.sql): {e}")
     prompt_loader = DatabasePromptLoader(prompt_repo)
 
     # Pass supabase_client to enable RAG-based retrieval

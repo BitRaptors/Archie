@@ -1,11 +1,9 @@
-"""Tests for prompt management: PromptService, DatabasePromptLoader, and seeder.
+"""Tests for prompt management: PromptService and DatabasePromptLoader.
 
 Covers:
-- Seeder: populating empty database, skipping when populated, preserving keys
 - DatabasePromptLoader: cache behavior, key lookup, invalidation
 - PromptService: update with revisions, revert, revision history
 """
-from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -13,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock
 from domain.entities.analysis_prompt import AnalysisPrompt
 from domain.entities.prompt_revision import PromptRevision
 from infrastructure.prompts.database_prompt_loader import DatabasePromptLoader
-from infrastructure.prompts.prompt_seeder import seed_default_prompts
 from application.services.prompt_service import PromptService
 
 
@@ -88,8 +85,6 @@ class MockRevisionRepo:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-PROMPTS_JSON_PATH = Path(__file__).parent.parent.parent.parent / "prompts.json"
-
 EXPECTED_KEYS = {
     "discovery",
     "layers",
@@ -125,59 +120,6 @@ def _make_revision(prompt_id, revision_number=1, template="old template", **kwar
         change_summary=kwargs.pop("change_summary", "test change"),
         created_by=kwargs.pop("created_by", None),
     )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Seeder tests
-# ══════════════════════════════════════════════════════════════════════════════
-
-
-class TestSeedDefaultPrompts:
-    """Tests for seed_default_prompts()."""
-
-    @pytest.mark.asyncio
-    async def test_seed_populates_empty_database(self):
-        """When no defaults exist, seeder reads prompts.json and inserts all 7 prompts."""
-        repo = MockPromptRepo()
-        # Wrap add so we can count calls
-        original_add = repo.add
-        repo.add = AsyncMock(side_effect=original_add)
-
-        count = await seed_default_prompts(repo, prompts_file=PROMPTS_JSON_PATH)
-
-        assert count == 7
-        assert repo.add.call_count == 7
-
-    @pytest.mark.asyncio
-    async def test_seed_skips_if_already_populated(self):
-        """When defaults already exist, seeder inserts nothing and returns 0."""
-        # Pre-populate with 5 default prompts
-        prompts = [_make_prompt(key=f"key_{i}") for i in range(5)]
-        repo = MockPromptRepo(prompts)
-        repo.add = AsyncMock()
-
-        count = await seed_default_prompts(repo, prompts_file=PROMPTS_JSON_PATH)
-
-        assert count == 0
-        repo.add.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_seed_preserves_prompt_keys(self):
-        """All 7 prompt keys from prompts.json are preserved on the inserted entities."""
-        repo = MockPromptRepo()
-        original_add = repo.add
-        repo.add = AsyncMock(side_effect=original_add)
-
-        await seed_default_prompts(repo, prompts_file=PROMPTS_JSON_PATH)
-
-        inserted_keys = set()
-        for call_args in repo.add.call_args_list:
-            prompt = call_args[0][0]
-            assert isinstance(prompt, AnalysisPrompt)
-            assert prompt.is_default is True
-            inserted_keys.add(prompt.key)
-
-        assert inserted_keys == EXPECTED_KEYS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
