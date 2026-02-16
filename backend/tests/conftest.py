@@ -356,7 +356,7 @@ def sample_analysis_phases():
             "rag_retrieved": {},
         },
         {
-            "phase": "backend_synthesis",
+            "phase": "blueprint_synthesis",
             "timestamp": "2024-01-01T00:06:00Z",
             "gathered": {},
             "sent_to_ai": {"full_prompt": "Generate blueprint..."},

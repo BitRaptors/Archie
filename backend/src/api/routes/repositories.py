@@ -145,9 +145,11 @@ async def start_analysis(
     structure_analyzer = StructureAnalyzer()
     
     # Pass supabase_client to enable RAG-based retrieval
+    prompt_loader = container.database_prompt_loader()
     phased_blueprint_generator = PhasedBlueprintGenerator(
         settings=settings,
         supabase_client=supabase_client,  # Enable RAG for full codebase analysis
+        prompt_loader=prompt_loader,
     )
     
     # Create analysis service

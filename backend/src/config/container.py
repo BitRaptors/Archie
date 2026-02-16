@@ -11,10 +11,14 @@ from infrastructure.persistence.repository_repository import RepositoryRepositor
 from infrastructure.persistence.analysis_repository import AnalysisRepository
 from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
 from infrastructure.persistence.user_repository import UserRepository
+from infrastructure.persistence.prompt_repository import PromptRepository
+from infrastructure.persistence.prompt_revision_repository import PromptRevisionRepository
 from application.services.github_service import GitHubService
 from application.services.repository_service import RepositoryService
 from application.services.analysis_service import AnalysisService
 from application.services.delivery_service import DeliveryService
+from application.services.prompt_service import PromptService
+from infrastructure.prompts.database_prompt_loader import DatabasePromptLoader
 from infrastructure.storage.local_storage import LocalStorage
 
 
@@ -89,6 +93,20 @@ class Container(containers.DeclarativeContainer):
         AnalysisEventRepository,
         db=db,
     )
+    prompt_repository = providers.Factory(
+        PromptRepository,
+        db=db,
+    )
+    prompt_revision_repository = providers.Factory(
+        PromptRevisionRepository,
+        db=db,
+    )
+
+    # Prompt infrastructure
+    database_prompt_loader = providers.Singleton(
+        DatabasePromptLoader,
+        prompt_repo=prompt_repository,
+    )
 
     # Services
     github_service = providers.Singleton(GitHubService)
@@ -121,4 +139,11 @@ class Container(containers.DeclarativeContainer):
     delivery_service = providers.Singleton(
         DeliveryService,
         storage=storage,
+    )
+
+    prompt_service = providers.Singleton(
+        PromptService,
+        prompt_repo=prompt_repository,
+        revision_repo=prompt_revision_repository,
+        prompt_loader=database_prompt_loader,
     )

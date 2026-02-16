@@ -21,13 +21,6 @@ class StartAnalysisRequest(BaseModel):
     )
 
 
-class CreateUnifiedBlueprintRequest(BaseModel):
-    """Create unified blueprint request."""
-    repository_ids: list[str] = Field(..., description="Repository IDs to include")
-    name: str = Field(..., description="Unified blueprint name")
-    description: str | None = Field(default=None, description="Description")
-
-
 class CreatePromptRequest(BaseModel):
     """Create prompt request."""
     name: str = Field(..., description="Prompt name")
@@ -43,5 +36,6 @@ class UpdatePromptRequest(BaseModel):
     description: str | None = None
     prompt_template: str | None = None
     variables: list[str] | None = None
+    change_summary: str | None = None
 
 
