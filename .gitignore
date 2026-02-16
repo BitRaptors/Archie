@@ -99,3 +99,7 @@ analysis_data/
 
 # MCP
 mcp-server.log
+
+# Claude Code
+.claude/
+CLAUDE.md

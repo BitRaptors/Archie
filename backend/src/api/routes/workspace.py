@@ -237,8 +237,20 @@ async def get_repository_blueprint(
         }
 
     from application.services.blueprint_renderer import render_blueprint_markdown
+    
+    # Try to find the latest analysis ID to support debug/analysis-data view
+    analysis_id = None
+    try:
+        analysis_repo = await _get_analysis_repo(request)
+        latest = await analysis_repo.get_latest_by_repo_id(repo_id)
+        if latest:
+            analysis_id = latest.id
+    except Exception:
+        pass
+
     return {
         "repository_id": repo_id,
+        "analysis_id": analysis_id,
         "type": "backend",
         "format": "markdown",
         "content": render_blueprint_markdown(blueprint),

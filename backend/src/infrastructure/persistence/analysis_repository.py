@@ -40,6 +40,24 @@ class AnalysisRepository(IRepository[Analysis, str]):
         )
         return [self._to_entity(row) for row in result.data]
 
+    async def get_latest_by_repo_id(self, repository_id: str) -> Analysis | None:
+        """Get the latest analysis for a given repository ID."""
+        try:
+            result = await (
+                self._db.table(self.TABLE)
+                .select("*")
+                .eq("repository_id", repository_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .maybe_single()
+                .execute()
+            )
+            if result and result.data:
+                return self._to_entity(result.data)
+            return None
+        except Exception:
+            return None
+
     async def add(self, entity: Analysis) -> Analysis:
         data = self._to_dict(entity)
         result = await self._db.table(self.TABLE).insert(data).execute()

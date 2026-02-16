@@ -154,6 +154,7 @@ class AnalysisDataCollector:
         phase_name: str, 
         gathered: Dict[str, Any], 
         sent: Dict[str, Any], 
+        output: str = "",
         rag_retrieved: Dict[str, Any] = None
     ) -> None:
         """Capture data for a specific analysis phase."""
@@ -165,6 +166,7 @@ class AnalysisDataCollector:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "gathered": gathered,
             "sent_to_ai": sent,
+            "output": output,
             "rag_retrieved": rag_retrieved or {}
         }
         

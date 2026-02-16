@@ -76,7 +76,9 @@ Apply all 16 migrations in `backend/migrations/` to your Supabase project (SQL e
 
 ```bash
 # Option A: startup script (recommended)
-./start.bat          # Windows
+./start-dev.sh       # Linux/Mac
+start-dev.bat        # Windows
+python start-dev.py  # Cross-platform
 # Or manually:
 
 # Option B: manual

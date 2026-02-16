@@ -368,6 +368,14 @@ class PhasedBlueprintGenerator:
             "config_files": all_code[:4000] + observation_context,
         })
         
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+        
+        output_text = response.content[0].text
+
         # Capture analysis data if analysis_id is provided
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "discovery", 
@@ -382,16 +390,11 @@ class PhasedBlueprintGenerator:
                     "config_files": {"content": all_code[:4000], "char_count": len(all_code[:4000]), "truncated_from": len(all_code)},
                     "full_prompt": prompt_text
                 },
+                output=output_text,
                 rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
         
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-        
-        return response.content[0].text
+        return output_text
 
     async def _run_layers_analysis(
         self,
@@ -427,6 +430,14 @@ class PhasedBlueprintGenerator:
             "code_samples": code_to_analyze[:5000],
         })
         
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=2500,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+        
+        output_text = response.content[0].text
+
         # Capture analysis data if analysis_id is provided
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "layers", 
@@ -441,16 +452,11 @@ class PhasedBlueprintGenerator:
                     "code_samples": {"content": code_to_analyze[:5000], "char_count": len(code_to_analyze[:5000]), "truncated_from": len(code_to_analyze)},
                     "full_prompt": prompt_text
                 },
+                output=output_text,
                 rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
         
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=2500,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-        
-        return response.content[0].text
+        return output_text
 
     async def _run_patterns_analysis(
         self,
@@ -487,6 +493,14 @@ class PhasedBlueprintGenerator:
             "code_samples": code_to_analyze[:6000],
         })
         
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+        
+        output_text = response.content[0].text
+
         # Capture analysis data
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "patterns", 
@@ -501,16 +515,11 @@ class PhasedBlueprintGenerator:
                     "code_samples": {"content": code_to_analyze[:6000], "char_count": len(code_to_analyze[:6000]), "truncated_from": len(code_to_analyze)},
                     "full_prompt": prompt_text
                 },
+                output=output_text,
                 rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
         
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=3000,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-        
-        return response.content[0].text
+        return output_text
 
     async def _run_communication_analysis(
         self,
@@ -541,6 +550,14 @@ class PhasedBlueprintGenerator:
             "code_samples": code_to_analyze[:5000],
         })
         
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=2500,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+        
+        output_text = response.content[0].text
+
         # Capture analysis data
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "communication", 
@@ -553,16 +570,11 @@ class PhasedBlueprintGenerator:
                     "code_samples": {"content": code_to_analyze[:5000], "char_count": len(code_to_analyze[:5000]), "truncated_from": len(code_to_analyze)},
                     "full_prompt": prompt_text
                 },
+                output=output_text,
                 rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
         
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=2500,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-        
-        return response.content[0].text
+        return output_text
 
     async def _run_technology_analysis(
         self,
@@ -593,6 +605,14 @@ class PhasedBlueprintGenerator:
             "dependencies": tech_context,
         })
         
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=2500,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+        
+        output_text = response.content[0].text
+
         # Capture analysis data
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "technology", 
@@ -605,16 +625,11 @@ class PhasedBlueprintGenerator:
                     "dependencies": {"content": tech_context, "char_count": len(tech_context), "truncated_from": len(dependencies) + len(retrieved_code)},
                     "full_prompt": prompt_text
                 },
+                output=output_text,
                 rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
         
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=2500,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-        
-        return response.content[0].text
+        return output_text
 
     async def _run_backend_synthesis(
         self,
@@ -645,6 +660,21 @@ class PhasedBlueprintGenerator:
             "code_samples": code_samples[:4000],
         })
         
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id,
+                "INFO",
+                f"Using synthesis model: {self._synthesis_model} (max_tokens={self._synthesis_max_tokens})",
+            )
+
+        response = await self._client.messages.create(
+            model=self._synthesis_model,
+            max_tokens=self._synthesis_max_tokens,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+
+        raw_text = response.content[0].text
+
         # Capture analysis data
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "backend_synthesis", 
@@ -664,24 +694,10 @@ class PhasedBlueprintGenerator:
                     "technology": {"content": technology[:2500], "char_count": len(technology[:2500]), "truncated_from": len(technology)},
                     "code_samples": {"content": code_samples[:4000], "char_count": len(code_samples[:4000]), "truncated_from": len(code_samples)},
                     "full_prompt": prompt_text
-                }
+                },
+                output=raw_text
             )
         
-        if self._progress_callback and analysis_id:
-            await self._progress_callback(
-                analysis_id,
-                "INFO",
-                f"Using synthesis model: {self._synthesis_model} (max_tokens={self._synthesis_max_tokens})",
-            )
-
-        response = await self._client.messages.create(
-            model=self._synthesis_model,
-            max_tokens=self._synthesis_max_tokens,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-
-        raw_text = response.content[0].text
-
         # Parse the structured JSON from AI response
         structured_data = self._parse_structured_response(raw_text, repository_name, repository_id)
 
@@ -753,6 +769,14 @@ class PhasedBlueprintGenerator:
             "code_samples": code_to_analyze[:6000],
         })
 
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+
+        output_text = response.content[0].text
+
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "frontend_analysis",
                 gathered={
@@ -764,16 +788,11 @@ class PhasedBlueprintGenerator:
                     "code_samples": {"content": code_to_analyze[:6000], "char_count": len(code_to_analyze[:6000]), "truncated_from": len(code_to_analyze)},
                     "full_prompt": prompt_text
                 },
+                output=output_text,
                 rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=3000,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-
-        return response.content[0].text
+        return output_text
 
     async def _run_unified_synthesis(
         self,
@@ -806,6 +825,21 @@ class PhasedBlueprintGenerator:
             "code_samples": code_samples[:4000],
         })
 
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id,
+                "INFO",
+                f"Using synthesis model: {self._synthesis_model} (max_tokens={self._synthesis_max_tokens})",
+            )
+
+        response = await self._client.messages.create(
+            model=self._synthesis_model,
+            max_tokens=self._synthesis_max_tokens,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+
+        raw_text = response.content[0].text
+
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "unified_synthesis",
                 gathered={
@@ -826,23 +860,9 @@ class PhasedBlueprintGenerator:
                     "frontend_analysis": {"content": frontend_analysis[:3000], "char_count": len(frontend_analysis[:3000]), "truncated_from": len(frontend_analysis)},
                     "code_samples": {"content": code_samples[:4000], "char_count": len(code_samples[:4000]), "truncated_from": len(code_samples)},
                     "full_prompt": prompt_text
-                }
+                },
+                output=raw_text
             )
-
-        if self._progress_callback and analysis_id:
-            await self._progress_callback(
-                analysis_id,
-                "INFO",
-                f"Using synthesis model: {self._synthesis_model} (max_tokens={self._synthesis_max_tokens})",
-            )
-
-        response = await self._client.messages.create(
-            model=self._synthesis_model,
-            max_tokens=self._synthesis_max_tokens,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-
-        raw_text = response.content[0].text
 
         structured_data = self._parse_structured_response(raw_text, repository_name, repository_id)
 
@@ -1139,22 +1159,25 @@ Provide your analysis in JSON format:
 }}
 ```"""
 
-        # Capture analysis data
-        if analysis_id:
-            await analysis_data_collector.capture_phase_data(
-                analysis_id, 
-                "observation",
-                gathered={"file_signatures": {"full_content": file_signatures, "char_count": len(file_signatures)}},
-                sent={"file_signatures": {"content": file_signatures, "char_count": len(file_signatures)}, "full_prompt": prompt_text}
-            )
-
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt_text}],
         )
         
-        return response.content[0].text
+        output_text = response.content[0].text
+
+        # Capture analysis data
+        if analysis_id:
+            await analysis_data_collector.capture_phase_data(
+                analysis_id, 
+                "observation",
+                gathered={"file_signatures": {"full_content": file_signatures, "char_count": len(file_signatures)}},
+                sent={"file_signatures": {"content": file_signatures, "char_count": len(file_signatures)}, "full_prompt": prompt_text},
+                output=output_text
+            )
+        
+        return output_text
 
     async def _extract_all_file_signatures(
         self,
