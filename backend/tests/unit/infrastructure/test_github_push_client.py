@@ -1,4 +1,5 @@
 """Tests for GitHubPushClient."""
+import base64
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -100,6 +101,26 @@ class TestCommitFiles:
         # Verify ref updated
         ref = mock_repo.get_git_ref.return_value
         ref.edit.assert_called_once_with(sha="def456")
+
+
+class TestGetFileContent:
+
+    def test_get_file_content_returns_content(self, client, mock_repo):
+        file_content = "# Hello World"
+        contents_mock = MagicMock()
+        contents_mock.content = base64.b64encode(file_content.encode("utf-8")).decode("ascii")
+        mock_repo.get_contents.return_value = contents_mock
+
+        result = client.get_file_content("owner/repo", "CLAUDE.md", "main")
+        assert result == "# Hello World"
+        mock_repo.get_contents.assert_called_once_with("CLAUDE.md", ref="main")
+
+    def test_get_file_content_returns_none_on_404(self, client, mock_repo):
+        from github.GithubException import GithubException
+        mock_repo.get_contents.side_effect = GithubException(404, {}, {})
+
+        result = client.get_file_content("owner/repo", "missing.md", "main")
+        assert result is None
 
 
 class TestCreatePullRequest:

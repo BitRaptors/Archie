@@ -1,5 +1,6 @@
 """Delivery service -- push architecture outputs to a target GitHub repository."""
 import json
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -24,6 +25,15 @@ OUTPUT_FILE_MAP: dict[str, str] = {
 
 VALID_OUTPUTS = set(OUTPUT_FILE_MAP.keys())
 
+# Which merge strategy to use per output key
+MERGE_STRATEGY: dict[str, str] = {
+    "claude_md": "markdown",
+    "agents_md": "markdown",
+    "cursor_rules": "markdown",
+    "mcp_claude": "json",
+    "mcp_cursor": "json",
+}
+
 # MCP server config (same content for both Claude Code and Cursor)
 _MCP_CONFIG = json.dumps(
     {
@@ -40,6 +50,58 @@ _MCP_CONFIG = json.dumps(
 def _generate_mcp_config(_blueprint: StructuredBlueprint) -> str:
     """Generate MCP server config JSON. Same for both Claude Code and Cursor."""
     return _MCP_CONFIG
+
+
+_MARKER_PATTERN = re.compile(
+    r"<!-- gbr:start repo=.+? -->\n.*?\n<!-- gbr:end -->",
+    re.DOTALL,
+)
+
+
+def _merge_markdown(existing: str | None, generated: str, repo_name: str) -> str:
+    """Merge generated markdown into an existing file using fenced markers.
+
+    - If no existing file → wrap generated content in markers.
+    - If markers found → replace only the content between markers.
+    - If no markers found → append fenced block at end.
+    """
+    start_marker = f"<!-- gbr:start repo={repo_name} -->"
+    end_marker = "<!-- gbr:end -->"
+    fenced = f"{start_marker}\n{generated}\n{end_marker}"
+
+    if existing is None:
+        return fenced
+
+    if _MARKER_PATTERN.search(existing):
+        return _MARKER_PATTERN.sub(fenced, existing)
+
+    # No markers yet — append to the end
+    separator = "\n\n" if not existing.endswith("\n") else "\n"
+    return existing + separator + fenced
+
+
+def _merge_json_config(existing: str | None, generated_config: dict) -> str:
+    """Merge generated MCP config into an existing JSON file.
+
+    Only upserts the `mcpServers.architecture-blueprints` key — all other
+    keys in the existing file are preserved.
+    """
+    if existing is None:
+        return json.dumps(generated_config, indent=2)
+
+    try:
+        data = json.loads(existing)
+    except (json.JSONDecodeError, ValueError):
+        return json.dumps(generated_config, indent=2)
+
+    # Deep-merge only our key under mcpServers
+    our_servers = generated_config.get("mcpServers", {})
+    if "mcpServers" not in data:
+        data["mcpServers"] = {}
+    for key, value in our_servers.items():
+        data["mcpServers"][key] = value
+
+    return json.dumps(data, indent=2)
 
 
 @dataclass
@@ -83,13 +145,23 @@ class DeliveryService:
         blueprint = await self._load_blueprint(source_repo_id)
         generated = self._generate_outputs(blueprint, outputs)
 
-        # Build file map: output key → target file path → content
-        files: dict[str, str] = {}
-        for key, content in generated.items():
-            files[OUTPUT_FILE_MAP[key]] = content
-
         push_client = GitHubPushClient(token)
         default_branch = push_client.get_default_branch(target_repo_full_name)
+
+        # Build file map with merge: read existing content, then merge
+        repo_name = target_repo_full_name.split("/")[-1] if "/" in target_repo_full_name else target_repo_full_name
+        files: dict[str, str] = {}
+        for key, content in generated.items():
+            path = OUTPUT_FILE_MAP[key]
+            existing = push_client.get_file_content(target_repo_full_name, path, default_branch)
+            strategy_type = MERGE_STRATEGY.get(key)
+            if strategy_type == "markdown":
+                files[path] = _merge_markdown(existing, content, repo_name)
+            elif strategy_type == "json":
+                generated_config = json.loads(content)
+                files[path] = _merge_json_config(existing, generated_config)
+            else:
+                files[path] = content
         delivered_paths = list(files.keys())
 
         if strategy == "pr":

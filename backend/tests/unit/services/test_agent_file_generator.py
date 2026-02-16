@@ -214,16 +214,19 @@ class TestGenerateClaudeMd:
         assert "NotFoundError" in content
         assert "404" in content
 
-    def test_contains_mcp_tools(self, sample_blueprint):
+    def test_contains_mandatory_mcp_section(self, sample_blueprint):
         content = generate_claude_md(sample_blueprint)
-        assert "## MCP Tools Available" in content
+        assert "## Architecture MCP Server (MANDATORY)" in content
+        assert "`architecture-blueprints`" in content
         assert "validate_import" in content
         assert "where_to_put" in content
         assert "check_naming" in content
+        assert "get_repository_blueprint" in content
+        assert "single source of truth" in content
 
-    def test_contains_before_you_code(self, sample_blueprint):
+    def test_contains_mcp_rejection_rule(self, sample_blueprint):
         content = generate_claude_md(sample_blueprint)
-        assert "## Before You Code" in content
+        assert "do NOT proceed" in content
 
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_claude_md(minimal_blueprint)
@@ -326,12 +329,14 @@ class TestGenerateAgentsMd:
         assert "Code Generation Agent" in content
         assert "Validation Agent" in content
 
-    def test_contains_mcp_integration(self, sample_blueprint):
+    def test_contains_mandatory_mcp_section(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "## Integration" in content
-        assert "MCP Server" in content
+        assert "## Architecture MCP Server (MANDATORY)" in content
+        assert "`architecture-blueprints`" in content
         assert "validate_import" in content
         assert "where_to_put" in content
+        assert "check_naming" in content
+        assert "do NOT proceed" in content
 
     def test_contains_file_placement_instructions(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)

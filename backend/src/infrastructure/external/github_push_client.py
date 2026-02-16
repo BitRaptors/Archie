@@ -1,8 +1,9 @@
 """GitHub push client for write operations (branch, commit, PR)."""
+import base64
 from typing import Any
 
 from github import Github, InputGitTreeElement
-from github.GithubException import GithubException
+from github.GithubException import GithubException, UnknownObjectException
 
 from domain.exceptions.domain_exceptions import ValidationError, AuthorizationError
 
@@ -24,6 +25,19 @@ class GitHubPushClient:
             if e.status == 404:
                 raise ValidationError(f"Repository {repo_full_name} not found")
             raise ValidationError(f"Failed to get default branch: {e}")
+
+    def get_file_content(self, repo_full_name: str, path: str, ref: str) -> str | None:
+        """Read a file from the repo. Returns None if file doesn't exist."""
+        try:
+            repo = self._client.get_repo(repo_full_name)
+            contents = repo.get_contents(path, ref=ref)
+            return base64.b64decode(contents.content).decode("utf-8")
+        except (GithubException, UnknownObjectException) as e:
+            if hasattr(e, "status") and e.status == 404:
+                return None
+            if hasattr(e, "status") and e.status == 401:
+                raise AuthorizationError("Invalid GitHub token")
+            raise ValidationError(f"Failed to read file {path}: {e}")
 
     def create_branch(self, repo_full_name: str, branch_name: str, base_branch: str) -> str:
         """Create a new branch from a base branch. Returns the new branch ref."""
