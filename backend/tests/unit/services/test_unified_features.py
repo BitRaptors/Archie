@@ -560,7 +560,7 @@ class TestUnifiedPipelinePath:
                 # May fail without full setup, but we can check phases
                 pass
 
-            # Check that capture_phase_data was called with frontend_analysis and/or unified_synthesis
+            # Check that capture_phase_data was called with frontend_analysis and/or blueprint_synthesis
             phase_names = [
                 call[0][1]  # second positional arg is phase_name
                 for call in mock_collector.capture_phase_data.call_args_list

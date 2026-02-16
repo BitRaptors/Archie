@@ -139,7 +139,7 @@ class TestAnalysisDataCollector:
     async def test_capture_multiple_phases(self, analysis_data_collector):
         """Test capturing multiple phases in sequence including observation."""
         # All 7 phases in the new architecture-agnostic workflow
-        phases = ["observation", "discovery", "layers", "patterns", "communication", "technology", "backend_synthesis"]
+        phases = ["observation", "discovery", "layers", "patterns", "communication", "technology", "blueprint_synthesis"]
         
         for phase in phases:
             await analysis_data_collector.capture_phase_data(
@@ -364,7 +364,7 @@ class TestAnalysisDataCollectorIntegration:
             ("patterns", "Repository pattern not used, simple module structure"),
             ("communication", "HTTP endpoints via FastAPI"),
             ("technology", "Python 3.x, FastAPI, Pydantic"),
-            ("backend_synthesis", "Complete backend architecture analysis"),
+            ("blueprint_synthesis", "Complete architecture analysis"),
         ]
         
         for phase_name, description in phases:

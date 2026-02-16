@@ -99,6 +99,7 @@ analysis_data/
 
 # MCP
 mcp-server.log
+.mcp.json
 
 # Claude Code
 .claude/

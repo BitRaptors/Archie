@@ -7,10 +7,11 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { RepositoryView } from '@/components/views/RepositoryView'
 import { AnalysisView } from '@/components/views/AnalysisView'
 import { BlueprintView } from '@/components/views/BlueprintView'
+import { SettingsView } from '@/components/views/SettingsView'
 import { Loader2 } from 'lucide-react'
 import { useWorkspaceRepositories, useActiveRepository } from '@/hooks/api/useWorkspace'
 
-type ViewState = 'repositories' | 'analysis' | 'blueprint'
+type ViewState = 'repositories' | 'analysis' | 'blueprint' | 'settings'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -163,6 +164,8 @@ export default function Dashboard() {
           onBack={handleBackToAnalysis}
         />
       )}
+
+      {activeView === 'settings' && <SettingsView />}
     </Shell>
   )
 }

@@ -23,16 +23,18 @@ class PhasedBlueprintGenerator:
     event-sourced, CQRS, Flux, or completely custom patterns.
     """
 
-    def __init__(self, settings: Settings, supabase_client=None, progress_callback=None):
+    def __init__(self, settings: Settings, supabase_client=None, progress_callback=None, prompt_loader=None):
         """Initialize phased blueprint generator.
-        
+
         Args:
             settings: Application settings for AI configuration
             supabase_client: Supabase client for RAG retrieval (optional)
             progress_callback: Optional async callback function(analysis_id, event_type, message) for progress logging
+            prompt_loader: Optional DatabasePromptLoader (async) or PromptLoader (sync). Defaults to file-based PromptLoader.
         """
         self._settings = settings
-        self._prompt_loader = PromptLoader()
+        self._prompt_loader = prompt_loader or PromptLoader()
+        self._async_prompt_loader = prompt_loader is not None
         self._client = AsyncAnthropic(
             api_key=settings.anthropic_api_key,
             timeout=600.0,  # 10 min timeout for API calls (synthesis with Sonnet can be slow)
@@ -43,6 +45,12 @@ class PhasedBlueprintGenerator:
         self._progress_callback = progress_callback
         self._rag_retriever = RAGRetriever(supabase_client, progress_callback) if supabase_client else None
         self._supabase_client = supabase_client
+
+    async def _load_prompt(self, key: str):
+        """Load a prompt by key, handling both sync and async loaders."""
+        if self._async_prompt_loader:
+            return await self._prompt_loader.get_prompt_by_key(key)
+        return self._prompt_loader.get_prompt_by_key(key)
 
     async def generate(
         self,
@@ -233,31 +241,19 @@ class PhasedBlueprintGenerator:
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Generating unified architecture blueprint...")
 
-        if has_frontend:
-            synthesis_result = await self._run_unified_synthesis(
-                repository_name=repository_name,
-                repository_id=repository_id or "",
-                discovery=discovery_result,
-                layers=layers_result,
-                patterns=patterns_result,
-                communication=communication_result,
-                technology=technology_result,
-                frontend_analysis=frontend_result,
-                code_samples=self._format_code_samples(code_samples),
-                analysis_id=analysis_id,
-            )
-        else:
-            synthesis_result = await self._run_backend_synthesis(
-                repository_name=repository_name,
-                repository_id=repository_id or "",
-                discovery=discovery_result,
-                layers=layers_result,
-                patterns=patterns_result,
-                communication=communication_result,
-                technology=technology_result,
-                code_samples=self._format_code_samples(code_samples),
-                analysis_id=analysis_id,
-            )
+        synthesis_result = await self._run_blueprint_synthesis(
+            repository_name=repository_name,
+            repository_id=repository_id or "",
+            discovery=discovery_result,
+            layers=layers_result,
+            patterns=patterns_result,
+            communication=communication_result,
+            technology=technology_result,
+            frontend_analysis=frontend_result if has_frontend else "",
+            has_frontend=has_frontend,
+            code_samples=self._format_code_samples(code_samples),
+            analysis_id=analysis_id,
+        )
 
         return synthesis_result
 
@@ -339,7 +335,7 @@ class PhasedBlueprintGenerator:
         
         Enhanced with observation results from the full file scan phase.
         """
-        prompt = self._prompt_loader.get_prompt_by_key("discovery")
+        prompt = await self._load_prompt("discovery")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -408,7 +404,7 @@ class PhasedBlueprintGenerator:
         analysis_id: str | None = None,
     ) -> str:
         """Run Layers analysis: identify architectural layers."""
-        prompt = self._prompt_loader.get_prompt_by_key("layers")
+        prompt = await self._load_prompt("layers")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -470,7 +466,7 @@ class PhasedBlueprintGenerator:
         analysis_id: str | None = None,
     ) -> str:
         """Run Patterns analysis: identify design patterns."""
-        prompt = self._prompt_loader.get_prompt_by_key("patterns")
+        prompt = await self._load_prompt("patterns")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -532,7 +528,7 @@ class PhasedBlueprintGenerator:
         analysis_id: str | None = None,
     ) -> str:
         """Run Communication analysis: how components communicate."""
-        prompt = self._prompt_loader.get_prompt_by_key("communication")
+        prompt = await self._load_prompt("communication")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -587,7 +583,7 @@ class PhasedBlueprintGenerator:
         analysis_id: str | None = None,
     ) -> str:
         """Run Technology analysis: complete tech stack inventory."""
-        prompt = self._prompt_loader.get_prompt_by_key("technology")
+        prompt = await self._load_prompt("technology")
         
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -631,96 +627,6 @@ class PhasedBlueprintGenerator:
         
         return output_text
 
-    async def _run_backend_synthesis(
-        self,
-        repository_name: str,
-        repository_id: str,
-        discovery: str,
-        layers: str,
-        patterns: str,
-        communication: str,
-        technology: str,
-        code_samples: str,
-        analysis_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Run Backend Synthesis: Generate structured JSON blueprint + rendered markdown.
-        
-        Returns:
-            Dict with "structured" (dict) and "markdown" (str).
-        """
-        prompt = self._prompt_loader.get_prompt_by_key("backend_synthesis")
-        
-        prompt_text = prompt.render({
-            "repository_name": repository_name,
-            "discovery": discovery[:2500],
-            "layers": layers[:2500],
-            "patterns": patterns[:2500],
-            "communication": communication[:2500],
-            "technology": technology[:2500],
-            "code_samples": code_samples[:4000],
-        })
-        
-        if self._progress_callback and analysis_id:
-            await self._progress_callback(
-                analysis_id,
-                "INFO",
-                f"Using synthesis model: {self._synthesis_model} (max_tokens={self._synthesis_max_tokens})",
-            )
-
-        response = await self._client.messages.create(
-            model=self._synthesis_model,
-            max_tokens=self._synthesis_max_tokens,
-            messages=[{"role": "user", "content": prompt_text}],
-        )
-
-        raw_text = response.content[0].text
-
-        # Capture analysis data
-        if analysis_id:
-            await analysis_data_collector.capture_phase_data(analysis_id, "backend_synthesis", 
-                gathered={
-                    "discovery": {"full_content": discovery, "char_count": len(discovery)},
-                    "layers": {"full_content": layers, "char_count": len(layers)},
-                    "patterns": {"full_content": patterns, "char_count": len(patterns)},
-                    "communication": {"full_content": communication, "char_count": len(communication)},
-                    "technology": {"full_content": technology, "char_count": len(technology)},
-                    "code_samples": {"full_content": code_samples, "char_count": len(code_samples)}
-                },
-                sent={
-                    "discovery": {"content": discovery[:2500], "char_count": len(discovery[:2500]), "truncated_from": len(discovery)},
-                    "layers": {"content": layers[:2500], "char_count": len(layers[:2500]), "truncated_from": len(layers)},
-                    "patterns": {"content": patterns[:2500], "char_count": len(patterns[:2500]), "truncated_from": len(patterns)},
-                    "communication": {"content": communication[:2500], "char_count": len(communication[:2500]), "truncated_from": len(communication)},
-                    "technology": {"content": technology[:2500], "char_count": len(technology[:2500]), "truncated_from": len(technology)},
-                    "code_samples": {"content": code_samples[:4000], "char_count": len(code_samples[:4000]), "truncated_from": len(code_samples)},
-                    "full_prompt": prompt_text
-                },
-                output=raw_text
-            )
-        
-        # Parse the structured JSON from AI response
-        structured_data = self._parse_structured_response(raw_text, repository_name, repository_id)
-
-        # Validate and create Pydantic model
-        blueprint = StructuredBlueprint.model_validate(structured_data)
-
-        # Ensure meta fields are populated
-        if not blueprint.meta.repository:
-            blueprint.meta.repository = repository_name
-        if not blueprint.meta.repository_id:
-            blueprint.meta.repository_id = repository_id
-
-        if self._progress_callback and analysis_id:
-            await self._progress_callback(
-                analysis_id,
-                "INFO",
-                f"Blueprint generated: {len(json.dumps(structured_data))} chars JSON",
-            )
-
-        return {
-            "structured": blueprint.model_dump(),
-        }
-
     def _detect_frontend(self, discovery_result: str, file_tree: str, dependencies: str) -> bool:
         """Detect whether the repository contains frontend code.
 
@@ -751,7 +657,7 @@ class PhasedBlueprintGenerator:
         analysis_id: str | None = None,
     ) -> str:
         """Run Frontend analysis: UI components, state, routing, data fetching."""
-        prompt = self._prompt_loader.get_prompt_by_key("frontend_analysis")
+        prompt = await self._load_prompt("frontend_analysis")
 
         # Get relevant code via RAG if available
         retrieved_code = ""
@@ -794,7 +700,7 @@ class PhasedBlueprintGenerator:
 
         return output_text
 
-    async def _run_unified_synthesis(
+    async def _run_blueprint_synthesis(
         self,
         repository_name: str,
         repository_id: str,
@@ -804,15 +710,28 @@ class PhasedBlueprintGenerator:
         communication: str,
         technology: str,
         frontend_analysis: str,
+        has_frontend: bool,
         code_samples: str,
         analysis_id: str | None = None,
     ) -> dict[str, Any]:
-        """Run Unified Synthesis: Generate structured JSON blueprint covering all platforms.
+        """Run Blueprint Synthesis: Generate structured JSON blueprint.
+
+        When has_frontend is False, frontend_analysis should be empty and a
+        platform hint instructs the AI to leave the frontend section empty.
 
         Returns:
             Dict with "structured" (dict).
         """
-        prompt = self._prompt_loader.get_prompt_by_key("unified_synthesis")
+        prompt = await self._load_prompt("blueprint_synthesis")
+
+        if has_frontend:
+            platform_hint = ""
+        else:
+            platform_hint = (
+                "**IMPORTANT**: No frontend/UI layer was detected in this project. "
+                "Set meta.platforms to the detected platforms (e.g. [\"backend\"]) "
+                "and leave the entire frontend section with empty values."
+            )
 
         prompt_text = prompt.render({
             "repository_name": repository_name,
@@ -821,8 +740,9 @@ class PhasedBlueprintGenerator:
             "patterns": patterns[:2500],
             "communication": communication[:2500],
             "technology": technology[:2500],
-            "frontend_analysis": frontend_analysis[:3000],
+            "frontend_analysis": frontend_analysis[:3000] if frontend_analysis else "No frontend/UI layer detected.",
             "code_samples": code_samples[:4000],
+            "platform_hint": platform_hint,
         })
 
         if self._progress_callback and analysis_id:
@@ -841,7 +761,7 @@ class PhasedBlueprintGenerator:
         raw_text = response.content[0].text
 
         if analysis_id:
-            await analysis_data_collector.capture_phase_data(analysis_id, "unified_synthesis",
+            await analysis_data_collector.capture_phase_data(analysis_id, "blueprint_synthesis",
                 gathered={
                     "discovery": {"full_content": discovery, "char_count": len(discovery)},
                     "layers": {"full_content": layers, "char_count": len(layers)},
@@ -857,7 +777,7 @@ class PhasedBlueprintGenerator:
                     "patterns": {"content": patterns[:2500], "char_count": len(patterns[:2500]), "truncated_from": len(patterns)},
                     "communication": {"content": communication[:2500], "char_count": len(communication[:2500]), "truncated_from": len(communication)},
                     "technology": {"content": technology[:2500], "char_count": len(technology[:2500]), "truncated_from": len(technology)},
-                    "frontend_analysis": {"content": frontend_analysis[:3000], "char_count": len(frontend_analysis[:3000]), "truncated_from": len(frontend_analysis)},
+                    "frontend_analysis": {"content": (frontend_analysis[:3000] if frontend_analysis else ""), "char_count": len(frontend_analysis[:3000] if frontend_analysis else ""), "truncated_from": len(frontend_analysis)},
                     "code_samples": {"content": code_samples[:4000], "char_count": len(code_samples[:4000]), "truncated_from": len(code_samples)},
                     "full_prompt": prompt_text
                 },
@@ -877,7 +797,7 @@ class PhasedBlueprintGenerator:
             await self._progress_callback(
                 analysis_id,
                 "INFO",
-                f"Unified blueprint generated: {len(json.dumps(structured_data))} chars JSON",
+                f"Blueprint generated: {len(json.dumps(structured_data))} chars JSON",
             )
 
         return {

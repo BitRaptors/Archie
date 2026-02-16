@@ -19,6 +19,8 @@ class AnalysisPrompt:
     is_default: bool
     created_at: datetime
     updated_at: datetime | None = None
+    key: str | None = None
+    type: str = "prompt"
 
     @classmethod
     def create(
@@ -30,6 +32,8 @@ class AnalysisPrompt:
         description: str | None = None,
         variables: list[str] | None = None,
         is_default: bool = False,
+        key: str | None = None,
+        type: str = "prompt",
     ) -> Self:
         """Factory method for creating new prompts."""
         now = datetime.now(timezone.utc)
@@ -43,6 +47,8 @@ class AnalysisPrompt:
             variables=variables or [],
             is_default=is_default,
             created_at=now,
+            key=key,
+            type=type,
         )
 
     def render(self, context: dict[str, Any]) -> str:
@@ -52,5 +58,3 @@ class AnalysisPrompt:
             value = context.get(var, "")
             rendered = rendered.replace(f"{{{var}}}", str(value))
         return rendered
-
-

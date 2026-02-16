@@ -43,5 +43,6 @@ class UpdatePromptRequest(BaseModel):
     description: str | None = None
     prompt_template: str | None = None
     variables: list[str] | None = None
+    change_summary: str | None = None
 
 

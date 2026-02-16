@@ -16,8 +16,8 @@ import { Button } from "@/components/ui/button"
 import { WorkspaceRepository } from "@/services/workspace"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
-    activeView?: 'repositories' | 'analysis' | 'blueprint'
-    onNavigate?: (view: 'repositories' | 'analysis' | 'blueprint') => void
+    activeView?: 'repositories' | 'analysis' | 'blueprint' | 'settings'
+    onNavigate?: (view: 'repositories' | 'analysis' | 'blueprint' | 'settings') => void
     history?: WorkspaceRepository[]
     onHistoryClick?: (id: string, name: string) => void
     activeRepoId?: string
@@ -73,9 +73,9 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                             All Repositories
                         </Button>
                         <Button
-                            variant="ghost"
-                            className="w-full justify-start text-muted-foreground"
-                            disabled
+                            variant={activeView === 'settings' ? "secondary" : "ghost"}
+                            className="w-full justify-start"
+                            onClick={() => onNavigate?.('settings')}
                         >
                             <Settings className="mr-2 h-4 w-4" />
                             Settings

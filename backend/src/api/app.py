@@ -15,11 +15,25 @@ async def lifespan(app: FastAPI):
     """Application lifespan for initializing resources."""
     # Initialize container resources
     await app.container.init_resources()
-    
+
     # Initialize analysis_data_collector with Supabase client for cross-process persistence
     supabase_client = await app.container.supabase_client()
     analysis_data_collector.initialize(supabase_client)
-    
+
+    # Seed default prompts from prompts.json if DB is empty
+    try:
+        from infrastructure.prompts.prompt_seeder import seed_default_prompts
+        from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+        from infrastructure.persistence.prompt_repository import PromptRepository
+        db = SupabaseAdapter(supabase_client)
+        prompt_repo = PromptRepository(db=db)
+        await seed_default_prompts(prompt_repo)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Prompt seeder skipped (run migration 002_prompt_management.sql): %s", e
+        )
+
     yield
     # Shutdown resources
     await app.container.shutdown_resources()
