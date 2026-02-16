@@ -52,10 +52,18 @@ class Container(containers.DeclarativeContainer):
         client=supabase_client,
     )
 
-    # ARQ Pool - Using a Resource for async initialization
+    # ARQ Pool - Using a Resource for async initialization (optional, returns None if Redis unavailable)
     @staticmethod
     async def _create_arq_pool(redis_url: str):
-        return await create_pool(RedisSettings.from_dsn(redis_url))
+        try:
+            settings = RedisSettings.from_dsn(redis_url)
+            settings.conn_timeout = 2  # Fast fail if Redis is not running
+            settings.conn_retries = 1
+            pool = await create_pool(settings)
+            return pool
+        except Exception as e:
+            print(f"Warning: Redis/ARQ unavailable ({e}). Analysis will run in-process.")
+            return None
 
     arq_pool = providers.Resource(
         _create_arq_pool,

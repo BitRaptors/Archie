@@ -50,6 +50,7 @@ The AI agent in your IDE connects to the MCP server. Before it creates a file, i
 - Node.js 18+
 - A [Supabase](https://supabase.com) project (PostgreSQL + pgvector)
 - An [Anthropic API key](https://console.anthropic.com)
+- Redis (optional) — if installed, analysis runs in a separate worker process via ARQ; without it, analysis runs in-process automatically
 
 ### 1. Clone and configure environment
 
@@ -93,6 +94,15 @@ npm install && npm run dev
 ```
 
 Backend runs on `http://localhost:8000`, frontend on `http://localhost:4000`.
+
+**Analysis execution modes:** The system automatically selects how analysis runs based on Redis availability:
+
+| Mode | When | How it works |
+|------|------|-------------|
+| **ARQ Worker** (Redis) | `redis-cli ping` succeeds | `start-dev.sh` launches a separate ARQ worker process (`python -m workers.worker`). Analysis jobs are enqueued to Redis and executed in the worker. |
+| **In-Process** (no Redis) | Redis not installed or unreachable | Analysis runs directly in the FastAPI process via `asyncio.create_task()`. No extra setup needed. |
+
+Both modes produce identical results — they call the same `analysis_service.run_analysis()` pipeline. The in-process mode is simpler to set up; the ARQ worker mode keeps the API responsive during long analyses.
 
 ### 4. Get a GitHub token
 
