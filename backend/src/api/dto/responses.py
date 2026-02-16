@@ -39,27 +39,6 @@ class AnalysisEventResponse(BaseModel):
     created_at: datetime
 
 
-class BlueprintResponse(BaseModel):
-    """Blueprint response."""
-    id: str
-    repository_id: str
-    analysis_id: str
-    blueprint_path: str
-    created_at: datetime
-
-
-class UnifiedBlueprintResponse(BaseModel):
-    """Unified blueprint response."""
-    id: str
-    user_id: str
-    name: str
-    description: str | None
-    blueprint_path: str
-    repository_ids: list[str]
-    created_at: datetime
-    updated_at: datetime | None
-
-
 class PromptResponse(BaseModel):
     """Prompt response."""
     id: str
