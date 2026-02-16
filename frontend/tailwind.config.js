@@ -1,9 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './views/**/*.{js,ts,jsx,tsx,mdx}', // Scan new views directory
+    './lib/**/*.{js,ts,jsx,tsx}',        // Theme constants (palette classes)
   ],
   theme: {
     container: {
@@ -48,6 +50,77 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Custom palette (deep_space_blue / blue_green / sky_blue_light / amber_flame / princeton_orange)
+        ink: {
+          DEFAULT: '#023047',
+          50: '#a9e1fd',
+          100: '#a9e1fd',
+          200: '#54c3fb',
+          300: '#06a3f1',
+          400: '#04699b',
+          500: '#023047',
+          600: '#012638',
+          700: '#011c2a',
+          800: '#01131c',
+          900: '#00090e',
+          950: '#000507',
+        },
+        teal: {
+          DEFAULT: '#219ebc',
+          50: '#ceeef6',
+          100: '#ceeef6',
+          200: '#9cddee',
+          300: '#6bcce5',
+          400: '#39bcdc',
+          500: '#219ebc',
+          600: '#1a7d95',
+          700: '#145d70',
+          800: '#0d3e4b',
+          900: '#071f25',
+          950: '#040f13',
+        },
+        papaya: {
+          DEFAULT: '#8ecae6',
+          50: '#e8f4fa',
+          100: '#e8f4fa',
+          200: '#d2eaf5',
+          300: '#bbdff0',
+          400: '#a5d5eb',
+          500: '#8ecae6',
+          600: '#51aed9',
+          700: '#288ab7',
+          800: '#1b5c7a',
+          900: '#0d2e3d',
+          950: '#07171f',
+        },
+        tangerine: {
+          DEFAULT: '#ffb703',
+          50: '#fff1cd',
+          100: '#fff1cd',
+          200: '#ffe39b',
+          300: '#ffd569',
+          400: '#ffc637',
+          500: '#ffb703',
+          600: '#d09500',
+          700: '#9c7000',
+          800: '#684b00',
+          900: '#342500',
+          950: '#1a1300',
+        },
+        brandy: {
+          DEFAULT: '#fb8500',
+          50: '#ffe7cb',
+          100: '#ffe7cb',
+          200: '#ffce97',
+          300: '#ffb663',
+          400: '#ff9e2f',
+          500: '#fb8500',
+          600: '#c86b00',
+          700: '#965000',
+          800: '#643500',
+          900: '#321b00',
+          950: '#190e00',
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -67,6 +140,28 @@ module.exports = {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+      },
+      typography: {
+        DEFAULT: {
+          css: {
+            '--tw-prose-body': '#023047',          // ink (deep_space_blue)
+            '--tw-prose-headings': '#023047',      // ink
+            '--tw-prose-lead': '#1a7d95',          // teal-600 (blue_green)
+            '--tw-prose-links': '#219ebc',         // teal
+            '--tw-prose-bold': '#023047',          // ink
+            '--tw-prose-counters': '#219ebc',      // teal
+            '--tw-prose-bullets': '#219ebc',       // teal
+            '--tw-prose-hr': '#8ecae6',            // papaya (sky_blue_light)
+            '--tw-prose-quotes': '#023047',        // ink
+            '--tw-prose-quote-borders': '#219ebc', // teal
+            '--tw-prose-captions': '#1a7d95',      // teal-600
+            '--tw-prose-code': '#023047',          // ink
+            '--tw-prose-pre-code': '#8ecae6',      // papaya (light text on dark bg)
+            '--tw-prose-pre-bg': '#023047',        // ink (dark terminal bg)
+            '--tw-prose-th-borders': '#8ecae6',    // papaya
+            '--tw-prose-td-borders': '#8ecae6',    // papaya
+          },
+        },
       },
     },
   },

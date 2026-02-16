@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Shield, Key, ExternalLink, AlertCircle, Loader2, CheckCircle2, Zap, GitBranch, Eye, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { theme } from '@/lib/theme'
 
 export default function AuthPage() {
   const [token, setToken] = useState('')
@@ -38,14 +39,14 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 flex items-center justify-center p-4">
+    <div className={cn("min-h-screen bg-gradient-to-br flex items-center justify-center p-4", theme.surface.pageGradient)}>
       <div className="w-full max-w-md space-y-8 animate-in fade-in zoom-in-95 duration-500">
         {/* Logo & Title */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 shadow-xl shadow-indigo-500/25 mb-2">
+          <div className={cn("inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-2", theme.brand.iconBg)}>
             <Shield className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className={cn("text-2xl font-bold tracking-tight", theme.brand.title)}>
             Architecture Blueprints
           </h1>
           <p className="text-sm text-muted-foreground max-w-xs mx-auto">
@@ -54,11 +55,11 @@ export default function AuthPage() {
         </div>
 
         {/* Main Auth Card */}
-        <Card className="shadow-lg border-slate-200/70">
+        <Card className={cn("shadow-lg", theme.surface.authCard)}>
           <CardContent className="p-6 space-y-5">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <label htmlFor="token" className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                <label htmlFor="token" className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
                   <Key className="w-3.5 h-3.5" />
                   Personal Access Token
                 </label>
@@ -78,16 +79,16 @@ export default function AuthPage() {
               </div>
 
               {error && (
-                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-lg animate-in fade-in slide-in-from-top-1 duration-200">
-                  <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                  <p className="text-sm text-red-700">{error}</p>
+                <div className={cn("flex items-start gap-2 p-3 rounded-lg animate-in fade-in slide-in-from-top-1 duration-200", theme.status.errorPanel)}>
+                  <AlertCircle className={cn("w-4 h-4 mt-0.5 shrink-0", theme.status.errorIcon)} />
+                  <p className={cn("text-sm", theme.status.errorText)}>{error}</p>
                 </div>
               )}
 
               <Button
                 type="submit"
                 disabled={isLoading || !token.trim()}
-                className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 font-semibold gap-2"
+                className={cn("w-full h-11 gap-2", theme.interactive.cta)}
               >
                 {isLoading ? (
                   <>
@@ -106,9 +107,9 @@ export default function AuthPage() {
         </Card>
 
         {/* Token Help */}
-        <Card className="bg-slate-50/50 border-slate-200/50">
+        <Card className={cn(theme.surface.panel)}>
           <CardContent className="p-5 space-y-4">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
               How to get a token
             </h3>
 
@@ -119,20 +120,20 @@ export default function AuthPage() {
                 { step: '3', text: 'Select the required scopes below and generate' },
               ].map((item) => (
                 <div key={item.step} className="flex items-start gap-3">
-                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold shrink-0 mt-0.5">
+                  <span className={cn("flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold shrink-0 mt-0.5", theme.brand.stepCircle)}>
                     {item.step}
                   </span>
-                  <p className="text-sm text-slate-600">{item.text}</p>
+                  <p className="text-sm text-foreground/80">{item.text}</p>
                 </div>
               ))}
             </div>
 
             <div className="flex items-center gap-2 pt-1">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Required scopes</span>
-              <Badge variant="secondary" className="text-[10px] font-mono bg-indigo-50 text-indigo-700 border-indigo-100">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Required scopes</span>
+              <Badge variant="secondary" className={cn("text-[10px] font-mono", theme.brand.scopeBadge)}>
                 repo
               </Badge>
-              <Badge variant="secondary" className="text-[10px] font-mono bg-indigo-50 text-indigo-700 border-indigo-100">
+              <Badge variant="secondary" className={cn("text-[10px] font-mono", theme.brand.scopeBadge)}>
                 read:user
               </Badge>
             </div>
