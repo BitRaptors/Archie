@@ -158,7 +158,6 @@ architecture-blueprints/
 ├── docs/
 │   └── ARCHITECTURE.md                 # This file
 ├── README.md                           # Project overview
-├── GITHUB_TOKEN_GUIDE.md               # GitHub PAT setup guide
 ├── start-dev.sh                        # Linux/Mac startup script
 ├── start-dev.py                        # Cross-platform startup script
 └── start-dev.bat                       # Windows startup script

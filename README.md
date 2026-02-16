@@ -92,19 +92,17 @@ cd frontend
 npm install && npm run dev
 ```
 
-Backend runs on `http://localhost:8000`, frontend on `http://localhost:3000`.
+Backend runs on `http://localhost:8000`, frontend on `http://localhost:4000`.
 
 ### 4. Get a GitHub token
 
-You need a GitHub Personal Access Token for repository access. See [GITHUB_TOKEN_GUIDE.md](./GITHUB_TOKEN_GUIDE.md) for detailed steps.
-
-Quick version: [github.com/settings/tokens](https://github.com/settings/tokens) → Generate new token (classic) → select `repo` + `read:user` scopes.
+You need a GitHub Personal Access Token for repository access: [github.com/settings/tokens](https://github.com/settings/tokens) → Generate new token (classic) → select `repo` + `read:user` scopes.
 
 ## How to Use
 
 ### Analyze a repository
 
-1. Open the frontend at `http://localhost:3000`
+1. Open the frontend at `http://localhost:4000`
 2. Authenticate with your GitHub token
 3. Enter a repository URL and start analysis
 4. Wait for the phased analysis to complete (typically 1-3 minutes)
