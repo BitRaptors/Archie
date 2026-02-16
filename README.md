@@ -1,429 +1,154 @@
-# Architecture MCP Server
+# Architecture Blueprints
 
-A Model Context Protocol (MCP) server that exposes architecture blueprints as persistent context for AI-assisted development. This server ensures your architectural patterns, principles, and conventions are always available to AI tools like Cursor, maintaining architectural integrity throughout the development lifecycle.
+AI-powered system that analyzes GitHub repositories, learns their architecture, and enforces it through AI coding agents via MCP.
 
----
+## Why
 
-## 🎯 Key Benefits
+AI coding agents (Claude Code, Cursor, Copilot) are powerful but architecturally unaware. They generate code that works but often violates your project's conventions: wrong file locations, forbidden imports, inconsistent naming, broken layer boundaries.
 
-### 1. **Persistent Context - Always Available**
+**Architecture Blueprints** solves this by:
 
-**Problem:** Traditional development requires repeatedly pasting architecture documentation into AI conversations. Each new chat starts from scratch, losing architectural context.
+- **Learning your architecture automatically** — no manual rule-writing. Point it at a repo, and it discovers patterns, layers, naming conventions, and dependency rules from the actual code.
+- **Enforcing it in real-time** — the `architecture-blueprints` MCP server provides tools that AI agents must call before creating files, adding imports, or naming components. The agent gets a yes/no answer instantly.
+- **Keeping every AI tool in sync** — a single `StructuredBlueprint` JSON is the source of truth. CLAUDE.md, Cursor rules, AGENTS.md, and MCP tools all derive from it. Change the blueprint, and every output updates.
+- **Preserving your existing config** — the delivery pipeline merges into your files (fenced markdown sections, key-level JSON merge) instead of overwriting them.
 
-**Solution:** Blueprints become **always available** to the AI without you having to paste them repeatedly. Once configured, your architecture documentation is permanently accessible to Cursor and other MCP-compatible tools.
+Without this, every AI-generated PR is a coin flip on whether it follows your architecture. With it, the agent checks the rules before writing a single line.
 
-- ✅ No more copying/pasting architecture docs
-- ✅ Architecture knowledge persists across conversations
-- ✅ Context is maintained automatically
-- ✅ Works across all projects and repositories
+## How It Works
 
-**Impact:** Every AI interaction has access to your architectural guidelines, ensuring consistent, informed suggestions from the start.
+```
+  GitHub Repo
+       |
+       v
+  1. Clone & Extract    -- file tree, dependencies, configs, code samples
+       |
+       v
+  2. RAG Index           -- chunk code, embed with sentence-transformers, store in pgvector
+       |
+       v
+  3. Phased AI Analysis  -- 6-8 Claude API calls, each building on the previous
+       |                     (observation → discovery → layers → patterns →
+       |                      communication → technology → [frontend] → synthesis)
+       v
+  4. StructuredBlueprint -- single JSON source of truth (Pydantic model)
+       |
+       ├──> CLAUDE.md          -- AI agent instructions for project root
+       ├──> .cursor/rules/     -- Cursor IDE integration
+       ├──> AGENTS.md          -- multi-agent system guidance
+       ├──> MCP Server         -- real-time validate_import, where_to_put, check_naming
+       └──> Delivery to GitHub -- push outputs via PR or direct commit (non-destructive merge)
+```
 
----
+The AI agent in your IDE connects to the MCP server. Before it creates a file, it calls `where_to_put`. Before it adds an import, it calls `validate_import`. Before it names a class, it calls `check_naming`. If any check fails, the agent fixes the violation before proceeding.
 
-### 2. **Single Source of Truth**
-
-**Problem:** Architecture documentation scattered across multiple files, wikis, or outdated documents. Updates require manual synchronization across platforms.
-
-**Solution:** **One place to update architecture docs, automatically reflected in AI assistance.** The `DOCS/` directory is your single source of truth - update it once, and all AI interactions immediately reflect the changes.
-
-- ✅ Centralized architecture documentation
-- ✅ Update once, benefit everywhere
-- ✅ Version-controlled with your codebase
-- ✅ No synchronization issues
-- ✅ Consistent information across all AI interactions
-
-**Impact:** Architectural decisions and updates are immediately available to all developers and AI tools, eliminating inconsistencies and outdated information.
-
----
-
-### 3. **Proactive Guardrails**
-
-**Problem:** AI suggests code that violates architectural patterns because it lacks access to your specific guidelines. You only discover violations during code review or runtime.
-
-**Solution:** **The AI can reference blueprints before suggesting code that might violate patterns.** The MCP server provides validation tools and pattern references that guide AI suggestions proactively.
-
-- ✅ Pattern-aware code generation
-- ✅ Pre-emptive validation
-- ✅ Architectural guidance before implementation
-- ✅ Reduced architectural debt
-- ✅ Consistent pattern usage
-
-**Impact:** AI-generated code aligns with your architecture from the start, reducing refactoring and maintaining architectural integrity throughout development.
-
----
-
-## 📋 What This Project Provides
-
-### Architecture Blueprints
-
-Structured documentation covering:
-
-- **Backend Architecture**
-  - Layer architecture (Presentation, Application, Domain, Infrastructure)
-  - SOLID principles and core patterns
-  - Communication patterns (Sync, Streaming, Service Registry, etc.)
-  - Component contracts and interfaces
-  - Error handling strategies
-  - Implementation guides
-
-- **Frontend Architecture**
-  - Project structure conventions
-  - React patterns (Context + Hooks, Query Hooks, etc.)
-  - Service abstraction patterns
-  - Component organization
-  - Implementation guides
-
-- **Shared Documentation**
-  - Common anti-patterns
-  - Architectural decision records
-  - Best practices
-
-### MCP Tools
-
-The server exposes tools for:
-
-- **Query Tools**
-  - `get_pattern` - Get detailed pattern information
-  - `list_patterns` - List all available patterns
-  - `get_layer_rules` - Get layer constraints and rules
-  - `get_principle` - Get architectural principles (SRP, DIP, etc.)
-
-- **Validation Tools**
-  - `check_layer_violation` - Detect layer boundary violations
-  - `check_file_placement` - Validate file structure
-  - `suggest_pattern` - Recommend patterns for use cases
-  - `review_component` - Review code for compliance
-
-### MCP Resources
-
-Full access to architecture documentation:
-
-- Complete blueprint documents
-- Individual sections and patterns
-- Pattern indexes
-- Implementation guides
-
----
-
-## 🚀 Quick Start
+## How to Set Up
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- Virtual environment support (venv)
+- Python 3.11+
+- Node.js 18+
+- A [Supabase](https://supabase.com) project (PostgreSQL + pgvector)
+- An [Anthropic API key](https://console.anthropic.com)
 
-### Installation
+### 1. Clone and configure environment
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd architecture_mcp
-   ```
+```bash
+git clone https://github.com/your-org/architecture-blueprints.git
+cd architecture-blueprints
 
-2. **Run the startup script** (handles everything automatically)
-   ```bash
-   python3 start.py
-   # Or: ./start.sh (Unix/Mac)
-   # Or: start.bat (Windows)
-   ```
+# Backend
+cp backend/.env.example backend/.env.local
+# Edit backend/.env.local and fill in:
+#   SUPABASE_URL, SUPABASE_KEY, SUPABASE_JWT_SECRET, ANTHROPIC_API_KEY
 
-   The script will:
-   - ✅ Check Python version
-   - ✅ Create/activate virtual environment
-   - ✅ Install dependencies
-   - ✅ Verify documentation structure
-   - ✅ Display Cursor integration guide
+# Frontend
+cp frontend/.env.example frontend/.env.local
+# Edit frontend/.env.local:
+#   NEXT_PUBLIC_API_URL=http://localhost:8000
+```
 
-### Cursor Integration
+### 2. Run database migrations
 
-The startup script displays the exact configuration needed. Add this to your Cursor MCP settings:
+Run the initial migration `backend/migrations/001_initial_setup.sql` in your Supabase project (SQL editor or CLI). This single file creates all tables, indexes, and functions.
+
+### 3. Start the application
+
+```bash
+# Option A: startup script (recommended)
+./start-dev.sh       # Linux/Mac
+start-dev.bat        # Windows
+python start-dev.py  # Cross-platform
+# Or manually:
+
+# Option B: manual
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+PYTHONPATH=src uvicorn main:app --reload --port 8000
+
+# In another terminal:
+cd frontend
+npm install && npm run dev
+```
+
+Backend runs on `http://localhost:8000`, frontend on `http://localhost:3000`.
+
+### 4. Get a GitHub token
+
+You need a GitHub Personal Access Token for repository access. See [GITHUB_TOKEN_GUIDE.md](./GITHUB_TOKEN_GUIDE.md) for detailed steps.
+
+Quick version: [github.com/settings/tokens](https://github.com/settings/tokens) → Generate new token (classic) → select `repo` + `read:user` scopes.
+
+## How to Use
+
+### Analyze a repository
+
+1. Open the frontend at `http://localhost:3000`
+2. Authenticate with your GitHub token
+3. Enter a repository URL and start analysis
+4. Wait for the phased analysis to complete (typically 1-3 minutes)
+5. View the generated blueprint, CLAUDE.md, Cursor rules, and analysis data
+
+### Deliver outputs to a repo
+
+1. From the blueprint view, open the Delivery panel
+2. Select which outputs to push (CLAUDE.md, AGENTS.md, Cursor rules, MCP configs)
+3. Choose strategy: **PR** (creates a branch + pull request) or **commit** (direct to default branch)
+4. The delivery pipeline merges non-destructively — your existing content is preserved
+
+### Connect the MCP server to your IDE
+
+Add the MCP server to your IDE config (`.mcp.json` or `.cursor/mcp.json`):
 
 ```json
 {
   "mcpServers": {
-    "architecture": {
-      "command": "/absolute/path/to/architecture_mcp/.venv/bin/python",
-      "args": ["/absolute/path/to/architecture_mcp/run_server.py"],
-      "cwd": "/absolute/path/to/architecture_mcp"
+    "architecture-blueprints": {
+      "url": "http://localhost:8000/mcp/sse"
     }
   }
 }
 ```
 
-**Location:** Cursor Settings → Features → Model Context Protocol → Edit Config
+The MCP server exposes these tools:
 
----
+| Tool | Purpose |
+|------|---------|
+| `validate_import` | Check if an import is allowed by dependency rules |
+| `where_to_put` | Get correct directory and naming pattern for a component |
+| `check_naming` | Verify a name follows the project's conventions |
+| `get_repository_blueprint` | Get the full architecture blueprint |
+| `list_repository_sections` | List addressable blueprint sections |
+| `get_repository_section` | Get a specific section (token-efficient) |
 
-## 📖 Usage Examples
+### Run tests
 
-### Getting Architectural Guidance
-
-```
-You: "I need to implement user authentication. What pattern should I use?"
-
-Cursor: [Consults MCP server]
-→ Uses get_pattern or suggest_pattern tool
-→ Returns: "Based on your architecture, use the Service Registry pattern 
-   for authentication providers. Here's the pattern..."
-```
-
-### Validating Code
-
-```
-You: "Check if this service class violates our layer rules"
-
-Cursor: [Uses check_layer_violation tool]
-→ Validates against backend layer rules
-→ Returns: "⚠️ Warning: Service imports FastAPI directly. 
-   Application layer should not know about HTTP. Move to Presentation layer."
-```
-
-### Pattern Reference
-
-```
-You: "How should I structure my React hooks for server state?"
-
-Cursor: [Uses get_pattern with "query-hooks"]
-→ Returns pattern details from frontend blueprint
-→ Shows example code matching your architecture
-```
-
-### File Structure Validation
-
-```
-You: "Is this file in the right location? src/hooks/auth.ts"
-
-Cursor: [Uses check_file_placement tool]
-→ Validates against frontend structure rules
-→ Returns: "✅ Correct location. hooks/ directory is for custom hooks."
-```
-
----
-
-## 🏗️ Project Structure
-
-```
-architecture_mcp/
-├── DOCS/                          # Architecture blueprints (Single Source of Truth)
-│   ├── backend/                   # Backend architecture documentation
-│   │   ├── _index.md
-│   │   ├── principles.md
-│   │   ├── layers.md
-│   │   ├── patterns/
-│   │   ├── contracts.md
-│   │   ├── errors.md
-│   │   └── implementation.md
-│   ├── frontend/                  # Frontend architecture documentation
-│   │   ├── _index.md
-│   │   ├── principles.md
-│   │   ├── structure.md
-│   │   ├── patterns/
-│   │   ├── services.md
-│   │   └── implementation.md
-│   └── shared/                    # Shared documentation
-│       └── anti-patterns.md
-│
-├── src/                           # MCP server implementation
-│   ├── server.py                  # Main server entry point
-│   ├── resources.py               # Resource handlers
-│   ├── tools.py                   # Tool implementations
-│   ├── validators.py              # Validation logic
-│   └── utils/                     # Utility functions
-│
-├── run_server.py                  # Server entry point script
-├── start.py                       # Cross-platform startup script
-├── start.sh                       # Unix/Mac startup script
-├── start.bat                      # Windows startup script
-├── requirements.txt               # Python dependencies
-└── README.md                      # This file
-```
-
----
-
-## 🔧 How It Works
-
-### MCP Protocol
-
-This server implements the [Model Context Protocol](https://modelcontextprotocol.io/), allowing AI tools to:
-
-1. **Access Resources** - Read architecture documentation
-2. **Call Tools** - Query patterns, validate code, get guidance
-3. **Maintain Context** - Keep architectural knowledge available
-
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Cursor / AI Tool                         │
-└───────────────────────┬─────────────────────────────────────┘
-                        │ MCP Protocol
-                        │ (stdio communication)
-                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Architecture MCP Server                        │
-│                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │  Resources   │  │    Tools     │  │  Validators  │    │
-│  │  Handler     │  │  Handler     │  │   Logic      │    │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘    │
-│         │                  │                  │            │
-└─────────┼──────────────────┼──────────────────┼────────────┘
-          │                  │                  │
-          ▼                  ▼                  ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   DOCS/ Directory                           │
-│            (Single Source of Truth)                         │
-│                                                             │
-│  • Backend blueprints                                       │
-│  • Frontend blueprints                                      │
-│  • Patterns & principles                                    │
-│  • Implementation guides                                    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Data Flow
-
-1. **User asks Cursor** about architecture or code
-2. **Cursor detects** relevance to architecture
-3. **Cursor calls MCP tools** (get_pattern, validate, etc.)
-4. **MCP server** reads from DOCS/ directory
-5. **Server returns** structured information
-6. **Cursor uses information** to provide informed response
-
----
-
-## 📝 Maintaining Your Blueprints
-
-### Updating Documentation
-
-The `DOCS/` directory is your **single source of truth**. To update:
-
-1. Edit the relevant markdown files in `DOCS/`
-2. Changes are immediately available (no restart needed)
-3. All AI interactions reflect updates automatically
-
-### Document Structure
-
-Each document includes frontmatter metadata:
-
-```yaml
----
-id: backend-layer-architecture
-title: Layer Architecture
-category: backend
-tags: [layers, domain, infrastructure]
-related: [backend-principles]
----
-```
-
-This enables:
-- Pattern ID-based lookups
-- Tag-based filtering
-- Related document navigation
-- Structured queries
-
-### Adding New Patterns
-
-1. Create a new markdown file in `DOCS/backend/patterns/` or `DOCS/frontend/patterns/`
-2. Add frontmatter with unique ID
-3. Document the pattern following existing structure
-4. Update pattern index (`_index.md`) if needed
-
----
-
-## 🎓 Best Practices
-
-### For Maximum Benefit
-
-1. **Start conversations with context**
-   ```
-   "I'm building a new feature. Please reference our architecture 
-   patterns and validate all suggestions."
-   ```
-
-2. **Be explicit about validation**
-   ```
-   "Check this code against our backend layer rules"
-   "Validate this component for architectural compliance"
-   ```
-
-3. **Reference patterns explicitly**
-   ```
-   "Use our Service Registry pattern for this"
-   "Follow our Context + Hook pattern here"
-   ```
-
-4. **Regular validation**
-   - Validate code before committing
-   - Check patterns when unsure
-   - Review architectural decisions
-
-### Workflow Integration
-
-- **Before coding:** Ask for pattern recommendations
-- **During coding:** Reference patterns when stuck
-- **After coding:** Validate for compliance
-- **Before committing:** Run validation checks
-
----
-
-## 🔮 Future Enhancements
-
-Potential improvements for stronger guardrail behavior:
-
-- **Pre-commit hooks** - Automatic validation before commits
-- **CI/CD integration** - Build-time architecture checks
-- **Static analysis rules** - Custom linters for patterns
-- **Architecture tests** - Automated pattern verification
-- **Dependency analysis** - Layer boundary enforcement
-- **Real-time validation** - IDE integration for live checks
-
----
-
-## 🤝 Contributing
-
-This is a template/starting point for your team's architecture documentation. Customize it to match your:
-
-- Specific patterns and conventions
-- Technology stack
-- Team preferences
-- Project requirements
-
----
-
-## 📚 Resources
-
-- [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
-- [Cursor MCP Integration Guide](https://docs.cursor.com/advanced/mcp)
-- Architecture blueprints in `DOCS/` directory
-
----
-
-## 📄 License
-
-MIT License - Customize and use as needed for your projects.
-
----
-
-## ⚡ Quick Reference
-
-**Start the server:**
 ```bash
-python3 start.py
-```
-
-**Get Cursor config:**
-Run `start.py` and copy the configuration from the integration guide
-
-**Update blueprints:**
-Edit files in `DOCS/` directory
-
-**Test server:**
-```bash
-.venv/bin/python run_server.py
+cd backend
+PYTHONPATH=src python -m pytest tests/unit/ -v
 ```
 
 ---
 
-**Remember:** Your architecture blueprints are now **always available**, maintained as a **single source of truth**, and provide **proactive guardrails** for AI-assisted development. Update once, benefit everywhere! 🚀
+For detailed technical documentation, architecture internals, and API reference, see **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
