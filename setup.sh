@@ -13,6 +13,49 @@ info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+# ── Helper: run a command with a timeout (macOS lacks `timeout`) ───────────
+
+run_with_timeout() {
+    # Usage: run_with_timeout SECONDS COMMAND [ARGS...]
+    local secs="$1"; shift
+    "$@" &
+    local pid=$!
+    local elapsed=0
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+        if [ "$elapsed" -ge "$secs" ]; then
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null || true
+            return 124  # same exit code as GNU timeout
+        fi
+    done
+    wait "$pid"
+    return $?
+}
+
+# ── Helper: check if Docker daemon is reachable (with timeout) ────────────
+
+docker_daemon_ok() {
+    run_with_timeout 10 docker info >/dev/null 2>&1
+}
+
+# ── Helper: resolve docker compose command ────────────────────────────────
+# Returns the correct compose invocation: "docker compose" (plugin) or
+# "docker-compose" (standalone).  Falls back to empty string if neither works.
+
+DOCKER_COMPOSE=""
+
+resolve_docker_compose() {
+    if run_with_timeout 10 docker compose version &>/dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &>/dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        DOCKER_COMPOSE=""
+    fi
+}
+
 # ── Helper: read a key from an env file (returns empty if missing/blank) ──
 
 env_get() {
@@ -156,35 +199,53 @@ ensure_brew() {
 # Docker (only required for postgres backend)
 if [ "$DB_BACKEND" = "postgres" ]; then
     if [ "$OS" = "Darwin" ]; then
-        # macOS: use Colima (lightweight CLI runtime) — no Docker Desktop needed
+        # macOS: prefer Docker Desktop if installed, otherwise use Colima
         ensure_brew
 
-        # Install Docker CLI (not Docker Desktop)
+        # Install Docker CLI if not present at all
         if ! command -v docker &>/dev/null; then
             info "Installing Docker CLI..."
             brew install docker
         fi
 
-        # Install Docker Compose plugin (separate from CLI)
-        if ! docker compose version &>/dev/null; then
-            info "Installing Docker Compose plugin..."
-            brew install docker-compose
-        fi
+        # ── Ensure a Docker runtime is running ──────────────────────────
+        DOCKER_RUNTIME=""
 
-        # Install Colima if no Docker runtime is available
-        if ! command -v colima &>/dev/null && ! docker info &>/dev/null 2>&1; then
-            info "Installing Colima (lightweight Docker runtime)..."
-            brew install colima
-        fi
+        if docker_daemon_ok; then
+            # Docker is already responding — figure out which runtime
+            if pgrep -qf "Docker.app" 2>/dev/null; then
+                DOCKER_RUNTIME="desktop"
+                info "Docker Desktop is running"
+            elif colima status &>/dev/null 2>&1; then
+                DOCKER_RUNTIME="colima"
+                info "Colima is running"
+                # Stop Docker Desktop if it's also running — its CLI plugins
+                # (docker-ai etc.) can hang the Docker CLI when the context
+                # points to Colima.
+                if pgrep -qf "com.docker.backend" 2>/dev/null; then
+                    warn "Docker Desktop is also running — stopping it to avoid CLI plugin conflicts..."
+                    osascript -e 'quit app "Docker"' 2>/dev/null || true
+                    sleep 2
+                fi
+            else
+                DOCKER_RUNTIME="other"
+                info "Docker daemon is running"
+            fi
+        else
+            # Docker daemon not reachable — start one
+            # If Docker Desktop AND Colima are both present, stop one to avoid conflicts
+            if pgrep -qf "com.docker.backend" 2>/dev/null; then
+                warn "Docker Desktop is running but not responding — stopping it..."
+                osascript -e 'quit app "Docker"' 2>/dev/null || true
+                sleep 3
+            fi
 
-        # Start a Docker runtime
-        if ! docker info &>/dev/null 2>&1; then
             if command -v colima &>/dev/null; then
                 info "Starting Colima..."
                 colima start --memory 4 --cpu 2 2>&1 || true
-                # Wait for Colima to be ready
                 for i in $(seq 1 30); do
-                    if docker info >/dev/null 2>&1; then
+                    if docker_daemon_ok; then
+                        DOCKER_RUNTIME="colima"
                         info "Colima is ready"
                         break
                     fi
@@ -197,7 +258,8 @@ if [ "$DB_BACKEND" = "postgres" ]; then
                 info "Starting Docker Desktop..."
                 open -a Docker
                 for i in $(seq 1 60); do
-                    if docker info >/dev/null 2>&1; then
+                    if docker_daemon_ok; then
+                        DOCKER_RUNTIME="desktop"
                         info "Docker Desktop is ready"
                         break
                     fi
@@ -209,7 +271,36 @@ if [ "$DB_BACKEND" = "postgres" ]; then
                 done
                 echo ""
             else
-                error "No Docker runtime found. Install Colima: brew install colima"
+                # Nothing installed — install Colima
+                info "Installing Colima (lightweight Docker runtime)..."
+                brew install colima
+                info "Starting Colima..."
+                colima start --memory 4 --cpu 2 2>&1 || true
+                for i in $(seq 1 30); do
+                    if docker_daemon_ok; then
+                        DOCKER_RUNTIME="colima"
+                        info "Colima is ready"
+                        break
+                    fi
+                    if [ "$i" -eq 30 ]; then
+                        error "Colima did not start in time. Try: colima start"
+                    fi
+                    sleep 2
+                done
+            fi
+        fi
+
+        # ── Ensure Docker Compose is available ──────────────────────────
+        # Docker Desktop bundles compose as a plugin; for Colima we may
+        # need to install it separately via Homebrew and symlink it.
+        if ! run_with_timeout 10 docker compose version &>/dev/null && ! command -v docker-compose &>/dev/null; then
+            info "Installing Docker Compose..."
+            brew install docker-compose
+            COMPOSE_BIN="$(brew --prefix docker-compose 2>/dev/null)/bin/docker-compose"
+            if [ -x "$COMPOSE_BIN" ]; then
+                info "Symlinking Docker Compose plugin..."
+                mkdir -p ~/.docker/cli-plugins
+                ln -sfn "$COMPOSE_BIN" ~/.docker/cli-plugins/docker-compose
             fi
         fi
 
@@ -222,7 +313,7 @@ if [ "$DB_BACKEND" = "postgres" ]; then
                 warn "You may need to log out and back in for Docker group permissions to take effect"
             fi
         fi
-        if ! docker info &>/dev/null 2>&1; then
+        if ! docker_daemon_ok; then
             if [ "$IS_WSL" = true ]; then
                 # WSL2: systemd may not be available — use service command
                 info "Starting Docker daemon (WSL2)..."
@@ -236,7 +327,7 @@ if [ "$DB_BACKEND" = "postgres" ]; then
                 sudo systemctl start docker
             fi
             sleep 2
-            if ! docker info &>/dev/null 2>&1; then
+            if ! docker_daemon_ok; then
                 if [ "$IS_WSL" = true ]; then
                     error "Docker daemon failed to start. Try: sudo service docker start"
                 else
@@ -249,6 +340,13 @@ if [ "$DB_BACKEND" = "postgres" ]; then
     fi
 
     info "Docker $(docker --version | cut -d' ' -f3 | tr -d ',') OK"
+
+    # Resolve the correct compose command now that Docker is running
+    resolve_docker_compose
+    if [ -z "$DOCKER_COMPOSE" ]; then
+        error "Neither 'docker compose' nor 'docker-compose' is available. Install: brew install docker-compose"
+    fi
+    info "Using compose command: ${DOCKER_COMPOSE}"
 else
     info "Skipping Docker (not needed for Supabase backend)"
 fi
@@ -300,13 +398,13 @@ fi
 
 if [ "$DB_BACKEND" = "postgres" ]; then
     info "Starting PostgreSQL + Redis via Docker Compose..."
-    # Retry docker compose up — prune corrupted images on failure
+    # Retry compose up — prune corrupted images on failure
     for attempt in 1 2 3; do
-        if docker compose up -d 2>&1; then
+        if $DOCKER_COMPOSE up -d 2>&1; then
             break
         fi
         if [ "$attempt" -eq 3 ]; then
-            error "docker compose up failed after 3 attempts. Try: docker system prune -a --force && ./setup.sh"
+            error "${DOCKER_COMPOSE} up failed after 3 attempts. Try: docker system prune -a --force && ./setup.sh"
         fi
         warn "Docker containers failed to start (attempt ${attempt}/3). Pruning corrupted images..."
         docker system prune -a --force 2>/dev/null || true
@@ -315,7 +413,7 @@ if [ "$DB_BACKEND" = "postgres" ]; then
 
     info "Waiting for PostgreSQL to be ready..."
     for i in $(seq 1 30); do
-        if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        if $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
             info "PostgreSQL is ready"
             break
         fi
@@ -326,7 +424,7 @@ if [ "$DB_BACKEND" = "postgres" ]; then
     done
 
     # Verify migration ran
-    ROWS=$(docker compose exec -T postgres psql -U postgres -d architecture_mcp -tAc "SELECT count(*) FROM analysis_prompts" 2>/dev/null || echo "0")
+    ROWS=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp -tAc "SELECT count(*) FROM analysis_prompts" 2>/dev/null || echo "0")
     if [ "${ROWS:-0}" -ge 1 ]; then
         info "Migration verified: ${ROWS} prompts seeded"
     else

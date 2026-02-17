@@ -14,6 +14,25 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}🚀 Starting Repository Analysis System...${NC}\n"
 
+# ── Helper: run a command with a timeout (macOS lacks `timeout`) ──────────
+run_with_timeout() {
+    local secs="$1"; shift
+    "$@" &
+    local pid=$!
+    local elapsed=0
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+        if [ "$elapsed" -ge "$secs" ]; then
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null || true
+            return 124
+        fi
+    done
+    wait "$pid"
+    return $?
+}
+
 # Check if .env.local files exist
 if [ ! -f "backend/.env.local" ]; then
     echo -e "${RED}❌ Error: backend/.env.local not found${NC}"
@@ -57,18 +76,24 @@ if [ "$DB_BACKEND" = "postgres" ]; then
         exit 1
     fi
 
-    if ! docker compose version &>/dev/null; then
-        echo -e "${RED}❌ Error: Docker Compose plugin is not installed${NC}"
+    # Resolve compose command: "docker compose" (plugin) or "docker-compose" (standalone)
+    DOCKER_COMPOSE=""
+    if run_with_timeout 10 docker compose version &>/dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &>/dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        echo -e "${RED}❌ Error: Neither 'docker compose' nor 'docker-compose' is available${NC}"
         echo "Install it with: brew install docker-compose"
         exit 1
     fi
 
     echo -e "${BLUE}🐘 DB_BACKEND=postgres — starting Docker containers...${NC}"
-    docker compose up -d
+    $DOCKER_COMPOSE up -d
 
     echo -e "${BLUE}⏳ Waiting for PostgreSQL to be ready...${NC}"
     for i in $(seq 1 30); do
-        if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        if $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
             echo -e "${GREEN}✅ PostgreSQL is ready${NC}"
             break
         fi
