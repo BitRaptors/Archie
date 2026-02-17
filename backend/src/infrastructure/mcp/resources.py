@@ -78,12 +78,10 @@ class BlueprintResources:
 
         if self._repository_repository is None:
             try:
-                from infrastructure.persistence.supabase_client import get_supabase_client_async
-                from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+                from infrastructure.persistence.db_factory import create_db
                 from infrastructure.persistence.repository_repository import RepositoryRepository
 
-                supabase_client = await get_supabase_client_async()
-                db = SupabaseAdapter(supabase_client)
+                db = await create_db()
                 self._repository_repository = RepositoryRepository(db=db)
             except Exception as exc:
                 import sys

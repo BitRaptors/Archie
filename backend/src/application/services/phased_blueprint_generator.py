@@ -23,12 +23,12 @@ class PhasedBlueprintGenerator:
     event-sourced, CQRS, Flux, or completely custom patterns.
     """
 
-    def __init__(self, settings: Settings, supabase_client=None, progress_callback=None, prompt_loader=None):
+    def __init__(self, settings: Settings, db_client=None, progress_callback=None, prompt_loader=None):
         """Initialize phased blueprint generator.
 
         Args:
             settings: Application settings for AI configuration
-            supabase_client: Supabase client for RAG retrieval (optional)
+            db_client: DatabaseClient for RAG retrieval (optional)
             progress_callback: Optional async callback function(analysis_id, event_type, message) for progress logging
             prompt_loader: Optional DatabasePromptLoader (async) or PromptLoader (sync). Defaults to file-based PromptLoader.
         """
@@ -43,8 +43,8 @@ class PhasedBlueprintGenerator:
         self._synthesis_model = getattr(settings, "synthesis_ai_model", settings.default_ai_model)  # Capable model for synthesis
         self._synthesis_max_tokens = getattr(settings, "synthesis_max_tokens", 10000)
         self._progress_callback = progress_callback
-        self._rag_retriever = RAGRetriever(supabase_client, progress_callback) if supabase_client else None
-        self._supabase_client = supabase_client
+        self._rag_retriever = RAGRetriever(db_client, progress_callback) if db_client else None
+        self._db_client = db_client
 
     async def _load_prompt(self, key: str):
         """Load a prompt by key, handling both sync and async loaders."""

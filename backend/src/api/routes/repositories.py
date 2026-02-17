@@ -107,51 +107,48 @@ async def start_analysis(
 
     # Get container
     container = request.app.container
-    
-    # CRITICAL: Resolve supabase_client Resource first to ensure it's initialized
-    supabase_client = await container.supabase_client()
-    
-    # Wrap Supabase client in DB adapter and create repositories
-    from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+
+    # Resolve DB client from container
+    db = await container.db()
+
     from infrastructure.persistence.user_repository import UserRepository
     from infrastructure.persistence.repository_repository import RepositoryRepository
     from infrastructure.persistence.analysis_repository import AnalysisRepository
     from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
-    
-    db = SupabaseAdapter(supabase_client)
+
     user_repo = UserRepository(db=db)
     repo_repo = RepositoryRepository(db=db)
     analysis_repo = AnalysisRepository(db=db)
     event_repo = AnalysisEventRepository(db=db)
-    
+
     # Create services with resolved repositories
     from application.services.repository_service import RepositoryService
     from application.services.analysis_service import AnalysisService
     from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
     from infrastructure.analysis.structure_analyzer import StructureAnalyzer
     from config.settings import get_settings
-    
+
     storage = container.storage()
     github_service = container.github_service()
     settings = get_settings()
-    
+
     repo_service = RepositoryService(
         repository_repo=repo_repo,
         github_service=github_service,
         storage=storage,
     )
-    
+
     # Create only what's needed for analysis
     structure_analyzer = StructureAnalyzer()
-    
-    # Pass supabase_client to enable RAG-based retrieval
+
+    # Pass db_client to enable RAG-based retrieval
     prompt_loader = container.database_prompt_loader()
     phased_blueprint_generator = PhasedBlueprintGenerator(
         settings=settings,
-        supabase_client=supabase_client,  # Enable RAG for full codebase analysis
+        db_client=db,
         prompt_loader=prompt_loader,
     )
-    
+
     # Create analysis service
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,

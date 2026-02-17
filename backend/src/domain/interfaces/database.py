@@ -56,6 +56,9 @@ class QueryBuilder(ABC):
     def eq(self, column: str, value: Any) -> QueryBuilder: ...
 
     @abstractmethod
+    def in_(self, column: str, values: list[Any]) -> QueryBuilder: ...
+
+    @abstractmethod
     def range(self, start: int, end: int) -> QueryBuilder: ...
 
     @abstractmethod
@@ -81,3 +84,7 @@ class DatabaseClient(ABC):
 
     @abstractmethod
     def table(self, name: str) -> QueryBuilder: ...
+
+    async def rpc(self, function_name: str, params: dict[str, Any]) -> QueryResult:
+        """Call a stored database function. Override in adapters that support it."""
+        raise NotImplementedError(f"rpc() not supported by this database backend")

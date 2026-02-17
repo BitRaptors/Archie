@@ -17,13 +17,13 @@ echo -e "${BLUE}🚀 Starting Repository Analysis System...${NC}\n"
 # Check if .env.local files exist
 if [ ! -f "backend/.env.local" ]; then
     echo -e "${RED}❌ Error: backend/.env.local not found${NC}"
-    echo "Please create it from backend/.env.example"
+    echo "Please run ./setup.sh first, or copy backend/.env.example to backend/.env.local"
     exit 1
 fi
 
 if [ ! -f "frontend/.env.local" ]; then
     echo -e "${RED}❌ Error: frontend/.env.local not found${NC}"
-    echo "Please create it from frontend/.env.example"
+    echo "Please run ./setup.sh first, or copy frontend/.env.example to frontend/.env.local"
     exit 1
 fi
 
@@ -44,6 +44,37 @@ check_redis() {
     (echo > /dev/tcp/localhost/6379) &>/dev/null 2>&1
     return $?
 }
+
+# ── Read DB_BACKEND from .env.local ──────────────────────────────────────
+DB_BACKEND=$(grep -E '^DB_BACKEND=' backend/.env.local 2>/dev/null | cut -d= -f2 | tr -d '[:space:]"'"'" || echo "supabase")
+DB_BACKEND=${DB_BACKEND:-supabase}
+
+# ── Start Docker containers if using local PostgreSQL ────────────────────
+if [ "$DB_BACKEND" = "postgres" ]; then
+    if ! command -v docker &>/dev/null; then
+        echo -e "${RED}❌ Error: DB_BACKEND=postgres but Docker is not installed${NC}"
+        echo "Install Docker Desktop from https://www.docker.com/products/docker-desktop/"
+        exit 1
+    fi
+
+    echo -e "${BLUE}🐘 DB_BACKEND=postgres — starting Docker containers...${NC}"
+    docker compose up -d
+
+    echo -e "${BLUE}⏳ Waiting for PostgreSQL to be ready...${NC}"
+    for i in $(seq 1 30); do
+        if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+            echo -e "${GREEN}✅ PostgreSQL is ready${NC}"
+            break
+        fi
+        if [ "$i" -eq 30 ]; then
+            echo -e "${RED}❌ PostgreSQL did not become ready in 30s${NC}"
+            exit 1
+        fi
+        sleep 1
+    done
+else
+    echo -e "${BLUE}☁️  DB_BACKEND=supabase — using remote Supabase${NC}"
+fi
 
 # Trap Ctrl+C
 trap cleanup SIGINT SIGTERM
@@ -170,6 +201,11 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "${BLUE}Backend:${NC}  http://localhost:8000"
 echo -e "${BLUE}Frontend:${NC} http://localhost:${FRONTEND_PORT}"
 echo -e "${BLUE}API Docs:${NC} http://localhost:8000/docs"
+if [ "$DB_BACKEND" = "postgres" ]; then
+    echo -e "${BLUE}Database:${NC} Local PostgreSQL (Docker)"
+else
+    echo -e "${BLUE}Database:${NC} Supabase (remote)"
+fi
 if [ "$ANALYSIS_MODE" = "arq" ]; then
     echo -e "${BLUE}Analysis:${NC} ARQ worker (Redis-backed background jobs)"
 else

@@ -5,8 +5,6 @@ from typing import List, Optional
 from api.dto.responses import AnalysisResponse, AnalysisEventResponse
 from domain.interfaces.repositories import IAnalysisRepository, IAnalysisEventRepository
 from domain.entities.blueprint import StructuredBlueprint
-from config.container import Container
-from infrastructure.persistence.supabase_adapter import SupabaseAdapter
 from infrastructure.persistence.analysis_repository import AnalysisRepository
 from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
 from application.services.analysis_data_collector import analysis_data_collector
@@ -23,17 +21,13 @@ router = APIRouter(prefix="/analyses", tags=["analyses"])
 
 async def get_analysis_repo(request: Request) -> IAnalysisRepository:
     """Get analysis repository with resolved dependencies."""
-    container = request.app.container
-    supabase_client = await container.supabase_client()
-    db = SupabaseAdapter(supabase_client)
+    db = await request.app.container.db()
     return AnalysisRepository(db=db)
 
 
 async def get_event_repo(request: Request) -> IAnalysisEventRepository:
     """Get analysis event repository with resolved dependencies."""
-    container = request.app.container
-    supabase_client = await container.supabase_client()
-    db = SupabaseAdapter(supabase_client)
+    db = await request.app.container.db()
     return AnalysisEventRepository(db=db)
 
 

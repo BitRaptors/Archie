@@ -296,7 +296,6 @@ class TestWorkerTaskLifecycle:
         ctx = {}
 
         with patch("workers.tasks.Container") as MockContainer, \
-             patch("workers.tasks.SupabaseAdapter"), \
              patch("workers.tasks.UserRepository"), \
              patch("workers.tasks.RepositoryRepository"), \
              patch("workers.tasks.AnalysisRepository"), \
@@ -312,7 +311,7 @@ class TestWorkerTaskLifecycle:
             )
             mock_container = MagicMock()
             mock_container.init_resources = AsyncMock()
-            mock_container.supabase_client = AsyncMock(return_value=MagicMock())
+            mock_container.db = AsyncMock(return_value=MagicMock())
             mock_container.storage = MagicMock(return_value=MagicMock())
             mock_container.github_service = MagicMock(return_value=MagicMock())
             MockContainer.return_value = mock_container
@@ -363,8 +362,7 @@ class TestWorkerTaskLifecycle:
         mock_repo_service.cleanup_temp_repository = AsyncMock()
 
         mock_container = MagicMock()
-        mock_supabase = MagicMock()
-        mock_container.supabase_client = AsyncMock(return_value=mock_supabase)
+        mock_container.db = AsyncMock(return_value=MagicMock())
 
         ctx = {
             "analysis_service": mock_analysis_service,
@@ -380,8 +378,7 @@ class TestWorkerTaskLifecycle:
             (clone_path / "README.md").write_text("# test")
             mock_repo_service.clone_repository = AsyncMock(return_value=clone_path)
 
-            with patch("workers.tasks.SupabaseAdapter"), \
-                 patch("workers.tasks.AnalysisRepository"), \
+            with patch("workers.tasks.AnalysisRepository"), \
                  patch("workers.tasks.TempStorage") as MockTemp:
                 MockTemp.return_value.get_base_path.return_value = tmpdir
 
@@ -411,8 +408,7 @@ class TestWorkerTaskLifecycle:
         mock_repo_service.cleanup_temp_repository = AsyncMock()
 
         mock_container = MagicMock()
-        mock_supabase = MagicMock()
-        mock_container.supabase_client = AsyncMock(return_value=mock_supabase)
+        mock_container.db = AsyncMock(return_value=MagicMock())
 
         mock_analysis_repo = AsyncMock()
         mock_analysis_repo.get_by_id = AsyncMock(return_value=sample_analysis)
@@ -424,8 +420,7 @@ class TestWorkerTaskLifecycle:
             "container": mock_container,
         }
 
-        with patch("workers.tasks.SupabaseAdapter"), \
-             patch("workers.tasks.AnalysisRepository", return_value=mock_analysis_repo), \
+        with patch("workers.tasks.AnalysisRepository", return_value=mock_analysis_repo), \
              patch("workers.tasks.TempStorage") as MockTemp:
             MockTemp.return_value.get_base_path.return_value = "/tmp/test"
 
@@ -447,8 +442,7 @@ class TestWorkerTaskLifecycle:
         """The task should raise ValueError if services are missing from context."""
         ctx = {}
 
-        with patch("workers.tasks.SupabaseAdapter"), \
-             patch("workers.tasks.AnalysisRepository"), \
+        with patch("workers.tasks.AnalysisRepository"), \
              patch("workers.tasks.TempStorage"):
 
             from workers.tasks import analyze_repository

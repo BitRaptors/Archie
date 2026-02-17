@@ -1,38 +1,37 @@
-"""Analysis data collector for pipeline with Supabase persistence."""
+"""Analysis data collector for pipeline with database persistence."""
 from typing import Any, Dict
 from datetime import datetime, timezone
 from infrastructure.persistence.analysis_data_repository import AnalysisDataRepository
-from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+from domain.interfaces.database import DatabaseClient
 
 
 class AnalysisDataCollector:
     """Collects and stores analysis data during the analysis process.
-    
+
     This information includes:
     1. Gathered data (structure, dependencies, config files)
     2. Exact prompts sent to AI
     3. Truncation metrics
     4. RAG retrieval results
-    
+
     Data is persisted to the database so it can be accessed across processes (worker -> API).
     """
-    
+
     def __init__(self):
         # In-memory cache keyed by analysis_id for performance during analysis
         self._data: Dict[str, Dict[str, Any]] = {}
         # Repository for persistence (initialized later)
         self._repository: AnalysisDataRepository | None = None
         self._initialized = False
-    
-    def initialize(self, supabase_client) -> None:
-        """Initialize the collector with a Supabase client.
-        
+
+    def initialize(self, db: DatabaseClient) -> None:
+        """Initialize the collector with a DatabaseClient.
+
         Must be called before any async operations.
-        
+
         Args:
-            supabase_client: The Supabase async client
+            db: A DatabaseClient instance (SupabaseAdapter or PostgresAdapter)
         """
-        db = SupabaseAdapter(supabase_client)
         self._repository = AnalysisDataRepository(db)
         self._initialized = True
     

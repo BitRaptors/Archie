@@ -41,18 +41,16 @@ _last_active_repo_id: Optional[str] = None
 
 
 async def _ensure_user_profile_repo():
-    """Lazily create a UserProfileRepository (needs async Supabase client)."""
+    """Lazily create a UserProfileRepository (needs async DB client)."""
     global _user_profile_repo
     if _user_profile_repo is not None:
         return
 
     try:
-        from infrastructure.persistence.supabase_client import get_supabase_client_async
-        from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+        from infrastructure.persistence.db_factory import create_db
         from infrastructure.persistence.user_profile_repository import UserProfileRepository
 
-        client = await get_supabase_client_async()
-        db = SupabaseAdapter(client)
+        db = await create_db()
         _user_profile_repo = UserProfileRepository(db=db)
     except Exception as exc:
         print(

@@ -54,6 +54,10 @@ class SupabaseQueryBuilder(QueryBuilder):
         self._query = self._query.eq(column, value)
         return self
 
+    def in_(self, column: str, values: list[Any]) -> SupabaseQueryBuilder:
+        self._query = self._query.in_(column, values)
+        return self
+
     def range(self, start: int, end: int) -> SupabaseQueryBuilder:
         self._query = self._query.range(start, end)
         return self
@@ -94,3 +98,13 @@ class SupabaseAdapter(DatabaseClient):
 
     def table(self, name: str) -> SupabaseQueryBuilder:
         return SupabaseQueryBuilder(self._client.table(name))
+
+    async def rpc(self, function_name: str, params: dict[str, Any]) -> QueryResult:
+        try:
+            result = await self._client.rpc(function_name, params).execute()
+            return QueryResult(data=result.data)
+        except APIError as e:
+            raise DatabaseError(
+                code=getattr(e, "code", "") or "",
+                message=str(e),
+            ) from e

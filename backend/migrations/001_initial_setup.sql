@@ -275,8 +275,13 @@ VALUES
 ON CONFLICT (key) WHERE key IS NOT NULL DO NOTHING;
 
 -- ============================================================
--- Grants
+-- Grants (safe for both Supabase and local PostgreSQL)
 -- ============================================================
 
-GRANT EXECUTE ON FUNCTION match_embeddings TO authenticated;
-GRANT EXECUTE ON FUNCTION match_embeddings TO anon;
+DO $$
+BEGIN
+  EXECUTE 'GRANT EXECUTE ON FUNCTION match_embeddings TO authenticated';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION match_embeddings TO anon';
+EXCEPTION WHEN undefined_object THEN
+  NULL;  -- Roles don't exist on local PostgreSQL, skip
+END $$;
