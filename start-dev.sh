@@ -89,7 +89,27 @@ if [ "$DB_BACKEND" = "postgres" ]; then
     fi
 
     echo -e "${BLUE}🐘 DB_BACKEND=postgres — starting Docker containers...${NC}"
-    $DOCKER_COMPOSE up -d
+    COMPOSE_OUTPUT=$($DOCKER_COMPOSE up -d 2>&1) || {
+        echo "$COMPOSE_OUTPUT"
+        if echo "$COMPOSE_OUTPUT" | grep -qiE "connection refused|timeout|no such host|network|dial tcp|TLS handshake"; then
+            echo -e "${RED}❌ Network error pulling Docker images${NC}"
+            if colima status &>/dev/null 2>&1; then
+                echo -e "${YELLOW}⚠️  Restarting Colima to fix networking...${NC}"
+                colima stop 2>/dev/null || true
+                sleep 2
+                colima start --memory 4 --cpu 2 2>&1 || true
+                sleep 3
+                echo -e "${BLUE}🔄 Retrying...${NC}"
+                $DOCKER_COMPOSE up -d || { echo -e "${RED}❌ Still failing — check your internet connection${NC}"; exit 1; }
+            else
+                echo "Check your internet connection or VPN and try again."
+                exit 1
+            fi
+        else
+            echo -e "${RED}❌ Failed to start Docker containers${NC}"
+            exit 1
+        fi
+    }
 
     echo -e "${BLUE}⏳ Waiting for PostgreSQL to be ready...${NC}"
     for i in $(seq 1 30); do

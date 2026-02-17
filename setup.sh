@@ -437,17 +437,42 @@ fi
 
 if [ "$DB_BACKEND" = "postgres" ]; then
     info "Starting PostgreSQL + Redis via Docker Compose..."
-    # Retry compose up — prune corrupted images on failure
+    COMPOSE_OUTPUT=""
     for attempt in 1 2 3; do
-        if $DOCKER_COMPOSE up -d 2>&1; then
-            break
-        fi
+        COMPOSE_OUTPUT=$($DOCKER_COMPOSE up -d 2>&1) && break
+        echo "$COMPOSE_OUTPUT"
+
         if [ "$attempt" -eq 3 ]; then
-            error "${DOCKER_COMPOSE} up failed after 3 attempts. Try: docker system prune -a --force && ./setup.sh"
+            error "${DOCKER_COMPOSE} up failed after 3 attempts. Check your network connection and try: ./setup.sh"
         fi
-        warn "Docker containers failed to start (attempt ${attempt}/3). Pruning corrupted images..."
-        docker system prune -a --force 2>/dev/null || true
-        sleep 5
+
+        # Detect network errors vs image corruption
+        if echo "$COMPOSE_OUTPUT" | grep -qiE "connection refused|timeout|no such host|network|dial tcp|TLS handshake"; then
+            warn "Docker containers failed to start (attempt ${attempt}/3) — network error detected"
+            if [ "${DOCKER_RUNTIME:-}" = "colima" ]; then
+                warn "Restarting Colima to fix networking (this is a known Colima issue)..."
+                colima stop 2>/dev/null || true
+                sleep 2
+                colima start --memory 4 --cpu 2 2>&1 || true
+                for i in $(seq 1 30); do
+                    if docker_daemon_ok; then
+                        info "Colima restarted successfully"
+                        break
+                    fi
+                    if [ "$i" -eq 30 ]; then
+                        error "Colima did not restart in time. Try: colima delete && colima start && ./setup.sh"
+                    fi
+                    sleep 2
+                done
+            else
+                warn "Network issue inside Docker — check your internet connection or VPN"
+                sleep 5
+            fi
+        else
+            warn "Docker containers failed to start (attempt ${attempt}/3). Pruning corrupted images..."
+            docker system prune -a --force 2>/dev/null || true
+            sleep 5
+        fi
     done
 
     info "Waiting for PostgreSQL to be ready..."
