@@ -22,14 +22,28 @@ async def create_db() -> DatabaseClient:
     settings = get_settings()
 
     if settings.db_backend == "postgres":
+        import json
         import asyncpg
         from infrastructure.persistence.postgres_adapter import PostgresAdapter
 
-        pool = await asyncpg.create_pool(settings.database_url)
-        # Register pgvector codec so vector columns come back as lists
-        async with pool.acquire() as conn:
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            # Register text codec for vector type so we don't need pgvector Python lib
+        async def _init_connection(conn: asyncpg.Connection) -> None:
+            """Register custom type codecs on every new connection."""
+            # JSONB/JSON → Python objects (asyncpg returns raw strings by default)
+            await conn.set_type_codec(
+                "jsonb",
+                encoder=json.dumps,
+                decoder=json.loads,
+                schema="pg_catalog",
+                format="text",
+            )
+            await conn.set_type_codec(
+                "json",
+                encoder=json.dumps,
+                decoder=json.loads,
+                schema="pg_catalog",
+                format="text",
+            )
+            # pgvector → Python lists (avoids requiring the pgvector Python lib)
             await conn.set_type_codec(
                 "vector",
                 encoder=lambda v: v,
@@ -37,6 +51,11 @@ async def create_db() -> DatabaseClient:
                 schema="public",
                 format="text",
             )
+
+        pool = await asyncpg.create_pool(settings.database_url, init=_init_connection)
+        # Ensure vector extension exists
+        async with pool.acquire() as conn:
+            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         _cached_pool = pool
         _cached_db = PostgresAdapter(pool)
     else:

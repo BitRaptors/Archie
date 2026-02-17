@@ -115,9 +115,31 @@ else
     info "Database backend: ${DB_BACKEND}"
 fi
 
-# ── Prerequisites ──────────────────────────────────────────────────────────
+# ── Platform detection ─────────────────────────────────────────────────────
 
 OS="$(uname -s)"
+IS_WSL=false
+
+case "$OS" in
+    MINGW*|MSYS*|CYGWIN*)
+        echo ""
+        echo -e "${RED}This script must be run inside WSL2, not Git Bash or MSYS.${NC}"
+        echo ""
+        echo "  1. Install WSL2:   wsl --install"
+        echo "  2. Open Ubuntu:    wsl"
+        echo "  3. Clone & run:    git clone <repo> && cd <repo> && ./setup.sh"
+        echo ""
+        exit 1
+        ;;
+    Linux)
+        if grep -qi 'microsoft\|wsl' /proc/version 2>/dev/null; then
+            IS_WSL=true
+            info "Detected WSL2 on Windows"
+        fi
+        ;;
+esac
+
+# ── Prerequisites ──────────────────────────────────────────────────────────
 
 ensure_brew() {
     if [ "$OS" = "Darwin" ] && ! command -v brew &>/dev/null; then
@@ -133,33 +155,93 @@ ensure_brew() {
 
 # Docker (only required for postgres backend)
 if [ "$DB_BACKEND" = "postgres" ]; then
-    if ! command -v docker &>/dev/null; then
-        if [ "$OS" = "Darwin" ]; then
-            ensure_brew
-            info "Installing Docker Desktop via Homebrew..."
-            brew install --cask docker
-            info "Starting Docker Desktop (this may take a moment)..."
-            open -a Docker
-            for i in $(seq 1 60); do
-                if docker info &>/dev/null; then
-                    info "Docker is ready"
-                    break
-                fi
-                if [ "$i" -eq 60 ]; then
-                    error "Docker daemon did not start in 60s — open Docker Desktop manually and re-run this script"
-                fi
-                sleep 2
-            done
-        elif [ "$OS" = "Linux" ]; then
+    if [ "$OS" = "Darwin" ]; then
+        # macOS: use Colima (lightweight CLI runtime) — no Docker Desktop needed
+        ensure_brew
+
+        # Install Docker CLI + Compose plugin (not Docker Desktop)
+        if ! command -v docker &>/dev/null; then
+            info "Installing Docker CLI..."
+            brew install docker docker-compose
+        fi
+
+        # Install Colima if no Docker runtime is available
+        if ! command -v colima &>/dev/null && ! docker info &>/dev/null 2>&1; then
+            info "Installing Colima (lightweight Docker runtime)..."
+            brew install colima
+        fi
+
+        # Start a Docker runtime
+        if ! docker info &>/dev/null 2>&1; then
+            if command -v colima &>/dev/null; then
+                info "Starting Colima..."
+                colima start --memory 4 --cpu 2 2>&1 || true
+                # Wait for Colima to be ready
+                for i in $(seq 1 30); do
+                    if docker info >/dev/null 2>&1; then
+                        info "Colima is ready"
+                        break
+                    fi
+                    if [ "$i" -eq 30 ]; then
+                        error "Colima did not start in time. Try: colima start"
+                    fi
+                    sleep 2
+                done
+            elif [ -d "/Applications/Docker.app" ]; then
+                info "Starting Docker Desktop..."
+                open -a Docker
+                for i in $(seq 1 60); do
+                    if docker info >/dev/null 2>&1; then
+                        info "Docker Desktop is ready"
+                        break
+                    fi
+                    if [ "$i" -eq 60 ]; then
+                        error "Docker daemon did not start in time. Re-run: ./setup.sh"
+                    fi
+                    printf "\r  Waiting for Docker daemon... %ds" "$((i * 2))"
+                    sleep 2
+                done
+                echo ""
+            else
+                error "No Docker runtime found. Install Colima: brew install colima"
+            fi
+        fi
+
+    elif [ "$OS" = "Linux" ]; then
+        if ! command -v docker &>/dev/null; then
             info "Installing Docker via official script..."
             curl -fsSL https://get.docker.com | sh
-            sudo systemctl start docker
             sudo usermod -aG docker "$USER"
-            warn "You may need to log out and back in for Docker group permissions to take effect"
-        else
-            error "Unsupported OS for auto-install. Please install Docker manually: https://docs.docker.com/get-docker/"
+            if [ "$IS_WSL" = false ]; then
+                warn "You may need to log out and back in for Docker group permissions to take effect"
+            fi
         fi
+        if ! docker info &>/dev/null 2>&1; then
+            if [ "$IS_WSL" = true ]; then
+                # WSL2: systemd may not be available — use service command
+                info "Starting Docker daemon (WSL2)..."
+                if command -v systemctl &>/dev/null && systemctl is-system-running &>/dev/null 2>&1; then
+                    sudo systemctl start docker
+                else
+                    sudo service docker start
+                fi
+            else
+                info "Starting Docker daemon..."
+                sudo systemctl start docker
+            fi
+            sleep 2
+            if ! docker info &>/dev/null 2>&1; then
+                if [ "$IS_WSL" = true ]; then
+                    error "Docker daemon failed to start. Try: sudo service docker start"
+                else
+                    error "Docker daemon failed to start. Check: sudo systemctl status docker"
+                fi
+            fi
+        fi
+    else
+        error "Unsupported OS. Please install Docker manually: https://docs.docker.com/get-docker/"
     fi
+
     info "Docker $(docker --version | cut -d' ' -f3 | tr -d ',') OK"
 else
     info "Skipping Docker (not needed for Supabase backend)"
@@ -212,7 +294,18 @@ fi
 
 if [ "$DB_BACKEND" = "postgres" ]; then
     info "Starting PostgreSQL + Redis via Docker Compose..."
-    docker compose up -d
+    # Retry docker compose up — prune corrupted images on failure
+    for attempt in 1 2 3; do
+        if docker compose up -d 2>&1; then
+            break
+        fi
+        if [ "$attempt" -eq 3 ]; then
+            error "docker compose up failed after 3 attempts. Try: docker system prune -a --force && ./setup.sh"
+        fi
+        warn "Docker containers failed to start (attempt ${attempt}/3). Pruning corrupted images..."
+        docker system prune -a --force 2>/dev/null || true
+        sleep 5
+    done
 
     info "Waiting for PostgreSQL to be ready..."
     for i in $(seq 1 30); do
