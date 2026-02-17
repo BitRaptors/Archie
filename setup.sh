@@ -209,85 +209,39 @@ if [ "$DB_BACKEND" = "postgres" ]; then
         fi
 
         # ── Ensure a Docker runtime is running ──────────────────────────
-        DOCKER_RUNTIME=""
-
         if docker_daemon_ok; then
-            # Docker is already responding — figure out which runtime
-            if pgrep -qf "Docker.app" 2>/dev/null; then
-                DOCKER_RUNTIME="desktop"
-                info "Docker Desktop is running"
-            elif colima status &>/dev/null 2>&1; then
-                DOCKER_RUNTIME="colima"
-                info "Colima is running"
-                # Stop Docker Desktop if it's also running — its CLI plugins
-                # (docker-ai etc.) can hang the Docker CLI when the context
-                # points to Colima.
-                if pgrep -qf "com.docker.backend" 2>/dev/null; then
-                    warn "Docker Desktop is also running — stopping it to avoid CLI plugin conflicts..."
-                    osascript -e 'quit app "Docker"' 2>/dev/null || true
-                    sleep 2
-                fi
-            else
-                DOCKER_RUNTIME="other"
-                info "Docker daemon is running"
-            fi
+            info "Docker daemon is running"
+        elif command -v colima &>/dev/null; then
+            info "Starting Colima..."
+            colima start --memory 4 --cpu 2 2>&1 || true
+            for i in $(seq 1 30); do
+                if docker_daemon_ok; then break; fi
+                if [ "$i" -eq 30 ]; then error "Colima did not start in time. Try: colima start"; fi
+                sleep 2
+            done
+            info "Colima is ready"
+        elif [ -d "/Applications/Docker.app" ]; then
+            info "Starting Docker Desktop..."
+            open -a Docker
+            for i in $(seq 1 60); do
+                if docker_daemon_ok; then break; fi
+                if [ "$i" -eq 60 ]; then error "Docker Desktop did not start in time. Re-run: ./setup.sh"; fi
+                printf "\r  Waiting for Docker daemon... %ds" "$((i * 2))"
+                sleep 2
+            done
+            echo ""
+            info "Docker Desktop is ready"
         else
-            # Docker daemon not reachable — start one
-            # If Docker Desktop AND Colima are both present, stop one to avoid conflicts
-            if pgrep -qf "com.docker.backend" 2>/dev/null; then
-                warn "Docker Desktop is running but not responding — stopping it..."
-                osascript -e 'quit app "Docker"' 2>/dev/null || true
-                sleep 3
-            fi
-
-            if command -v colima &>/dev/null; then
-                info "Starting Colima..."
-                colima start --memory 4 --cpu 2 2>&1 || true
-                for i in $(seq 1 30); do
-                    if docker_daemon_ok; then
-                        DOCKER_RUNTIME="colima"
-                        info "Colima is ready"
-                        break
-                    fi
-                    if [ "$i" -eq 30 ]; then
-                        error "Colima did not start in time. Try: colima start"
-                    fi
-                    sleep 2
-                done
-            elif [ -d "/Applications/Docker.app" ]; then
-                info "Starting Docker Desktop..."
-                open -a Docker
-                for i in $(seq 1 60); do
-                    if docker_daemon_ok; then
-                        DOCKER_RUNTIME="desktop"
-                        info "Docker Desktop is ready"
-                        break
-                    fi
-                    if [ "$i" -eq 60 ]; then
-                        error "Docker daemon did not start in time. Re-run: ./setup.sh"
-                    fi
-                    printf "\r  Waiting for Docker daemon... %ds" "$((i * 2))"
-                    sleep 2
-                done
-                echo ""
-            else
-                # Nothing installed — install Colima
-                info "Installing Colima (lightweight Docker runtime)..."
-                brew install colima
-                info "Starting Colima..."
-                colima start --memory 4 --cpu 2 2>&1 || true
-                for i in $(seq 1 30); do
-                    if docker_daemon_ok; then
-                        DOCKER_RUNTIME="colima"
-                        info "Colima is ready"
-                        break
-                    fi
-                    if [ "$i" -eq 30 ]; then
-                        error "Colima did not start in time. Try: colima start"
-                    fi
-                    sleep 2
-                done
-            fi
+            info "Installing Colima (lightweight Docker runtime)..."
+            brew install colima
+            info "Starting Colima..."
+            colima start --memory 4 --cpu 2 2>&1 || true
+            for i in $(seq 1 30); do
+                if docker_daemon_ok; then break; fi
+                if [ "$i" -eq 30 ]; then error "Colima did not start in time. Try: colima start"; fi
+                sleep 2
+            done
+            info "Colima is ready"
         fi
 
         # ── Ensure Docker Compose is available ──────────────────────────
@@ -301,45 +255,6 @@ if [ "$DB_BACKEND" = "postgres" ]; then
                 info "Symlinking Docker Compose plugin..."
                 mkdir -p ~/.docker/cli-plugins
                 ln -sfn "$COMPOSE_BIN" ~/.docker/cli-plugins/docker-compose
-            fi
-        fi
-
-        # ── Fix Docker credential helper if the configured one is missing ─
-        # Docker Desktop sets credsStore=desktop in ~/.docker/config.json.
-        # Without Desktop, docker-credential-desktop doesn't exist and
-        # every pull/push fails.  We install the Homebrew credential
-        # helper (provides docker-credential-osxkeychain) and point the
-        # config at it.
-        DOCKER_CONFIG="${HOME}/.docker/config.json"
-        if [ -f "$DOCKER_CONFIG" ]; then
-            CREDS_STORE=$(python3 -c "import json; d=json.load(open('$DOCKER_CONFIG')); print(d.get('credsStore',''))" 2>/dev/null || true)
-            if [ -n "$CREDS_STORE" ] && ! command -v "docker-credential-${CREDS_STORE}" &>/dev/null; then
-                warn "Docker credential helper 'docker-credential-${CREDS_STORE}' not found"
-                # Install the macOS keychain credential helper via Homebrew
-                # if it's not already present
-                if ! command -v docker-credential-osxkeychain &>/dev/null; then
-                    info "Installing docker-credential-helper (macOS keychain)..."
-                    brew install docker-credential-helper
-                fi
-                if command -v docker-credential-osxkeychain &>/dev/null; then
-                    info "Switching credsStore to osxkeychain..."
-                    python3 -c "
-import json
-p = '$DOCKER_CONFIG'
-with open(p) as f: d = json.load(f)
-d['credsStore'] = 'osxkeychain'
-with open(p, 'w') as f: json.dump(d, f, indent=2)
-"
-                else
-                    info "Removing credsStore from Docker config (credential helper unavailable)..."
-                    python3 -c "
-import json
-p = '$DOCKER_CONFIG'
-with open(p) as f: d = json.load(f)
-d.pop('credsStore', None)
-with open(p, 'w') as f: json.dump(d, f, indent=2)
-"
-                fi
             fi
         fi
 
@@ -437,43 +352,7 @@ fi
 
 if [ "$DB_BACKEND" = "postgres" ]; then
     info "Starting PostgreSQL + Redis via Docker Compose..."
-    COMPOSE_OUTPUT=""
-    for attempt in 1 2 3; do
-        COMPOSE_OUTPUT=$($DOCKER_COMPOSE up -d 2>&1) && break
-        echo "$COMPOSE_OUTPUT"
-
-        if [ "$attempt" -eq 3 ]; then
-            error "${DOCKER_COMPOSE} up failed after 3 attempts. Check your network connection and try: ./setup.sh"
-        fi
-
-        # Detect network errors vs image corruption
-        if echo "$COMPOSE_OUTPUT" | grep -qiE "connection refused|timeout|no such host|network|dial tcp|TLS handshake"; then
-            warn "Docker containers failed to start (attempt ${attempt}/3) — network error detected"
-            if [ "${DOCKER_RUNTIME:-}" = "colima" ]; then
-                warn "Restarting Colima to fix networking (this is a known Colima issue)..."
-                colima stop 2>/dev/null || true
-                sleep 2
-                colima start --memory 4 --cpu 2 2>&1 || true
-                for i in $(seq 1 30); do
-                    if docker_daemon_ok; then
-                        info "Colima restarted successfully"
-                        break
-                    fi
-                    if [ "$i" -eq 30 ]; then
-                        error "Colima did not restart in time. Try: colima delete && colima start && ./setup.sh"
-                    fi
-                    sleep 2
-                done
-            else
-                warn "Network issue inside Docker — check your internet connection or VPN"
-                sleep 5
-            fi
-        else
-            warn "Docker containers failed to start (attempt ${attempt}/3). Pruning corrupted images..."
-            docker system prune -a --force 2>/dev/null || true
-            sleep 5
-        fi
-    done
+    $DOCKER_COMPOSE up -d || error "${DOCKER_COMPOSE} up failed. Check Docker is running and try again."
 
     info "Waiting for PostgreSQL to be ready..."
     for i in $(seq 1 30); do

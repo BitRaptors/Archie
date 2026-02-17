@@ -27,11 +27,20 @@ def _normalise_row(row: asyncpg.Record) -> dict[str, Any]:
         if isinstance(value, _uuid.UUID):
             out[key] = str(value)
         elif isinstance(value, datetime):
-            # Ensure timezone-aware datetimes are returned as ISO strings
             out[key] = value.isoformat()
         else:
             out[key] = value
     return out
+
+
+def _coerce_param(value: Any) -> Any:
+    """Coerce ISO-8601 datetime strings to native datetime objects for asyncpg."""
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return value
+    return value
 
 
 class PostgresQueryBuilder(QueryBuilder):
@@ -112,6 +121,7 @@ class PostgresQueryBuilder(QueryBuilder):
     async def execute(self) -> QueryResult:
         try:
             sql, params = self._build_sql()
+            params = [_coerce_param(p) for p in params]
             async with self._pool.acquire() as conn:
                 rows = await conn.fetch(sql, *params)
             data = [_normalise_row(r) for r in rows]
@@ -270,7 +280,7 @@ class PostgresAdapter(DatabaseClient):
             keys = list(params.keys())
             placeholders = [f"{k} := ${i+1}" for i, k in enumerate(keys)]
             sql = f"SELECT * FROM {function_name}({', '.join(placeholders)})"
-            values = [params[k] for k in keys]
+            values = [_coerce_param(params[k]) for k in keys]
 
             async with self._pool.acquire() as conn:
                 rows = await conn.fetch(sql, *values)
