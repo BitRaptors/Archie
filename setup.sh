@@ -159,10 +159,16 @@ if [ "$DB_BACKEND" = "postgres" ]; then
         # macOS: use Colima (lightweight CLI runtime) — no Docker Desktop needed
         ensure_brew
 
-        # Install Docker CLI + Compose plugin (not Docker Desktop)
+        # Install Docker CLI (not Docker Desktop)
         if ! command -v docker &>/dev/null; then
             info "Installing Docker CLI..."
-            brew install docker docker-compose
+            brew install docker
+        fi
+
+        # Install Docker Compose plugin (separate from CLI)
+        if ! docker compose version &>/dev/null; then
+            info "Installing Docker Compose plugin..."
+            brew install docker-compose
         fi
 
         # Install Colima if no Docker runtime is available

@@ -57,6 +57,12 @@ if [ "$DB_BACKEND" = "postgres" ]; then
         exit 1
     fi
 
+    if ! docker compose version &>/dev/null; then
+        echo -e "${RED}❌ Error: Docker Compose plugin is not installed${NC}"
+        echo "Install it with: brew install docker-compose"
+        exit 1
+    fi
+
     echo -e "${BLUE}🐘 DB_BACKEND=postgres — starting Docker containers...${NC}"
     docker compose up -d
 
