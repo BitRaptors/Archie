@@ -1,12 +1,11 @@
 """Dependency injection container."""
 from dependency_injector import containers, providers
-from supabase import create_async_client
 import redis.asyncio as redis
 from arq import create_pool
 from arq.connections import RedisSettings
 from config.settings import get_settings
 
-from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+from infrastructure.persistence.db_factory import create_db, shutdown_db
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
 from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
@@ -22,6 +21,17 @@ from infrastructure.prompts.database_prompt_loader import DatabasePromptLoader
 from infrastructure.storage.local_storage import LocalStorage
 
 
+async def _init_and_return_db():
+    """Resource initializer: create the DB client, return it. Shutdown closes pool."""
+    db = await create_db()
+    return db
+
+
+async def _shutdown_db_resource(db):
+    """Resource shutdown hook — called by container.shutdown_resources()."""
+    await shutdown_db()
+
+
 class Container(containers.DeclarativeContainer):
     """Application dependency injection container."""
 
@@ -35,21 +45,9 @@ class Container(containers.DeclarativeContainer):
         url=settings.provided.redis_url,
     )
 
-    # Supabase (Database) - Using Resource for async initialization
-    @staticmethod
-    async def _create_supabase_client(supabase_url: str, supabase_key: str):
-        return await create_async_client(supabase_url, supabase_key)
-
-    supabase_client = providers.Resource(
-        _create_supabase_client,
-        supabase_url=settings.provided.supabase_url,
-        supabase_key=settings.provided.supabase_key,
-    )
-
-    # DB abstraction layer -- repositories depend on this, not on Supabase
-    db = providers.Factory(
-        SupabaseAdapter,
-        client=supabase_client,
+    # Database — backend-agnostic (Supabase or local Postgres)
+    db = providers.Resource(
+        _init_and_return_db,
     )
 
     # ARQ Pool - Using a Resource for async initialization (optional, returns None if Redis unavailable)
@@ -110,17 +108,17 @@ class Container(containers.DeclarativeContainer):
 
     # Services
     github_service = providers.Singleton(GitHubService)
-    
+
     repository_service = providers.Singleton(
         RepositoryService,
         repository_repo=repository_repository,
         github_service=github_service,
         storage=storage,
     )
-    
+
     # Analysis infrastructure - only what's needed
     structure_analyzer = providers.Singleton(object)
-    
+
     # Phased blueprint generator
     phased_blueprint_generator = providers.Singleton(
         lambda: None  # Will be initialized in worker with actual Settings

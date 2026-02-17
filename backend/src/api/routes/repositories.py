@@ -1,4 +1,6 @@
 """Repository routes."""
+import asyncio
+import logging
 from fastapi import APIRouter, HTTPException, Header, Request
 from typing import List, Optional
 from api.dto.requests import CreateRepositoryRequest, StartAnalysisRequest
@@ -6,7 +8,13 @@ from api.dto.responses import RepositoryResponse, AnalysisResponse
 from application.services.github_service import GitHubService
 from config.settings import get_settings
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/repositories", tags=["repositories"])
+
+# Strong references to background tasks to prevent garbage collection.
+# asyncio only keeps weak refs — without this, tasks can silently vanish.
+_background_tasks: set[asyncio.Task] = set()
 
 
 def resolve_github_token(request: Request) -> Optional[str]:
@@ -107,51 +115,48 @@ async def start_analysis(
 
     # Get container
     container = request.app.container
-    
-    # CRITICAL: Resolve supabase_client Resource first to ensure it's initialized
-    supabase_client = await container.supabase_client()
-    
-    # Wrap Supabase client in DB adapter and create repositories
-    from infrastructure.persistence.supabase_adapter import SupabaseAdapter
+
+    # Resolve DB client from container
+    db = await container.db()
+
     from infrastructure.persistence.user_repository import UserRepository
     from infrastructure.persistence.repository_repository import RepositoryRepository
     from infrastructure.persistence.analysis_repository import AnalysisRepository
     from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
-    
-    db = SupabaseAdapter(supabase_client)
+
     user_repo = UserRepository(db=db)
     repo_repo = RepositoryRepository(db=db)
     analysis_repo = AnalysisRepository(db=db)
     event_repo = AnalysisEventRepository(db=db)
-    
+
     # Create services with resolved repositories
     from application.services.repository_service import RepositoryService
     from application.services.analysis_service import AnalysisService
     from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
     from infrastructure.analysis.structure_analyzer import StructureAnalyzer
     from config.settings import get_settings
-    
+
     storage = container.storage()
     github_service = container.github_service()
     settings = get_settings()
-    
+
     repo_service = RepositoryService(
         repository_repo=repo_repo,
         github_service=github_service,
         storage=storage,
     )
-    
+
     # Create only what's needed for analysis
     structure_analyzer = StructureAnalyzer()
-    
-    # Pass supabase_client to enable RAG-based retrieval
+
+    # Pass db_client to enable RAG-based retrieval
     prompt_loader = container.database_prompt_loader()
     phased_blueprint_generator = PhasedBlueprintGenerator(
         settings=settings,
-        supabase_client=supabase_client,  # Enable RAG for full codebase analysis
+        db_client=db,
         prompt_loader=prompt_loader,
     )
-    
+
     # Create analysis service
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,
@@ -193,28 +198,34 @@ async def start_analysis(
         
         # 3. Run analysis — prefer ARQ worker, fall back to in-process
         arq_pool = await container.arq_pool()
+        logger.info("ARQ pool resolved: %s (type=%s)", arq_pool is not None, type(arq_pool).__name__)
         if arq_pool is not None:
             try:
-                await arq_pool.enqueue_job(
+                job = await arq_pool.enqueue_job(
                     "analyze_repository",
                     analysis_id=analysis.id,
                     repository_id=repository.id,
                     token=token,
                     prompt_config=prompt_config,
                 )
+                if job is None:
+                    logger.error("enqueue_job returned None — job was NOT enqueued (possible duplicate)")
+                else:
+                    logger.info("Job enqueued: id=%s, analysis=%s", job.job_id, analysis.id)
             except Exception as queue_err:
+                logger.exception("Failed to enqueue job for analysis %s", analysis.id)
                 analysis.fail(f"Failed to queue: {str(queue_err)}")
                 await analysis_repo.update(analysis)
                 raise HTTPException(status_code=500, detail=f"Task queue error: {str(queue_err)}")
         else:
             # No Redis/ARQ available — run analysis in-process as background task
-            import asyncio
             from infrastructure.storage.temp_storage import TempStorage
 
             async def _run_in_process():
-                temp_storage = TempStorage()
-                temp_dir = temp_storage.get_base_path()
+                temp_dir = None
                 try:
+                    temp_storage = TempStorage()
+                    temp_dir = temp_storage.get_base_path()
                     repo_obj = await repo_service.get_repository(repository.id)
                     repo_path = await repo_service.clone_repository(repo_obj, token, temp_dir)
                     await analysis_service.run_analysis(
@@ -224,29 +235,33 @@ async def start_analysis(
                         prompt_config=prompt_config,
                     )
                 except Exception as e:
-                    print(f"In-process analysis error: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.exception("In-process analysis error for %s", analysis.id)
                     try:
                         a = await analysis_repo.get_by_id(analysis.id)
                         if a and a.status != "failed":
                             a.fail(str(e))
                             await analysis_repo.update(a)
                     except Exception:
-                        pass
+                        logger.exception("Failed to mark analysis %s as failed", analysis.id)
                 finally:
-                    try:
-                        await repo_service.cleanup_temp_repository(temp_dir)
-                    except Exception:
-                        pass
+                    if temp_dir:
+                        try:
+                            await repo_service.cleanup_temp_repository(temp_dir)
+                        except Exception:
+                            pass
 
-            asyncio.create_task(_run_in_process())
+            def _task_done(task: asyncio.Task) -> None:
+                _background_tasks.discard(task)
+                if not task.cancelled() and task.exception():
+                    logger.error("Background analysis task failed: %s", task.exception())
+
+            task = asyncio.create_task(_run_in_process(), name=f"analysis-{analysis.id}")
+            _background_tasks.add(task)
+            task.add_done_callback(_task_done)
         
         return analysis
     except Exception as e:
-        import traceback
-        print(f"Error in start_analysis: {str(e)}")
-        traceback.print_exc()
+        logger.exception("Error in start_analysis")
         raise HTTPException(status_code=500, detail=str(e))
 
 

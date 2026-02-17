@@ -28,9 +28,9 @@ def app(tmp_path):
     # Mock container
     mock_container = MagicMock()
 
-    # Mock supabase client
-    mock_supabase = AsyncMock()
-    mock_container.supabase_client = AsyncMock(return_value=mock_supabase)
+    # Mock DB client (backend-agnostic)
+    mock_db = MagicMock()
+    mock_container.db = AsyncMock(return_value=mock_db)
 
     # Mock storage
     mock_storage = MagicMock()

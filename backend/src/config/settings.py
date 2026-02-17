@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, model_validator
 from functools import lru_cache
 from dotenv import load_dotenv
 
@@ -20,10 +20,35 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
 
-    # Supabase (Database, Auth, Storage)
-    supabase_url: str = Field(...)
-    supabase_key: str = Field(...)
-    supabase_jwt_secret: str = Field(...)  # For JWT validation
+    # Database backend: "supabase" or "postgres"
+    db_backend: str = Field(default="supabase")
+    database_url: str | None = Field(default=None)  # Required when db_backend=postgres
+
+    # Supabase (only required when db_backend=supabase)
+    supabase_url: str | None = Field(default=None)
+    supabase_key: str | None = Field(default=None)
+    supabase_jwt_secret: str | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _validate_db_backend(self) -> "Settings":
+        def _is_set(val: str | None) -> bool:
+            return val is not None and val.strip() != ""
+
+        if self.db_backend == "postgres":
+            if not _is_set(self.database_url):
+                raise ValueError("DATABASE_URL is required when DB_BACKEND=postgres")
+        else:
+            # supabase backend — only URL and key are needed to connect
+            missing = []
+            if not _is_set(self.supabase_url):
+                missing.append("SUPABASE_URL")
+            if not _is_set(self.supabase_key):
+                missing.append("SUPABASE_KEY")
+            if missing:
+                raise ValueError(
+                    f"When DB_BACKEND=supabase, these are required: {', '.join(missing)}"
+                )
+        return self
 
     # Redis (Sessions/Cache/Task Queue)
     redis_url: str = Field(default="redis://localhost:6379")

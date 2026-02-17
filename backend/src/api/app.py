@@ -16,9 +16,9 @@ async def lifespan(app: FastAPI):
     # Initialize container resources
     await app.container.init_resources()
 
-    # Initialize analysis_data_collector with Supabase client for cross-process persistence
-    supabase_client = await app.container.supabase_client()
-    analysis_data_collector.initialize(supabase_client)
+    # Initialize analysis_data_collector with DB client for cross-process persistence
+    db = await app.container.db()
+    analysis_data_collector.initialize(db)
 
     yield
     # Shutdown resources

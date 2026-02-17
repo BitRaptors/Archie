@@ -3,28 +3,29 @@ from pathlib import Path
 from typing import Any
 from sentence_transformers import SentenceTransformer
 from config.settings import get_settings
+from domain.interfaces.database import DatabaseClient
 from application.services.analysis_data_collector import analysis_data_collector
 
 
 class RAGRetriever:
     """Retrieval-Augmented Generation retriever for semantic code search.
-    
+
     This class provides methods to:
     1. Generate embeddings for code chunks
     2. Search for semantically similar code
     3. Retrieve relevant code for specific analysis tasks
     """
 
-    def __init__(self, supabase_client, progress_callback=None):
+    def __init__(self, db_client: DatabaseClient, progress_callback=None):
         """Initialize RAG retriever.
-        
+
         Args:
-            supabase_client: Supabase client for database access
+            db_client: DatabaseClient for database access (Supabase or Postgres)
             progress_callback: Optional async callback function(analysis_id, event_type, message) for progress logging
         """
         settings = get_settings()
         self._model = SentenceTransformer(settings.embedding_model)
-        self._client = supabase_client
+        self._db = db_client
         self._embedding_dim = 384  # all-MiniLM-L6-v2 dimension
         self._progress_callback = progress_callback
         self._custom_queries = {}  # Custom queries from observation phase
@@ -512,16 +513,15 @@ class RAGRetriever:
     ) -> list[dict[str, Any]]:
         """Search for similar embeddings using pgvector."""
         try:
-            # Use Supabase RPC for vector similarity search
-            result = await self._client.rpc(
+            result = await self._db.rpc(
                 'match_embeddings',
                 {
                     'query_embedding': query_embedding,
                     'match_count': limit,
                     'filter_repository_id': repository_id,
                 }
-            ).execute()
-            
+            )
+
             if result.data:
                 return [
                     {
@@ -537,25 +537,25 @@ class RAGRetriever:
         except Exception:
             # Fallback: Return empty if RPC doesn't exist yet
             pass
-        
+
         return []
 
     async def _batch_insert_embeddings(self, embeddings: list[dict[str, Any]]) -> None:
         """Batch insert embeddings into database."""
         if not embeddings:
             return
-        
+
         try:
             # Delete existing embeddings for these files to avoid duplicates
             repository_id = embeddings[0]["repository_id"]
             file_paths = list(set(e["file_path"] for e in embeddings))
-            
-            await self._client.table("embeddings").delete().eq(
+
+            await self._db.table("embeddings").delete().eq(
                 "repository_id", repository_id
             ).in_("file_path", file_paths).execute()
-            
+
             # Insert new embeddings
-            await self._client.table("embeddings").insert(embeddings).execute()
+            await self._db.table("embeddings").insert(embeddings).execute()
         except Exception:
             # Log error but don't fail the whole process
             pass

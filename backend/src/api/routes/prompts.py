@@ -2,7 +2,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from api.dto.requests import UpdatePromptRequest
 from api.dto.responses import PromptResponse, PromptRevisionResponse
-from infrastructure.persistence.supabase_adapter import SupabaseAdapter
 from infrastructure.persistence.prompt_repository import PromptRepository
 from infrastructure.persistence.prompt_revision_repository import PromptRevisionRepository
 from infrastructure.prompts.database_prompt_loader import DatabasePromptLoader
@@ -12,15 +11,8 @@ router = APIRouter(prefix="/prompts", tags=["prompts"])
 
 
 async def _get_prompt_service(request: Request) -> PromptService:
-    """Resolve PromptService by manually constructing dependencies.
-
-    The DI container returns Futures for providers that depend on the async
-    supabase_client Resource, so we resolve the client first, then build
-    the chain ourselves — same pattern used by analyses.py / workspace.py.
-    """
-    container = request.app.container
-    supabase_client = await container.supabase_client()
-    db = SupabaseAdapter(supabase_client)
+    """Resolve PromptService from the container's DB client."""
+    db = await request.app.container.db()
     prompt_repo = PromptRepository(db=db)
     revision_repo = PromptRevisionRepository(db=db)
     prompt_loader = DatabasePromptLoader(prompt_repo)

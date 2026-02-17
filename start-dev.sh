@@ -14,16 +14,35 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}🚀 Starting Repository Analysis System...${NC}\n"
 
+# ── Helper: run a command with a timeout (macOS lacks `timeout`) ──────────
+run_with_timeout() {
+    local secs="$1"; shift
+    "$@" &
+    local pid=$!
+    local elapsed=0
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+        if [ "$elapsed" -ge "$secs" ]; then
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null || true
+            return 124
+        fi
+    done
+    wait "$pid"
+    return $?
+}
+
 # Check if .env.local files exist
 if [ ! -f "backend/.env.local" ]; then
     echo -e "${RED}❌ Error: backend/.env.local not found${NC}"
-    echo "Please create it from backend/.env.example"
+    echo "Please run ./setup.sh first, or copy backend/.env.example to backend/.env.local"
     exit 1
 fi
 
 if [ ! -f "frontend/.env.local" ]; then
     echo -e "${RED}❌ Error: frontend/.env.local not found${NC}"
-    echo "Please create it from frontend/.env.example"
+    echo "Please run ./setup.sh first, or copy frontend/.env.example to frontend/.env.local"
     exit 1
 fi
 
@@ -44,6 +63,69 @@ check_redis() {
     (echo > /dev/tcp/localhost/6379) &>/dev/null 2>&1
     return $?
 }
+
+# ── Read DB_BACKEND from .env.local ──────────────────────────────────────
+DB_BACKEND=$(grep -E '^DB_BACKEND=' backend/.env.local 2>/dev/null | cut -d= -f2 | tr -d '[:space:]"'"'" || echo "supabase")
+DB_BACKEND=${DB_BACKEND:-supabase}
+
+# ── Start Docker containers if using local PostgreSQL ────────────────────
+if [ "$DB_BACKEND" = "postgres" ]; then
+    if ! command -v docker &>/dev/null; then
+        echo -e "${RED}❌ Error: DB_BACKEND=postgres but Docker is not installed${NC}"
+        echo "Install Docker Desktop from https://www.docker.com/products/docker-desktop/"
+        exit 1
+    fi
+
+    # Resolve compose command: "docker compose" (plugin) or "docker-compose" (standalone)
+    DOCKER_COMPOSE=""
+    if run_with_timeout 10 docker compose version &>/dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &>/dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        echo -e "${RED}❌ Error: Neither 'docker compose' nor 'docker-compose' is available${NC}"
+        echo "Install it with: brew install docker-compose"
+        exit 1
+    fi
+
+    echo -e "${BLUE}🐘 DB_BACKEND=postgres — starting Docker containers...${NC}"
+    COMPOSE_OUTPUT=$($DOCKER_COMPOSE up -d 2>&1) || {
+        echo "$COMPOSE_OUTPUT"
+        if echo "$COMPOSE_OUTPUT" | grep -qiE "connection refused|timeout|no such host|network|dial tcp|TLS handshake"; then
+            echo -e "${RED}❌ Network error pulling Docker images${NC}"
+            if colima status &>/dev/null 2>&1; then
+                echo -e "${YELLOW}⚠️  Restarting Colima to fix networking...${NC}"
+                colima stop 2>/dev/null || true
+                sleep 2
+                colima start --memory 4 --cpu 2 2>&1 || true
+                sleep 3
+                echo -e "${BLUE}🔄 Retrying...${NC}"
+                $DOCKER_COMPOSE up -d || { echo -e "${RED}❌ Still failing — check your internet connection${NC}"; exit 1; }
+            else
+                echo "Check your internet connection or VPN and try again."
+                exit 1
+            fi
+        else
+            echo -e "${RED}❌ Failed to start Docker containers${NC}"
+            exit 1
+        fi
+    }
+
+    echo -e "${BLUE}⏳ Waiting for PostgreSQL to be ready...${NC}"
+    for i in $(seq 1 30); do
+        if $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+            echo -e "${GREEN}✅ PostgreSQL is ready${NC}"
+            break
+        fi
+        if [ "$i" -eq 30 ]; then
+            echo -e "${RED}❌ PostgreSQL did not become ready in 30s${NC}"
+            exit 1
+        fi
+        sleep 1
+    done
+else
+    echo -e "${BLUE}☁️  DB_BACKEND=supabase — using remote Supabase${NC}"
+fi
 
 # Trap Ctrl+C
 trap cleanup SIGINT SIGTERM
@@ -170,6 +252,11 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "${BLUE}Backend:${NC}  http://localhost:8000"
 echo -e "${BLUE}Frontend:${NC} http://localhost:${FRONTEND_PORT}"
 echo -e "${BLUE}API Docs:${NC} http://localhost:8000/docs"
+if [ "$DB_BACKEND" = "postgres" ]; then
+    echo -e "${BLUE}Database:${NC} Local PostgreSQL (Docker)"
+else
+    echo -e "${BLUE}Database:${NC} Supabase (remote)"
+fi
 if [ "$ANALYSIS_MODE" = "arq" ]; then
     echo -e "${BLUE}Analysis:${NC} ARQ worker (Redis-backed background jobs)"
 else

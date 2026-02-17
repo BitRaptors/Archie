@@ -6,7 +6,6 @@ from application.services.repository_service import RepositoryService
 from application.services.analysis_data_collector import analysis_data_collector
 from config.settings import get_settings
 from config.container import Container
-from infrastructure.persistence.supabase_adapter import SupabaseAdapter
 from infrastructure.persistence.user_repository import UserRepository
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
@@ -25,35 +24,34 @@ async def startup(ctx):
     # Initialize async resources
     await container.init_resources()
     print("Worker startup: Resources initialized")
-    
-    # CRITICAL: Resolve supabase_client Resource first
-    supabase_client = await container.supabase_client()
-    print(f"Worker startup: Supabase client resolved: {type(supabase_client)}")
-    
-    # Initialize analysis_data_collector with Supabase client for cross-process persistence
-    analysis_data_collector.initialize(supabase_client)
-    print("Worker startup: Analysis data collector initialized with Supabase")
-    
-    # Wrap Supabase client in DB adapter and create repositories
-    db = SupabaseAdapter(supabase_client)
+
+    # Resolve DB client from container (backend-agnostic)
+    db = await container.db()
+    print(f"Worker startup: DB client resolved: {type(db)}")
+
+    # Initialize analysis_data_collector with DB client for cross-process persistence
+    analysis_data_collector.initialize(db)
+    print("Worker startup: Analysis data collector initialized")
+
+    # Create repositories using DB abstraction
     user_repo = UserRepository(db=db)
     repo_repo = RepositoryRepository(db=db)
     analysis_repo = AnalysisRepository(db=db)
     event_repo = AnalysisEventRepository(db=db)
     print(f"Worker startup: Repositories created: {type(repo_repo)}")
-    
+
     # Create services with resolved repositories
     storage = container.storage()
     github_service = container.github_service()
     print(f"Worker startup: Storage: {type(storage)}, GitHub service: {type(github_service)}")
-    
+
     repo_service = RepositoryService(
         repository_repo=repo_repo,
         github_service=github_service,
         storage=storage,
     )
     print(f"Worker startup: Repository service created: {type(repo_service)}")
-    
+
     # Initialize only what's needed for phased blueprint generation
     structure_analyzer = StructureAnalyzer()
     settings = get_settings()
@@ -62,15 +60,15 @@ async def startup(ctx):
     prompt_repo = PromptRepository(db=db)
     prompt_loader = DatabasePromptLoader(prompt_repo)
 
-    # Pass supabase_client to enable RAG-based retrieval
+    # Pass db_client to enable RAG-based retrieval
     phased_blueprint_generator = PhasedBlueprintGenerator(
         settings=settings,
-        supabase_client=supabase_client,  # Enable RAG for full codebase analysis
+        db_client=db,
         prompt_loader=prompt_loader,
     )
 
     print(f"Worker startup: Analysis infrastructure initialized with RAG enabled")
-    
+
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,
         repository_repo=repo_repo,
@@ -80,12 +78,12 @@ async def startup(ctx):
         phased_blueprint_generator=phased_blueprint_generator,
     )
     print(f"Worker startup: Analysis service created: {type(analysis_service)}")
-    
+
     # Store services in context - ensure they're actual objects, not Futures
     ctx["container"] = container
     ctx["analysis_service"] = analysis_service
     ctx["repository_service"] = repo_service
-    
+
     # Verify they're stored correctly
     print(f"Worker startup: Stored repo_service type: {type(ctx['repository_service'])}")
     print("Worker startup: Complete")
@@ -100,67 +98,66 @@ async def shutdown(ctx):
 async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: str, prompt_config: dict | None = None):
     """Background task to analyze a repository."""
     print(f"analyze_repository: Starting analysis {analysis_id} for repository {repository_id}")
-    
+
     # Get services from context
     analysis_service = ctx.get("analysis_service")
     repo_service = ctx.get("repository_service")
     container = ctx.get("container")
-    
+
     print(f"analyze_repository: repo_service type: {type(repo_service)}")
-    
+
     if not repo_service:
         raise ValueError("repository_service not found in context")
     if not analysis_service:
         raise ValueError("analysis_service not found in context")
-    
+
     # Verify it's not a Future (check if it's a coroutine/Future)
     import asyncio
     if asyncio.iscoroutine(repo_service) or isinstance(repo_service, asyncio.Future):
         raise ValueError(f"repository_service is a Future/coroutine, not a service: {type(repo_service)}")
-    
+
     # Get analysis repository to update status on errors
-    supabase_client = await container.supabase_client()
-    db = SupabaseAdapter(supabase_client)
+    db = await container.db()
     analysis_repo = AnalysisRepository(db=db)
-    
+
     # Use temporary storage for cloning
     temp_storage = TempStorage()
     temp_dir = temp_storage.get_base_path()
-    
+
     # Log current working directory for debugging
     import os
     cwd = os.getcwd()
     print(f"analyze_repository: Current working directory: {cwd}")
     await analysis_service._log_event(analysis_id, "INFO", f"Worker working directory: {cwd}")
     await analysis_service._log_event(analysis_id, "INFO", f"Temp storage base path: {temp_dir}")
-    
+
     try:
         # Get repository
         print(f"analyze_repository: Getting repository {repository_id}")
         repo = await repo_service.get_repository(repository_id)
         if not repo:
             raise ValueError(f"Repository {repository_id} not found")
-        
+
         print(f"analyze_repository: Repository found: {repo.full_name}")
-        
+
         # Clone repository
         print(f"analyze_repository: Cloning repository to {temp_dir}")
         await analysis_service._log_event(analysis_id, "INFO", f"Checking out code to: {temp_dir}")
         repo_path = await repo_service.clone_repository(repo, token, temp_dir)
-        
+
         # Ensure repo_path is absolute
         repo_path = Path(repo_path).resolve()
-        
+
         await analysis_service._log_event(analysis_id, "INFO", f"Repository cloned successfully to: {repo_path}")
         await analysis_service._log_event(analysis_id, "INFO", f"Repository path (absolute): {repo_path}")
         print(f"analyze_repository: Repository cloned to {repo_path}")
-        
+
         # Verify the clone before proceeding
         if not repo_path.exists():
             raise RuntimeError(f"Repository path does not exist after clone: {repo_path}")
         if not repo_path.is_dir():
             raise RuntimeError(f"Repository path is not a directory: {repo_path}")
-        
+
         # Check directory contents
         items = list(repo_path.iterdir())
         await analysis_service._log_event(analysis_id, "INFO", f"Repository directory has {len(items)} items after clone")
@@ -168,7 +165,7 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
             sample = [item.name for item in items[:5] if not item.name.startswith('.')]
             if sample:
                 await analysis_service._log_event(analysis_id, "INFO", f"Sample items after clone: {', '.join(sample)}")
-        
+
         # Run analysis (this will handle its own errors and mark analysis as failed)
         print(f"analyze_repository: Running analysis pipeline")
         await analysis_service.run_analysis(
@@ -183,7 +180,7 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
         print(f"analyze_repository: Error occurred: {str(e)}")
         import traceback
         traceback.print_exc()
-        
+
         try:
             analysis = await analysis_repo.get_by_id(analysis_id)
             if analysis and analysis.status != "failed":
@@ -191,7 +188,7 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
                 await analysis_repo.update(analysis)
         except Exception as update_error:
             print(f"analyze_repository: Failed to update analysis status: {str(update_error)}")
-        
+
         raise
     finally:
         # Cleanup
@@ -202,10 +199,21 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
             print(f"analyze_repository: Cleanup error: {str(cleanup_error)}")
 
 
+try:
+    _worker_settings = get_settings()
+    _redis_url = _worker_settings.redis_url
+    _job_timeout = _worker_settings.analysis_timeout_seconds
+except Exception:
+    # Fallback so tests that import functions from this module don't crash
+    # when Settings validation fails (e.g. missing env vars in test env).
+    _redis_url = "redis://localhost:6379"
+    _job_timeout = 3600
+
+
 class WorkerSettings:
     """ARQ worker settings."""
-    redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+    redis_settings = RedisSettings.from_dsn(_redis_url)
     functions = [analyze_repository]
     on_startup = startup
     on_shutdown = shutdown
-    job_timeout = get_settings().analysis_timeout_seconds  # Default: 3600s (1 hour)
+    job_timeout = _job_timeout

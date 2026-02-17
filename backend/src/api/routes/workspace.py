@@ -7,7 +7,6 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 
 from domain.entities.blueprint import StructuredBlueprint
-from infrastructure.persistence.supabase_adapter import SupabaseAdapter
 from infrastructure.persistence.user_profile_repository import UserProfileRepository
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
@@ -26,25 +25,19 @@ router = APIRouter(prefix="/workspace", tags=["workspace"])
 
 async def _get_repos(request: Request):
     """Get a RepositoryRepository from the container."""
-    container = request.app.container
-    supabase_client = await container.supabase_client()
-    db = SupabaseAdapter(supabase_client)
+    db = await request.app.container.db()
     return RepositoryRepository(db=db)
 
 
 async def _get_profile_repo(request: Request):
     """Get a UserProfileRepository from the container."""
-    container = request.app.container
-    supabase_client = await container.supabase_client()
-    db = SupabaseAdapter(supabase_client)
+    db = await request.app.container.db()
     return UserProfileRepository(db=db)
 
 
 async def _get_analysis_repo(request: Request):
     """Get an AnalysisRepository from the container."""
-    container = request.app.container
-    supabase_client = await container.supabase_client()
-    db = SupabaseAdapter(supabase_client)
+    db = await request.app.container.db()
     return AnalysisRepository(db=db)
 
 

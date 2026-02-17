@@ -176,11 +176,44 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
 
     if (error) {
         return (
-            <div className="flex flex-col items-center justify-center p-8 h-full bg-card">
-                <div className="bg-destructive/10 text-destructive p-4 rounded-lg max-w-md text-center">
-                    <h3 className="text-lg font-bold mb-2">Error Loading Blueprint</h3>
-                    <p className="mb-4">{error}</p>
-                    <Button variant="outline" onClick={onBack}>Back to Dashboard</Button>
+            <div className="flex flex-col items-center justify-center h-full min-h-[60vh] p-8 animate-in fade-in zoom-in-95 duration-500">
+                <div className="relative group">
+                    <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="relative w-24 h-24 bg-card border rounded-2xl flex items-center justify-center shadow-2xl mb-8 transform group-hover:-translate-y-1 transition-transform duration-500">
+                        <FileText className="w-10 h-10 text-primary/80" />
+                        <div className="absolute -right-2 -top-2 w-8 h-8 bg-destructive/10 rounded-full flex items-center justify-center border border-card shadow-sm">
+                            <X className="w-4 h-4 text-destructive" />
+                        </div>
+                    </div>
+                </div>
+
+                <h3 className="text-2xl font-bold tracking-tight mb-3 text-center">Unable to Load Blueprint</h3>
+                <p className="text-muted-foreground max-w-[400px] text-center mb-8 text-sm leading-relaxed">
+                    We encountered an issue while retrieving the blueprint data. This could happen if the analysis hasn't completed or if the data is missing.
+                </p>
+
+                <div className="flex items-center gap-3">
+                    <Button
+                        variant="outline"
+                        size="lg"
+                        onClick={onBack}
+                        className="h-11 px-8"
+                    >
+                        Return to Dashboard
+                    </Button>
+                    <Button
+                        size="lg"
+                        className="h-11 px-8 gap-2"
+                        onClick={() => fetchBlueprints()}
+                    >
+                        Try Again
+                    </Button>
+                </div>
+
+                <div className="mt-12 p-4 bg-muted/50 border rounded-lg max-w-md w-full text-center">
+                    <p className="text-xs font-mono text-muted-foreground">
+                        {error}
+                    </p>
                 </div>
             </div>
         )
