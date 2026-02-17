@@ -304,6 +304,45 @@ if [ "$DB_BACKEND" = "postgres" ]; then
             fi
         fi
 
+        # ── Fix Docker credential helper if the configured one is missing ─
+        # Docker Desktop sets credsStore=desktop in ~/.docker/config.json.
+        # Without Desktop, docker-credential-desktop doesn't exist and
+        # every pull/push fails.  We install the Homebrew credential
+        # helper (provides docker-credential-osxkeychain) and point the
+        # config at it.
+        DOCKER_CONFIG="${HOME}/.docker/config.json"
+        if [ -f "$DOCKER_CONFIG" ]; then
+            CREDS_STORE=$(python3 -c "import json; d=json.load(open('$DOCKER_CONFIG')); print(d.get('credsStore',''))" 2>/dev/null || true)
+            if [ -n "$CREDS_STORE" ] && ! command -v "docker-credential-${CREDS_STORE}" &>/dev/null; then
+                warn "Docker credential helper 'docker-credential-${CREDS_STORE}' not found"
+                # Install the macOS keychain credential helper via Homebrew
+                # if it's not already present
+                if ! command -v docker-credential-osxkeychain &>/dev/null; then
+                    info "Installing docker-credential-helper (macOS keychain)..."
+                    brew install docker-credential-helper
+                fi
+                if command -v docker-credential-osxkeychain &>/dev/null; then
+                    info "Switching credsStore to osxkeychain..."
+                    python3 -c "
+import json
+p = '$DOCKER_CONFIG'
+with open(p) as f: d = json.load(f)
+d['credsStore'] = 'osxkeychain'
+with open(p, 'w') as f: json.dump(d, f, indent=2)
+"
+                else
+                    info "Removing credsStore from Docker config (credential helper unavailable)..."
+                    python3 -c "
+import json
+p = '$DOCKER_CONFIG'
+with open(p) as f: d = json.load(f)
+d.pop('credsStore', None)
+with open(p, 'w') as f: json.dump(d, f, indent=2)
+"
+                fi
+            fi
+        fi
+
     elif [ "$OS" = "Linux" ]; then
         if ! command -v docker &>/dev/null; then
             info "Installing Docker via official script..."
