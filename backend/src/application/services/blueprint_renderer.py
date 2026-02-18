@@ -366,6 +366,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
     # ── 11. Quick Reference ───────────────────────────────────────────
     has_quick_ref = (
         bp.quick_reference.where_to_put_code
+        or bp.quick_reference.pattern_selection
         or bp.quick_reference.error_mapping
     )
     if has_quick_ref:
@@ -379,6 +380,15 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             lines.append("|-----------|----------|")
             for comp_type, loc in bp.quick_reference.where_to_put_code.items():
                 lines.append(f"| {comp_type} | `{loc}` |")
+            lines.append("")
+
+        if bp.quick_reference.pattern_selection:
+            lines.append("### Pattern Selection")
+            lines.append("")
+            lines.append("| Scenario | Recommended Pattern |")
+            lines.append("|----------|---------------------|")
+            for scenario, pattern in bp.quick_reference.pattern_selection.items():
+                lines.append(f"| {scenario} | {pattern} |")
             lines.append("")
 
         if bp.quick_reference.error_mapping:

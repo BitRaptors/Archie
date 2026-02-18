@@ -114,6 +114,14 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
             lines.append(f"| {psg.scenario} | {psg.pattern} | {psg.rationale} |")
         lines.append("")
 
+    # ── Quick Reference: Pattern Selection ─────────────────────────────
+    if blueprint.quick_reference.pattern_selection:
+        lines.append("## Quick Pattern Lookup")
+        lines.append("")
+        for scenario, pattern in blueprint.quick_reference.pattern_selection.items():
+            lines.append(f"- **{scenario}** → {pattern}")
+        lines.append("")
+
     # ── Developer Recipes ─────────────────────────────────────────────
     if blueprint.developer_recipes:
         lines.append("## Developer Recipes")
@@ -344,6 +352,45 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
         if fe.key_conventions:
             for conv in fe.key_conventions:
                 lines.append(f"- {conv}")
+        lines.append("")
+
+    # ── Where to Put Code (quick reference) ───────────────────────────
+    if blueprint.quick_reference.where_to_put_code:
+        lines.append("## Where to Put Code")
+        lines.append("")
+        for comp_type, loc in blueprint.quick_reference.where_to_put_code.items():
+            lines.append(f"- **{comp_type}** → `{loc}`")
+        lines.append("")
+
+    # ── Pattern Selection (quick reference) ─────────────────────────
+    if blueprint.quick_reference.pattern_selection:
+        lines.append("## Pattern Selection")
+        lines.append("")
+        for scenario, pattern in blueprint.quick_reference.pattern_selection.items():
+            lines.append(f"- **{scenario}** → {pattern}")
+        lines.append("")
+
+    # ── Pitfalls ──────────────────────────────────────────────────────
+    if blueprint.pitfalls:
+        lines.append("## Pitfalls")
+        lines.append("")
+        for pitfall in blueprint.pitfalls:
+            if not pitfall.area and not pitfall.description:
+                continue
+            area_label = f"**{pitfall.area}:** " if pitfall.area else ""
+            lines.append(f"- {area_label}{pitfall.description}")
+            if pitfall.recommendation:
+                lines.append(f"  - *{pitfall.recommendation}*")
+        lines.append("")
+
+    # ── Error Mapping ─────────────────────────────────────────────────
+    if blueprint.quick_reference.error_mapping:
+        lines.append("## Error Mapping")
+        lines.append("")
+        lines.append("| Error | Status Code |")
+        lines.append("|-------|------------|")
+        for em in blueprint.quick_reference.error_mapping:
+            lines.append(f"| `{em.error}` | {em.status_code} |")
         lines.append("")
 
     # ── Anti-Patterns ─────────────────────────────────────────────────

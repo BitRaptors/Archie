@@ -127,6 +127,7 @@ def rich_blueprint() -> StructuredBlueprint:
         ),
         quick_reference=QuickReference(
             where_to_put_code={"Service": "src/application/services/"},
+            pattern_selection={"Real-time updates": "WebSocket", "CRUD operations": "REST API"},
             error_mapping=[
                 ErrorMapping(error="NotFoundError", status_code=404, description="Resource not found"),
             ],
@@ -413,6 +414,29 @@ class TestContractFiltering:
         assert "Unnamed Contract" not in md
         # Only the RepositoryInterface contract heading should be rendered
         assert md.count("#### RepositoryInterface") == 1
+
+
+# ── Pattern selection rendering ──────────────────────────────────────────────
+
+
+class TestPatternSelection:
+    """Tests that quick_reference.pattern_selection is rendered."""
+
+    def test_renders_pattern_selection_table(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "### Pattern Selection" in md
+        assert "| Scenario | Recommended Pattern |" in md
+
+    def test_renders_pattern_entries(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "Real-time updates" in md
+        assert "WebSocket" in md
+        assert "CRUD operations" in md
+        assert "REST API" in md
+
+    def test_no_pattern_selection_when_empty(self, empty_blueprint):
+        md = render_blueprint_markdown(empty_blueprint)
+        assert "Pattern Selection" not in md
 
 
 # ── Backward compatibility ───────────────────────────────────────────────────
