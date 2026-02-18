@@ -193,10 +193,12 @@ echo ""
 echo -e "${BLUE}📦 Starting frontend server...${NC}"
 cd frontend
 
-# Check if node_modules exists
+# Ensure all dependencies are up to date (catches newly added packages)
 if [ ! -d "node_modules" ]; then
     echo -e "${YELLOW}⚠️  Node modules not found. Installing...${NC}"
     npm install
+else
+    npm install --silent 2>/dev/null || true
 fi
 
 # Create a temporary file to capture the port

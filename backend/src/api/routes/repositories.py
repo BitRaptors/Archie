@@ -196,68 +196,42 @@ async def start_analysis(
         prompt_config = analysis_request.prompt_config if analysis_request else None
         analysis = await analysis_service.start_analysis(repository.id, prompt_config)
         
-        # 3. Run analysis — prefer ARQ worker, fall back to in-process
+        # 3. Run analysis via ARQ worker
         arq_pool = await container.arq_pool()
         logger.info("ARQ pool resolved: %s (type=%s)", arq_pool is not None, type(arq_pool).__name__)
-        if arq_pool is not None:
-            try:
-                job = await arq_pool.enqueue_job(
-                    "analyze_repository",
-                    analysis_id=analysis.id,
-                    repository_id=repository.id,
-                    token=token,
-                    prompt_config=prompt_config,
-                )
-                if job is None:
-                    logger.error("enqueue_job returned None — job was NOT enqueued (possible duplicate)")
-                else:
-                    logger.info("Job enqueued: id=%s, analysis=%s", job.job_id, analysis.id)
-            except Exception as queue_err:
-                logger.exception("Failed to enqueue job for analysis %s", analysis.id)
-                analysis.fail(f"Failed to queue: {str(queue_err)}")
+        if arq_pool is None:
+            analysis.fail("Task queue unavailable: Redis/ARQ pool is not initialized")
+            await analysis_repo.update(analysis)
+            raise HTTPException(status_code=503, detail="Task queue unavailable — Redis is not running")
+
+        # Verify Redis is actually reachable (pool may be stale)
+        try:
+            await arq_pool.ping()
+        except Exception as ping_err:
+            analysis.fail(f"Task queue unreachable: {ping_err}")
+            await analysis_repo.update(analysis)
+            raise HTTPException(status_code=503, detail=f"Task queue unreachable: {ping_err}")
+
+        try:
+            job = await arq_pool.enqueue_job(
+                "analyze_repository",
+                analysis_id=analysis.id,
+                repository_id=repository.id,
+                token=token,
+                prompt_config=prompt_config,
+            )
+            if job is None:
+                analysis.fail("Job was not enqueued (possible duplicate)")
                 await analysis_repo.update(analysis)
-                raise HTTPException(status_code=500, detail=f"Task queue error: {str(queue_err)}")
-        else:
-            # No Redis/ARQ available — run analysis in-process as background task
-            from infrastructure.storage.temp_storage import TempStorage
-
-            async def _run_in_process():
-                temp_dir = None
-                try:
-                    temp_storage = TempStorage()
-                    temp_dir = temp_storage.get_base_path()
-                    repo_obj = await repo_service.get_repository(repository.id)
-                    repo_path = await repo_service.clone_repository(repo_obj, token, temp_dir)
-                    await analysis_service.run_analysis(
-                        analysis_id=analysis.id,
-                        repo_path=repo_path,
-                        token=token,
-                        prompt_config=prompt_config,
-                    )
-                except Exception as e:
-                    logger.exception("In-process analysis error for %s", analysis.id)
-                    try:
-                        a = await analysis_repo.get_by_id(analysis.id)
-                        if a and a.status != "failed":
-                            a.fail(str(e))
-                            await analysis_repo.update(a)
-                    except Exception:
-                        logger.exception("Failed to mark analysis %s as failed", analysis.id)
-                finally:
-                    if temp_dir:
-                        try:
-                            await repo_service.cleanup_temp_repository(temp_dir)
-                        except Exception:
-                            pass
-
-            def _task_done(task: asyncio.Task) -> None:
-                _background_tasks.discard(task)
-                if not task.cancelled() and task.exception():
-                    logger.error("Background analysis task failed: %s", task.exception())
-
-            task = asyncio.create_task(_run_in_process(), name=f"analysis-{analysis.id}")
-            _background_tasks.add(task)
-            task.add_done_callback(_task_done)
+                raise HTTPException(status_code=409, detail="Analysis job was not enqueued — a duplicate may already be running")
+            logger.info("Job enqueued: id=%s, analysis=%s", job.job_id, analysis.id)
+        except HTTPException:
+            raise
+        except Exception as queue_err:
+            logger.exception("Failed to enqueue job for analysis %s", analysis.id)
+            analysis.fail(f"Failed to queue: {queue_err}")
+            await analysis_repo.update(analysis)
+            raise HTTPException(status_code=500, detail=f"Task queue error: {queue_err}")
         
         return analysis
     except Exception as e:

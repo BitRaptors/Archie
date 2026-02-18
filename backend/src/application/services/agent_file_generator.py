@@ -33,6 +33,13 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
     lines.append("---")
     lines.append("")
 
+    # ── Executive Summary ──────────────────────────────────────────────
+    if blueprint.meta.executive_summary:
+        lines.append("## Overview")
+        lines.append("")
+        lines.append(blueprint.meta.executive_summary)
+        lines.append("")
+
     # ── Architecture Overview ─────────────────────────────────────────
     ad = blueprint.decisions.architectural_style
     if ad.chosen:
@@ -52,6 +59,9 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
             label = dc.source_description or dc.source_pattern
             lines.append(f"### {label}")
             lines.append("")
+            if dc.rule_description:
+                lines.append(f"**Rule:** {dc.rule_description}")
+                lines.append("")
             if dc.allowed_imports:
                 lines.append("**Allowed imports:**")
                 for a in dc.allowed_imports:
@@ -102,6 +112,34 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
         lines.append("|----------|---------|-----------|")
         for psg in blueprint.communication.pattern_selection_guide:
             lines.append(f"| {psg.scenario} | {psg.pattern} | {psg.rationale} |")
+        lines.append("")
+
+    # ── Developer Recipes ─────────────────────────────────────────────
+    if blueprint.developer_recipes:
+        lines.append("## Developer Recipes")
+        lines.append("")
+        for recipe in blueprint.developer_recipes:
+            if not recipe.task:
+                continue
+            lines.append(f"### {recipe.task}")
+            if recipe.files:
+                lines.append(f"Files: {', '.join(f'`{f}`' for f in recipe.files)}")
+            if recipe.steps:
+                for i, step in enumerate(recipe.steps, 1):
+                    lines.append(f"{i}. {step}")
+            lines.append("")
+
+    # ── Pitfalls ──────────────────────────────────────────────────────
+    if blueprint.pitfalls:
+        lines.append("## Pitfalls")
+        lines.append("")
+        for pitfall in blueprint.pitfalls:
+            if not pitfall.area and not pitfall.description:
+                continue
+            area_label = f"**{pitfall.area}:** " if pitfall.area else ""
+            lines.append(f"- {area_label}{pitfall.description}")
+            if pitfall.recommendation:
+                lines.append(f"  - *{pitfall.recommendation}*")
         lines.append("")
 
     # ── Error Mapping ─────────────────────────────────────────────────
@@ -234,6 +272,9 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
             label = dc.source_description or dc.source_pattern
             lines.append(f"### {label} (`{dc.source_pattern}`)")
             lines.append("")
+            if dc.rule_description:
+                lines.append(f"**Rule:** {dc.rule_description}")
+                lines.append("")
             if dc.allowed_imports:
                 lines.append("Allowed:")
                 for a in dc.allowed_imports:
@@ -269,6 +310,21 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
             lines.append(f"### {pat.name}")
             lines.append(f"- **When:** {pat.when_to_use}")
             lines.append(f"- **How:** {pat.how_it_works}")
+            lines.append("")
+
+    # ── Developer Recipes ─────────────────────────────────────────────
+    if blueprint.developer_recipes:
+        lines.append("## Developer Recipes")
+        lines.append("")
+        for recipe in blueprint.developer_recipes:
+            if not recipe.task:
+                continue
+            lines.append(f"### {recipe.task}")
+            if recipe.files:
+                lines.append(f"Files: {', '.join(f'`{f}`' for f in recipe.files)}")
+            if recipe.steps:
+                for i, step in enumerate(recipe.steps, 1):
+                    lines.append(f"{i}. {step}")
             lines.append("")
 
     # ── Frontend ──────────────────────────────────────────────────────
@@ -353,6 +409,10 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
         sections.append(f"- File placement rules: {len(blueprint.architecture_rules.file_placement_rules)}")
     if blueprint.communication.patterns:
         sections.append(f"- Communication patterns: {len(blueprint.communication.patterns)}")
+    if blueprint.developer_recipes:
+        sections.append(f"- Developer recipes: {len(blueprint.developer_recipes)}")
+    if blueprint.pitfalls:
+        sections.append(f"- Pitfalls: {len(blueprint.pitfalls)}")
 
     if blueprint.meta.platforms:
         sections.append(f"- Platforms: {', '.join(blueprint.meta.platforms)}")
