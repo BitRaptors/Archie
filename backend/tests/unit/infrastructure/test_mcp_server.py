@@ -122,7 +122,6 @@ class TestServerToolFiltering:
         repo_tools = [
             "get_repository_blueprint",
             "get_repository_section",
-            "validate_import",
             "where_to_put",
             "check_naming",
         ]

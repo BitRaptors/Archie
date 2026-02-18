@@ -51,30 +51,6 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
             lines.append(ad.rationale)
             lines.append("")
 
-    # ── Dependency Rules ──────────────────────────────────────────────
-    if blueprint.architecture_rules.dependency_constraints:
-        lines.append("## Dependency Rules")
-        lines.append("")
-        for dc in blueprint.architecture_rules.dependency_constraints:
-            label = dc.source_description or dc.source_pattern
-            lines.append(f"### {label}")
-            lines.append("")
-            if dc.rule_description:
-                lines.append(f"**Rule:** {dc.rule_description}")
-                lines.append("")
-            if dc.allowed_imports:
-                lines.append("**Allowed imports:**")
-                for a in dc.allowed_imports:
-                    lines.append(f"- `{a}`")
-            if dc.forbidden_imports:
-                lines.append("**Forbidden imports:**")
-                for f in dc.forbidden_imports:
-                    lines.append(f"- `{f}`")
-            if dc.rationale:
-                lines.append("")
-                lines.append(f"*{dc.rationale}*")
-            lines.append("")
-
     # ── File Placement ────────────────────────────────────────────────
     if blueprint.architecture_rules.file_placement_rules:
         lines.append("## File Placement")
@@ -199,15 +175,13 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
     lines.append("**CRITICAL RULES:**")
     lines.append("")
     lines.append("1. **Before creating any new file**, call `where_to_put` to get the correct location.")
-    lines.append("2. **Before adding any import**, call `validate_import` to confirm it is allowed.")
-    lines.append("3. **Before naming any new component** (class, function, module, file), call `check_naming` to verify it follows conventions.")
-    lines.append("4. **When uncertain about architecture**, call `get_repository_blueprint` to get the full blueprint.")
-    lines.append("5. **Never skip these checks.** Even if you believe you know the answer, the MCP server is authoritative.")
+    lines.append("2. **Before naming any new component** (class, function, module, file), call `check_naming` to verify it follows conventions.")
+    lines.append("3. **When uncertain about architecture**, call `get_repository_blueprint` to get the full blueprint.")
+    lines.append("4. **Never skip these checks.** Even if you believe you know the answer, the MCP server is authoritative.")
     lines.append("")
     lines.append("| Tool | When to Use | Required |")
     lines.append("|------|------------|----------|")
     lines.append("| `where_to_put` | Creating or moving any file | **Always** |")
-    lines.append("| `validate_import` | Adding any import/dependency | **Always** |")
     lines.append("| `check_naming` | Naming any new component | **Always** |")
     lines.append("| `get_repository_blueprint` | Understanding overall architecture | As needed |")
     lines.append("")
@@ -217,9 +191,8 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
     lines.append("1. Receive task")
     lines.append("2. Call get_repository_blueprint to understand context")
     lines.append("3. For each new file:  call where_to_put → use returned path")
-    lines.append("4. For each import:    call validate_import → only add if allowed")
-    lines.append("5. For each new name:  call check_naming → fix before committing")
-    lines.append("6. Submit code only after all checks pass")
+    lines.append("4. For each new name:  call check_naming → fix before committing")
+    lines.append("5. Submit code only after all checks pass")
     lines.append("```")
     lines.append("")
     lines.append("> If a tool rejects a decision, do NOT proceed — fix the violation first.")
@@ -270,27 +243,6 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
             lines.append(f"- **Responsibility:** {comp.responsibility}")
             if comp.depends_on:
                 lines.append(f"- **Depends on:** {', '.join(comp.depends_on)}")
-            lines.append("")
-
-    # ── Dependency Rules ──────────────────────────────────────────────
-    if blueprint.architecture_rules.dependency_constraints:
-        lines.append("## Dependency Rules")
-        lines.append("")
-        for dc in blueprint.architecture_rules.dependency_constraints:
-            label = dc.source_description or dc.source_pattern
-            lines.append(f"### {label} (`{dc.source_pattern}`)")
-            lines.append("")
-            if dc.rule_description:
-                lines.append(f"**Rule:** {dc.rule_description}")
-                lines.append("")
-            if dc.allowed_imports:
-                lines.append("Allowed:")
-                for a in dc.allowed_imports:
-                    lines.append(f"- `{a}`")
-            if dc.forbidden_imports:
-                lines.append("Forbidden:")
-                for f in dc.forbidden_imports:
-                    lines.append(f"- `{f}`")
             lines.append("")
 
     # ── File Placement ────────────────────────────────────────────────
@@ -393,16 +345,6 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
             lines.append(f"| `{em.error}` | {em.status_code} |")
         lines.append("")
 
-    # ── Anti-Patterns ─────────────────────────────────────────────────
-    if blueprint.architecture_rules.dependency_constraints:
-        lines.append("## Anti-Patterns")
-        lines.append("")
-        for dc in blueprint.architecture_rules.dependency_constraints:
-            for fi in dc.forbidden_imports:
-                label = dc.source_description or dc.source_pattern
-                lines.append(f"- Do NOT import `{fi}` from `{dc.source_pattern}` ({label})")
-        lines.append("")
-
     # ── Architecture MCP Server (MANDATORY) ──────────────────────────
     lines.append("## Architecture MCP Server (MANDATORY)")
     lines.append("")
@@ -412,9 +354,8 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
     lines.append("**Before writing any code, you are REQUIRED to:**")
     lines.append("")
     lines.append("1. Call `where_to_put` before creating or moving any file.")
-    lines.append("2. Call `validate_import` before adding any import or dependency.")
-    lines.append("3. Call `check_naming` before naming any new component (class, function, module, file).")
-    lines.append("4. Call `get_repository_blueprint` when you need to understand the overall architecture.")
+    lines.append("2. Call `check_naming` before naming any new component (class, function, module, file).")
+    lines.append("3. Call `get_repository_blueprint` when you need to understand the overall architecture.")
     lines.append("")
     lines.append("**Never skip these checks.** The MCP server is authoritative.")
     lines.append("If a tool rejects a decision, do NOT proceed — fix the violation first.")
@@ -450,8 +391,6 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
         sections.append(f"- Architecture: {blueprint.decisions.architectural_style.chosen}")
     if blueprint.components.components:
         sections.append(f"- Components: {len(blueprint.components.components)}")
-    if blueprint.architecture_rules.dependency_constraints:
-        sections.append(f"- Dependency rules: {len(blueprint.architecture_rules.dependency_constraints)}")
     if blueprint.architecture_rules.file_placement_rules:
         sections.append(f"- File placement rules: {len(blueprint.architecture_rules.file_placement_rules)}")
     if blueprint.communication.patterns:
@@ -483,7 +422,6 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
     lines.append("| Tool | When to Use | Required |")
     lines.append("|------|------------|----------|")
     lines.append("| `where_to_put` | Before creating or moving any file | **Always** |")
-    lines.append("| `validate_import` | Before adding any import/dependency | **Always** |")
     lines.append("| `check_naming` | Before naming any new component | **Always** |")
     lines.append("| `get_repository_blueprint` | To understand overall architecture | As needed |")
     lines.append("")
@@ -498,14 +436,13 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
     lines.append("- Generates structured JSON blueprint as single source of truth")
     lines.append("")
     lines.append("### Code Generation Agent")
-    lines.append("- MUST call `architecture-blueprints` MCP tools before every file creation, import, and naming decision")
+    lines.append("- MUST call `architecture-blueprints` MCP tools before every file creation and naming decision")
     lines.append("- Places new code in correct locations per `where_to_put` response")
-    lines.append("- Validates all imports via `validate_import` before adding them")
     lines.append("- Verifies all names via `check_naming` before committing")
     lines.append("")
     lines.append("### Validation Agent")
     lines.append("- Uses `architecture-blueprints` MCP tools to validate code changes against architecture rules")
-    lines.append("- Checks imports, file locations, and naming conventions via MCP")
+    lines.append("- Checks file locations and naming conventions via MCP")
     lines.append("- Reports violations with severity levels")
     lines.append("")
 
@@ -515,9 +452,8 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
     lines.append("1. Receive task")
     lines.append("2. Call get_repository_blueprint to understand context")
     lines.append("3. For each new file:  call where_to_put → use returned path")
-    lines.append("4. For each import:    call validate_import → only add if allowed")
-    lines.append("5. For each new name:  call check_naming → fix before committing")
-    lines.append("6. Submit code only after all checks pass")
+    lines.append("4. For each new name:  call check_naming → fix before committing")
+    lines.append("5. Submit code only after all checks pass")
     lines.append("```")
     lines.append("")
 

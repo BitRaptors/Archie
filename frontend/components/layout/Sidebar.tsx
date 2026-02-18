@@ -10,7 +10,8 @@ import {
     Settings,
     LogOut,
     Ghost,
-    Layers
+    Layers,
+    Zap
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { WorkspaceRepository } from "@/services/workspace"
@@ -21,10 +22,11 @@ interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
     history?: WorkspaceRepository[]
     onHistoryClick?: (id: string, name: string) => void
     activeRepoId?: string
+    openedRepoId?: string
     onActiveClick?: (id: string, name: string) => void
 }
 
-export function Sidebar({ className, activeView, onNavigate, history = [], onHistoryClick, activeRepoId, onActiveClick }: SidebarProps) {
+export function Sidebar({ className, activeView, onNavigate, history = [], onHistoryClick, activeRepoId, openedRepoId, onActiveClick }: SidebarProps) {
     const router = useRouter()
     const { logout } = useAuth()
 
@@ -89,20 +91,39 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                     </h2>
                     <div className="space-y-1 max-h-[300px] overflow-y-auto px-1">
                         {history.length > 0 ? (
-                            history.map((item) => (
-                                <Button
-                                    key={item.repo_id}
-                                    variant={activeRepoId === item.repo_id ? "secondary" : "ghost"}
-                                    className={cn(
-                                        "w-full justify-start font-normal text-sm gap-2 h-9",
-                                        activeRepoId === item.repo_id && theme.active.sidebarItem
-                                    )}
-                                    onClick={() => onHistoryClick?.(item.repo_id, item.name)}
-                                >
-                                    <GitBranch className={cn("h-3.5 w-3.5", activeRepoId === item.repo_id ? theme.active.iconColor : "text-muted-foreground")} />
-                                    <span className="truncate">{item.name}</span>
-                                </Button>
-                            ))
+                            history.map((item) => {
+                                const isOpened = openedRepoId === item.repo_id
+                                const isActivated = activeRepoId === item.repo_id
+
+                                return (
+                                    <Button
+                                        key={item.repo_id}
+                                        variant={isOpened ? "secondary" : "ghost"}
+                                        className={cn(
+                                            "w-full justify-start font-normal text-sm gap-2 h-9 relative transition-all group",
+                                            isOpened && theme.active.sidebarItem,
+                                            isActivated && !isOpened && "text-ink/60",
+                                            isActivated && "pl-7"
+                                        )}
+                                        onClick={() => onHistoryClick?.(item.repo_id, item.name)}
+                                    >
+                                        {isActivated && (
+                                            <Zap className={cn(
+                                                "h-3 w-3 absolute left-2.5 animate-in fade-in zoom-in duration-300",
+                                                isOpened ? "text-teal" : "text-teal/40 group-hover:text-teal"
+                                            )} />
+                                        )}
+                                        {isActivated && (
+                                            <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-teal rounded-r" />
+                                        )}
+                                        <GitBranch className={cn(
+                                            "h-3.5 w-3.5 shrink-0",
+                                            isOpened ? theme.active.iconColor : "text-muted-foreground group-hover:text-ink/60"
+                                        )} />
+                                        <span className="truncate">{item.name}</span>
+                                    </Button>
+                                )
+                            })
                         ) : (
                             <div className="px-4 py-2 text-xs text-muted-foreground italic">
                                 No history yet

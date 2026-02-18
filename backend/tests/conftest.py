@@ -235,6 +235,7 @@ def mock_settings():
     mock = MagicMock()
     mock.anthropic_api_key = "test-api-key"
     mock.anthropic_model = "claude-3-sonnet-20240229"
+    mock.default_ai_model = "claude-3-haiku-20240307"
     mock.storage_path = "/tmp/test_storage"
     return mock
 

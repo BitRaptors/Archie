@@ -36,11 +36,11 @@ Without this, every AI-generated PR is a coin flip on whether it follows your ar
        ├──> CLAUDE.md          -- AI agent instructions for project root
        ├──> .cursor/rules/     -- Cursor IDE integration
        ├──> AGENTS.md          -- multi-agent system guidance
-       ├──> MCP Server         -- real-time validate_import, where_to_put, check_naming
+       ├──> MCP Server         -- real-time where_to_put, check_naming
        └──> Delivery to GitHub -- push outputs via PR or direct commit (non-destructive merge)
 ```
 
-The AI agent in your IDE connects to the MCP server. Before it creates a file, it calls `where_to_put`. Before it adds an import, it calls `validate_import`. Before it names a class, it calls `check_naming`. If any check fails, the agent fixes the violation before proceeding.
+The AI agent in your IDE connects to the MCP server. Before it creates a file, it calls `where_to_put`. Before it names a class, it calls `check_naming`. If any check fails, the agent fixes the violation before proceeding.
 
 ## How to Set Up
 
@@ -143,7 +143,6 @@ The MCP server exposes these tools:
 
 | Tool | Purpose |
 |------|---------|
-| `validate_import` | Check if an import is allowed by dependency rules |
 | `where_to_put` | Get correct directory and naming pattern for a component |
 | `check_naming` | Verify a name follows the project's conventions |
 | `get_repository_blueprint` | Get the full architecture blueprint |

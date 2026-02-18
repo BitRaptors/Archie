@@ -13,7 +13,6 @@ from domain.entities.blueprint import (
     CommunicationPattern,
     Component,
     Components,
-    DependencyConstraint,
     Decisions,
     ErrorMapping,
     FilePlacementRule,
@@ -41,16 +40,6 @@ def sample_blueprint() -> StructuredBlueprint:
             architecture_style="Layered (Clean Architecture)",
         ),
         architecture_rules=ArchitectureRules(
-            dependency_constraints=[
-                DependencyConstraint(
-                    source_pattern="src/api/**",
-                    source_description="Presentation Layer",
-                    allowed_imports=["src/application/**", "src/domain/**"],
-                    forbidden_imports=["src/infrastructure/**"],
-                    severity="error",
-                    rationale="Presentation must not depend on infrastructure directly.",
-                ),
-            ],
             file_placement_rules=[
                 FilePlacementRule(
                     component_type="Service",
@@ -177,13 +166,6 @@ class TestGenerateClaudeMd:
         content = generate_claude_md(sample_blueprint)
         assert "Layered (Clean Architecture)" in content
 
-    def test_contains_dependency_rules(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## Dependency Rules" in content
-        assert "Presentation Layer" in content
-        assert "Allowed imports" in content or "allowed" in content.lower()
-        assert "Forbidden imports" in content or "forbidden" in content.lower()
-
     def test_contains_file_placement(self, sample_blueprint):
         content = generate_claude_md(sample_blueprint)
         assert "## File Placement" in content
@@ -218,7 +200,6 @@ class TestGenerateClaudeMd:
         content = generate_claude_md(sample_blueprint)
         assert "## Architecture MCP Server (MANDATORY)" in content
         assert "`architecture-blueprints`" in content
-        assert "validate_import" in content
         assert "where_to_put" in content
         assert "check_naming" in content
         assert "get_repository_blueprint" in content
@@ -268,11 +249,6 @@ class TestGenerateCursorRules:
         assert "Application" in content
         assert "Domain" in content
 
-    def test_contains_dependency_rules(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## Dependency Rules" in content
-        assert "src/api/**" in content
-
     def test_contains_file_placement(self, sample_blueprint):
         content = generate_cursor_rules(sample_blueprint)
         assert "## File Placement" in content
@@ -286,11 +262,6 @@ class TestGenerateCursorRules:
         content = generate_cursor_rules(sample_blueprint)
         assert "## Communication Patterns" in content
         assert "Sync HTTP" in content
-
-    def test_contains_anti_patterns(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## Anti-Patterns" in content
-        assert "src/infrastructure/**" in content
 
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_cursor_rules(minimal_blueprint)
@@ -333,7 +304,6 @@ class TestGenerateAgentsMd:
         content = generate_agents_md(sample_blueprint)
         assert "## Architecture MCP Server (MANDATORY)" in content
         assert "`architecture-blueprints`" in content
-        assert "validate_import" in content
         assert "where_to_put" in content
         assert "check_naming" in content
         assert "do NOT proceed" in content
@@ -351,8 +321,6 @@ class TestGenerateAgentsMd:
 
     def test_summary_includes_rule_counts(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        # Should mention count of dependency rules
-        assert "Dependency rules: 1" in content
         # Should mention count of components
         assert "Components: 3" in content
 

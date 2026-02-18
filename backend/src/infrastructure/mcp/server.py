@@ -11,7 +11,7 @@ from typing import Optional
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Resource, Tool, TextContent
+    from mcp.types import Resource, Tool
 except ImportError:
     try:
         from mcp.server.fastmcp import FastMCP
@@ -156,7 +156,7 @@ def create_server():
                 name="get_repository_blueprint",
                 description=(
                     "Get the full architecture blueprint for the active repository. "
-                    "Contains layer rules, component boundaries, dependency constraints, "
+                    "Contains component boundaries, file placement rules, "
                     "and naming conventions. Use list_repository_sections + get_repository_section "
                     "for token-efficient partial reads."
                 ),
@@ -179,23 +179,6 @@ def create_server():
                         }
                     },
                     "required": ["section_id"]
-                }
-            ),
-            Tool(
-                name="validate_import",
-                description=(
-                    "REQUIRED before adding imports. Checks if an import is allowed by the project's "
-                    "architecture dependency rules. Returns VIOLATION (blocked), ALLOWED (permitted), "
-                    "or UNGUARDED (no rule covers it — verify manually). Always call this before "
-                    "writing import statements."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "source_file": {"type": "string", "description": "File containing the import (e.g. 'src/api/routes/users.py')"},
-                        "target_import": {"type": "string", "description": "Module being imported (e.g. 'src/infrastructure/db')"}
-                    },
-                    "required": ["source_file", "target_import"]
                 }
             ),
             Tool(
@@ -250,12 +233,6 @@ def create_server():
 
         elif name == "get_repository_section":
             result = tools_manager.get_repository_section(repo_id, arguments["section_id"])
-            return [TextContent(type="text", text=result)]
-
-        elif name == "validate_import":
-            result = tools_manager.validate_import(
-                repo_id, arguments["source_file"], arguments["target_import"]
-            )
             return [TextContent(type="text", text=result)]
 
         elif name == "where_to_put":

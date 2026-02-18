@@ -39,3 +39,20 @@ class UpdatePromptRequest(BaseModel):
     change_summary: str | None = None
 
 
+class UpdateIgnoredDirsRequest(BaseModel):
+    """Replace all ignored directories."""
+    directories: list[str] = Field(..., description="List of directory names to ignore")
+
+
+class LibraryCapabilityInput(BaseModel):
+    """A single library entry for bulk update."""
+    library_name: str
+    ecosystem: str = ""
+    capabilities: list[str] = Field(default_factory=list)
+
+
+class UpdateLibraryCapabilitiesRequest(BaseModel):
+    """Replace all library capabilities."""
+    libraries: list[LibraryCapabilityInput] = Field(..., description="List of library capability mappings")
+
+

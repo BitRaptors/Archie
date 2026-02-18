@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 from domain.entities.analysis import Analysis
+from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS, DEFAULT_LIBRARY_CAPABILITIES
 from domain.entities.repository import Repository
 from domain.entities.analysis_event import AnalysisEvent
 from domain.interfaces.repositories import (
@@ -12,6 +13,10 @@ from domain.interfaces.repositories import (
 )
 from domain.exceptions.domain_exceptions import NotFoundError
 from infrastructure.analysis.structure_analyzer import StructureAnalyzer
+from infrastructure.persistence.analysis_settings_repository import (
+    IgnoredDirsRepository,
+    LibraryCapabilitiesRepository,
+)
 from infrastructure.storage.storage_interface import IStorage
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
 from application.services.analysis_data_collector import analysis_data_collector
@@ -37,6 +42,7 @@ class AnalysisService:
         phased_blueprint_generator: PhasedBlueprintGenerator,
         architecture_repo: Optional[IRepositoryArchitectureRepository] = None,
         architecture_extractor: Optional[ArchitectureExtractor] = None,
+        db_client=None,
     ):
         """Initialize analysis service."""
         self._analysis_repo = analysis_repo
@@ -47,6 +53,7 @@ class AnalysisService:
         self._phased_blueprint_generator = phased_blueprint_generator
         self._architecture_repo = architecture_repo
         self._architecture_extractor = architecture_extractor or ArchitectureExtractor()
+        self._db_client = db_client
         # Set progress callback on generator to use our logging
         self._phased_blueprint_generator._progress_callback = self._log_event
 
@@ -92,6 +99,25 @@ class AnalysisService:
             raise NotFoundError("Analysis", analysis_id)
 
         try:
+            # Load analysis settings from DB
+            discovery_ignored_dirs = DEFAULT_IGNORED_DIRS
+            library_capabilities = DEFAULT_LIBRARY_CAPABILITIES
+            if self._db_client:
+                try:
+                    dirs_repo = IgnoredDirsRepository(db=self._db_client)
+                    dir_rows = await dirs_repo.get_all()
+                    if dir_rows:
+                        discovery_ignored_dirs = {d.directory_name for d in dir_rows}
+                    lib_repo = LibraryCapabilitiesRepository(db=self._db_client)
+                    lib_rows = await lib_repo.get_all()
+                    if lib_rows:
+                        library_capabilities = {
+                            lib.library_name: {"capabilities": lib.capabilities, "ecosystem": lib.ecosystem}
+                            for lib in lib_rows
+                        }
+                except Exception:
+                    pass  # Fall back to defaults
+
             # Phase 1: Structure scan (data extraction only)
             await self._log_event(analysis_id, "PHASE_START", "Phase 1: Scanning file structure")
             await self._log_event(analysis_id, "INFO", f"Analyzing repository structure at: {repo_path}")
@@ -141,7 +167,7 @@ class AnalysisService:
             await self._log_event(analysis_id, "INFO", f"Path exists: {repo_path_obj.exists()}, is_dir: {repo_path_obj.is_dir() if repo_path_obj.exists() else False}")
             
             try:
-                structure_data = await self._structure_analyzer.analyze(repo_path_obj)
+                structure_data = await self._structure_analyzer.analyze(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs)
                 await self._log_event(analysis_id, "INFO", f"Structure analyzer returned data: {bool(structure_data)}")
                 
                 if structure_data:
@@ -192,7 +218,7 @@ class AnalysisService:
             
             # Extract dependencies
             await self._log_event(analysis_id, "INFO", "Extracting dependencies from package files...")
-            dependencies = await self._extract_dependencies(repo_path_obj)
+            dependencies = await self._extract_dependencies(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs)
             # Count dependency files found (each "**filename:**" indicates a file)
             if dependencies and "No dependency files found" not in dependencies:
                 # Count occurrences of "**" pattern (each file has "**path:**")
@@ -203,12 +229,12 @@ class AnalysisService:
             
             # Extract config files
             await self._log_event(analysis_id, "INFO", "Extracting configuration files...")
-            config_files = await self._extract_config_files(repo_path_obj)
+            config_files = await self._extract_config_files(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs)
             await self._log_event(analysis_id, "INFO", f"Configuration files extracted: {len(config_files)} files")
             
             # Extract code samples
             await self._log_event(analysis_id, "INFO", "Extracting representative code samples...")
-            code_samples = await self._extract_code_samples(repo_path_obj, structure_data)
+            code_samples = await self._extract_code_samples(repo_path_obj, structure_data, discovery_ignored_dirs=discovery_ignored_dirs)
             await self._log_event(analysis_id, "INFO", f"Code samples extracted: {len(code_samples)} files")
             
             # Capture gathered data for analysis data view
@@ -231,6 +257,25 @@ class AnalysisService:
             repo = await self._repository_repo.get_by_id(analysis.repository_id)
             repo_name = repo.full_name if repo else analysis.repository_id
             
+            # Cross-reference detected dependencies with library capability map
+            provided_capabilities: dict[str, list[str]] = {}
+            if dependencies and "No dependency files found" not in dependencies:
+                dep_text_lower = dependencies.lower()
+                for lib_key, lib_info in library_capabilities.items():
+                    if lib_key.lower() in dep_text_lower:
+                        for cap in lib_info.get("capabilities", []):
+                            if cap not in provided_capabilities:
+                                provided_capabilities[cap] = []
+                            provided_capabilities[cap].append(
+                                f"{lib_key} (via {lib_info.get('ecosystem', 'unknown')})"
+                            )
+
+            if provided_capabilities:
+                await self._log_event(
+                    analysis_id, "INFO",
+                    f"Detected library capabilities: {', '.join(provided_capabilities.keys())}",
+                )
+
             # Generate Backend Blueprint (dual format: JSON + Markdown)
             await self._log_event(analysis_id, "INFO", "Starting backend architecture analysis...")
             blueprint_result = await self._phased_blueprint_generator.generate(
@@ -243,6 +288,8 @@ class AnalysisService:
                 config_files=config_files,
                 code_samples=code_samples,
                 blueprint_type="backend",
+                discovery_ignored_dirs=discovery_ignored_dirs,
+                provided_capabilities=provided_capabilities,
             )
             
             # Validate blueprint was generated (returns dict with "structured" and optionally "markdown")
@@ -354,16 +401,11 @@ class AnalysisService:
         
         return "\n".join(lines)
 
-    async def _extract_dependencies(self, repo_path: Path) -> str:
+    async def _extract_dependencies(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> str:
         """Extract dependencies from package files recursively."""
         dependencies = []
-        
-        # Ignore common build/dependency directories
-        ignore_patterns = {
-            "node_modules", ".git", "venv", "__pycache__", ".next",
-            "dist", "build", "target", ".gradle", ".idea", ".venv",
-            "env", ".env", "vendor", "coverage", ".nyc_output",
-        }
+
+        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
         
         # Find all requirements.txt files recursively
         for requirements_file in repo_path.rglob("requirements.txt"):
@@ -443,16 +485,11 @@ class AnalysisService:
         
         return "\n\n".join(dependencies) if dependencies else "No dependency files found"
 
-    async def _extract_config_files(self, repo_path: Path) -> dict[str, str]:
+    async def _extract_config_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
         """Extract key configuration files recursively."""
         config_files = {}
-        
-        # Ignore common build/dependency directories
-        ignore_patterns = {
-            "node_modules", ".git", "venv", "__pycache__", ".next",
-            "dist", "build", "target", ".gradle", ".idea", ".venv",
-            "env", ".env", "vendor", "coverage", ".nyc_output",
-        }
+
+        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
         
         # Common configuration file patterns (exact matches)
         exact_config_patterns = [
@@ -565,7 +602,7 @@ class AnalysisService:
         
         return config_files
 
-    async def _extract_code_samples(self, repo_path: Path, structure_data: dict[str, Any]) -> dict[str, str]:
+    async def _extract_code_samples(self, repo_path: Path, structure_data: dict[str, Any], discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
         """Extract representative code samples."""
         code_samples = {}
         

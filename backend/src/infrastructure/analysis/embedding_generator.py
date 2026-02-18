@@ -39,29 +39,27 @@ class EmbeddingGenerator:
         if embeddings:
             await self._vector_store.add_embeddings(embeddings)
 
-    def _find_code_files(self, repo_path: Path) -> list[Path]:
+    def _find_code_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> list[Path]:
         """Find all code files in repository."""
+        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+
         code_extensions = {
             ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
             ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
             ".kt", ".scala", ".clj", ".sh", ".bash", ".zsh",
         }
-        
+
         code_files = []
         for ext in code_extensions:
             code_files.extend(repo_path.rglob(f"*{ext}"))
-        
-        # Filter out common ignore patterns
-        ignore_patterns = {
-            "node_modules", ".git", "venv", "__pycache__", ".next",
-            "dist", "build", "target", ".gradle", ".idea",
-        }
-        
+
+        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+
         filtered = []
         for file_path in code_files:
             if not any(pattern in str(file_path) for pattern in ignore_patterns):
                 filtered.append(file_path)
-        
+
         return filtered
 
     async def _generate_file_embeddings(

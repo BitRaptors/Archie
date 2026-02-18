@@ -400,7 +400,6 @@ class StructuredBlueprint(BaseModel):
 ### Key Sections
 
 **`architecture_rules`** — What the MCP tools enforce:
-- `dependency_constraints[]` — Source pattern, allowed imports, forbidden imports, rationale
 - `file_placement_rules[]` — Component type, location, naming pattern, example
 - `naming_conventions[]` — Scope (classes, files, etc.), pattern, examples
 
@@ -427,7 +426,7 @@ FastAPI app
   └── /mcp/sse (Starlette mount, raw ASGI)
         └── SseServerTransport
               └── MCP Server (mcp SDK)
-                    ├── Tools (6)
+                    ├── Tools (5)
                     └── Resources (dynamic)
 ```
 
@@ -437,7 +436,6 @@ Defined in `infrastructure/mcp/`. The server is mounted as a raw ASGI app in `ap
 
 | Tool | Parameters | Returns | Description |
 |------|-----------|---------|-------------|
-| `validate_import` | `source_file`, `import_path` | `ALLOWED`, `VIOLATION` (with rule), or `UNGUARDED` | Checks import against dependency constraints |
 | `where_to_put` | `component_type` | Directory, naming pattern, example | Returns correct file location for a component type |
 | `check_naming` | `name`, `scope` | Pass/fail with convention details | Validates name against naming conventions |
 | `get_repository_blueprint` | — | Full blueprint JSON | Returns the complete `StructuredBlueprint` |

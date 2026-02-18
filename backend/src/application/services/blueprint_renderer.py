@@ -146,40 +146,12 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
 
     # ── 5. Architecture Rules ─────────────────────────────────────────
     has_rules = (
-        bp.architecture_rules.dependency_constraints
-        or bp.architecture_rules.file_placement_rules
+        bp.architecture_rules.file_placement_rules
         or bp.architecture_rules.naming_conventions
     )
     if has_rules:
         lines.append("## 5. Architecture Rules")
         lines.append("")
-
-        # Dependency constraints
-        if bp.architecture_rules.dependency_constraints:
-            lines.append("### Dependency Constraints")
-            lines.append("")
-            for dc in bp.architecture_rules.dependency_constraints:
-                sev_icon = {"error": "🚫", "warning": "⚠️", "info": "ℹ️"}.get(dc.severity, "•")
-                lines.append(f"#### {sev_icon} {dc.source_description or dc.source_pattern}")
-                lines.append("")
-                # Render rule_description prominently
-                if dc.rule_description:
-                    lines.append(f"**Rule:** {dc.rule_description}")
-                    lines.append("")
-                lines.append(f"**Source:** `{dc.source_pattern}`")
-                lines.append("")
-                if dc.allowed_imports:
-                    lines.append("**Allowed imports:**")
-                    for ai in dc.allowed_imports:
-                        lines.append(f"- ✅ `{ai}`")
-                if dc.forbidden_imports:
-                    lines.append("**Forbidden imports:**")
-                    for fi in dc.forbidden_imports:
-                        lines.append(f"- ❌ `{fi}`")
-                if dc.rationale:
-                    lines.append("")
-                    lines.append(f"*{dc.rationale}*")
-                lines.append("")
 
         # File placement
         if bp.architecture_rules.file_placement_rules:

@@ -220,26 +220,24 @@ class RAGRetriever:
                 return None
         return None
 
-    def _find_code_files(self, repo_path: Path) -> list[Path]:
+    def _find_code_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> list[Path]:
         """Find all code files in repository."""
+        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+
         code_extensions = {
             ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
             ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
             ".kt", ".scala", ".clj", ".sh", ".bash", ".zsh",
         }
-        
-        ignore_patterns = {
-            "node_modules", ".git", "venv", "__pycache__", ".next",
-            "dist", "build", "target", ".gradle", ".idea", ".venv",
-            "env", ".env", "vendor", "coverage", ".nyc_output",
-        }
-        
+
+        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+
         code_files = []
         for ext in code_extensions:
             for file_path in repo_path.rglob(f"*{ext}"):
                 if not any(pattern in str(file_path) for pattern in ignore_patterns):
                     code_files.append(file_path)
-        
+
         return code_files
 
     def _chunk_file(self, content: str, file_path: str) -> list[dict[str, Any]]:

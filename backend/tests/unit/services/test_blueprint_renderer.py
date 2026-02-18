@@ -12,7 +12,6 @@ from domain.entities.blueprint import (
     Components,
     Contract,
     Decisions,
-    DependencyConstraint,
     DeveloperRecipe,
     ErrorMapping,
     FilePlacementRule,
@@ -42,17 +41,6 @@ def rich_blueprint() -> StructuredBlueprint:
             executive_summary="A Python FastAPI backend implementing Clean Architecture. Uses dependency injection via dependency-injector. Stores data in Supabase PostgreSQL with pgvector for embeddings.",
         ),
         architecture_rules=ArchitectureRules(
-            dependency_constraints=[
-                DependencyConstraint(
-                    source_pattern="src/domain/**",
-                    source_description="Domain Layer",
-                    allowed_imports=["src/domain/**"],
-                    forbidden_imports=["src/infrastructure/**", "src/api/**"],
-                    severity="error",
-                    rationale="Domain must remain pure.",
-                    rule_description="Domain modules must not import infrastructure or API code.",
-                ),
-            ],
             file_placement_rules=[
                 FilePlacementRule(
                     component_type="Service",
@@ -369,14 +357,6 @@ class TestPitfalls:
     def test_renders_pitfall_recommendation(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
         assert "CREATE EXTENSION vector" in md
-
-
-class TestRuleDescription:
-    """Tests for rule_description rendering on dependency constraints."""
-
-    def test_renders_rule_description(self, rich_blueprint):
-        md = render_blueprint_markdown(rich_blueprint)
-        assert "**Rule:** Domain modules must not import infrastructure or API code." in md
 
 
 # ── "Why X?" heading fix ─────────────────────────────────────────────────────
