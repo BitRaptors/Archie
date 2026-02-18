@@ -211,6 +211,24 @@ def create_server():
                     "required": ["scope", "name"]
                 }
             ),
+            Tool(
+                name="how_to_implement",
+                description=(
+                    "Look up how a capability or feature is already implemented in this codebase. "
+                    "Returns recommended libraries, patterns, key files, and usage examples. "
+                    "Call this before implementing features like push notifications, maps, auth, etc."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "feature": {
+                            "type": "string",
+                            "description": "The feature or capability (e.g. 'push notifications', 'maps', 'authentication', 'image loading')"
+                        }
+                    },
+                    "required": ["feature"]
+                }
+            ),
         ]
 
     @srv.call_tool()
@@ -243,6 +261,10 @@ def create_server():
             result = tools_manager.check_naming(
                 repo_id, arguments["scope"], arguments["name"]
             )
+            return [TextContent(type="text", text=result)]
+
+        elif name == "how_to_implement":
+            result = tools_manager.how_to_implement(repo_id, arguments["feature"])
             return [TextContent(type="text", text=result)]
 
         else:

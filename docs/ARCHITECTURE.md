@@ -335,7 +335,8 @@ Six to eight sequential Claude API calls, each building on the outputs of previo
 | **4. Communication** | All previous + RAG code samples | Internal/external communication, integrations, pattern selection guide | Map how components communicate |
 | **5. Technology** | All previous + dependencies | Complete tech stack inventory | Document all technologies |
 | **6. Frontend** (conditional) | Discovery results checked for frontend indicators | Frontend framework, rendering, state management, styling, conventions | Only runs if frontend code detected |
-| **7. Synthesis** | All phase outputs combined | `StructuredBlueprint` JSON | Produce the final structured model |
+| **7. Implementation Analysis** | Technology + communication + patterns + layers + code samples | Implementation guidelines for existing capabilities | Document how features were built (libraries, patterns, key files) |
+| **8. Synthesis** | All phase outputs combined | `StructuredBlueprint` JSON | Produce the final structured model |
 
 Each phase's prompt is loaded from `prompts.json` via `PromptLoader` and rendered with template variables.
 
@@ -395,6 +396,7 @@ class StructuredBlueprint(BaseModel):
     quick_reference: QuickReference    # Where-to-put-code map, error mapping
     technology: TechnologyStack        # Categorized tech stack inventory
     frontend: FrontendArchitecture     # Framework, rendering, state, styling (optional)
+    implementation_guidelines: list[ImplementationGuideline]  # How existing capabilities were built
 ```
 
 ### Key Sections
@@ -413,6 +415,10 @@ class StructuredBlueprint(BaseModel):
 **`frontend`** (populated only when frontend code is detected):
 - Framework, rendering strategy, styling, state management, routing, data fetching, key conventions
 
+**`implementation_guidelines`** — How existing capabilities were built:
+- Capability name, category, libraries used, pattern description, key files, usage example, tips
+- Documents what ALREADY EXISTS (e.g., push notifications via FCM, maps via Mapbox) — not future tasks
+
 ---
 
 ## MCP Server
@@ -426,7 +432,7 @@ FastAPI app
   └── /mcp/sse (Starlette mount, raw ASGI)
         └── SseServerTransport
               └── MCP Server (mcp SDK)
-                    ├── Tools (5)
+                    ├── Tools (6)
                     └── Resources (dynamic)
 ```
 
@@ -441,6 +447,7 @@ Defined in `infrastructure/mcp/`. The server is mounted as a raw ASGI app in `ap
 | `get_repository_blueprint` | — | Full blueprint JSON | Returns the complete `StructuredBlueprint` |
 | `list_repository_sections` | — | Section IDs and names | Lists addressable blueprint sections |
 | `get_repository_section` | `section_id` | Section content | Token-efficient alternative to full blueprint |
+| `how_to_implement` | `feature` | Libraries, patterns, key files, example | Look up how a capability is already implemented |
 
 ### Resources
 

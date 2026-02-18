@@ -15,6 +15,7 @@ from domain.entities.blueprint import (
     Decisions,
     FilePlacementRule,
     Frontend,
+    ImplementationGuideline,
     NamingConvention,
     QuickReference,
     StructuredBlueprint,
@@ -121,6 +122,42 @@ def tools(tmp_path):
     bp_dir.mkdir(parents=True)
 
     bp = _make_blueprint()
+    (bp_dir / "blueprint.json").write_text(
+        bp.model_dump_json(indent=2), encoding="utf-8"
+    )
+
+    return BlueprintTools(storage_dir=storage_dir)
+
+
+@pytest.fixture
+def tools_with_guidelines(tmp_path):
+    """BlueprintTools with a blueprint containing implementation guidelines."""
+    storage_dir = tmp_path / "storage"
+    bp_dir = storage_dir / "blueprints" / "test-repo-123"
+    bp_dir.mkdir(parents=True)
+
+    bp = _make_blueprint(
+        implementation_guidelines=[
+            ImplementationGuideline(
+                capability="Push Notifications",
+                category="notifications",
+                libraries=["Firebase Cloud Messaging 10.x"],
+                pattern_description="FCM topic-based subscriptions via NotificationService singleton.",
+                key_files=["Services/NotificationService.swift", "AppDelegate.swift"],
+                usage_example="NotificationService.shared.subscribe(topic: 'place_updates')",
+                tips=["Request notification permissions before subscribing", "Handle token refresh via FIRMessaging delegate"],
+            ),
+            ImplementationGuideline(
+                capability="Map Display",
+                category="location",
+                libraries=["Mapbox Maps SDK 10.x", "Core Location"],
+                pattern_description="MGLMapView wrapped in custom MapView. Annotations from PlacesService.",
+                key_files=["Controllers/MapViewController.swift", "Views/MapView.swift"],
+                usage_example="mapView.addAnnotations(places.map { PlaceAnnotation($0) })",
+                tips=["Limit annotations to ~100 per viewport", "Use clustering for large datasets"],
+            ),
+        ],
+    )
     (bp_dir / "blueprint.json").write_text(
         bp.model_dump_json(indent=2), encoding="utf-8"
     )
@@ -531,4 +568,63 @@ class TestRealWorldScenarios:
     def test_android_where_to_put_screen(self, android_tools):
         result = android_tools.where_to_put("android-app", "Screen")
         assert "presentation/screens" in result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# how_to_implement
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestHowToImplement:
+    """Test the how_to_implement tool."""
+
+    def test_finds_by_capability_name(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "push notifications")
+        assert "Push Notifications" in result
+        assert "Firebase Cloud Messaging" in result
+        assert "Services/NotificationService.swift" in result
+
+    def test_finds_by_category(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "location")
+        assert "Map Display" in result
+        assert "Mapbox" in result
+
+    def test_finds_by_library_name(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "mapbox")
+        assert "Map Display" in result
+
+    def test_case_insensitive(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "PUSH NOTIFICATIONS")
+        assert "Push Notifications" in result
+
+    def test_returns_key_files(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "push notifications")
+        assert "`Services/NotificationService.swift`" in result
+
+    def test_returns_usage_example(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "push notifications")
+        assert "subscribe(topic:" in result
+
+    def test_returns_tips(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "push notifications")
+        assert "Request notification permissions" in result
+
+    def test_no_match_lists_available(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "blockchain")
+        assert "No implementation guideline" in result
+        assert "Push Notifications" in result
+        assert "Map Display" in result
+
+    def test_empty_guidelines_graceful(self, tools):
+        result = tools.how_to_implement("test-repo-123", "push notifications")
+        assert "No implementation guideline" in result or "not found" in result.lower()
+
+    def test_nonexistent_repo(self, tools):
+        result = tools.how_to_implement("nonexistent-repo-id", "push notifications")
+        assert "No structured blueprint found" in result
+
+    def test_no_cross_contamination(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "notifications")
+        assert "Push Notifications" in result
+        assert "Map Display" not in result
 

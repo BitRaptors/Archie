@@ -15,6 +15,7 @@ from domain.entities.blueprint import (
     DeveloperRecipe,
     ErrorMapping,
     FilePlacementRule,
+    ImplementationGuideline,
     NamingConvention,
     PatternGuideline,
     QuickReference,
@@ -142,6 +143,26 @@ def rich_blueprint() -> StructuredBlueprint:
                 recommendation="Run CREATE EXTENSION vector; before migrations.",
             ),
         ],
+        implementation_guidelines=[
+            ImplementationGuideline(
+                capability="Push Notifications",
+                category="notifications",
+                libraries=["Firebase Cloud Messaging 10.x"],
+                pattern_description="FCM topic-based subscriptions via NotificationService singleton.",
+                key_files=["Services/NotificationService.swift", "AppDelegate.swift"],
+                usage_example="NotificationService.shared.subscribe(topic: 'place_updates')",
+                tips=["Request notification permissions before subscribing", "Handle token refresh via FIRMessaging delegate"],
+            ),
+            ImplementationGuideline(
+                capability="Map Display",
+                category="location",
+                libraries=["Mapbox Maps SDK 10.x", "Core Location"],
+                pattern_description="MGLMapView wrapped in custom MapView. Annotations from PlacesService.",
+                key_files=["Controllers/MapViewController.swift", "Views/MapView.swift"],
+                usage_example="mapView.addAnnotations(places.map { PlaceAnnotation($0) })",
+                tips=["Limit annotations to ~100 per viewport", "Use clustering for large datasets"],
+            ),
+        ],
     )
 
 
@@ -187,21 +208,25 @@ class TestSectionOrdering:
         md = render_blueprint_markdown(rich_blueprint)
         assert "## 7. Communication Patterns" in md
 
-    def test_recipes_is_section_8(self, rich_blueprint):
+    def test_implementation_guidelines_is_section_8(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 8. Developer Recipes" in md
+        assert "## 8. Implementation Guidelines" in md
 
-    def test_tech_stack_is_section_9(self, rich_blueprint):
+    def test_recipes_is_section_9(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 9. Technology Stack" in md
+        assert "## 9. Developer Recipes" in md
 
-    def test_pitfalls_is_section_10(self, rich_blueprint):
+    def test_tech_stack_is_section_10(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 10. Pitfalls & Edge Cases" in md
+        assert "## 10. Technology Stack" in md
 
-    def test_quick_ref_is_section_11(self, rich_blueprint):
+    def test_pitfalls_is_section_11(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 11. Quick Reference" in md
+        assert "## 11. Pitfalls & Edge Cases" in md
+
+    def test_quick_ref_is_section_12(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "## 12. Quick Reference" in md
 
     def test_section_order_correct(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
@@ -212,12 +237,13 @@ class TestSectionOrdering:
         idx_rules = md.index("## 5. Architecture Rules")
         idx_decisions = md.index("## 6. Key Decisions")
         idx_comm = md.index("## 7. Communication")
-        idx_recipes = md.index("## 8. Developer Recipes")
-        idx_tech = md.index("## 9. Technology Stack")
-        idx_pitfalls = md.index("## 10. Pitfalls")
-        idx_quick = md.index("## 11. Quick Reference")
+        idx_impl = md.index("## 8. Implementation")
+        idx_recipes = md.index("## 9. Developer Recipes")
+        idx_tech = md.index("## 10. Technology Stack")
+        idx_pitfalls = md.index("## 11. Pitfalls")
+        idx_quick = md.index("## 12. Quick Reference")
         assert idx_overview < idx_diagram < idx_structure < idx_components < idx_rules
-        assert idx_rules < idx_decisions < idx_comm < idx_recipes
+        assert idx_rules < idx_decisions < idx_comm < idx_impl < idx_recipes
         assert idx_recipes < idx_tech < idx_pitfalls < idx_quick
 
 
@@ -270,6 +296,10 @@ class TestSkipIfEmpty:
     def test_no_frontend_when_empty(self, empty_blueprint):
         md = render_blueprint_markdown(empty_blueprint)
         assert "Frontend Architecture" not in md
+
+    def test_no_implementation_guidelines_when_empty(self, empty_blueprint):
+        md = render_blueprint_markdown(empty_blueprint)
+        assert "Implementation Guidelines" not in md
 
     def test_overview_always_rendered(self, empty_blueprint):
         """Section 1 (Architecture Overview) is always rendered."""
@@ -357,6 +387,57 @@ class TestPitfalls:
     def test_renders_pitfall_recommendation(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
         assert "CREATE EXTENSION vector" in md
+
+
+class TestImplementationGuidelines:
+    """Tests for implementation_guidelines rendering."""
+
+    def test_section_heading_is_number_8(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "## 8. Implementation Guidelines" in md
+
+    def test_section_between_communication_and_recipes(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        idx_comm = md.index("## 7. Communication")
+        idx_impl = md.index("## 8. Implementation Guidelines")
+        idx_recipes = md.index("## 9. Developer Recipes")
+        assert idx_comm < idx_impl < idx_recipes
+
+    def test_renders_capability_names(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "Push Notifications" in md
+        assert "Map Display" in md
+
+    def test_renders_category_grouping(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "### Notifications" in md
+        assert "### Location" in md
+
+    def test_renders_libraries(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "`Firebase Cloud Messaging 10.x`" in md
+        assert "`Mapbox Maps SDK 10.x`" in md
+
+    def test_renders_pattern_description(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "FCM topic-based subscriptions" in md
+
+    def test_renders_key_files(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "`Services/NotificationService.swift`" in md
+
+    def test_renders_usage_example_in_code_block(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "NotificationService.shared.subscribe" in md
+
+    def test_renders_tips(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "Request notification permissions" in md
+        assert "Limit annotations" in md
+
+    def test_no_section_when_empty(self, empty_blueprint):
+        md = render_blueprint_markdown(empty_blueprint)
+        assert "Implementation Guidelines" not in md
 
 
 # ── "Why X?" heading fix ─────────────────────────────────────────────────────
@@ -456,6 +537,16 @@ class TestBackwardCompatibility:
         assert "old/repo" in md
         assert "Architecture Overview" in md
 
+    def test_old_blueprint_without_implementation_guidelines(self):
+        """Old blueprint JSON without implementation_guidelines field."""
+        old_data = {
+            "meta": {"repository": "old/repo"},
+        }
+        bp = StructuredBlueprint.model_validate(old_data)
+        assert bp.implementation_guidelines == []
+        md = render_blueprint_markdown(bp)
+        assert "Implementation Guidelines" not in md
+
 
 # ── Project structure moved from technology ──────────────────────────────────
 
@@ -472,5 +563,5 @@ class TestProjectStructureMoved:
     def test_project_structure_not_in_technology(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
         # Project structure should NOT appear under Technology section
-        tech_section = md.split("## 9. Technology Stack")[1].split("## 10.")[0] if "## 9." in md else ""
+        tech_section = md.split("## 10. Technology Stack")[1].split("## 11.")[0] if "## 10." in md else ""
         assert "Project Structure" not in tech_section

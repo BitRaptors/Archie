@@ -113,6 +113,28 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
                     lines.append(f"{i}. {step}")
             lines.append("")
 
+    # ── Implementation Guidelines ──────────────────────────────────────
+    if blueprint.implementation_guidelines:
+        lines.append("## Implementation Guidelines")
+        lines.append("")
+        for gl in blueprint.implementation_guidelines:
+            if not gl.capability:
+                continue
+            cat_tag = f" [{gl.category}]" if gl.category else ""
+            lines.append(f"### {gl.capability}{cat_tag}")
+            if gl.libraries:
+                lines.append(f"Libraries: {', '.join(f'`{lib}`' for lib in gl.libraries)}")
+            if gl.pattern_description:
+                lines.append(f"Pattern: {gl.pattern_description}")
+            if gl.key_files:
+                lines.append(f"Key files: {', '.join(f'`{f}`' for f in gl.key_files)}")
+            if gl.usage_example:
+                lines.append(f"Example: `{gl.usage_example}`")
+            if gl.tips:
+                for tip in gl.tips:
+                    lines.append(f"- {tip}")
+            lines.append("")
+
     # ── Pitfalls ──────────────────────────────────────────────────────
     if blueprint.pitfalls:
         lines.append("## Pitfalls")
@@ -287,6 +309,19 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
                     lines.append(f"{i}. {step}")
             lines.append("")
 
+    # ── Implementation Guidelines (compact) ────────────────────────────
+    if blueprint.implementation_guidelines:
+        lines.append("## Implementation Guidelines")
+        lines.append("")
+        for gl in blueprint.implementation_guidelines:
+            if not gl.capability:
+                continue
+            libs = f" ({', '.join(gl.libraries)})" if gl.libraries else ""
+            files = f" — {', '.join(f'`{f}`' for f in gl.key_files[:3])}" if gl.key_files else ""
+            desc = f": {gl.pattern_description}" if gl.pattern_description else ""
+            lines.append(f"- **{gl.capability}**{libs}{desc}{files}")
+        lines.append("")
+
     # ── Frontend ──────────────────────────────────────────────────────
     fe = blueprint.frontend
     if fe.framework or fe.ui_components or fe.data_fetching:
@@ -399,6 +434,8 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
         sections.append(f"- Developer recipes: {len(blueprint.developer_recipes)}")
     if blueprint.pitfalls:
         sections.append(f"- Pitfalls: {len(blueprint.pitfalls)}")
+    if blueprint.implementation_guidelines:
+        sections.append(f"- Implementation guidelines: {len(blueprint.implementation_guidelines)}")
 
     if blueprint.meta.platforms:
         sections.append(f"- Platforms: {', '.join(blueprint.meta.platforms)}")

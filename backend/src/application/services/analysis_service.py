@@ -338,6 +338,19 @@ class AnalysisService:
                 await self._log_event(analysis_id, "ERROR", f"Traceback: {traceback.format_exc()}")
                 raise
             
+            # Save phase outputs alongside blueprint.json
+            phase_outputs = blueprint_result.get("phase_outputs", {})
+            if phase_outputs:
+                for phase_name, phase_data in phase_outputs.items():
+                    if phase_data:  # Skip empty phases
+                        phase_path = f"blueprints/{analysis.repository_id}/{phase_name}.json"
+                        try:
+                            phase_content = phase_data if isinstance(phase_data, str) else json.dumps(phase_data, indent=2, ensure_ascii=False)
+                            await self._persistent_storage.save(phase_path, phase_content)
+                        except Exception:
+                            pass  # Non-critical — blueprint.json is the source of truth
+                await self._log_event(analysis_id, "INFO", f"Phase outputs saved: {list(phase_outputs.keys())}")
+
             await self._log_event(analysis_id, "PHASE_END", "Phase 4 complete: Blueprint saved")
 
             # Phase 5: Extract and store architecture rules

@@ -8,6 +8,7 @@ import pytest
 from domain.entities.blueprint import (
     ArchitecturalDecision,
     ArchitectureRules,
+    ImplementationGuideline,
     BlueprintMeta,
     Communication,
     CommunicationPattern,
@@ -137,6 +138,26 @@ def sample_blueprint() -> StructuredBlueprint:
                 TechStackEntry(category="framework", name="FastAPI", version="0.104", purpose="Web framework"),
             ],
         ),
+        implementation_guidelines=[
+            ImplementationGuideline(
+                capability="Push Notifications",
+                category="notifications",
+                libraries=["Firebase Cloud Messaging 10.x"],
+                pattern_description="FCM topic-based subscriptions via NotificationService singleton.",
+                key_files=["Services/NotificationService.swift", "AppDelegate.swift"],
+                usage_example="NotificationService.shared.subscribe(topic: 'place_updates')",
+                tips=["Request notification permissions before subscribing", "Handle token refresh via FIRMessaging delegate"],
+            ),
+            ImplementationGuideline(
+                capability="Map Display",
+                category="location",
+                libraries=["Mapbox Maps SDK 10.x", "Core Location"],
+                pattern_description="MGLMapView wrapped in custom MapView. Annotations from PlacesService.",
+                key_files=["Controllers/MapViewController.swift", "Views/MapView.swift"],
+                usage_example="mapView.addAnnotations(places.map { PlaceAnnotation($0) })",
+                tips=["Limit annotations to ~100 per viewport", "Use clustering for large datasets"],
+            ),
+        ],
     )
 
 
@@ -361,3 +382,65 @@ class TestGlobDetection:
         content = generate_cursor_rules(bp)
         assert "**/*.py" in content
         assert "**/*.ts" in content
+
+
+# ── Implementation Guidelines tests ─────────────────────────────────────────
+
+
+class TestImplementationGuidelinesInClaudeMd:
+    """Tests for implementation guidelines in CLAUDE.md."""
+
+    def test_contains_heading(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "## Implementation Guidelines" in content
+
+    def test_contains_capabilities(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "Push Notifications" in content
+        assert "Map Display" in content
+
+    def test_contains_libraries(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "Firebase Cloud Messaging 10.x" in content
+        assert "Mapbox Maps SDK 10.x" in content
+
+    def test_contains_key_files(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "Services/NotificationService.swift" in content
+
+    def test_contains_pattern(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "FCM topic-based subscriptions" in content
+
+    def test_omitted_when_empty(self, minimal_blueprint):
+        content = generate_claude_md(minimal_blueprint)
+        assert "Implementation Guidelines" not in content
+
+
+class TestImplementationGuidelinesInCursorRules:
+    """Tests for implementation guidelines in Cursor rules."""
+
+    def test_contains_section_heading(self, sample_blueprint):
+        content = generate_cursor_rules(sample_blueprint)
+        assert "## Implementation Guidelines" in content
+
+    def test_contains_capabilities(self, sample_blueprint):
+        content = generate_cursor_rules(sample_blueprint)
+        assert "Push Notifications" in content
+        assert "Map Display" in content
+
+    def test_omitted_when_empty(self, minimal_blueprint):
+        content = generate_cursor_rules(minimal_blueprint)
+        assert "Implementation Guidelines" not in content
+
+
+class TestImplementationGuidelinesInAgentsMd:
+    """Tests for implementation guidelines in AGENTS.md."""
+
+    def test_count_shows_in_summary(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert "Implementation guidelines: 2" in content
+
+    def test_no_count_when_empty(self, minimal_blueprint):
+        content = generate_agents_md(minimal_blueprint)
+        assert "Implementation guidelines:" not in content

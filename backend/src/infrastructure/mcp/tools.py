@@ -339,3 +339,59 @@ class BlueprintTools:
             f"Available scopes: {', '.join(set(nc.scope for nc in bp.architecture_rules.naming_conventions))}"
         )
 
+    def how_to_implement(self, repo_id: str, feature: str) -> str:
+        """Find implementation guidelines for a capability/feature.
+
+        Args:
+            repo_id: Repository ID
+            feature: Feature or capability to look up (e.g. "push notifications", "maps", "auth")
+
+        Returns:
+            Matching implementation guidelines with libraries, patterns, and key files.
+        """
+        bp = self._load_structured_blueprint(repo_id)
+        if not bp:
+            return f"No structured blueprint found for repository '{repo_id}'."
+
+        if not bp.implementation_guidelines:
+            return (
+                f"No implementation guidelines available for repository '{repo_id}'.\n"
+                "Run a new analysis to generate implementation guidelines."
+            )
+
+        feature_lower = feature.lower().strip()
+        matches = []
+        for gl in bp.implementation_guidelines:
+            searchable = f"{gl.capability} {gl.category} {' '.join(gl.libraries)} {gl.pattern_description}".lower()
+            if feature_lower in searchable:
+                matches.append(gl)
+
+        if not matches:
+            available = [gl.capability for gl in bp.implementation_guidelines if gl.capability]
+            return (
+                f"No implementation guideline found for '{feature}'.\n"
+                f"Available capabilities: {', '.join(available) or 'none'}"
+            )
+
+        lines = [f"# How to implement: {feature}\n"]
+        for gl in matches:
+            lines.append(f"## {gl.capability}")
+            if gl.category:
+                lines.append(f"**Category:** {gl.category}")
+            if gl.libraries:
+                lines.append(f"**Libraries:** {', '.join(f'`{lib}`' for lib in gl.libraries)}")
+            if gl.pattern_description:
+                lines.append(f"**Pattern:** {gl.pattern_description}")
+            if gl.key_files:
+                lines.append("**Key files:**")
+                for f in gl.key_files:
+                    lines.append(f"- `{f}`")
+            if gl.usage_example:
+                lines.append(f"**Example:**\n```\n{gl.usage_example}\n```")
+            if gl.tips:
+                lines.append("**Tips:**")
+                for tip in gl.tips:
+                    lines.append(f"- {tip}")
+            lines.append("")
+        return "\n".join(lines)
+

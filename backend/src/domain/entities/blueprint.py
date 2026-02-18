@@ -307,6 +307,17 @@ class ArchitecturalPitfall(BaseModel):
     recommendation: str = ""
 
 
+class ImplementationGuideline(BaseModel):
+    """How an existing capability was implemented — replication guide for agents."""
+    capability: str = ""          # "Push Notifications", "Map Display"
+    category: str = ""            # "notifications", "location", "media", "auth", "persistence", "ui"
+    libraries: list[str] = Field(default_factory=list)  # ["Firebase Cloud Messaging 10.x"]
+    pattern_description: str = "" # 1-3 sentences: how it was built
+    key_files: list[str] = Field(default_factory=list)  # actual file paths
+    usage_example: str = ""       # code snippet or invocation pattern
+    tips: list[str] = Field(default_factory=list)        # gotchas for this capability
+
+
 # ── Top-Level Blueprint ──────────────────────────────────────────────────────
 
 class StructuredBlueprint(BaseModel):
@@ -327,3 +338,4 @@ class StructuredBlueprint(BaseModel):
     developer_recipes: list[DeveloperRecipe] = Field(default_factory=list)
     architecture_diagram: str = ""  # Mermaid graph TD syntax
     pitfalls: list[ArchitecturalPitfall] = Field(default_factory=list)
+    implementation_guidelines: list[ImplementationGuideline] = Field(default_factory=list)

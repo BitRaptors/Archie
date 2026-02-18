@@ -295,6 +295,25 @@ class PhasedBlueprintGenerator:
             if self._progress_callback and analysis_id:
                 await self._progress_callback(analysis_id, "INFO", "Frontend architecture analyzed")
 
+        # Implementation Analysis: identify existing capabilities
+        implementation_result = ""
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Analyzing implementation patterns...")
+        implementation_result = await self._run_implementation_analysis(
+            repository_name=repository_name,
+            repository_id=repository_id,
+            repo_path=repo_path,
+            technology=technology_result,
+            communication=communication_result,
+            patterns=patterns_result,
+            layers=layers_result,
+            code_samples=code_samples,
+            rag_enabled=rag_enabled,
+            analysis_id=analysis_id,
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Implementation analysis complete")
+
         # Final Synthesis: Generate structured JSON blueprint
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Generating unified architecture blueprint...")
@@ -314,7 +333,20 @@ class PhasedBlueprintGenerator:
             file_tree=file_tree,
             framework_usage=json.dumps(self._framework_usage) if self._framework_usage else "",
             provided_capabilities=provided_capabilities or {},
+            implementation_analysis=implementation_result,
         )
+
+        # Include phase outputs in the result for storage
+        synthesis_result["phase_outputs"] = {
+            "observation": observation_result,
+            "discovery": discovery_result,
+            "layers": layers_result,
+            "patterns": patterns_result,
+            "communication": communication_result,
+            "technology": technology_result,
+            "frontend_analysis": frontend_result if has_frontend else "",
+            "implementation_analysis": implementation_result,
+        }
 
         return synthesis_result
 
@@ -791,6 +823,77 @@ class PhasedBlueprintGenerator:
 
         return output_text
 
+    async def _run_implementation_analysis(
+        self,
+        repository_name: str,
+        repository_id: str | None,
+        repo_path: Path,
+        technology: str,
+        communication: str,
+        patterns: str,
+        layers: str,
+        code_samples: dict[str, str],
+        rag_enabled: bool,
+        analysis_id: str | None = None,
+    ) -> str:
+        """Run Implementation Analysis: identify existing capabilities and how they were built."""
+        prompt = await self._load_prompt("implementation_analysis")
+
+        code_to_analyze, source_label = await self._get_phase_code(
+            phase="technology",  # reuse technology phase files as closest match
+            repository_id=repository_id,
+            repo_path=repo_path,
+            rag_enabled=rag_enabled,
+            code_samples=code_samples,
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Implementation context: {source_label} ({len(code_to_analyze):,} chars)",
+            )
+
+        prompt_text = prompt.render({
+            "repository_name": repository_name,
+            "technology": technology[:5000],
+            "communication": communication[:3000],
+            "patterns": patterns[:3000],
+            "layers": layers[:3000],
+            "code_samples": code_to_analyze[:10_000],
+        })
+
+        response = await self._call_ai(
+            phase_name="implementation_analysis",
+            analysis_id=analysis_id,
+            model=self._model,
+            max_tokens=10000,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+
+        output_text = response.content[0].text
+
+        if analysis_id:
+            await analysis_data_collector.capture_phase_data(analysis_id, "implementation_analysis",
+                gathered={
+                    "technology": {"full_content": technology, "char_count": len(technology)},
+                    "communication": {"full_content": communication, "char_count": len(communication)},
+                    "patterns": {"full_content": patterns, "char_count": len(patterns)},
+                    "layers": {"full_content": layers, "char_count": len(layers)},
+                    "code_samples": {"full_content": code_to_analyze, "char_count": len(code_to_analyze)},
+                },
+                sent={
+                    "technology": {"content": technology[:5000], "char_count": len(technology[:5000]), "truncated_from": len(technology)},
+                    "communication": {"content": communication[:3000], "char_count": len(communication[:3000]), "truncated_from": len(communication)},
+                    "patterns": {"content": patterns[:3000], "char_count": len(patterns[:3000]), "truncated_from": len(patterns)},
+                    "layers": {"content": layers[:3000], "char_count": len(layers[:3000]), "truncated_from": len(layers)},
+                    "code_samples": {"content": code_to_analyze[:10_000], "char_count": len(code_to_analyze[:10_000]), "truncated_from": len(code_to_analyze)},
+                    "source_label": source_label,
+                    "full_prompt": prompt_text,
+                },
+                output=output_text,
+            )
+
+        return output_text
+
     async def _run_blueprint_synthesis(
         self,
         repository_name: str,
@@ -807,6 +910,7 @@ class PhasedBlueprintGenerator:
         file_tree: str = "",
         framework_usage: str = "",
         provided_capabilities: dict[str, list[str]] | None = None,
+        implementation_analysis: str = "",
     ) -> dict[str, Any]:
         """Run Blueprint Synthesis: Generate structured JSON blueprint.
 
@@ -849,6 +953,7 @@ class PhasedBlueprintGenerator:
             "communication": communication[:10000],
             "technology": technology[:10000],
             "frontend_analysis": frontend_analysis[:10000] if frontend_analysis else "No frontend/UI layer detected.",
+            "implementation_analysis": implementation_analysis[:10000] if implementation_analysis else "No implementation analysis available.",
             "code_samples": code_samples[:10000],
             "platform_hint": platform_hint,
             "file_tree": file_tree[:10000],
