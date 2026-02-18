@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, Loader2, CheckCircle2, X } from 'lucide-react'
+import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { useAuth } from '@/hooks/useAuth'
 import { SERVER_TOKEN } from '@/context/auth'
 import { useActiveRepository, useSetActiveRepository, useDeleteRepository, useWorkspaceRepositories } from '@/hooks/api/useWorkspace'
@@ -376,7 +377,24 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                 Download Markdown
                             </Button>
                             <div className="prose dark:prose-invert max-w-none">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                        code({ className, children, ...props }) {
+                                            if (className === 'language-mermaid') {
+                                                return <MermaidDiagram chart={String(children).trim()} />
+                                            }
+                                            return <code className={className} {...props}>{children}</code>
+                                        },
+                                        pre({ children, node, ...props }) {
+                                            const child = node?.children?.[0] as any
+                                            if (child?.tagName === 'code' && child?.properties?.className?.[0] === 'language-mermaid') {
+                                                return <>{children}</>
+                                            }
+                                            return <pre {...props}>{children}</pre>
+                                        },
+                                    }}
+                                >
                                     {backendBlueprint.content}
                                 </ReactMarkdown>
                             </div>

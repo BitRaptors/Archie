@@ -45,6 +45,8 @@ class PhasedBlueprintGenerator:
         self._progress_callback = progress_callback
         self._rag_retriever = RAGRetriever(db_client, progress_callback) if db_client else None
         self._db_client = db_client
+        self._framework_usage: dict[str, str] = {}  # Populated by observation phase
+        self._phase_files: dict[str, dict[str, str]] = {}  # phase → {filepath: content}
 
     async def _load_prompt(self, key: str):
         """Load a prompt by key, handling both sync and async loaders."""
@@ -115,7 +117,26 @@ class PhasedBlueprintGenerator:
         
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Observation complete - detected architecture style and patterns")
-        
+
+        # PHASE 0.5: Smart File Reading — read full content of priority files
+        priority_map = self._parse_priority_files(observation_result)
+        if priority_map:
+            if self._progress_callback and analysis_id:
+                total_files = len({f for paths in priority_map.values() for f in paths})
+                await self._progress_callback(
+                    analysis_id, "INFO",
+                    f"Phase 0.5: Reading full content of {total_files} AI-selected priority files...",
+                )
+            self._phase_files = await self._read_priority_files(
+                repo_path, priority_map, analysis_id=analysis_id
+            )
+        else:
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(
+                    analysis_id, "INFO",
+                    "Phase 0.5: No priority files identified — phases will use fallback code samples",
+                )
+
         # Update RAG queries based on observations (if RAG is enabled)
         custom_rag_queries = None
         if rag_enabled and observation_result:
@@ -253,6 +274,8 @@ class PhasedBlueprintGenerator:
             has_frontend=has_frontend,
             code_samples=self._format_code_samples(code_samples),
             analysis_id=analysis_id,
+            file_tree=file_tree,
+            framework_usage=json.dumps(self._framework_usage) if self._framework_usage else "",
         )
 
         return synthesis_result
@@ -336,45 +359,53 @@ class PhasedBlueprintGenerator:
         Enhanced with observation results from the full file scan phase.
         """
         prompt = await self._load_prompt("discovery")
-        
-        # Get relevant code via RAG if available
-        retrieved_code = ""
-        if rag_enabled and repository_id:
-            retrieved_code = await self._retrieve_relevant_code(
-                "discovery", repository_id, repo_path
-            )
-        
+
         config_files_str = "\n\n".join([
             f"**{filename}:**\n```\n{content[:500]}...\n```"
             for filename, content in config_files.items()
         ])
-        
-        # Combine static samples with RAG-retrieved code
-        all_code = retrieved_code or config_files_str[:1000]
-        
+
+        # Get code context via priority cascade
+        code_to_analyze, source_label = await self._get_phase_code(
+            phase="discovery",
+            repository_id=repository_id,
+            repo_path=repo_path,
+            rag_enabled=rag_enabled,
+            code_samples=config_files,  # discovery uses config_files as fallback
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Discovery context: {source_label} ({len(code_to_analyze):,} chars)",
+            )
+
+        # If fallback returned config_files, use the formatted version instead
+        if source_label == "fallback":
+            code_to_analyze = config_files_str[:1000]
+
         # Include observation insights in the prompt
         observation_context = ""
         if observation_result:
             observation_context = f"\n\n## Architecture Observations (from full file scan)\n{observation_result[:2000]}\n\nUse these observations to inform your discovery analysis."
-        
+
         prompt_text = prompt.render({
             "repository_name": repository_name,
             "file_tree": file_tree[:3000],
             "dependencies": dependencies[:1500],
-            "config_files": all_code[:4000] + observation_context,
+            "config_files": code_to_analyze[:12_000] + observation_context,
         })
-        
+
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=2000,
+            max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
         )
-        
+
         output_text = response.content[0].text
 
         # Capture analysis data if analysis_id is provided
         if analysis_id:
-            await analysis_data_collector.capture_phase_data(analysis_id, "discovery", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "discovery",
                 gathered={
                     "file_tree": {"full_content": file_tree, "char_count": len(file_tree)},
                     "dependencies": {"full_content": dependencies, "char_count": len(dependencies)},
@@ -383,13 +414,13 @@ class PhasedBlueprintGenerator:
                 sent={
                     "file_tree": {"content": file_tree[:3000], "char_count": len(file_tree[:3000]), "truncated_from": len(file_tree)},
                     "dependencies": {"content": dependencies[:1500], "char_count": len(dependencies[:1500]), "truncated_from": len(dependencies)},
-                    "config_files": {"content": all_code[:4000], "char_count": len(all_code[:4000]), "truncated_from": len(all_code)},
+                    "config_files": {"content": code_to_analyze[:12_000], "char_count": len(code_to_analyze[:12_000]), "truncated_from": len(code_to_analyze)},
+                    "source_label": source_label,
                     "full_prompt": prompt_text
                 },
                 output=output_text,
-                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
-        
+
         return output_text
 
     async def _run_layers_analysis(
@@ -405,38 +436,38 @@ class PhasedBlueprintGenerator:
     ) -> str:
         """Run Layers analysis: identify architectural layers."""
         prompt = await self._load_prompt("layers")
-        
-        # Get relevant code via RAG if available
-        retrieved_code = ""
-        if rag_enabled and repository_id:
-            # Pass discovery context for smarter retrieval
-            context = {"stage": "discovery", "summary": discovery_summary[:500]}
-            retrieved_code = await self._retrieve_relevant_code(
-                "layers", repository_id, repo_path, context
+
+        code_to_analyze, source_label = await self._get_phase_code(
+            phase="layers",
+            repository_id=repository_id,
+            repo_path=repo_path,
+            rag_enabled=rag_enabled,
+            code_samples=code_samples,
+            rag_context={"stage": "discovery", "summary": discovery_summary[:500]},
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Layers context: {source_label} ({len(code_to_analyze):,} chars)",
             )
-        
-        # Fall back to samples if RAG didn't return results
-        formatted_samples = self._format_code_samples(code_samples, limit=5)
-        code_to_analyze = retrieved_code or formatted_samples
-        
+
         prompt_text = prompt.render({
             "repository_name": repository_name,
             "discovery_summary": discovery_summary[:1500],
             "file_tree": file_tree[:2500],
-            "code_samples": code_to_analyze[:5000],
+            "code_samples": code_to_analyze[:15_000],
         })
-        
+
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=2500,
+            max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
         )
-        
+
         output_text = response.content[0].text
 
-        # Capture analysis data if analysis_id is provided
         if analysis_id:
-            await analysis_data_collector.capture_phase_data(analysis_id, "layers", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "layers",
                 gathered={
                     "discovery_summary": {"full_content": discovery_summary, "char_count": len(discovery_summary)},
                     "file_tree": {"full_content": file_tree, "char_count": len(file_tree)},
@@ -445,13 +476,13 @@ class PhasedBlueprintGenerator:
                 sent={
                     "discovery_summary": {"content": discovery_summary[:1500], "char_count": len(discovery_summary[:1500]), "truncated_from": len(discovery_summary)},
                     "file_tree": {"content": file_tree[:2500], "char_count": len(file_tree[:2500]), "truncated_from": len(file_tree)},
-                    "code_samples": {"content": code_to_analyze[:5000], "char_count": len(code_to_analyze[:5000]), "truncated_from": len(code_to_analyze)},
+                    "code_samples": {"content": code_to_analyze[:15_000], "char_count": len(code_to_analyze[:15_000]), "truncated_from": len(code_to_analyze)},
+                    "source_label": source_label,
                     "full_prompt": prompt_text
                 },
                 output=output_text,
-                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
-        
+
         return output_text
 
     async def _run_patterns_analysis(
@@ -467,39 +498,38 @@ class PhasedBlueprintGenerator:
     ) -> str:
         """Run Patterns analysis: identify design patterns."""
         prompt = await self._load_prompt("patterns")
-        
-        # Get relevant code via RAG if available
-        retrieved_code = ""
-        if rag_enabled and repository_id:
-            context = {
-                "layers": layer_analysis[:500],
-                "discovery": discovery_summary[:300],
-            }
-            retrieved_code = await self._retrieve_relevant_code(
-                "patterns", repository_id, repo_path, context
+
+        code_to_analyze, source_label = await self._get_phase_code(
+            phase="patterns",
+            repository_id=repository_id,
+            repo_path=repo_path,
+            rag_enabled=rag_enabled,
+            code_samples=code_samples,
+            rag_context={"layers": layer_analysis[:500], "discovery": discovery_summary[:300]},
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Patterns context: {source_label} ({len(code_to_analyze):,} chars)",
             )
-        
-        formatted_samples = self._format_code_samples(code_samples, limit=8)
-        code_to_analyze = retrieved_code or formatted_samples
-        
+
         prompt_text = prompt.render({
             "repository_name": repository_name,
             "discovery_summary": discovery_summary[:1000],
             "layer_analysis": layer_analysis[:1500],
-            "code_samples": code_to_analyze[:6000],
+            "code_samples": code_to_analyze[:15_000],
         })
-        
+
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=3000,
+            max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
         )
-        
+
         output_text = response.content[0].text
 
-        # Capture analysis data
         if analysis_id:
-            await analysis_data_collector.capture_phase_data(analysis_id, "patterns", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "patterns",
                 gathered={
                     "discovery_summary": {"full_content": discovery_summary, "char_count": len(discovery_summary)},
                     "layer_analysis": {"full_content": layer_analysis, "char_count": len(layer_analysis)},
@@ -508,13 +538,13 @@ class PhasedBlueprintGenerator:
                 sent={
                     "discovery_summary": {"content": discovery_summary[:1000], "char_count": len(discovery_summary[:1000]), "truncated_from": len(discovery_summary)},
                     "layer_analysis": {"content": layer_analysis[:1500], "char_count": len(layer_analysis[:1500]), "truncated_from": len(layer_analysis)},
-                    "code_samples": {"content": code_to_analyze[:6000], "char_count": len(code_to_analyze[:6000]), "truncated_from": len(code_to_analyze)},
+                    "code_samples": {"content": code_to_analyze[:15_000], "char_count": len(code_to_analyze[:15_000]), "truncated_from": len(code_to_analyze)},
+                    "source_label": source_label,
                     "full_prompt": prompt_text
                 },
                 output=output_text,
-                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
-        
+
         return output_text
 
     async def _run_communication_analysis(
@@ -529,47 +559,49 @@ class PhasedBlueprintGenerator:
     ) -> str:
         """Run Communication analysis: how components communicate."""
         prompt = await self._load_prompt("communication")
-        
-        # Get relevant code via RAG if available
-        retrieved_code = ""
-        if rag_enabled and repository_id:
-            retrieved_code = await self._retrieve_relevant_code(
-                "communication", repository_id, repo_path
+
+        code_to_analyze, source_label = await self._get_phase_code(
+            phase="communication",
+            repository_id=repository_id,
+            repo_path=repo_path,
+            rag_enabled=rag_enabled,
+            code_samples=code_samples,
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Communication context: {source_label} ({len(code_to_analyze):,} chars)",
             )
-        
-        formatted_samples = self._format_code_samples(code_samples, limit=6)
-        code_to_analyze = retrieved_code or formatted_samples
-        
+
         prompt_text = prompt.render({
             "repository_name": repository_name,
             "previous_analyses": previous_analyses[:3000],
-            "code_samples": code_to_analyze[:5000],
+            "code_samples": code_to_analyze[:12_000],
         })
-        
+
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=2500,
+            max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
         )
-        
+
         output_text = response.content[0].text
 
-        # Capture analysis data
         if analysis_id:
-            await analysis_data_collector.capture_phase_data(analysis_id, "communication", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "communication",
                 gathered={
                     "previous_analyses": {"full_content": previous_analyses, "char_count": len(previous_analyses)},
                     "code_samples": {"full_content": code_to_analyze, "char_count": len(code_to_analyze)}
                 },
                 sent={
                     "previous_analyses": {"content": previous_analyses[:3000], "char_count": len(previous_analyses[:3000]), "truncated_from": len(previous_analyses)},
-                    "code_samples": {"content": code_to_analyze[:5000], "char_count": len(code_to_analyze[:5000]), "truncated_from": len(code_to_analyze)},
+                    "code_samples": {"content": code_to_analyze[:12_000], "char_count": len(code_to_analyze[:12_000]), "truncated_from": len(code_to_analyze)},
+                    "source_label": source_label,
                     "full_prompt": prompt_text
                 },
                 output=output_text,
-                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
-        
+
         return output_text
 
     async def _run_technology_analysis(
@@ -584,47 +616,52 @@ class PhasedBlueprintGenerator:
     ) -> str:
         """Run Technology analysis: complete tech stack inventory."""
         prompt = await self._load_prompt("technology")
-        
-        # Get relevant code via RAG if available
-        retrieved_code = ""
-        if rag_enabled and repository_id:
-            retrieved_code = await self._retrieve_relevant_code(
-                "technology", repository_id, repo_path
+
+        code_to_analyze, source_label = await self._get_phase_code(
+            phase="technology",
+            repository_id=repository_id,
+            repo_path=repo_path,
+            rag_enabled=rag_enabled,
+            code_samples={},  # technology phase uses dependencies, not code_samples
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Technology context: {source_label} ({len(code_to_analyze):,} chars)",
             )
-        
-        # Combine dependencies with retrieved code for tech analysis
-        tech_context = f"{dependencies[:2000]}\n\n{retrieved_code[:3000]}"
-        
+
+        # Combine dependencies with retrieved/targeted code for tech analysis
+        tech_context = f"{dependencies[:2000]}\n\n{code_to_analyze[:10_000]}"
+
         prompt_text = prompt.render({
             "repository_name": repository_name,
             "all_analyses": all_analyses[:3500],
             "dependencies": tech_context,
         })
-        
+
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=2500,
+            max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
         )
-        
+
         output_text = response.content[0].text
 
-        # Capture analysis data
         if analysis_id:
-            await analysis_data_collector.capture_phase_data(analysis_id, "technology", 
+            await analysis_data_collector.capture_phase_data(analysis_id, "technology",
                 gathered={
                     "all_analyses": {"full_content": all_analyses, "char_count": len(all_analyses)},
                     "dependencies": {"full_content": dependencies, "char_count": len(dependencies)}
                 },
                 sent={
                     "all_analyses": {"content": all_analyses[:3500], "char_count": len(all_analyses[:3500]), "truncated_from": len(all_analyses)},
-                    "dependencies": {"content": tech_context, "char_count": len(tech_context), "truncated_from": len(dependencies) + len(retrieved_code)},
+                    "dependencies": {"content": tech_context, "char_count": len(tech_context), "truncated_from": len(dependencies) + len(code_to_analyze)},
+                    "source_label": source_label,
                     "full_prompt": prompt_text
                 },
                 output=output_text,
-                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
-        
+
         return output_text
 
     def _detect_frontend(self, discovery_result: str, file_tree: str, dependencies: str) -> bool:
@@ -659,25 +696,29 @@ class PhasedBlueprintGenerator:
         """Run Frontend analysis: UI components, state, routing, data fetching."""
         prompt = await self._load_prompt("frontend_analysis")
 
-        # Get relevant code via RAG if available
-        retrieved_code = ""
-        if rag_enabled and repository_id:
-            retrieved_code = await self._retrieve_relevant_code(
-                "frontend_analysis", repository_id, repo_path
+        code_to_analyze, source_label = await self._get_phase_code(
+            phase="frontend",
+            repository_id=repository_id,
+            repo_path=repo_path,
+            rag_enabled=rag_enabled,
+            code_samples=code_samples,
+            rag_context={"stage": "frontend_analysis"},
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Frontend context: {source_label} ({len(code_to_analyze):,} chars)",
             )
-
-        formatted_samples = self._format_code_samples(code_samples, limit=8)
-        code_to_analyze = retrieved_code or formatted_samples
 
         prompt_text = prompt.render({
             "repository_name": repository_name,
             "previous_analyses": previous_analyses[:3000],
-            "code_samples": code_to_analyze[:6000],
+            "code_samples": code_to_analyze[:15_000],
         })
 
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=3000,
+            max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
         )
 
@@ -691,11 +732,11 @@ class PhasedBlueprintGenerator:
                 },
                 sent={
                     "previous_analyses": {"content": previous_analyses[:3000], "char_count": len(previous_analyses[:3000]), "truncated_from": len(previous_analyses)},
-                    "code_samples": {"content": code_to_analyze[:6000], "char_count": len(code_to_analyze[:6000]), "truncated_from": len(code_to_analyze)},
+                    "code_samples": {"content": code_to_analyze[:15_000], "char_count": len(code_to_analyze[:15_000]), "truncated_from": len(code_to_analyze)},
+                    "source_label": source_label,
                     "full_prompt": prompt_text
                 },
                 output=output_text,
-                rag_retrieved={"content": retrieved_code, "char_count": len(retrieved_code)} if retrieved_code else None
             )
 
         return output_text
@@ -713,6 +754,8 @@ class PhasedBlueprintGenerator:
         has_frontend: bool,
         code_samples: str,
         analysis_id: str | None = None,
+        file_tree: str = "",
+        framework_usage: str = "",
     ) -> dict[str, Any]:
         """Run Blueprint Synthesis: Generate structured JSON blueprint.
 
@@ -735,14 +778,16 @@ class PhasedBlueprintGenerator:
 
         prompt_text = prompt.render({
             "repository_name": repository_name,
-            "discovery": discovery[:2500],
-            "layers": layers[:2500],
-            "patterns": patterns[:2500],
-            "communication": communication[:2500],
-            "technology": technology[:2500],
-            "frontend_analysis": frontend_analysis[:3000] if frontend_analysis else "No frontend/UI layer detected.",
-            "code_samples": code_samples[:4000],
+            "discovery": discovery[:10000],
+            "layers": layers[:10000],
+            "patterns": patterns[:10000],
+            "communication": communication[:10000],
+            "technology": technology[:10000],
+            "frontend_analysis": frontend_analysis[:10000] if frontend_analysis else "No frontend/UI layer detected.",
+            "code_samples": code_samples[:10000],
             "platform_hint": platform_hint,
+            "file_tree": file_tree[:10000],
+            "framework_usage": framework_usage[:10000],
         })
 
         if self._progress_callback and analysis_id:
@@ -760,6 +805,16 @@ class PhasedBlueprintGenerator:
 
         raw_text = response.content[0].text
 
+        # Detect truncation — the most common cause of unparseable JSON
+        if response.stop_reason == "max_tokens":
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(
+                    analysis_id,
+                    "WARNING",
+                    f"Synthesis output was TRUNCATED (hit {self._synthesis_max_tokens} max_tokens). "
+                    f"JSON will likely be incomplete. Consider increasing SYNTHESIS_MAX_TOKENS.",
+                )
+
         if analysis_id:
             await analysis_data_collector.capture_phase_data(analysis_id, "blueprint_synthesis",
                 gathered={
@@ -769,16 +824,20 @@ class PhasedBlueprintGenerator:
                     "communication": {"full_content": communication, "char_count": len(communication)},
                     "technology": {"full_content": technology, "char_count": len(technology)},
                     "frontend_analysis": {"full_content": frontend_analysis, "char_count": len(frontend_analysis)},
-                    "code_samples": {"full_content": code_samples, "char_count": len(code_samples)}
+                    "code_samples": {"full_content": code_samples, "char_count": len(code_samples)},
+                    "file_tree": {"full_content": file_tree, "char_count": len(file_tree)},
+                    "framework_usage": {"full_content": framework_usage, "char_count": len(framework_usage)},
                 },
                 sent={
-                    "discovery": {"content": discovery[:2500], "char_count": len(discovery[:2500]), "truncated_from": len(discovery)},
-                    "layers": {"content": layers[:2500], "char_count": len(layers[:2500]), "truncated_from": len(layers)},
-                    "patterns": {"content": patterns[:2500], "char_count": len(patterns[:2500]), "truncated_from": len(patterns)},
-                    "communication": {"content": communication[:2500], "char_count": len(communication[:2500]), "truncated_from": len(communication)},
-                    "technology": {"content": technology[:2500], "char_count": len(technology[:2500]), "truncated_from": len(technology)},
-                    "frontend_analysis": {"content": (frontend_analysis[:3000] if frontend_analysis else ""), "char_count": len(frontend_analysis[:3000] if frontend_analysis else ""), "truncated_from": len(frontend_analysis)},
-                    "code_samples": {"content": code_samples[:4000], "char_count": len(code_samples[:4000]), "truncated_from": len(code_samples)},
+                    "discovery": {"content": discovery[:10000], "char_count": len(discovery[:10000]), "truncated_from": len(discovery)},
+                    "layers": {"content": layers[:10000], "char_count": len(layers[:10000]), "truncated_from": len(layers)},
+                    "patterns": {"content": patterns[:10000], "char_count": len(patterns[:10000]), "truncated_from": len(patterns)},
+                    "communication": {"content": communication[:10000], "char_count": len(communication[:10000]), "truncated_from": len(communication)},
+                    "technology": {"content": technology[:10000], "char_count": len(technology[:10000]), "truncated_from": len(technology)},
+                    "frontend_analysis": {"content": (frontend_analysis[:10000] if frontend_analysis else ""), "char_count": len(frontend_analysis[:10000] if frontend_analysis else ""), "truncated_from": len(frontend_analysis)},
+                    "code_samples": {"content": code_samples[:10000], "char_count": len(code_samples[:10000]), "truncated_from": len(code_samples)},
+                    "file_tree": {"content": file_tree[:10000], "char_count": len(file_tree[:10000]), "truncated_from": len(file_tree)},
+                    "framework_usage": {"content": framework_usage[:10000], "char_count": len(framework_usage[:10000]), "truncated_from": len(framework_usage)},
                     "full_prompt": prompt_text
                 },
                 output=raw_text
@@ -956,6 +1015,186 @@ class PhasedBlueprintGenerator:
             return None
 
 
+    def _parse_priority_files(self, observation_result: str) -> dict[str, list[str]]:
+        """Parse priority_files_by_phase from observation JSON output.
+
+        Also merges file paths from detected_components[].examples into
+        the 'discovery' list so the discovery phase sees concrete examples.
+
+        Returns:
+            Mapping of phase name → list of file paths, or {} on any error.
+        """
+        try:
+            text = observation_result
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            parsed = json.loads(text)
+            priority_map: dict[str, list[str]] = parsed.get("priority_files_by_phase", {})
+
+            if not isinstance(priority_map, dict):
+                return {}
+
+            # Merge detected_components examples into discovery
+            components = parsed.get("detected_components", [])
+            extra_discovery: list[str] = []
+            for comp in components:
+                examples = comp.get("examples", [])
+                if isinstance(examples, list):
+                    extra_discovery.extend(examples)
+
+            if extra_discovery:
+                existing = priority_map.get("discovery", [])
+                merged = list(dict.fromkeys(existing + extra_discovery))  # dedupe, preserve order
+                priority_map["discovery"] = merged
+
+            return priority_map
+        except Exception:
+            return {}
+
+    async def _read_priority_files(
+        self,
+        repo_path: Path,
+        priority_map: dict[str, list[str]],
+        total_budget_chars: int = 150_000,
+        per_file_max_chars: int = 10_000,
+        analysis_id: str | None = None,
+    ) -> dict[str, dict[str, str]]:
+        """Read full content of priority files identified by observation phase.
+
+        Reads each unique file once into a cache, then distributes content into
+        per-phase dictionaries.
+
+        Args:
+            repo_path: Path to cloned repository.
+            priority_map: phase → list of file paths (relative to repo root).
+            total_budget_chars: Max total characters to read across all files.
+            per_file_max_chars: Max characters per individual file.
+            analysis_id: For progress logging.
+
+        Returns:
+            Mapping of phase → {filepath: content}.
+        """
+        # Collect all unique file paths across phases
+        all_paths: list[str] = []
+        seen: set[str] = set()
+        for paths in priority_map.values():
+            if not isinstance(paths, list):
+                continue
+            for p in paths:
+                if p not in seen:
+                    seen.add(p)
+                    all_paths.append(p)
+
+        # Read each file once into a shared cache
+        file_cache: dict[str, str] = {}
+        total_chars = 0
+
+        for rel_path in all_paths:
+            if total_chars >= total_budget_chars:
+                break
+            full_path = repo_path / rel_path
+            try:
+                content = full_path.read_text(encoding="utf-8", errors="ignore")
+                truncated = content[:per_file_max_chars]
+                file_cache[rel_path] = truncated
+                total_chars += len(truncated)
+            except Exception:
+                continue  # skip missing / unreadable files
+
+        # Distribute cached content into per-phase structure
+        result: dict[str, dict[str, str]] = {}
+        for phase, paths in priority_map.items():
+            if not isinstance(paths, list):
+                continue
+            phase_dict: dict[str, str] = {}
+            for p in paths:
+                if p in file_cache:
+                    phase_dict[p] = file_cache[p]
+            if phase_dict:
+                result[phase] = phase_dict
+
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id,
+                "INFO",
+                f"Phase 0.5: Read {len(file_cache)} priority files ({total_chars:,} chars) for per-phase context",
+            )
+
+        return result
+
+    def _build_phase_context(self, phase: str, max_chars: int = 20_000) -> str:
+        """Build formatted context string from priority files for a phase.
+
+        Args:
+            phase: The analysis phase name.
+            max_chars: Maximum total characters for the context block.
+
+        Returns:
+            Formatted string with file headings and code blocks, or "".
+        """
+        files = self._phase_files.get(phase, {})
+        if not files:
+            return ""
+
+        parts: list[str] = []
+        total = 0
+        for filepath, content in files.items():
+            block = f"**{filepath}** (full content):\n```\n{content}\n```\n"
+            if total + len(block) > max_chars:
+                remaining = max_chars - total
+                if remaining > 100:
+                    parts.append(block[:remaining] + "\n...(truncated)")
+                break
+            parts.append(block)
+            total += len(block)
+
+        return "\n".join(parts)
+
+    async def _get_phase_code(
+        self,
+        phase: str,
+        repository_id: str | None,
+        repo_path: Path,
+        rag_enabled: bool,
+        code_samples: dict[str, str],
+        rag_context: dict | None = None,
+        max_chars: int = 15_000,
+    ) -> tuple[str, str]:
+        """Get code context for a phase using priority cascade.
+
+        Priority:
+        1. RAG + targeted: RAG chunks combined with phase-specific files.
+        2. Targeted only: phase-specific files from _build_phase_context().
+        3. Fallback: formatted code_samples.
+
+        Returns:
+            (code_text, source_label) where label is one of
+            "rag+targeted", "targeted", or "fallback".
+        """
+        # Try RAG retrieval
+        retrieved_code = ""
+        if rag_enabled and repository_id:
+            retrieved_code = await self._retrieve_relevant_code(
+                phase, repository_id, repo_path, rag_context
+            )
+
+        # Get targeted phase context
+        targeted = self._build_phase_context(phase, max_chars=max_chars)
+
+        if retrieved_code and targeted:
+            combined = retrieved_code + "\n\n## Targeted File Content\n" + targeted
+            return combined[:max_chars], "rag+targeted"
+
+        if targeted:
+            return targeted[:max_chars], "targeted"
+
+        if retrieved_code:
+            return retrieved_code[:max_chars], "rag"
+
+        # Fallback to code samples
+        formatted = self._format_code_samples(code_samples, limit=5)
+        return formatted[:max_chars], "fallback"
+
     def _format_code_samples(self, code_samples: dict[str, str], limit: int = 10) -> str:
         """Format code samples for inclusion in prompts.
         
@@ -1017,86 +1256,45 @@ Please configure the Anthropic API key to enable full blueprint generation.
         """
         # Extract file signatures from ALL code files
         file_signatures = await self._extract_all_file_signatures(repo_path, analysis_id)
-        
+
         if not file_signatures:
             return "No code files found for observation."
-        
-        # Build the observation prompt
-        prompt_text = f"""## Architecture Observation - {repository_name}
 
-**CRITICAL INSTRUCTIONS:**
-You are analyzing a codebase to understand its architecture. Your goal is to OBSERVE and DESCRIBE what exists, NOT to categorize it into known patterns.
-
-**DO NOT:**
-- Assume this is a "layered architecture", "MVC", "Clean Architecture", or any specific pattern
-- Look for patterns that match your training data
-- Force observations into predefined categories
-
-**DO:**
-- Describe the ACTUAL file organization you see
-- Identify how files relate to each other based on naming and imports
-- Note any conventions unique to this codebase
-- Describe the architectural style in plain language
-- Identify what makes this codebase unique
-
-## File Signatures (Every code file in the repository)
-
-{file_signatures}
-
-## Your Task
-
-1. **Describe the Organization**: How are files/modules organized? What's the directory structure communicating?
-
-2. **Identify Components**: What are the main types of components? (Don't assume - observe from class names, file names, imports)
-
-3. **Trace Dependencies**: Based on imports, how do components relate to each other?
-
-4. **Detect Patterns**: What patterns or conventions are being used? (Could be standard, could be custom)
-
-5. **Architecture Style**: In plain language, describe the architectural style. Examples:
-   - "Actor-based with message passing"
-   - "Event-sourced with CQRS separation"
-   - "Feature-sliced with co-located concerns"
-   - "Traditional layered with services and repositories"
-   - "Functional core with imperative shell"
-   - Or describe something completely unique
-
-6. **Key Queries**: What specific terms/patterns should we search for to understand this codebase better?
-
-Provide your analysis in JSON format:
-```json
-{{
-  "organization_style": "Brief description of how files are organized",
-  "detected_components": [
-    {{"type": "component type observed", "naming_pattern": "how they're named", "examples": ["file1.ext", "file2.ext"]}}
-  ],
-  "dependency_flow": "How dependencies flow between components",
-  "architecture_style": "Plain language description of the architecture",
-  "unique_patterns": ["Patterns unique to this codebase"],
-  "standard_patterns_if_any": ["Any recognizable patterns, if present"],
-  "key_search_terms": ["Terms to search for to understand this architecture better"],
-  "concerns": ["Any architectural concerns or unusual patterns noted"]
-}}
-```"""
+        # Build the observation prompt from loader
+        prompt = await self._load_prompt("observation")
+        prompt_text = prompt.render({
+            "repository_name": repository_name,
+            "file_signatures": file_signatures,
+        })
 
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=3000,
+            max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
         )
-        
+
         output_text = response.content[0].text
 
         # Capture analysis data
         if analysis_id:
             await analysis_data_collector.capture_phase_data(
-                analysis_id, 
+                analysis_id,
                 "observation",
                 gathered={"file_signatures": {"full_content": file_signatures, "char_count": len(file_signatures)}},
                 sent={"file_signatures": {"content": file_signatures, "char_count": len(file_signatures)}, "full_prompt": prompt_text},
                 output=output_text
             )
-        
+
+        # Extract framework_usage from observation result
+        try:
+            obs_json = output_text
+            if "```json" in obs_json:
+                obs_json = obs_json.split("```json")[1].split("```")[0]
+            parsed = json.loads(obs_json)
+            self._framework_usage = parsed.get("framework_usage", {})
+        except Exception:
+            self._framework_usage = {}
+
         return output_text
 
     async def _extract_all_file_signatures(

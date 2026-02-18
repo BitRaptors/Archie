@@ -252,7 +252,7 @@ class TestRendererFrontendSection:
 
     def test_renders_frontend_section_header(self, fullstack_blueprint):
         md = render_blueprint_markdown(fullstack_blueprint)
-        assert "## 7. Frontend Architecture" in md
+        assert "## 12. Frontend Architecture" in md
 
     def test_renders_framework(self, fullstack_blueprint):
         md = render_blueprint_markdown(fullstack_blueprint)
@@ -317,12 +317,12 @@ class TestRendererFrontendSection:
 
     def test_no_frontend_section_for_backend_only(self, backend_only_blueprint):
         md = render_blueprint_markdown(backend_only_blueprint)
-        assert "## 7. Frontend Architecture" not in md
+        assert "## 12. Frontend Architecture" not in md
 
     def test_backend_only_still_renders_other_sections(self, backend_only_blueprint):
         md = render_blueprint_markdown(backend_only_blueprint)
-        assert "## 1. Architectural Decisions" in md
-        assert "## 6. Technology Stack" in md
+        assert "## 1. Architecture Overview" in md
+        assert "## 9. Technology Stack" in md
 
 
 # ── Agent File Generator: CLAUDE.md Frontend Tests ───────────────────────────
@@ -488,8 +488,8 @@ class TestUnifiedPipelinePath:
 
             # Build responses for each phase
             responses = [
-                # Observation phase
-                '```json\n{"architecture_style": "Full-stack Next.js", "key_search_terms": ["React", "Next.js"]}\n```',
+                # Observation phase (includes priority_files_by_phase)
+                '```json\n{"architecture_style": "Full-stack Next.js", "key_search_terms": ["React", "Next.js"], "priority_files_by_phase": {"discovery": [], "layers": [], "patterns": [], "communication": [], "technology": [], "frontend": []}}\n```',
                 # RAG query generation (won't be called without RAG, but just in case)
                 '```json\n{"discovery": ["structure"]}\n```',
                 # Discovery phase — includes React/Next.js indicators to trigger frontend detection
@@ -602,8 +602,8 @@ class TestBackendOnlyPipelinePath:
             mock_client = AsyncMock()
 
             responses = [
-                # Observation
-                '```json\n{"architecture_style": "layered Python", "key_search_terms": ["service"]}\n```',
+                # Observation (includes priority_files_by_phase)
+                '```json\n{"architecture_style": "layered Python", "key_search_terms": ["service"], "priority_files_by_phase": {"discovery": [], "layers": [], "patterns": [], "communication": [], "technology": [], "frontend": []}}\n```',
                 # Discovery — pure backend, no frontend indicators
                 "# Discovery\nPython backend API service using FastAPI with Clean Architecture.",
                 # Layers

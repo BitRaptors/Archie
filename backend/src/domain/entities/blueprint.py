@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Meta ──────────────────────────────────────────────────────────────────────
@@ -34,6 +36,7 @@ class BlueprintMeta(BaseModel):
     schema_version: str = "2.0.0"
     architecture_style: str = ""
     platforms: list[str] = Field(default_factory=list)  # e.g. ["backend", "web-frontend", "mobile-ios"]
+    executive_summary: str = ""  # 3-5 factual sentences about the codebase
     confidence: ConfidenceScores = Field(default_factory=ConfidenceScores)
 
 
@@ -47,6 +50,7 @@ class DependencyConstraint(BaseModel):
     forbidden_imports: list[str] = Field(default_factory=list)
     severity: str = "error"  # error | warning | info
     rationale: str = ""
+    rule_description: str = ""  # Plain-English rule, e.g. "Feature modules must not import other feature modules"
 
 
 class FilePlacementRule(BaseModel):
@@ -222,10 +226,30 @@ class UIComponent(BaseModel):
 class StateManagement(BaseModel):
     """How state is managed in the frontend."""
     approach: str = ""  # e.g. "React Query + Context", "Redux Toolkit", "Zustand"
-    global_state: list[dict[str, str]] = Field(default_factory=list)
+    global_state: list[dict[str, Any]] = Field(default_factory=list)
     server_state: str = ""  # e.g. "TanStack Query", "SWR", "Apollo"
     local_state: str = ""  # e.g. "useState", "useReducer"
     rationale: str = ""
+
+    @field_validator("global_state", mode="before")
+    @classmethod
+    def _coerce_global_state(cls, v: Any) -> list[dict[str, Any]]:
+        """Coerce AI output into list[dict].
+
+        The AI sometimes returns plain strings (e.g. for mobile projects)
+        instead of the expected [{"store": "...", "purpose": "..."}] format.
+        """
+        if not isinstance(v, list):
+            return []
+        result: list[dict[str, Any]] = []
+        for item in v:
+            if isinstance(item, dict):
+                result.append(item)
+            elif isinstance(item, str):
+                result.append({"description": item})
+            else:
+                result.append({"description": str(item)})
+        return result
 
 
 class Route(BaseModel):
@@ -260,6 +284,22 @@ class Frontend(BaseModel):
     key_conventions: list[str] = Field(default_factory=list)
 
 
+# ── Developer Guidance ────────────────────────────────────────────────────────
+
+class DeveloperRecipe(BaseModel):
+    """Actionable recipe: 'To do X, touch these files and follow these steps.'"""
+    task: str = ""
+    files: list[str] = Field(default_factory=list)
+    steps: list[str] = Field(default_factory=list)
+
+
+class ArchitecturalPitfall(BaseModel):
+    """A non-obvious behavior, edge case, or common mistake in the codebase."""
+    area: str = ""
+    description: str = ""
+    recommendation: str = ""
+
+
 # ── Top-Level Blueprint ──────────────────────────────────────────────────────
 
 class StructuredBlueprint(BaseModel):
@@ -277,3 +317,6 @@ class StructuredBlueprint(BaseModel):
     quick_reference: QuickReference = Field(default_factory=QuickReference)
     technology: Technology = Field(default_factory=Technology)
     frontend: Frontend = Field(default_factory=Frontend)
+    developer_recipes: list[DeveloperRecipe] = Field(default_factory=list)
+    architecture_diagram: str = ""  # Mermaid graph TD syntax
+    pitfalls: list[ArchitecturalPitfall] = Field(default_factory=list)

@@ -1,4 +1,6 @@
 """Tests for PhasedBlueprintGenerator with observation-first architecture."""
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -249,8 +251,8 @@ class TestFullPipeline:
             
             # Different responses for different phases
             responses = [
-                # Observation phase
-                '```json\n{"architecture_style": "layered", "key_search_terms": ["service"]}\n```',
+                # Observation phase (includes priority_files_by_phase)
+                '```json\n{"architecture_style": "layered", "key_search_terms": ["service"], "priority_files_by_phase": {"discovery": ["src/api/routes.py"], "layers": ["src/services/user_service.py"], "patterns": [], "communication": [], "technology": [], "frontend": []}}\n```',
                 # RAG query generation
                 '```json\n{"discovery": ["structure"], "layers": ["layers"]}\n```',
                 # Discovery phase
@@ -568,6 +570,198 @@ class Class{i}_{j}:
             gen._client = mock_client
 
             signatures = await gen._extract_all_file_signatures(tmp_path)
-            
+
             # Should include main source files
             assert "main.py" in signatures or "app.py" in signatures
+
+
+class TestSmartFileReading:
+    """Tests for priority file parsing and reading (Phase 0.5)."""
+
+    @pytest.fixture
+    def generator(self, mock_settings):
+        """Create a generator instance for testing utility methods."""
+        with patch('anthropic.AsyncAnthropic') as mock_anthropic:
+            mock_client = AsyncMock()
+            mock_anthropic.return_value = mock_client
+            from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
+            gen = PhasedBlueprintGenerator(settings=mock_settings)
+            gen._client = mock_client
+            return gen
+
+    def test_parse_priority_files_valid_json(self, generator):
+        """Test parsing priority_files_by_phase from well-formed observation."""
+        observation = '```json\n' + json.dumps({
+            "architecture_style": "layered",
+            "detected_components": [
+                {"type": "Routes", "examples": ["src/routes.py"]}
+            ],
+            "priority_files_by_phase": {
+                "discovery": ["src/main.py", "src/config.py"],
+                "layers": ["src/container.py"],
+                "patterns": ["src/decorators.py"],
+                "communication": [],
+                "technology": ["Dockerfile"],
+                "frontend": []
+            }
+        }) + '\n```'
+
+        result = generator._parse_priority_files(observation)
+
+        assert "discovery" in result
+        assert "src/main.py" in result["discovery"]
+        assert "src/config.py" in result["discovery"]
+        # Should merge detected_components examples into discovery
+        assert "src/routes.py" in result["discovery"]
+        assert "src/container.py" in result["layers"]
+
+    def test_parse_priority_files_missing_field(self, generator):
+        """Test graceful fallback when priority_files_by_phase is absent."""
+        observation = '```json\n{"architecture_style": "layered"}\n```'
+        result = generator._parse_priority_files(observation)
+        assert result == {}
+
+    def test_parse_priority_files_invalid_json(self, generator):
+        """Test graceful fallback on garbage input."""
+        result = generator._parse_priority_files("not valid json at all {{{")
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_read_priority_files_respects_budget(self, generator, tmp_path):
+        """Test that reading stops once total_budget_chars is reached."""
+        # Create 50 files of 500 chars each = 25K total
+        for i in range(50):
+            (tmp_path / f"file_{i}.py").write_text("x" * 500)
+
+        priority_map = {
+            "discovery": [f"file_{i}.py" for i in range(50)]
+        }
+
+        result = await generator._read_priority_files(
+            tmp_path, priority_map, total_budget_chars=5_000, per_file_max_chars=500
+        )
+
+        # Should have stopped before reading all 50 files
+        total_chars = sum(len(c) for c in result.get("discovery", {}).values())
+        assert total_chars <= 5_000
+
+    @pytest.mark.asyncio
+    async def test_read_priority_files_deduplicates(self, generator, tmp_path):
+        """Test that a file appearing in two phases is read from disk only once."""
+        (tmp_path / "shared.py").write_text("shared content")
+
+        priority_map = {
+            "discovery": ["shared.py"],
+            "layers": ["shared.py"],
+        }
+
+        result = await generator._read_priority_files(tmp_path, priority_map)
+
+        # Both phases should have the file
+        assert "shared.py" in result.get("discovery", {})
+        assert "shared.py" in result.get("layers", {})
+        # Content should be identical (read once from cache)
+        assert result["discovery"]["shared.py"] == result["layers"]["shared.py"]
+
+    @pytest.mark.asyncio
+    async def test_read_priority_files_skips_missing(self, generator, tmp_path):
+        """Test that nonexistent files are silently skipped."""
+        (tmp_path / "exists.py").write_text("real content")
+
+        priority_map = {
+            "discovery": ["exists.py", "does_not_exist.py"],
+        }
+
+        result = await generator._read_priority_files(tmp_path, priority_map)
+
+        assert "exists.py" in result.get("discovery", {})
+        assert "does_not_exist.py" not in result.get("discovery", {})
+
+    def test_build_phase_context_formatting(self, generator):
+        """Test that output has filepath heading and code block."""
+        generator._phase_files = {
+            "layers": {"src/container.py": "class Container:\n    pass"}
+        }
+
+        ctx = generator._build_phase_context("layers")
+
+        assert "**src/container.py**" in ctx
+        assert "```" in ctx
+        assert "class Container:" in ctx
+
+    def test_build_phase_context_max_chars(self, generator):
+        """Test that large files are truncated by max_chars."""
+        generator._phase_files = {
+            "layers": {"big.py": "x" * 50_000}
+        }
+
+        ctx = generator._build_phase_context("layers", max_chars=1_000)
+        assert len(ctx) <= 1_100  # small margin for truncation marker
+
+
+class TestPhaseCodeContext:
+    """Tests for _get_phase_code priority cascade."""
+
+    @pytest.fixture
+    def generator(self, mock_settings):
+        """Create generator for cascade tests."""
+        with patch('anthropic.AsyncAnthropic') as mock_anthropic:
+            mock_client = AsyncMock()
+            mock_anthropic.return_value = mock_client
+            from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
+            gen = PhasedBlueprintGenerator(settings=mock_settings)
+            gen._client = mock_client
+            return gen
+
+    @pytest.mark.asyncio
+    async def test_cascade_targeted_only(self, generator, tmp_path):
+        """No RAG, phase_files present → uses targeted context."""
+        generator._phase_files = {
+            "layers": {"src/di.py": "class Container: ..."}
+        }
+
+        code, label = await generator._get_phase_code(
+            phase="layers",
+            repository_id=None,
+            repo_path=tmp_path,
+            rag_enabled=False,
+            code_samples={"fallback.py": "# fallback"},
+        )
+
+        assert label == "targeted"
+        assert "Container" in code
+
+    @pytest.mark.asyncio
+    async def test_cascade_fallback(self, generator, tmp_path):
+        """No RAG, no phase_files → uses code_samples fallback."""
+        generator._phase_files = {}
+
+        code, label = await generator._get_phase_code(
+            phase="layers",
+            repository_id=None,
+            repo_path=tmp_path,
+            rag_enabled=False,
+            code_samples={"routes.py": "from fastapi import APIRouter"},
+        )
+
+        assert label == "fallback"
+        assert "APIRouter" in code
+
+    @pytest.mark.asyncio
+    async def test_cascade_returns_source_label(self, generator, tmp_path):
+        """Verify correct label strings for each cascade level."""
+        # Targeted
+        generator._phase_files = {"patterns": {"f.py": "content"}}
+        _, label = await generator._get_phase_code(
+            phase="patterns", repository_id=None, repo_path=tmp_path,
+            rag_enabled=False, code_samples={},
+        )
+        assert label == "targeted"
+
+        # Fallback
+        generator._phase_files = {}
+        _, label = await generator._get_phase_code(
+            phase="patterns", repository_id=None, repo_path=tmp_path,
+            rag_enabled=False, code_samples={"a.py": "code"},
+        )
+        assert label == "fallback"

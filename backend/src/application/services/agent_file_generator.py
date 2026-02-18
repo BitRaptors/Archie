@@ -33,6 +33,13 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
     lines.append("---")
     lines.append("")
 
+    # ── Executive Summary ──────────────────────────────────────────────
+    if blueprint.meta.executive_summary:
+        lines.append("## Overview")
+        lines.append("")
+        lines.append(blueprint.meta.executive_summary)
+        lines.append("")
+
     # ── Architecture Overview ─────────────────────────────────────────
     ad = blueprint.decisions.architectural_style
     if ad.chosen:
@@ -52,6 +59,9 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
             label = dc.source_description or dc.source_pattern
             lines.append(f"### {label}")
             lines.append("")
+            if dc.rule_description:
+                lines.append(f"**Rule:** {dc.rule_description}")
+                lines.append("")
             if dc.allowed_imports:
                 lines.append("**Allowed imports:**")
                 for a in dc.allowed_imports:
@@ -102,6 +112,42 @@ def generate_claude_md(blueprint: StructuredBlueprint) -> str:
         lines.append("|----------|---------|-----------|")
         for psg in blueprint.communication.pattern_selection_guide:
             lines.append(f"| {psg.scenario} | {psg.pattern} | {psg.rationale} |")
+        lines.append("")
+
+    # ── Quick Reference: Pattern Selection ─────────────────────────────
+    if blueprint.quick_reference.pattern_selection:
+        lines.append("## Quick Pattern Lookup")
+        lines.append("")
+        for scenario, pattern in blueprint.quick_reference.pattern_selection.items():
+            lines.append(f"- **{scenario}** → {pattern}")
+        lines.append("")
+
+    # ── Developer Recipes ─────────────────────────────────────────────
+    if blueprint.developer_recipes:
+        lines.append("## Developer Recipes")
+        lines.append("")
+        for recipe in blueprint.developer_recipes:
+            if not recipe.task:
+                continue
+            lines.append(f"### {recipe.task}")
+            if recipe.files:
+                lines.append(f"Files: {', '.join(f'`{f}`' for f in recipe.files)}")
+            if recipe.steps:
+                for i, step in enumerate(recipe.steps, 1):
+                    lines.append(f"{i}. {step}")
+            lines.append("")
+
+    # ── Pitfalls ──────────────────────────────────────────────────────
+    if blueprint.pitfalls:
+        lines.append("## Pitfalls")
+        lines.append("")
+        for pitfall in blueprint.pitfalls:
+            if not pitfall.area and not pitfall.description:
+                continue
+            area_label = f"**{pitfall.area}:** " if pitfall.area else ""
+            lines.append(f"- {area_label}{pitfall.description}")
+            if pitfall.recommendation:
+                lines.append(f"  - *{pitfall.recommendation}*")
         lines.append("")
 
     # ── Error Mapping ─────────────────────────────────────────────────
@@ -234,6 +280,9 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
             label = dc.source_description or dc.source_pattern
             lines.append(f"### {label} (`{dc.source_pattern}`)")
             lines.append("")
+            if dc.rule_description:
+                lines.append(f"**Rule:** {dc.rule_description}")
+                lines.append("")
             if dc.allowed_imports:
                 lines.append("Allowed:")
                 for a in dc.allowed_imports:
@@ -271,6 +320,21 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
             lines.append(f"- **How:** {pat.how_it_works}")
             lines.append("")
 
+    # ── Developer Recipes ─────────────────────────────────────────────
+    if blueprint.developer_recipes:
+        lines.append("## Developer Recipes")
+        lines.append("")
+        for recipe in blueprint.developer_recipes:
+            if not recipe.task:
+                continue
+            lines.append(f"### {recipe.task}")
+            if recipe.files:
+                lines.append(f"Files: {', '.join(f'`{f}`' for f in recipe.files)}")
+            if recipe.steps:
+                for i, step in enumerate(recipe.steps, 1):
+                    lines.append(f"{i}. {step}")
+            lines.append("")
+
     # ── Frontend ──────────────────────────────────────────────────────
     fe = blueprint.frontend
     if fe.framework or fe.ui_components or fe.data_fetching:
@@ -288,6 +352,45 @@ def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
         if fe.key_conventions:
             for conv in fe.key_conventions:
                 lines.append(f"- {conv}")
+        lines.append("")
+
+    # ── Where to Put Code (quick reference) ───────────────────────────
+    if blueprint.quick_reference.where_to_put_code:
+        lines.append("## Where to Put Code")
+        lines.append("")
+        for comp_type, loc in blueprint.quick_reference.where_to_put_code.items():
+            lines.append(f"- **{comp_type}** → `{loc}`")
+        lines.append("")
+
+    # ── Pattern Selection (quick reference) ─────────────────────────
+    if blueprint.quick_reference.pattern_selection:
+        lines.append("## Pattern Selection")
+        lines.append("")
+        for scenario, pattern in blueprint.quick_reference.pattern_selection.items():
+            lines.append(f"- **{scenario}** → {pattern}")
+        lines.append("")
+
+    # ── Pitfalls ──────────────────────────────────────────────────────
+    if blueprint.pitfalls:
+        lines.append("## Pitfalls")
+        lines.append("")
+        for pitfall in blueprint.pitfalls:
+            if not pitfall.area and not pitfall.description:
+                continue
+            area_label = f"**{pitfall.area}:** " if pitfall.area else ""
+            lines.append(f"- {area_label}{pitfall.description}")
+            if pitfall.recommendation:
+                lines.append(f"  - *{pitfall.recommendation}*")
+        lines.append("")
+
+    # ── Error Mapping ─────────────────────────────────────────────────
+    if blueprint.quick_reference.error_mapping:
+        lines.append("## Error Mapping")
+        lines.append("")
+        lines.append("| Error | Status Code |")
+        lines.append("|-------|------------|")
+        for em in blueprint.quick_reference.error_mapping:
+            lines.append(f"| `{em.error}` | {em.status_code} |")
         lines.append("")
 
     # ── Anti-Patterns ─────────────────────────────────────────────────
@@ -353,6 +456,10 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
         sections.append(f"- File placement rules: {len(blueprint.architecture_rules.file_placement_rules)}")
     if blueprint.communication.patterns:
         sections.append(f"- Communication patterns: {len(blueprint.communication.patterns)}")
+    if blueprint.developer_recipes:
+        sections.append(f"- Developer recipes: {len(blueprint.developer_recipes)}")
+    if blueprint.pitfalls:
+        sections.append(f"- Pitfalls: {len(blueprint.pitfalls)}")
 
     if blueprint.meta.platforms:
         sections.append(f"- Platforms: {', '.join(blueprint.meta.platforms)}")

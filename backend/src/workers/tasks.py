@@ -97,6 +97,9 @@ async def shutdown(ctx):
 
 async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: str, prompt_config: dict | None = None):
     """Background task to analyze a repository."""
+    import asyncio
+    import os
+
     print(f"analyze_repository: Starting analysis {analysis_id} for repository {repository_id}")
 
     # Get services from context
@@ -104,15 +107,10 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
     repo_service = ctx.get("repository_service")
     container = ctx.get("container")
 
-    print(f"analyze_repository: repo_service type: {type(repo_service)}")
-
     if not repo_service:
         raise ValueError("repository_service not found in context")
     if not analysis_service:
         raise ValueError("analysis_service not found in context")
-
-    # Verify it's not a Future (check if it's a coroutine/Future)
-    import asyncio
     if asyncio.iscoroutine(repo_service) or isinstance(repo_service, asyncio.Future):
         raise ValueError(f"repository_service is a Future/coroutine, not a service: {type(repo_service)}")
 
@@ -120,37 +118,46 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
     db = await container.db()
     analysis_repo = AnalysisRepository(db=db)
 
+    # Helper: robustly mark analysis as failed with retry
+    async def _mark_failed(error_msg: str) -> None:
+        for attempt in range(3):
+            try:
+                analysis = await analysis_repo.get_by_id(analysis_id)
+                if analysis and analysis.status != "failed":
+                    analysis.fail(error_msg)
+                    await analysis_repo.update(analysis)
+                return
+            except Exception as update_err:
+                print(f"analyze_repository: Failed to mark analysis as failed (attempt {attempt + 1}): {update_err}")
+                if attempt < 2:
+                    await asyncio.sleep(1)
+
+    # Helper: log event with error swallowing (don't let logging failures crash the task)
+    async def _safe_log(event_type: str, message: str) -> None:
+        try:
+            await analysis_service._log_event(analysis_id, event_type, message)
+        except Exception as log_err:
+            print(f"analyze_repository: Failed to log event: {log_err}")
+
     # Use temporary storage for cloning
     temp_storage = TempStorage()
     temp_dir = temp_storage.get_base_path()
 
-    # Log current working directory for debugging
-    import os
-    cwd = os.getcwd()
-    print(f"analyze_repository: Current working directory: {cwd}")
-    await analysis_service._log_event(analysis_id, "INFO", f"Worker working directory: {cwd}")
-    await analysis_service._log_event(analysis_id, "INFO", f"Temp storage base path: {temp_dir}")
+    # Log worker pickup — this is the first SSE-visible event from the worker
+    await _safe_log("INFO", "Worker picked up analysis job")
+    await _safe_log("INFO", f"Worker directory: {os.getcwd()}, temp: {temp_dir}")
 
     try:
         # Get repository
-        print(f"analyze_repository: Getting repository {repository_id}")
         repo = await repo_service.get_repository(repository_id)
         if not repo:
             raise ValueError(f"Repository {repository_id} not found")
 
-        print(f"analyze_repository: Repository found: {repo.full_name}")
-
         # Clone repository
-        print(f"analyze_repository: Cloning repository to {temp_dir}")
-        await analysis_service._log_event(analysis_id, "INFO", f"Checking out code to: {temp_dir}")
+        await _safe_log("INFO", f"Cloning {repo.full_name}...")
         repo_path = await repo_service.clone_repository(repo, token, temp_dir)
-
-        # Ensure repo_path is absolute
         repo_path = Path(repo_path).resolve()
-
-        await analysis_service._log_event(analysis_id, "INFO", f"Repository cloned successfully to: {repo_path}")
-        await analysis_service._log_event(analysis_id, "INFO", f"Repository path (absolute): {repo_path}")
-        print(f"analyze_repository: Repository cloned to {repo_path}")
+        await _safe_log("INFO", f"Repository cloned to: {repo_path}")
 
         # Verify the clone before proceeding
         if not repo_path.exists():
@@ -158,45 +165,36 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
         if not repo_path.is_dir():
             raise RuntimeError(f"Repository path is not a directory: {repo_path}")
 
-        # Check directory contents
         items = list(repo_path.iterdir())
-        await analysis_service._log_event(analysis_id, "INFO", f"Repository directory has {len(items)} items after clone")
-        if items:
-            sample = [item.name for item in items[:5] if not item.name.startswith('.')]
-            if sample:
-                await analysis_service._log_event(analysis_id, "INFO", f"Sample items after clone: {', '.join(sample)}")
+        await _safe_log("INFO", f"Repository has {len(items)} items")
 
-        # Run analysis (this will handle its own errors and mark analysis as failed)
-        print(f"analyze_repository: Running analysis pipeline")
+        # Run analysis
+        print("analyze_repository: Running analysis pipeline")
         await analysis_service.run_analysis(
             analysis_id=analysis_id,
             repo_path=repo_path,
             token=token,
             prompt_config=prompt_config,
         )
-        print(f"analyze_repository: Analysis complete")
+        print("analyze_repository: Analysis complete")
     except Exception as e:
-        # Ensure analysis is marked as failed if error occurs outside run_analysis
-        print(f"analyze_repository: Error occurred: {str(e)}")
+        error_msg = str(e)
+        print(f"analyze_repository: Error: {error_msg}")
         import traceback
         traceback.print_exc()
 
-        try:
-            analysis = await analysis_repo.get_by_id(analysis_id)
-            if analysis and analysis.status != "failed":
-                analysis.fail(str(e))
-                await analysis_repo.update(analysis)
-        except Exception as update_error:
-            print(f"analyze_repository: Failed to update analysis status: {str(update_error)}")
+        # Log the error to the SSE stream so the UI shows it
+        await _safe_log("ERROR", f"Worker error: {error_msg}")
 
+        # Robustly mark analysis as failed (with retry)
+        await _mark_failed(error_msg)
         raise
     finally:
-        # Cleanup
-        print(f"analyze_repository: Cleaning up temporary files")
+        print("analyze_repository: Cleaning up temporary files")
         try:
             await repo_service.cleanup_temp_repository(temp_dir)
         except Exception as cleanup_error:
-            print(f"analyze_repository: Cleanup error: {str(cleanup_error)}")
+            print(f"analyze_repository: Cleanup error: {cleanup_error}")
 
 
 try:
