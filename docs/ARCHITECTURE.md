@@ -474,6 +474,18 @@ class StructuredBlueprint(BaseModel):
 - Capability name, category, libraries used, pattern description, key files, usage example, tips
 - Documents what ALREADY EXISTS (e.g., push notifications via FCM, maps via Mapbox) — not future tasks
 
+### Source File Retention
+
+After analysis, the cloned repository is deleted from the temp directory. To allow AI agents and developers to view source files after the fact, the `SourceFileCollector` (`application/services/source_file_collector.py`) copies the entire repository to persistent storage during analysis:
+
+1. Uses `shutil.copytree` to copy the full repo tree to `storage/repos/{repo_id}/`
+2. Skips non-source directories (`.git`, `node_modules`, `__pycache__`, `.venv`, `build`, `dist`, etc.)
+3. Writes a `manifest.json` listing all files with sizes
+
+This means **every source file** is available after analysis — not just files referenced in the blueprint.
+
+**Clickable file paths:** The blueprint renderer outputs file paths as `[`path`](source://path)` markdown links. The frontend intercepts `source://` links (via ReactMarkdown `urlTransform` + custom `a` component) and opens a modal with the file content fetched from `GET /api/v1/workspace/repositories/{id}/source-files/{path}`. MCP tools `list_source_files` and `get_file_content` provide the same access for AI agents.
+
 ---
 
 ## MCP Server
@@ -487,7 +499,7 @@ FastAPI app
   └── /mcp/sse (Starlette mount, raw ASGI)
         └── SseServerTransport
               └── MCP Server (mcp SDK)
-                    ├── Tools (6)
+                    ├── Tools (8)
                     └── Resources (dynamic)
 ```
 
@@ -503,6 +515,8 @@ Defined in `infrastructure/mcp/`. The server is mounted as a raw ASGI app in `ap
 | `list_repository_sections` | — | Section IDs and names | Lists addressable blueprint sections |
 | `get_repository_section` | `section_id` | Section content | Token-efficient alternative to full blueprint |
 | `how_to_implement` | `feature` | Libraries, patterns, key files, example | Look up how a capability is already implemented |
+| `list_source_files` | — | File list with sizes | List all source files collected during analysis |
+| `get_file_content` | `file_path` | File content | Read a source file collected during analysis |
 
 ### Resources
 
@@ -683,6 +697,7 @@ All routes are prefixed with `/api/v1` and registered in `api/app.py`.
 | `DELETE` | `/active` | Clear active repository |
 | `GET` | `/repositories/{id}/agent-files` | Get agent files for repo |
 | `GET` | `/repositories/{id}/blueprint` | Get blueprint for repo |
+| `GET` | `/repositories/{id}/source-files/{path}` | Get collected source file content |
 | `DELETE` | `/repositories/{id}` | Delete repository analysis |
 
 ### Health (`/`)

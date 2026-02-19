@@ -84,12 +84,18 @@ class ASTExtractor:
             "classes": self._extract_classes(tree, content),
         }
 
-    def _find_code_files(self, repo_path: Path) -> list[Path]:
-        """Find all code files."""
+    def _find_code_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> list[Path]:
+        """Find all code files, skipping ignored directories."""
+        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+
         code_extensions = {".py", ".js", ".ts", ".tsx", ".jsx"}
+        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
         code_files = []
         for ext in code_extensions:
-            code_files.extend(repo_path.rglob(f"*{ext}"))
+            for file_path in repo_path.rglob(f"*{ext}"):
+                if any(part in ignore_patterns for part in file_path.relative_to(repo_path).parts):
+                    continue
+                code_files.append(file_path)
         return code_files
 
     def _extract_imports(self, tree, content: str) -> list[str]:

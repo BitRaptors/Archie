@@ -214,9 +214,10 @@ def create_server():
             Tool(
                 name="how_to_implement",
                 description=(
-                    "Look up how a capability or feature is already implemented in this codebase. "
+                    "Fuzzy search for how a capability or feature is already implemented in this codebase. "
                     "Returns recommended libraries, patterns, key files, and usage examples. "
-                    "Call this before implementing features like push notifications, maps, auth, etc."
+                    "Prefer list_implementations + how_to_implement_by_id for exact lookups. "
+                    "Use this as a fallback when the exact capability name is unknown."
                 ),
                 inputSchema={
                     "type": "object",
@@ -227,6 +228,58 @@ def create_server():
                         }
                     },
                     "required": ["feature"]
+                }
+            ),
+            Tool(
+                name="list_implementations",
+                description=(
+                    "List all implementation capabilities known for this codebase with their IDs, "
+                    "categories, libraries, and descriptions. Use this first, then call "
+                    "how_to_implement_by_id with the matching ID for full details."
+                ),
+                inputSchema={"type": "object", "properties": {}}
+            ),
+            Tool(
+                name="how_to_implement_by_id",
+                description=(
+                    "Get full implementation details for a specific capability by its exact ID. "
+                    "Call list_implementations first to discover available IDs. "
+                    "Returns libraries, patterns, key files, usage examples, and tips."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "implementation_id": {
+                            "type": "string",
+                            "description": "The capability ID from list_implementations (e.g. 'push-notifications', 'map-display')"
+                        }
+                    },
+                    "required": ["implementation_id"]
+                }
+            ),
+            Tool(
+                name="list_source_files",
+                description=(
+                    "List all source files collected from the repository during analysis. "
+                    "Returns file paths and sizes. Use get_file_content to read individual files."
+                ),
+                inputSchema={"type": "object", "properties": {}}
+            ),
+            Tool(
+                name="get_file_content",
+                description=(
+                    "Read the content of a source file collected during analysis. "
+                    "Use list_source_files first to see available files."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Relative file path (e.g. 'src/main.py', 'lib/utils.ts')"
+                        }
+                    },
+                    "required": ["file_path"]
                 }
             ),
         ]
@@ -265,6 +318,22 @@ def create_server():
 
         elif name == "how_to_implement":
             result = tools_manager.how_to_implement(repo_id, arguments["feature"])
+            return [TextContent(type="text", text=result)]
+
+        elif name == "list_implementations":
+            result = tools_manager.list_implementations(repo_id)
+            return [TextContent(type="text", text=result)]
+
+        elif name == "how_to_implement_by_id":
+            result = tools_manager.how_to_implement_by_id(repo_id, arguments["implementation_id"])
+            return [TextContent(type="text", text=result)]
+
+        elif name == "list_source_files":
+            result = tools_manager.list_source_files(repo_id)
+            return [TextContent(type="text", text=result)]
+
+        elif name == "get_file_content":
+            result = tools_manager.get_file_content(repo_id, arguments["file_path"])
             return [TextContent(type="text", text=result)]
 
         else:

@@ -6,6 +6,7 @@ from domain.entities.blueprint import (
     ArchitecturalPitfall,
     ArchitectureRules,
     BlueprintMeta,
+    CodeTemplate,
     Communication,
     CommunicationPattern,
     Component,
@@ -15,14 +16,17 @@ from domain.entities.blueprint import (
     DeveloperRecipe,
     ErrorMapping,
     FilePlacementRule,
+    Frontend,
     ImplementationGuideline,
     NamingConvention,
     PatternGuideline,
     QuickReference,
+    Route,
     StructuredBlueprint,
     TechStackEntry,
     Technology,
     TradeOff,
+    UIComponent,
 )
 from application.services.blueprint_renderer import render_blueprint_markdown
 
@@ -565,3 +569,139 @@ class TestProjectStructureMoved:
         # Project structure should NOT appear under Technology section
         tech_section = md.split("## 10. Technology Stack")[1].split("## 11.")[0] if "## 10." in md else ""
         assert "Project Structure" not in tech_section
+
+
+# ── Clickable file paths ─────────────────────────────────────────────────────
+
+
+class TestClickableFilePaths:
+    """Tests that file paths render as source:// links."""
+
+    def test_component_key_files_are_links(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        # The rich_blueprint doesn't have key_files on components, make one
+        bp = StructuredBlueprint(
+            components=Components(
+                components=[
+                    Component(
+                        name="API",
+                        location="src/api/",
+                        responsibility="HTTP handling",
+                        key_files=[
+                            {"file": "src/api/routes.py", "description": "Route definitions"},
+                        ],
+                    ),
+                ],
+            ),
+        )
+        md = render_blueprint_markdown(bp)
+        assert "[`src/api/routes.py`](source://src/api/routes.py)" in md
+
+    def test_component_location_is_link(self):
+        bp = StructuredBlueprint(
+            components=Components(
+                components=[
+                    Component(
+                        name="API",
+                        location="src/api/",
+                        responsibility="HTTP handling",
+                    ),
+                ],
+            ),
+        )
+        md = render_blueprint_markdown(bp)
+        assert "[`src/api/`](source://src/api/)" in md
+
+    def test_implementation_guideline_files_are_links(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        # rich_blueprint has implementation_guidelines with key_files
+        assert "[`Services/NotificationService.swift`](source://Services/NotificationService.swift)" in md
+
+    def test_developer_recipe_files_are_links(self, rich_blueprint):
+        md = render_blueprint_markdown(rich_blueprint)
+        assert "[`src/api/routes/new_route.py`](source://src/api/routes/new_route.py)" in md
+
+    def test_contract_implementing_files_are_links(self):
+        bp = StructuredBlueprint(
+            components=Components(
+                contracts=[
+                    Contract(
+                        interface_name="IRepo",
+                        description="Data access",
+                        implementing_files=["src/infra/repo.py"],
+                    ),
+                ],
+            ),
+        )
+        md = render_blueprint_markdown(bp)
+        assert "[`src/infra/repo.py`](source://src/infra/repo.py)" in md
+
+    def test_link_preserves_backtick_formatting(self):
+        """Links should have backtick-wrapped path text inside."""
+        bp = StructuredBlueprint(
+            components=Components(
+                components=[
+                    Component(
+                        name="API",
+                        location="src/api/",
+                        responsibility="HTTP handling",
+                        key_files=[
+                            {"file": "src/main.py", "description": "Entry point"},
+                        ],
+                    ),
+                ],
+            ),
+        )
+        md = render_blueprint_markdown(bp)
+        # The link text should be backtick-wrapped: [`path`](source://path)
+        assert "[`src/main.py`](source://src/main.py)" in md
+
+    def test_template_file_path_is_link(self):
+        from domain.entities.blueprint import CodeTemplate
+        bp = StructuredBlueprint(
+            technology=Technology(
+                templates=[
+                    CodeTemplate(
+                        component_type="Service",
+                        description="Service boilerplate",
+                        file_path_template="src/services/{name}_service.py",
+                        code="class Service: pass",
+                    ),
+                ],
+            ),
+        )
+        md = render_blueprint_markdown(bp)
+        assert "[`src/services/{name}_service.py`](source://src/services/{name}_service.py)" in md
+
+    def test_frontend_ui_component_location_is_link(self):
+        bp = StructuredBlueprint(
+            frontend=Frontend(
+                framework="React",
+                ui_components=[
+                    UIComponent(
+                        name="Dashboard",
+                        location="src/pages/Dashboard.tsx",
+                        component_type="page",
+                        description="Main dashboard",
+                    ),
+                ],
+            ),
+        )
+        md = render_blueprint_markdown(bp)
+        assert "[`src/pages/Dashboard.tsx`](source://src/pages/Dashboard.tsx)" in md
+
+    def test_frontend_routing_component_is_link(self):
+        bp = StructuredBlueprint(
+            frontend=Frontend(
+                framework="React",
+                routing=[
+                    Route(
+                        path="/dashboard",
+                        component="DashboardPage",
+                        description="Main view",
+                    ),
+                ],
+            ),
+        )
+        md = render_blueprint_markdown(bp)
+        assert "[`DashboardPage`](source://DashboardPage)" in md

@@ -41,25 +41,27 @@ class RAGRetriever:
         """
         self._custom_queries = custom_queries or {}
 
-    async def index_repository(self, repository_id: str, repo_path: Path, analysis_id: str | None = None) -> dict[str, Any]:
+    async def index_repository(self, repository_id: str, repo_path: Path, analysis_id: str | None = None, discovery_ignored_dirs: set[str] | None = None) -> dict[str, Any]:
         """Index a repository by generating embeddings for all code files.
-        
+
         Uses chunking strategy:
         - Small files (<200 lines): Single chunk
         - Medium files (200-500 lines): Split by functions/classes if possible
         - Large files (>500 lines): Split into overlapping chunks
-        
+
         Args:
             repository_id: UUID of the repository
             repo_path: Path to the cloned repository
-            
+            analysis_id: For progress logging
+            discovery_ignored_dirs: User-configured directories to skip.
+
         Returns:
             Statistics about indexed files and chunks
         """
         stats = {"files": 0, "chunks": 0, "total_lines": 0}
         embeddings_batch = []
-        
-        code_files = self._find_code_files(repo_path)
+
+        code_files = self._find_code_files(repo_path, discovery_ignored_dirs=discovery_ignored_dirs)
         total_files = len(code_files)
         
         if self._progress_callback and analysis_id:
@@ -235,7 +237,11 @@ class RAGRetriever:
         code_files = []
         for ext in code_extensions:
             for file_path in repo_path.rglob(f"*{ext}"):
-                if not any(pattern in str(file_path) for pattern in ignore_patterns):
+                try:
+                    rel_parts = file_path.relative_to(repo_path).parts
+                except ValueError:
+                    continue
+                if not any(part in ignore_patterns for part in rel_parts):
                     code_files.append(file_path)
 
         return code_files

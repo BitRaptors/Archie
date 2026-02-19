@@ -100,7 +100,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             platform_tag = f" [{comp.platform}]" if comp.platform else ""
             lines.append(f"### {comp.name}{platform_tag}")
             lines.append("")
-            lines.append(f"**Location:** `{comp.location}`")
+            lines.append(f"**Location:** [`{comp.location}`](source://{comp.location})")
             lines.append("")
             lines.append(f"**Responsibility:** {comp.responsibility}")
             lines.append("")
@@ -119,7 +119,8 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             if comp.key_files:
                 lines.append("**Key files:**")
                 for kf in comp.key_files:
-                    lines.append(f"- `{kf.get('file', '')}` — {kf.get('description', '')}")
+                    f_path = kf.get('file', '')
+                    lines.append(f"- [`{f_path}`](source://{f_path}) — {kf.get('description', '')}")
                 lines.append("")
 
         # Contracts — skip entries with empty interface_name AND empty description
@@ -141,7 +142,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                     lines.append("Methods: " + ", ".join(f"`{m}`" for m in c.methods))
                     lines.append("")
                 if c.implementing_files:
-                    lines.append("Implemented in: " + ", ".join(f"`{f}`" for f in c.implementing_files))
+                    lines.append("Implemented in: " + ", ".join(f"[`{f}`](source://{f})" for f in c.implementing_files))
                     lines.append("")
 
     # ── 5. Architecture Rules ─────────────────────────────────────────
@@ -292,7 +293,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                     lines.append("**Key files:**")
                     lines.append("")
                     for kf in gl.key_files:
-                        lines.append(f"- `{kf}`")
+                        lines.append(f"- [`{kf}`](source://{kf})")
                     lines.append("")
                 if gl.usage_example:
                     lines.append("**Example:**")
@@ -339,7 +340,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             if recipe.files:
                 lines.append("**Files to touch:**")
                 for i, f in enumerate(recipe.files, 1):
-                    lines.append(f"{i}. `{f}`")
+                    lines.append(f"{i}. [`{f}`](source://{f})")
                 lines.append("")
             if recipe.steps:
                 lines.append("**Steps:**")
@@ -378,7 +379,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             for tmpl in bp.technology.templates:
                 lines.append(f"#### {tmpl.component_type}: {tmpl.description}")
                 lines.append("")
-                lines.append(f"File: `{tmpl.file_path_template}`")
+                lines.append(f"File: [`{tmpl.file_path_template}`](source://{tmpl.file_path_template})")
                 lines.append("")
                 lines.append("```")
                 lines.append(tmpl.code)
@@ -483,7 +484,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             lines.append("|------|------|----------|-------------|")
             for uc in fe.ui_components:
                 lines.append(
-                    f"| {uc.name} | {uc.component_type} | `{uc.location}` | {uc.description} |"
+                    f"| {uc.name} | {uc.component_type} | [`{uc.location}`](source://{uc.location}) | {uc.description} |"
                 )
             lines.append("")
 
@@ -495,7 +496,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             lines.append("|------|-----------|------|-------------|")
             for r in fe.routing:
                 auth = "Yes" if r.auth_required else "No"
-                lines.append(f"| `{r.path}` | {r.component} | {auth} | {r.description} |")
+                lines.append(f"| `{r.path}` | [`{r.component}`](source://{r.component}) | {auth} | {r.description} |")
             lines.append("")
 
         # Data Fetching

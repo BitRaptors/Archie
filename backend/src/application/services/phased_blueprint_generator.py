@@ -50,6 +50,13 @@ class PhasedBlueprintGenerator:
         self._framework_usage: dict[str, str] = {}  # Populated by observation phase
         self._phase_files: dict[str, dict[str, str]] = {}  # phase → {filepath: content}
 
+    def get_all_phase_files(self) -> dict[str, str]:
+        """Return merged file cache across all phases (path -> content)."""
+        merged: dict[str, str] = {}
+        for phase_dict in self._phase_files.values():
+            merged.update(phase_dict)
+        return merged
+
     async def _load_prompt(self, key: str):
         """Load a prompt by key, handling both sync and async loaders."""
         if self._async_prompt_loader:
@@ -135,7 +142,7 @@ class PhasedBlueprintGenerator:
             try:
                 if self._progress_callback and analysis_id:
                     await self._progress_callback(analysis_id, "INFO", "Starting repository indexing for semantic search...")
-                await self._rag_retriever.index_repository(repository_id, repo_path, analysis_id)
+                await self._rag_retriever.index_repository(repository_id, repo_path, analysis_id, discovery_ignored_dirs=discovery_ignored_dirs)
             except Exception:
                 rag_enabled = False  # Fall back to sample-based analysis
                 if self._progress_callback and analysis_id:
@@ -165,7 +172,8 @@ class PhasedBlueprintGenerator:
                     f"Phase 0.5: Reading full content of {total_files} AI-selected priority files...",
                 )
             self._phase_files = await self._read_priority_files(
-                repo_path, priority_map, analysis_id=analysis_id
+                repo_path, priority_map, analysis_id=analysis_id,
+                discovery_ignored_dirs=discovery_ignored_dirs,
             )
         else:
             if self._progress_callback and analysis_id:
@@ -1231,6 +1239,7 @@ class PhasedBlueprintGenerator:
         total_budget_chars: int = 150_000,
         per_file_max_chars: int = 10_000,
         analysis_id: str | None = None,
+        discovery_ignored_dirs: set[str] | None = None,
     ) -> dict[str, dict[str, str]]:
         """Read full content of priority files identified by observation phase.
 
@@ -1243,11 +1252,14 @@ class PhasedBlueprintGenerator:
             total_budget_chars: Max total characters to read across all files.
             per_file_max_chars: Max characters per individual file.
             analysis_id: For progress logging.
+            discovery_ignored_dirs: Directory names to skip (e.g. node_modules).
 
         Returns:
             Mapping of phase → {filepath: content}.
         """
-        # Collect all unique file paths across phases
+        ignored = discovery_ignored_dirs or set()
+
+        # Collect all unique file paths across phases, filtering ignored dirs
         all_paths: list[str] = []
         seen: set[str] = set()
         for paths in priority_map.values():
@@ -1256,6 +1268,10 @@ class PhasedBlueprintGenerator:
             for p in paths:
                 if p not in seen:
                     seen.add(p)
+                    # Skip files inside ignored directories
+                    parts = Path(p).parts
+                    if ignored and any(part in ignored for part in parts):
+                        continue
                     all_paths.append(p)
 
         # Read each file once into a shared cache
@@ -1514,12 +1530,15 @@ Please configure the Anthropic API key to enable full blueprint generation.
                 if file_count >= max_files:
                     break
                     
-                if any(pattern in str(file_path) for pattern in ignore_patterns):
+                try:
+                    relative_path = str(file_path.relative_to(repo_path))
+                except ValueError:
                     continue
-                
+                if any(part in ignore_patterns for part in Path(relative_path).parts):
+                    continue
+
                 try:
                     content = file_path.read_text(encoding="utf-8", errors="ignore")
-                    relative_path = str(file_path.relative_to(repo_path))
                     
                     # Extract signature components
                     signature = self._extract_file_signature(content, relative_path, ext)
