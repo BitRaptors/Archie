@@ -53,20 +53,31 @@ cleanup() {
     exit 0
 }
 
+# ── Read DB_BACKEND and REDIS_URL from .env.local ────────────────────────
+DB_BACKEND=$(grep -E '^DB_BACKEND=' backend/.env.local 2>/dev/null | cut -d= -f2 | tr -d '[:space:]"'"'" || echo "supabase")
+DB_BACKEND=${DB_BACKEND:-supabase}
+
+REDIS_URL=$(grep -E '^REDIS_URL=' backend/.env.local 2>/dev/null | cut -d= -f2 | tr -d '[:space:]"'"'" || echo "")
+REDIS_URL=${REDIS_URL:-redis://localhost:6379}
+
+# Parse host and port from REDIS_URL (redis://host:port or redis://host)
+REDIS_HOST=$(echo "$REDIS_URL" | sed -E 's|^redis://([^:/]+).*|\1|')
+REDIS_PORT=$(echo "$REDIS_URL" | sed -E 's|^redis://[^:]+:([0-9]+).*|\1|')
+# If port extraction failed (no port in URL), default to 6379
+if [ "$REDIS_PORT" = "$REDIS_URL" ] || [ -z "$REDIS_PORT" ]; then
+    REDIS_PORT=6379
+fi
+
 # Check if Redis is reachable
 check_redis() {
     if command -v redis-cli &>/dev/null; then
-        redis-cli ping &>/dev/null 2>&1
+        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping &>/dev/null 2>&1
         return $?
     fi
     # No redis-cli available, try a TCP connection
-    (echo > /dev/tcp/localhost/6379) &>/dev/null 2>&1
+    (echo > /dev/tcp/"$REDIS_HOST"/"$REDIS_PORT") &>/dev/null 2>&1
     return $?
 }
-
-# ── Read DB_BACKEND from .env.local ──────────────────────────────────────
-DB_BACKEND=$(grep -E '^DB_BACKEND=' backend/.env.local 2>/dev/null | cut -d= -f2 | tr -d '[:space:]"'"'" || echo "supabase")
-DB_BACKEND=${DB_BACKEND:-supabase}
 
 # ── Start Docker containers if using local PostgreSQL ────────────────────
 if [ "$DB_BACKEND" = "postgres" ]; then
@@ -147,6 +158,19 @@ else
     pip install -q -r requirements.txt 2>/dev/null || true
 fi
 
+# Read backend port from settings (PORT env var, default 8000)
+BACKEND_PORT=$(grep -E '^PORT=' .env.local 2>/dev/null | cut -d= -f2 | tr -d '[:space:]"'"'" || echo "")
+BACKEND_PORT=${BACKEND_PORT:-8000}
+
+# Check if prompts/schema version is stale
+PROMPTS_VERSION=$(python -c "import json; print(json.load(open('prompts.json'))['version'])" 2>/dev/null || echo "")
+SYNCED_VERSION=$(cat .prompts-version 2>/dev/null || echo "")
+if [ -n "$PROMPTS_VERSION" ] && [ "$PROMPTS_VERSION" != "$SYNCED_VERSION" ]; then
+    echo -e "${RED}⚠️  Updates available (v${SYNCED_VERSION:-old} → v${PROMPTS_VERSION}). Run: ./setup.sh${NC}"
+    echo -e "${RED}Cannot start — database schema or prompts are incompatible. Run ./setup.sh first.${NC}"
+    exit 1
+fi
+
 # Start backend in background
 python src/main.py &
 BACKEND_PID=$!
@@ -162,12 +186,12 @@ if check_redis; then
     WORKER_PID=$!
 else
     ANALYSIS_MODE="in-process"
-    if ! command -v redis-cli &>/dev/null && ! (echo > /dev/tcp/localhost/6379) &>/dev/null 2>&1; then
-        ANALYSIS_REASON="redis-cli not found and port 6379 not reachable"
+    if ! command -v redis-cli &>/dev/null && ! (echo > /dev/tcp/"$REDIS_HOST"/"$REDIS_PORT") &>/dev/null 2>&1; then
+        ANALYSIS_REASON="redis-cli not found and ${REDIS_HOST}:${REDIS_PORT} not reachable"
     elif command -v redis-cli &>/dev/null; then
-        ANALYSIS_REASON="redis-cli ping failed (Redis not running?)"
+        ANALYSIS_REASON="redis-cli ping failed on ${REDIS_HOST}:${REDIS_PORT} (Redis not running?)"
     else
-        ANALYSIS_REASON="could not connect to localhost:6379"
+        ANALYSIS_REASON="could not connect to ${REDIS_HOST}:${REDIS_PORT}"
     fi
     echo -e "${YELLOW}ℹ️  Redis not available — analysis will run in-process${NC}"
     echo -e "${YELLOW}   Reason: ${ANALYSIS_REASON}${NC}"
@@ -183,7 +207,7 @@ if ! kill -0 $BACKEND_PID 2>/dev/null; then
     exit 1
 fi
 
-echo -e "${GREEN}✅ Backend running on http://localhost:8000 (PID: $BACKEND_PID)${NC}"
+echo -e "${GREEN}✅ Backend running on http://localhost:${BACKEND_PORT} (PID: $BACKEND_PID)${NC}"
 if [ -n "$WORKER_PID" ] && kill -0 $WORKER_PID 2>/dev/null; then
     echo -e "${GREEN}✅ Worker running (PID: $WORKER_PID)${NC}"
 fi
@@ -251,17 +275,19 @@ rm -f "$FRONTEND_LOG_FILE"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}✨ Repository Analysis System is running!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}Backend:${NC}  http://localhost:8000"
+echo -e "${BLUE}Backend:${NC}  http://localhost:${BACKEND_PORT}"
 echo -e "${BLUE}Frontend:${NC} http://localhost:${FRONTEND_PORT}"
-echo -e "${BLUE}API Docs:${NC} http://localhost:8000/docs"
+echo -e "${BLUE}API Docs:${NC} http://localhost:${BACKEND_PORT}/docs"
 if [ "$DB_BACKEND" = "postgres" ]; then
     echo -e "${BLUE}Database:${NC} Local PostgreSQL (Docker)"
 else
     echo -e "${BLUE}Database:${NC} Supabase (remote)"
 fi
 if [ "$ANALYSIS_MODE" = "arq" ]; then
+    echo -e "${BLUE}Redis:${NC}    ${REDIS_URL}"
     echo -e "${BLUE}Analysis:${NC} ARQ worker (Redis-backed background jobs)"
 else
+    echo -e "${BLUE}Redis:${NC}    Not connected (${REDIS_URL})"
     echo -e "${BLUE}Analysis:${NC} In-process (running inside FastAPI server)"
 fi
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

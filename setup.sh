@@ -366,12 +366,18 @@ if [ "$DB_BACKEND" = "postgres" ]; then
         sleep 1
     done
 
-    # Verify migration ran
-    ROWS=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp -tAc "SELECT count(*) FROM analysis_prompts" 2>/dev/null || echo "0")
-    if [ "${ROWS:-0}" -ge 1 ]; then
-        info "Migration verified: ${ROWS} prompts seeded"
+    # Re-apply migration (idempotent — safe to run on every setup)
+    info "Applying migration (idempotent)..."
+    $DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp \
+      -f /docker-entrypoint-initdb.d/001_initial_setup.sql 2>&1 | tail -5
+
+    # Verify tables exist
+    TABLE_EXISTS=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp -tAc \
+      "SELECT count(*) FROM information_schema.tables WHERE table_name='analysis_prompts'" 2>/dev/null || echo "0")
+    if [ "${TABLE_EXISTS:-0}" -ge 1 ]; then
+        info "Migration verified: tables created"
     else
-        warn "Seed data not detected — migration may need manual review"
+        warn "Migration may not have run — tables not detected"
     fi
 fi
 
@@ -388,6 +394,10 @@ fi
 .venv/bin/pip install --quiet --upgrade pip
 .venv/bin/pip install --quiet -r requirements.txt
 info "Backend dependencies installed"
+
+# Sync prompts from prompts.json to database
+info "Syncing prompts to database..."
+PYTHONPATH=src .venv/bin/python scripts/seed_prompts.py || warn "Prompt sync failed — retry: cd backend && PYTHONPATH=src python scripts/seed_prompts.py"
 
 # ── Generate or patch backend/.env.local ──────────────────────────────────
 
