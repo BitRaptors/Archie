@@ -122,7 +122,6 @@ class TestServerToolFiltering:
         repo_tools = [
             "get_repository_blueprint",
             "get_repository_section",
-            "validate_import",
             "where_to_put",
             "check_naming",
         ]
@@ -133,6 +132,14 @@ class TestServerToolFiltering:
         # The schema is defined as a dict — we can check the source
         # Between each tool definition and the next, repo_id should not appear
         assert '"repo_id"' not in source, "repo_id should not appear in tool schemas"
+
+    def test_how_to_implement_tool_registered(self):
+        """The how_to_implement tool should be registered in the server."""
+        import infrastructure.mcp.server as srv_mod
+        import inspect
+        source = inspect.getsource(srv_mod.create_server)
+        assert "how_to_implement" in source
+        assert "feature" in source
 
 
 class TestResourceFiltering:

@@ -252,7 +252,7 @@ class TestRendererFrontendSection:
 
     def test_renders_frontend_section_header(self, fullstack_blueprint):
         md = render_blueprint_markdown(fullstack_blueprint)
-        assert "## 12. Frontend Architecture" in md
+        assert "## 13. Frontend Architecture" in md
 
     def test_renders_framework(self, fullstack_blueprint):
         md = render_blueprint_markdown(fullstack_blueprint)
@@ -317,12 +317,12 @@ class TestRendererFrontendSection:
 
     def test_no_frontend_section_for_backend_only(self, backend_only_blueprint):
         md = render_blueprint_markdown(backend_only_blueprint)
-        assert "## 12. Frontend Architecture" not in md
+        assert "## 13. Frontend Architecture" not in md
 
     def test_backend_only_still_renders_other_sections(self, backend_only_blueprint):
         md = render_blueprint_markdown(backend_only_blueprint)
         assert "## 1. Architecture Overview" in md
-        assert "## 9. Technology Stack" in md
+        assert "## 10. Technology Stack" in md
 
 
 # ── Agent File Generator: CLAUDE.md Frontend Tests ───────────────────────────

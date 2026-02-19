@@ -11,7 +11,7 @@ from typing import Optional
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Resource, Tool, TextContent
+    from mcp.types import Resource, Tool
 except ImportError:
     try:
         from mcp.server.fastmcp import FastMCP
@@ -156,7 +156,7 @@ def create_server():
                 name="get_repository_blueprint",
                 description=(
                     "Get the full architecture blueprint for the active repository. "
-                    "Contains layer rules, component boundaries, dependency constraints, "
+                    "Contains component boundaries, file placement rules, "
                     "and naming conventions. Use list_repository_sections + get_repository_section "
                     "for token-efficient partial reads."
                 ),
@@ -179,23 +179,6 @@ def create_server():
                         }
                     },
                     "required": ["section_id"]
-                }
-            ),
-            Tool(
-                name="validate_import",
-                description=(
-                    "REQUIRED before adding imports. Checks if an import is allowed by the project's "
-                    "architecture dependency rules. Returns VIOLATION (blocked), ALLOWED (permitted), "
-                    "or UNGUARDED (no rule covers it — verify manually). Always call this before "
-                    "writing import statements."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "source_file": {"type": "string", "description": "File containing the import (e.g. 'src/api/routes/users.py')"},
-                        "target_import": {"type": "string", "description": "Module being imported (e.g. 'src/infrastructure/db')"}
-                    },
-                    "required": ["source_file", "target_import"]
                 }
             ),
             Tool(
@@ -228,6 +211,24 @@ def create_server():
                     "required": ["scope", "name"]
                 }
             ),
+            Tool(
+                name="how_to_implement",
+                description=(
+                    "Look up how a capability or feature is already implemented in this codebase. "
+                    "Returns recommended libraries, patterns, key files, and usage examples. "
+                    "Call this before implementing features like push notifications, maps, auth, etc."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "feature": {
+                            "type": "string",
+                            "description": "The feature or capability (e.g. 'push notifications', 'maps', 'authentication', 'image loading')"
+                        }
+                    },
+                    "required": ["feature"]
+                }
+            ),
         ]
 
     @srv.call_tool()
@@ -252,12 +253,6 @@ def create_server():
             result = tools_manager.get_repository_section(repo_id, arguments["section_id"])
             return [TextContent(type="text", text=result)]
 
-        elif name == "validate_import":
-            result = tools_manager.validate_import(
-                repo_id, arguments["source_file"], arguments["target_import"]
-            )
-            return [TextContent(type="text", text=result)]
-
         elif name == "where_to_put":
             result = tools_manager.where_to_put(repo_id, arguments["component_type"])
             return [TextContent(type="text", text=result)]
@@ -266,6 +261,10 @@ def create_server():
             result = tools_manager.check_naming(
                 repo_id, arguments["scope"], arguments["name"]
             )
+            return [TextContent(type="text", text=result)]
+
+        elif name == "how_to_implement":
+            result = tools_manager.how_to_implement(repo_id, arguments["feature"])
             return [TextContent(type="text", text=result)]
 
         else:

@@ -137,6 +137,7 @@ export default function Dashboard() {
           history={history}
           onHistoryClick={handleHistoryClick}
           activeRepoId={activeRepo?.active_repo_id || undefined}
+          openedRepoId={(activeView === 'blueprint' || activeView === 'analysis') ? (repoId || selectedId || undefined) : undefined}
           onActiveClick={handleActiveClick}
         />
       }

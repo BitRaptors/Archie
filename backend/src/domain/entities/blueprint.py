@@ -42,17 +42,6 @@ class BlueprintMeta(BaseModel):
 
 # ── Architecture Rules (enforceable) ─────────────────────────────────────────
 
-class DependencyConstraint(BaseModel):
-    """A single enforceable dependency / import rule."""
-    source_pattern: str = ""
-    source_description: str = ""
-    allowed_imports: list[str] = Field(default_factory=list)
-    forbidden_imports: list[str] = Field(default_factory=list)
-    severity: str = "error"  # error | warning | info
-    rationale: str = ""
-    rule_description: str = ""  # Plain-English rule, e.g. "Feature modules must not import other feature modules"
-
-
 class FilePlacementRule(BaseModel):
     """Where a certain kind of file should live."""
     component_type: str = ""
@@ -72,7 +61,6 @@ class NamingConvention(BaseModel):
 
 class ArchitectureRules(BaseModel):
     """Enforceable architecture rules extracted from the codebase."""
-    dependency_constraints: list[DependencyConstraint] = Field(default_factory=list)
     file_placement_rules: list[FilePlacementRule] = Field(default_factory=list)
     naming_conventions: list[NamingConvention] = Field(default_factory=list)
 
@@ -283,6 +271,25 @@ class Frontend(BaseModel):
     styling: str = ""  # e.g. "Tailwind CSS", "CSS Modules", "Styled Components"
     key_conventions: list[str] = Field(default_factory=list)
 
+    @field_validator("key_conventions", mode="before")
+    @classmethod
+    def _coerce_key_conventions(cls, v: Any) -> list[str]:
+        """Coerce AI output that returns dicts instead of plain strings."""
+        if not isinstance(v, list):
+            return v
+        result: list[str] = []
+        for item in v:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict):
+                # AI sometimes returns {"convention": "...", "rationale": "..."}
+                conv = item.get("convention", "") or item.get("name", "")
+                rationale = item.get("rationale", "") or item.get("description", "")
+                result.append(f"{conv}: {rationale}".strip(": ") if rationale else str(conv))
+            else:
+                result.append(str(item))
+        return result
+
 
 # ── Developer Guidance ────────────────────────────────────────────────────────
 
@@ -298,6 +305,17 @@ class ArchitecturalPitfall(BaseModel):
     area: str = ""
     description: str = ""
     recommendation: str = ""
+
+
+class ImplementationGuideline(BaseModel):
+    """How an existing capability was implemented — replication guide for agents."""
+    capability: str = ""          # "Push Notifications", "Map Display"
+    category: str = ""            # "notifications", "location", "media", "auth", "persistence", "ui"
+    libraries: list[str] = Field(default_factory=list)  # ["Firebase Cloud Messaging 10.x"]
+    pattern_description: str = "" # 1-3 sentences: how it was built
+    key_files: list[str] = Field(default_factory=list)  # actual file paths
+    usage_example: str = ""       # code snippet or invocation pattern
+    tips: list[str] = Field(default_factory=list)        # gotchas for this capability
 
 
 # ── Top-Level Blueprint ──────────────────────────────────────────────────────
@@ -320,3 +338,4 @@ class StructuredBlueprint(BaseModel):
     developer_recipes: list[DeveloperRecipe] = Field(default_factory=list)
     architecture_diagram: str = ""  # Mermaid graph TD syntax
     pitfalls: list[ArchitecturalPitfall] = Field(default_factory=list)
+    implementation_guidelines: list[ImplementationGuideline] = Field(default_factory=list)

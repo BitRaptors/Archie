@@ -67,3 +67,20 @@ class PromptRevisionResponse(BaseModel):
     change_summary: str | None = None
     created_by: str | None = None
     created_at: datetime
+
+
+class IgnoredDirectoryResponse(BaseModel):
+    """Ignored directory response."""
+    id: str
+    directory_name: str
+    created_at: datetime | None = None
+
+
+class LibraryCapabilityResponse(BaseModel):
+    """Library capability response."""
+    id: str
+    library_name: str
+    ecosystem: str
+    capabilities: list[str]
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

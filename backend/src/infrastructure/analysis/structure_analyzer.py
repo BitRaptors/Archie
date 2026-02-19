@@ -1,7 +1,8 @@
 """Structure analyzer."""
 from pathlib import Path
 from typing import Any
-import json
+
+from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
 
 
 class StructureAnalyzer:
@@ -11,11 +12,11 @@ class StructureAnalyzer:
         """Initialize structure analyzer."""
         pass
 
-    async def analyze(self, repo_path: Path) -> dict[str, Any]:
+    async def analyze(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> dict[str, Any]:
         """Analyze repository structure."""
         # Resolve path to absolute
         repo_path = Path(repo_path).resolve()
-        
+
         structure = {
             "file_tree": [],
             "technologies": [],
@@ -27,12 +28,12 @@ class StructureAnalyzer:
             import logging
             logging.error(f"Structure analyzer: Path does not exist: {repo_path}")
             return structure
-        
+
         if not repo_path.is_dir():
             import logging
             logging.error(f"Structure analyzer: Path is not a directory: {repo_path}")
             return structure
-        
+
         # Check what's actually in the directory
         try:
             items = list(repo_path.iterdir())
@@ -46,7 +47,7 @@ class StructureAnalyzer:
             logging.error(f"Structure analyzer: Cannot list directory {repo_path}: {e}")
 
         # Build file tree
-        structure["file_tree"] = self._build_file_tree(repo_path)
+        structure["file_tree"] = self._build_file_tree(repo_path, discovery_ignored_dirs=discovery_ignored_dirs)
         
         import logging
         logging.info(f"Structure analyzer: Built file tree with {len(structure['file_tree'])} items")
@@ -59,7 +60,7 @@ class StructureAnalyzer:
 
         return structure
 
-    def _build_file_tree(self, repo_path: Path, max_depth: int = 5) -> list[dict[str, Any]]:
+    def _build_file_tree(self, repo_path: Path, max_depth: int = 5, discovery_ignored_dirs: set[str] | None = None) -> list[dict[str, Any]]:
         """Build file tree structure."""
         tree = []
         
@@ -74,23 +75,29 @@ class StructureAnalyzer:
             logging.warning(f"Repository path is not a directory: {repo_path}")
             return tree
         
+        ignored = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
         items_checked = 0
         items_added = 0
         items_skipped_hidden = 0
         items_skipped_errors = 0
-        
+
         def walk_dir(path: Path, depth: int = 0):
             nonlocal items_checked, items_added, items_skipped_hidden, items_skipped_errors
             if depth > max_depth:
                 return
-            
+
             try:
                 items = list(path.iterdir())
                 for item in items:
                     items_checked += 1
-                    
+
                     # Skip hidden files/folders except .git
                     if item.name.startswith(".") and item.name != ".git":
+                        items_skipped_hidden += 1
+                        continue
+
+                    # Skip discovery ignored directories
+                    if item.is_dir() and item.name in ignored:
                         items_skipped_hidden += 1
                         continue
                     
@@ -113,7 +120,7 @@ class StructureAnalyzer:
                             try:
                                 node["size"] = item.stat().st_size
                                 node["extension"] = item.suffix
-                            except (OSError, PermissionError) as e:
+                            except (OSError, PermissionError):
                                 # Skip files we can't read
                                 items_skipped_errors += 1
                                 continue
@@ -124,7 +131,7 @@ class StructureAnalyzer:
                         # Recursively walk directories
                         if item.is_dir() and depth < max_depth:
                             walk_dir(item, depth + 1)
-                    except (OSError, PermissionError) as e:
+                    except (OSError, PermissionError):
                         # Skip items we can't access
                         items_skipped_errors += 1
                         continue

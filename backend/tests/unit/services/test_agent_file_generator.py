@@ -8,12 +8,12 @@ import pytest
 from domain.entities.blueprint import (
     ArchitecturalDecision,
     ArchitectureRules,
+    ImplementationGuideline,
     BlueprintMeta,
     Communication,
     CommunicationPattern,
     Component,
     Components,
-    DependencyConstraint,
     Decisions,
     ErrorMapping,
     FilePlacementRule,
@@ -41,16 +41,6 @@ def sample_blueprint() -> StructuredBlueprint:
             architecture_style="Layered (Clean Architecture)",
         ),
         architecture_rules=ArchitectureRules(
-            dependency_constraints=[
-                DependencyConstraint(
-                    source_pattern="src/api/**",
-                    source_description="Presentation Layer",
-                    allowed_imports=["src/application/**", "src/domain/**"],
-                    forbidden_imports=["src/infrastructure/**"],
-                    severity="error",
-                    rationale="Presentation must not depend on infrastructure directly.",
-                ),
-            ],
             file_placement_rules=[
                 FilePlacementRule(
                     component_type="Service",
@@ -148,6 +138,26 @@ def sample_blueprint() -> StructuredBlueprint:
                 TechStackEntry(category="framework", name="FastAPI", version="0.104", purpose="Web framework"),
             ],
         ),
+        implementation_guidelines=[
+            ImplementationGuideline(
+                capability="Push Notifications",
+                category="notifications",
+                libraries=["Firebase Cloud Messaging 10.x"],
+                pattern_description="FCM topic-based subscriptions via NotificationService singleton.",
+                key_files=["Services/NotificationService.swift", "AppDelegate.swift"],
+                usage_example="NotificationService.shared.subscribe(topic: 'place_updates')",
+                tips=["Request notification permissions before subscribing", "Handle token refresh via FIRMessaging delegate"],
+            ),
+            ImplementationGuideline(
+                capability="Map Display",
+                category="location",
+                libraries=["Mapbox Maps SDK 10.x", "Core Location"],
+                pattern_description="MGLMapView wrapped in custom MapView. Annotations from PlacesService.",
+                key_files=["Controllers/MapViewController.swift", "Views/MapView.swift"],
+                usage_example="mapView.addAnnotations(places.map { PlaceAnnotation($0) })",
+                tips=["Limit annotations to ~100 per viewport", "Use clustering for large datasets"],
+            ),
+        ],
     )
 
 
@@ -176,13 +186,6 @@ class TestGenerateClaudeMd:
     def test_contains_architecture_style(self, sample_blueprint):
         content = generate_claude_md(sample_blueprint)
         assert "Layered (Clean Architecture)" in content
-
-    def test_contains_dependency_rules(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## Dependency Rules" in content
-        assert "Presentation Layer" in content
-        assert "Allowed imports" in content or "allowed" in content.lower()
-        assert "Forbidden imports" in content or "forbidden" in content.lower()
 
     def test_contains_file_placement(self, sample_blueprint):
         content = generate_claude_md(sample_blueprint)
@@ -218,7 +221,6 @@ class TestGenerateClaudeMd:
         content = generate_claude_md(sample_blueprint)
         assert "## Architecture MCP Server (MANDATORY)" in content
         assert "`architecture-blueprints`" in content
-        assert "validate_import" in content
         assert "where_to_put" in content
         assert "check_naming" in content
         assert "get_repository_blueprint" in content
@@ -268,11 +270,6 @@ class TestGenerateCursorRules:
         assert "Application" in content
         assert "Domain" in content
 
-    def test_contains_dependency_rules(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## Dependency Rules" in content
-        assert "src/api/**" in content
-
     def test_contains_file_placement(self, sample_blueprint):
         content = generate_cursor_rules(sample_blueprint)
         assert "## File Placement" in content
@@ -286,11 +283,6 @@ class TestGenerateCursorRules:
         content = generate_cursor_rules(sample_blueprint)
         assert "## Communication Patterns" in content
         assert "Sync HTTP" in content
-
-    def test_contains_anti_patterns(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## Anti-Patterns" in content
-        assert "src/infrastructure/**" in content
 
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_cursor_rules(minimal_blueprint)
@@ -333,7 +325,6 @@ class TestGenerateAgentsMd:
         content = generate_agents_md(sample_blueprint)
         assert "## Architecture MCP Server (MANDATORY)" in content
         assert "`architecture-blueprints`" in content
-        assert "validate_import" in content
         assert "where_to_put" in content
         assert "check_naming" in content
         assert "do NOT proceed" in content
@@ -351,8 +342,6 @@ class TestGenerateAgentsMd:
 
     def test_summary_includes_rule_counts(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        # Should mention count of dependency rules
-        assert "Dependency rules: 1" in content
         # Should mention count of components
         assert "Components: 3" in content
 
@@ -393,3 +382,65 @@ class TestGlobDetection:
         content = generate_cursor_rules(bp)
         assert "**/*.py" in content
         assert "**/*.ts" in content
+
+
+# ── Implementation Guidelines tests ─────────────────────────────────────────
+
+
+class TestImplementationGuidelinesInClaudeMd:
+    """Tests for implementation guidelines in CLAUDE.md."""
+
+    def test_contains_heading(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "## Implementation Guidelines" in content
+
+    def test_contains_capabilities(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "Push Notifications" in content
+        assert "Map Display" in content
+
+    def test_contains_libraries(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "Firebase Cloud Messaging 10.x" in content
+        assert "Mapbox Maps SDK 10.x" in content
+
+    def test_contains_key_files(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "Services/NotificationService.swift" in content
+
+    def test_contains_pattern(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "FCM topic-based subscriptions" in content
+
+    def test_omitted_when_empty(self, minimal_blueprint):
+        content = generate_claude_md(minimal_blueprint)
+        assert "Implementation Guidelines" not in content
+
+
+class TestImplementationGuidelinesInCursorRules:
+    """Tests for implementation guidelines in Cursor rules."""
+
+    def test_contains_section_heading(self, sample_blueprint):
+        content = generate_cursor_rules(sample_blueprint)
+        assert "## Implementation Guidelines" in content
+
+    def test_contains_capabilities(self, sample_blueprint):
+        content = generate_cursor_rules(sample_blueprint)
+        assert "Push Notifications" in content
+        assert "Map Display" in content
+
+    def test_omitted_when_empty(self, minimal_blueprint):
+        content = generate_cursor_rules(minimal_blueprint)
+        assert "Implementation Guidelines" not in content
+
+
+class TestImplementationGuidelinesInAgentsMd:
+    """Tests for implementation guidelines in AGENTS.md."""
+
+    def test_count_shows_in_summary(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert "Implementation guidelines: 2" in content
+
+    def test_no_count_when_empty(self, minimal_blueprint):
+        content = generate_agents_md(minimal_blueprint)
+        assert "Implementation guidelines:" not in content

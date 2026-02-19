@@ -1,8 +1,9 @@
 """Phased blueprint generator using AI for comprehensive architecture documentation."""
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from infrastructure.prompts.prompt_loader import PromptLoader
 from infrastructure.analysis.rag_retriever import RAGRetriever
 from application.services.analysis_data_collector import analysis_data_collector
@@ -38,6 +39,7 @@ class PhasedBlueprintGenerator:
         self._client = AsyncAnthropic(
             api_key=settings.anthropic_api_key,
             timeout=600.0,  # 10 min timeout for API calls (synthesis with Sonnet can be slow)
+            max_retries=5,  # SDK-level: 6 total attempts with exponential backoff (0.5s→1s→2s→4s→8s)
         ) if settings.anthropic_api_key else None
         self._model = settings.default_ai_model  # Fast model for intermediate phases
         self._synthesis_model = getattr(settings, "synthesis_ai_model", settings.default_ai_model)  # Capable model for synthesis
@@ -54,6 +56,38 @@ class PhasedBlueprintGenerator:
             return await self._prompt_loader.get_prompt_by_key(key)
         return self._prompt_loader.get_prompt_by_key(key)
 
+    async def _call_ai(self, *, phase_name: str, analysis_id: str | None = None, **kwargs):
+        """Call the Anthropic API with application-level retry on top of SDK retries.
+
+        After the SDK's own retries (max_retries=5) are exhausted, this method
+        retries up to 3 more times with longer delays (30s, 60s, 120s) for
+        transient server errors (5xx / 529), rate limits (429), network
+        errors (connection resets, read errors), and timeouts.
+
+        Non-retryable errors (400, 401, 403) propagate immediately.
+        """
+        retry_delays = [30, 60, 120]
+        max_attempts = 1 + len(retry_delays)  # 4 total
+        last_exc: Exception | None = None
+
+        for attempt in range(max_attempts):
+            try:
+                return await self._client.messages.create(**kwargs)
+            except (InternalServerError, RateLimitError, APIConnectionError, APITimeoutError) as exc:
+                last_exc = exc
+                if attempt < max_attempts - 1:
+                    delay = retry_delays[attempt]
+                    if self._progress_callback and analysis_id:
+                        await self._progress_callback(
+                            analysis_id,
+                            "WARNING",
+                            f"API call for '{phase_name}' failed (attempt {attempt + 1}/{max_attempts}): "
+                            f"{exc.__class__.__name__}. Retrying in {delay}s...",
+                        )
+                    await asyncio.sleep(delay)
+                else:
+                    raise last_exc
+
     async def generate(
         self,
         repo_path: Path,
@@ -65,6 +99,8 @@ class PhasedBlueprintGenerator:
         config_files: dict[str, str] | None = None,
         code_samples: dict[str, str] | None = None,
         blueprint_type: str = "backend",
+        discovery_ignored_dirs: set[str] | None = None,
+        provided_capabilities: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Generate comprehensive architecture blueprint through phased analysis.
         
@@ -113,6 +149,7 @@ class PhasedBlueprintGenerator:
             repo_path=repo_path,
             repository_name=repository_name,
             analysis_id=analysis_id,
+            discovery_ignored_dirs=discovery_ignored_dirs,
         )
         
         if self._progress_callback and analysis_id:
@@ -258,6 +295,25 @@ class PhasedBlueprintGenerator:
             if self._progress_callback and analysis_id:
                 await self._progress_callback(analysis_id, "INFO", "Frontend architecture analyzed")
 
+        # Implementation Analysis: identify existing capabilities
+        implementation_result = ""
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Analyzing implementation patterns...")
+        implementation_result = await self._run_implementation_analysis(
+            repository_name=repository_name,
+            repository_id=repository_id,
+            repo_path=repo_path,
+            technology=technology_result,
+            communication=communication_result,
+            patterns=patterns_result,
+            layers=layers_result,
+            code_samples=code_samples,
+            rag_enabled=rag_enabled,
+            analysis_id=analysis_id,
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(analysis_id, "INFO", "Implementation analysis complete")
+
         # Final Synthesis: Generate structured JSON blueprint
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Generating unified architecture blueprint...")
@@ -276,7 +332,21 @@ class PhasedBlueprintGenerator:
             analysis_id=analysis_id,
             file_tree=file_tree,
             framework_usage=json.dumps(self._framework_usage) if self._framework_usage else "",
+            provided_capabilities=provided_capabilities or {},
+            implementation_analysis=implementation_result,
         )
+
+        # Include phase outputs in the result for storage
+        synthesis_result["phase_outputs"] = {
+            "observation": observation_result,
+            "discovery": discovery_result,
+            "layers": layers_result,
+            "patterns": patterns_result,
+            "communication": communication_result,
+            "technology": technology_result,
+            "frontend_analysis": frontend_result if has_frontend else "",
+            "implementation_analysis": implementation_result,
+        }
 
         return synthesis_result
 
@@ -395,7 +465,9 @@ class PhasedBlueprintGenerator:
             "config_files": code_to_analyze[:12_000] + observation_context,
         })
 
-        response = await self._client.messages.create(
+        response = await self._call_ai(
+            phase_name="discovery",
+            analysis_id=analysis_id,
             model=self._model,
             max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
@@ -458,7 +530,9 @@ class PhasedBlueprintGenerator:
             "code_samples": code_to_analyze[:15_000],
         })
 
-        response = await self._client.messages.create(
+        response = await self._call_ai(
+            phase_name="layers",
+            analysis_id=analysis_id,
             model=self._model,
             max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
@@ -520,7 +594,9 @@ class PhasedBlueprintGenerator:
             "code_samples": code_to_analyze[:15_000],
         })
 
-        response = await self._client.messages.create(
+        response = await self._call_ai(
+            phase_name="patterns",
+            analysis_id=analysis_id,
             model=self._model,
             max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
@@ -579,7 +655,9 @@ class PhasedBlueprintGenerator:
             "code_samples": code_to_analyze[:12_000],
         })
 
-        response = await self._client.messages.create(
+        response = await self._call_ai(
+            phase_name="communication",
+            analysis_id=analysis_id,
             model=self._model,
             max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
@@ -639,7 +717,9 @@ class PhasedBlueprintGenerator:
             "dependencies": tech_context,
         })
 
-        response = await self._client.messages.create(
+        response = await self._call_ai(
+            phase_name="technology",
+            analysis_id=analysis_id,
             model=self._model,
             max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
@@ -716,7 +796,9 @@ class PhasedBlueprintGenerator:
             "code_samples": code_to_analyze[:15_000],
         })
 
-        response = await self._client.messages.create(
+        response = await self._call_ai(
+            phase_name="frontend_analysis",
+            analysis_id=analysis_id,
             model=self._model,
             max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
@@ -741,6 +823,77 @@ class PhasedBlueprintGenerator:
 
         return output_text
 
+    async def _run_implementation_analysis(
+        self,
+        repository_name: str,
+        repository_id: str | None,
+        repo_path: Path,
+        technology: str,
+        communication: str,
+        patterns: str,
+        layers: str,
+        code_samples: dict[str, str],
+        rag_enabled: bool,
+        analysis_id: str | None = None,
+    ) -> str:
+        """Run Implementation Analysis: identify existing capabilities and how they were built."""
+        prompt = await self._load_prompt("implementation_analysis")
+
+        code_to_analyze, source_label = await self._get_phase_code(
+            phase="technology",  # reuse technology phase files as closest match
+            repository_id=repository_id,
+            repo_path=repo_path,
+            rag_enabled=rag_enabled,
+            code_samples=code_samples,
+        )
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Implementation context: {source_label} ({len(code_to_analyze):,} chars)",
+            )
+
+        prompt_text = prompt.render({
+            "repository_name": repository_name,
+            "technology": technology[:5000],
+            "communication": communication[:3000],
+            "patterns": patterns[:3000],
+            "layers": layers[:3000],
+            "code_samples": code_to_analyze[:10_000],
+        })
+
+        response = await self._call_ai(
+            phase_name="implementation_analysis",
+            analysis_id=analysis_id,
+            model=self._model,
+            max_tokens=10000,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+
+        output_text = response.content[0].text
+
+        if analysis_id:
+            await analysis_data_collector.capture_phase_data(analysis_id, "implementation_analysis",
+                gathered={
+                    "technology": {"full_content": technology, "char_count": len(technology)},
+                    "communication": {"full_content": communication, "char_count": len(communication)},
+                    "patterns": {"full_content": patterns, "char_count": len(patterns)},
+                    "layers": {"full_content": layers, "char_count": len(layers)},
+                    "code_samples": {"full_content": code_to_analyze, "char_count": len(code_to_analyze)},
+                },
+                sent={
+                    "technology": {"content": technology[:5000], "char_count": len(technology[:5000]), "truncated_from": len(technology)},
+                    "communication": {"content": communication[:3000], "char_count": len(communication[:3000]), "truncated_from": len(communication)},
+                    "patterns": {"content": patterns[:3000], "char_count": len(patterns[:3000]), "truncated_from": len(patterns)},
+                    "layers": {"content": layers[:3000], "char_count": len(layers[:3000]), "truncated_from": len(layers)},
+                    "code_samples": {"content": code_to_analyze[:10_000], "char_count": len(code_to_analyze[:10_000]), "truncated_from": len(code_to_analyze)},
+                    "source_label": source_label,
+                    "full_prompt": prompt_text,
+                },
+                output=output_text,
+            )
+
+        return output_text
+
     async def _run_blueprint_synthesis(
         self,
         repository_name: str,
@@ -756,6 +909,8 @@ class PhasedBlueprintGenerator:
         analysis_id: str | None = None,
         file_tree: str = "",
         framework_usage: str = "",
+        provided_capabilities: dict[str, list[str]] | None = None,
+        implementation_analysis: str = "",
     ) -> dict[str, Any]:
         """Run Blueprint Synthesis: Generate structured JSON blueprint.
 
@@ -776,6 +931,20 @@ class PhasedBlueprintGenerator:
                 "and leave the entire frontend section with empty values."
             )
 
+        # Format provided capabilities for the prompt
+        capabilities_text = ""
+        if provided_capabilities:
+            cap_lines = []
+            for cap, providers in provided_capabilities.items():
+                cap_lines.append(f"- {cap}: {', '.join(providers)}")
+            capabilities_text = (
+                "\n### Capabilities Already Provided by Dependencies\n\n"
+                "The following capabilities are ALREADY handled by existing libraries in this codebase.\n"
+                "Do NOT propose implementing these — instead document how the codebase uses them.\n"
+                "Reference these existing libraries when documenting the technology stack.\n\n"
+                + "\n".join(cap_lines)
+            )
+
         prompt_text = prompt.render({
             "repository_name": repository_name,
             "discovery": discovery[:10000],
@@ -784,10 +953,12 @@ class PhasedBlueprintGenerator:
             "communication": communication[:10000],
             "technology": technology[:10000],
             "frontend_analysis": frontend_analysis[:10000] if frontend_analysis else "No frontend/UI layer detected.",
+            "implementation_analysis": implementation_analysis[:10000] if implementation_analysis else "No implementation analysis available.",
             "code_samples": code_samples[:10000],
             "platform_hint": platform_hint,
             "file_tree": file_tree[:10000],
             "framework_usage": framework_usage[:10000],
+            "provided_capabilities": capabilities_text,
         })
 
         if self._progress_callback and analysis_id:
@@ -797,7 +968,9 @@ class PhasedBlueprintGenerator:
                 f"Using synthesis model: {self._synthesis_model} (max_tokens={self._synthesis_max_tokens})",
             )
 
-        response = await self._client.messages.create(
+        response = await self._call_ai(
+            phase_name="synthesis",
+            analysis_id=analysis_id,
             model=self._synthesis_model,
             max_tokens=self._synthesis_max_tokens,
             messages=[{"role": "user", "content": prompt_text}],
@@ -1237,6 +1410,7 @@ Please configure the Anthropic API key to enable full blueprint generation.
         repo_path: Path,
         repository_name: str,
         analysis_id: str | None = None,
+        discovery_ignored_dirs: set[str] | None = None,
     ) -> str:
         """Run observation-first full file scan.
         
@@ -1255,7 +1429,7 @@ Please configure the Anthropic API key to enable full blueprint generation.
             Observation result describing detected architecture style and patterns
         """
         # Extract file signatures from ALL code files
-        file_signatures = await self._extract_all_file_signatures(repo_path, analysis_id)
+        file_signatures = await self._extract_all_file_signatures(repo_path, analysis_id, discovery_ignored_dirs=discovery_ignored_dirs)
 
         if not file_signatures:
             return "No code files found for observation."
@@ -1267,7 +1441,9 @@ Please configure the Anthropic API key to enable full blueprint generation.
             "file_signatures": file_signatures,
         })
 
-        response = await self._client.messages.create(
+        response = await self._call_ai(
+            phase_name="observation",
+            analysis_id=analysis_id,
             model=self._model,
             max_tokens=10000,
             messages=[{"role": "user", "content": prompt_text}],
@@ -1301,6 +1477,7 @@ Please configure the Anthropic API key to enable full blueprint generation.
         self,
         repo_path: Path,
         analysis_id: str | None = None,
+        discovery_ignored_dirs: set[str] | None = None,
     ) -> str:
         """Extract signatures from ALL code files in the repository.
         
@@ -1325,11 +1502,8 @@ Please configure the Anthropic API key to enable full blueprint generation.
             ".kt", ".scala", ".m", ".mm",  # Added Objective-C
         }
         
-        ignore_patterns = {
-            "node_modules", ".git", "venv", "__pycache__", ".next",
-            "dist", "build", "target", ".gradle", ".idea", ".venv",
-            "env", ".env", "vendor", "coverage", ".nyc_output", "Pods",
-        }
+        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
         
         signatures = []
         file_count = 0

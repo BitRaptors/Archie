@@ -146,40 +146,12 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
 
     # ── 5. Architecture Rules ─────────────────────────────────────────
     has_rules = (
-        bp.architecture_rules.dependency_constraints
-        or bp.architecture_rules.file_placement_rules
+        bp.architecture_rules.file_placement_rules
         or bp.architecture_rules.naming_conventions
     )
     if has_rules:
         lines.append("## 5. Architecture Rules")
         lines.append("")
-
-        # Dependency constraints
-        if bp.architecture_rules.dependency_constraints:
-            lines.append("### Dependency Constraints")
-            lines.append("")
-            for dc in bp.architecture_rules.dependency_constraints:
-                sev_icon = {"error": "🚫", "warning": "⚠️", "info": "ℹ️"}.get(dc.severity, "•")
-                lines.append(f"#### {sev_icon} {dc.source_description or dc.source_pattern}")
-                lines.append("")
-                # Render rule_description prominently
-                if dc.rule_description:
-                    lines.append(f"**Rule:** {dc.rule_description}")
-                    lines.append("")
-                lines.append(f"**Source:** `{dc.source_pattern}`")
-                lines.append("")
-                if dc.allowed_imports:
-                    lines.append("**Allowed imports:**")
-                    for ai in dc.allowed_imports:
-                        lines.append(f"- ✅ `{ai}`")
-                if dc.forbidden_imports:
-                    lines.append("**Forbidden imports:**")
-                    for fi in dc.forbidden_imports:
-                        lines.append(f"- ❌ `{fi}`")
-                if dc.rationale:
-                    lines.append("")
-                    lines.append(f"*{dc.rationale}*")
-                lines.append("")
 
         # File placement
         if bp.architecture_rules.file_placement_rules:
@@ -292,9 +264,72 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append(f"| {psg.scenario} | {psg.pattern} | {psg.rationale} |")
             lines.append("")
 
-    # ── 8. Developer Recipes (NEW) ────────────────────────────────────
+    # ── 8. Implementation Guidelines ──────────────────────────────────
+    if bp.implementation_guidelines:
+        lines.append("## 8. Implementation Guidelines")
+        lines.append("")
+
+        # Group by category
+        from collections import defaultdict
+        by_category: dict[str, list] = defaultdict(list)
+        for gl in bp.implementation_guidelines:
+            cat = gl.category.strip().title() if gl.category else "General"
+            by_category[cat].append(gl)
+
+        for cat_name in sorted(by_category.keys()):
+            lines.append(f"### {cat_name}")
+            lines.append("")
+            for gl in by_category[cat_name]:
+                lines.append(f"#### {gl.capability}")
+                lines.append("")
+                if gl.libraries:
+                    lines.append(f"**Libraries:** {', '.join(f'`{lib}`' for lib in gl.libraries)}")
+                    lines.append("")
+                if gl.pattern_description:
+                    lines.append(f"**Pattern:** {gl.pattern_description}")
+                    lines.append("")
+                if gl.key_files:
+                    lines.append("**Key files:**")
+                    lines.append("")
+                    for kf in gl.key_files:
+                        lines.append(f"- `{kf}`")
+                    lines.append("")
+                if gl.usage_example:
+                    lines.append("**Example:**")
+                    lines.append("")
+                    # Strip any existing code fences from AI-generated examples
+                    example = gl.usage_example.strip()
+                    # Extract prose before the code fence (if any)
+                    fence_idx = example.find("```")
+                    if fence_idx > 0:
+                        prose = example[:fence_idx].strip()
+                        if prose:
+                            lines.append(prose)
+                            lines.append("")
+                        example = example[fence_idx:]
+                    # Strip outer code fences — we add our own
+                    if example.startswith("```"):
+                        first_nl = example.find("\n")
+                        if first_nl != -1:
+                            example = example[first_nl + 1:]
+                        else:
+                            example = ""
+                    if example.rstrip().endswith("```"):
+                        example = example.rstrip()[:-3].rstrip()
+                    lines.append("```")
+                    lines.append(example)
+                    lines.append("```")
+                    lines.append("")
+                if gl.tips:
+                    lines.append("**Tips:**")
+                    lines.append("")
+                    for tip in gl.tips:
+                        lines.append(f"- {tip}")
+                    lines.append("")
+
+    # ── 9. Developer Recipes ──────────────────────────────────────────
     if bp.developer_recipes:
-        lines.append("## 8. Developer Recipes")
+        lines.append("## 9. Developer Recipes")
         lines.append("")
         for recipe in bp.developer_recipes:
             if not recipe.task:
@@ -312,10 +347,10 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                     lines.append(f"{i}. {step}")
                 lines.append("")
 
-    # ── 9. Technology Stack ───────────────────────────────────────────
+    # ── 10. Technology Stack ──────────────────────────────────────────
     has_tech = bp.technology.stack or bp.technology.run_commands or bp.technology.templates
     if has_tech:
-        lines.append("## 9. Technology Stack")
+        lines.append("## 10. Technology Stack")
         lines.append("")
 
         if bp.technology.stack:
@@ -350,9 +385,9 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append("```")
                 lines.append("")
 
-    # ── 10. Pitfalls & Edge Cases (NEW) ───────────────────────────────
+    # ── 11. Pitfalls & Edge Cases ──────────────────────────────────────
     if bp.pitfalls:
-        lines.append("## 10. Pitfalls & Edge Cases")
+        lines.append("## 11. Pitfalls & Edge Cases")
         lines.append("")
         for pitfall in bp.pitfalls:
             if not pitfall.area and not pitfall.description:
@@ -363,14 +398,14 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append(f"  - *Recommendation:* {pitfall.recommendation}")
         lines.append("")
 
-    # ── 11. Quick Reference ───────────────────────────────────────────
+    # ── 12. Quick Reference ──────────────────────────────────────────
     has_quick_ref = (
         bp.quick_reference.where_to_put_code
         or bp.quick_reference.pattern_selection
         or bp.quick_reference.error_mapping
     )
     if has_quick_ref:
-        lines.append("## 11. Quick Reference")
+        lines.append("## 12. Quick Reference")
         lines.append("")
 
         if bp.quick_reference.where_to_put_code:
@@ -400,12 +435,12 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append(f"| `{em.error}` | {em.status_code} | {em.description} |")
             lines.append("")
 
-    # ── 12. Frontend Architecture ─────────────────────────────────────
+    # ── 13. Frontend Architecture ────────────────────────────────────
     fe = bp.frontend
     has_frontend = fe.framework or fe.ui_components or fe.routing or fe.data_fetching
 
     if has_frontend:
-        lines.append("## 12. Frontend Architecture")
+        lines.append("## 13. Frontend Architecture")
         lines.append("")
         if fe.framework:
             lines.append(f"**Framework:** {fe.framework}")

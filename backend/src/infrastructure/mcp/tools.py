@@ -7,8 +7,6 @@ import fnmatch
 import json
 import re
 from pathlib import Path
-from typing import Optional
-
 from domain.entities.blueprint import StructuredBlueprint
 
 
@@ -192,78 +190,6 @@ class BlueprintTools:
 
     # ── Architecture guardrail tools ──────────────────────────────────
 
-    def validate_import(self, repo_id: str, source_file: str, target_import: str) -> str:
-        """Check whether an import is allowed by the architecture rules.
-
-        Args:
-            repo_id: Repository ID
-            source_file: File that contains the import (e.g. "src/api/routes/users.py")
-            target_import: Module being imported (e.g. "src/infrastructure/db")
-
-        Returns:
-            Human-readable validation result with machine-parseable JSON.
-        """
-        bp = self._load_structured_blueprint(repo_id)
-        if not bp:
-            return f"No structured blueprint found for repository '{repo_id}'. Run analysis first."
-
-        violations: list[dict] = []
-        allowed_by: list[str] = []
-
-        for dc in bp.architecture_rules.dependency_constraints:
-            if not dc.source_pattern:
-                continue
-
-            if not _glob_match(source_file, dc.source_pattern):
-                continue
-
-            # Check forbidden
-            for forbidden in dc.forbidden_imports:
-                if _glob_match(target_import, forbidden):
-                    violations.append({
-                        "rule": dc.source_description or dc.source_pattern,
-                        "forbidden_pattern": forbidden,
-                        "severity": dc.severity,
-                        "rationale": dc.rationale,
-                    })
-
-            # Check allowed
-            for allowed in dc.allowed_imports:
-                if _glob_match(target_import, allowed):
-                    allowed_by.append(dc.source_description or dc.source_pattern)
-
-        result = {
-            "source_file": source_file,
-            "target_import": target_import,
-            "is_valid": len(violations) == 0,
-            "violations": violations,
-            "allowed_by": allowed_by,
-        }
-
-        if violations:
-            lines = [f"**VIOLATION** — Import `{target_import}` from `{source_file}` is NOT allowed.\n"]
-            for v in violations:
-                lines.append(f"- Rule: {v['rule']}")
-                lines.append(f"  Forbidden: `{v['forbidden_pattern']}` (severity: {v['severity']})")
-                if v["rationale"]:
-                    lines.append(f"  Reason: {v['rationale']}")
-            lines.append(f"\n```json\n{json.dumps(result, indent=2)}\n```")
-            return "\n".join(lines)
-
-        if allowed_by:
-            return (
-                f"**ALLOWED** — Import `{target_import}` from `{source_file}` is permitted.\n"
-                f"Allowed by: {', '.join(allowed_by)}\n"
-                f"\n```json\n{json.dumps(result, indent=2)}\n```"
-            )
-
-        return (
-            f"**UNGUARDED** — No dependency constraint covers `{source_file}` → `{target_import}`.\n"
-            f"This import is not covered by any architecture rule. "
-            f"Verify manually that it does not violate the intended layer boundaries.\n"
-            f"\n```json\n{json.dumps(result, indent=2)}\n```"
-        )
-
     def where_to_put(self, repo_id: str, component_type: str) -> str:
         """Find the correct location for a new component.
 
@@ -412,3 +338,60 @@ class BlueprintTools:
             f"No naming convention found for scope '{scope}'.\n"
             f"Available scopes: {', '.join(set(nc.scope for nc in bp.architecture_rules.naming_conventions))}"
         )
+
+    def how_to_implement(self, repo_id: str, feature: str) -> str:
+        """Find implementation guidelines for a capability/feature.
+
+        Args:
+            repo_id: Repository ID
+            feature: Feature or capability to look up (e.g. "push notifications", "maps", "auth")
+
+        Returns:
+            Matching implementation guidelines with libraries, patterns, and key files.
+        """
+        bp = self._load_structured_blueprint(repo_id)
+        if not bp:
+            return f"No structured blueprint found for repository '{repo_id}'."
+
+        if not bp.implementation_guidelines:
+            return (
+                f"No implementation guidelines available for repository '{repo_id}'.\n"
+                "Run a new analysis to generate implementation guidelines."
+            )
+
+        feature_lower = feature.lower().strip()
+        matches = []
+        for gl in bp.implementation_guidelines:
+            searchable = f"{gl.capability} {gl.category} {' '.join(gl.libraries)} {gl.pattern_description}".lower()
+            if feature_lower in searchable:
+                matches.append(gl)
+
+        if not matches:
+            available = [gl.capability for gl in bp.implementation_guidelines if gl.capability]
+            return (
+                f"No implementation guideline found for '{feature}'.\n"
+                f"Available capabilities: {', '.join(available) or 'none'}"
+            )
+
+        lines = [f"# How to implement: {feature}\n"]
+        for gl in matches:
+            lines.append(f"## {gl.capability}")
+            if gl.category:
+                lines.append(f"**Category:** {gl.category}")
+            if gl.libraries:
+                lines.append(f"**Libraries:** {', '.join(f'`{lib}`' for lib in gl.libraries)}")
+            if gl.pattern_description:
+                lines.append(f"**Pattern:** {gl.pattern_description}")
+            if gl.key_files:
+                lines.append("**Key files:**")
+                for f in gl.key_files:
+                    lines.append(f"- `{f}`")
+            if gl.usage_example:
+                lines.append(f"**Example:**\n```\n{gl.usage_example}\n```")
+            if gl.tips:
+                lines.append("**Tips:**")
+                for tip in gl.tips:
+                    lines.append(f"- {tip}")
+            lines.append("")
+        return "\n".join(lines)
+

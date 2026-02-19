@@ -1,28 +1,27 @@
 """Comprehensive tests for MCP tool implementations.
 
-Tests the core tool logic in BlueprintTools: validate_import, where_to_put,
+Tests the core tool logic in BlueprintTools: where_to_put,
 check_naming, get_repository_blueprint, list_repository_sections,
 get_repository_section, and internal helpers (_glob_match, _slice_markdown).
 """
 import json
 import pytest
-from pathlib import Path
 
 from domain.entities.blueprint import (
     ArchitectureRules,
     BlueprintMeta,
     Components,
     Communication,
-    DependencyConstraint,
     Decisions,
     FilePlacementRule,
     Frontend,
+    ImplementationGuideline,
     NamingConvention,
     QuickReference,
     StructuredBlueprint,
     Technology,
 )
-from infrastructure.mcp.tools import BlueprintTools, _glob_match, _match_segments, _slice_markdown, _slugify
+from infrastructure.mcp.tools import BlueprintTools, _glob_match, _slice_markdown, _slugify
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -39,44 +38,6 @@ def _make_blueprint(**overrides) -> StructuredBlueprint:
             platforms=["backend"],
         ),
         architecture_rules=ArchitectureRules(
-            dependency_constraints=[
-                DependencyConstraint(
-                    source_pattern="src/domain/**",
-                    source_description="Domain layer",
-                    allowed_imports=["src/domain/**"],
-                    forbidden_imports=[
-                        "src/infrastructure/**",
-                        "src/api/**",
-                        "fastapi",
-                        "sqlalchemy",
-                    ],
-                    severity="error",
-                    rationale="Domain must remain pure with no external deps",
-                ),
-                DependencyConstraint(
-                    source_pattern="src/api/**",
-                    source_description="API/Presentation layer",
-                    allowed_imports=[
-                        "src/application/**",
-                        "src/domain/**",
-                        "fastapi",
-                    ],
-                    forbidden_imports=["src/infrastructure/**"],
-                    severity="error",
-                    rationale="API should not access infrastructure directly",
-                ),
-                DependencyConstraint(
-                    source_pattern="src/application/**",
-                    source_description="Application layer",
-                    allowed_imports=[
-                        "src/domain/**",
-                        "src/application/**",
-                    ],
-                    forbidden_imports=["src/api/**", "fastapi"],
-                    severity="error",
-                    rationale="Application layer must not depend on HTTP",
-                ),
-            ],
             file_placement_rules=[
                 FilePlacementRule(
                     component_type="service",
@@ -168,13 +129,49 @@ def tools(tmp_path):
     return BlueprintTools(storage_dir=storage_dir)
 
 
+@pytest.fixture
+def tools_with_guidelines(tmp_path):
+    """BlueprintTools with a blueprint containing implementation guidelines."""
+    storage_dir = tmp_path / "storage"
+    bp_dir = storage_dir / "blueprints" / "test-repo-123"
+    bp_dir.mkdir(parents=True)
+
+    bp = _make_blueprint(
+        implementation_guidelines=[
+            ImplementationGuideline(
+                capability="Push Notifications",
+                category="notifications",
+                libraries=["Firebase Cloud Messaging 10.x"],
+                pattern_description="FCM topic-based subscriptions via NotificationService singleton.",
+                key_files=["Services/NotificationService.swift", "AppDelegate.swift"],
+                usage_example="NotificationService.shared.subscribe(topic: 'place_updates')",
+                tips=["Request notification permissions before subscribing", "Handle token refresh via FIRMessaging delegate"],
+            ),
+            ImplementationGuideline(
+                capability="Map Display",
+                category="location",
+                libraries=["Mapbox Maps SDK 10.x", "Core Location"],
+                pattern_description="MGLMapView wrapped in custom MapView. Annotations from PlacesService.",
+                key_files=["Controllers/MapViewController.swift", "Views/MapView.swift"],
+                usage_example="mapView.addAnnotations(places.map { PlaceAnnotation($0) })",
+                tips=["Limit annotations to ~100 per viewport", "Use clustering for large datasets"],
+            ),
+        ],
+    )
+    (bp_dir / "blueprint.json").write_text(
+        bp.model_dump_json(indent=2), encoding="utf-8"
+    )
+
+    return BlueprintTools(storage_dir=storage_dir)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # _glob_match
 # ══════════════════════════════════════════════════════════════════════════════
 
 
 class TestGlobMatch:
-    """Test the custom glob matching used by validate_import."""
+    """Test the custom glob matching used by tool implementations."""
 
     def test_double_star_matches_multiple_segments(self):
         assert _glob_match("src/domain/entities/user.py", "src/domain/**") is True
@@ -262,109 +259,6 @@ class TestSliceMarkdown:
 
     def test_slugify_special(self):
         assert _slugify("Key Decisions & Trade-Offs") == "key-decisions-trade-offs"
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# validate_import
-# ══════════════════════════════════════════════════════════════════════════════
-
-
-class TestValidateImport:
-    """Test the validate_import tool — the core guardrail."""
-
-    def test_forbidden_import_detected(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "src/domain/entities/user.py",
-            "src/infrastructure/db/connection.py",
-        )
-        assert "VIOLATION" in result
-        assert "is NOT allowed" in result
-        assert '"is_valid": false' in result
-
-    def test_allowed_import_passes(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "src/domain/entities/user.py",
-            "src/domain/value_objects/email.py",
-        )
-        assert "ALLOWED" in result
-        assert '"is_valid": true' in result
-
-    def test_api_cannot_import_infrastructure(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "src/api/routes/users.py",
-            "src/infrastructure/persistence/user_repo.py",
-        )
-        assert "VIOLATION" in result
-
-    def test_api_can_import_application(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "src/api/routes/users.py",
-            "src/application/services/user_service.py",
-        )
-        assert "ALLOWED" in result
-
-    def test_application_cannot_import_fastapi(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "src/application/services/user_service.py",
-            "fastapi",
-        )
-        assert "VIOLATION" in result
-
-    def test_no_matching_rule(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "scripts/deploy.py",
-            "boto3",
-        )
-        assert "UNGUARDED" in result
-        assert "verify manually" in result.lower()
-        assert '"is_valid": true' in result
-
-    def test_nonexistent_repo(self, tools):
-        result = tools.validate_import(
-            "nonexistent-repo-id",
-            "src/domain/user.py",
-            "fastapi",
-        )
-        assert "not found" in result.lower() or "Run analysis" in result
-
-    def test_response_contains_json_block(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "src/domain/entities/user.py",
-            "src/infrastructure/db.py",
-        )
-        assert "```json" in result
-        json_start = result.index("```json") + 7
-        json_end = result.index("```", json_start)
-        parsed = json.loads(result[json_start:json_end])
-        assert "is_valid" in parsed
-        assert "violations" in parsed
-        assert "source_file" in parsed
-        assert "target_import" in parsed
-
-    def test_violation_includes_severity_and_rationale(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "src/domain/entities/user.py",
-            "sqlalchemy",
-        )
-        assert "severity" in result
-        assert "error" in result.lower()
-        assert "Reason:" in result or "rationale" in result.lower()
-
-    def test_multiple_violations_all_reported(self, tools):
-        result = tools.validate_import(
-            "test-repo-123",
-            "src/domain/entities/user.py",
-            "src/api/routes/users.py",
-        )
-        assert "VIOLATION" in result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -629,32 +523,6 @@ class TestRealWorldScenarios:
                 platforms=["mobile-android"],
             ),
             architecture_rules=ArchitectureRules(
-                dependency_constraints=[
-                    DependencyConstraint(
-                        source_pattern="presentation/**",
-                        source_description="UI layer (Compose screens, ViewModels)",
-                        allowed_imports=["domain/**", "androidx.compose.*"],
-                        forbidden_imports=["data/**", "retrofit2.*"],
-                        severity="error",
-                        rationale="Presentation depends on Domain only",
-                    ),
-                    DependencyConstraint(
-                        source_pattern="domain/**",
-                        source_description="Business logic",
-                        allowed_imports=["kotlin.*", "kotlinx.coroutines.*"],
-                        forbidden_imports=["data/**", "presentation/**", "android.content.*"],
-                        severity="error",
-                        rationale="Domain is pure Kotlin, no Android deps",
-                    ),
-                    DependencyConstraint(
-                        source_pattern="data/**",
-                        source_description="Data layer",
-                        allowed_imports=["domain/**", "retrofit2.*", "androidx.room.*"],
-                        forbidden_imports=["presentation/**"],
-                        severity="error",
-                        rationale="Data implements domain interfaces",
-                    ),
-                ],
                 file_placement_rules=[
                     FilePlacementRule(
                         component_type="ViewModel",
@@ -692,38 +560,6 @@ class TestRealWorldScenarios:
         )
         return BlueprintTools(storage_dir=storage_dir)
 
-    def test_android_presentation_cannot_import_data(self, android_tools):
-        result = android_tools.validate_import(
-            "android-app",
-            "presentation/screens/LoginScreen.kt",
-            "data/api/AuthApi.kt",
-        )
-        assert "VIOLATION" in result
-
-    def test_android_presentation_can_import_domain(self, android_tools):
-        result = android_tools.validate_import(
-            "android-app",
-            "presentation/viewmodels/LoginViewModel.kt",
-            "domain/usecases/LoginUseCase.kt",
-        )
-        assert "ALLOWED" in result
-
-    def test_android_domain_cannot_import_android(self, android_tools):
-        result = android_tools.validate_import(
-            "android-app",
-            "domain/usecases/GetUserUseCase.kt",
-            "android.content.Context",
-        )
-        assert "VIOLATION" in result
-
-    def test_android_data_cannot_import_presentation(self, android_tools):
-        result = android_tools.validate_import(
-            "android-app",
-            "data/repositories/UserRepositoryImpl.kt",
-            "presentation/viewmodels/UserViewModel.kt",
-        )
-        assert "VIOLATION" in result
-
     def test_android_where_to_put_viewmodel(self, android_tools):
         result = android_tools.where_to_put("android-app", "ViewModel")
         assert "presentation/viewmodels" in result
@@ -732,3 +568,63 @@ class TestRealWorldScenarios:
     def test_android_where_to_put_screen(self, android_tools):
         result = android_tools.where_to_put("android-app", "Screen")
         assert "presentation/screens" in result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# how_to_implement
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestHowToImplement:
+    """Test the how_to_implement tool."""
+
+    def test_finds_by_capability_name(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "push notifications")
+        assert "Push Notifications" in result
+        assert "Firebase Cloud Messaging" in result
+        assert "Services/NotificationService.swift" in result
+
+    def test_finds_by_category(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "location")
+        assert "Map Display" in result
+        assert "Mapbox" in result
+
+    def test_finds_by_library_name(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "mapbox")
+        assert "Map Display" in result
+
+    def test_case_insensitive(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "PUSH NOTIFICATIONS")
+        assert "Push Notifications" in result
+
+    def test_returns_key_files(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "push notifications")
+        assert "`Services/NotificationService.swift`" in result
+
+    def test_returns_usage_example(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "push notifications")
+        assert "subscribe(topic:" in result
+
+    def test_returns_tips(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "push notifications")
+        assert "Request notification permissions" in result
+
+    def test_no_match_lists_available(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "blockchain")
+        assert "No implementation guideline" in result
+        assert "Push Notifications" in result
+        assert "Map Display" in result
+
+    def test_empty_guidelines_graceful(self, tools):
+        result = tools.how_to_implement("test-repo-123", "push notifications")
+        assert "No implementation guideline" in result or "not found" in result.lower()
+
+    def test_nonexistent_repo(self, tools):
+        result = tools.how_to_implement("nonexistent-repo-id", "push notifications")
+        assert "No structured blueprint found" in result
+
+    def test_no_cross_contamination(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement("test-repo-123", "notifications")
+        assert "Push Notifications" in result
+        assert "Map Display" not in result
+
