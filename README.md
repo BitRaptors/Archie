@@ -25,12 +25,15 @@ Architecture Blueprints fixes this:
        |
        v
   2. RAG Index           -- chunk code, embed with sentence-transformers, store in pgvector
-       |
+       |                     file-level retrieval returns full files (not fragments)
+       |                     phase-specific chunk type preferences boost relevance
        v
   3. Phased AI Analysis  -- 7-9 Claude API calls, each building on the previous
        |                     (observation → smart file reading → discovery →
        |                      layers → patterns → communication → technology →
        |                      [frontend] → implementation analysis → synthesis)
+       |                     file registry injected into every phase prompt
+       |                     dynamic file reading budget based on repo size
        v
   4. StructuredBlueprint -- single JSON source of truth (Pydantic model)
        |

@@ -690,7 +690,33 @@ class TestClickableFilePaths:
         md = render_blueprint_markdown(bp)
         assert "[`src/pages/Dashboard.tsx`](source://src/pages/Dashboard.tsx)" in md
 
-    def test_frontend_routing_component_is_link(self):
+    def test_frontend_routing_component_is_link_via_ui_component(self):
+        """Route component is linked when a matching UI component provides its location."""
+        bp = StructuredBlueprint(
+            frontend=Frontend(
+                framework="React",
+                ui_components=[
+                    UIComponent(
+                        name="DashboardPage",
+                        component_type="page",
+                        location="src/pages/DashboardPage.tsx",
+                        description="Dashboard",
+                    ),
+                ],
+                routing=[
+                    Route(
+                        path="/dashboard",
+                        component="DashboardPage",
+                        description="Main view",
+                    ),
+                ],
+            ),
+        )
+        md = render_blueprint_markdown(bp)
+        assert "[`src/pages/DashboardPage.tsx`](source://src/pages/DashboardPage.tsx)" in md
+
+    def test_frontend_routing_component_plain_when_no_ui_match(self):
+        """Route component renders as plain text when no UI component provides a location."""
         bp = StructuredBlueprint(
             frontend=Frontend(
                 framework="React",
@@ -704,4 +730,5 @@ class TestClickableFilePaths:
             ),
         )
         md = render_blueprint_markdown(bp)
-        assert "[`DashboardPage`](source://DashboardPage)" in md
+        assert "`DashboardPage`" in md
+        assert "source://DashboardPage" not in md

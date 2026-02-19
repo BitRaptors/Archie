@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import re
 import zlib
 
 from domain.entities.blueprint import StructuredBlueprint
@@ -41,7 +42,6 @@ def _source_link_annotated(entry: str) -> str:
 
     This strips the annotation from the URL and handles "or" alternatives.
     """
-    import re
     if not entry:
         return ""
 
@@ -387,6 +387,8 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             if recipe.steps:
                 lines.append("**Steps:**")
                 for i, step in enumerate(recipe.steps, 1):
+                    # Strip leading number prefixes the AI may have included (e.g. "1. ", "2) ")
+                    step = re.sub(r'^\d+[\.\)]\s*', '', step)
                     lines.append(f"{i}. {step}")
                 lines.append("")
 
