@@ -4,16 +4,16 @@ AI-powered system that analyzes GitHub repositories, learns their architecture, 
 
 ## Why
 
-AI coding agents (Claude Code, Cursor, Copilot) are powerful but architecturally unaware. They generate code that works but often violates your project's conventions: wrong file locations, forbidden imports, inconsistent naming, broken layer boundaries.
+**Claude Code reads your code. Architecture Blueprints understands your architecture.**
 
-**Architecture Blueprints** solves this by:
+AI agents write code that works but is architecturally blind — each session they skim a few files and guess. After 50 AI-assisted PRs you have 50 different interpretations of where things go and which patterns to use.
 
-- **Learning your architecture automatically** — no manual rule-writing. Point it at a repo, and it discovers patterns, layers, naming conventions, and dependency rules from the actual code.
-- **Enforcing it in real-time** — the `architecture-blueprints` MCP server provides tools that AI agents must call before creating files, adding imports, or naming components. The agent gets a yes/no answer instantly.
-- **Keeping every AI tool in sync** — a single `StructuredBlueprint` JSON is the source of truth. CLAUDE.md, Cursor rules, AGENTS.md, and MCP tools all derive from it. Change the blueprint, and every output updates.
-- **Preserving your existing config** — the delivery pipeline merges into your files (fenced markdown sections, key-level JSON merge) instead of overwriting them.
+Architecture Blueprints fixes this:
 
-Without this, every AI-generated PR is a coin flip on whether it follows your architecture. With it, the agent checks the rules before writing a single line.
+- **Deep analysis** — 7-9 AI phases scan your entire codebase: layers, naming, communication patterns, implementation patterns. Minutes of structured analysis, not seconds of skimming.
+- **Real-time enforcement** — MCP tools the agent calls *before* acting. `where_to_put`, `check_naming`, `how_to_implement` return concrete answers, not suggestions.
+- **One source of truth** — CLAUDE.md, Cursor rules, AGENTS.md, and MCP tools all derive from the same blueprint. Switch tools, onboard someone — same rules.
+- **Reuse what works** — Analyzed a well-architected project? Apply its blueprint as a reference architecture for new projects. Your best codebase becomes a reusable template that every AI agent follows — proven patterns, not reinvented ones.
 
 ## How It Works
 
