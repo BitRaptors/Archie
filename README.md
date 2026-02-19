@@ -27,9 +27,10 @@ Without this, every AI-generated PR is a coin flip on whether it follows your ar
   2. RAG Index           -- chunk code, embed with sentence-transformers, store in pgvector
        |
        v
-  3. Phased AI Analysis  -- 6-8 Claude API calls, each building on the previous
-       |                     (observation → discovery → layers → patterns →
-       |                      communication → technology → [frontend] → synthesis)
+  3. Phased AI Analysis  -- 7-9 Claude API calls, each building on the previous
+       |                     (observation → smart file reading → discovery →
+       |                      layers → patterns → communication → technology →
+       |                      [frontend] → implementation analysis → synthesis)
        v
   4. StructuredBlueprint -- single JSON source of truth (Pydantic model)
        |
@@ -148,6 +149,7 @@ The MCP server exposes these tools:
 | `get_repository_blueprint` | Get the full architecture blueprint |
 | `list_repository_sections` | List addressable blueprint sections |
 | `get_repository_section` | Get a specific section (token-efficient) |
+| `how_to_implement` | Look up how a capability is already implemented (libraries, patterns, key files) |
 
 ### Run tests
 

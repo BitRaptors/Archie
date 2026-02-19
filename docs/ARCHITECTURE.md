@@ -320,21 +320,22 @@ ORDER BY embedding <=> query_embedding
 LIMIT 15;
 ```
 
-Without RAG, each phase receives the same 10 static code samples. With RAG, each phase gets different, relevant code from across the entire codebase.
+Without RAG, each phase relies on priority files (from the observation phase's smart file reading) or falls back to the same 10 static code samples. With RAG, each phase gets different, semantically relevant code from across the entire codebase, combined with priority files for the best context quality.
 
 #### Stage 3: Phased AI Analysis (`phased_blueprint_generator.py`)
 
-Six to eight sequential Claude API calls, each building on the outputs of previous phases:
+Seven to nine sequential Claude API calls, each building on the outputs of previous phases:
 
 | Phase | Input | Output | Purpose |
 |-------|-------|--------|---------|
-| **0. Observation** | File signatures from up to 300 files (~200 tokens each: path + imports + class/function names) | Architecture style, detected components, custom RAG search terms | Architecture-agnostic detection. Generates custom queries instead of assuming "service/repository/controller" |
-| **1. Discovery** | File tree + dependencies + config files + observation results | Project type, entry points, module organization, config approach | Understand what the project is |
-| **2. Layers** | Discovery output + file tree + RAG code samples | Layer definitions, dependency rules, structure type | Identify architectural boundaries |
-| **3. Patterns** | Discovery + layers + RAG code samples | Structural patterns, behavioral patterns, cross-cutting concerns | Extract design patterns |
-| **4. Communication** | All previous + RAG code samples | Internal/external communication, integrations, pattern selection guide | Map how components communicate |
-| **5. Technology** | All previous + dependencies | Complete tech stack inventory | Document all technologies |
-| **6. Frontend** (conditional) | Discovery results checked for frontend indicators | Frontend framework, rendering, state management, styling, conventions | Only runs if frontend code detected |
+| **0. Observation** | File signatures from up to 300 files (~200 tokens each: path + imports + class/function names) | Architecture style, detected components, priority files per phase, custom RAG search terms | Architecture-agnostic detection. Generates custom queries and identifies key files for each downstream phase |
+| **0.5 Smart File Reading** | `priority_files_by_phase` from observation | Per-phase file content cache (150KB budget) | Reads full content of AI-selected architecturally significant files |
+| **1. Discovery** | File tree + dependencies + config files + observation results + priority files | Project type, entry points, module organization, config approach | Understand what the project is |
+| **2. Layers** | Discovery output + file tree + priority files (or RAG) | Layer definitions, dependency rules, structure type | Identify architectural boundaries |
+| **3. Patterns** | Discovery + layers + priority files (or RAG) | Structural patterns, behavioral patterns, cross-cutting concerns | Extract design patterns |
+| **4. Communication** | All previous + priority files (or RAG) | Internal/external communication, integrations, pattern selection guide | Map how components communicate |
+| **5. Technology** | All previous + dependencies + priority files (or RAG) | Complete tech stack inventory | Document all technologies |
+| **6. Frontend** (conditional) | Discovery results checked for frontend indicators + priority files | Frontend framework, rendering, state management, styling, conventions | Only runs if frontend code detected |
 | **7. Implementation Analysis** | Technology + communication + patterns + layers + code samples | Implementation guidelines for existing capabilities | Document how features were built (libraries, patterns, key files) |
 | **8. Synthesis** | All phase outputs combined | `StructuredBlueprint` JSON | Produce the final structured model |
 
@@ -342,9 +343,60 @@ Each phase's prompt is loaded from `prompts.json` via `PromptLoader` and rendere
 
 **Observation-first approach:** Traditional analysis assumes patterns like "service layer" or "repository pattern." The observation phase scans all file signatures first and detects the actual architecture style — whether that's actor-based, event-sourced, CQRS, feature-sliced, or something custom. It then generates targeted RAG queries for that specific architecture.
 
+#### Smart File Reading (Phase 0.5)
+
+After the observation phase completes, the pipeline reads the full content of architecturally significant files identified by the AI. This bridges the gap between observation (which scans signatures of all files) and downstream phases (which need actual code to analyze).
+
+**How it works:**
+
+1. The observation phase outputs `priority_files_by_phase` — a mapping of phase names to file paths the AI considers most important for that phase
+2. The pipeline reads each unique file once into a shared cache (budget: 150KB total, 10KB per file)
+3. Each downstream phase receives its targeted files via `_build_phase_context()`
+
+**Priority file selection by phase:**
+
+| Phase | What the AI selects |
+|-------|-------------------|
+| Discovery | Entry points, app factories, main config, top-level orchestration |
+| Layers | DI containers, module registries, route registrations, service/repository interfaces |
+| Patterns | Files showing design patterns (factories, decorators, middleware, state machines) |
+| Communication | HTTP clients/servers, event handlers, message queues, WebSocket handlers |
+| Technology | Build configs, CI/CD, Dockerfiles, deployment scripts |
+| Frontend | UI entry points, root layout, route config, state store, data fetching hooks |
+
+**Code context priority cascade** (`_get_phase_code()`):
+
+Each analysis phase resolves its code context using this priority:
+
+1. **RAG + targeted files** — Semantic retrieval combined with priority files (best quality)
+2. **Targeted files only** — Priority files without RAG (when RAG unavailable)
+3. **RAG only** — Semantic retrieval without priority files (when observation parsing fails)
+4. **Fallback** — Generic code samples (final fallback)
+
+**Key methods in `phased_blueprint_generator.py`:**
+
+| Method | Purpose |
+|--------|---------|
+| `_parse_priority_files()` | Extracts `priority_files_by_phase` from observation JSON output |
+| `_read_priority_files()` | Reads file content into a per-phase cache with budget protection |
+| `_build_phase_context()` | Formats cached files as code blocks for prompt inclusion |
+| `_get_phase_code()` | Resolves the best available code context using the priority cascade |
+
 #### Stage 4: Blueprint Storage
 
-The synthesis phase produces a `StructuredBlueprint` Pydantic model. This is serialized to JSON and stored at `storage/blueprints/{repository_id}/blueprint.json`.
+The synthesis phase produces a `StructuredBlueprint` Pydantic model. This is serialized to JSON and stored at `storage/blueprints/{repository_id}/blueprint.json`. Individual phase outputs are also saved alongside:
+
+```
+blueprints/{repository_id}/
+├── blueprint.json           (main output — single source of truth)
+├── observation.json         (phase 0 output)
+├── discovery.json           (phase 1 output)
+├── layers.json              (phase 2 output)
+├── patterns.json            (phase 3 output)
+├── communication.json       (phase 4 output)
+├── technology.json          (phase 5 output)
+└── frontend_analysis.json   (phase 6 output, if applicable)
+```
 
 #### Stage 5: Output Generation
 
@@ -376,7 +428,8 @@ Per-phase context budget:
 | Patterns | — | — | 6,000 | 2,500 | ~8,500 |
 | Communication | — | — | 5,000 | 3,000 | ~8,000 |
 | Technology | — | 2,000 | 3,000 | 3,500 | ~8,500 |
-| Synthesis | — | — | 4,000 | 12,500 | ~16,500 |
+| Implementation Analysis | — | — | 5,000 | 4,000 | ~9,000 |
+| Synthesis | — | — | 4,000 | 14,500 | ~18,500 |
 
 ---
 
@@ -680,6 +733,7 @@ PostgreSQL hosted on Supabase with pgvector extension. A single initial migratio
 | `phase_communication` | Communication phase input/output |
 | `phase_technology` | Technology phase input/output |
 | `phase_frontend` | Frontend phase input/output (conditional) |
+| `phase_implementation_analysis` | Implementation analysis phase input/output |
 | `phase_backend_synthesis` | Synthesis phase input/output |
 | `summary` | Overall metrics (chars sent, phase count, timestamps) |
 
@@ -836,7 +890,7 @@ tests/unit/
     └── ...
 ```
 
-Current test count: **389 unit tests**.
+Current test count: **643 unit tests**.
 
 ### Test Conventions
 
