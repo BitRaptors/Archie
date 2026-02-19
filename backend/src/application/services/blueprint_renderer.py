@@ -20,6 +20,48 @@ def _json_escape(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + '"'
 
 
+def _source_links(location: str) -> str:
+    """Turn a location string (possibly comma-separated) into clickable source:// links.
+
+    Single path  -> [`path/to/file.swift`](source://path/to/file.swift)
+    Multi paths  -> [`file1.swift`](source://file1.swift), [`file2.swift`](source://file2.swift)
+    """
+    if not location:
+        return ""
+    parts = [p.strip() for p in location.split(",") if p.strip()]
+    return ", ".join(f"[`{p}`](source://{p})" for p in parts)
+
+
+def _source_link_annotated(entry: str) -> str:
+    """Turn an annotated file entry into a source link + annotation text.
+
+    AI often produces entries like:
+      "Models/Tag.swift (add enum case)"
+      "MainViewController.swift or AppSettingsViewController.swift (add UI)"
+
+    This strips the annotation from the URL and handles "or" alternatives.
+    """
+    import re
+    if not entry:
+        return ""
+
+    # Extract annotation in parentheses at the end: "path (note)"
+    annotation = ""
+    match = re.search(r'\s*\(([^)]+)\)\s*$', entry)
+    if match:
+        annotation = f" ({match.group(1)})"
+        entry = entry[:match.start()]
+
+    # Handle "or" alternatives: "fileA.swift or fileB.swift"
+    if " or " in entry:
+        parts = [p.strip() for p in entry.split(" or ") if p.strip()]
+        links = " or ".join(f"[`{p}`](source://{p})" for p in parts)
+        return links + annotation
+
+    entry = entry.strip()
+    return f"[`{entry}`](source://{entry}){annotation}"
+
+
 def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
     """Convert a StructuredBlueprint to a comprehensive Markdown document.
 
@@ -100,7 +142,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             platform_tag = f" [{comp.platform}]" if comp.platform else ""
             lines.append(f"### {comp.name}{platform_tag}")
             lines.append("")
-            lines.append(f"**Location:** [`{comp.location}`](source://{comp.location})")
+            lines.append(f"**Location:** {_source_links(comp.location)}")
             lines.append("")
             lines.append(f"**Responsibility:** {comp.responsibility}")
             lines.append("")
@@ -340,7 +382,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             if recipe.files:
                 lines.append("**Files to touch:**")
                 for i, f in enumerate(recipe.files, 1):
-                    lines.append(f"{i}. [`{f}`](source://{f})")
+                    lines.append(f"{i}. {_source_link_annotated(f)}")
                 lines.append("")
             if recipe.steps:
                 lines.append("**Steps:**")
@@ -484,19 +526,27 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             lines.append("|------|------|----------|-------------|")
             for uc in fe.ui_components:
                 lines.append(
-                    f"| {uc.name} | {uc.component_type} | [`{uc.location}`](source://{uc.location}) | {uc.description} |"
+                    f"| {uc.name} | {uc.component_type} | {_source_links(uc.location)} | {uc.description} |"
                 )
             lines.append("")
 
         # Routing
         if fe.routing:
+            # Build name→location lookup from UI components so we can link class names
+            comp_location: dict[str, str] = {}
+            for uc in fe.ui_components:
+                if uc.name and uc.location:
+                    comp_location[uc.name] = uc.location
+
             lines.append("### Routing")
             lines.append("")
             lines.append("| Path | Component | Auth | Description |")
             lines.append("|------|-----------|------|-------------|")
             for r in fe.routing:
                 auth = "Yes" if r.auth_required else "No"
-                lines.append(f"| `{r.path}` | [`{r.component}`](source://{r.component}) | {auth} | {r.description} |")
+                loc = comp_location.get(r.component, "")
+                comp_cell = _source_links(loc) if loc else f"`{r.component}`"
+                lines.append(f"| `{r.path}` | {comp_cell} | {auth} | {r.description} |")
             lines.append("")
 
         # Data Fetching

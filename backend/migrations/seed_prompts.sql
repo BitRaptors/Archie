@@ -117,6 +117,11 @@ Repository: {repository_name}
 ### Configuration Files:
 {config_files}
 
+### File Registry (GROUNDING CONSTRAINT)
+The following file paths exist in this repository. You MUST ONLY reference file paths from this list. Do NOT invent, infer, or restructure file paths. If a file is not in this list, it does not exist.
+
+{file_registry}
+
 Analyze and document:
 
 1. **Project Type**: Identify if this is a monorepo, single app, microservice, serverless, full-stack, etc.
@@ -137,7 +142,7 @@ Provide your analysis in structured JSON format:
   "key_observations": ["..."]
 }
 ```',
-    '["repository_name", "file_tree", "dependencies", "config_files"]'::jsonb,
+    '["repository_name", "file_tree", "dependencies", "config_files", "file_registry"]'::jsonb,
     TRUE,
     'discovery',
     'prompt'
@@ -166,6 +171,11 @@ Repository: {repository_name}
 
 ### Sample Code Files:
 {code_samples}
+
+### File Registry (GROUNDING CONSTRAINT)
+The following file paths exist in this repository. You MUST ONLY reference file paths from this list. Do NOT invent, infer, or restructure file paths. If a file is not in this list, it does not exist.
+
+{file_registry}
 
 **CRITICAL**: Analyze the ACTUAL codebase structure. Do NOT assume layers exist. Only document layers that you can clearly identify from:
 1. Import patterns between directories
@@ -219,7 +229,7 @@ Provide your analysis in structured JSON format:
   "actual_structure": "..."
 }
 ```',
-    '["repository_name", "discovery_summary", "file_tree", "code_samples"]'::jsonb,
+    '["repository_name", "discovery_summary", "file_tree", "code_samples", "file_registry"]'::jsonb,
     TRUE,
     'layers',
     'prompt'
@@ -248,6 +258,11 @@ Repository: {repository_name}
 
 ### Code Samples:
 {code_samples}
+
+### File Registry (GROUNDING CONSTRAINT)
+The following file paths exist in this repository. You MUST ONLY reference file paths from this list. Do NOT invent, infer, or restructure file paths. If a file is not in this list, it does not exist.
+
+{file_registry}
 
 Identify and document architectural patterns with concrete examples from the codebase. Cover BOTH backend and frontend patterns.
 
@@ -284,7 +299,7 @@ Provide your analysis in structured JSON format:
   "cross_cutting_patterns": [{"concern": "...", "approach": "...", "location": "..."}]
 }
 ```',
-    '["repository_name", "discovery_summary", "layer_analysis", "code_samples"]'::jsonb,
+    '["repository_name", "discovery_summary", "layer_analysis", "code_samples", "file_registry"]'::jsonb,
     TRUE,
     'patterns',
     'prompt'
@@ -310,6 +325,11 @@ Repository: {repository_name}
 
 ### Code Samples:
 {code_samples}
+
+### File Registry (GROUNDING CONSTRAINT)
+The following file paths exist in this repository. You MUST ONLY reference file paths from this list. Do NOT invent, infer, or restructure file paths. If a file is not in this list, it does not exist.
+
+{file_registry}
 
 Document how components communicate across ALL platforms (backend AND frontend):
 
@@ -349,7 +369,7 @@ Provide your analysis in structured JSON format:
   "pattern_guidelines": [{"scenario": "...", "pattern": "...", "rationale": "..."}]
 }
 ```',
-    '["repository_name", "previous_analyses", "code_samples"]'::jsonb,
+    '["repository_name", "previous_analyses", "code_samples", "file_registry"]'::jsonb,
     TRUE,
     'communication',
     'prompt'
@@ -375,6 +395,11 @@ Repository: {repository_name}
 
 ### Dependencies:
 {dependencies}
+
+### File Registry (GROUNDING CONSTRAINT)
+The following file paths exist in this repository. You MUST ONLY reference file paths from this list. Do NOT invent, infer, or restructure file paths. If a file is not in this list, it does not exist.
+
+{file_registry}
 
 Create a complete technology inventory organized by category. Include technologies for ALL platforms (backend AND frontend).
 
@@ -421,7 +446,7 @@ Provide your analysis in structured JSON format:
   "monitoring": [{"tool": "...", "purpose": "..."}]
 }
 ```',
-    '["repository_name", "all_analyses", "dependencies"]'::jsonb,
+    '["repository_name", "all_analyses", "dependencies", "file_registry"]'::jsonb,
     TRUE,
     'technology',
     'prompt'
@@ -447,6 +472,11 @@ Repository: {repository_name}
 
 ### Frontend Code Samples:
 {code_samples}
+
+### File Registry (GROUNDING CONSTRAINT)
+The following file paths exist in this repository. You MUST ONLY reference file paths from this list. Do NOT invent, infer, or restructure file paths. If a file is not in this list, it does not exist.
+
+{file_registry}
 
 Analyze the frontend architecture in detail. This analysis covers web frontends, mobile apps, and any client-side code.
 
@@ -516,7 +546,7 @@ Provide your analysis in structured JSON format:
   "key_conventions": ["..."]
 }
 ```',
-    '["repository_name", "previous_analyses", "code_samples"]'::jsonb,
+    '["repository_name", "previous_analyses", "code_samples", "file_registry"]'::jsonb,
     TRUE,
     'frontend_analysis',
     'prompt'
@@ -549,6 +579,11 @@ Repository: {repository_name}
 
 ### Code Samples:
 {code_samples}
+
+### File Registry (GROUNDING CONSTRAINT)
+The following file paths exist in this repository. You MUST ONLY reference file paths from this list. Do NOT invent, infer, or restructure file paths. If a file is not in this list, it does not exist.
+
+{file_registry}
 
 Identify 5-8 capabilities/features already implemented in this codebase that use third-party libraries or non-trivial patterns.
 
@@ -583,7 +618,7 @@ Provide your analysis in JSON format:
   ]
 }
 ```',
-    '["repository_name", "technology", "communication", "patterns", "layers", "code_samples"]'::jsonb,
+    '["repository_name", "technology", "communication", "patterns", "layers", "code_samples", "file_registry"]'::jsonb,
     TRUE,
     'implementation_analysis',
     'prompt'
@@ -632,13 +667,18 @@ Synthesize ALL analysis into a single JSON architecture blueprint. This is the *
 
 {platform_hint}
 
+### File Registry (GROUNDING CONSTRAINT)
+The following file paths exist in this repository. You MUST ONLY reference file paths from this list. Do NOT invent, infer, or restructure file paths. If a file is not in this list, it does not exist. Every file path in the output MUST appear in this registry.
+
+{file_registry}
+
 ---
 
 ### OUTPUT RULES
 
 1. Output ONLY a JSON object. No markdown fences, no commentary before or after.
 2. BE CONCISE. Use short descriptions (1 sentence max). Prefer brevity over elaboration.
-3. Every rule must be grounded in the analysis above. Do NOT invent rules.
+3. Every rule must be grounded in the analysis above. Do NOT invent rules or file paths. Every file path in the output MUST appear in the File Registry.
 4. Use glob patterns for source_pattern fields.
 5. Limit arrays: 8 file_placement_rules, 5 naming_conventions, 10 components, 5 key_decisions, 3 trade_offs, 7 communication patterns, 15 stack items, 5 templates, 5 developer_recipes, 5 pitfalls, 8 implementation_guidelines.
 6. Confidence: 0.9+ = clearly observed, 0.7-0.9 = inferred, <0.7 = omit.
@@ -659,7 +699,7 @@ Synthesize ALL analysis into a single JSON architecture blueprint. This is the *
 {"meta":{"repository":"","repository_id":"","analyzed_at":"ISO-8601","schema_version":"2.0.0","architecture_style":"plain language","platforms":[],"executive_summary":"","confidence":{"architecture_rules":0,"decisions":0,"components":0,"communication":0,"technology":0,"frontend":0}},"architecture_rules":{"file_placement_rules":[{"component_type":"","naming_pattern":"","location":"","example":"","description":""}],"naming_conventions":[{"scope":"","pattern":"","examples":[],"description":""}]},"decisions":{"architectural_style":{"title":"","chosen":"","rationale":"","alternatives_rejected":[]},"key_decisions":[{"title":"","chosen":"","rationale":"","alternatives_rejected":[]}],"trade_offs":[{"accept":"","benefit":""}],"out_of_scope":[]},"components":{"structure_type":"","components":[{"name":"","location":"","platform":"backend|frontend|shared","responsibility":"","depends_on":[],"exposes_to":[],"key_interfaces":[{"name":"","methods":[],"description":""}],"key_files":[{"file":"","description":""}]}],"contracts":[]},"communication":{"patterns":[{"name":"","when_to_use":"","how_it_works":"","examples":[]}],"integrations":[{"service":"","purpose":"","integration_point":""}],"pattern_selection_guide":[{"scenario":"","pattern":"","rationale":""}]},"quick_reference":{"where_to_put_code":{},"pattern_selection":{},"error_mapping":[{"error":"","status_code":0,"description":""}]},"technology":{"stack":[{"category":"","name":"","version":"","purpose":""}],"templates":[{"component_type":"","description":"","file_path_template":"","code":""}],"project_structure":"","run_commands":{}},"frontend":{"framework":"","rendering_strategy":"","ui_components":[{"name":"","location":"","component_type":"","description":"","props":[],"children":[]}],"state_management":{"approach":"","global_state":[],"server_state":"","local_state":"","rationale":""},"routing":[{"path":"","component":"","description":"","auth_required":false}],"data_fetching":[{"name":"","mechanism":"","when_to_use":"","examples":[]}],"styling":"","key_conventions":[]},"developer_recipes":[{"task":"","files":[],"steps":[]}],"architecture_diagram":"","pitfalls":[{"area":"","description":"","recommendation":""}],"implementation_guidelines":[{"capability":"","category":"","libraries":[],"pattern_description":"","key_files":[],"usage_example":"","tips":[]}]}
 
 Generate the complete JSON for {repository_name}.',
-    '["repository_name", "discovery", "layers", "patterns", "communication", "technology", "frontend_analysis", "implementation_analysis", "code_samples", "platform_hint", "file_tree", "framework_usage", "provided_capabilities"]'::jsonb,
+    '["repository_name", "discovery", "layers", "patterns", "communication", "technology", "frontend_analysis", "implementation_analysis", "code_samples", "platform_hint", "file_tree", "framework_usage", "provided_capabilities", "file_registry"]'::jsonb,
     TRUE,
     'blueprint_synthesis',
     'prompt'

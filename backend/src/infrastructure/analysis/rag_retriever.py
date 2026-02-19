@@ -7,6 +7,18 @@ from domain.interfaces.database import DatabaseClient
 from application.services.analysis_data_collector import analysis_data_collector
 
 
+# Phase-specific chunk type preferences for retrieval reordering
+PHASE_CHUNK_PREFERENCES: dict[str, list[str]] = {
+    "discovery": ["module"],             # Entry points, top-level files
+    "layers": ["class", "module"],       # Service/repo classes, module structure
+    "patterns": ["class", "function"],   # Design pattern implementations
+    "communication": ["function", "class"],  # API handlers, event publishers
+    "technology": ["module"],            # Config files, build scripts
+    "frontend": ["module", "class"],     # UI components, views
+    "implementation": ["class", "function"],  # Implementation details
+}
+
+
 class RAGRetriever:
     """Retrieval-Augmented Generation retriever for semantic code search.
 
@@ -188,15 +200,38 @@ class RAGRetriever:
         
         for query in phase_queries:
             results = await self.retrieve_for_query(query, repository_id, limit=5)
-            
+
             for result in results:
                 # Deduplicate by file path and line range
                 key = f"{result['file_path']}:{result.get('start_line', 0)}"
                 if key not in seen_paths:
                     seen_paths.add(key)
                     all_results.append(result)
-        
+
+        # Reorder by chunk type preference for this phase
+        preferred_types = PHASE_CHUNK_PREFERENCES.get(phase)
+        if preferred_types and all_results:
+            preferred = [r for r in all_results if r.get("chunk_type") in preferred_types]
+            other = [r for r in all_results if r.get("chunk_type") not in preferred_types]
+            all_results = preferred + other
+
         return all_results[:20]  # Return top 20 unique results
+
+    async def get_file_registry(self, repository_id: str) -> list[str]:
+        """Return all unique file paths indexed for a repository.
+
+        Uses a SELECT DISTINCT on the embeddings table — no vector search needed.
+        """
+        try:
+            result = await self._db.table("embeddings") \
+                .select("file_path") \
+                .eq("repository_id", repository_id) \
+                .execute()
+            if result.data:
+                return sorted(set(row["file_path"] for row in result.data))
+        except Exception:
+            pass
+        return []
 
     async def get_file_content(
         self,
@@ -221,6 +256,44 @@ class RAGRetriever:
             except Exception:
                 return None
         return None
+
+    async def retrieve_files_for_phase(
+        self,
+        phase: str,
+        repository_id: str,
+        repo_path: Path,
+        context: dict[str, Any] | None = None,
+        max_files: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Retrieve full file contents relevant to a phase using semantic search.
+
+        Uses chunk-level RAG to identify the most relevant files,
+        then returns full file contents (deduplicated at file level).
+        """
+        chunks = await self.retrieve_for_phase(phase, repository_id, context)
+
+        # Deduplicate: group by file_path, keep highest similarity
+        file_scores: dict[str, float] = {}
+        for chunk in chunks:
+            fp = chunk["file_path"]
+            sim = chunk.get("similarity", 0)
+            if fp not in file_scores or sim > file_scores[fp]:
+                file_scores[fp] = sim
+
+        # Sort by similarity, take top N
+        ranked = sorted(file_scores.items(), key=lambda x: x[1], reverse=True)[:max_files]
+
+        results = []
+        for file_path, similarity in ranked:
+            content = await self.get_file_content(repository_id, file_path, repo_path)
+            if content:
+                results.append({
+                    "file_path": file_path,
+                    "content": content,
+                    "similarity": similarity,
+                })
+
+        return results
 
     def _find_code_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> list[Path]:
         """Find all code files in repository."""

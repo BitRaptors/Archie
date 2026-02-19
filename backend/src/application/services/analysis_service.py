@@ -290,6 +290,7 @@ class AnalysisService:
                 blueprint_type="backend",
                 discovery_ignored_dirs=discovery_ignored_dirs,
                 provided_capabilities=provided_capabilities,
+                structure_data=structure_data,
             )
             
             # Validate blueprint was generated (returns dict with "structured" and optionally "markdown")
