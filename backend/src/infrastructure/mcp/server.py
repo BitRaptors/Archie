@@ -229,6 +229,31 @@ def create_server():
                     "required": ["feature"]
                 }
             ),
+            Tool(
+                name="list_source_files",
+                description=(
+                    "List all source files collected from the repository during analysis. "
+                    "Returns file paths and sizes. Use get_file_content to read individual files."
+                ),
+                inputSchema={"type": "object", "properties": {}}
+            ),
+            Tool(
+                name="get_file_content",
+                description=(
+                    "Read the content of a source file collected during analysis. "
+                    "Use list_source_files first to see available files."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Relative file path (e.g. 'src/main.py', 'lib/utils.ts')"
+                        }
+                    },
+                    "required": ["file_path"]
+                }
+            ),
         ]
 
     @srv.call_tool()
@@ -265,6 +290,14 @@ def create_server():
 
         elif name == "how_to_implement":
             result = tools_manager.how_to_implement(repo_id, arguments["feature"])
+            return [TextContent(type="text", text=result)]
+
+        elif name == "list_source_files":
+            result = tools_manager.list_source_files(repo_id)
+            return [TextContent(type="text", text=result)]
+
+        elif name == "get_file_content":
+            result = tools_manager.get_file_content(repo_id, arguments["file_path"])
             return [TextContent(type="text", text=result)]
 
         else:

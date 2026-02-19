@@ -163,7 +163,7 @@ class TestClaudeMdNoRemovedFeatures:
 
     def test_mcp_workflow_no_removed_tools(self, blueprint):
         content = generate_claude_md(blueprint)
-        workflow_start = content.index("### Workflow")
+        workflow_start = content.index("### Recommended Workflow")
         workflow_section = content[workflow_start:workflow_start + 500]
         assert "validate_import" not in workflow_section
         assert "what_to_use" not in workflow_section

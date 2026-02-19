@@ -251,6 +251,44 @@ async def get_repository_blueprint(
 
 
 # ---------------------------------------------------------------------------
+# Source file content
+# ---------------------------------------------------------------------------
+
+@router.get("/repositories/{repo_id}/source-files/{file_path:path}")
+async def get_source_file(repo_id: str, file_path: str, request: Request):
+    """Return the content of a source file from the persisted repository copy.
+
+    The full repository is copied to persistent storage during analysis so
+    files remain available after the temp clone is deleted.
+    """
+    # Reject path traversal
+    if ".." in file_path:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    storage = _get_storage(request)
+    repo_dir = Path(storage._base_path) / "repos" / repo_id
+
+    if not repo_dir.is_dir():
+        raise HTTPException(status_code=404, detail="No source files available for this repository")
+
+    target = (repo_dir / file_path).resolve()
+
+    # Ensure resolved path is still under repo_dir (prevent traversal)
+    if not str(target).startswith(str(repo_dir.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+    try:
+        content = target.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {file_path}")
+
+    return {"file_path": file_path, "content": content}
+
+
+# ---------------------------------------------------------------------------
 # Delete repository analysis
 # ---------------------------------------------------------------------------
 
@@ -261,9 +299,14 @@ async def delete_repository(repo_id: str, request: Request):
     bp_dir = Path(storage._base_path) / "blueprints" / repo_id
 
     # Remove storage files
+    import shutil
     if bp_dir.exists():
-        import shutil
         shutil.rmtree(bp_dir)
+
+    # Also remove persisted repo copy
+    repo_copy_dir = Path(storage._base_path) / "repos" / repo_id
+    if repo_copy_dir.exists():
+        shutil.rmtree(repo_copy_dir)
 
     # Clear active repo if this was the active one
     profile_repo = await _get_profile_repo(request)

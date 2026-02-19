@@ -380,6 +380,30 @@ class AnalysisService:
                         f"Architecture rule extraction failed (non-fatal): {str(arch_error)}"
                     )
 
+            # Phase 6: Copy repository to persistent storage
+            try:
+                await self._log_event(analysis_id, "PHASE_START", "Phase 6: Copying repository to storage")
+                from application.services.source_file_collector import SourceFileCollector
+                collector = SourceFileCollector()
+                storage_base = Path(self._persistent_storage._base_path)
+                dest_dir = storage_base / "repos" / str(analysis.repository_id)
+                manifest = collector.copy_repo(
+                    temp_repo_dir=repo_path_obj,
+                    dest_dir=dest_dir,
+                    ignored_dirs=discovery_ignored_dirs,
+                )
+                await self._log_event(
+                    analysis_id, "INFO",
+                    f"Copied {manifest.get('file_count', 0)} files "
+                    f"({manifest.get('total_size', 0)} bytes) to persistent storage"
+                )
+                await self._log_event(analysis_id, "PHASE_END", "Phase 6 complete: Repository copied")
+            except Exception as collect_error:
+                await self._log_event(
+                    analysis_id, "WARNING",
+                    f"Repository copy failed (non-fatal): {str(collect_error)}"
+                )
+
             # Complete analysis
             await self._log_event(analysis_id, "INFO", "Analysis completed successfully")
             analysis.update_progress(100)
@@ -423,7 +447,7 @@ class AnalysisService:
         # Find all requirements.txt files recursively
         for requirements_file in repo_path.rglob("requirements.txt"):
             # Skip if in ignored directory
-            if any(pattern in str(requirements_file) for pattern in ignore_patterns):
+            if any(part in ignore_patterns for part in requirements_file.relative_to(repo_path).parts):
                 continue
             
             try:
@@ -437,7 +461,7 @@ class AnalysisService:
         # Find all package.json files recursively
         for package_json in repo_path.rglob("package.json"):
             # Skip if in ignored directory
-            if any(pattern in str(package_json) for pattern in ignore_patterns):
+            if any(part in ignore_patterns for part in package_json.relative_to(repo_path).parts):
                 continue
             
             try:
@@ -450,7 +474,7 @@ class AnalysisService:
         
         # Find all pyproject.toml files recursively (Python projects using modern tooling)
         for pyproject_toml in repo_path.rglob("pyproject.toml"):
-            if any(pattern in str(pyproject_toml) for pattern in ignore_patterns):
+            if any(part in ignore_patterns for part in pyproject_toml.relative_to(repo_path).parts):
                 continue
             
             try:
@@ -462,7 +486,7 @@ class AnalysisService:
         
         # Find all Gemfile files recursively (Ruby projects)
         for gemfile in repo_path.rglob("Gemfile"):
-            if any(pattern in str(gemfile) for pattern in ignore_patterns):
+            if any(part in ignore_patterns for part in gemfile.relative_to(repo_path).parts):
                 continue
             
             try:
@@ -474,7 +498,7 @@ class AnalysisService:
         
         # Find all Cargo.toml files recursively (Rust projects)
         for cargo_toml in repo_path.rglob("Cargo.toml"):
-            if any(pattern in str(cargo_toml) for pattern in ignore_patterns):
+            if any(part in ignore_patterns for part in cargo_toml.relative_to(repo_path).parts):
                 continue
             
             try:
@@ -486,7 +510,7 @@ class AnalysisService:
         
         # Find all go.mod files recursively (Go projects)
         for go_mod in repo_path.rglob("go.mod"):
-            if any(pattern in str(go_mod) for pattern in ignore_patterns):
+            if any(part in ignore_patterns for part in go_mod.relative_to(repo_path).parts):
                 continue
             
             try:
@@ -546,7 +570,7 @@ class AnalysisService:
         for pattern in exact_config_patterns:
             for config_file in repo_path.rglob(pattern):
                 # Skip if in ignored directory
-                if any(ip in str(config_file) for ip in ignore_patterns):
+                if any(part in ignore_patterns for part in config_file.relative_to(repo_path).parts):
                     continue
                 
                 try:
@@ -561,7 +585,7 @@ class AnalysisService:
             for ext in config_extensions:
                 pattern = f"{base_name}{ext}"
                 for config_file in repo_path.rglob(pattern):
-                    if any(ip in str(config_file) for ip in ignore_patterns):
+                    if any(part in ignore_patterns for part in config_file.relative_to(repo_path).parts):
                         continue
                     
                     try:
@@ -573,7 +597,7 @@ class AnalysisService:
         
         # Search for CI/CD workflow files
         for workflow_file in (repo_path / ".github" / "workflows").rglob("*.yml"):
-            if any(ip in str(workflow_file) for ip in ignore_patterns):
+            if any(part in ignore_patterns for part in workflow_file.relative_to(repo_path).parts):
                 continue
             try:
                 content = workflow_file.read_text(encoding="utf-8", errors="ignore")
@@ -583,7 +607,7 @@ class AnalysisService:
                 pass
         
         for workflow_file in (repo_path / ".github" / "workflows").rglob("*.yaml"):
-            if any(ip in str(workflow_file) for ip in ignore_patterns):
+            if any(part in ignore_patterns for part in workflow_file.relative_to(repo_path).parts):
                 continue
             try:
                 content = workflow_file.read_text(encoding="utf-8", errors="ignore")
@@ -604,7 +628,7 @@ class AnalysisService:
         
         # Search for pyproject.toml (Python modern config)
         for pyproject in repo_path.rglob("pyproject.toml"):
-            if any(ip in str(pyproject) for ip in ignore_patterns):
+            if any(part in ignore_patterns for part in pyproject.relative_to(repo_path).parts):
                 continue
             try:
                 content = pyproject.read_text(encoding="utf-8", errors="ignore")
@@ -617,17 +641,23 @@ class AnalysisService:
 
     async def _extract_code_samples(self, repo_path: Path, structure_data: dict[str, Any], discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
         """Extract representative code samples."""
+        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+
+        ignored = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
         code_samples = {}
-        
+
         # Get a diverse set of files from file_tree
         if structure_data and "file_tree" in structure_data:
             files_to_sample = []
-            
+
             # Filter for code files from file_tree
             for node in structure_data["file_tree"]:
                 if node.get("type") == "file":
                     file_path = node.get("path", node.get("name", ""))
                     if any(ext in str(file_path) for ext in [".py", ".ts", ".tsx", ".js", ".jsx"]):
+                        # Skip files inside ignored directories
+                        if any(part in ignored for part in Path(file_path).parts):
+                            continue
                         files_to_sample.append(file_path)
                 
                 # Limit initial search

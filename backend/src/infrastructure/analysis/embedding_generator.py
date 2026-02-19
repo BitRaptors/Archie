@@ -57,7 +57,11 @@ class EmbeddingGenerator:
 
         filtered = []
         for file_path in code_files:
-            if not any(pattern in str(file_path) for pattern in ignore_patterns):
+            try:
+                rel_parts = file_path.relative_to(repo_path).parts
+            except ValueError:
+                continue
+            if not any(part in ignore_patterns for part in rel_parts):
                 filtered.append(file_path)
 
         return filtered

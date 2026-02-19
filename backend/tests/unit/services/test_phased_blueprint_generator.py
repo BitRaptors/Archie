@@ -698,6 +698,60 @@ class TestSmartFileReading:
         ctx = generator._build_phase_context("layers", max_chars=1_000)
         assert len(ctx) <= 1_100  # small margin for truncation marker
 
+    @pytest.mark.asyncio
+    async def test_read_priority_files_skips_ignored_dirs(self, generator, tmp_path):
+        """Files inside ignored directories are not read."""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("good content")
+        (tmp_path / "node_modules").mkdir()
+        (tmp_path / "node_modules" / "react.js").write_text("react")
+        (tmp_path / ".venv" / "lib").mkdir(parents=True)
+        (tmp_path / ".venv" / "lib" / "site.py").write_text("site")
+
+        priority_map = {
+            "discovery": [
+                "src/main.py",
+                "node_modules/react.js",
+                ".venv/lib/site.py",
+            ],
+        }
+
+        result = await generator._read_priority_files(
+            tmp_path, priority_map,
+            discovery_ignored_dirs={"node_modules", ".venv"},
+        )
+
+        assert "src/main.py" in result.get("discovery", {})
+        assert "node_modules/react.js" not in result.get("discovery", {})
+        assert ".venv/lib/site.py" not in result.get("discovery", {})
+
+    @pytest.mark.asyncio
+    async def test_read_priority_files_no_ignored_dirs_reads_all(self, generator, tmp_path):
+        """When no ignored dirs passed, all files are read."""
+        (tmp_path / "node_modules").mkdir()
+        (tmp_path / "node_modules" / "react.js").write_text("react")
+
+        priority_map = {"discovery": ["node_modules/react.js"]}
+
+        result = await generator._read_priority_files(tmp_path, priority_map)
+
+        assert "node_modules/react.js" in result.get("discovery", {})
+
+    @pytest.mark.asyncio
+    async def test_read_priority_files_ignored_dir_nested(self, generator, tmp_path):
+        """Files deep inside ignored directories are also skipped."""
+        (tmp_path / "vendor" / "bundle" / "gems").mkdir(parents=True)
+        (tmp_path / "vendor" / "bundle" / "gems" / "gem.rb").write_text("gem")
+
+        priority_map = {"discovery": ["vendor/bundle/gems/gem.rb"]}
+
+        result = await generator._read_priority_files(
+            tmp_path, priority_map,
+            discovery_ignored_dirs={"vendor"},
+        )
+
+        assert result == {}
+
 
 class TestPhaseCodeContext:
     """Tests for _get_phase_code priority cascade."""

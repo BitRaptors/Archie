@@ -628,3 +628,199 @@ class TestHowToImplement:
         assert "Push Notifications" in result
         assert "Map Display" not in result
 
+
+# ── Source file tools ────────────────────────────────────────────────────────
+
+
+class TestListSourceFiles:
+    """Tests for the list_source_files MCP tool."""
+
+    def test_returns_file_list_from_manifest(self, tools, tmp_path):
+        # Create a persisted repo copy with manifest
+        repo_dir = tmp_path / "storage" / "repos" / "test-repo-123"
+        (repo_dir / "src").mkdir(parents=True)
+        (repo_dir / "src" / "main.py").write_text("main", encoding="utf-8")
+        (repo_dir / "src" / "app.py").write_text("app", encoding="utf-8")
+
+        manifest = {
+            "collected_at": "2026-02-19T00:00:00Z",
+            "file_count": 2,
+            "files": {"src/main.py": 4, "src/app.py": 3},
+            "total_size": 7,
+        }
+        (repo_dir / "manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+        result = tools.list_source_files("test-repo-123")
+        assert "src/main.py" in result
+        assert "src/app.py" in result
+
+    def test_returns_file_list_without_manifest(self, tools, tmp_path):
+        # Create a repo dir without manifest — fallback to walk
+        repo_dir = tmp_path / "storage" / "repos" / "test-repo-123"
+        (repo_dir / "src").mkdir(parents=True)
+        (repo_dir / "src" / "main.py").write_text("main", encoding="utf-8")
+
+        result = tools.list_source_files("test-repo-123")
+        assert "src/main.py" in result
+
+    def test_returns_empty_when_no_repo(self, tools):
+        result = tools.list_source_files("test-repo-123")
+        assert "No source files available" in result
+
+
+class TestGetFileContent:
+    """Tests for the get_file_content MCP tool."""
+
+    def test_returns_file_content(self, tools, tmp_path):
+        repo_dir = tmp_path / "storage" / "repos" / "test-repo-123"
+        (repo_dir / "src").mkdir(parents=True)
+        (repo_dir / "src" / "main.py").write_text("hello world", encoding="utf-8")
+
+        result = tools.get_file_content("test-repo-123", "src/main.py")
+        assert "hello world" in result
+        assert "src/main.py" in result
+
+    def test_returns_not_found_for_missing_file(self, tools, tmp_path):
+        repo_dir = tmp_path / "storage" / "repos" / "test-repo-123"
+        repo_dir.mkdir(parents=True)
+
+        result = tools.get_file_content("test-repo-123", "src/secret.py")
+        assert "not found" in result
+
+    def test_rejects_path_traversal(self, tools, tmp_path):
+        repo_dir = tmp_path / "storage" / "repos" / "test-repo-123"
+        repo_dir.mkdir(parents=True)
+
+        result = tools.get_file_content("test-repo-123", "../etc/passwd")
+        assert "Invalid file path" in result
+
+    def test_returns_error_when_no_repo(self, tools):
+        result = tools.get_file_content("test-repo-123", "main.py")
+        assert "No source files available" in result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Multi-tool workflow tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestMCPWorkflow:
+    """Test multi-tool sequences that mirror real AI agent workflows.
+
+    Validates the core loop: ask how_to_implement → get file paths →
+    call get_file_content to read those files.
+    """
+
+    @pytest.fixture
+    def workflow_tools(self, tmp_path):
+        """BlueprintTools with guidelines AND source files on disk."""
+        storage_dir = tmp_path / "storage"
+        bp_dir = storage_dir / "blueprints" / "test-repo-123"
+        bp_dir.mkdir(parents=True)
+
+        bp = _make_blueprint(
+            implementation_guidelines=[
+                ImplementationGuideline(
+                    capability="Push Notifications",
+                    category="notifications",
+                    libraries=["Firebase Cloud Messaging 10.x"],
+                    pattern_description="FCM topic-based subscriptions via NotificationService singleton.",
+                    key_files=["Services/NotificationService.swift", "AppDelegate.swift"],
+                    usage_example="NotificationService.shared.subscribe(topic: 'place_updates')",
+                    tips=["Request notification permissions before subscribing"],
+                ),
+                ImplementationGuideline(
+                    capability="Map Display",
+                    category="location",
+                    libraries=["Mapbox Maps SDK 10.x", "Core Location"],
+                    pattern_description="MGLMapView wrapped in custom MapView.",
+                    key_files=["Controllers/MapViewController.swift", "Views/MapView.swift"],
+                    usage_example="mapView.addAnnotations(places.map { PlaceAnnotation($0) })",
+                    tips=["Limit annotations to ~100 per viewport"],
+                ),
+            ],
+        )
+        (bp_dir / "blueprint.json").write_text(
+            bp.model_dump_json(indent=2), encoding="utf-8"
+        )
+
+        # Create source files that match the key_files in guidelines
+        repo_dir = storage_dir / "repos" / "test-repo-123"
+        (repo_dir / "Services").mkdir(parents=True)
+        (repo_dir / "Controllers").mkdir(parents=True)
+        (repo_dir / "Views").mkdir(parents=True)
+
+        (repo_dir / "Services" / "NotificationService.swift").write_text(
+            "class NotificationService {\n    static let shared = NotificationService()\n    func subscribe(topic: String) { }\n}",
+            encoding="utf-8",
+        )
+        (repo_dir / "AppDelegate.swift").write_text(
+            "class AppDelegate: UIResponder {\n    func application(_ app: UIApplication) { }\n}",
+            encoding="utf-8",
+        )
+        (repo_dir / "Controllers" / "MapViewController.swift").write_text(
+            "class MapViewController: UIViewController {\n    var mapView: MapView!\n}",
+            encoding="utf-8",
+        )
+        (repo_dir / "Views" / "MapView.swift").write_text(
+            "class MapView: UIView {\n    func addAnnotations(_ annotations: [Any]) { }\n}",
+            encoding="utf-8",
+        )
+
+        # Also create files for where_to_put tests
+        (repo_dir / "src" / "application" / "services").mkdir(parents=True)
+        (repo_dir / "src" / "application" / "services" / "user_service.py").write_text(
+            "class UserService:\n    pass",
+            encoding="utf-8",
+        )
+
+        return BlueprintTools(storage_dir=storage_dir)
+
+    def test_how_to_implement_then_get_file_content(self, workflow_tools):
+        """Full round-trip: ask how_to_implement → read returned key files."""
+        # Step 1: Ask how push notifications are implemented
+        impl_result = workflow_tools.how_to_implement("test-repo-123", "push notifications")
+        assert "Push Notifications" in impl_result
+        assert "Services/NotificationService.swift" in impl_result
+
+        # Step 2: Read each key file mentioned in the response
+        content1 = workflow_tools.get_file_content(
+            "test-repo-123", "Services/NotificationService.swift"
+        )
+        assert "class NotificationService" in content1
+        assert "subscribe(topic:" in content1
+
+        content2 = workflow_tools.get_file_content("test-repo-123", "AppDelegate.swift")
+        assert "class AppDelegate" in content2
+
+    def test_where_to_put_then_list_and_read_files(self, workflow_tools):
+        """Workflow: where_to_put → list_source_files → get_file_content."""
+        # Step 1: Ask where to put a service
+        location_result = workflow_tools.where_to_put("test-repo-123", "service")
+        assert "src/application/services" in location_result
+
+        # Step 2: List available source files
+        file_list = workflow_tools.list_source_files("test-repo-123")
+        assert "src/application/services/user_service.py" in file_list
+
+        # Step 3: Read a file from that directory
+        content = workflow_tools.get_file_content(
+            "test-repo-123", "src/application/services/user_service.py"
+        )
+        assert "class UserService" in content
+
+    def test_how_to_implement_files_not_available(self, workflow_tools):
+        """Graceful error when key files from how_to_implement don't exist on disk."""
+        # Step 1: Get implementation details for map display
+        impl_result = workflow_tools.how_to_implement("test-repo-123", "map display")
+        assert "Map Display" in impl_result
+        assert "Controllers/MapViewController.swift" in impl_result
+
+        # Step 2: Try to read a file that does NOT exist
+        error_result = workflow_tools.get_file_content(
+            "test-repo-123", "NonExistent/FakeFile.swift"
+        )
+        assert "not found" in error_result.lower()
+

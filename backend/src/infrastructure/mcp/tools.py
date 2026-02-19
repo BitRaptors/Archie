@@ -339,6 +339,94 @@ class BlueprintTools:
             f"Available scopes: {', '.join(set(nc.scope for nc in bp.architecture_rules.naming_conventions))}"
         )
 
+    # ── Source file tools ───────────────────────────────────────────────
+
+    def _repo_dir(self, repo_id: str) -> Path:
+        """Return the path to the persisted repo copy."""
+        return self.storage_dir / "repos" / repo_id
+
+    def list_source_files(self, repo_id: str) -> str:
+        """List all source files in the persisted repository copy.
+
+        Returns file paths and sizes from the manifest, or by walking
+        the directory if no manifest exists.
+        """
+        repo_dir = self._repo_dir(repo_id)
+        if not repo_dir.is_dir():
+            return f"No source files available for repository '{repo_id}'. Re-analyze to collect source files."
+
+        # Try reading the manifest first (fast)
+        manifest_path = repo_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                files = manifest.get("files", {})
+                lines = [f"# Source Files for {self._resolve_repo_display_name(repo_id)}\n"]
+                lines.append(f"Total size: {manifest.get('total_size', 0):,} bytes")
+                lines.append(f"File count: {len(files)}\n")
+                lines.append("| File | Size |")
+                lines.append("|------|------|")
+                for path, size in sorted(files.items()):
+                    sz = size if isinstance(size, int) else size.get("size", 0) if isinstance(size, dict) else 0
+                    lines.append(f"| `{path}` | {sz:,} |")
+                return "\n".join(lines)
+            except Exception:
+                pass
+
+        # Fallback: walk directory
+        import os
+        lines = [f"# Source Files for {self._resolve_repo_display_name(repo_id)}\n"]
+        count = 0
+        for root, _dirs, filenames in os.walk(repo_dir):
+            for fname in sorted(filenames):
+                if fname == "manifest.json" and Path(root) == repo_dir:
+                    continue
+                rel = str((Path(root) / fname).relative_to(repo_dir))
+                lines.append(f"- `{rel}`")
+                count += 1
+                if count >= 500:
+                    lines.append(f"\n... and more files (showing first 500)")
+                    break
+            if count >= 500:
+                break
+
+        lines.insert(1, f"File count: {count}\n")
+        return "\n".join(lines)
+
+    def get_file_content(self, repo_id: str, file_path: str) -> str:
+        """Get the content of a source file from the persisted repo copy.
+
+        Args:
+            repo_id: Repository ID
+            file_path: Relative file path within the repository
+
+        Returns:
+            File content or error message.
+        """
+        # Reject path traversal
+        if ".." in file_path:
+            return "Error: Invalid file path (path traversal not allowed)."
+
+        repo_dir = self._repo_dir(repo_id)
+        if not repo_dir.is_dir():
+            return f"No source files available for repository '{repo_id}'."
+
+        target = (repo_dir / file_path).resolve()
+
+        # Ensure resolved path stays within repo_dir
+        if not str(target).startswith(str(repo_dir.resolve())):
+            return "Error: Invalid file path (path traversal not allowed)."
+
+        if not target.is_file():
+            return f"File '{file_path}' not found in repository."
+
+        try:
+            content = target.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return f"Failed to read file: {file_path}"
+
+        return f"# {file_path}\n\n```\n{content}\n```"
+
     def how_to_implement(self, repo_id: str, feature: str) -> str:
         """Find implementation guidelines for a capability/feature.
 

@@ -35,16 +35,19 @@ class DirectorySummarizer:
         self,
         repo_path: Path,
         repository_id: str | None = None,
+        discovery_ignored_dirs: set[str] | None = None,
     ) -> dict[str, Any]:
         """Generate hierarchical summary of entire repository.
-        
+
         Args:
             repo_path: Path to the cloned repository
             repository_id: UUID for caching (optional)
-            
+            discovery_ignored_dirs: User-configured directories to skip.
+
         Returns:
             Hierarchical summary structure
         """
+        self._discovery_ignored_dirs = discovery_ignored_dirs
         summary = {
             "overview": "",
             "directories": {},
@@ -362,20 +365,20 @@ Respond with ONLY the purpose (one sentence, no quotes):"""
 
     def _should_skip_directory(self, dir_name: str) -> bool:
         """Check if a directory should be skipped.
-        
+
+        Uses user-configured ignored dirs from DB when available,
+        falls back to DEFAULT_IGNORED_DIRS.
+
         Args:
             dir_name: Name of the directory
-            
+
         Returns:
             True if should skip
         """
-        skip_patterns = {
-            "node_modules", "__pycache__", ".git", ".venv", "venv",
-            "env", ".env", "dist", "build", ".next", ".nuxt",
-            "coverage", ".nyc_output", ".pytest_cache", ".mypy_cache",
-            "target", ".gradle", ".idea", ".vscode", "vendor",
-        }
-        return dir_name in skip_patterns or dir_name.startswith('.')
+        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+
+        ignored = getattr(self, "_discovery_ignored_dirs", None) or DEFAULT_IGNORED_DIRS
+        return dir_name in ignored or dir_name.startswith('.')
 
     def _is_code_file(self, filename: str) -> bool:
         """Check if a file is a code file.

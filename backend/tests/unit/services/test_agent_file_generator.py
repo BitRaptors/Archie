@@ -230,6 +230,21 @@ class TestGenerateClaudeMd:
         content = generate_claude_md(sample_blueprint)
         assert "do NOT proceed" in content
 
+    def test_contains_how_to_implement_tool(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "how_to_implement" in content
+
+    def test_contains_file_content_tools(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "get_file_content" in content
+        assert "list_source_files" in content
+
+    def test_contains_workflow_instructions(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "### Recommended Workflow" in content
+        assert "Call `how_to_implement`" in content
+        assert "call `get_file_content`" in content
+
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_claude_md(minimal_blueprint)
         assert "# CLAUDE.md" in content
@@ -283,6 +298,15 @@ class TestGenerateCursorRules:
         content = generate_cursor_rules(sample_blueprint)
         assert "## Communication Patterns" in content
         assert "Sync HTTP" in content
+
+    def test_contains_all_mcp_tools(self, sample_blueprint):
+        content = generate_cursor_rules(sample_blueprint)
+        assert "where_to_put" in content
+        assert "check_naming" in content
+        assert "how_to_implement" in content
+        assert "get_file_content" in content
+        assert "list_source_files" in content
+        assert "get_repository_blueprint" in content
 
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_cursor_rules(minimal_blueprint)
@@ -339,6 +363,15 @@ class TestGenerateAgentsMd:
         assert "# AGENTS.md" in content
         assert "Agent Roles" in content
         assert len(content) > 100
+
+    def test_contains_all_mcp_tools(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert "where_to_put" in content
+        assert "check_naming" in content
+        assert "how_to_implement" in content
+        assert "get_file_content" in content
+        assert "list_source_files" in content
+        assert "get_repository_blueprint" in content
 
     def test_summary_includes_rule_counts(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)

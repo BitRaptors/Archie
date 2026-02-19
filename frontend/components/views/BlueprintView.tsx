@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, Loader2, CheckCircle2, X } from 'lucide-react'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
+import { SourceFileModal } from '@/components/SourceFileModal'
 import { useAuth } from '@/hooks/useAuth'
 import { SERVER_TOKEN } from '@/context/auth'
 import { useActiveRepository, useSetActiveRepository, useDeleteRepository, useWorkspaceRepositories } from '@/hooks/api/useWorkspace'
@@ -56,6 +57,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
     const [needsSync, setNeedsSync] = useState(false)
     const [projectPath, setProjectPath] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
+    const [sourceFilePath, setSourceFilePath] = useState<string | null>(null)
     const [agentFiles, setAgentFiles] = useState<{
         claude_md: string
         cursor_rules: string
@@ -379,6 +381,11 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                             <div className="prose dark:prose-invert max-w-none">
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
+                                    urlTransform={(url) => {
+                                        // Preserve source:// links — default transform strips custom protocols
+                                        if (url.startsWith('source://')) return url
+                                        return url
+                                    }}
                                     components={{
                                         code({ className, children, ...props }) {
                                             if (className === 'language-mermaid') {
@@ -392,6 +399,23 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                                 return <>{children}</>
                                             }
                                             return <pre {...props}>{children}</pre>
+                                        },
+                                        a({ href, children, ...props }) {
+                                            if (href?.startsWith('source://')) {
+                                                const filePath = href.replace('source://', '')
+                                                return (
+                                                    <a
+                                                        href="#"
+                                                        onClick={(e) => { e.preventDefault(); setSourceFilePath(filePath) }}
+                                                        className="text-blue-600 hover:underline cursor-pointer"
+                                                        title={`View source: ${filePath}`}
+                                                        {...props}
+                                                    >
+                                                        {children}
+                                                    </a>
+                                                )
+                                            }
+                                            return <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
                                         },
                                     }}
                                 >
@@ -660,6 +684,16 @@ strategy: ${syncSettings.strategy === 'pr' ? 'pull-request' : 'force-sync'}`}
                     )}
                 </div>
             </div>
+
+            {/* Source File Modal */}
+            {sourceFilePath && currentRepoId && (
+                <SourceFileModal
+                    filePath={sourceFilePath}
+                    repoId={currentRepoId}
+                    isOpen={!!sourceFilePath}
+                    onClose={() => setSourceFilePath(null)}
+                />
+            )}
         </div>
     )
 }
