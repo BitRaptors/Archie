@@ -629,6 +629,89 @@ class TestHowToImplement:
         assert "Map Display" not in result
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# list_implementations
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestListCapabilities:
+    """Test the list_implementations tool."""
+
+    def test_returns_both_capability_ids(self, tools_with_guidelines):
+        result = tools_with_guidelines.list_implementations("test-repo-123")
+        assert "push-notifications" in result
+        assert "map-display" in result
+
+    def test_returns_categories(self, tools_with_guidelines):
+        result = tools_with_guidelines.list_implementations("test-repo-123")
+        assert "notifications" in result
+        assert "location" in result
+
+    def test_returns_libraries_as_hints(self, tools_with_guidelines):
+        result = tools_with_guidelines.list_implementations("test-repo-123")
+        assert "Firebase Cloud Messaging" in result
+        assert "Mapbox" in result
+
+    def test_returns_descriptions(self, tools_with_guidelines):
+        result = tools_with_guidelines.list_implementations("test-repo-123")
+        assert "FCM topic-based" in result
+        assert "MGLMapView" in result
+
+    def test_mentions_how_to_implement_by_id(self, tools_with_guidelines):
+        result = tools_with_guidelines.list_implementations("test-repo-123")
+        assert "how_to_implement_by_id" in result
+
+    def test_empty_guidelines_graceful(self, tools):
+        result = tools.list_implementations("test-repo-123")
+        assert "No implementation guideline" in result or "not found" in result.lower()
+
+    def test_nonexistent_repo(self, tools):
+        result = tools.list_implementations("nonexistent-repo-id")
+        assert "No structured blueprint found" in result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# how_to_implement_by_id
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestHowToImplementById:
+    """Test the how_to_implement_by_id tool."""
+
+    def test_exact_match_returns_full_details(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement_by_id("test-repo-123", "push-notifications")
+        assert "Push Notifications" in result
+        assert "Firebase Cloud Messaging" in result
+        assert "Services/NotificationService.swift" in result
+        assert "subscribe(topic:" in result
+        assert "Request notification permissions" in result
+
+    def test_map_display_by_id(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement_by_id("test-repo-123", "map-display")
+        assert "Map Display" in result
+        assert "Mapbox" in result
+        assert "Controllers/MapViewController.swift" in result
+        assert "Limit annotations" in result
+
+    def test_not_found_lists_available_ids(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement_by_id("test-repo-123", "blockchain")
+        assert "No implementation guideline found" in result
+        assert "push-notifications" in result
+        assert "map-display" in result
+
+    def test_not_found_mentions_list_implementations(self, tools_with_guidelines):
+        result = tools_with_guidelines.how_to_implement_by_id("test-repo-123", "nonexistent")
+        assert "list_implementations" in result
+
+    def test_empty_guidelines_graceful(self, tools):
+        result = tools.how_to_implement_by_id("test-repo-123", "push-notifications")
+        assert "No implementation guideline" in result or "not found" in result.lower()
+
+    def test_nonexistent_repo(self, tools):
+        result = tools.how_to_implement_by_id("nonexistent-repo-id", "push-notifications")
+        assert "No structured blueprint found" in result
+
+
 # ── Source file tools ────────────────────────────────────────────────────────
 
 
@@ -823,4 +906,35 @@ class TestMCPWorkflow:
             "test-repo-123", "NonExistent/FakeFile.swift"
         )
         assert "not found" in error_result.lower()
+
+    def test_two_step_capability_lookup(self, workflow_tools):
+        """Full two-step flow: list_implementations → how_to_implement_by_id → get_file_content."""
+        # Step 1: List all capabilities
+        caps = workflow_tools.list_implementations("test-repo-123")
+        assert "push-notifications" in caps
+        assert "map-display" in caps
+
+        # Step 2: Get full details by exact ID
+        details = workflow_tools.how_to_implement_by_id("test-repo-123", "push-notifications")
+        assert "Push Notifications" in details
+        assert "Services/NotificationService.swift" in details
+
+        # Step 3: Read the key file
+        content = workflow_tools.get_file_content(
+            "test-repo-123", "Services/NotificationService.swift"
+        )
+        assert "class NotificationService" in content
+
+    def test_two_step_flow_nonexistent_capability(self, workflow_tools):
+        """Two-step flow with bad ID: graceful error with available IDs."""
+        # Step 1: List capabilities
+        caps = workflow_tools.list_implementations("test-repo-123")
+        assert "push-notifications" in caps
+
+        # Step 2: Try a bad ID
+        result = workflow_tools.how_to_implement_by_id("test-repo-123", "nonexistent-feature")
+        assert "No implementation guideline found" in result
+        assert "push-notifications" in result
+        assert "map-display" in result
+        assert "list_implementations" in result
 

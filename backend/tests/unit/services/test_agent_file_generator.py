@@ -234,6 +234,14 @@ class TestGenerateClaudeMd:
         content = generate_claude_md(sample_blueprint)
         assert "how_to_implement" in content
 
+    def test_contains_list_implementations_tool(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "list_implementations" in content
+
+    def test_contains_how_to_implement_by_id_tool(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "how_to_implement_by_id" in content
+
     def test_contains_file_content_tools(self, sample_blueprint):
         content = generate_claude_md(sample_blueprint)
         assert "get_file_content" in content
@@ -242,7 +250,7 @@ class TestGenerateClaudeMd:
     def test_contains_workflow_instructions(self, sample_blueprint):
         content = generate_claude_md(sample_blueprint)
         assert "### Recommended Workflow" in content
-        assert "Call `how_to_implement`" in content
+        assert "Call `list_implementations`" in content
         assert "call `get_file_content`" in content
 
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
@@ -304,6 +312,8 @@ class TestGenerateCursorRules:
         assert "where_to_put" in content
         assert "check_naming" in content
         assert "how_to_implement" in content
+        assert "list_implementations" in content
+        assert "how_to_implement_by_id" in content
         assert "get_file_content" in content
         assert "list_source_files" in content
         assert "get_repository_blueprint" in content
@@ -369,6 +379,8 @@ class TestGenerateAgentsMd:
         assert "where_to_put" in content
         assert "check_naming" in content
         assert "how_to_implement" in content
+        assert "list_implementations" in content
+        assert "how_to_implement_by_id" in content
         assert "get_file_content" in content
         assert "list_source_files" in content
         assert "get_repository_blueprint" in content

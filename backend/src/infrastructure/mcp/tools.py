@@ -483,3 +483,96 @@ class BlueprintTools:
             lines.append("")
         return "\n".join(lines)
 
+    def list_implementations(self, repo_id: str) -> str:
+        """List all implementation capabilities with IDs for exact lookup.
+
+        Returns a table of capability IDs, names, categories, libraries,
+        and descriptions so the AI can match by reasoning rather than
+        substring search.
+
+        Args:
+            repo_id: Repository ID
+
+        Returns:
+            Markdown table of capabilities with IDs for use with how_to_implement_by_id.
+        """
+        bp = self._load_structured_blueprint(repo_id)
+        if not bp:
+            return f"No structured blueprint found for repository '{repo_id}'."
+
+        if not bp.implementation_guidelines:
+            return (
+                f"No implementation guidelines available for repository '{repo_id}'.\n"
+                "Run a new analysis to generate implementation guidelines."
+            )
+
+        lines = ["# Implementation Capabilities\n"]
+        lines.append("Use `how_to_implement_by_id` with the `id` value to get full details.\n")
+        lines.append("| id | capability | category | libraries | description |")
+        lines.append("|----|-----------|----------|-----------|-------------|")
+        for gl in bp.implementation_guidelines:
+            if not gl.capability:
+                continue
+            cap_id = _slugify(gl.capability)
+            libs = ", ".join(gl.libraries) if gl.libraries else ""
+            desc = gl.pattern_description or ""
+            cat = gl.category or ""
+            lines.append(f"| `{cap_id}` | {gl.capability} | {cat} | {libs} | {desc} |")
+
+        return "\n".join(lines)
+
+    def how_to_implement_by_id(self, repo_id: str, implementation_id: str) -> str:
+        """Get full implementation details for a capability by exact ID.
+
+        Args:
+            repo_id: Repository ID
+            implementation_id: Slugified capability ID from list_implementations
+
+        Returns:
+            Full implementation guideline with libraries, patterns, key files,
+            example, and tips.
+        """
+        bp = self._load_structured_blueprint(repo_id)
+        if not bp:
+            return f"No structured blueprint found for repository '{repo_id}'."
+
+        if not bp.implementation_guidelines:
+            return (
+                f"No implementation guidelines available for repository '{repo_id}'.\n"
+                "Run a new analysis to generate implementation guidelines."
+            )
+
+        for gl in bp.implementation_guidelines:
+            if not gl.capability:
+                continue
+            if _slugify(gl.capability) == implementation_id:
+                lines = [f"# How to implement: {gl.capability}\n"]
+                if gl.category:
+                    lines.append(f"**Category:** {gl.category}")
+                if gl.libraries:
+                    lines.append(f"**Libraries:** {', '.join(f'`{lib}`' for lib in gl.libraries)}")
+                if gl.pattern_description:
+                    lines.append(f"**Pattern:** {gl.pattern_description}")
+                if gl.key_files:
+                    lines.append("**Key files:**")
+                    for f in gl.key_files:
+                        lines.append(f"- `{f}`")
+                if gl.usage_example:
+                    lines.append(f"**Example:**\n```\n{gl.usage_example}\n```")
+                if gl.tips:
+                    lines.append("**Tips:**")
+                    for tip in gl.tips:
+                        lines.append(f"- {tip}")
+                return "\n".join(lines)
+
+        available = [
+            f"`{_slugify(gl.capability)}`"
+            for gl in bp.implementation_guidelines
+            if gl.capability
+        ]
+        return (
+            f"No implementation guideline found with ID '{implementation_id}'.\n"
+            f"Available IDs: {', '.join(available) or 'none'}\n"
+            "Use `list_implementations` to see all available capabilities."
+        )
+

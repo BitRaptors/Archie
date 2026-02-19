@@ -214,9 +214,10 @@ def create_server():
             Tool(
                 name="how_to_implement",
                 description=(
-                    "Look up how a capability or feature is already implemented in this codebase. "
+                    "Fuzzy search for how a capability or feature is already implemented in this codebase. "
                     "Returns recommended libraries, patterns, key files, and usage examples. "
-                    "Call this before implementing features like push notifications, maps, auth, etc."
+                    "Prefer list_implementations + how_to_implement_by_id for exact lookups. "
+                    "Use this as a fallback when the exact capability name is unknown."
                 ),
                 inputSchema={
                     "type": "object",
@@ -227,6 +228,33 @@ def create_server():
                         }
                     },
                     "required": ["feature"]
+                }
+            ),
+            Tool(
+                name="list_implementations",
+                description=(
+                    "List all implementation capabilities known for this codebase with their IDs, "
+                    "categories, libraries, and descriptions. Use this first, then call "
+                    "how_to_implement_by_id with the matching ID for full details."
+                ),
+                inputSchema={"type": "object", "properties": {}}
+            ),
+            Tool(
+                name="how_to_implement_by_id",
+                description=(
+                    "Get full implementation details for a specific capability by its exact ID. "
+                    "Call list_implementations first to discover available IDs. "
+                    "Returns libraries, patterns, key files, usage examples, and tips."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "implementation_id": {
+                            "type": "string",
+                            "description": "The capability ID from list_implementations (e.g. 'push-notifications', 'map-display')"
+                        }
+                    },
+                    "required": ["implementation_id"]
                 }
             ),
             Tool(
@@ -290,6 +318,14 @@ def create_server():
 
         elif name == "how_to_implement":
             result = tools_manager.how_to_implement(repo_id, arguments["feature"])
+            return [TextContent(type="text", text=result)]
+
+        elif name == "list_implementations":
+            result = tools_manager.list_implementations(repo_id)
+            return [TextContent(type="text", text=result)]
+
+        elif name == "how_to_implement_by_id":
+            result = tools_manager.how_to_implement_by_id(repo_id, arguments["implementation_id"])
             return [TextContent(type="text", text=result)]
 
         elif name == "list_source_files":
