@@ -48,11 +48,34 @@ def check_env_files():
         sys.exit(1)
 
 
+def _parse_redis_url() -> tuple[str, str, int]:
+    """Read REDIS_URL from backend/.env.local and parse host/port."""
+    redis_url = "redis://localhost:6379"
+    env_file = Path("backend/.env.local")
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("REDIS_URL=") and not line.startswith("#"):
+                val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if val:
+                    redis_url = val
+                break
+    # Parse redis://host:port
+    import re
+    m = re.match(r'^redis://([^:/]+)(?::(\d+))?', redis_url)
+    host = m.group(1) if m else "localhost"
+    port = int(m.group(2)) if m and m.group(2) else 6379
+    return redis_url, host, port
+
+
+REDIS_URL, REDIS_HOST, REDIS_PORT = _parse_redis_url()
+
+
 def check_redis():
-    """Check if Redis is reachable on localhost:6379."""
+    """Check if Redis is reachable."""
     import socket
     try:
-        s = socket.create_connection(("localhost", 6379), timeout=1)
+        s = socket.create_connection((REDIS_HOST, REDIS_PORT), timeout=1)
         s.close()
         return True
     except (ConnectionRefusedError, OSError):
@@ -74,6 +97,31 @@ def start_backend():
         subprocess.run(["python3", "-m", "venv", ".venv"], cwd=backend_dir, check=True)
         subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=True)
         subprocess.run([str(venv_python), "-m", "pip", "install", "-r", "requirements.txt"], cwd=backend_dir, check=True)
+
+    # Read backend port from .env.local (PORT key, default 8000)
+    import json as _json
+    backend_port = 8000
+    env_local = backend_dir / ".env.local"
+    if env_local.exists():
+        import re as _re
+        for line in env_local.read_text().splitlines():
+            m = _re.match(r'^PORT\s*=\s*(\d+)', line)
+            if m:
+                backend_port = int(m.group(1))
+                break
+
+    # Check if prompts/schema version is stale
+    prompts_file = backend_dir / "prompts.json"
+    version_file = backend_dir / ".prompts-version"
+    try:
+        current = str(_json.loads(prompts_file.read_text())["version"])
+        synced = version_file.read_text().strip() if version_file.exists() else ""
+        if current != synced:
+            print(f"{RED}⚠️  Updates available (v{synced or 'old'} → v{current}). Run: ./setup.sh{NC}")
+            print(f"{RED}Cannot start — database schema or prompts are incompatible. Run ./setup.sh first.{NC}")
+            sys.exit(1)
+    except Exception:
+        pass
 
     # Start backend
     backend_process = subprocess.Popen(
@@ -97,7 +145,7 @@ def start_backend():
             stderr=subprocess.PIPE,
         )
     else:
-        print(f"{YELLOW}ℹ️  Redis not available — analysis will run in-process (no ARQ worker needed){NC}")
+        print(f"{YELLOW}ℹ️  Redis not available ({REDIS_URL}) — analysis will run in-process{NC}")
 
     # Wait a moment and check if it started
     time.sleep(2)
@@ -107,11 +155,11 @@ def start_backend():
         print(stderr.decode())
         sys.exit(1)
 
-    print(f"{GREEN}✅ Backend running on http://localhost:8000 (PID: {backend_process.pid}){NC}")
+    print(f"{GREEN}✅ Backend running on http://localhost:{backend_port} (PID: {backend_process.pid}){NC}")
     if worker_process and worker_process.poll() is None:
         print(f"{GREEN}✅ Worker running (PID: {worker_process.pid}){NC}")
     print()
-    return backend_process
+    return backend_process, backend_port
 
 
 def start_frontend():
@@ -143,7 +191,7 @@ def start_frontend():
     )
     
     # Wait for Next.js to start and extract the port
-    frontend_port = 3000
+    frontend_port = 4000
     import re
     
     for i in range(15):
@@ -172,7 +220,7 @@ def start_frontend():
                 if port_match:
                     frontend_port = int(port_match.group(1))
                     # Only use if it's a reasonable port (3000-3010)
-                    if 3000 <= frontend_port <= 3010:
+                    if 3000 <= frontend_port <= 5000:
                         break
         except Exception:
             pass
@@ -206,18 +254,20 @@ def main():
     check_env_files()
     
     # Start backend
-    start_backend()
-    
+    _, backend_port = start_backend()
+
     # Start frontend and get the actual port
     frontend_process, frontend_port = start_frontend()
-    
+
     # Print status
     print(f"{GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{NC}")
     print(f"{GREEN}✨ Repository Analysis System is running!{NC}")
     print(f"{GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{NC}")
-    print(f"{BLUE}Backend:{NC}  http://localhost:8000")
+    redis_status = REDIS_URL if check_redis() else f"Not connected ({REDIS_URL})"
+    print(f"{BLUE}Backend:{NC}  http://localhost:{backend_port}")
     print(f"{BLUE}Frontend:{NC} http://localhost:{frontend_port}")
-    print(f"{BLUE}API Docs:{NC} http://localhost:8000/docs")
+    print(f"{BLUE}API Docs:{NC} http://localhost:{backend_port}/docs")
+    print(f"{BLUE}Redis:{NC}    {redis_status}")
     print(f"{GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{NC}")
     print(f"{YELLOW}Press Ctrl+C to stop both servers{NC}\n")
     

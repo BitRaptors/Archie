@@ -89,6 +89,7 @@ coverage.xml
 .hypothesis/
 
 # Project Specific
+backend/.prompts-version
 backend/storage/
 backend/temp/
 backend/.debug_data/

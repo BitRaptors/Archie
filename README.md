@@ -47,65 +47,66 @@ The AI agent in your IDE connects to the MCP server. Before it creates a file, i
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js 18+
-- A [Supabase](https://supabase.com) project (PostgreSQL + pgvector)
-- An [Anthropic API key](https://console.anthropic.com)
-- Redis (optional) — if installed, analysis runs in a separate worker process via ARQ; without it, analysis runs in-process automatically
+- An [Anthropic API key](https://console.anthropic.com) (the only required secret)
+- Docker (installed automatically by setup script on macOS/Linux) — or a [Supabase](https://supabase.com) project if you prefer cloud database
+- Python 3.11+ and Node.js 18+ (installed automatically by setup script if missing)
 
-### 1. Clone and configure environment
+### Quick Start (recommended)
 
 ```bash
 git clone https://github.com/your-org/architecture-blueprints.git
 cd architecture-blueprints
 
-# Backend
-cp backend/.env.example backend/.env.local
-# Edit backend/.env.local and fill in:
-#   SUPABASE_URL, SUPABASE_KEY, SUPABASE_JWT_SECRET, ANTHROPIC_API_KEY
+# One-time setup — installs everything, creates env files, starts database
+./setup.sh
 
-# Frontend
-cp frontend/.env.example frontend/.env.local
-# Edit frontend/.env.local:
-#   NEXT_PUBLIC_API_URL=http://localhost:8000
+# Start the application
+./start-dev.sh       # Linux/Mac
+# Or: python start-dev.py (cross-platform) / start-dev.bat (Windows)
 ```
 
-### 2. Run database migrations
+**That's it.** The setup script will:
+1. Ask you to choose a database: **postgres** (local Docker, recommended) or **supabase** (cloud)
+2. Install Docker, Python, and Node.js if missing
+3. Start PostgreSQL + Redis containers (if postgres chosen)
+4. Run database migrations automatically (tables, indexes, seed data)
+5. Create Python venv and install backend dependencies
+6. Install frontend dependencies
+7. Generate `backend/.env.local` and `frontend/.env.local` — prompting you for your Anthropic API key
 
-Run the initial migration `backend/migrations/001_initial_setup.sql` in your Supabase project (SQL editor or CLI). This single file creates all tables, indexes, and functions.
+Then `start-dev.sh` starts backend (`http://localhost:8000`), frontend (`http://localhost:4000`), and an ARQ worker (if Redis is available).
 
-### 3. Start the application
+### Database Options
+
+| Option | When to use | What happens |
+|--------|------------|--------------|
+| **postgres** (recommended) | Local development, no cloud account needed | Docker runs PostgreSQL (with pgvector) + Redis locally. Migration runs automatically on first start. |
+| **supabase** | You already have a Supabase project, or want cloud persistence | You must manually run `backend/migrations/001_initial_setup.sql` in your Supabase SQL editor. |
+
+### Manual Setup (alternative)
+
+If you prefer not to use `setup.sh`:
 
 ```bash
-# Option A: startup script (recommended)
-./start-dev.sh       # Linux/Mac
-start-dev.bat        # Windows
-python start-dev.py  # Cross-platform
-# Or manually:
+# 1. Create env files
+cp backend/.env.example backend/.env.local   # Fill in ANTHROPIC_API_KEY + DB credentials
+cp frontend/.env.example frontend/.env.local  # Defaults work as-is
 
-# Option B: manual
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=src uvicorn main:app --reload --port 8000
+# 2. Start database (pick one)
+docker compose up -d                          # Local postgres + redis
+# OR: run 001_initial_setup.sql in your Supabase SQL editor
 
+# 3. Install dependencies
+cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+cd ../frontend && npm install
+
+# 4. Start
+cd ../backend && PYTHONPATH=src uvicorn main:app --reload --port 8000
 # In another terminal:
-cd frontend
-npm install && npm run dev
+cd frontend && npm run dev
 ```
 
-Backend runs on `http://localhost:8000`, frontend on `http://localhost:4000`.
-
-**Analysis execution modes:** The system automatically selects how analysis runs based on Redis availability:
-
-| Mode | When | How it works |
-|------|------|-------------|
-| **ARQ Worker** (Redis) | `redis-cli ping` succeeds | `start-dev.sh` launches a separate ARQ worker process (`python -m workers.worker`). Analysis jobs are enqueued to Redis and executed in the worker. |
-| **In-Process** (no Redis) | Redis not installed or unreachable | Analysis runs directly in the FastAPI process via `asyncio.create_task()`. No extra setup needed. |
-
-Both modes produce identical results — they call the same `analysis_service.run_analysis()` pipeline. The in-process mode is simpler to set up; the ARQ worker mode keeps the API responsive during long analyses.
-
-### 4. Get a GitHub token
+### Get a GitHub Token
 
 You need a GitHub Personal Access Token for repository access: [github.com/settings/tokens](https://github.com/settings/tokens) → Generate new token (classic) → select `repo` + `read:user` scopes.
 
