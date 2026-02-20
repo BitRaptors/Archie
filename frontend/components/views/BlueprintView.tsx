@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Card } from '@/components/ui/card'
@@ -18,6 +18,7 @@ import { useDeliveryApply } from '@/hooks/api/useDelivery'
 import { useRepositoriesQuery } from '@/hooks/api/useRepositoriesQuery'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
+import { generateId, parseNavigation } from '@/lib/blueprint-toc'
 import { DebugView } from '@/components/DebugView'
 import { Progress } from '@/components/ui/progress' // Assuming progress exists or I will create it
 
@@ -71,23 +72,15 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         phases: [],
         summary: {}
     })
+    const [activeSection, setActiveSection] = useState('')
 
-    const [toc, setToc] = useState<{ level: number; text: string; id: string }[]>([])
-    const [activeSection, setActiveSection] = useState<string>('')
-
-    const extractText = useCallback((children: any): string => {
-        if (typeof children === 'string') return children;
-        if (Array.isArray(children)) return children.map(extractText).join('');
-        if (children?.props?.children) return extractText(children.props.children);
-        return String(children || '');
-    }, []);
-
-    const slugify = useCallback((text: string) => {
-        return text.toLowerCase()
-            .replace(/[^\w\s-]/g, '')
-            .replace(/\s+/g, '-')
-            .replace(/^-+|-+$/g, '');
-    }, []);
+    // Parse sidebar navigation from markdown content
+    const toc = useMemo(
+        () => (activeTab === 'backend' && backendBlueprint?.content)
+            ? parseNavigation(backendBlueprint.content)
+            : [],
+        [backendBlueprint?.content, activeTab]
+    )
 
     // Determine which ID to use
     const effectiveId = repoId || analysisId
@@ -164,86 +157,51 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         fetchProjectPath()
     }, [fetchBlueprints, fetchProjectPath])
 
+    // Assign heading IDs from DOM textContent + scroll spy
     useEffect(() => {
-        if (activeTab === 'backend' && backendBlueprint?.content) {
-            const lines = backendBlueprint.content.split('\n');
-            const headers: { level: number; text: string; id: string }[] = [];
-            let inCodeBlock = false;
+        if (activeTab !== 'backend' || toc.length === 0 || isLoading) return
 
-            lines.forEach(line => {
-                // Toggle code block status
-                if (line.trim().startsWith('```')) {
-                    inCodeBlock = !inCodeBlock;
-                    return;
-                }
-                if (inCodeBlock) return;
+        const container = document.getElementById('blueprint-content-area')
+        if (!container) return
 
-                // Match H1-H3 with optional indentation
-                const match = line.match(/^(\s{0,4})(#{1,3})\s+(.+)$/);
-                if (match) {
-                    const level = match[2].length;
-                    const text = match[3].replace(/\[|\]/g, '').trim();
-                    const id = slugify(text);
-                    if (id) {
-                        headers.push({ level, text, id });
-                    }
-                }
-            });
-            setToc(headers);
-        } else {
-            setToc([]);
-        }
-    }, [backendBlueprint?.content, activeTab, slugify])
-
-    // Auto-scroll TOC when active section changes
-    useEffect(() => {
-        if (activeSection) {
-            const tocItem = document.getElementById(`toc-item-${activeSection}`);
-            if (tocItem) {
-                tocItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-        }
-    }, [activeSection]);
-
-    // Handle scroll spy with scroll event listener for better precision
-    useEffect(() => {
-        if (activeTab !== 'backend') return;
-
-        const scrollContainer = document.getElementById('blueprint-content-area');
-        if (!scrollContainer) return;
+        // Set IDs on all h2/h3 directly from their rendered textContent
+        const headings = container.querySelectorAll<HTMLElement>('h2, h3')
+        headings.forEach((h) => {
+            h.id = generateId(h.textContent || '')
+            h.style.scrollMarginTop = '1.5rem'
+        })
 
         const handleScroll = () => {
-            const headers = toc.map(item => document.getElementById(item.id)).filter(Boolean) as HTMLElement[];
-            if (headers.length === 0) return;
+            const top = container.getBoundingClientRect().top
+            let current = ''
+            headings.forEach((h) => {
+                if (h.getBoundingClientRect().top - top < 150) current = h.id
+            })
+            if (current) setActiveSection(current)
+        }
 
-            // Find the header that is currently at the top of the viewport (or closest to it)
-            // Use a small offset (e.g. 100px) to consider headers "active" slightly before they hit top
-            const containerTop = scrollContainer.getBoundingClientRect().top;
+        container.addEventListener('scroll', handleScroll, { passive: true })
+        handleScroll()
 
-            // Find the last header that is above the "read line" (e.g. top + 150px)
-            let currentActive = headers[0].id;
+        return () => container.removeEventListener('scroll', handleScroll)
+    }, [toc, activeTab, isLoading])
 
-            for (const header of headers) {
-                const headerTop = header.getBoundingClientRect().top;
-                // If header is above the read line (container top + 150px buffer)
-                if (headerTop < containerTop + 150) {
-                    currentActive = header.id;
-                } else {
-                    // Once we find a header below the line, we stop, keeping the previous one as active
-                    break;
-                }
-            }
+    // Auto-scroll sidebar TOC to keep active item visible
+    useEffect(() => {
+        if (activeSection) {
+            const tocItem = document.getElementById(`toc-${activeSection}`)
+            tocItem?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        }
+    }, [activeSection])
 
-            setActiveSection(currentActive);
-        };
-
-        // Initial check
-        handleScroll();
-
-        // Add listener
-        scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-        return () => scrollContainer.removeEventListener('scroll', handleScroll);
-    }, [toc, activeTab]);
+    const scrollToSection = (id: string) => {
+        const container = document.getElementById('blueprint-content-area')
+        const element = document.getElementById(id)
+        if (!container || !element) return
+        const y = element.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 24
+        container.scrollTo({ top: y, behavior: 'smooth' })
+        setActiveSection(id)
+    }
 
     const handleDownload = (content: string, filename: string) => {
         const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
@@ -463,40 +421,80 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                 </div>
 
                 {/* Content Layout (Sidebar + Main) */}
-                <div className="flex-1 overflow-hidden flex gap-8">
+                <div className="flex-1 overflow-hidden flex gap-6">
                     {/* TOC Sidebar */}
                     {activeTab === 'backend' && toc.length > 0 && (
-                        <div className="w-64 shrink-0 hidden lg:flex flex-col gap-4 h-full overflow-y-auto custom-scrollbar pr-2 pb-12">
-                            <div className="text-[11px] font-black text-ink/30 uppercase tracking-[0.2em] px-4 flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur z-10 py-2">
-                                <Layers className="w-3.5 h-3.5" /> Contents
+                        <aside className="w-64 flex-shrink-0 hidden lg:block">
+                            <div className="sticky top-0 overflow-y-auto max-h-[calc(100vh-12rem)] pr-4 py-2 custom-scrollbar">
+                                <div className="flex items-center gap-2 mb-6 px-1">
+                                    <div className={cn("p-1.5 rounded-md", theme.surface.sectionHeaderIcon)}>
+                                        <Layers className={cn("w-3.5 h-3.5", theme.brand.icon)} />
+                                    </div>
+                                    <p className="text-[11px] font-black text-muted-foreground uppercase tracking-[0.15em]">Overview</p>
+                                </div>
+                                <nav className="space-y-1">
+                                    {toc.map((section) => {
+                                        const isMainActive = activeSection === section.id
+                                        const hasActiveChild = section.items.some(item => activeSection === item.id)
+
+                                        return (
+                                            <div key={section.id} className="space-y-1">
+                                                <button
+                                                    id={`toc-${section.id}`}
+                                                    onClick={() => scrollToSection(section.id)}
+                                                    className={cn(
+                                                        "group flex items-center w-full text-left px-3 py-2 rounded-lg transition-all duration-200 border border-transparent",
+                                                        isMainActive
+                                                            ? cn(theme.active.sidebarItem, "font-bold shadow-sm")
+                                                            : "text-foreground/60 hover:text-foreground hover:bg-papaya-300/30 font-medium"
+                                                    )}
+                                                    title={section.title}
+                                                >
+                                                    <span className={cn(
+                                                        "text-xs truncate flex-1",
+                                                        isMainActive ? "translate-x-0.5" : ""
+                                                    )}>
+                                                        {section.title}
+                                                    </span>
+                                                    {isMainActive && (
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-teal animate-in fade-in zoom-in duration-300" />
+                                                    )}
+                                                </button>
+                                                {section.items.length > 0 && (
+                                                    <div className={cn(
+                                                        "ml-3 pl-2 border-l space-y-1 my-1 transition-colors",
+                                                        (isMainActive || hasActiveChild) ? "border-teal/30" : "border-papaya-400/50"
+                                                    )}>
+                                                        {section.items.map((item) => {
+                                                            const isSubActive = activeSection === item.id
+                                                            return (
+                                                                <button
+                                                                    key={item.id}
+                                                                    id={`toc-${item.id}`}
+                                                                    onClick={() => scrollToSection(item.id)}
+                                                                    className={cn(
+                                                                        "group flex items-center w-full text-left px-3 py-1.5 rounded-md text-[11px] transition-all duration-200 border border-transparent",
+                                                                        isSubActive
+                                                                            ? "bg-teal-50/40 text-teal font-bold border-teal-50/50"
+                                                                            : "text-muted-foreground hover:text-foreground hover:bg-papaya-300/20 font-medium"
+                                                                    )}
+                                                                    title={item.title}
+                                                                >
+                                                                    <span className="truncate flex-1">{item.title}</span>
+                                                                    {isSubActive && (
+                                                                        <div className="w-1 h-3 bg-teal/30 rounded-full" />
+                                                                    )}
+                                                                </button>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </nav>
                             </div>
-                            <div className="space-y-0.5">
-                                {toc.map((item, idx) => (
-                                    <button
-                                        key={idx}
-                                        id={`toc-item-${item.id}`}
-                                        onClick={() => {
-                                            const element = document.getElementById(item.id);
-                                            if (element) {
-                                                element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                                setActiveSection(item.id);
-                                            }
-                                        }}
-                                        className={cn(
-                                            "w-full text-left font-bold leading-relaxed rounded-lg transition-all border-l-2",
-                                            activeSection === item.id
-                                                ? "border-primary bg-primary/5 text-primary"
-                                                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50",
-                                            item.level === 1 && "px-4 py-2 text-sm text-foreground",
-                                            item.level === 2 && "pl-6 pr-4 py-1.5 text-xs text-muted-foreground",
-                                            item.level === 3 && "pl-8 pr-4 py-1.5 text-[11px] font-medium text-muted-foreground/80"
-                                        )}
-                                    >
-                                        {item.text}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
+                        </aside>
                     )}
 
                     {/* View container */}
@@ -521,18 +519,6 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                             return url
                                         }}
                                         components={{
-                                            h1: ({ children }) => {
-                                                const id = slugify(extractText(children));
-                                                return <h1 id={id} className="scroll-mt-32">{children}</h1>
-                                            },
-                                            h2: ({ children }) => {
-                                                const id = slugify(extractText(children));
-                                                return <h2 id={id} className="scroll-mt-32">{children}</h2>
-                                            },
-                                            h3: ({ children }) => {
-                                                const id = slugify(extractText(children));
-                                                return <h3 id={id} className="scroll-mt-32">{children}</h3>
-                                            },
                                             code({ className, children, ...props }) {
                                                 if (className === 'language-mermaid') {
                                                     return <MermaidDiagram chart={String(children).trim()} />
