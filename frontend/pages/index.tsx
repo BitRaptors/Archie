@@ -145,6 +145,7 @@ export default function Dashboard() {
       {activeView === 'repositories' && (
         <RepositoryView
           onAnalyze={handleAnalyze}
+          onViewBlueprint={(repoId) => handleHistoryClick(repoId, '')}
           activeRepoId={activeRepo?.active_repo_id || undefined}
         />
       )}

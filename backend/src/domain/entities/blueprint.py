@@ -250,6 +250,17 @@ class StateManagement(BaseModel):
     local_state: str = ""  # e.g. "useState", "useReducer"
     rationale: str = ""
 
+    @field_validator("local_state", mode="before")
+    @classmethod
+    def _coerce_local_state(cls, v: Any) -> str:
+        """Coerce AI output into str.
+
+        The AI sometimes returns a list of strings instead of a single string.
+        """
+        if isinstance(v, list):
+            return "; ".join(str(item) for item in v)
+        return v
+
     @field_validator("global_state", mode="before")
     @classmethod
     def _coerce_global_state(cls, v: Any) -> list[dict[str, Any]]:
