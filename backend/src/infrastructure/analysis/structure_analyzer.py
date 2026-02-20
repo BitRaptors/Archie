@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Any
 
-from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+from domain.entities.analysis_settings import SEED_IGNORED_DIRS
 
 
 class StructureAnalyzer:
@@ -75,7 +75,7 @@ class StructureAnalyzer:
             logging.warning(f"Repository path is not a directory: {repo_path}")
             return tree
         
-        ignored = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+        ignored = discovery_ignored_dirs or set()
         items_checked = 0
         items_added = 0
         items_skipped_hidden = 0

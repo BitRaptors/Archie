@@ -41,19 +41,13 @@ class EmbeddingGenerator:
 
     def _find_code_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> list[Path]:
         """Find all code files in repository."""
-        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
-
-        code_extensions = {
-            ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
-            ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
-            ".kt", ".scala", ".clj", ".sh", ".bash", ".zsh",
-        }
+        from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
 
         code_files = []
-        for ext in code_extensions:
+        for ext in SOURCE_CODE_EXTENSIONS:
             code_files.extend(repo_path.rglob(f"*{ext}"))
 
-        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+        ignore_patterns = discovery_ignored_dirs or set()
 
         filtered = []
         for file_path in code_files:

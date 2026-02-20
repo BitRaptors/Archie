@@ -71,6 +71,17 @@ class RAGRetriever:
             Statistics about indexed files and chunks
         """
         stats = {"files": 0, "chunks": 0, "total_lines": 0}
+
+        # Wipe stale embeddings for this repository before re-indexing.
+        # Prevents leftover entries (e.g. from previously un-ignored dirs like Pods)
+        # from polluting retrieval results.
+        try:
+            await self._db.table("embeddings").delete().eq(
+                "repository_id", repository_id
+            ).execute()
+        except Exception:
+            pass  # Non-fatal — per-batch dedup in _batch_insert_embeddings is a safety net
+
         embeddings_batch = []
 
         code_files = self._find_code_files(repo_path, discovery_ignored_dirs=discovery_ignored_dirs)
@@ -297,18 +308,12 @@ class RAGRetriever:
 
     def _find_code_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> list[Path]:
         """Find all code files in repository."""
-        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+        from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
 
-        code_extensions = {
-            ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
-            ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
-            ".kt", ".scala", ".clj", ".sh", ".bash", ".zsh",
-        }
-
-        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+        ignore_patterns = discovery_ignored_dirs or set()
 
         code_files = []
-        for ext in code_extensions:
+        for ext in SOURCE_CODE_EXTENSIONS:
             for file_path in repo_path.rglob(f"*{ext}"):
                 try:
                     rel_parts = file_path.relative_to(repo_path).parts

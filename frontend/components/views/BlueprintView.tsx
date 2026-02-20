@@ -9,6 +9,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, Loader2, CheckCircle2, X, Layers } from 'lucide-react'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { SourceFileModal } from '@/components/SourceFileModal'
+import { ConfirmationDialog } from '@/components/ConfirmationDialog'
+import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { SERVER_TOKEN } from '@/context/auth'
 import { useActiveRepository, useSetActiveRepository, useDeleteRepository, useWorkspaceRepositories } from '@/hooks/api/useWorkspace'
@@ -58,6 +60,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
     const [projectPath, setProjectPath] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
     const [sourceFilePath, setSourceFilePath] = useState<string | null>(null)
+    const [showDeleteDialog, setShowDeleteDialog] = useState(false)
     const [agentFiles, setAgentFiles] = useState<{
         claude_md: string
         cursor_rules: string
@@ -116,7 +119,11 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                 : `${API_URL}/api/v1/analyses/${analysisId}/agent-files`
 
             const agentRes = await fetch(agentUrl, { headers: { Authorization: `Bearer ${token}` } })
-            if (agentRes.ok) setAgentFiles(await agentRes.json())
+            if (agentRes.ok) {
+                setAgentFiles(await agentRes.json())
+            } else {
+                toast.error('Failed to load agent files')
+            }
 
             // Fetch analysis data if we have an analysisId (debug data usually tied to analysis run)
             const targetAnalysisId = analysisId || backendData.analysis_id
@@ -126,7 +133,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         headers: { Authorization: `Bearer ${token}` }
                     })
                     if (adRes.ok) setDebugData(await adRes.json())
-                } catch (e) { console.warn("Failed to load debug data", e) }
+                } catch (e) { toast.error('Failed to load debug data') }
             }
 
             setIsLoading(false)
@@ -147,8 +154,8 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                 const data = await res.json()
                 setProjectPath(data.path)
             }
-        } catch (err) {
-            console.error(err)
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to load project path')
         }
     }, [token])
 
@@ -346,15 +353,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         variant="ghost"
                         size="sm"
                         className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-9"
-                        onClick={() => {
-                            if (window.confirm("Are you sure you want to delete this blueprint and analysis data? This action cannot be undone.")) {
-                                deleteAnalysis(repoId || backendBlueprint?.repository_id || '', {
-                                    onSuccess: () => {
-                                        onBack()
-                                    }
-                                })
-                            }
-                        }}
+                        onClick={() => setShowDeleteDialog(true)}
                         disabled={isDeleting}
                     >
                         <Trash2 className="w-4 h-4 mr-2" />
@@ -800,7 +799,7 @@ strategy: ${syncSettings.strategy === 'pr' ? 'pull-request' : 'force-sync'}`}
                                                         setNeedsSync(false);
                                                     },
                                                     onError: (err: any) => {
-                                                        alert("Sync failed: " + (err.response?.data?.detail || err.message));
+                                                        toast.error(err.response?.data?.detail || err.message || 'Sync failed');
                                                     }
                                                 });
                                             }}
@@ -842,6 +841,25 @@ strategy: ${syncSettings.strategy === 'pr' ? 'pull-request' : 'force-sync'}`}
                     onClose={() => setSourceFilePath(null)}
                 />
             )}
+
+            {/* Delete Confirmation Dialog */}
+            <ConfirmationDialog
+                isOpen={showDeleteDialog}
+                onClose={() => setShowDeleteDialog(false)}
+                onConfirm={() => {
+                    deleteAnalysis(repoId || backendBlueprint?.repository_id || '', {
+                        onSuccess: () => {
+                            setShowDeleteDialog(false)
+                            onBack()
+                        }
+                    })
+                }}
+                title="Delete Blueprint"
+                message="Are you sure you want to delete this blueprint and analysis data? This action cannot be undone."
+                confirmText="Delete"
+                destructive
+                isLoading={isDeleting}
+            />
         </div>
     )
 }

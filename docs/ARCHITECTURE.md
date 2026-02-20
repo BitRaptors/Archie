@@ -11,15 +11,16 @@ Comprehensive technical documentation covering system architecture, analysis pip
 3. [Project Structure](#project-structure)
 4. [Backend Architecture](#backend-architecture)
 5. [Analysis Pipeline](#analysis-pipeline)
-6. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
-7. [MCP Server](#mcp-server)
-8. [Delivery Pipeline](#delivery-pipeline)
-9. [API Reference](#api-reference)
-10. [Database Schema](#database-schema)
-11. [Frontend](#frontend)
-12. [Configuration](#configuration)
-13. [Testing](#testing)
-14. [Extending the System](#extending-the-system)
+6. [Web vs Mobile Platform Handling](#web-vs-mobile-platform-handling)
+7. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
+8. [MCP Server](#mcp-server)
+9. [Delivery Pipeline](#delivery-pipeline)
+10. [API Reference](#api-reference)
+11. [Database Schema](#database-schema)
+12. [Frontend (Web UI)](#frontend-web-ui)
+13. [Configuration](#configuration)
+14. [Testing](#testing)
+15. [Extending the System](#extending-the-system)
 
 ---
 
@@ -92,15 +93,15 @@ architecture-blueprints/
 │   │   ├── api/                          # HTTP layer
 │   │   │   ├── app.py                    # FastAPI app factory, route registration
 │   │   │   ├── middleware/               # Auth, CORS, error handling
-│   │   │   ├── routes/                   # Route modules (11 files)
+│   │   │   ├── routes/                   # Route modules (9 registered + 1 unused)
 │   │   │   │   ├── analyses.py           # Analysis CRUD + streaming
 │   │   │   │   ├── repositories.py       # Repository management + analyze trigger
 │   │   │   │   ├── delivery.py           # Preview + apply delivery
-│   │   │   │   ├── architecture.py       # Architecture rules + validation
+│   │   │   │   ├── architecture.py       # Architecture rules + validation (not registered)
 │   │   │   │   ├── auth.py               # GitHub token auth
 │   │   │   │   ├── workspace.py          # Workspace management
-│   │   │   │   ├── prompts.py            # Prompt CRUD
-│   │   │   │   ├── unified_blueprints.py # Multi-repo blueprints
+│   │   │   │   ├── prompts.py            # Prompt CRUD + revision history
+│   │   │   │   ├── settings.py           # Analysis settings (ignored dirs, library capabilities)
 │   │   │   │   ├── health.py             # Health check
 │   │   │   │   └── mcp.py               # MCP SSE endpoint mount
 │   │   │   └── dto/                      # Request/response schemas
@@ -215,7 +216,7 @@ Services receive all dependencies through constructor injection. No service inst
 - **Repository pattern** — Domain interfaces in `domain/interfaces/`, Supabase implementations in `infrastructure/persistence/`
 - **RAG fallback** — If RAG indexing fails or Supabase is unavailable, analysis falls back to static code samples
 - **Analysis data collector** — Shared singleton that persists per-phase analysis data to Supabase, initialized on app startup
-- **Frontend auto-detection** — `_detect_frontend()` checks for React, Vue, Angular, Next.js, Flutter, SwiftUI indicators and branches to unified synthesis when found
+- **Frontend auto-detection** — `_detect_frontend()` checks 31 indicators covering web frameworks (React, Vue, Angular, Svelte, etc.), iOS (SwiftUI, UIKit, .storyboard, .xcodeproj, Podfile, viewcontroller), Android (Jetpack Compose, build.gradle, AndroidManifest), cross-platform (Flutter, React Native, Expo), and file patterns (.tsx, .jsx, .swift, .kt). Branches to unified synthesis when found
 
 ### Background Task Execution (ARQ vs In-Process)
 
@@ -297,7 +298,7 @@ Clones the repository and extracts:
 | Data | Source | Size |
 |------|--------|------|
 | File tree | `structure_analyzer.py` scans all files | Compressed to ~3000 chars |
-| Dependencies | `requirements.txt`, `package.json`, `go.mod`, `Cargo.toml`, etc. | ~1500 chars |
+| Dependencies | `requirements.txt`, `package.json`, `pyproject.toml`, `Gemfile`, `Cargo.toml`, `go.mod`, `Podfile`, `Package.swift`, `Cartfile`, `build.gradle`, `build.gradle.kts`, `settings.gradle*` | ~1500 chars |
 | Config files | `tsconfig.json`, `docker-compose.yml`, `.env.example`, etc. | ~4000 chars |
 | Code samples | 10 representative files chosen by heuristics | ~5000 chars |
 
@@ -305,7 +306,7 @@ All gathered data is persisted to Supabase via `analysis_data_collector` with `d
 
 #### Stage 2: RAG Indexing (`rag_retriever.py`) — Optional
 
-For codebases with 50+ files, RAG indexing enables phase-specific code retrieval:
+When Supabase is available, RAG indexing enables phase-specific code retrieval:
 
 1. **Chunking** — Each code file is split by function/class boundaries using tree-sitter AST parsing
 2. **Embedding** — Each chunk is embedded using `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions)
@@ -328,7 +329,7 @@ Without RAG, each phase relies on priority files (from the observation phase's s
 
 #### Stage 3: Phased AI Analysis (`phased_blueprint_generator.py`)
 
-Seven to nine sequential Claude API calls, each building on the outputs of previous phases:
+Eight to nine sequential Claude API calls, each building on the outputs of previous phases:
 
 | Phase | Input | Output | Purpose |
 |-------|-------|--------|---------|
@@ -431,14 +432,15 @@ The synthesis phase produces a `StructuredBlueprint` Pydantic model. This is ser
 
 ```
 blueprints/{repository_id}/
-├── blueprint.json           (main output — single source of truth)
-├── observation.json         (phase 0 output)
-├── discovery.json           (phase 1 output)
-├── layers.json              (phase 2 output)
-├── patterns.json            (phase 3 output)
-├── communication.json       (phase 4 output)
-├── technology.json          (phase 5 output)
-└── frontend_analysis.json   (phase 6 output, if applicable)
+├── blueprint.json               (main output — single source of truth)
+├── observation.json             (phase 0 output)
+├── discovery.json               (phase 1 output)
+├── layers.json                  (phase 2 output)
+├── patterns.json                (phase 3 output)
+├── communication.json           (phase 4 output)
+├── technology.json              (phase 5 output)
+├── frontend_analysis.json       (phase 6 output, if applicable)
+└── implementation_analysis.json (phase 7 output)
 ```
 
 #### Stage 5: Output Generation
@@ -464,17 +466,154 @@ AI models have limited context windows. The pipeline handles large codebases (10
 5. **Progressive context** — Each phase outputs a compact JSON summary (~500-2500 chars) that feeds into the next
 6. **Smart truncation** — Data is truncated with tracked limits; both gathered and sent sizes are stored for transparency
 
-Per-phase context budget:
+Per-phase context budget (character truncation limits from source code):
 
-| Phase | File Tree | Dependencies | Code Samples | Previous Context | Total |
-|-------|-----------|-------------|--------------|------------------|-------|
-| Discovery | 3,000 | 1,500 | 4,000 | — | ~8,500 |
-| Layers | 2,500 | — | 5,000 | 1,500 | ~9,000 |
-| Patterns | — | — | 6,000 | 2,500 | ~8,500 |
-| Communication | — | — | 5,000 | 3,000 | ~8,000 |
-| Technology | — | 2,000 | 3,000 | 3,500 | ~8,500 |
-| Implementation Analysis | — | — | 5,000 | 4,000 | ~9,000 |
-| Synthesis | — | — | 4,000 | 14,500 | ~18,500 |
+| Phase | File Tree | Dependencies | Code/Config | Previous Context | Total |
+|-------|-----------|-------------|-------------|------------------|-------|
+| Discovery | 3,000 | 1,500 | 12,000 | 2,000 (observation) | ~18,500 |
+| Layers | 2,500 | — | 15,000 | 1,500 (discovery) | ~19,000 |
+| Patterns | — | — | 15,000 | 1,000 + 1,500 (discovery + layers) | ~17,500 |
+| Communication | — | — | 12,000 | 3,000 (all previous) | ~15,000 |
+| Technology | — | 2,000 | 10,000 | 3,500 (all previous) | ~15,500 |
+| Frontend | — | — | 15,000 | 3,000 (all previous) | ~18,000 |
+| Implementation | — | — | 10,000 | 5,000 + 3,000 + 3,000 + 3,000 | ~24,000 |
+| Synthesis | 10,000 | — | 10,000 | 10,000 × 7 phases | ~90,000 |
+
+Note: Synthesis truncates each phase output independently to 10,000 characters, resulting in significantly more context than earlier phases.
+
+---
+
+## Web vs Mobile Platform Handling
+
+The pipeline provides first-class support for **web**, **Android**, and **iOS** projects. All platform-specific logic is additive — each platform's handling extends the shared pipeline without affecting the others.
+
+### Platform Detection
+
+The system detects the project's platform through multiple signals:
+
+| Signal | Web | Android | iOS | Cross-Platform |
+|--------|-----|---------|-----|----------------|
+| **Framework keywords** | react, vue, angular, svelte, nuxt, remix, gatsby | jetpack compose | swiftui, uikit | flutter, react-native, expo |
+| **File extensions** | .tsx, .jsx, .vue, .svelte | .kt, .java | .swift, .m, .mm | .dart |
+| **Build/config files** | package.json | build.gradle, AndroidManifest.xml | .xcodeproj, .storyboard, Podfile | pubspec.yaml |
+| **Directory patterns** | pages/, components/, src/app/ | app/src/main | — | — |
+
+Detection happens in `_detect_frontend()` (`phased_blueprint_generator.py`) which checks 31 indicators against the combined discovery results, file tree, and dependency text. If any indicator matches, the frontend analysis phase runs.
+
+### Dependency Parsing
+
+Each platform has its own dependency files, all parsed via the same `rglob` pattern in `analysis_service.py`:
+
+| Platform | Dependency Files | Format |
+|----------|-----------------|--------|
+| **Web (Node.js)** | `package.json` | JSON — extracts `dependencies` + `devDependencies` |
+| **Web (Python)** | `requirements.txt`, `pyproject.toml` | Plain text / TOML |
+| **Web (Ruby)** | `Gemfile` | Ruby DSL |
+| **Web (Go)** | `go.mod` | Go module format |
+| **Web (Rust)** | `Cargo.toml` | TOML |
+| **iOS (CocoaPods)** | `Podfile` | Ruby DSL — pod names, versions, targets |
+| **iOS (SPM)** | `Package.swift` | Swift — package dependencies |
+| **iOS (Carthage)** | `Cartfile` | Plain text — GitHub refs |
+| **Android (Gradle)** | `build.gradle`, `build.gradle.kts` | Groovy / Kotlin DSL — dependencies block |
+| **Android (Settings)** | `settings.gradle*` | Groovy / Kotlin — module declarations |
+
+All dependency files are truncated to ~1000 characters each and tagged with language hints for the AI.
+
+### Config File Detection
+
+Mobile-specific config files are detected alongside web configs:
+
+| Platform | Config Files |
+|----------|-------------|
+| **Android** | `AndroidManifest.xml`, `proguard-rules.pro`, `gradle.properties`, `build.gradle`, `settings.gradle` |
+| **iOS** | `Info.plist`, `Podfile.lock` |
+| **Web** | `tsconfig.json`, `docker-compose.yml`, `.env.example`, `webpack.config.*`, `vite.config.*`, etc. |
+
+### Source Code Extensions
+
+A shared `SOURCE_CODE_EXTENSIONS` constant (`domain/entities/analysis_settings.py`) defines all recognized source file extensions:
+
+```
+.py .js .ts .tsx .jsx .java .go .rs .swift .kt .rb .php
+.cs .cpp .c .h .hpp .m .mm .scala .xml
+```
+
+Key mobile additions: `.xml` (Android layouts, navigation graphs, resources), `.kt` (Kotlin), `.swift`, `.m`/`.mm` (Objective-C). This constant is used by the phased generator (file signature extraction, file reading), RAG retriever (code file filtering), and embedding generator.
+
+### Code Sample Selection
+
+When extracting representative code samples, the pipeline filters for these extensions:
+
+```
+.py .ts .tsx .js .jsx .kt .java .swift .xml
+```
+
+This ensures mobile source files are included in the static code samples available to all analysis phases.
+
+### Frontend Analysis Prompt
+
+The `frontend_analysis` prompt in `prompts.json` is platform-aware. Each of its 7 analysis sections includes platform-specific guidance:
+
+| Section | Web | iOS | Android |
+|---------|-----|-----|---------|
+| **Framework & Rendering** | SPA vs SSR vs SSG, React/Vue/Angular | SwiftUI (declarative) vs UIKit (imperative) vs hybrid | Jetpack Compose (declarative) vs XML layouts (imperative) vs hybrid |
+| **Component Architecture** | Component hierarchy, HOCs, render props | View hierarchy, ViewControllers, SwiftUI view composition | Activities, Fragments, Composable functions, ViewModels |
+| **State Management** | Redux, Zustand, MobX, Context API | @State, @Observable, Combine, MVVM | ViewModel + StateFlow/LiveData, Compose state, MVI |
+| **Routing / Navigation** | React Router, Next.js file routing, hash routing | NavigationStack, Coordinator pattern, deep links | Navigation Component, NavHost, deep links, Intents |
+| **Data Fetching / Networking** | fetch, Axios, React Query, SWR, GraphQL | URLSession, Alamofire, Moya, async/await | Retrofit, Ktor, OkHttp, Coroutine/Flow |
+| **Styling / Theming** | CSS Modules, Tailwind, styled-components | SwiftUI modifiers, Interface Builder, programmatic UIKit | Compose Material3 theming, XML themes/styles |
+| **Conventions** | File naming, folder structure, import patterns | Xcode project organization, target structure | Module structure, package conventions, resource organization |
+
+The AI selects the relevant platform branch based on what it detects in the codebase.
+
+### Directory Summarization
+
+The directory summarizer (`infrastructure/analysis/directory_summarizer.py`) recognizes mobile-specific directory patterns:
+
+| Pattern | Platform | Classified As |
+|---------|----------|--------------|
+| `viewmodels`, `viewmodel`, `vm` | Android/iOS | MVVM view models |
+| `composables`, `compose` | Android | Jetpack Compose UI |
+| `fragments`, `activities` | Android | Android UI components |
+| `adapters` | Android | RecyclerView/list adapters |
+| `res`, `layout`, `drawable`, `values`, `mipmap`, `navigation` | Android | Android resources |
+| `coordinators` | iOS | Navigation coordinator pattern |
+| `screens`, `features` | iOS/Android | Screen/feature modules |
+| `extensions`, `protocols` | iOS | Swift extensions/protocols |
+| `di`, `injection` | Android/iOS | Dependency injection modules |
+| `network`, `remote`, `datasource` | Any | Network/API layer |
+
+File name analysis also recognizes mobile patterns: files containing `ViewModel`, `Composable`, `Fragment`, `Activity`, `ViewController`, `Coordinator`, or `DAO` in their names get appropriate descriptions.
+
+### Library Capabilities
+
+The `library_capabilities` table (seeded by `001_initial_setup.sql`) maps library names to capabilities and ecosystems. This enables the implementation analysis phase to detect what existing capabilities a project has.
+
+| Category | Example Libraries | Capabilities |
+|----------|------------------|-------------|
+| **Android UI** | compose, navigation-compose | `ui_framework`, `navigation` |
+| **Android Infra** | hilt/dagger, room, coroutines, timber | `dependency_injection`, `persistence`, `concurrency`, `logging` |
+| **Android Media** | glide, coil | `image_loading` |
+| **iOS UI** | swiftui, uikit, snapkit | `ui_framework` |
+| **iOS Media** | kingfisher, sdwebimage | `image_loading` |
+| **iOS Networking** | alamofire, moya | `networking` |
+| **Cross-Platform** | lottie, ktor, okhttp, moshi | `ui_framework`, `networking`, `serialization` |
+| **Web State** | redux, zustand, mobx, riverpod, bloc | `state_management` |
+| **Web/Backend** | prisma, sequelize, sqlalchemy, mongoose | `persistence`, `orm`/`odm` |
+| **Auth** | firebase, supabase, auth0, clerk | `authentication` |
+| **Payments** | stripe | `payments` |
+
+Library matching is substring-based — a single entry like `lottie` matches `lottie-ios`, `lottie-android`, and `lottie-react-native`.
+
+### Web Compatibility
+
+All mobile additions are strictly additive. Web projects are unaffected because:
+
+- Mobile file extensions (`.swift`, `.kt`) and build files (`build.gradle`, `Podfile`) don't exist in web repos
+- `.xml` in source extensions: web projects rarely have XML; any that do (e.g., `pom.xml`) are small and harmless
+- The frontend analysis prompt uses conditional sections — the AI picks the relevant platform branch
+- Mobile library names (hilt, compose, alamofire) don't appear in `package.json` or `requirements.txt`
+- Mobile directory patterns (`viewmodels`, `composables`) don't match standard web directories
 
 ---
 
@@ -542,7 +681,7 @@ FastAPI app
   └── /mcp/sse (Starlette mount, raw ASGI)
         └── SseServerTransport
               └── MCP Server (mcp SDK)
-                    ├── Tools (8)
+                    ├── Tools (10)
                     └── Resources (dynamic)
 ```
 
@@ -552,14 +691,18 @@ Defined in `infrastructure/mcp/`. The server is mounted as a raw ASGI app in `ap
 
 | Tool | Parameters | Returns | Description |
 |------|-----------|---------|-------------|
-| `where_to_put` | `component_type` | Directory, naming pattern, example | Returns correct file location for a component type |
-| `check_naming` | `name`, `scope` | Pass/fail with convention details | Validates name against naming conventions |
 | `get_repository_blueprint` | — | Full blueprint JSON | Returns the complete `StructuredBlueprint` |
 | `list_repository_sections` | — | Section IDs and names | Lists addressable blueprint sections |
 | `get_repository_section` | `section_id` | Section content | Token-efficient alternative to full blueprint |
-| `how_to_implement` | `feature` | Libraries, patterns, key files, example | Look up how a capability is already implemented |
+| `where_to_put` | `component_type` | Directory, naming pattern, example | Returns correct file location for a component type |
+| `check_naming` | `scope`, `name` | Pass/fail with convention details | Validates name against naming conventions |
+| `how_to_implement` | `feature` | Libraries, patterns, key files, example | Look up how a capability is already implemented (fuzzy search) |
+| `list_implementations` | — | All implementation guidelines | Lists all documented existing capabilities |
+| `how_to_implement_by_id` | `implementation_id` | Specific implementation guideline | Look up a specific implementation by index |
 | `list_source_files` | — | File list with sizes | List all source files collected during analysis |
 | `get_file_content` | `file_path` | File content | Read a source file collected during analysis |
+
+All MCP tools use an implicit active repository context (from the user's profile) — no `repo_id` parameter is exposed in the MCP protocol. The underlying `BlueprintTools` class methods accept `repo_id` explicitly for internal use.
 
 ### Resources
 
@@ -718,7 +861,9 @@ All routes are prefixed with `/api/v1` and registered in `api/app.py`.
 }
 ```
 
-### Architecture (`/api/v1/architecture`)
+### Architecture (`/api/v1/architecture`) — NOT REGISTERED
+
+> **Note:** `architecture.py` exists on disk but is not included in `app.py` route registration. These endpoints are currently inaccessible.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -742,6 +887,29 @@ All routes are prefixed with `/api/v1` and registered in `api/app.py`.
 | `GET` | `/repositories/{id}/blueprint` | Get blueprint for repo |
 | `GET` | `/repositories/{id}/source-files/{path}` | Get collected source file content |
 | `DELETE` | `/repositories/{id}` | Delete repository analysis |
+
+### Settings (`/api/v1/settings`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/ignored-dirs` | List all discovery ignored directories |
+| `PUT` | `/ignored-dirs` | Replace all ignored directories |
+| `POST` | `/ignored-dirs/reset` | Reset ignored directories to seed defaults |
+| `GET` | `/ecosystem-options` | List valid ecosystem values |
+| `GET` | `/capability-options` | List valid capability values |
+| `GET` | `/library-capabilities` | List all library capability mappings |
+| `PUT` | `/library-capabilities` | Replace all library capabilities |
+| `POST` | `/library-capabilities/reset` | Reset library capabilities to seed defaults |
+
+### Prompts (`/api/v1/prompts`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | List all default prompts |
+| `GET` | `/{prompt_id}` | Get a single prompt by ID |
+| `PUT` | `/{prompt_id}` | Update a prompt (creates a revision) |
+| `GET` | `/{prompt_id}/revisions` | List revision history |
+| `POST` | `/{prompt_id}/revert/{revision_id}` | Revert a prompt to a previous revision |
 
 ### Health (`/`)
 
@@ -767,19 +935,17 @@ PostgreSQL hosted on Supabase with pgvector extension. A single initial migratio
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `users` | User accounts | `id`, `created_at`, `updated_at` |
+| `users` | User accounts | `id`, `github_token_encrypted`, `created_at`, `updated_at` |
+| `user_profiles` | User preferences | `id`, `user_id`, `active_repository_id`, `preferences` |
 | `repositories` | Tracked repositories | `id`, `user_id`, `owner`, `name`, `full_name`, `language`, `default_branch` |
 | `analyses` | Analysis runs | `id`, `repository_id`, `status`, `progress_percentage`, `error_message`, `started_at`, `completed_at` |
-| `blueprints` | Generated blueprints | `id`, `repository_id`, `analysis_id`, `blueprint_path` |
-| `unified_blueprints` | Multi-repo blueprints | `id`, `name`, `description`, `strategy` |
-| `analysis_prompts` | Prompts used per analysis | `id`, `analysis_id`, `phase`, `prompt_used` |
-| `analysis_configurations` | Per-repo analysis config | `id`, `repository_id`, `config_data` |
-| `analysis_data` | Phase inputs/outputs | `id`, `analysis_id`, `data_type`, `data_json` |
-| `analysis_events` | SSE event log | `id`, `analysis_id`, `event_type`, `message` |
+| `analysis_prompts` | Prompt definitions | `id`, `user_id`, `name`, `category`, `prompt_template`, `variables`, `is_default`, `key`, `type` |
+| `prompt_revisions` | Prompt revision history | `id`, `prompt_id`, `revision_number`, `prompt_template`, `variables`, `change_summary`, `created_by` |
+| `analysis_data` | Phase inputs/outputs | `id`, `analysis_id`, `data_type`, `data` (JSONB) |
+| `analysis_events` | SSE event log | `id`, `analysis_id`, `event_type`, `message`, `details` |
 | `embeddings` | Code chunk vectors | `id`, `repository_id`, `file_path`, `chunk_type`, `embedding` (vector(384)), `metadata` |
-| `architecture_rules` | Extracted rules | `id`, `repository_id`, `rule_type`, `rule_data` |
-| `repository_architecture` | Architecture state | `id`, `repository_id`, `architecture_config` |
-| `repository_architecture_config` | Architecture source config | `id`, `repository_id`, `reference_blueprint_id`, `strategy` |
+| `discovery_ignored_dirs` | Directories to skip during file scanning | `id`, `directory_name` (unique) |
+| `library_capabilities` | Library-to-capability mappings | `id`, `library_name` (unique), `ecosystem`, `capabilities` (text[]) |
 
 ### Key `data_type` Values in `analysis_data`
 
@@ -804,14 +970,14 @@ The `embeddings` table uses a `vector(384)` column for storing sentence-transfor
 ```sql
 CREATE FUNCTION match_embeddings(
     query_embedding vector(384),
-    match_repository_id uuid,
-    match_count int DEFAULT 15
+    match_count int DEFAULT 10,
+    filter_repository_id uuid DEFAULT NULL
 ) RETURNS TABLE(...)
 ```
 
 ---
 
-## Frontend
+## Frontend (Web UI)
 
 ### Pages
 
@@ -911,13 +1077,13 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ```json
 {
-  "version": 1,
+  "version": 3,
   "prompts": {
-    "discovery": {
-      "name": "Discovery Analysis",
-      "category": "discovery",
-      "prompt_template": "You are analyzing a codebase...\n{repository_name}\n{file_tree}...",
-      "variables": ["repository_name", "file_tree", "dependencies", "config_files"]
+    "observation": {
+      "name": "Architecture Observation",
+      "category": "observation",
+      "prompt_template": "You are analyzing a codebase...\n{file_signatures}...",
+      "variables": ["repository_name", "file_signatures"]
     }
   }
 }
@@ -962,6 +1128,7 @@ tests/unit/
 │   ├── test_agent_file_generator.py    # CLAUDE.md, Cursor rules, AGENTS.md generation
 │   ├── test_delivery_service.py        # Delivery + merge logic
 │   ├── test_unified_features.py        # Frontend detection, unified pipeline
+│   ├── test_mobile_support.py          # Android/iOS mobile platform support (24 tests)
 │   └── ...
 ├── workers/
 │   └── test_analysis_workflows.py      # ARQ + in-process workflow tests (23 tests)
@@ -971,7 +1138,7 @@ tests/unit/
     └── ...
 ```
 
-Current test count: **643 unit tests**.
+Current test count: **838 unit tests**.
 
 ### Test Conventions
 

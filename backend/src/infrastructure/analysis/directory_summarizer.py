@@ -195,6 +195,30 @@ class DirectorySummarizer:
             "dto": "Data transfer objects",
             "schemas": "Validation schemas",
             "types": "Type definitions",
+            # Mobile - Android
+            "viewmodels": "MVVM view models",
+            "viewmodel": "MVVM view models",
+            "di": "Dependency injection modules",
+            "composables": "Jetpack Compose UI composable functions",
+            "fragments": "Android Fragment UI components",
+            "activities": "Android Activity components",
+            "adapters": "RecyclerView/list adapters",
+            "res": "Android resources (layouts, values, drawables)",
+            "layout": "Android XML layout files",
+            "navigation": "Navigation graphs and route definitions",
+            "drawable": "Android drawable resources",
+            "values": "Android value resources (strings, colors, themes)",
+            "data": "Data layer (repositories, data sources, network)",
+            "network": "Network/API layer",
+            # Mobile - iOS
+            "coordinators": "Navigation coordinator pattern",
+            "screens": "Screen/view implementations",
+            "features": "Feature modules",
+            "extensions": "Swift extensions",
+            "protocols": "Swift protocol definitions",
+            "networking": "Networking layer",
+            "persistence": "Data persistence layer",
+            "resources": "App resources (assets, strings, etc.)",
         }
         
         # Check for known patterns
@@ -354,7 +378,23 @@ Respond with ONLY the purpose (one sentence, no quotes):"""
             return "ui"
         if any(x in dir_lower for x in ["infra", "external"]):
             return "infrastructure"
-        
+        if any(x in dir_lower for x in ["viewmodel", "vm"]):
+            return "viewmodel"
+        if any(x in dir_lower for x in ["composable", "compose"]):
+            return "ui"
+        if any(x in dir_lower for x in ["fragment", "activity", "screen", "viewcontroller"]):
+            return "ui"
+        if any(x in dir_lower for x in ["di", "injection"]):
+            return "di"
+        if dir_lower in ("res", "resources"):
+            return "resources"
+        if dir_lower in ("layout", "drawable", "values", "mipmap", "navigation"):
+            return "resources"
+        if any(x in dir_lower for x in ["coordinator", "navigator", "router"]):
+            return "navigation"
+        if any(x in dir_lower for x in ["network", "remote", "datasource"]):
+            return "networking"
+
         # Check file patterns
         if any(f.endswith(('.tsx', '.jsx')) for f in files):
             return "component"
@@ -367,7 +407,7 @@ Respond with ONLY the purpose (one sentence, no quotes):"""
         """Check if a directory should be skipped.
 
         Uses user-configured ignored dirs from DB when available,
-        falls back to DEFAULT_IGNORED_DIRS.
+        falls back to empty set when not configured.
 
         Args:
             dir_name: Name of the directory
@@ -375,9 +415,7 @@ Respond with ONLY the purpose (one sentence, no quotes):"""
         Returns:
             True if should skip
         """
-        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
-
-        ignored = getattr(self, "_discovery_ignored_dirs", None) or DEFAULT_IGNORED_DIRS
+        ignored = getattr(self, "_discovery_ignored_dirs", None) or set()
         return dir_name in ignored or dir_name.startswith('.')
 
     def _is_code_file(self, filename: str) -> bool:
@@ -392,6 +430,7 @@ Respond with ONLY the purpose (one sentence, no quotes):"""
         code_extensions = {
             ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
             ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
+            ".kt", ".m", ".mm", ".scala", ".xml",
         }
         return any(filename.endswith(ext) for ext in code_extensions)
 
@@ -438,6 +477,20 @@ Respond with ONLY the purpose (one sentence, no quotes):"""
             return "State/context providers"
         if any("util" in f or "helper" in f for f in files_lower):
             return "Utility functions"
-        
+        if any("viewmodel" in f for f in files_lower):
+            return "MVVM view model implementations"
+        if any("composable" in f or "compose" in f for f in files_lower):
+            return "Jetpack Compose UI components"
+        if any("fragment" in f for f in files_lower):
+            return "Android Fragment components"
+        if any("activity" in f for f in files_lower):
+            return "Android Activity components"
+        if any("viewcontroller" in f for f in files_lower):
+            return "UIKit view controllers"
+        if any("coordinator" in f for f in files_lower):
+            return "Navigation coordinators"
+        if any("dao" in f for f in files_lower):
+            return "Data access objects (Room/database)"
+
         return ""
 

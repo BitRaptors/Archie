@@ -95,6 +95,10 @@ class PostgresQueryBuilder(QueryBuilder):
         self._filters.append((column, "eq", value))
         return self
 
+    def neq(self, column: str, value: Any) -> PostgresQueryBuilder:
+        self._filters.append((column, "neq", value))
+        return self
+
     def in_(self, column: str, values: list[Any]) -> PostgresQueryBuilder:
         self._filters.append((column, "in", values))
         return self
@@ -175,6 +179,10 @@ class PostgresQueryBuilder(QueryBuilder):
         for column, op, value in self._filters:
             if op == "eq":
                 clauses.append(f"{column} = ${idx}")
+                params.append(value)
+                idx += 1
+            elif op == "neq":
+                clauses.append(f"{column} != ${idx}")
                 params.append(value)
                 idx += 1
             elif op == "in":

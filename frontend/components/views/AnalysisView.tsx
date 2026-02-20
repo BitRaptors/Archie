@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DebugView } from '@/components/DebugView' // Assumes this exists and works
 import { ArrowRight, Terminal, Activity, CheckCircle2, AlertCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
 import { useAuth } from '@/hooks/useAuth'
@@ -120,11 +121,7 @@ export function AnalysisView({ analysisId, onViewBlueprint, onBack }: AnalysisVi
                 })
 
                 eventSource.addEventListener('error', (e) => {
-                    // Handle reconnection logic or error display
-                    // For now, if we error out and it's not complete, we might want to retry
-                    // but to keep it simple we just log
-                    console.error("SSE Error", e)
-                    // Check if it's actually complete
+                    // Check if analysis finished while SSE was disconnected
                     fetch(`${API_URL}/api/v1/analyses/${analysisId}`, { headers: { Authorization: `Bearer ${token}` } })
                         .then(r => r.json())
                         .then(a => {
@@ -132,7 +129,12 @@ export function AnalysisView({ analysisId, onViewBlueprint, onBack }: AnalysisVi
                                 setStatus(a)
                                 isCompleteRef.current = true
                                 eventSource?.close()
+                            } else {
+                                toast.error('Lost connection to analysis stream')
                             }
+                        })
+                        .catch(() => {
+                            toast.error('Lost connection to analysis stream')
                         })
                 })
 

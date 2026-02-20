@@ -6,11 +6,11 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.routes.settings import router
+from api.routes.settings import router, _RESET_TABLES
 from domain.entities.analysis_settings import (
     CAPABILITY_OPTIONS,
-    DEFAULT_IGNORED_DIRS,
-    DEFAULT_LIBRARY_CAPABILITIES,
+    SEED_IGNORED_DIRS,
+    SEED_LIBRARY_CAPABILITIES,
     ECOSYSTEM_OPTIONS,
     IgnoredDirectory,
     LibraryCapability,
@@ -182,7 +182,7 @@ class TestUpdateIgnoredDirs:
 class TestResetIgnoredDirs:
 
     def test_resets_to_defaults(self, client, mock_dirs_repo):
-        expected = sorted(DEFAULT_IGNORED_DIRS)
+        expected = sorted(SEED_IGNORED_DIRS)
         mock_dirs_repo.replace_all = AsyncMock(return_value=[
             _dir_entity(d) for d in expected
         ])
@@ -191,14 +191,14 @@ class TestResetIgnoredDirs:
         mock_dirs_repo.replace_all.assert_called_once_with(expected)
 
     def test_returns_full_default_set(self, client, mock_dirs_repo):
-        expected = sorted(DEFAULT_IGNORED_DIRS)
+        expected = sorted(SEED_IGNORED_DIRS)
         mock_dirs_repo.replace_all = AsyncMock(return_value=[
             _dir_entity(d) for d in expected
         ])
         resp = client.post("/api/v1/settings/ignored-dirs/reset")
         data = resp.json()
         names = [d["directory_name"] for d in data]
-        assert len(names) == len(DEFAULT_IGNORED_DIRS)
+        assert len(names) == len(SEED_IGNORED_DIRS)
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +302,7 @@ class TestResetLibraryCapabilities:
     def test_resets_to_defaults(self, client, mock_libs_repo):
         expected_libs = [
             _lib_entity(name, info["ecosystem"], info["capabilities"])
-            for name, info in sorted(DEFAULT_LIBRARY_CAPABILITIES.items())
+            for name, info in sorted(SEED_LIBRARY_CAPABILITIES.items())
         ]
         mock_libs_repo.replace_all = AsyncMock(return_value=expected_libs)
         resp = client.post("/api/v1/settings/library-capabilities/reset")
@@ -310,14 +310,125 @@ class TestResetLibraryCapabilities:
         mock_libs_repo.replace_all.assert_called_once()
         call_args = mock_libs_repo.replace_all.call_args[0][0]
         lib_names = [r["library_name"] for r in call_args]
-        assert lib_names == sorted(DEFAULT_LIBRARY_CAPABILITIES.keys())
+        assert lib_names == sorted(SEED_LIBRARY_CAPABILITIES.keys())
 
     def test_reset_includes_all_default_libraries(self, client, mock_libs_repo):
         expected_libs = [
             _lib_entity(name, info["ecosystem"], info["capabilities"])
-            for name, info in sorted(DEFAULT_LIBRARY_CAPABILITIES.items())
+            for name, info in sorted(SEED_LIBRARY_CAPABILITIES.items())
         ]
         mock_libs_repo.replace_all = AsyncMock(return_value=expected_libs)
         resp = client.post("/api/v1/settings/library-capabilities/reset")
         data = resp.json()
-        assert len(data) == len(DEFAULT_LIBRARY_CAPABILITIES)
+        assert len(data) == len(SEED_LIBRARY_CAPABILITIES)
+
+
+# ---------------------------------------------------------------------------
+# Reset All Data
+# ---------------------------------------------------------------------------
+
+
+class TestResetAllData:
+
+    @pytest.fixture(autouse=True)
+    def _setup_reset_app(self, app, tmp_path, mock_dirs_repo, mock_libs_repo):
+        """Wire mock DB + storage for reset-data tests."""
+        # Track table().delete() chains
+        self._delete_calls: list[str] = []
+
+        mock_db = AsyncMock()
+        original_container = app.container
+
+        # Build a mock table that records delete calls by table name
+        def _make_table(name):
+            mock = MagicMock()
+            for method in ("select", "insert", "update", "delete", "upsert",
+                           "eq", "neq", "in_", "range", "order", "limit", "maybe_single"):
+                getattr(mock, method).return_value = mock
+            async def _execute():
+                self._delete_calls.append(name)
+                return MagicMock(data=[])
+            mock.execute = _execute
+            return mock
+
+        mock_db.table = _make_table
+        original_container.db = AsyncMock(return_value=mock_db)
+
+        # Storage: use tmp_path
+        mock_storage = MagicMock()
+        mock_storage._base_path = str(tmp_path)
+        original_container.storage.return_value = mock_storage
+
+        self._tmp_path = tmp_path
+        self._mock_dirs_repo = mock_dirs_repo
+        self._mock_libs_repo = mock_libs_repo
+
+    def test_reset_returns_200(self, client):
+        resp = client.post("/api/v1/settings/reset-data")
+        assert resp.status_code == 200
+        assert resp.json()["reset"] is True
+
+    def test_reset_deletes_user_data_tables(self, client):
+        client.post("/api/v1/settings/reset-data")
+        for table in _RESET_TABLES:
+            assert table in self._delete_calls, f"Expected delete on {table}"
+
+    def test_reset_excludes_seeded_tables(self, client):
+        """Seeded tables and their FK children should not be wiped."""
+        client.post("/api/v1/settings/reset-data")
+        for table in ("discovery_ignored_dirs", "library_capabilities",
+                       "analysis_prompts", "prompt_revisions"):
+            assert table not in self._delete_calls, f"{table} should not be wiped"
+
+    def test_reset_reseeds_ignored_dirs(self, client):
+        client.post("/api/v1/settings/reset-data")
+        self._mock_dirs_repo.replace_all.assert_called_once_with(sorted(SEED_IGNORED_DIRS))
+
+    def test_reset_reseeds_library_capabilities(self, client):
+        client.post("/api/v1/settings/reset-data")
+        self._mock_libs_repo.replace_all.assert_called_once()
+
+    def test_reset_wipes_storage_directories(self, client):
+        bp_dir = self._tmp_path / "blueprints" / "old-repo"
+        bp_dir.mkdir(parents=True)
+        (bp_dir / "blueprint.json").write_text("{}")
+
+        repos_dir = self._tmp_path / "repos" / "old-repo"
+        repos_dir.mkdir(parents=True)
+        (repos_dir / "main.py").write_text("x = 1")
+
+        client.post("/api/v1/settings/reset-data")
+
+        # Dirs should exist but be empty (recreated)
+        assert (self._tmp_path / "blueprints").exists()
+        assert (self._tmp_path / "repos").exists()
+        assert list((self._tmp_path / "blueprints").iterdir()) == []
+        assert list((self._tmp_path / "repos").iterdir()) == []
+
+    def test_reset_returns_500_on_partial_failure(self, client, app):
+        """If a table delete raises, the response is 500 with error details."""
+        mock_db = AsyncMock()
+
+        def _make_table_with_failure(name):
+            mock = MagicMock()
+            for method in ("select", "insert", "update", "delete", "upsert",
+                           "eq", "neq", "in_", "range", "order", "limit", "maybe_single"):
+                getattr(mock, method).return_value = mock
+
+            async def _execute():
+                if name == "analysis_events":
+                    raise Exception("boom")
+                return MagicMock(data=[])
+
+            mock.execute = _execute
+            return mock
+
+        mock_db.table = _make_table_with_failure
+        app.container.db = AsyncMock(return_value=mock_db)
+
+        resp = client.post("/api/v1/settings/reset-data")
+        assert resp.status_code == 500
+        data = resp.json()
+        detail = data["detail"]
+        assert detail["message"] == "Reset completed with errors"
+        assert any("analysis_events" in e for e in detail["errors"])

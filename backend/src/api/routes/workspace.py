@@ -308,6 +308,13 @@ async def delete_repository(repo_id: str, request: Request):
     if repo_copy_dir.exists():
         shutil.rmtree(repo_copy_dir)
 
+    # Delete DB row (CASCADE handles analyses, analysis_data, events, embeddings)
+    try:
+        repo_repo = await _get_repos(request)
+        await repo_repo.delete(repo_id)
+    except Exception:
+        pass  # Graceful — storage is already cleaned up
+
     # Clear active repo if this was the active one
     profile_repo = await _get_profile_repo(request)
     profile = await profile_repo.get_default()

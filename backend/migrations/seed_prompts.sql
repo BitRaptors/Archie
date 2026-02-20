@@ -463,7 +463,7 @@ INSERT INTO analysis_prompts (name, category, prompt_template, variables, is_def
 VALUES (
     'Frontend Architecture Analysis',
     'frontend_analysis',
-    '## Frontend Architecture Analysis
+    '## Frontend / UI Architecture Analysis
 
 Repository: {repository_name}
 
@@ -478,56 +478,57 @@ The following file paths exist in this repository. You MUST ONLY reference file 
 
 {file_registry}
 
-Analyze the frontend architecture in detail. This analysis covers web frontends, mobile apps, and any client-side code.
+Analyze the frontend/UI architecture in detail. This analysis covers web frontends, iOS apps, Android apps, cross-platform mobile, and any client-side code. Adapt each section to the platform detected.
 
 ### 1. Framework & Rendering
-- What UI framework is used? (React, Vue, Angular, SwiftUI, Jetpack Compose, etc.)
-- What rendering strategy? (SSR, SSG, CSR, ISR, hybrid)
-- What meta-framework? (Next.js, Nuxt, Remix, Expo, etc.)
+- For web: What UI framework? (React, Vue, Angular, Svelte, etc.) What rendering strategy? (SSR, SSG, CSR, ISR, hybrid) What meta-framework? (Next.js, Nuxt, Remix, etc.)
+- For mobile: What UI paradigm? Declarative (SwiftUI, Jetpack Compose) vs imperative (UIKit, XML layouts) vs hybrid? What app architecture? (MVVM, MVI, VIPER, Clean Swift, etc.)
+- For cross-platform: What framework? (Flutter, React Native, KMP, etc.) What platform-specific bridging exists?
 
 ### 2. Component Architecture
-For each major UI component/page identified:
+For each major UI component/screen/view identified:
 - Name and location
-- Type: page | layout | feature | shared | primitive
-- Key props/inputs
-- Child components it renders
+- Type: screen | page | layout | feature | shared | primitive | widget
+- Key props/inputs/parameters
+- Child components it renders or embeds
 
 ### 3. State Management
-- Global state approach (Context, Redux, Zustand, Recoil, etc.)
-- Server state management (React Query, SWR, Apollo, etc.)
-- Local component state patterns
-- Form state management
+- For web: Global state (Context, Redux, Zustand, Recoil, etc.), server state (React Query, SWR, Apollo), local state, form state
+- For iOS: @State, @Observable, @EnvironmentObject, Combine, MVVM with ObservableObject, @Published
+- For Android: ViewModel + StateFlow/LiveData, Compose state (remember/mutableStateOf), MVI pattern, SavedStateHandle
+- For cross-platform: Platform-specific state solutions (Bloc, Riverpod, Provider for Flutter; Redux/MobX for RN)
 
-### 4. Routing
-- Routing approach (file-based, config-based)
-- List of routes with their components
-- Auth-protected routes
-- Dynamic routes
+### 4. Routing / Navigation
+- For web: Routing approach (file-based, config-based), list of routes, auth-protected routes, dynamic routes
+- For iOS: NavigationStack, UINavigationController, Coordinator pattern, TabBarController, deep links
+- For Android: Navigation Component (NavHost/NavGraph), bottom navigation, deep links, Intent-based navigation
+- For cross-platform: Navigator/Router pattern, tab/stack/drawer navigation
 
-### 5. Data Fetching
-- How does the frontend fetch data from the backend?
-- Custom hooks for data fetching?
-- Loading/error state handling patterns
-- Caching strategy
+### 5. Data Fetching / Networking
+- For web: Data fetching hooks/patterns, loading/error handling, caching strategy
+- For iOS: URLSession, Alamofire, Moya; Combine/async-await patterns; offline support
+- For Android: Retrofit, Ktor, OkHttp; Coroutine/Flow patterns; offline support (Room + network)
+- For cross-platform: Dio/http for Flutter; fetch/axios for RN; Ktor for KMP
 
-### 6. Styling
-- Styling approach (Tailwind, CSS Modules, Styled Components, etc.)
-- Component library used?
-- Design system / tokens?
+### 6. Styling / Theming
+- For web: Tailwind, CSS Modules, Styled Components, component library, design tokens
+- For iOS: SwiftUI modifiers, UIKit programmatic styling, Interface Builder/storyboards, custom themes
+- For Android: Compose theming/Material3, XML themes/styles, Material Components, custom design system
+- For cross-platform: Flutter ThemeData, RN StyleSheet, shared design tokens
 
 ### 7. Key Conventions
-- File naming conventions for components
-- Component organization (co-located, feature-based, atomic)
-- Custom hooks naming/organization
+- File naming conventions for components/screens/views
+- Component/screen organization (co-located, feature-based, atomic, module-based)
+- Custom hooks/extensions/utilities naming/organization
 - Test file placement
 
 Provide your analysis in structured JSON format:
 ```json
 {
   "framework": "...",
-  "rendering_strategy": "SSR | SSG | CSR | ISR | hybrid",
+  "rendering_strategy": "SSR | SSG | CSR | ISR | hybrid | declarative | imperative",
   "ui_components": [
-    {"name": "...", "location": "...", "component_type": "page|layout|feature|shared|primitive", "description": "...", "props": ["..."], "children": ["..."]}
+    {"name": "...", "location": "...", "component_type": "screen|page|layout|feature|shared|primitive|widget", "description": "...", "props": ["..."], "children": ["..."]}
   ],
   "state_management": {
     "approach": "...",

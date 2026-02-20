@@ -54,6 +54,10 @@ class SupabaseQueryBuilder(QueryBuilder):
         self._query = self._query.eq(column, value)
         return self
 
+    def neq(self, column: str, value: Any) -> SupabaseQueryBuilder:
+        self._query = self._query.neq(column, value)
+        return self
+
     def in_(self, column: str, values: list[Any]) -> SupabaseQueryBuilder:
         self._query = self._query.in_(column, values)
         return self

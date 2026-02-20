@@ -260,3 +260,41 @@ class TestDeleteRepository:
             resp = client.delete("/api/v1/workspace/repositories/repo-del2")
             assert resp.status_code == 200
             mock_profile_repo.set_active_repo.assert_called_once_with(None)
+
+    def test_deletes_repository_from_database(self, client, tmp_path):
+        """Verify the endpoint calls repo_repo.delete(repo_id)."""
+        bp_dir = tmp_path / "blueprints" / "repo-db"
+        bp_dir.mkdir(parents=True)
+        (bp_dir / "blueprint.json").write_text("{}")
+
+        mock_repo = AsyncMock()
+        mock_repo.delete = AsyncMock(return_value=True)
+
+        with patch("api.routes.workspace._get_repos", return_value=mock_repo), \
+             patch("api.routes.workspace._get_profile_repo") as mock_pfn:
+            mock_pfn.return_value = AsyncMock(
+                get_default=AsyncMock(return_value=None),
+                set_active_repo=AsyncMock(),
+            )
+            resp = client.delete("/api/v1/workspace/repositories/repo-db")
+            assert resp.status_code == 200
+            mock_repo.delete.assert_called_once_with("repo-db")
+
+    def test_delete_continues_if_db_delete_fails(self, client, tmp_path):
+        """Even if repo_repo.delete() raises, the endpoint returns 200."""
+        bp_dir = tmp_path / "blueprints" / "repo-fail"
+        bp_dir.mkdir(parents=True)
+        (bp_dir / "blueprint.json").write_text("{}")
+
+        mock_repo = AsyncMock()
+        mock_repo.delete = AsyncMock(side_effect=Exception("DB gone"))
+
+        with patch("api.routes.workspace._get_repos", return_value=mock_repo), \
+             patch("api.routes.workspace._get_profile_repo") as mock_pfn:
+            mock_pfn.return_value = AsyncMock(
+                get_default=AsyncMock(return_value=None),
+                set_active_repo=AsyncMock(),
+            )
+            resp = client.delete("/api/v1/workspace/repositories/repo-fail")
+            assert resp.status_code == 200
+            assert resp.json()["deleted"] is True

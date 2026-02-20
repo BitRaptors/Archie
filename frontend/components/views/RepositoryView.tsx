@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Search, GitBranch, ArrowRight, Github, Star, CheckCircle2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { useSetActiveRepository } from '@/hooks/api/useWorkspace'
 import { cn } from '@/lib/utils'
@@ -31,8 +32,9 @@ export function RepositoryView({ onAnalyze, activeRepoId }: RepositoryViewProps)
         try {
             const analysis = await repositoriesService.analyze(owner, name, token)
             onAnalyze(analysis.id, `${owner}/${name}`)
-        } catch (err) {
-            console.error(err)
+        } catch (err: any) {
+            const detail = err?.response?.data?.detail
+            toast.error(typeof detail === 'string' ? detail : err.message || 'Failed to start analysis')
             setAnalyzing(prev => {
                 const next = new Set(prev)
                 next.delete(key)

@@ -165,6 +165,7 @@ async def start_analysis(
         structure_analyzer=structure_analyzer,
         persistent_storage=storage,
         phased_blueprint_generator=phased_blueprint_generator,
+        db_client=db,
     )
     
     try:

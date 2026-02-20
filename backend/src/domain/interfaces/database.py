@@ -56,6 +56,9 @@ class QueryBuilder(ABC):
     def eq(self, column: str, value: Any) -> QueryBuilder: ...
 
     @abstractmethod
+    def neq(self, column: str, value: Any) -> QueryBuilder: ...
+
+    @abstractmethod
     def in_(self, column: str, values: list[Any]) -> QueryBuilder: ...
 
     @abstractmethod

@@ -88,3 +88,14 @@ export function useResetLibraryCapabilities() {
     },
   })
 }
+
+/** Reset all data — wipe DB rows, re-seed settings, clear storage. */
+export function useResetAllData() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => settingsService.resetAllData(),
+    onSuccess: () => {
+      qc.invalidateQueries()
+    },
+  })
+}

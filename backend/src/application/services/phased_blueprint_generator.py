@@ -8,6 +8,7 @@ from infrastructure.prompts.prompt_loader import PromptLoader
 from infrastructure.analysis.rag_retriever import RAGRetriever
 from application.services.analysis_data_collector import analysis_data_collector
 from domain.entities.blueprint import StructuredBlueprint
+from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
 from config.settings import Settings
 
 
@@ -775,10 +776,18 @@ class PhasedBlueprintGenerator:
         """
         combined = (discovery_result + file_tree + dependencies).lower()
         frontend_indicators = [
+            # Web frameworks
             "react", "next.js", "nextjs", "vue", "angular", "svelte",
             "nuxt", "remix", "gatsby", "expo", "react-native", "react native",
-            "swiftui", "jetpack compose", "flutter",
-            ".tsx", ".jsx", ".vue", ".svelte",
+            # iOS
+            "swiftui", "uikit", ".storyboard", ".xcodeproj",
+            "podfile", "package.swift", "viewcontroller",
+            # Android
+            "jetpack compose", "build.gradle", "androidmanifest",
+            # Cross-platform
+            "flutter",
+            # File extensions and patterns
+            ".tsx", ".jsx", ".vue", ".svelte", ".swift", ".kt",
             "web-frontend", "frontend",
             "pages/", "components/", "src/app/", "app/src/main",
             "package.json",
@@ -1384,11 +1393,6 @@ class PhasedBlueprintGenerator:
         if not structure_data or "file_tree" not in structure_data:
             return ""
 
-        source_extensions = {
-            '.py', '.js', '.ts', '.tsx', '.jsx', '.java', '.go',
-            '.rs', '.swift', '.kt', '.rb', '.php', '.cs', '.cpp',
-            '.c', '.h', '.hpp', '.m', '.mm', '.scala',
-        }
         paths = []
         for node in structure_data["file_tree"]:
             if node.get("type") != "file":
@@ -1399,7 +1403,7 @@ class PhasedBlueprintGenerator:
             ext = ""
             if "." in path:
                 ext = "." + path.rsplit(".", 1)[-1].lower()
-            if ext in source_extensions:
+            if ext in SOURCE_CODE_EXTENSIONS:
                 paths.append(path)
         return "\n".join(sorted(paths))
 
@@ -1414,11 +1418,6 @@ class PhasedBlueprintGenerator:
             per_file = self._settings.file_reading_per_file_max or 10_000
             return (self._settings.file_reading_budget, per_file)
 
-        source_extensions = {
-            '.py', '.js', '.ts', '.tsx', '.jsx', '.java', '.go', '.rs',
-            '.swift', '.kt', '.rb', '.php', '.cs', '.cpp', '.c', '.h',
-            '.hpp', '.m', '.mm', '.scala',
-        }
         total_source_size = 0
 
         if structure_data and "file_tree" in structure_data:
@@ -1429,7 +1428,7 @@ class PhasedBlueprintGenerator:
                 if not path or "." not in path:
                     continue
                 ext = "." + path.rsplit(".", 1)[-1].lower()
-                if ext in source_extensions:
+                if ext in SOURCE_CODE_EXTENSIONS:
                     total_source_size += node.get("size", 0)
 
         if total_source_size == 0:
@@ -1456,14 +1455,7 @@ class PhasedBlueprintGenerator:
         Walks the repo for source files, skips files already in cache,
         reads remaining within leftover budget.
         """
-        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
-
-        ignored = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
-        source_extensions = {
-            ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
-            ".swift", ".kt", ".rb", ".php", ".cs", ".cpp", ".c", ".h",
-            ".hpp", ".m", ".mm", ".scala",
-        }
+        ignored = discovery_ignored_dirs or set()
 
         # Gather already-read paths
         already_read: set[str] = set()
@@ -1481,7 +1473,7 @@ class PhasedBlueprintGenerator:
             return phase_files
 
         supplementary: dict[str, str] = {}
-        for ext in source_extensions:
+        for ext in SOURCE_CODE_EXTENSIONS:
             for file_path in repo_path.rglob(f"*{ext}"):
                 if remaining <= 0:
                     break
@@ -1682,20 +1674,13 @@ Please configure the Anthropic API key to enable full blueprint generation.
         Returns:
             Formatted string of all file signatures
         """
-        code_extensions = {
-            ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
-            ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
-            ".kt", ".scala", ".m", ".mm",  # Added Objective-C
-        }
-        
-        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
-        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+        ignore_patterns = discovery_ignored_dirs or set()
         
         signatures = []
         file_count = 0
         max_files = 300  # Limit to keep within token budget
         
-        for ext in code_extensions:
+        for ext in SOURCE_CODE_EXTENSIONS:
             for file_path in repo_path.rglob(f"*{ext}"):
                 if file_count >= max_files:
                     break
@@ -1770,6 +1755,7 @@ Please configure the Anthropic API key to enable full blueprint generation.
             '.php': r'^(?:use|namespace|require|include)',
             '.m': r'^(?:#import|#include|@import)',
             '.mm': r'^(?:#import|#include|@import)',
+            '.xml': r'^(?:<\?xml|<manifest|<layout|<navigation|<resources|<LinearLayout|<RelativeLayout|<ConstraintLayout|<androidx)',
         }
         
         pattern = import_patterns.get(ext, r'^(?:import|from|use|require)')
