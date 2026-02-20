@@ -35,36 +35,18 @@ def resolve_github_token(request: Request) -> Optional[str]:
 
 
 @router.get("/", response_model=List[RepositoryResponse])
-async def list_repositories(
-    request: Request,
-    limit: int = 100,
-    offset: int = 0,
-):
-    """List user's repositories."""
+async def list_repositories(request: Request):
+    """List all user's repositories."""
     token = resolve_github_token(request)
-    
-    # Debug: Log token source
-    authorization = request.headers.get("Authorization", "")
-    has_user_token = bool(authorization and authorization.startswith("Bearer "))
-    settings = get_settings()
-    has_server_token = bool(settings.github_token and settings.github_token.strip())
-    
-    print(f"[DEBUG] list_repositories:")
-    print(f"  - User token provided: {has_user_token}")
-    print(f"  - Server token configured: {has_server_token}")
-    print(f"  - Using token: {'Yes' if token else 'No'}")
-    if token:
-        print(f"  - Token prefix: {token[:10]}...")
-    
+
     if not token:
         return []
-    
-    # Get github service from container
+
     container = request.app.container
     github_service = container.github_service()
-    
+
     try:
-        repos = await github_service.list_repositories(token, limit=limit)
+        repos = await github_service.list_repositories(token)
         return repos
     except Exception as e:
         from domain.exceptions.domain_exceptions import AuthorizationError

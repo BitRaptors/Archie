@@ -25,10 +25,10 @@ class GitHubService:
         client = self.create_client(token)
         return client.get_user()
 
-    async def list_repositories(self, token: str, limit: int = 100) -> list[dict[str, Any]]:
-        """List user's repositories."""
+    async def list_repositories(self, token: str) -> list[dict[str, Any]]:
+        """List all user's repositories."""
         client = self.create_client(token)
-        return client.list_repositories(limit=limit)
+        return client.list_repositories()
 
     async def get_repository(self, token: str, owner: str, name: str) -> dict[str, Any]:
         """Get repository details."""
