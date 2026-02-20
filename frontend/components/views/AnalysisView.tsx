@@ -255,20 +255,24 @@ export function AnalysisView({ analysisId, onViewBlueprint, onBack }: AnalysisVi
                                 ) : (
                                     events.map((e, i) => (
                                         <div key={i} className="flex gap-4 group">
-                                            <span className="shrink-0 text-ink/20 tabular-nums">
+                                            <span className={cn("shrink-0 tabular-nums", theme.console.timestamp)}>
                                                 {new Date(e.created_at).toLocaleTimeString([], { hour12: false })}
                                             </span>
                                             <div className="flex-1 break-words">
                                                 <span className={cn(
                                                     "font-black mr-3 uppercase tracking-tighter",
-                                                    e.type === 'PHASE_START' && "text-teal",
-                                                    e.type === 'PHASE_END' && "text-tangerine",
-                                                    e.type === 'ERROR' && "text-brandy",
-                                                    e.type === 'INFO' && "text-ink/40"
+                                                    e.type === 'PHASE_START' && theme.consoleEvent.phaseStart,
+                                                    e.type === 'PHASE_END' && theme.consoleEvent.phaseEnd,
+                                                    e.type === 'ERROR' && theme.consoleEvent.error,
+                                                    e.type === 'WARNING' && theme.consoleEvent.warning,
+                                                    e.type === 'INFO' && theme.console.waiting
                                                 )}>
                                                     [{e.type.replace('_', ' ')}]
                                                 </span>
-                                                <span className="text-ink/80 leading-relaxed">{e.message}</span>
+                                                <span className={cn(
+                                                    "leading-relaxed",
+                                                    e.type === 'WARNING' ? "text-amber-200" : theme.console.text
+                                                )}>{e.message}</span>
                                             </div>
                                         </div>
                                     ))

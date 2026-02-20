@@ -51,7 +51,7 @@ The AI agent in your IDE connects to the MCP server. Before it creates a file, i
 ### Prerequisites
 
 - An [Anthropic API key](https://console.anthropic.com) (the only required secret)
-- Docker (installed automatically by setup script on macOS/Linux) — or a [Supabase](https://supabase.com) project if you prefer cloud database
+- A [Supabase](https://supabase.com) project (recommended) — or Docker (installed automatically by setup script) for local PostgreSQL
 - Python 3.11+ and Node.js 18+ (installed automatically by setup script if missing)
 
 ### Quick Start (recommended)
@@ -69,7 +69,7 @@ cd architecture-blueprints
 ```
 
 **That's it.** The setup script will:
-1. Ask you to choose a database: **postgres** (local Docker, recommended) or **supabase** (cloud)
+1. Ask you to choose a database: **supabase** (cloud, recommended) or **postgres** (local Docker)
 2. Install Docker, Python, and Node.js if missing
 3. Start PostgreSQL + Redis containers (if postgres chosen)
 4. Run database migrations automatically (tables, indexes, seed data)
@@ -83,8 +83,10 @@ Then `start-dev.sh` starts backend (`http://localhost:8000`), frontend (`http://
 
 | Option | When to use | What happens |
 |--------|------------|--------------|
-| **postgres** (recommended) | Local development, no cloud account needed | Docker runs PostgreSQL (with pgvector) + Redis locally. Migration runs automatically on first start. |
-| **supabase** | You already have a Supabase project, or want cloud persistence | You must manually run `backend/migrations/001_initial_setup.sql` in your Supabase SQL editor. |
+| **supabase** (recommended) | Production-ready, cloud-hosted database with full pgvector support | Create a project at [supabase.com](https://supabase.com), then run `backend/migrations/001_initial_setup.sql` in the Supabase SQL editor. Reliable and battle-tested. |
+| **postgres** | Local development, no cloud account needed | Docker runs PostgreSQL (with pgvector) + Redis locally. Migration runs automatically on first start. |
+
+> **Note:** Local PostgreSQL via Docker is functional but has received less testing than the Supabase backend. If you encounter database-related issues with the local setup, we recommend switching to Supabase.
 
 ### Manual Setup (alternative)
 

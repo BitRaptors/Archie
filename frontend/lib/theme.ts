@@ -87,6 +87,8 @@ export const theme = {
     phaseStart: "text-teal-300",
     phaseEnd: "text-green-400",
     error: "text-brandy-200",
+    warning: "text-amber-400",
+    phaseEndAlt: "text-tangerine-300", // Optional: if we want to use tangerine for specific phase ends
   },
 
   /* ── Brand / identity ───────────────────────────────────────────────── */

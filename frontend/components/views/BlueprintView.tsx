@@ -285,7 +285,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                             }}
                         >
                             <Zap className="w-4 h-4 fill-current" />
-                            {needsSync ? 'Sync Required' : 'Sync Pipeline'}
+                            {needsSync ? 'Sync Required' : 'Sync with Agent'}
                         </Button>
 
                         {backendBlueprint && (
@@ -432,6 +432,10 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                 <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
+                                        urlTransform={(url) => {
+                                            if (url.startsWith('source://')) return url
+                                            return url
+                                        }}
                                         components={{
                                             code({ className, children, ...props }) {
                                                 if (className === 'language-mermaid') {
@@ -440,11 +444,23 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                                 return <code className={className} {...props}>{children}</code>
                                             },
                                             a({ href, children, ...props }) {
-                                                if (href?.startsWith('source://')) {
-                                                    const filePath = href.replace('source://', '')
-                                                    return <span onClick={() => setSourceFilePath(filePath)} className="text-teal underline cursor-pointer hover:text-teal-600">{children}</span>
+                                                const isSourceLink = href?.startsWith('source://')
+                                                const isRelativeFile = !!(href && !href.startsWith('http') && !href.startsWith('https') && !href.startsWith('#') && (href.includes('.') || href.includes('/')))
+
+                                                if (isSourceLink || isRelativeFile) {
+                                                    const filePath = isSourceLink ? href?.replace('source://', '') : href
+                                                    if (filePath) {
+                                                        return (
+                                                            <span
+                                                                onClick={() => setSourceFilePath(filePath)}
+                                                                className="text-teal font-bold underline cursor-pointer hover:text-teal-600 transition-colors"
+                                                            >
+                                                                {children}
+                                                            </span>
+                                                        )
+                                                    }
                                                 }
-                                                return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+                                                return <a {...props} href={href || ''} target="_blank" rel="noopener noreferrer" className="text-teal underline font-medium">{children}</a>
                                             },
                                         }}
                                     >
@@ -510,7 +526,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         <div className="p-8 border-b border-papaya-300 flex items-center justify-between bg-white/80 backdrop-blur-md">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 rounded-2xl bg-tangerine shadow-lg shadow-tangerine/20 text-white"><Zap className="w-6 h-6 fill-current" /></div>
-                                <div><h3 className="text-xl font-black text-ink">Sync Pipeline</h3><p className="text-[10px] font-black uppercase tracking-widest text-ink/30">Deploy Blueprint to GitHub</p></div>
+                                <div><h3 className="text-xl font-black text-ink">Sync with Agent</h3><p className="text-[10px] font-black uppercase tracking-widest text-ink/30">Provision Knowledge to AI</p></div>
                             </div>
                             <Button variant="ghost" size="icon" onClick={() => setIsSyncPanelOpen(false)}><X className="w-5 h-5 text-ink/40" /></Button>
                         </div>
@@ -535,6 +551,93 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                     <option value="">Select a repository...</option>
                                     {repos?.map(r => <option key={r.full_name} value={r.full_name}>{r.full_name}</option>)}
                                 </select>
+                            </div>
+
+                            <div className="space-y-6">
+                                <label className="text-[10px] font-black uppercase text-ink/40 tracking-widest">Sync Strategy</label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        onClick={() => setSyncSettings(p => ({ ...p, strategy: 'pr' }))}
+                                        className={cn(
+                                            "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2",
+                                            syncSettings.strategy === 'pr'
+                                                ? "bg-teal/5 border-teal text-teal shadow-sm ring-1 ring-teal/20"
+                                                : "bg-white border-papaya-400 text-ink/40 hover:border-teal/40"
+                                        )}
+                                    >
+                                        <GitPullRequest className="w-5 h-5" />
+                                        <span className="text-xs font-bold">Create Pull Request</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setSyncSettings(p => ({ ...p, strategy: 'commit' }))}
+                                        className={cn(
+                                            "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2",
+                                            syncSettings.strategy === 'commit'
+                                                ? "bg-tangerine/5 border-tangerine text-tangerine shadow-sm ring-1 ring-tangerine/20"
+                                                : "bg-white border-papaya-400 text-ink/40 hover:border-tangerine/40"
+                                        )}
+                                    >
+                                        <Zap className="w-5 h-5" />
+                                        <span className="text-xs font-bold">Direct Commit</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-6 pt-4 border-t border-papaya-300">
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-teal shadow-[0_0_8px_rgba(45,161,176,0.5)]" />
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-ink">How it works</h4>
+                                    </div>
+                                    <p className="text-[11px] text-ink-300 leading-relaxed px-1">
+                                        Archie establishes a live link between your repository and our engine. By provisioning a <strong>dynamic MCP bridge</strong>, AI agents gain real-time awareness of project patterns, transforming static files into an active, always-current source of truth.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-4 pt-4 border-t border-papaya-300">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-tangerine shadow-[0_0_8px_rgba(242,133,0,0.5)]" />
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-ink">Provisioned Files</h4>
+                                    </div>
+                                    <div className="grid gap-3">
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Terminal className="w-4 h-4 text-teal" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Architecture Rules</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`.cursor/rules/architecture.md` — Enforces structural patterns directly in your IDE.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Server className="w-4 h-4 text-purple-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">MCP Bridge</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`mcp.json` — Injects a live connection to Archie for <strong>real-time, dynamic</strong> architectural awareness.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Database className="w-4 h-4 text-blue-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Static Arch Data</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`ARCHIE.json` — Deep architectural primitives for advanced agent reasoning.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <FileText className="w-4 h-4 text-tangerine" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">AI Knowledge</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CLAUDE.md`, `agents.md` — Essential context for AI agents to operate on this codebase.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div className="p-10 border-t border-papaya-300 bg-papaya-300/10">

@@ -141,7 +141,7 @@ export default function AuthPage() {
                   { step: '03', text: 'Paste the generated token above to sync.' },
                 ].map((item) => (
                   <div key={item.step} className="flex items-start gap-4">
-                    <span className="text-[10px] font-black text-teal tabular-nums mt-0.5">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-teal/10 text-[10px] font-black text-teal tabular-nums shrink-0 mt-0.5 shadow-sm">
                       {item.step}
                     </span>
                     <p className="text-xs font-bold text-ink/60 uppercase tracking-tight leading-relaxed">{item.text}</p>
