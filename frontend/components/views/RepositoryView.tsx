@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { repositoriesService } from '@/services/repositories'
 import { useRepositoriesQuery } from '@/hooks/api/useRepositoriesQuery'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Search, GitBranch, ArrowRight, Github, Star, CheckCircle2, Globe, Loader2, RotateCw, Eye } from 'lucide-react'
+import { Search, GitBranch, ArrowRight, Github, Star, CheckCircle2, Globe, Loader2, RotateCw, Eye, LayoutDashboard, Zap, Activity } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { useSetActiveRepository, useWorkspaceRepositories } from '@/hooks/api/useWorkspace'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
+import { PageHeader } from '@/components/layout/PageHeader'
 
 function parseGitHubUrl(input: string): { owner: string; repo: string } | null {
     const trimmed = input.trim()
@@ -30,7 +31,7 @@ interface RepositoryViewProps {
 
 export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: RepositoryViewProps) {
     const { token } = useAuth()
-    const { data: repos, isLoading } = useRepositoriesQuery()
+    const { data: repos, isLoading, refetch: refetchRepos } = useRepositoriesQuery()
     const { data: workspaceRepos } = useWorkspaceRepositories()
     const { mutate: setActiveRepo, isPending: isSettingActive } = useSetActiveRepository()
     const [analyzing, setAnalyzing] = useState<Set<string>>(new Set())
@@ -38,32 +39,47 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
     const [publicUrl, setPublicUrl] = useState('')
     const [isAnalyzingPublic, setIsAnalyzingPublic] = useState(false)
 
-    const githubFullNames = new Set(repos?.map(r => r.full_name) || [])
-    const externalRepos = workspaceRepos?.filter(r => !githubFullNames.has(r.name)) || []
-
     // Map GitHub full_name to workspace repo data (for blueprint status)
     const workspaceByName = new Map(workspaceRepos?.map(r => [r.name, r]) || [])
 
-    const handleAnalyze = async (owner: string, name: string, repoId: string) => {
+    const filteredRepos = useMemo(() => {
+        if (!repos) return []
+        return repos.filter(repo =>
+            repo.full_name.toLowerCase().includes(search.toLowerCase()) ||
+            (repo.description && repo.description.toLowerCase().includes(search.toLowerCase()))
+        )
+    }, [repos, search])
+
+    const groupedRepos = useMemo(() => {
+        if (!repos || !filteredRepos) return []
+        const groups: Record<string, any[]> = {}
+        filteredRepos.forEach(repo => {
+            const owner = repo.owner || (repo.full_name.split('/')[0]) || 'Other'
+            if (!groups[owner]) groups[owner] = []
+            groups[owner].push(repo)
+        })
+        return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+    }, [filteredRepos, repos])
+
+    const handleAnalyze = async (owner: string, name: string) => {
         if (!token) return
         const key = `${owner}/${name}`
         setAnalyzing(prev => new Set(prev).add(key))
         try {
             const analysis = await repositoriesService.analyze(owner, name, token)
-            onAnalyze(analysis.id, `${owner}/${name}`)
+            onAnalyze(analysis.id, key)
+            // refetchRepos is not directly possible if it's from useRepositoriesQuery, 
+            // but we can assume onAnalyze handles navigation.
         } catch (err: any) {
             const detail = err?.response?.data?.detail
             toast.error(typeof detail === 'string' ? detail : err.message || 'Failed to start analysis')
+        } finally {
             setAnalyzing(prev => {
                 const next = new Set(prev)
                 next.delete(key)
                 return next
             })
         }
-    }
-
-    const handleSetActive = (repoId: string) => {
-        setActiveRepo(repoId)
     }
 
     const handlePublicAnalyze = async () => {
@@ -78,6 +94,7 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
             const analysis = await repositoriesService.analyze(parsed.owner, parsed.repo, token)
             onAnalyze(analysis.id, `${parsed.owner}/${parsed.repo}`)
             setPublicUrl('')
+            refetchRepos()
         } catch (err: any) {
             const detail = err?.response?.data?.detail
             toast.error(typeof detail === 'string' ? detail : err.message || 'Failed to start analysis')
@@ -86,251 +103,189 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
         }
     }
 
-    const filteredRepos = repos?.filter(r =>
-        r.full_name.toLowerCase().includes(search.toLowerCase())
-    )
+    const handleSetActive = (repoId: string) => {
+        setActiveRepo(repoId)
+    }
 
     if (isLoading) {
         return (
-            <div className="p-8 space-y-6">
-                <div className="flex items-center justify-between">
-                    <Skeleton className="h-8 w-48" />
-                    <Skeleton className="h-10 w-64" />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {[1, 2, 3, 4, 5, 6].map(i => (
-                        <Skeleton key={i} className="h-48 w-full" />
-                    ))}
+            <div className="flex flex-col h-full bg-white/50">
+                <PageHeader title="Repositories" subtitle="Loading your workspace..." icon={LayoutDashboard} />
+                <div className="flex-1 p-8 space-y-6">
+                    <Skeleton className="h-48 w-full rounded-2xl" />
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {[1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-2xl" />)}
+                    </div>
                 </div>
             </div>
         )
     }
 
     return (
-        <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Repositories</h1>
-                    <p className="text-muted-foreground mt-1">Select a project to analyze or set as your active context.</p>
-                </div>
-                <div className="relative w-full md:w-72">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search repositories..."
-                        className="pl-8"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                    />
-                </div>
-            </div>
-
-            {/* Public Repo URL Input */}
-            <Card>
-                <CardHeader>
-                    <div className="flex items-center gap-2">
-                        <Globe className="w-5 h-5 text-primary" />
-                        <CardTitle className="text-lg">Analyze Public Repository</CardTitle>
-                    </div>
-                    <CardDescription>
-                        Paste any public GitHub repository URL to analyze its architecture.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex gap-2">
+        <div className="flex flex-col h-full overflow-hidden bg-white/50 animate-in fade-in duration-500">
+            <PageHeader
+                title="Repositories"
+                subtitle="Select a project to analyze or set as your active context."
+                icon={LayoutDashboard}
+                actions={
+                    <div className="relative w-64 md:w-80">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-300" />
                         <Input
-                            placeholder="https://github.com/owner/repo"
-                            value={publicUrl}
-                            onChange={(e) => setPublicUrl(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handlePublicAnalyze() }}
-                            disabled={isAnalyzingPublic}
+                            placeholder="Search your library..."
+                            className="pl-10 h-10 bg-white/50 border-papaya-400/60 focus:ring-teal/20 transition-all rounded-xl shadow-sm"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
                         />
-                        <Button
-                            onClick={handlePublicAnalyze}
-                            disabled={isAnalyzingPublic || !publicUrl.trim()}
-                        >
-                            {isAnalyzingPublic ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    Analyzing...
-                                </>
-                            ) : (
-                                'Analyze'
-                            )}
-                        </Button>
                     </div>
-                </CardContent>
-            </Card>
+                }
+            />
 
-            {/* External Repositories */}
-            {externalRepos.length > 0 && (
-                <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Globe className="w-5 h-5 text-muted-foreground" />
-                        <h2 className="text-xl font-semibold tracking-tight">External Repositories</h2>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {externalRepos.map((repo) => {
-                            const parsed = parseGitHubUrl(repo.name)
-                            const isReanalyzing = parsed ? analyzing.has(`${parsed.owner}/${parsed.repo}`) : false
-
-                            return (
-                                <Card key={repo.repo_id} className="group transition-all flex flex-col hover:border-primary/50">
-                                    <CardHeader className="flex-1">
-                                        <div className="flex items-center gap-2 text-lg font-bold">
-                                            <Globe className="w-5 h-5" />
-                                            <span className="truncate max-w-[180px]" title={repo.name}>{repo.name}</span>
-                                        </div>
-                                        <CardDescription className="mt-2">
-                                            {repo.analyzed_at
-                                                ? `Analyzed ${new Date(repo.analyzed_at).toLocaleDateString()}`
-                                                : 'Not yet analyzed'}
-                                        </CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <div className={cn("w-2 h-2 rounded-full", theme.brand.languageDot)} />
-                                            {repo.language || "Unknown"}
-                                        </div>
-                                    </CardContent>
-                                    <CardFooter className="gap-2">
-                                        {repo.has_structured && (
-                                            <Button
-                                                variant="default"
-                                                className="flex-1"
-                                                onClick={() => onViewBlueprint(repo.repo_id)}
-                                            >
-                                                <Eye className="w-4 h-4 mr-2" />
-                                                View Blueprint
-                                            </Button>
-                                        )}
-                                        {parsed && (
-                                            <Button
-                                                variant="outline"
-                                                className={repo.has_structured ? '' : 'flex-1'}
-                                                disabled={isReanalyzing}
-                                                onClick={() => handleAnalyze(parsed.owner, parsed.repo, repo.repo_id)}
-                                            >
-                                                {isReanalyzing ? (
-                                                    <>
-                                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                                        Analyzing...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <RotateCw className="w-4 h-4 mr-2" />
-                                                        Re-analyze
-                                                    </>
-                                                )}
-                                            </Button>
-                                        )}
-                                    </CardFooter>
-                                </Card>
-                            )
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {/* GitHub Repositories */}
-            {externalRepos.length > 0 && (
-                <div className="flex items-center gap-2">
-                    <Github className="w-5 h-5 text-muted-foreground" />
-                    <h2 className="text-xl font-semibold tracking-tight">Your Repositories</h2>
-                </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredRepos?.map((repo) => {
-                    const isAnalyzing = analyzing.has(`${repo.owner}/${repo.name}`)
-                    const wsRepo = workspaceByName.get(repo.full_name)
-                    const hasBlueprint = wsRepo?.has_structured ?? false
-                    const isActive = wsRepo ? activeRepoId === wsRepo.repo_id : false
-
-                    return (
-                        <Card key={repo.id} className={cn(
-                            "group transition-all flex flex-col",
-                            isActive ? theme.active.card : "hover:border-primary/50"
-                        )}>
-                            <CardHeader className="flex-1">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex items-center gap-2 text-lg font-bold">
-                                        <Github className="w-5 h-5" />
-                                        <span className="truncate max-w-[180px]" title={repo.full_name}>{repo.name}</span>
-                                    </div>
-                                    {isActive ? (
-                                        <Badge variant="secondary" className={theme.active.badge}>
-                                            Active
-                                        </Badge>
-                                    ) : wsRepo ? (
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className={cn("h-8 w-8 text-muted-foreground", theme.interactive.ghostBrand)}
-                                            onClick={() => handleSetActive(wsRepo.repo_id)}
-                                            disabled={isSettingActive}
-                                        >
-                                            <Star className="w-4 h-4" />
-                                        </Button>
-                                    ) : null}
+            <div className="flex-1 overflow-y-auto px-8 py-8">
+                <div className="max-w-7xl mx-auto space-y-12">
+                    {/* Analyze Public Repo Section */}
+                    <div className="bg-white/60 border border-papaya-400/60 backdrop-blur-sm rounded-3xl p-6 shadow-sm">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 rounded-2xl bg-tangerine/10 text-tangerine">
+                                    <Globe className="w-6 h-6" />
                                 </div>
-                                <CardDescription className="line-clamp-2 mt-2">
-                                    {repo.description || "No description provided."}
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <div className={cn("w-2 h-2 rounded-full", theme.brand.languageDot)} />
-                                    {repo.language || "Unknown"}
-                                    <span className="mx-1">•</span>
-                                    <GitBranch className="w-3 h-3" />
-                                    {repo.default_branch || "main"}
+                                <div>
+                                    <h2 className="text-lg font-bold text-ink">Analyze Public Repository</h2>
+                                    <p className="text-sm text-ink-300">Architecture discovery for any public GitHub project.</p>
                                 </div>
-                            </CardContent>
-                            <CardFooter className="gap-2">
-                                {hasBlueprint && wsRepo && (
-                                    <Button
-                                        variant="default"
-                                        className="flex-1"
-                                        onClick={() => onViewBlueprint(wsRepo.repo_id)}
-                                    >
-                                        <Eye className="w-4 h-4 mr-2" />
-                                        View Blueprint
-                                    </Button>
-                                )}
+                            </div>
+                            <div className="flex gap-2 flex-1 max-w-xl">
+                                <div className="relative flex-1">
+                                    <Github className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-300" />
+                                    <Input
+                                        placeholder="https://github.com/owner/repo"
+                                        className="pl-10 h-11 bg-white/40 border-papaya-400/40 rounded-xl"
+                                        value={publicUrl}
+                                        onChange={(e) => setPublicUrl(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handlePublicAnalyze()}
+                                    />
+                                </div>
                                 <Button
-                                    variant="outline"
-                                    className={hasBlueprint ? '' : 'flex-1'}
-                                    disabled={isAnalyzing}
-                                    onClick={() => handleAnalyze(repo.owner, repo.name, repo.id)}
+                                    className={cn("h-11 px-6 shadow-lg", theme.interactive.cta)}
+                                    disabled={!publicUrl || isAnalyzingPublic}
+                                    onClick={handlePublicAnalyze}
                                 >
-                                    {isAnalyzing ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                            Analyzing...
-                                        </>
-                                    ) : hasBlueprint ? (
-                                        <>
-                                            <RotateCw className="w-4 h-4 mr-2" />
-                                            Re-analyze
-                                        </>
-                                    ) : (
-                                        'Analyze'
-                                    )}
+                                    {isAnalyzingPublic ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-2" /> Analyze</>}
                                 </Button>
-                                {isActive && (
-                                    <Button
-                                        variant="secondary"
-                                        size="icon"
-                                        disabled
-                                        className={theme.active.checkBtn}
-                                    >
-                                        <CheckCircle2 className="w-4 h-4" />
-                                    </Button>
-                                )}
-                            </CardFooter>
-                        </Card>
-                    )
-                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Repository Groups */}
+                    <div className="space-y-12">
+                        {groupedRepos.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-20 bg-white/20 border border-dashed border-papaya-400/60 rounded-3xl">
+                                <Github className="w-16 h-16 text-ink-100 mb-4" />
+                                <h3 className="text-xl font-bold text-ink">No Repositories Found</h3>
+                                <p className="text-ink-300 mt-2">Adjust your search or add a new public repository.</p>
+                            </div>
+                        ) : (
+                            groupedRepos.map(([owner, repos]) => (
+                                <div key={owner} className="space-y-6">
+                                    <div className="flex items-center gap-3">
+                                        <img
+                                            src={`https://github.com/${owner}.png?size=32`}
+                                            alt={owner}
+                                            className="w-8 h-8 rounded-lg border border-papaya-400 shadow-sm"
+                                            onError={(e) => (e.target as any).src = 'https://github.com/github.png'}
+                                        />
+                                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-ink/40">{owner}</h3>
+                                        <Badge className="bg-papaya-300/30 text-ink/40 border-papaya-400/40 font-bold">{repos.length}</Badge>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {repos.map(repo => {
+                                            const isAnalyzing = analyzing.has(`${repo.owner}/${repo.name}`)
+                                            const wsRepo = workspaceByName.get(repo.full_name)
+                                            const hasBlueprint = wsRepo?.has_structured ?? false
+                                            const isActive = wsRepo ? activeRepoId === wsRepo.repo_id : false
+
+                                            return (
+                                                <Card key={repo.id} className={cn(
+                                                    "transition-all duration-300 hover:shadow-xl hover:-translate-y-1 border-papaya-400/60 bg-white group flex flex-col",
+                                                    isActive && "border-teal ring-1 ring-teal/30 bg-teal-50/5 shadow-md shadow-teal/5"
+                                                )}>
+                                                    <CardHeader className="flex-1">
+                                                        <div className="flex items-start justify-between">
+                                                            <div className="space-y-1">
+                                                                <h4 className="font-bold text-lg text-ink truncate group-hover:text-teal transition-colors" title={repo.full_name}>{repo.name}</h4>
+                                                                <CardDescription className="line-clamp-2 text-xs leading-relaxed min-h-[2.5rem]">
+                                                                    {repo.description || "No description provided."}
+                                                                </CardDescription>
+                                                            </div>
+                                                            {isActive && (
+                                                                <Badge className="bg-teal text-white border-0 shadow-lg shadow-teal/20 px-2 py-0.5 font-black uppercase text-[8px] tracking-widest shrink-0">
+                                                                    Active
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                    </CardHeader>
+                                                    <CardContent>
+                                                        <div className="flex flex-wrap gap-2 mb-2">
+                                                            {repo.language && (
+                                                                <div className="px-2 py-0.5 rounded-full bg-papaya-300/30 border border-papaya-400/40 text-[10px] font-bold text-ink/60 uppercase tracking-wider flex items-center gap-1.5">
+                                                                    <div className="w-1.5 h-1.5 rounded-full bg-tangerine" />
+                                                                    {repo.language}
+                                                                </div>
+                                                            )}
+                                                            <div className="px-2 py-0.5 rounded-full border border-papaya-300 text-[10px] font-bold text-ink/40 uppercase tracking-wider flex items-center gap-1.5">
+                                                                <GitBranch className="w-3 h-3" />
+                                                                {repo.default_branch || "main"}
+                                                            </div>
+                                                        </div>
+                                                    </CardContent>
+                                                    <CardFooter className="pt-4 border-t border-papaya-400/30 gap-2">
+                                                        {hasBlueprint && wsRepo ? (
+                                                            <>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    className="flex-1 h-9 gap-2 border-teal-200 text-teal hover:bg-teal-50 hover:border-teal font-bold"
+                                                                    onClick={() => onViewBlueprint(wsRepo.repo_id)}
+                                                                >
+                                                                    <Eye className="w-4 h-4" /> Review
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-9 w-9 border border-papaya-400/40 text-ink/40 hover:bg-papaya-300/20"
+                                                                    onClick={() => handleAnalyze(repo.owner, repo.name)}
+                                                                    disabled={isAnalyzing}
+                                                                >
+                                                                    <RotateCw className={cn("w-4 h-4", isAnalyzing && "animate-spin")} />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className={cn("h-9 w-9 transition-all", isActive ? "bg-teal text-white shadow-teal/20 shadow-lg" : "text-ink/20 hover:text-teal hover:bg-teal-50")}
+                                                                    disabled={isActive || isSettingActive}
+                                                                    onClick={() => handleSetActive(wsRepo.repo_id)}
+                                                                >
+                                                                    {isSettingActive && isActive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                                                                </Button>
+                                                            </>
+                                                        ) : (
+                                                            <Button
+                                                                className={cn("w-full h-9 gap-2 shadow-lg", theme.interactive.cta)}
+                                                                onClick={() => handleAnalyze(repo.owner, repo.name)}
+                                                                disabled={isAnalyzing}
+                                                            >
+                                                                {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4" /> Start Discovery</>}
+                                                            </Button>
+                                                        )}
+                                                    </CardFooter>
+                                                </Card>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
     )
