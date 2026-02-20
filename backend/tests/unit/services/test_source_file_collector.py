@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 
 from application.services.source_file_collector import SourceFileCollector, IGNORED_DIRS
-from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
+from domain.entities.analysis_settings import SEED_IGNORED_DIRS
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -171,11 +171,11 @@ class TestManifest:
 
 
 class TestIgnoredDirs:
-    """Tests that IGNORED_DIRS fallback matches DEFAULT_IGNORED_DIRS."""
+    """Tests that IGNORED_DIRS fallback matches SEED_IGNORED_DIRS."""
 
     def test_fallback_matches_default_ignored_dirs(self):
-        """Module-level IGNORED_DIRS is DEFAULT_IGNORED_DIRS (fallback)."""
-        assert IGNORED_DIRS is DEFAULT_IGNORED_DIRS
+        """Module-level IGNORED_DIRS is SEED_IGNORED_DIRS (fallback)."""
+        assert IGNORED_DIRS is SEED_IGNORED_DIRS
 
     def test_default_fallback_skips_node_modules(self, tmp_path):
         """Without ignored_dirs param, defaults skip node_modules."""

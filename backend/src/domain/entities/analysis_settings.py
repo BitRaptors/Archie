@@ -15,10 +15,12 @@ ECOSYSTEM_OPTIONS: list[str] = sorted([
     "AWS",
     "Clerk",
     "Cloudinary",
+    "Cross-platform",
     "Flutter",
     "Google Firebase",
     "iOS",
     "JavaScript",
+    "Kotlin Multiplatform",
     "Mixpanel",
     "MongoDB Realm",
     "Node.js",
@@ -38,13 +40,17 @@ CAPABILITY_OPTIONS: list[str] = sorted([
     "api",
     "authentication",
     "cloud_functions",
+    "concurrency",
     "dependency_injection",
     "edge_functions",
     "error_tracking",
     "graphql",
     "hosting",
+    "image_loading",
     "image_processing",
+    "logging",
     "monitoring",
+    "navigation",
     "networking",
     "odm",
     "offline_first",
@@ -55,15 +61,28 @@ CAPABILITY_OPTIONS: list[str] = sorted([
     "push_notifications",
     "reactive_programming",
     "realtime",
+    "serialization",
     "state_management",
     "storage",
     "sync",
+    "ui_framework",
     "websocket",
 ])
 
 
-# Default discovery ignored directories — used when DB is unavailable.
-DEFAULT_IGNORED_DIRS: set[str] = {
+# Canonical set of source code file extensions — used by file registry,
+# signature extraction, budget calculation, supplementary reading, and RAG indexing.
+SOURCE_CODE_EXTENSIONS: frozenset[str] = frozenset({
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
+    ".swift", ".kt", ".rb", ".php", ".cs", ".cpp", ".c", ".h",
+    ".hpp", ".m", ".mm", ".scala", ".xml",
+})
+
+
+# Seed defaults for the "reset to defaults" API endpoints only.
+# These are NOT used as runtime fallbacks — if the DB is unavailable,
+# the system operates with empty sets (no silent defaults).
+SEED_IGNORED_DIRS: set[str] = {
     "node_modules", "Pods", "Carthage", ".build", "DerivedData",
     "vendor", ".bundle", "bower_components", "flutter_build", ".dart_tool",
     ".gradle", "build", "dist", "target", ".next", ".nuxt", ".output",
@@ -71,8 +90,7 @@ DEFAULT_IGNORED_DIRS: set[str] = {
     "coverage", ".nyc_output",
 }
 
-# Default library capability mapping — used when DB is unavailable.
-DEFAULT_LIBRARY_CAPABILITIES: dict[str, dict] = {
+SEED_LIBRARY_CAPABILITIES: dict[str, dict] = {
     "firebase": {"capabilities": ["persistence", "authentication", "analytics", "push_notifications", "cloud_functions", "hosting", "storage"], "ecosystem": "Google Firebase"},
     "supabase": {"capabilities": ["persistence", "authentication", "storage", "realtime", "edge_functions"], "ecosystem": "Supabase"},
     "realm": {"capabilities": ["persistence", "sync", "offline_first"], "ecosystem": "MongoDB Realm"},

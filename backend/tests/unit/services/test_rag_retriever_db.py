@@ -26,7 +26,7 @@ class MockDbForRag(DatabaseClient):
             mock = MagicMock()
             # Make all chainable methods return the mock itself
             for method in ("select", "insert", "update", "delete", "upsert",
-                           "eq", "in_", "range", "order", "limit", "maybe_single"):
+                           "eq", "neq", "in_", "range", "order", "limit", "maybe_single"):
                 getattr(mock, method).return_value = mock
             mock.execute = AsyncMock(return_value=QueryResult(data=[]))
             self._table_mocks[name] = mock
@@ -141,3 +141,63 @@ class TestBatchInsertEmbeddings:
         ]
         # Should not raise
         await retriever._batch_insert_embeddings(embeddings)
+
+
+class TestIndexRepositoryWipesStale:
+    """Verify that index_repository deletes existing embeddings before re-indexing."""
+
+    @pytest.mark.asyncio
+    async def test_index_repository_deletes_existing_embeddings_before_indexing(
+        self, make_retriever, mock_db, tmp_path,
+    ):
+        retriever = make_retriever()
+
+        # Create a small repo with one file
+        src = tmp_path / "main.py"
+        src.write_text("print('hello')")
+
+        await retriever.index_repository(
+            repository_id="repo-1",
+            repo_path=tmp_path,
+        )
+
+        table_mock = mock_db._table_mocks.get("embeddings")
+        assert table_mock is not None
+
+        # delete().eq("repository_id", "repo-1").execute() should have been called
+        table_mock.delete.assert_called()
+        table_mock.eq.assert_any_call("repository_id", "repo-1")
+
+    @pytest.mark.asyncio
+    async def test_index_repository_wipe_failure_does_not_block_indexing(
+        self, make_retriever, mock_db, tmp_path,
+    ):
+        retriever = make_retriever()
+
+        # Pre-create the embeddings table mock and make the first execute() raise
+        table_mock = mock_db.table("embeddings")
+        original_execute = table_mock.execute
+
+        call_count = 0
+
+        async def _conditional_execute():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise DatabaseError(message="wipe failed")
+            return await original_execute()
+
+        table_mock.execute = _conditional_execute
+
+        # Create a small repo with one file
+        src = tmp_path / "main.py"
+        src.write_text("print('hello')")
+
+        # Should not raise
+        stats = await retriever.index_repository(
+            repository_id="repo-1",
+            repo_path=tmp_path,
+        )
+
+        # Indexing still proceeded — at least one file was processed
+        assert stats["files"] >= 1

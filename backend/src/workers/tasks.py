@@ -76,6 +76,7 @@ async def startup(ctx):
         structure_analyzer=structure_analyzer,
         persistent_storage=storage,
         phased_blueprint_generator=phased_blueprint_generator,
+        db_client=db,
     )
     print(f"Worker startup: Analysis service created: {type(analysis_service)}")
 

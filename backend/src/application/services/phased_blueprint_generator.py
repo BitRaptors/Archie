@@ -8,6 +8,7 @@ from infrastructure.prompts.prompt_loader import PromptLoader
 from infrastructure.analysis.rag_retriever import RAGRetriever
 from application.services.analysis_data_collector import analysis_data_collector
 from domain.entities.blueprint import StructuredBlueprint
+from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
 from config.settings import Settings
 
 
@@ -49,6 +50,8 @@ class PhasedBlueprintGenerator:
         self._db_client = db_client
         self._framework_usage: dict[str, str] = {}  # Populated by observation phase
         self._phase_files: dict[str, dict[str, str]] = {}  # phase → {filepath: content}
+        self._file_registry: str = ""  # Populated by generate() from structure_data
+        self._structure_data: dict[str, Any] | None = None
 
     def get_all_phase_files(self) -> dict[str, str]:
         """Return merged file cache across all phases (path -> content)."""
@@ -108,6 +111,7 @@ class PhasedBlueprintGenerator:
         blueprint_type: str = "backend",
         discovery_ignored_dirs: set[str] | None = None,
         provided_capabilities: dict[str, list[str]] | None = None,
+        structure_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Generate comprehensive architecture blueprint through phased analysis.
         
@@ -163,16 +167,22 @@ class PhasedBlueprintGenerator:
             await self._progress_callback(analysis_id, "INFO", "Observation complete - detected architecture style and patterns")
 
         # PHASE 0.5: Smart File Reading — read full content of priority files
+        self._structure_data = structure_data
+        total_budget, per_file_budget = self._calculate_file_budget(structure_data)
         priority_map = self._parse_priority_files(observation_result)
         if priority_map:
             if self._progress_callback and analysis_id:
                 total_files = len({f for paths in priority_map.values() for f in paths})
                 await self._progress_callback(
                     analysis_id, "INFO",
-                    f"Phase 0.5: Reading full content of {total_files} AI-selected priority files...",
+                    f"Phase 0.5: Reading full content of {total_files} AI-selected priority files "
+                    f"(budget: {total_budget:,} chars total, {per_file_budget:,} per file)...",
                 )
             self._phase_files = await self._read_priority_files(
-                repo_path, priority_map, analysis_id=analysis_id,
+                repo_path, priority_map,
+                total_budget_chars=total_budget,
+                per_file_max_chars=per_file_budget,
+                analysis_id=analysis_id,
                 discovery_ignored_dirs=discovery_ignored_dirs,
             )
         else:
@@ -181,6 +191,29 @@ class PhasedBlueprintGenerator:
                     analysis_id, "INFO",
                     "Phase 0.5: No priority files identified — phases will use fallback code samples",
                 )
+
+        # For small repos: fill remaining budget with all source files not yet read
+        if total_budget > 150_000 and self._phase_files:
+            self._phase_files = self._supplement_with_remaining_files(
+                repo_path, self._phase_files, total_budget, per_file_budget,
+                discovery_ignored_dirs,
+            )
+            if self._progress_callback and analysis_id:
+                supp = self._phase_files.get("_supplementary", {})
+                if supp:
+                    await self._progress_callback(
+                        analysis_id, "INFO",
+                        f"Phase 0.5: Supplemented with {len(supp)} additional source files (small repo full coverage)",
+                    )
+
+        # Build file registry for grounding constraint
+        self._file_registry = self._build_file_registry(structure_data)
+        if self._progress_callback and analysis_id and self._file_registry:
+            line_count = self._file_registry.count("\n") + 1
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"File registry built: {line_count} source files ({len(self._file_registry):,} chars)",
+            )
 
         # Update RAG queries based on observations (if RAG is enabled)
         custom_rag_queries = None
@@ -365,57 +398,34 @@ class PhasedBlueprintGenerator:
         repo_path: Path,
         context: dict[str, Any] | None = None,
     ) -> str:
-        """Retrieve relevant code chunks for an analysis stage using RAG.
-        
-        Args:
-            stage: Current analysis stage (discovery, layers, patterns, etc.)
-            repository_id: UUID of the repository
-            repo_path: Path to cloned repository
-            context: Context from previous stages
-            
-        Returns:
-            Formatted string of relevant code chunks
+        """Retrieve relevant code for an analysis stage using file-level RAG.
+
+        Returns full file contents (deduplicated at file level) instead of
+        individual chunks, providing complete import context and class
+        relationships.
         """
         if not self._rag_retriever:
             return ""
-        
+
         try:
-            chunks = await self._rag_retriever.retrieve_for_phase(
+            files = await self._rag_retriever.retrieve_files_for_phase(
                 phase=stage,
                 repository_id=repository_id,
+                repo_path=repo_path,
                 context=context,
+                max_files=5,
             )
-            
-            if not chunks:
+            if not files:
                 return ""
-            
-            # Format chunks with file content
+
             formatted = []
-            for chunk in chunks[:15]:  # Limit to top 15 most relevant
-                file_path = chunk["file_path"]
-                
-                # Get actual file content for the chunk
-                content = await self._rag_retriever.get_file_content(
-                    repository_id, file_path, repo_path
+            for f in files:
+                # Truncate individual files to 3000 chars for context window
+                content = f["content"][:3000]
+                formatted.append(
+                    f"**{f['file_path']}** (full file, similarity={f['similarity']:.2f}):\n"
+                    f"```\n{content}\n```\n"
                 )
-                
-                if content:
-                    # Extract relevant lines if we have line info
-                    start_line = chunk.get("start_line", 0)
-                    end_line = chunk.get("end_line", 0)
-                    
-                    if start_line and end_line:
-                        lines = content.splitlines()
-                        chunk_content = '\n'.join(lines[start_line-1:end_line])
-                    else:
-                        # Limit to 200 lines
-                        chunk_content = '\n'.join(content.splitlines()[:200])
-                    
-                    formatted.append(
-                        f"**{file_path}** (lines {start_line}-{end_line}):\n"
-                        f"```\n{chunk_content[:2000]}\n```\n"
-                    )
-            
             return "\n".join(formatted)
         except Exception:
             return ""
@@ -471,6 +481,7 @@ class PhasedBlueprintGenerator:
             "file_tree": file_tree[:3000],
             "dependencies": dependencies[:1500],
             "config_files": code_to_analyze[:12_000] + observation_context,
+            "file_registry": self._file_registry,
         })
 
         response = await self._call_ai(
@@ -536,6 +547,7 @@ class PhasedBlueprintGenerator:
             "discovery_summary": discovery_summary[:1500],
             "file_tree": file_tree[:2500],
             "code_samples": code_to_analyze[:15_000],
+            "file_registry": self._file_registry,
         })
 
         response = await self._call_ai(
@@ -600,6 +612,7 @@ class PhasedBlueprintGenerator:
             "discovery_summary": discovery_summary[:1000],
             "layer_analysis": layer_analysis[:1500],
             "code_samples": code_to_analyze[:15_000],
+            "file_registry": self._file_registry,
         })
 
         response = await self._call_ai(
@@ -661,6 +674,7 @@ class PhasedBlueprintGenerator:
             "repository_name": repository_name,
             "previous_analyses": previous_analyses[:3000],
             "code_samples": code_to_analyze[:12_000],
+            "file_registry": self._file_registry,
         })
 
         response = await self._call_ai(
@@ -723,6 +737,7 @@ class PhasedBlueprintGenerator:
             "repository_name": repository_name,
             "all_analyses": all_analyses[:3500],
             "dependencies": tech_context,
+            "file_registry": self._file_registry,
         })
 
         response = await self._call_ai(
@@ -761,10 +776,18 @@ class PhasedBlueprintGenerator:
         """
         combined = (discovery_result + file_tree + dependencies).lower()
         frontend_indicators = [
+            # Web frameworks
             "react", "next.js", "nextjs", "vue", "angular", "svelte",
             "nuxt", "remix", "gatsby", "expo", "react-native", "react native",
-            "swiftui", "jetpack compose", "flutter",
-            ".tsx", ".jsx", ".vue", ".svelte",
+            # iOS
+            "swiftui", "uikit", ".storyboard", ".xcodeproj",
+            "podfile", "package.swift", "viewcontroller",
+            # Android
+            "jetpack compose", "build.gradle", "androidmanifest",
+            # Cross-platform
+            "flutter",
+            # File extensions and patterns
+            ".tsx", ".jsx", ".vue", ".svelte", ".swift", ".kt",
             "web-frontend", "frontend",
             "pages/", "components/", "src/app/", "app/src/main",
             "package.json",
@@ -802,6 +825,7 @@ class PhasedBlueprintGenerator:
             "repository_name": repository_name,
             "previous_analyses": previous_analyses[:3000],
             "code_samples": code_to_analyze[:15_000],
+            "file_registry": self._file_registry,
         })
 
         response = await self._call_ai(
@@ -867,6 +891,7 @@ class PhasedBlueprintGenerator:
             "patterns": patterns[:3000],
             "layers": layers[:3000],
             "code_samples": code_to_analyze[:10_000],
+            "file_registry": self._file_registry,
         })
 
         response = await self._call_ai(
@@ -967,6 +992,7 @@ class PhasedBlueprintGenerator:
             "file_tree": file_tree[:10000],
             "framework_usage": framework_usage[:10000],
             "provided_capabilities": capabilities_text,
+            "file_registry": self._file_registry,
         })
 
         if self._progress_callback and analysis_id:
@@ -1314,6 +1340,9 @@ class PhasedBlueprintGenerator:
     def _build_phase_context(self, phase: str, max_chars: int = 20_000) -> str:
         """Build formatted context string from priority files for a phase.
 
+        Includes phase-specific files first, then supplementary files (from
+        small-repo full coverage) if budget allows.
+
         Args:
             phase: The analysis phase name.
             max_chars: Maximum total characters for the context block.
@@ -1322,22 +1351,155 @@ class PhasedBlueprintGenerator:
             Formatted string with file headings and code blocks, or "".
         """
         files = self._phase_files.get(phase, {})
-        if not files:
+        supplementary = self._phase_files.get("_supplementary", {})
+        if not files and not supplementary:
             return ""
 
         parts: list[str] = []
         total = 0
-        for filepath, content in files.items():
-            block = f"**{filepath}** (full content):\n```\n{content}\n```\n"
-            if total + len(block) > max_chars:
-                remaining = max_chars - total
-                if remaining > 100:
-                    parts.append(block[:remaining] + "\n...(truncated)")
-                break
-            parts.append(block)
-            total += len(block)
+
+        def _add_files(src: dict[str, str]) -> bool:
+            nonlocal total
+            for filepath, content in src.items():
+                block = f"**{filepath}** (full content):\n```\n{content}\n```\n"
+                if total + len(block) > max_chars:
+                    remaining = max_chars - total
+                    if remaining > 100:
+                        parts.append(block[:remaining] + "\n...(truncated)")
+                    return False  # budget exhausted
+                parts.append(block)
+                total += len(block)
+            return True
+
+        # Phase-specific files first
+        if files:
+            if not _add_files(files):
+                return "\n".join(parts)
+
+        # Then supplementary (small-repo full coverage), skip duplicates
+        if supplementary:
+            remaining_supp = {k: v for k, v in supplementary.items() if k not in (files or {})}
+            if remaining_supp:
+                _add_files(remaining_supp)
 
         return "\n".join(parts)
+
+    def _build_file_registry(self, structure_data: dict[str, Any] | None) -> str:
+        """Build a compact newline-separated list of all source file paths.
+
+        Uses the raw file_tree list (with exact paths and sizes) rather than
+        the formatted string. Filters to source code files only.
+        """
+        if not structure_data or "file_tree" not in structure_data:
+            return ""
+
+        paths = []
+        for node in structure_data["file_tree"]:
+            if node.get("type") != "file":
+                continue
+            path = node.get("path", node.get("name", ""))
+            if not path:
+                continue
+            ext = ""
+            if "." in path:
+                ext = "." + path.rsplit(".", 1)[-1].lower()
+            if ext in SOURCE_CODE_EXTENSIONS:
+                paths.append(path)
+        return "\n".join(sorted(paths))
+
+    def _calculate_file_budget(self, structure_data: dict[str, Any] | None) -> tuple[int, int]:
+        """Calculate total and per-file reading budget based on actual source file sizes.
+
+        Returns:
+            (total_budget_chars, per_file_max_chars)
+        """
+        # Check for explicit overrides from settings
+        if self._settings.file_reading_budget > 0:
+            per_file = self._settings.file_reading_per_file_max or 10_000
+            return (self._settings.file_reading_budget, per_file)
+
+        total_source_size = 0
+
+        if structure_data and "file_tree" in structure_data:
+            for node in structure_data["file_tree"]:
+                if node.get("type") != "file":
+                    continue
+                path = node.get("path", node.get("name", ""))
+                if not path or "." not in path:
+                    continue
+                ext = "." + path.rsplit(".", 1)[-1].lower()
+                if ext in SOURCE_CODE_EXTENSIONS:
+                    total_source_size += node.get("size", 0)
+
+        if total_source_size == 0:
+            return (150_000, 10_000)  # Fallback to current defaults
+
+        # Tier-based budget using exact sizes
+        if total_source_size <= 300_000:      # Small repo (<300KB source)
+            return (total_source_size + 50_000, 35_000)  # Read all + headroom
+        elif total_source_size <= 1_000_000:  # Medium repo (300KB-1MB)
+            return (400_000, 15_000)
+        else:                                  # Large repo (>1MB)
+            return (250_000, 10_000)
+
+    def _supplement_with_remaining_files(
+        self,
+        repo_path: Path,
+        phase_files: dict[str, dict[str, str]],
+        total_budget: int,
+        per_file_max: int,
+        discovery_ignored_dirs: set[str] | None,
+    ) -> dict[str, dict[str, str]]:
+        """For small repos, read ALL remaining source files into a supplementary phase.
+
+        Walks the repo for source files, skips files already in cache,
+        reads remaining within leftover budget.
+        """
+        ignored = discovery_ignored_dirs or set()
+
+        # Gather already-read paths
+        already_read: set[str] = set()
+        for phase_dict in phase_files.values():
+            already_read.update(phase_dict.keys())
+
+        # Calculate remaining budget
+        current_chars = sum(
+            len(content)
+            for phase_dict in phase_files.values()
+            for content in phase_dict.values()
+        )
+        remaining = total_budget - current_chars
+        if remaining <= 0:
+            return phase_files
+
+        supplementary: dict[str, str] = {}
+        for ext in SOURCE_CODE_EXTENSIONS:
+            for file_path in repo_path.rglob(f"*{ext}"):
+                if remaining <= 0:
+                    break
+                try:
+                    rel = str(file_path.relative_to(repo_path))
+                except ValueError:
+                    continue
+                if any(part in ignored for part in Path(rel).parts):
+                    continue
+                if rel in already_read:
+                    continue
+                try:
+                    content = file_path.read_text(encoding="utf-8", errors="ignore")
+                    truncated = content[:per_file_max]
+                    supplementary[rel] = truncated
+                    remaining -= len(truncated)
+                    already_read.add(rel)
+                except Exception:
+                    continue
+            if remaining <= 0:
+                break
+
+        if supplementary:
+            phase_files["_supplementary"] = supplementary
+
+        return phase_files
 
     async def _get_phase_code(
         self,
@@ -1512,20 +1674,13 @@ Please configure the Anthropic API key to enable full blueprint generation.
         Returns:
             Formatted string of all file signatures
         """
-        code_extensions = {
-            ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
-            ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
-            ".kt", ".scala", ".m", ".mm",  # Added Objective-C
-        }
-        
-        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
-        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+        ignore_patterns = discovery_ignored_dirs or set()
         
         signatures = []
         file_count = 0
         max_files = 300  # Limit to keep within token budget
         
-        for ext in code_extensions:
+        for ext in SOURCE_CODE_EXTENSIONS:
             for file_path in repo_path.rglob(f"*{ext}"):
                 if file_count >= max_files:
                     break
@@ -1600,6 +1755,7 @@ Please configure the Anthropic API key to enable full blueprint generation.
             '.php': r'^(?:use|namespace|require|include)',
             '.m': r'^(?:#import|#include|@import)',
             '.mm': r'^(?:#import|#include|@import)',
+            '.xml': r'^(?:<\?xml|<manifest|<layout|<navigation|<resources|<LinearLayout|<RelativeLayout|<ConstraintLayout|<androidx)',
         }
         
         pattern = import_patterns.get(ext, r'^(?:import|from|use|require)')

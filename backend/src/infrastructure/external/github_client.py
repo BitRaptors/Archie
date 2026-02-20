@@ -37,12 +37,12 @@ class GitHubClient:
                 raise AuthorizationError("Invalid GitHub token")
             raise ValidationError(f"Failed to get user: {str(e)}")
 
-    def list_repositories(self, limit: int = 100) -> list[dict[str, Any]]:
-        """List user's repositories."""
+    def list_repositories(self) -> list[dict[str, Any]]:
+        """List all user's repositories."""
         try:
             repos = self._client.get_user().get_repos()
             result = []
-            for repo in repos[:limit]:
+            for repo in repos:
                 result.append({
                     "id": str(repo.id),
                     "name": repo.name,

@@ -272,7 +272,31 @@ INSERT INTO library_capabilities (library_name, ecosystem, capabilities) VALUES
     ('swinject',    'iOS',              ARRAY['dependency_injection']),
     ('riverpod',    'Flutter',          ARRAY['state_management','dependency_injection']),
     ('bloc',        'Flutter',          ARRAY['state_management']),
-    ('provider',    'Flutter',          ARRAY['state_management'])
+    ('provider',    'Flutter',          ARRAY['state_management']),
+    -- Mobile: Android
+    ('compose',             'Android Jetpack',      ARRAY['ui_framework']),
+    ('navigation-compose',  'Android Jetpack',      ARRAY['navigation']),
+    ('glide',               'Android',              ARRAY['image_loading']),
+    ('gson',                'Android',              ARRAY['serialization']),
+    ('timber',              'Android',              ARRAY['logging']),
+    ('leakcanary',          'Android',              ARRAY['monitoring']),
+    ('coroutines',          'Android',              ARRAY['concurrency']),
+    ('livedata',            'Android Jetpack',      ARRAY['state_management']),
+    ('datastore',           'Android Jetpack',      ARRAY['persistence']),
+    -- Mobile: iOS
+    ('swiftui',             'Apple',                ARRAY['ui_framework']),
+    ('uikit',               'Apple',                ARRAY['ui_framework']),
+    ('kingfisher',          'iOS',                  ARRAY['image_loading']),
+    ('snapkit',             'iOS',                  ARRAY['ui_framework']),
+    ('sdwebimage',          'iOS',                  ARRAY['image_loading']),
+    -- Mobile: Cross-platform
+    ('lottie',              'Cross-platform',       ARRAY['ui_framework']),
+    ('ktor',                'Kotlin Multiplatform', ARRAY['networking']),
+    ('koin',                'Kotlin Multiplatform', ARRAY['dependency_injection']),
+    ('coil',                'Android',              ARRAY['image_loading']),
+    ('okhttp',              'Cross-platform',       ARRAY['networking']),
+    ('moshi',               'Cross-platform',       ARRAY['serialization']),
+    ('moya',                'iOS',                  ARRAY['networking'])
 ON CONFLICT (library_name) DO NOTHING;
 
 -- ============================================================

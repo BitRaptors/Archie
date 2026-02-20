@@ -11,9 +11,40 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
+
+
+def _coerce_str_list(v: Any) -> list[str]:
+    """Coerce a list that may contain dicts (from AI output) into list[str].
+
+    The AI model sometimes returns structured objects like
+    {"name": "RxSwift", "version": "unspecified"} or
+    {"name": "title", "type": "String", "description": "..."} instead of
+    plain strings. This validator normalizes them.
+    """
+    if not isinstance(v, list):
+        return []
+    result: list[str] = []
+    for item in v:
+        if isinstance(item, str):
+            result.append(item)
+        elif isinstance(item, dict):
+            name = item.get("name", item.get("title", ""))
+            extra = item.get("version", item.get("type", item.get("description", "")))
+            if extra and extra not in ("unspecified", ""):
+                result.append(f"{name} {extra}" if name else str(extra))
+            elif name:
+                result.append(name)
+            else:
+                result.append(str(item))
+        else:
+            result.append(str(item))
+    return result
+
+
+StrList = Annotated[list[str], BeforeValidator(_coerce_str_list)]
 
 
 # ── Meta ──────────────────────────────────────────────────────────────────────
@@ -35,7 +66,7 @@ class BlueprintMeta(BaseModel):
     analyzed_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     schema_version: str = "2.0.0"
     architecture_style: str = ""
-    platforms: list[str] = Field(default_factory=list)  # e.g. ["backend", "web-frontend", "mobile-ios"]
+    platforms: StrList = Field(default_factory=list)  # e.g. ["backend", "web-frontend", "mobile-ios"]
     executive_summary: str = ""  # 3-5 factual sentences about the codebase
     confidence: ConfidenceScores = Field(default_factory=ConfidenceScores)
 
@@ -55,7 +86,7 @@ class NamingConvention(BaseModel):
     """A naming convention observed in the codebase."""
     scope: str = ""  # classes | functions | files | modules | variables
     pattern: str = ""
-    examples: list[str] = Field(default_factory=list)
+    examples: StrList = Field(default_factory=list)
     description: str = ""
 
 
@@ -72,7 +103,7 @@ class ArchitecturalDecision(BaseModel):
     title: str = ""
     chosen: str = ""
     rationale: str = ""
-    alternatives_rejected: list[str] = Field(default_factory=list)
+    alternatives_rejected: StrList = Field(default_factory=list)
 
 
 class TradeOff(BaseModel):
@@ -86,7 +117,7 @@ class Decisions(BaseModel):
     architectural_style: ArchitecturalDecision = Field(default_factory=ArchitecturalDecision)
     key_decisions: list[ArchitecturalDecision] = Field(default_factory=list)
     trade_offs: list[TradeOff] = Field(default_factory=list)
-    out_of_scope: list[str] = Field(default_factory=list)
+    out_of_scope: StrList = Field(default_factory=list)
 
 
 # ── Components ────────────────────────────────────────────────────────────────
@@ -94,7 +125,7 @@ class Decisions(BaseModel):
 class KeyInterface(BaseModel):
     """A key interface / contract within a component."""
     name: str = ""
-    methods: list[str] = Field(default_factory=list)
+    methods: StrList = Field(default_factory=list)
     description: str = ""
 
 
@@ -104,8 +135,8 @@ class Component(BaseModel):
     location: str = ""
     responsibility: str = ""
     platform: str = ""  # backend | frontend | shared | ""
-    depends_on: list[str] = Field(default_factory=list)
-    exposes_to: list[str] = Field(default_factory=list)
+    depends_on: StrList = Field(default_factory=list)
+    exposes_to: StrList = Field(default_factory=list)
     key_interfaces: list[KeyInterface] = Field(default_factory=list)
     key_files: list[dict[str, str]] = Field(default_factory=list)
 
@@ -114,9 +145,9 @@ class Contract(BaseModel):
     """An interface contract between components."""
     interface_name: str = ""
     description: str = ""
-    methods: list[str] = Field(default_factory=list)
-    properties: list[str] = Field(default_factory=list)
-    implementing_files: list[str] = Field(default_factory=list)
+    methods: StrList = Field(default_factory=list)
+    properties: StrList = Field(default_factory=list)
+    implementing_files: StrList = Field(default_factory=list)
 
 
 class Components(BaseModel):
@@ -133,7 +164,7 @@ class CommunicationPattern(BaseModel):
     name: str = ""
     when_to_use: str = ""
     how_it_works: str = ""
-    examples: list[str] = Field(default_factory=list)
+    examples: StrList = Field(default_factory=list)
 
 
 class Integration(BaseModel):
@@ -207,8 +238,8 @@ class UIComponent(BaseModel):
     location: str = ""
     component_type: str = ""  # page | layout | feature | shared | primitive
     description: str = ""
-    props: list[str] = Field(default_factory=list)
-    children: list[str] = Field(default_factory=list)
+    props: StrList = Field(default_factory=list)
+    children: StrList = Field(default_factory=list)
 
 
 class StateManagement(BaseModel):
@@ -253,7 +284,7 @@ class DataFetchingPattern(BaseModel):
     name: str = ""
     mechanism: str = ""  # e.g. "React Query hook", "fetch in loader", "SSR getServerSideProps"
     when_to_use: str = ""
-    examples: list[str] = Field(default_factory=list)
+    examples: StrList = Field(default_factory=list)
 
 
 class Frontend(BaseModel):
@@ -269,26 +300,7 @@ class Frontend(BaseModel):
     routing: list[Route] = Field(default_factory=list)
     data_fetching: list[DataFetchingPattern] = Field(default_factory=list)
     styling: str = ""  # e.g. "Tailwind CSS", "CSS Modules", "Styled Components"
-    key_conventions: list[str] = Field(default_factory=list)
-
-    @field_validator("key_conventions", mode="before")
-    @classmethod
-    def _coerce_key_conventions(cls, v: Any) -> list[str]:
-        """Coerce AI output that returns dicts instead of plain strings."""
-        if not isinstance(v, list):
-            return v
-        result: list[str] = []
-        for item in v:
-            if isinstance(item, str):
-                result.append(item)
-            elif isinstance(item, dict):
-                # AI sometimes returns {"convention": "...", "rationale": "..."}
-                conv = item.get("convention", "") or item.get("name", "")
-                rationale = item.get("rationale", "") or item.get("description", "")
-                result.append(f"{conv}: {rationale}".strip(": ") if rationale else str(conv))
-            else:
-                result.append(str(item))
-        return result
+    key_conventions: StrList = Field(default_factory=list)
 
 
 # ── Developer Guidance ────────────────────────────────────────────────────────
@@ -296,8 +308,8 @@ class Frontend(BaseModel):
 class DeveloperRecipe(BaseModel):
     """Actionable recipe: 'To do X, touch these files and follow these steps.'"""
     task: str = ""
-    files: list[str] = Field(default_factory=list)
-    steps: list[str] = Field(default_factory=list)
+    files: StrList = Field(default_factory=list)
+    steps: StrList = Field(default_factory=list)
 
 
 class ArchitecturalPitfall(BaseModel):
@@ -311,11 +323,11 @@ class ImplementationGuideline(BaseModel):
     """How an existing capability was implemented — replication guide for agents."""
     capability: str = ""          # "Push Notifications", "Map Display"
     category: str = ""            # "notifications", "location", "media", "auth", "persistence", "ui"
-    libraries: list[str] = Field(default_factory=list)  # ["Firebase Cloud Messaging 10.x"]
+    libraries: StrList = Field(default_factory=list)  # ["Firebase Cloud Messaging 10.x"]
     pattern_description: str = "" # 1-3 sentences: how it was built
-    key_files: list[str] = Field(default_factory=list)  # actual file paths
+    key_files: StrList = Field(default_factory=list)  # actual file paths
     usage_example: str = ""       # code snippet or invocation pattern
-    tips: list[str] = Field(default_factory=list)        # gotchas for this capability
+    tips: StrList = Field(default_factory=list)        # gotchas for this capability
 
 
 # ── Top-Level Blueprint ──────────────────────────────────────────────────────

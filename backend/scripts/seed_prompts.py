@@ -155,8 +155,6 @@ def main() -> None:
 
             async def _run():
                 db = await create_db()
-                await db.postgrest.schema("public").rpc("", {}).execute()  # noqa — not needed
-                # Use raw SQL via supabase-py
                 for key, prompt_data in prompts.items():
                     variables_json = json.dumps(prompt_data.get("variables", []))
                     is_default = prompt_data.get("is_default", True)

@@ -8,14 +8,18 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
-import { Loader2, Settings, Save, RotateCcw, ChevronRight, FolderX, Zap, FileCode, History, Box } from 'lucide-react'
+import { Loader2, Settings, Save, RotateCcw, ChevronRight, FolderX, Zap, FileCode, History, Box, Trash2, Database } from 'lucide-react'
 import { IgnoredDirsSettingsView } from './IgnoredDirsSettingsView'
 import { CapabilitiesSettingsView } from './CapabilitiesSettingsView'
+import { ConfirmationDialog } from '@/components/ConfirmationDialog'
+import { useResetAllData } from '@/hooks/api/useSettings'
 
-type SettingsTab = 'prompts' | 'ignored_dirs' | 'capabilities'
+type SettingsTab = 'prompts' | 'ignored_dirs' | 'capabilities' | 'database'
 
 export function SettingsView() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('prompts')
+  const [showResetDialog, setShowResetDialog] = useState(false)
+  const resetAllData = useResetAllData()
 
   return (
     <div className="flex flex-col h-full animate-in fade-in zoom-in-95 duration-300">
@@ -73,6 +77,18 @@ export function SettingsView() {
             <Box className="w-4 h-4" />
             Library Mappings
           </button>
+          <button
+            className={cn(
+              "flex items-center gap-2 px-1 py-4 text-sm font-bold transition-all whitespace-nowrap border-b-2 -mb-[2px]",
+              settingsTab === 'database'
+                ? "border-teal text-ink"
+                : "border-transparent text-ink/40 hover:text-ink/60"
+            )}
+            onClick={() => setSettingsTab('database')}
+          >
+            <Database className="w-4 h-4" />
+            Database handling
+          </button>
         </div>
 
         {/* View container */}
@@ -80,8 +96,59 @@ export function SettingsView() {
           {settingsTab === 'prompts' && <PromptsSettings />}
           {settingsTab === 'ignored_dirs' && <IgnoredDirsSettingsView />}
           {settingsTab === 'capabilities' && <CapabilitiesSettingsView />}
+          {settingsTab === 'database' && (
+            <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+              <div className="p-8 border border-destructive/20 rounded-2xl bg-destructive/5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 rounded-lg bg-destructive/10">
+                    <Trash2 className="w-5 h-5 text-destructive" />
+                  </div>
+                  <h3 className="text-lg font-bold text-destructive uppercase tracking-widest">Danger Zone</h3>
+                </div>
+
+                <p className="text-sm text-ink-400 mb-8 max-w-2xl leading-relaxed">
+                  Permanently delete all repositories, analyses, embeddings, and local storage. This action will completely reset the system state to its original configuration. Defaults will be re-seeded, but all user data will be lost forever.
+                </p>
+
+                <div className="flex flex-col items-start gap-4">
+                  <div className="bg-white/50 border border-destructive/10 p-4 rounded-xl text-xs text-destructive/80 font-medium">
+                    ⚠️ Caution: There is no undo for this operation.
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="border-destructive/50 text-destructive hover:bg-destructive shadow-sm hover:text-white transition-all h-12 px-8 gap-3 font-bold"
+                    onClick={() => setShowResetDialog(true)}
+                    disabled={resetAllData.isPending}
+                  >
+                    {resetAllData.isPending ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-5 h-5" />
+                    )}
+                    {resetAllData.isPending ? 'Resetting System...' : 'Reset All Data and Purge Database'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Reset Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={showResetDialog}
+        onClose={() => setShowResetDialog(false)}
+        onConfirm={() => {
+          resetAllData.mutate(undefined, {
+            onSuccess: () => setShowResetDialog(false),
+          })
+        }}
+        title="Reset All Data"
+        message="This will permanently delete all repositories, analyses, blueprints, and local storage files. Settings will be re-seeded to defaults. This action cannot be undone."
+        confirmText="Reset Everything"
+        destructive
+        isLoading={resetAllData.isPending}
+      />
     </div>
   )
 }

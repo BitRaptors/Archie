@@ -65,4 +65,10 @@ export const settingsService = {
     const response = await axios.post(`${API_URL}/api/v1/settings/library-capabilities/reset`)
     return response.data
   },
+
+  // ── Reset All Data ─────────────────────────────────────────────
+  async resetAllData(): Promise<{ reset: boolean; warnings?: string[] }> {
+    const response = await axios.post(`${API_URL}/api/v1/settings/reset-data`)
+    return response.data
+  },
 }

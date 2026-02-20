@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 from domain.entities.analysis import Analysis
-from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS, DEFAULT_LIBRARY_CAPABILITIES
+from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
 from domain.entities.repository import Repository
 from domain.entities.analysis_event import AnalysisEvent
 from domain.interfaces.repositories import (
@@ -99,9 +99,9 @@ class AnalysisService:
             raise NotFoundError("Analysis", analysis_id)
 
         try:
-            # Load analysis settings from DB
-            discovery_ignored_dirs = DEFAULT_IGNORED_DIRS
-            library_capabilities = DEFAULT_LIBRARY_CAPABILITIES
+            # Load analysis settings from DB (no DB = no filtering)
+            discovery_ignored_dirs: set[str] = set()
+            library_capabilities: dict[str, dict] = {}
             if self._db_client:
                 try:
                     dirs_repo = IgnoredDirsRepository(db=self._db_client)
@@ -116,7 +116,7 @@ class AnalysisService:
                             for lib in lib_rows
                         }
                 except Exception:
-                    pass  # Fall back to defaults
+                    pass  # No DB = no filtering, analysis still works
 
             # Phase 1: Structure scan (data extraction only)
             await self._log_event(analysis_id, "PHASE_START", "Phase 1: Scanning file structure")
@@ -290,6 +290,7 @@ class AnalysisService:
                 blueprint_type="backend",
                 discovery_ignored_dirs=discovery_ignored_dirs,
                 provided_capabilities=provided_capabilities,
+                structure_data=structure_data,
             )
             
             # Validate blueprint was generated (returns dict with "structured" and optionally "markdown")
@@ -442,7 +443,7 @@ class AnalysisService:
         """Extract dependencies from package files recursively."""
         dependencies = []
 
-        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+        ignore_patterns = discovery_ignored_dirs or set()
         
         # Find all requirements.txt files recursively
         for requirements_file in repo_path.rglob("requirements.txt"):
@@ -508,6 +509,73 @@ class AnalysisService:
             except Exception:
                 continue
         
+        # Find all Podfile files recursively (iOS CocoaPods)
+        for podfile in repo_path.rglob("Podfile"):
+            if any(part in ignore_patterns for part in podfile.relative_to(repo_path).parts):
+                continue
+            try:
+                content = podfile.read_text(encoding="utf-8", errors="ignore")
+                rel_path = podfile.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```ruby\n{content[:1000]}\n```")
+            except Exception:
+                continue
+
+        # Find all Package.swift files recursively (iOS SPM)
+        for pkg_swift in repo_path.rglob("Package.swift"):
+            if any(part in ignore_patterns for part in pkg_swift.relative_to(repo_path).parts):
+                continue
+            try:
+                content = pkg_swift.read_text(encoding="utf-8", errors="ignore")
+                rel_path = pkg_swift.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```swift\n{content[:1000]}\n```")
+            except Exception:
+                continue
+
+        # Find all Cartfile files recursively (iOS Carthage)
+        for cartfile in repo_path.rglob("Cartfile"):
+            if any(part in ignore_patterns for part in cartfile.relative_to(repo_path).parts):
+                continue
+            try:
+                content = cartfile.read_text(encoding="utf-8", errors="ignore")
+                rel_path = cartfile.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```\n{content[:1000]}\n```")
+            except Exception:
+                continue
+
+        # Find all build.gradle files recursively (Android Gradle)
+        for gradle_file in repo_path.rglob("build.gradle"):
+            if any(part in ignore_patterns for part in gradle_file.relative_to(repo_path).parts):
+                continue
+            try:
+                content = gradle_file.read_text(encoding="utf-8", errors="ignore")
+                rel_path = gradle_file.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```groovy\n{content[:1000]}\n```")
+            except Exception:
+                continue
+
+        # Find all build.gradle.kts files recursively (Android Gradle Kotlin DSL)
+        for gradle_kts in repo_path.rglob("build.gradle.kts"):
+            if any(part in ignore_patterns for part in gradle_kts.relative_to(repo_path).parts):
+                continue
+            try:
+                content = gradle_kts.read_text(encoding="utf-8", errors="ignore")
+                rel_path = gradle_kts.relative_to(repo_path)
+                dependencies.append(f"**{rel_path}:**\n```kotlin\n{content[:1000]}\n```")
+            except Exception:
+                continue
+
+        # Find all settings.gradle* files recursively (Android module declarations)
+        for settings_gradle in repo_path.rglob("settings.gradle*"):
+            if any(part in ignore_patterns for part in settings_gradle.relative_to(repo_path).parts):
+                continue
+            try:
+                content = settings_gradle.read_text(encoding="utf-8", errors="ignore")
+                rel_path = settings_gradle.relative_to(repo_path)
+                lang = "kotlin" if str(rel_path).endswith(".kts") else "groovy"
+                dependencies.append(f"**{rel_path}:**\n```{lang}\n{content[:1000]}\n```")
+            except Exception:
+                continue
+
         # Find all go.mod files recursively (Go projects)
         for go_mod in repo_path.rglob("go.mod"):
             if any(part in ignore_patterns for part in go_mod.relative_to(repo_path).parts):
@@ -526,7 +594,7 @@ class AnalysisService:
         """Extract key configuration files recursively."""
         config_files = {}
 
-        ignore_patterns = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+        ignore_patterns = discovery_ignored_dirs or set()
         
         # Common configuration file patterns (exact matches)
         exact_config_patterns = [
@@ -544,6 +612,9 @@ class AnalysisService:
             "tsconfig.json", "jsconfig.json",
             # CI/CD
             ".gitlab-ci.yml",
+            # Mobile
+            "AndroidManifest.xml", "proguard-rules.pro", "gradle.properties",
+            "Info.plist", "Podfile.lock",
             # Other common config files
             ".editorconfig", ".gitignore",
         ]
@@ -561,6 +632,8 @@ class AnalysisService:
             ".eslintrc", ".prettierrc",
             # TypeScript config variants
             "tsconfig",
+            # Mobile build files
+            "build.gradle", "settings.gradle",
         ]
         
         # Extension patterns to check
@@ -641,9 +714,7 @@ class AnalysisService:
 
     async def _extract_code_samples(self, repo_path: Path, structure_data: dict[str, Any], discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
         """Extract representative code samples."""
-        from domain.entities.analysis_settings import DEFAULT_IGNORED_DIRS
-
-        ignored = discovery_ignored_dirs or DEFAULT_IGNORED_DIRS
+        ignored = discovery_ignored_dirs or set()
         code_samples = {}
 
         # Get a diverse set of files from file_tree
@@ -654,7 +725,7 @@ class AnalysisService:
             for node in structure_data["file_tree"]:
                 if node.get("type") == "file":
                     file_path = node.get("path", node.get("name", ""))
-                    if any(ext in str(file_path) for ext in [".py", ".ts", ".tsx", ".js", ".jsx"]):
+                    if any(ext in str(file_path) for ext in [".py", ".ts", ".tsx", ".js", ".jsx", ".kt", ".java", ".swift", ".xml"]):
                         # Skip files inside ignored directories
                         if any(part in ignored for part in Path(file_path).parts):
                             continue

@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     max_analysis_workers: int = Field(default=4)
     analysis_timeout_seconds: int = Field(default=3600)  # 1 hour
 
+    # File reading budget (0 = auto/dynamic based on repo size)
+    file_reading_budget: int = Field(default=0)
+    file_reading_per_file_max: int = Field(default=0)
+
     model_config = {
         "env_file": ".env.local",
         "env_file_encoding": "utf-8",

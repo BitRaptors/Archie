@@ -3,8 +3,8 @@ import pytest
 
 from domain.entities.analysis_settings import (
     CAPABILITY_OPTIONS,
-    DEFAULT_IGNORED_DIRS,
-    DEFAULT_LIBRARY_CAPABILITIES,
+    SEED_IGNORED_DIRS,
+    SEED_LIBRARY_CAPABILITIES,
     ECOSYSTEM_OPTIONS,
     IgnoredDirectory,
     LibraryCapability,
@@ -47,27 +47,27 @@ class TestEcosystemOptions:
             assert eco in ECOSYSTEM_OPTIONS, f"{eco} missing from ECOSYSTEM_OPTIONS"
 
 
-class TestDefaultIgnoredDirs:
+class TestSeedIgnoredDirs:
 
     def test_is_set(self):
-        assert isinstance(DEFAULT_IGNORED_DIRS, set)
+        assert isinstance(SEED_IGNORED_DIRS, set)
 
     def test_common_dirs_present(self):
         expected = ["node_modules", "Pods", ".git", "__pycache__", "dist", "build", "vendor"]
         for d in expected:
-            assert d in DEFAULT_IGNORED_DIRS, f"{d} missing from DEFAULT_IGNORED_DIRS"
+            assert d in SEED_IGNORED_DIRS, f"{d} missing from SEED_IGNORED_DIRS"
 
     def test_no_empty_strings(self):
-        for d in DEFAULT_IGNORED_DIRS:
-            assert d.strip(), "Empty string found in DEFAULT_IGNORED_DIRS"
+        for d in SEED_IGNORED_DIRS:
+            assert d.strip(), "Empty string found in SEED_IGNORED_DIRS"
 
 
-class TestDefaultLibraryCapabilities:
+class TestSeedLibraryCapabilities:
 
     def test_all_capabilities_are_valid(self):
         """Every capability in the defaults must be in CAPABILITY_OPTIONS."""
         valid = set(CAPABILITY_OPTIONS)
-        for lib_name, info in DEFAULT_LIBRARY_CAPABILITIES.items():
+        for lib_name, info in SEED_LIBRARY_CAPABILITIES.items():
             for cap in info["capabilities"]:
                 assert cap in valid, (
                     f"Invalid capability '{cap}' for library '{lib_name}'. "
@@ -77,14 +77,14 @@ class TestDefaultLibraryCapabilities:
     def test_all_ecosystems_are_valid(self):
         """Every ecosystem in the defaults must be in ECOSYSTEM_OPTIONS."""
         valid = set(ECOSYSTEM_OPTIONS)
-        for lib_name, info in DEFAULT_LIBRARY_CAPABILITIES.items():
+        for lib_name, info in SEED_LIBRARY_CAPABILITIES.items():
             assert info["ecosystem"] in valid, (
                 f"Invalid ecosystem '{info['ecosystem']}' for library '{lib_name}'. "
                 f"Not in ECOSYSTEM_OPTIONS."
             )
 
     def test_every_entry_has_ecosystem_and_capabilities(self):
-        for lib_name, info in DEFAULT_LIBRARY_CAPABILITIES.items():
+        for lib_name, info in SEED_LIBRARY_CAPABILITIES.items():
             assert "ecosystem" in info, f"{lib_name} missing 'ecosystem'"
             assert "capabilities" in info, f"{lib_name} missing 'capabilities'"
             assert isinstance(info["capabilities"], list)
@@ -93,7 +93,7 @@ class TestDefaultLibraryCapabilities:
     def test_known_libraries_present(self):
         expected = ["firebase", "supabase", "axios", "redux", "prisma", "sentry"]
         for lib in expected:
-            assert lib in DEFAULT_LIBRARY_CAPABILITIES, f"{lib} missing from defaults"
+            assert lib in SEED_LIBRARY_CAPABILITIES, f"{lib} missing from defaults"
 
 
 class TestIgnoredDirectoryModel:
