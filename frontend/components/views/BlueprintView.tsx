@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Card } from '@/components/ui/card'
@@ -6,9 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, Loader2, CheckCircle2, X, Layers, Eye, Activity } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
-import { SourceFileModal } from '@/components/SourceFileModal'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
+
+const SourceFileModal = dynamic(
+    () => import('@/components/SourceFileModal').then(mod => mod.SourceFileModal),
+    { ssr: false }
+)
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { SERVER_TOKEN } from '@/context/auth'
@@ -73,6 +78,41 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         summary: {}
     })
     const [activeSection, setActiveSection] = useState('')
+
+    const markdownComponents = useMemo(() => ({
+        code({ className, children, ...props }: any) {
+            if (className === 'language-mermaid') {
+                return <MermaidDiagram chart={String(children).trim()} />
+            }
+            return <code className={className} {...props}>{children}</code>
+        },
+        pre({ children, node, ...props }: any) {
+            const child = node?.children?.[0] as any
+            if (child?.tagName === 'code' && child?.properties?.className?.[0] === 'language-mermaid') {
+                return <>{children}</>
+            }
+            return <pre {...props}>{children}</pre>
+        },
+        a({ href, children, ...props }: any) {
+            const isSourceLink = href?.startsWith('source://')
+            const isRelativeFile = !!(href && !href.startsWith('http') && !href.startsWith('https') && !href.startsWith('#') && (href.includes('.') || href.includes('/')))
+
+            if (isSourceLink || isRelativeFile) {
+                const filePath = isSourceLink ? href?.replace('source://', '') : href
+                if (filePath) {
+                    return (
+                        <span
+                            onClick={() => setSourceFilePath(filePath)}
+                            className="text-teal font-bold underline cursor-pointer hover:text-teal-600 transition-colors"
+                        >
+                            {children}
+                        </span>
+                    )
+                }
+            }
+            return <a {...props} href={href || ''} target="_blank" rel="noopener noreferrer" className="text-teal underline font-medium">{children}</a>
+        },
+    }), []) // setSourceFilePath is a stable useState setter
 
     const toc = useMemo(
         () => (activeTab === 'backend' && backendBlueprint?.content)
@@ -141,6 +181,8 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         fetchProjectPath()
     }, [fetchBlueprints, fetchProjectPath])
 
+    const scrollingToRef = useRef(false)
+
     useEffect(() => {
         if (activeTab !== 'backend' || toc.length === 0 || isLoading) return
         const container = document.getElementById('blueprint-content-area')
@@ -151,10 +193,9 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
             h.style.scrollMarginTop = '1.5rem'
         })
         const handleScroll = () => {
+            if (scrollingToRef.current) return
             const containerTop = container.getBoundingClientRect().top
             let current = ''
-
-            // Find the heading that is closest to the top of the viewport
             for (const h of headings) {
                 const rect = h.getBoundingClientRect()
                 if (rect.top - containerTop < 100) {
@@ -163,27 +204,22 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                     break
                 }
             }
-            if (current && current !== activeSection) setActiveSection(current)
+            if (current) setActiveSection(current)
         }
         container.addEventListener('scroll', handleScroll, { passive: true })
         handleScroll()
         return () => container.removeEventListener('scroll', handleScroll)
-    }, [toc, activeTab, isLoading, activeSection])
-
-    useEffect(() => {
-        if (activeSection) {
-            const tocItem = document.getElementById(`toc-${activeSection}`)
-            tocItem?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-        }
-    }, [activeSection])
+    }, [toc, activeTab, isLoading])
 
     const scrollToSection = (id: string) => {
         const container = document.getElementById('blueprint-content-area')
         const element = document.getElementById(id)
         if (!container || !element) return
+        scrollingToRef.current = true
+        setActiveSection(id)
         const y = element.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 24
         container.scrollTo({ top: y, behavior: 'smooth' })
-        setActiveSection(id)
+        setTimeout(() => { scrollingToRef.current = false }, 800)
     }
 
     const handleDownload = (content: string, filename: string) => {
@@ -418,7 +454,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         </aside>
                     )}
 
-                    <div className="flex-1 overflow-y-auto bg-white/60 border border-papaya-400/60 rounded-3xl shadow-inner relative" id="blueprint-content-area">
+                    <div className="flex-1 overflow-y-auto overflow-x-hidden bg-white/60 border border-papaya-400/60 rounded-3xl shadow-inner relative" id="blueprint-content-area">
                         {activeTab === 'backend' && backendBlueprint && (
                             <div className="p-10 relative">
                                 <Button
@@ -436,33 +472,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                             if (url.startsWith('source://')) return url
                                             return url
                                         }}
-                                        components={{
-                                            code({ className, children, ...props }) {
-                                                if (className === 'language-mermaid') {
-                                                    return <MermaidDiagram chart={String(children).trim()} />
-                                                }
-                                                return <code className={className} {...props}>{children}</code>
-                                            },
-                                            a({ href, children, ...props }) {
-                                                const isSourceLink = href?.startsWith('source://')
-                                                const isRelativeFile = !!(href && !href.startsWith('http') && !href.startsWith('https') && !href.startsWith('#') && (href.includes('.') || href.includes('/')))
-
-                                                if (isSourceLink || isRelativeFile) {
-                                                    const filePath = isSourceLink ? href?.replace('source://', '') : href
-                                                    if (filePath) {
-                                                        return (
-                                                            <span
-                                                                onClick={() => setSourceFilePath(filePath)}
-                                                                className="text-teal font-bold underline cursor-pointer hover:text-teal-600 transition-colors"
-                                                            >
-                                                                {children}
-                                                            </span>
-                                                        )
-                                                    }
-                                                }
-                                                return <a {...props} href={href || ''} target="_blank" rel="noopener noreferrer" className="text-teal underline font-medium">{children}</a>
-                                            },
-                                        }}
+                                        components={markdownComponents}
                                     >
                                         {backendBlueprint.content}
                                     </ReactMarkdown>
