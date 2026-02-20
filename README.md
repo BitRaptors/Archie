@@ -51,7 +51,7 @@ The AI agent in your IDE connects to the MCP server. Before it creates a file, i
 ### Prerequisites
 
 - An [Anthropic API key](https://console.anthropic.com) (the only required secret)
-- Docker (installed automatically by setup script on macOS/Linux) — or a [Supabase](https://supabase.com) project if you prefer cloud database
+- A [Supabase](https://supabase.com) project (recommended) — or Docker (installed automatically by setup script) for local PostgreSQL
 - Python 3.11+ and Node.js 18+ (installed automatically by setup script if missing)
 
 ### Quick Start (recommended)
@@ -69,7 +69,7 @@ cd architecture-blueprints
 ```
 
 **That's it.** The setup script will:
-1. Ask you to choose a database: **postgres** (local Docker, recommended) or **supabase** (cloud)
+1. Ask you to choose a database: **supabase** (cloud, recommended) or **postgres** (local Docker)
 2. Install Docker, Python, and Node.js if missing
 3. Start PostgreSQL + Redis containers (if postgres chosen)
 4. Run database migrations automatically (tables, indexes, seed data)
@@ -148,12 +148,16 @@ The MCP server exposes these tools:
 
 | Tool | Purpose |
 |------|---------|
-| `where_to_put` | Get correct directory and naming pattern for a component |
-| `check_naming` | Verify a name follows the project's conventions |
-| `get_repository_blueprint` | Get the full architecture blueprint |
-| `list_repository_sections` | List addressable blueprint sections |
-| `get_repository_section` | Get a specific section (token-efficient) |
-| `how_to_implement` | Look up how a capability is already implemented (libraries, patterns, key files) |
+| `where_to_put` | Get correct directory and naming pattern for a component type |
+| `check_naming` | Validate a proposed name against project naming conventions |
+| `how_to_implement` | Fuzzy search for how a capability is already implemented (libraries, patterns, key files) |
+| `list_implementations` | List all documented implementation capabilities with IDs and summaries |
+| `how_to_implement_by_id` | Get full implementation details for a specific capability by ID |
+| `get_repository_blueprint` | Get the full architecture blueprint JSON |
+| `list_repository_sections` | List addressable section IDs in the blueprint |
+| `get_repository_section` | Get a specific blueprint section by slug (token-efficient) |
+| `list_source_files` | List all source files collected during analysis with sizes |
+| `get_file_content` | Read the content of a specific source file |
 
 ### Run tests
 
