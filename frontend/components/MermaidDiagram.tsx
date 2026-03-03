@@ -19,13 +19,27 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
         const mermaid = (await import('mermaid')).default
         mermaid.initialize({
           startOnLoad: false,
-          theme: 'default',
+          theme: 'base',
+          themeVariables: {
+            background: 'transparent',
+            primaryColor: '#CEEEF6', // papaya-50/100
+            primaryTextColor: '#023047', // ink
+            primaryBorderColor: '#219EBC', // teal
+            lineColor: '#219EBC',
+            secondaryColor: '#FFB703', // tangerine
+            tertiaryColor: '#FB8500', // brandy
+            fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+            fontSize: '14px',
+          },
           securityLevel: 'loose',
-          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         })
 
         const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        const { svg: rendered } = await mermaid.render(id, chart)
+        // Ensure chart is trimmed and handled correctly
+        const cleanChart = chart.trim()
+        if (!cleanChart) return
+
+        const { svg: rendered } = await mermaid.render(id, cleanChart)
         if (!cancelled) {
           setSvg(rendered)
           setError(null)
@@ -62,7 +76,7 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
   return (
     <div
       ref={containerRef}
-      className="my-4 overflow-x-auto"
+      className="my-4 overflow-hidden w-full flex justify-center [&>svg]:max-w-full [&>svg]:h-auto"
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   )

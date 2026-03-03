@@ -11,7 +11,7 @@ export function Shell({ children, sidebar, className, ...props }: ShellProps) {
             <aside className="fixed inset-y-0 left-0 z-50 hidden w-64 border-r bg-background lg:block">
                 {sidebar}
             </aside>
-            <main className={cn("lg:pl-64 w-full bg-muted/20 min-h-screen", className)} {...props}>
+            <main className={cn("lg:pl-64 w-full min-h-screen bg-gradient-to-br from-papaya-50 via-white to-teal-50/10", className)} {...props}>
                 {children}
             </main>
         </div>

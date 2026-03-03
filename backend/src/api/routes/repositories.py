@@ -50,18 +50,15 @@ async def list_repositories(request: Request):
         return repos
     except Exception as e:
         from domain.exceptions.domain_exceptions import AuthorizationError
-        
-        # Check if it's an authorization error (invalid/expired token)
+
         if isinstance(e, AuthorizationError) or "401" in str(e) or "Bad credentials" in str(e):
-            token_source = "user-provided" if has_user_token else "server environment"
+            has_header = bool(request.headers.get("Authorization", ""))
+            token_source = "user-provided" if has_header else "server environment"
             raise HTTPException(
-                status_code=401, 
+                status_code=401,
                 detail=f"GitHub token ({token_source}) is invalid or expired. Please check your token and re-authenticate."
             )
-        
-        import traceback
-        print(f"Error listing repositories: {str(e)}")
-        traceback.print_exc()
+
         raise HTTPException(status_code=500, detail=str(e))
 
 

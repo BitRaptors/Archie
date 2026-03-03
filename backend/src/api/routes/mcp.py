@@ -9,7 +9,6 @@ import logging
 
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount
-from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +26,17 @@ except ImportError:
 _sse_transport = SseServerTransport("/messages") if MCP_AVAILABLE else None
 
 
-async def handle_sse(request: Request):
-    """GET /mcp/sse — establish an SSE stream with the MCP client."""
+async def handle_sse(scope, receive, send):
+    """GET /mcp/sse — establish an SSE stream with the MCP client.
+
+    This is a raw ASGI handler (not a Starlette endpoint) because
+    SseServerTransport.connect_sse writes the response directly via
+    the ASGI send callable. A Route endpoint would try to call the
+    return value as a Response, causing TypeError on None.
+    """
     logger.info("MCP SSE client connecting")
     async with _sse_transport.connect_sse(
-        request.scope, request.receive, request._send
+        scope, receive, send
     ) as (read_stream, write_stream):
         await mcp_server.run(
             read_stream,
@@ -41,13 +46,11 @@ async def handle_sse(request: Request):
 
 
 # Build the Starlette sub-application.
-# - /sse uses a normal endpoint (connect_sse is a blocking context manager → works fine)
-# - /messages mounts handle_post_message directly as an ASGI app
-#   (it sends its own response via raw ASGI send, so it can't be a Route endpoint)
+# - /sse and /messages are both raw ASGI apps (they send responses directly)
 if MCP_AVAILABLE and _sse_transport is not None:
     mcp_app = Starlette(
         routes=[
-            Route("/sse", endpoint=handle_sse),
+            Mount("/sse", app=handle_sse),
             Mount("/messages", app=_sse_transport.handle_post_message),
         ],
     )

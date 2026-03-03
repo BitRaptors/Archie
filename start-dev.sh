@@ -154,8 +154,8 @@ if [ ! -d ".venv" ]; then
     pip install -r requirements.txt
 else
     source .venv/bin/activate
-    # Ensure all requirements are up to date (including newly added packages like mcp)
-    pip install -q -r requirements.txt 2>/dev/null || true
+    # Ensure all requirements are up to date (including newly added packages)
+    pip install -q -r requirements.txt || true
 fi
 
 # Read backend port from settings (PORT env var, default 8000)
@@ -222,7 +222,8 @@ if [ ! -d "node_modules" ]; then
     echo -e "${YELLOW}⚠️  Node modules not found. Installing...${NC}"
     npm install
 else
-    npm install --silent 2>/dev/null || true
+    # Run npm install to catch new dependencies but allow continuing if it fails (offline mode)
+    npm install --silent || true
 fi
 
 # Create a temporary file to capture the port

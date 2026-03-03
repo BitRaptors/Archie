@@ -147,17 +147,24 @@ architecture-blueprints/
 │           ├── services/               # Service tests (165+)
 │           └── infrastructure/         # Infrastructure tests (200+)
 ├── frontend/
-│   ├── pages/                          # Next.js pages
-│   │   ├── index.tsx                   # Dashboard
-│   │   ├── auth.tsx                    # Authentication
-│   │   ├── workspace.tsx               # Workspace management
-│   │   ├── analysis/[id].tsx           # Analysis progress (SSE streaming)
-│   │   └── blueprint/[id].tsx          # Blueprint viewer (tabbed)
+│   ├── pages/                          # Next.js pages (SPA — only 2 routes)
+│   │   ├── index.tsx                   # Dashboard (SPA shell, manages all views via state)
+│   │   └── auth.tsx                    # GitHub token authentication
 │   ├── components/
-│   │   ├── DeliveryPanel.tsx           # Delivery UI
-│   │   └── DebugView.tsx               # Debug info
-│   ├── context/                        # React context providers
-│   ├── hooks/                          # Custom hooks
+│   │   ├── views/                      # View components (rendered by index.tsx)
+│   │   │   ├── RepositoryView.tsx      # Repository list + public repo URL analysis
+│   │   │   ├── AnalysisView.tsx        # Real-time analysis progress (SSE)
+│   │   │   ├── BlueprintView.tsx       # Blueprint viewer (tabbed)
+│   │   │   └── SettingsView.tsx        # Ignored dirs, library capabilities
+│   │   ├── layout/                     # Layout components
+│   │   │   ├── Shell.tsx               # App shell (sidebar + content)
+│   │   │   ├── Sidebar.tsx             # Navigation + workspace history
+│   │   │   └── PageHeader.tsx          # Reusable page header
+│   │   ├── DeliveryPanel.tsx           # Delivery UI (sync with agent)
+│   │   ├── SourceFileModal.tsx         # Source file viewer modal
+│   │   └── DebugView.tsx               # Analysis data debug view
+│   ├── hooks/                          # Custom hooks (useAuth, useWorkspace, etc.)
+│   ├── services/                       # API client services
 │   └── package.json
 ├── docs/
 │   └── ARCHITECTURE.md                 # This file
@@ -979,31 +986,49 @@ CREATE FUNCTION match_embeddings(
 
 ## Frontend (Web UI)
 
+### Architecture
+
+The frontend is a **Single Page Application** (SPA). The dashboard (`index.tsx`) manages all views via an `activeView` state variable (`'repositories' | 'analysis' | 'blueprint' | 'settings'`). Navigation between views is handled by state changes, not route transitions.
+
 ### Pages
 
 | Page | Route | Purpose |
 |------|-------|---------|
-| Dashboard | `/` | Repository list, start new analysis |
+| Dashboard | `/` | SPA shell — renders RepositoryView, AnalysisView, BlueprintView, or SettingsView based on `activeView` state |
 | Auth | `/auth` | GitHub token authentication |
-| Workspace | `/workspace` | Manage analyzed repos, set active repo |
-| Analysis | `/analysis/[id]` | Real-time analysis progress via SSE |
-| Blueprint | `/blueprint/[id]` | Tabbed view of all outputs |
+
+### View Components
+
+| Component | View State | Purpose |
+|-----------|-----------|---------|
+| `RepositoryView` | `'repositories'` | Repository list, public repo URL analysis, start new analysis |
+| `AnalysisView` | `'analysis'` | Real-time analysis progress via SSE |
+| `BlueprintView` | `'blueprint'` | Tabbed view of all outputs (blueprint, agent files, MCP setup, analysis data) |
+| `SettingsView` | `'settings'` | Ignored directories, library capabilities configuration |
+
+### Layout Components
+
+| Component | Purpose |
+|-----------|---------|
+| `Shell` | App shell with sidebar slot and main content area |
+| `Sidebar` | Navigation, workspace repository history, active repo indicator |
+| `PageHeader` | Consistent page header with title, subtitle, icon, and action slot |
 
 ### Blueprint View Tabs
 
 | Tab | Content |
 |-----|---------|
-| Backend Architecture | Rendered markdown blueprint |
-| Frontend Architecture | Frontend-specific blueprint (when applicable) |
+| Blueprint | Rendered markdown blueprint (includes frontend section when applicable) |
 | CLAUDE.md | Generated AI assistant instructions |
 | Cursor Rules | Generated Cursor IDE rules |
-| MCP Server Setup | Connection instructions |
-| Analysis Data & Prompts | Full transparency into gathered data, truncation, prompts |
+| MCP Setup | Connection instructions and tool reference |
+| Analysis Data | Full transparency into gathered data, truncation, prompts (conditional — only shown when analysis ID exists) |
 
 ### State Management
 
+- **View state** — `activeView` in `index.tsx` controls which view component renders; `selectedId` and `repoId` track the active analysis/repository
 - **Server state** — React Query handles all API calls with caching and invalidation
-- **Auth state** — React Context (`context/auth.tsx`) stores GitHub token
+- **Auth state** — React Context (`hooks/useAuth.ts`) stores GitHub token
 - **No client-side global store** — All state is server-derived
 
 ---
@@ -1024,8 +1049,8 @@ The system supports two database backends, selected via `DB_BACKEND` in `backend
 
 | Backend | `DB_BACKEND` | Setup | Migration |
 |---------|-------------|-------|-----------|
-| **Local PostgreSQL** (recommended) | `postgres` | `docker compose up -d` starts PostgreSQL (with pgvector) + Redis | Automatic — `setup.sh` re-applies `001_initial_setup.sql` (idempotent) and runs `seed_prompts.py` |
-| **Supabase** (cloud) | `supabase` | Create project at supabase.com | Manual — paste `001_initial_setup.sql` then `migrations/seed_prompts.sql` into Supabase SQL editor |
+| **Supabase** (recommended) | `supabase` | Create project at supabase.com | Manual — paste `001_initial_setup.sql` then `migrations/seed_prompts.sql` into Supabase SQL editor |
+| **Local PostgreSQL** | `postgres` | `docker compose up -d` starts PostgreSQL (with pgvector) + Redis | Automatic — `setup.sh` re-applies `001_initial_setup.sql` (idempotent) and runs `seed_prompts.py` |
 
 `setup.sh` handles both paths interactively.
 
@@ -1035,14 +1060,14 @@ Generated by `setup.sh` at `backend/.env.local`, or copy from `backend/.env.exam
 
 ```bash
 # ── Database Backend (choose one) ─────────────────────────────
-DB_BACKEND=postgres                # "postgres" (local Docker) or "supabase" (cloud)
+DB_BACKEND=supabase                # "supabase" (cloud, recommended) or "postgres" (local Docker)
 
-# For postgres:
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/architecture_mcp
+# For supabase (recommended):
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-anon-key
 
-# For supabase:
-# SUPABASE_URL=https://your-project.supabase.co
-# SUPABASE_KEY=your-supabase-anon-key
+# For postgres (local Docker):
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/architecture_mcp
 
 # ── AI (REQUIRED) ────────────────────────────────────────────
 ANTHROPIC_API_KEY=sk-ant-...
@@ -1138,7 +1163,7 @@ tests/unit/
     └── ...
 ```
 
-Current test count: **838 unit tests**.
+Current test count: **891 unit tests**.
 
 ### Test Conventions
 

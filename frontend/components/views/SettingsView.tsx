@@ -13,6 +13,7 @@ import { IgnoredDirsSettingsView } from './IgnoredDirsSettingsView'
 import { CapabilitiesSettingsView } from './CapabilitiesSettingsView'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
 import { useResetAllData } from '@/hooks/api/useSettings'
+import { PageHeader } from '@/components/layout/PageHeader'
 
 type SettingsTab = 'prompts' | 'ignored_dirs' | 'capabilities' | 'database'
 
@@ -22,133 +23,132 @@ export function SettingsView() {
   const resetAllData = useResetAllData()
 
   return (
-    <div className="flex flex-col h-full animate-in fade-in zoom-in-95 duration-300">
-      {/* Header */}
-      <div className="border-b bg-white/50 px-8 py-6 flex items-center justify-between backdrop-blur-sm sticky top-0 z-10">
-        <div className="flex items-center gap-5">
-          <div className="p-3 rounded-2xl bg-white border border-papaya-400 shadow-sm shrink-0">
-            <Settings className="w-6 h-6 text-ink-300" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-ink">System Settings</h1>
-            <p className="text-xs text-ink-300 font-bold uppercase tracking-widest mt-0.5">
-              Configure Core Engine & Analysis Parameters
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="flex flex-col h-full overflow-hidden bg-white/50 animate-in fade-in duration-500">
+      <PageHeader
+        title="System Settings"
+        subtitle="Configure Core Engine & Analysis Parameters"
+        icon={Settings}
+      />
 
-      <div className="flex-1 overflow-hidden flex flex-col p-6 gap-6 max-w-7xl mx-auto w-full">
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Tab Switcher */}
-        <div className="flex items-center gap-6 overflow-x-auto border-b">
+        <div className="flex items-center gap-8 border-b border-papaya-300 bg-white/30 px-8 z-10 backdrop-blur-sm shrink-0">
           <button
-            className={cn(
-              "flex items-center gap-2 px-1 py-4 text-sm font-bold transition-all whitespace-nowrap border-b-2 -mb-[2px]",
-              settingsTab === 'prompts'
-                ? "border-teal text-ink"
-                : "border-transparent text-ink/40 hover:text-ink/60"
-            )}
             onClick={() => setSettingsTab('prompts')}
+            className={cn(
+              "py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]",
+              settingsTab === 'prompts'
+                ? "text-teal border-teal"
+                : "text-ink/40 hover:text-ink/60 border-transparent"
+            )}
           >
-            <Zap className="w-4 h-4" />
-            Prompt Templates
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              Prompt Templates
+            </div>
           </button>
           <button
-            className={cn(
-              "flex items-center gap-2 px-1 py-4 text-sm font-bold transition-all whitespace-nowrap border-b-2 -mb-[2px]",
-              settingsTab === 'ignored_dirs'
-                ? "border-teal text-ink"
-                : "border-transparent text-ink/40 hover:text-ink/60"
-            )}
             onClick={() => setSettingsTab('ignored_dirs')}
+            className={cn(
+              "py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]",
+              settingsTab === 'ignored_dirs'
+                ? "text-teal border-teal"
+                : "text-ink/40 hover:text-ink/60 border-transparent"
+            )}
           >
-            <FolderX className="w-4 h-4" />
-            Ignored Directories
+            <div className="flex items-center gap-2">
+              <FolderX className="w-4 h-4" />
+              Ignored Directories
+            </div>
           </button>
           <button
-            className={cn(
-              "flex items-center gap-2 px-1 py-4 text-sm font-bold transition-all whitespace-nowrap border-b-2 -mb-[2px]",
-              settingsTab === 'capabilities'
-                ? "border-teal text-ink"
-                : "border-transparent text-ink/40 hover:text-ink/60"
-            )}
             onClick={() => setSettingsTab('capabilities')}
+            className={cn(
+              "py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]",
+              settingsTab === 'capabilities'
+                ? "text-teal border-teal"
+                : "text-ink/40 hover:text-ink/60 border-transparent"
+            )}
           >
-            <Box className="w-4 h-4" />
-            Library Mappings
+            <div className="flex items-center gap-2">
+              <Box className="w-4 h-4" />
+              Library Mappings
+            </div>
           </button>
           <button
-            className={cn(
-              "flex items-center gap-2 px-1 py-4 text-sm font-bold transition-all whitespace-nowrap border-b-2 -mb-[2px]",
-              settingsTab === 'database'
-                ? "border-teal text-ink"
-                : "border-transparent text-ink/40 hover:text-ink/60"
-            )}
             onClick={() => setSettingsTab('database')}
+            className={cn(
+              "py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]",
+              settingsTab === 'database'
+                ? "text-teal border-teal"
+                : "text-ink/40 hover:text-ink/60 border-transparent"
+            )}
           >
-            <Database className="w-4 h-4" />
-            Database handling
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4" />
+              Database handling
+            </div>
           </button>
         </div>
 
-        {/* View container */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {settingsTab === 'prompts' && <PromptsSettings />}
-          {settingsTab === 'ignored_dirs' && <IgnoredDirsSettingsView />}
-          {settingsTab === 'capabilities' && <CapabilitiesSettingsView />}
-          {settingsTab === 'database' && (
-            <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-              <div className="p-8 border border-destructive/20 rounded-2xl bg-destructive/5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 rounded-lg bg-destructive/10">
-                    <Trash2 className="w-5 h-5 text-destructive" />
+        <div className="flex-1 overflow-y-auto p-6 md:p-8">
+          <div className="max-w-7xl mx-auto w-full">
+            {settingsTab === 'prompts' && <PromptsSettings />}
+            {settingsTab === 'ignored_dirs' && <IgnoredDirsSettingsView />}
+            {settingsTab === 'capabilities' && <CapabilitiesSettingsView />}
+            {settingsTab === 'database' && (
+              <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+                <div className="p-8 border border-destructive/20 rounded-2xl bg-destructive/5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 rounded-lg bg-destructive/10">
+                      <Trash2 className="w-5 h-5 text-destructive" />
+                    </div>
+                    <h3 className="text-lg font-bold text-destructive uppercase tracking-widest">Danger Zone</h3>
                   </div>
-                  <h3 className="text-lg font-bold text-destructive uppercase tracking-widest">Danger Zone</h3>
-                </div>
 
-                <p className="text-sm text-ink-400 mb-8 max-w-2xl leading-relaxed">
-                  Permanently delete all repositories, analyses, embeddings, and local storage. This action will completely reset the system state to its original configuration. Defaults will be re-seeded, but all user data will be lost forever.
-                </p>
+                  <p className="text-sm text-ink-400 mb-8 max-w-2xl leading-relaxed">
+                    Permanently delete all repositories, analyses, embeddings, and local storage. This action will completely reset the system state to its original configuration. Defaults will be re-seeded, but all user data will be lost forever.
+                  </p>
 
-                <div className="flex flex-col items-start gap-4">
-                  <div className="bg-white/50 border border-destructive/10 p-4 rounded-xl text-xs text-destructive/80 font-medium">
-                    ⚠️ Caution: There is no undo for this operation.
+                  <div className="flex flex-col items-start gap-4">
+                    <div className="bg-white/50 border border-destructive/10 p-4 rounded-xl text-xs text-destructive/80 font-medium">
+                      ⚠️ Caution: There is no undo for this operation.
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="border-destructive/50 text-destructive hover:bg-destructive shadow-sm hover:text-white transition-all h-12 px-8 gap-3 font-bold"
+                      onClick={() => setShowResetDialog(true)}
+                      disabled={resetAllData.isPending}
+                    >
+                      {resetAllData.isPending ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-5 h-5" />
+                      )}
+                      {resetAllData.isPending ? 'Resetting System...' : 'Reset All Data and Purge Database'}
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    className="border-destructive/50 text-destructive hover:bg-destructive shadow-sm hover:text-white transition-all h-12 px-8 gap-3 font-bold"
-                    onClick={() => setShowResetDialog(true)}
-                    disabled={resetAllData.isPending}
-                  >
-                    {resetAllData.isPending ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-5 h-5" />
-                    )}
-                    {resetAllData.isPending ? 'Resetting System...' : 'Reset All Data and Purge Database'}
-                  </Button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Reset Confirmation Dialog */}
-      <ConfirmationDialog
-        isOpen={showResetDialog}
-        onClose={() => setShowResetDialog(false)}
-        onConfirm={() => {
-          resetAllData.mutate(undefined, {
-            onSuccess: () => setShowResetDialog(false),
-          })
-        }}
-        title="Reset All Data"
-        message="This will permanently delete all repositories, analyses, blueprints, and local storage files. Settings will be re-seeded to defaults. This action cannot be undone."
-        confirmText="Reset Everything"
-        destructive
-        isLoading={resetAllData.isPending}
-      />
+        <ConfirmationDialog
+          isOpen={showResetDialog}
+          onClose={() => setShowResetDialog(false)}
+          onConfirm={() => {
+            resetAllData.mutate(undefined, {
+              onSuccess: () => setShowResetDialog(false),
+            })
+          }}
+          title="Reset All Data"
+          message="This will permanently delete all repositories, analyses, blueprints, and local storage files. Settings will be re-seeded to defaults. This action cannot be undone."
+          confirmText="Reset Everything"
+          destructive
+          isLoading={resetAllData.isPending}
+        />
+      </div>
     </div>
   )
 }
@@ -473,4 +473,3 @@ function RevisionHistory({ promptId }: { promptId: string }) {
     </div>
   )
 }
-

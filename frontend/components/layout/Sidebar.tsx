@@ -11,9 +11,13 @@ import {
     LogOut,
     Ghost,
     Layers,
-    Zap
+    Zap,
+    ChevronRight,
+    Search,
+    History
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { WorkspaceRepository } from "@/services/workspace"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -38,109 +42,153 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
     const activeProject = history.find(h => h.repo_id === activeRepoId)
 
     return (
-        <div className={cn("pb-12 w-64 border-r min-h-screen bg-card relative", className)}>
-            <div className="space-y-4 py-4">
-                <div className="px-3 py-2 border-b mb-2">
-                    <h2 className="mb-4 px-4 text-lg font-semibold tracking-tight flex items-center gap-2">
-                        <Ghost className={cn("w-5 h-5", theme.brand.icon)} />
-                        <span>Architecture</span>
-                    </h2>
-
-                    {activeProject && (
-                        <button
-                            className={cn("w-full text-left px-4 py-3 rounded-lg mb-2 transition-all group", theme.active.sidebarContext)}
-                            onClick={() => onActiveClick?.(activeProject.repo_id, activeProject.name)}
-                        >
-                            <p className={cn("text-[10px] uppercase font-bold mb-1 tracking-wider", theme.active.sidebarContextLabel)}>Active Context</p>
-                            <div className="flex items-center gap-2 text-sm font-medium truncate">
-                                <FileJson className={cn("w-3.5 h-3.5 group-hover:scale-110 transition-transform", theme.active.iconColor)} />
-                                <span className="truncate">{activeProject.name}</span>
-                            </div>
-                        </button>
-                    )}
-                </div>
-
-                <div className="px-3 py-2">
-                    <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase flex items-center gap-2">
-                        <LayoutDashboard className="w-3 h-3" />
-                        Navigation
-                    </h2>
-                    <div className="space-y-1">
-                        <Button
-                            variant={activeView === 'repositories' ? "secondary" : "ghost"}
-                            className="w-full justify-start"
-                            onClick={() => onNavigate?.('repositories')}
-                        >
-                            <GitBranch className="mr-2 h-4 w-4" />
-                            All Repositories
-                        </Button>
-                        <Button
-                            variant={activeView === 'settings' ? "secondary" : "ghost"}
-                            className="w-full justify-start"
-                            onClick={() => onNavigate?.('settings')}
-                        >
-                            <Settings className="mr-2 h-4 w-4" />
-                            Settings
-                        </Button>
+        <div className={cn("flex flex-col w-64 border-r border-papaya-400/60 bg-white/70 backdrop-blur-xl h-screen relative", className)}>
+            {/* Header / Logo */}
+            <div className="p-6">
+                <div className="flex items-center gap-3 mb-8 cursor-pointer group" onClick={() => onNavigate?.('repositories')}>
+                    <div className="p-2.5 rounded-2xl bg-teal shadow-lg shadow-teal/20 text-white transition-transform group-hover:scale-105">
+                        <Ghost className="w-5 h-5 fill-current" />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-black tracking-tight text-ink leading-none">Archie</h1>
+                        <p className="text-[9px] uppercase font-black tracking-[0.15em] text-ink/30 mt-1.5 line-clamp-1">Warden of Architecture</p>
                     </div>
                 </div>
-                <div className="px-3 py-2">
-                    <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase flex items-center gap-2">
-                        <Layers className="w-3 h-3" />
-                        Blueprints
-                    </h2>
-                    <div className="space-y-1 max-h-[300px] overflow-y-auto px-1">
+
+                {/* Active Context Card */}
+                {activeProject && (
+                    <div
+                        className={cn(
+                            "relative overflow-hidden p-4 rounded-2xl border transition-all cursor-pointer hover:shadow-md group",
+                            theme.active.sidebarContext
+                        )}
+                        onClick={() => onActiveClick?.(activeProject.repo_id, activeProject.name)}
+                    >
+                        <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <Zap className="w-12 h-12 fill-current text-teal" />
+                        </div>
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse" />
+                                <span className={cn("text-[10px] font-black uppercase tracking-widest", theme.active.sidebarContextLabel)}>Active Project</span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <FileJson className={cn("w-4 h-4", theme.active.iconColor)} />
+                                <span className="text-xs font-bold text-ink truncate">{activeProject.name}</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Navigation Section */}
+            <div className="flex-1 px-4 space-y-8 overflow-y-auto custom-scrollbar pb-32">
+                <div className="space-y-1.5">
+                    <Button
+                        variant="ghost"
+                        className={cn(
+                            "w-full justify-start h-11 px-4 rounded-xl gap-3 transition-all font-bold text-sm",
+                            activeView === 'repositories'
+                                ? "bg-teal/5 text-teal shadow-sm border border-teal/10"
+                                : "text-ink/60 hover:text-ink hover:bg-papaya-300/30 font-medium"
+                        )}
+                        onClick={() => onNavigate?.('repositories')}
+                    >
+                        <LayoutDashboard className={cn("w-4 h-4", activeView === 'repositories' ? "text-teal" : "text-ink/30")} />
+                        Repositories
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        className={cn(
+                            "w-full justify-start h-11 px-4 rounded-xl gap-3 transition-all font-bold text-sm",
+                            activeView === 'settings'
+                                ? "bg-teal/5 text-teal shadow-sm border border-teal/10"
+                                : "text-ink/60 hover:text-ink hover:bg-papaya-300/30 font-medium"
+                        )}
+                        onClick={() => onNavigate?.('settings')}
+                    >
+                        <Settings className={cn("w-4 h-4", activeView === 'settings' ? "text-teal" : "text-ink/30")} />
+                        Settings
+                    </Button>
+                </div>
+
+                {/* History Section */}
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between px-4">
+                        <div className="flex items-center gap-2">
+                            <History className="w-3.5 h-3.5 text-ink/20" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-ink/30">Recent Library</span>
+                        </div>
+                        {history.length > 0 && (
+                            <Badge className="bg-papaya-300/30 text-ink/30 text-[9px] border-papaya-400/40 h-4 px-1.5 font-bold">{history.length}</Badge>
+                        )}
+                    </div>
+
+                    <div className="space-y-1">
                         {history.length > 0 ? (
                             history.map((item) => {
                                 const isOpened = openedRepoId === item.repo_id
                                 const isActivated = activeRepoId === item.repo_id
 
                                 return (
-                                    <Button
+                                    <button
                                         key={item.repo_id}
-                                        variant={isOpened ? "secondary" : "ghost"}
-                                        className={cn(
-                                            "w-full justify-start font-normal text-sm gap-2 h-9 relative transition-all group",
-                                            isOpened && theme.active.sidebarItem,
-                                            isActivated && !isOpened && "text-ink/60",
-                                            isActivated && "pl-7"
-                                        )}
                                         onClick={() => onHistoryClick?.(item.repo_id, item.name)}
+                                        className={cn(
+                                            "w-full group relative flex items-center gap-3 px-4 py-2.5 rounded-xl text-left transition-all",
+                                            isOpened
+                                                ? "bg-white shadow-sm border border-papaya-400/60 ring-1 ring-black/5"
+                                                : "hover:bg-papaya-300/20"
+                                        )}
                                     >
+                                        <div className={cn(
+                                            "shrink-0 p-2 rounded-lg transition-colors",
+                                            isOpened ? "bg-teal text-white" : "bg-papaya-300/40 text-ink/30 group-hover:text-ink/60"
+                                        )}>
+                                            <GitBranch className="w-3.5 h-3.5" />
+                                        </div>
+
+                                        <div className="flex-1 min-w-0">
+                                            <p className={cn(
+                                                "text-xs font-bold truncate transition-colors",
+                                                isOpened ? "text-ink" : "text-ink/60"
+                                            )}>
+                                                {item.name}
+                                            </p>
+                                            <p className="text-[9px] font-medium text-ink/30 uppercase tracking-tighter truncate">
+                                                {isActivated ? 'Active Context' : 'Stored Blueprint'}
+                                            </p>
+                                        </div>
+
                                         {isActivated && (
-                                            <Zap className={cn(
-                                                "h-3 w-3 absolute left-2.5 animate-in fade-in zoom-in duration-300",
-                                                isOpened ? "text-teal" : "text-teal/40 group-hover:text-teal"
-                                            )} />
+                                            <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-4 bg-teal rounded-full" />
                                         )}
-                                        {isActivated && (
-                                            <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-teal rounded-r" />
-                                        )}
-                                        <GitBranch className={cn(
-                                            "h-3.5 w-3.5 shrink-0",
-                                            isOpened ? theme.active.iconColor : "text-muted-foreground group-hover:text-ink/60"
+
+                                        <ChevronRight className={cn(
+                                            "w-3 h-3 transition-all opacity-0 -translate-x-2",
+                                            "group-hover:opacity-40 group-hover:translate-x-0"
                                         )} />
-                                        <span className="truncate">{item.name}</span>
-                                    </Button>
+                                    </button>
                                 )
                             })
                         ) : (
-                            <div className="px-4 py-2 text-xs text-muted-foreground italic">
-                                No history yet
+                            <div className="px-4 py-8 text-center bg-papaya-300/10 rounded-2xl border border-dashed border-papaya-400/40">
+                                <Layers className="w-8 h-8 text-ink/10 mx-auto mb-2" />
+                                <p className="text-[10px] font-bold text-ink/20 uppercase tracking-wider">Empty Library</p>
                             </div>
                         )}
                     </div>
                 </div>
             </div>
 
-            <div className="absolute bottom-4 left-0 w-full px-6">
+            {/* Footer / Logout */}
+            <div className="p-4 border-t border-papaya-400/40 bg-white/50">
                 <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start text-muted-foreground hover:text-destructive hover:border-destructive/50"
+                    variant="ghost"
+                    className="w-full justify-start h-11 px-4 rounded-xl gap-3 text-ink/40 hover:text-brandy hover:bg-brandy/5 transition-all font-bold text-sm"
                     onClick={handleLogout}
                 >
-                    <LogOut className="mr-2 h-4 w-4" />
+                    <LogOut className="w-4 h-4" />
                     Logout
                 </Button>
             </div>
