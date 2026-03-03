@@ -23,6 +23,7 @@ export interface AgentFiles {
   claude_md: string
   cursor_rules: string
   agents_md: string
+  files?: Record<string, string>
 }
 
 export const workspaceService = {

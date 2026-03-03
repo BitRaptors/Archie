@@ -329,35 +329,45 @@ class TestRendererFrontendSection:
 
 
 class TestClaudeMdFrontend:
-    """Tests for frontend sections in CLAUDE.md generation."""
+    """Tests for frontend sections in generated rule files.
+
+    With the topic-split architecture, frontend content lives in the
+    ``frontend`` rule file, not the lean root CLAUDE.md.
+    """
+
+    def _get_frontend_rule(self, blueprint):
+        from application.services.agent_file_generator import generate_all
+        output = generate_all(blueprint)
+        return next((rf for rf in output.rule_files if rf.topic == "frontend"), None)
 
     def test_frontend_architecture_section(self, fullstack_blueprint):
-        content = generate_claude_md(fullstack_blueprint)
-        assert "## Frontend Architecture" in content
+        rf = self._get_frontend_rule(fullstack_blueprint)
+        assert rf is not None
+        assert "## Frontend Architecture" in rf.body
 
     def test_frontend_framework_in_claude_md(self, fullstack_blueprint):
-        content = generate_claude_md(fullstack_blueprint)
-        assert "Next.js 14" in content
+        rf = self._get_frontend_rule(fullstack_blueprint)
+        assert "Next.js 14" in rf.body
 
     def test_frontend_rendering_strategy(self, fullstack_blueprint):
-        content = generate_claude_md(fullstack_blueprint)
-        assert "hybrid (SSR + CSR)" in content
+        rf = self._get_frontend_rule(fullstack_blueprint)
+        assert "hybrid (SSR + CSR)" in rf.body
 
     def test_frontend_styling(self, fullstack_blueprint):
-        content = generate_claude_md(fullstack_blueprint)
-        assert "Tailwind CSS" in content
+        rf = self._get_frontend_rule(fullstack_blueprint)
+        assert "Tailwind CSS" in rf.body
 
     def test_frontend_state_management(self, fullstack_blueprint):
-        content = generate_claude_md(fullstack_blueprint)
-        assert "TanStack Query" in content
+        rf = self._get_frontend_rule(fullstack_blueprint)
+        assert "TanStack Query" in rf.body
 
     def test_frontend_conventions(self, fullstack_blueprint):
-        content = generate_claude_md(fullstack_blueprint)
-        assert "use client" in content
+        rf = self._get_frontend_rule(fullstack_blueprint)
+        assert "use client" in rf.body
 
     def test_no_frontend_section_when_empty(self, backend_only_blueprint):
-        content = generate_claude_md(backend_only_blueprint)
-        assert "## Frontend Architecture" not in content
+        rf = self._get_frontend_rule(backend_only_blueprint)
+        assert rf is None
 
 
 # ── Agent File Generator: Cursor Rules Frontend Tests ────────────────────────
@@ -379,10 +389,15 @@ class TestCursorRulesFrontend:
         # Should detect .tsx and .jsx from React/Next.js in tech stack
         assert "**/*.tsx" in content or "**/*.jsx" in content
 
-    def test_detects_python_and_ts_globs(self, fullstack_blueprint):
-        content = generate_cursor_rules(fullstack_blueprint)
-        assert "**/*.py" in content
-        assert "**/*.ts" in content
+    def test_detects_frontend_globs(self, fullstack_blueprint):
+        """With topic-split rules, each rule has its own globs.
+        The frontend rule should have tsx/jsx globs from React/Next.js."""
+        from application.services.agent_file_generator import generate_all
+        output = generate_all(fullstack_blueprint)
+        frontend_rule = next((rf for rf in output.rule_files if rf.topic == "frontend"), None)
+        assert frontend_rule is not None
+        cursor_content = frontend_rule.render_cursor()
+        assert "**/*.tsx" in cursor_content or "**/*.jsx" in cursor_content
 
     def test_no_frontend_section_when_empty(self, backend_only_blueprint):
         content = generate_cursor_rules(backend_only_blueprint)

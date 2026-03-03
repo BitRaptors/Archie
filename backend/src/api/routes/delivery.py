@@ -16,13 +16,13 @@ class ApplyRequest(BaseModel):
     source_repo_id: str
     target_repo: str  # "owner/repo"
     strategy: str = "pr"
-    outputs: list[str] = ["claude_md", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor"]
+    outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor"]
     branch_prefix: str = "gbr"
 
 
 class PreviewRequest(BaseModel):
     source_repo_id: str
-    outputs: list[str] = ["claude_md", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor"]
+    outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor"]
 
 
 # ---------------------------------------------------------------------------

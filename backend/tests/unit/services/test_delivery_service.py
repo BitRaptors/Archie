@@ -7,6 +7,7 @@ from domain.entities.blueprint import BlueprintMeta, StructuredBlueprint
 from domain.exceptions.domain_exceptions import ValidationError
 from application.services.delivery_service import (
     DeliveryService,
+    VALID_OUTPUTS,
     _merge_markdown,
     _merge_json_config,
 )
@@ -52,16 +53,43 @@ def mock_push_client():
     return client
 
 
+class TestValidOutputs:
+
+    def test_valid_outputs_includes_aggregate_keys(self):
+        assert "claude_rules" in VALID_OUTPUTS
+        assert "cursor_rules" in VALID_OUTPUTS
+
+    def test_valid_outputs_includes_static_keys(self):
+        assert "claude_md" in VALID_OUTPUTS
+        assert "agents_md" in VALID_OUTPUTS
+        assert "mcp_claude" in VALID_OUTPUTS
+        assert "mcp_cursor" in VALID_OUTPUTS
+
+
 class TestPreview:
 
     @pytest.mark.asyncio
     async def test_preview_returns_selected_outputs(self, service):
         result = await service.preview("repo-uuid-123", ["claude_md", "agents_md"])
-        assert "claude_md" in result
-        assert "agents_md" in result
-        assert "cursor_rules" not in result
-        assert "# CLAUDE.md" in result["claude_md"]
-        assert "# AGENTS.md" in result["agents_md"]
+        assert "CLAUDE.md" in result
+        assert "AGENTS.md" in result
+        assert "# CLAUDE.md" in result["CLAUDE.md"]
+        assert "# AGENTS.md" in result["AGENTS.md"]
+
+    @pytest.mark.asyncio
+    async def test_preview_claude_rules_aggregate(self, service):
+        result = await service.preview("repo-uuid-123", ["claude_rules"])
+        claude_rule_paths = [k for k in result if k.startswith(".claude/rules/")]
+        assert len(claude_rule_paths) > 0
+        # MCP tools always present
+        assert ".claude/rules/mcp-tools.md" in result
+
+    @pytest.mark.asyncio
+    async def test_preview_cursor_rules_aggregate(self, service):
+        result = await service.preview("repo-uuid-123", ["cursor_rules"])
+        cursor_rule_paths = [k for k in result if k.startswith(".cursor/rules/")]
+        assert len(cursor_rule_paths) > 0
+        assert ".cursor/rules/mcp-tools.md" in result
 
     @pytest.mark.asyncio
     async def test_preview_raises_when_blueprint_not_found(self, service, mock_storage):
@@ -144,9 +172,30 @@ class TestApply:
             )
 
         assert result.files_delivered == ["CLAUDE.md"]
-        # Verify only CLAUDE.md was in the committed files
         commit_call_files = mock_push_client.commit_files.call_args[0][2]
         assert list(commit_call_files.keys()) == ["CLAUDE.md"]
+
+    @pytest.mark.asyncio
+    async def test_apply_delivers_split_rule_files(self, service, mock_push_client):
+        with patch(
+            "application.services.delivery_service.GitHubPushClient",
+            return_value=mock_push_client,
+        ):
+            result = await service.apply(
+                source_repo_id="repo-uuid-123",
+                target_repo_full_name="owner/repo",
+                token="test-token",
+                outputs=["claude_rules"],
+                strategy="commit",
+            )
+
+        # Should deliver .claude/rules/ files
+        claude_rule_paths = [p for p in result.files_delivered if p.startswith(".claude/rules/")]
+        assert len(claude_rule_paths) > 0
+        assert ".claude/rules/mcp-tools.md" in result.files_delivered
+
+        commit_call_files = mock_push_client.commit_files.call_args[0][2]
+        assert ".claude/rules/mcp-tools.md" in commit_call_files
 
     @pytest.mark.asyncio
     async def test_apply_raises_when_blueprint_not_found(
@@ -196,18 +245,36 @@ class TestApply:
         assert "architecture-blueprints" in parsed["mcpServers"]
         assert parsed["mcpServers"]["architecture-blueprints"]["url"] == "http://localhost:8000/mcp/sse"
 
+    @pytest.mark.asyncio
+    async def test_backward_compat_cursor_rules_key(self, service, mock_push_client):
+        """cursor_rules key should expand to .cursor/rules/ files."""
+        with patch(
+            "application.services.delivery_service.GitHubPushClient",
+            return_value=mock_push_client,
+        ):
+            result = await service.apply(
+                source_repo_id="repo-uuid-123",
+                target_repo_full_name="owner/repo",
+                token="test-token",
+                outputs=["cursor_rules"],
+                strategy="commit",
+            )
+
+        cursor_paths = [p for p in result.files_delivered if p.startswith(".cursor/rules/")]
+        assert len(cursor_paths) > 0
+
 
 class TestMcpConfigGeneration:
 
     @pytest.mark.asyncio
     async def test_preview_mcp_configs(self, service):
         result = await service.preview("repo-uuid-123", ["mcp_claude", "mcp_cursor"])
-        assert "mcp_claude" in result
-        assert "mcp_cursor" in result
+        assert ".mcp.json" in result
+        assert ".cursor/mcp.json" in result
 
         # Both should be valid JSON with the same content
-        claude_config = json.loads(result["mcp_claude"])
-        cursor_config = json.loads(result["mcp_cursor"])
+        claude_config = json.loads(result[".mcp.json"])
+        cursor_config = json.loads(result[".cursor/mcp.json"])
         assert claude_config == cursor_config
         assert "mcpServers" in claude_config
         assert claude_config["mcpServers"]["architecture-blueprints"]["url"] == "http://localhost:8000/mcp/sse"

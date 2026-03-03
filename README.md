@@ -83,8 +83,10 @@ Then `start-dev.sh` starts backend (`http://localhost:8000`), frontend (`http://
 
 | Option | When to use | What happens |
 |--------|------------|--------------|
-| **postgres** (recommended) | Local development, no cloud account needed | Docker runs PostgreSQL (with pgvector) + Redis locally. Migration runs automatically on first start. |
-| **supabase** | You already have a Supabase project, or want cloud persistence | You must manually run `backend/migrations/001_initial_setup.sql` in your Supabase SQL editor. |
+| **supabase** (recommended) | Production-ready, cloud-hosted database with full pgvector support | Create a project at [supabase.com](https://supabase.com), then run `backend/migrations/001_initial_setup.sql` in the Supabase SQL editor. Reliable and battle-tested. |
+| **postgres** | Local development, no cloud account needed | Docker runs PostgreSQL (with pgvector) + Redis locally. Migration runs automatically on first start. |
+
+> **Note:** Local PostgreSQL via Docker is functional but has received less testing than the Supabase backend. If you encounter database-related issues with the local setup, we recommend switching to Supabase.
 
 ### Manual Setup (alternative)
 
