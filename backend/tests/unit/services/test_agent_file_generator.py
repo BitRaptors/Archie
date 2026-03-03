@@ -1,35 +1,57 @@
 """Tests for agent file generator functions.
 
-The agent file generator now uses standalone functions that derive
-CLAUDE.md, Cursor rules, and AGENTS.md from a StructuredBlueprint.
+Covers the topic-split rule file model, individual topic builders,
+the lean root CLAUDE.md, the generate_all() orchestrator, and
+backward-compatible public API wrappers.
 """
 import pytest
 
 from domain.entities.blueprint import (
     ArchitecturalDecision,
     ArchitectureRules,
-    ImplementationGuideline,
     BlueprintMeta,
     Communication,
     CommunicationPattern,
     Component,
     Components,
+    DataFetchingPattern,
     Decisions,
+    DeveloperRecipe,
     ErrorMapping,
     FilePlacementRule,
+    Frontend,
+    ImplementationGuideline,
     NamingConvention,
+    ArchitecturalPitfall,
     PatternGuideline,
     QuickReference,
+    StateManagement,
     StructuredBlueprint,
     TechStackEntry,
     Technology,
+    UIComponent,
 )
 from application.services.agent_file_generator import (
+    RuleFile,
+    GeneratedOutput,
+    generate_all,
     generate_agents_md,
     generate_claude_md,
+    generate_claude_md_lean,
     generate_cursor_rules,
+    _build_architecture_rule,
+    _build_patterns_rule,
+    _build_frontend_rule,
+    _build_mcp_tools_rule,
+    _build_recipes_rule,
+    _build_pitfalls_rule,
+    _detect_frontend_globs,
 )
 
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def sample_blueprint() -> StructuredBlueprint:
@@ -137,6 +159,10 @@ def sample_blueprint() -> StructuredBlueprint:
                 TechStackEntry(category="runtime", name="Python", version="3.13", purpose="Runtime"),
                 TechStackEntry(category="framework", name="FastAPI", version="0.104", purpose="Web framework"),
             ],
+            run_commands={
+                "dev": "uvicorn main:app --reload --port 8000",
+                "test": "pytest tests/ -v",
+            },
         ),
         implementation_guidelines=[
             ImplementationGuideline(
@@ -158,6 +184,13 @@ def sample_blueprint() -> StructuredBlueprint:
                 tips=["Limit annotations to ~100 per viewport", "Use clustering for large datasets"],
             ),
         ],
+        pitfalls=[
+            ArchitecturalPitfall(
+                area="Dependency Injection",
+                description="Don't instantiate services directly; use the container.",
+                recommendation="Always inject via constructor.",
+            ),
+        ],
     )
 
 
@@ -169,164 +202,509 @@ def minimal_blueprint() -> StructuredBlueprint:
     )
 
 
-# ── CLAUDE.md tests ──────────────────────────────────────────────────────────
+@pytest.fixture
+def fullstack_blueprint() -> StructuredBlueprint:
+    """A blueprint with frontend data for testing frontend rule generation."""
+    return StructuredBlueprint(
+        meta=BlueprintMeta(
+            repository="acme/fullstack-app",
+            repository_id="repo-uuid-456",
+            architecture_style="Full-Stack (Next.js + FastAPI)",
+        ),
+        technology=Technology(
+            stack=[
+                TechStackEntry(category="framework", name="Next.js", version="14", purpose="Frontend framework"),
+                TechStackEntry(category="framework", name="React", version="18", purpose="UI library"),
+                TechStackEntry(category="runtime", name="Python", version="3.13", purpose="Backend runtime"),
+            ],
+        ),
+        frontend=Frontend(
+            framework="Next.js 14",
+            rendering_strategy="SSR + SSG hybrid",
+            styling="Tailwind CSS",
+            state_management=StateManagement(
+                approach="React Query + Context",
+                server_state="TanStack Query",
+                local_state="useState",
+            ),
+            key_conventions=[
+                "Use Server Components by default",
+                "Client Components only when needed for interactivity",
+            ],
+            ui_components=[
+                UIComponent(name="Dashboard", location="app/dashboard/page.tsx", component_type="page"),
+            ],
+            data_fetching=[
+                DataFetchingPattern(name="Server fetch", mechanism="RSC async fetch", when_to_use="Initial page load"),
+            ],
+        ),
+        components=Components(
+            structure_type="layered",
+            components=[
+                Component(name="Frontend", location="frontend/", responsibility="UI layer"),
+                Component(name="Backend", location="backend/", responsibility="API layer"),
+            ],
+        ),
+    )
 
 
-class TestGenerateClaudeMd:
-    """Tests for generate_claude_md()."""
+# ---------------------------------------------------------------------------
+# RuleFile tests
+# ---------------------------------------------------------------------------
+
+class TestRuleFile:
+    """Tests for RuleFile rendering."""
+
+    def test_claude_path(self):
+        rf = RuleFile(topic="architecture", body="test")
+        assert rf.claude_path == ".claude/rules/architecture.md"
+
+    def test_cursor_path(self):
+        rf = RuleFile(topic="patterns", body="test")
+        assert rf.cursor_path == ".cursor/rules/patterns.md"
+
+    def test_render_claude_no_globs(self):
+        rf = RuleFile(topic="architecture", body="## Components\nSome content")
+        rendered = rf.render_claude()
+        # No frontmatter when no globs
+        assert rendered == "## Components\nSome content"
+        assert "---" not in rendered
+
+    def test_render_claude_with_globs(self):
+        rf = RuleFile(topic="frontend", body="## Frontend", globs=["**/*.tsx", "**/*.jsx"])
+        rendered = rf.render_claude()
+        assert rendered.startswith("---\npaths:")
+        assert "**/*.tsx" in rendered
+        assert "**/*.jsx" in rendered
+        assert "## Frontend" in rendered
+
+    def test_render_cursor_always_apply(self):
+        rf = RuleFile(
+            topic="architecture",
+            body="## Content",
+            description="Arch rules",
+            always_apply=True,
+        )
+        rendered = rf.render_cursor()
+        assert "---" in rendered
+        assert "description: Arch rules" in rendered
+        assert "alwaysApply: true" in rendered
+        assert "## Content" in rendered
+
+    def test_render_cursor_with_globs(self):
+        rf = RuleFile(
+            topic="frontend",
+            body="## Frontend",
+            description="Frontend rules",
+            always_apply=False,
+            globs=["**/*.tsx"],
+        )
+        rendered = rf.render_cursor()
+        assert "globs:" in rendered
+        assert '"**/*.tsx"' in rendered
+        assert "alwaysApply: false" in rendered
+
+    def test_render_cursor_no_globs_not_always(self):
+        rf = RuleFile(
+            topic="test",
+            body="body",
+            description="desc",
+            always_apply=False,
+        )
+        rendered = rf.render_cursor()
+        assert "alwaysApply: false" in rendered
+        assert "globs:" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# GeneratedOutput tests
+# ---------------------------------------------------------------------------
+
+class TestGeneratedOutput:
+    """Tests for GeneratedOutput.to_file_map()."""
+
+    def test_to_file_map_includes_all_files(self):
+        rf1 = RuleFile(topic="architecture", body="arch content", description="Arch")
+        rf2 = RuleFile(topic="patterns", body="patterns content", description="Pat")
+        output = GeneratedOutput(
+            claude_md="# CLAUDE.md",
+            agents_md="# AGENTS.md",
+            rule_files=[rf1, rf2],
+        )
+        file_map = output.to_file_map()
+        assert "CLAUDE.md" in file_map
+        assert "AGENTS.md" in file_map
+        assert ".claude/rules/architecture.md" in file_map
+        assert ".cursor/rules/architecture.md" in file_map
+        assert ".claude/rules/patterns.md" in file_map
+        assert ".cursor/rules/patterns.md" in file_map
+
+    def test_to_file_map_empty_rules(self):
+        output = GeneratedOutput(claude_md="md", agents_md="agents")
+        file_map = output.to_file_map()
+        assert len(file_map) == 2
+
+
+# ---------------------------------------------------------------------------
+# generate_all() tests
+# ---------------------------------------------------------------------------
+
+class TestGenerateAll:
+    """Tests for the generate_all() orchestrator."""
+
+    def test_produces_generated_output(self, sample_blueprint):
+        output = generate_all(sample_blueprint)
+        assert isinstance(output, GeneratedOutput)
+        assert output.claude_md
+        assert output.agents_md
+        assert len(output.rule_files) > 0
+
+    def test_expected_topics_present(self, sample_blueprint):
+        output = generate_all(sample_blueprint)
+        topics = {rf.topic for rf in output.rule_files}
+        assert "architecture" in topics
+        assert "patterns" in topics
+        assert "mcp-tools" in topics
+        assert "recipes" in topics
+        assert "pitfalls" in topics
+
+    def test_frontend_conditional_absent(self, sample_blueprint):
+        output = generate_all(sample_blueprint)
+        topics = {rf.topic for rf in output.rule_files}
+        assert "frontend" not in topics
+
+    def test_frontend_conditional_present(self, fullstack_blueprint):
+        output = generate_all(fullstack_blueprint)
+        topics = {rf.topic for rf in output.rule_files}
+        assert "frontend" in topics
+
+    def test_minimal_blueprint_produces_output(self, minimal_blueprint):
+        output = generate_all(minimal_blueprint)
+        assert output.claude_md
+        assert output.agents_md
+        # mcp-tools always present
+        topics = {rf.topic for rf in output.rule_files}
+        assert "mcp-tools" in topics
+
+    def test_file_map_contains_claude_and_cursor_rules(self, sample_blueprint):
+        output = generate_all(sample_blueprint)
+        file_map = output.to_file_map()
+        claude_rules = [p for p in file_map if p.startswith(".claude/rules/")]
+        cursor_rules = [p for p in file_map if p.startswith(".cursor/rules/")]
+        assert len(claude_rules) == len(cursor_rules)
+        assert len(claude_rules) > 0
+
+
+# ---------------------------------------------------------------------------
+# Lean CLAUDE.md tests
+# ---------------------------------------------------------------------------
+
+class TestLeanClaudeMd:
+    """Tests for generate_claude_md_lean()."""
+
+    def test_under_120_lines(self, sample_blueprint):
+        content = generate_claude_md_lean(sample_blueprint)
+        line_count = len(content.split("\n"))
+        assert line_count <= 120, f"Lean CLAUDE.md has {line_count} lines (max 120)"
 
     def test_contains_header(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
+        content = generate_claude_md_lean(sample_blueprint)
         assert "# CLAUDE.md" in content
 
     def test_contains_repo_name(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
+        content = generate_claude_md_lean(sample_blueprint)
         assert "acme/backend-api" in content
 
     def test_contains_architecture_style(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
+        content = generate_claude_md_lean(sample_blueprint)
         assert "Layered (Clean Architecture)" in content
 
-    def test_contains_file_placement(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## File Placement" in content
-        assert "Service" in content
-        assert "src/application/services/" in content
+    def test_contains_commands(self, sample_blueprint):
+        content = generate_claude_md_lean(sample_blueprint)
+        assert "## Commands" in content
+        assert "uvicorn" in content
+        assert "pytest" in content
 
-    def test_contains_where_to_put_code(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## Where to Put Code" in content
-        assert "Service" in content
-        assert "Route" in content
-        assert "Entity" in content
+    def test_references_rules_dir(self, sample_blueprint):
+        content = generate_claude_md_lean(sample_blueprint)
+        assert ".claude/rules/" in content
 
-    def test_contains_naming_conventions(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## Naming Conventions" in content
-        assert "PascalCase" in content
-        assert "snake_case" in content
-
-    def test_contains_pattern_selection(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## Pattern Selection" in content
-        assert "CRUD operations" in content
-
-    def test_contains_error_mapping(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## Error Mapping" in content
-        assert "NotFoundError" in content
-        assert "404" in content
-
-    def test_contains_mandatory_mcp_section(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## Architecture MCP Server (MANDATORY)" in content
-        assert "`architecture-blueprints`" in content
+    def test_contains_mcp_mandatory_note(self, sample_blueprint):
+        content = generate_claude_md_lean(sample_blueprint)
+        assert "MCP Server (MANDATORY)" in content
         assert "where_to_put" in content
         assert "check_naming" in content
-        assert "get_repository_blueprint" in content
-        assert "single source of truth" in content
 
-    def test_contains_mcp_rejection_rule(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "do NOT proceed" in content
+    def test_no_commands_when_empty(self, minimal_blueprint):
+        content = generate_claude_md_lean(minimal_blueprint)
+        assert "## Commands" not in content
 
-    def test_contains_how_to_implement_tool(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "how_to_implement" in content
-
-    def test_contains_list_implementations_tool(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "list_implementations" in content
-
-    def test_contains_how_to_implement_by_id_tool(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "how_to_implement_by_id" in content
-
-    def test_contains_file_content_tools(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "get_file_content" in content
-        assert "list_source_files" in content
-
-    def test_contains_workflow_instructions(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "### Recommended Workflow" in content
-        assert "Call `list_implementations`" in content
-        assert "call `get_file_content`" in content
-
-    def test_minimal_blueprint_still_generates(self, minimal_blueprint):
-        content = generate_claude_md(minimal_blueprint)
+    def test_minimal_still_generates(self, minimal_blueprint):
+        content = generate_claude_md_lean(minimal_blueprint)
         assert "# CLAUDE.md" in content
         assert "minimal/repo" in content
-        # Should not crash on empty sections
         assert len(content) > 50
 
 
-# ── Cursor Rules tests ───────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Architecture rule tests
+# ---------------------------------------------------------------------------
 
-
-class TestGenerateCursorRules:
-    """Tests for generate_cursor_rules()."""
-
-    def test_contains_yaml_frontmatter(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        lines = content.split("\n")
-        assert lines[0] == "---"
-        # Find the closing ---
-        closing = [i for i, line in enumerate(lines[1:], 1) if line == "---"]
-        assert len(closing) >= 1, "Missing closing YAML frontmatter"
-
-    def test_contains_description(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "description:" in content
-        assert "acme/backend-api" in content
-
-    def test_contains_globs(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "globs:" in content
-        # Python detected from tech stack
-        assert "**/*.py" in content
+class TestArchitectureRule:
+    """Tests for _build_architecture_rule()."""
 
     def test_contains_components(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## Components" in content
-        assert "Presentation" in content
-        assert "Application" in content
-        assert "Domain" in content
+        rf = _build_architecture_rule(sample_blueprint)
+        assert rf is not None
+        assert "Presentation" in rf.body
+        assert "Application" in rf.body
+        assert "Domain" in rf.body
 
     def test_contains_file_placement(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## File Placement" in content
-        assert "src/application/services/" in content
+        rf = _build_architecture_rule(sample_blueprint)
+        assert "File Placement" in rf.body
+        assert "src/application/services/" in rf.body
 
-    def test_contains_naming_conventions(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## Naming Conventions" in content
+    def test_contains_naming(self, sample_blueprint):
+        rf = _build_architecture_rule(sample_blueprint)
+        assert "Naming Conventions" in rf.body
+        assert "PascalCase" in rf.body
+        assert "snake_case" in rf.body
+
+    def test_contains_where_to_put(self, sample_blueprint):
+        rf = _build_architecture_rule(sample_blueprint)
+        assert "Where to Put Code" in rf.body
+
+    def test_none_when_empty(self, minimal_blueprint):
+        rf = _build_architecture_rule(minimal_blueprint)
+        assert rf is None
+
+
+# ---------------------------------------------------------------------------
+# Patterns rule tests
+# ---------------------------------------------------------------------------
+
+class TestPatternsRule:
+    """Tests for _build_patterns_rule()."""
 
     def test_contains_communication_patterns(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## Communication Patterns" in content
-        assert "Sync HTTP" in content
+        rf = _build_patterns_rule(sample_blueprint)
+        assert rf is not None
+        assert "Sync HTTP" in rf.body
 
-    def test_contains_all_mcp_tools(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "where_to_put" in content
-        assert "check_naming" in content
-        assert "how_to_implement" in content
-        assert "list_implementations" in content
-        assert "how_to_implement_by_id" in content
-        assert "get_file_content" in content
-        assert "list_source_files" in content
-        assert "get_repository_blueprint" in content
+    def test_contains_pattern_selection(self, sample_blueprint):
+        rf = _build_patterns_rule(sample_blueprint)
+        assert "CRUD operations" in rf.body
 
-    def test_minimal_blueprint_still_generates(self, minimal_blueprint):
-        content = generate_cursor_rules(minimal_blueprint)
+    def test_contains_decisions(self, sample_blueprint):
+        rf = _build_patterns_rule(sample_blueprint)
+        assert "Database Access" in rf.body
+        assert "Repository Pattern" in rf.body
+
+    def test_none_when_empty(self, minimal_blueprint):
+        rf = _build_patterns_rule(minimal_blueprint)
+        assert rf is None
+
+
+# ---------------------------------------------------------------------------
+# Frontend rule tests
+# ---------------------------------------------------------------------------
+
+class TestFrontendRule:
+    """Tests for _build_frontend_rule()."""
+
+    def test_none_when_no_frontend(self, sample_blueprint):
+        rf = _build_frontend_rule(sample_blueprint)
+        assert rf is None
+
+    def test_present_when_frontend(self, fullstack_blueprint):
+        rf = _build_frontend_rule(fullstack_blueprint)
+        assert rf is not None
+        assert "Next.js 14" in rf.body
+        assert "Tailwind CSS" in rf.body
+
+    def test_has_globs(self, fullstack_blueprint):
+        rf = _build_frontend_rule(fullstack_blueprint)
+        assert rf.globs
+        assert "**/*.tsx" in rf.globs or "**/*.jsx" in rf.globs
+
+    def test_not_always_apply(self, fullstack_blueprint):
+        rf = _build_frontend_rule(fullstack_blueprint)
+        assert rf.always_apply is False
+
+    def test_state_management(self, fullstack_blueprint):
+        rf = _build_frontend_rule(fullstack_blueprint)
+        assert "React Query + Context" in rf.body
+
+    def test_conventions(self, fullstack_blueprint):
+        rf = _build_frontend_rule(fullstack_blueprint)
+        assert "Server Components" in rf.body
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools rule tests
+# ---------------------------------------------------------------------------
+
+class TestMcpToolsRule:
+    """Tests for _build_mcp_tools_rule()."""
+
+    def test_all_tools_present(self, sample_blueprint):
+        rf = _build_mcp_tools_rule(sample_blueprint)
+        assert rf is not None
+        assert "where_to_put" in rf.body
+        assert "check_naming" in rf.body
+        assert "list_implementations" in rf.body
+        assert "how_to_implement_by_id" in rf.body
+        assert "how_to_implement" in rf.body
+        assert "get_file_content" in rf.body
+        assert "list_source_files" in rf.body
+        assert "get_repository_blueprint" in rf.body
+
+    def test_always_generated(self, minimal_blueprint):
+        rf = _build_mcp_tools_rule(minimal_blueprint)
+        assert rf is not None
+
+    def test_contains_rejection_rule(self, sample_blueprint):
+        rf = _build_mcp_tools_rule(sample_blueprint)
+        assert "do NOT proceed" in rf.body
+
+    def test_compact_size(self, sample_blueprint):
+        rf = _build_mcp_tools_rule(sample_blueprint)
+        line_count = len(rf.body.split("\n"))
+        assert line_count <= 30, f"MCP tools rule has {line_count} lines (should be compact)"
+
+
+# ---------------------------------------------------------------------------
+# Recipes rule tests
+# ---------------------------------------------------------------------------
+
+class TestRecipesRule:
+    """Tests for _build_recipes_rule()."""
+
+    def test_contains_implementation_guidelines(self, sample_blueprint):
+        rf = _build_recipes_rule(sample_blueprint)
+        assert rf is not None
+        assert "Push Notifications" in rf.body
+        assert "Map Display" in rf.body
+
+    def test_contains_libraries(self, sample_blueprint):
+        rf = _build_recipes_rule(sample_blueprint)
+        assert "Firebase Cloud Messaging 10.x" in rf.body
+
+    def test_contains_key_files(self, sample_blueprint):
+        rf = _build_recipes_rule(sample_blueprint)
+        assert "Services/NotificationService.swift" in rf.body
+
+    def test_none_when_empty(self, minimal_blueprint):
+        rf = _build_recipes_rule(minimal_blueprint)
+        assert rf is None
+
+    def test_contains_developer_recipes(self):
+        bp = StructuredBlueprint(
+            developer_recipes=[
+                DeveloperRecipe(
+                    task="Add a new API endpoint",
+                    files=["src/api/routes/new_route.py"],
+                    steps=["Create route file", "Register in app.py"],
+                ),
+            ],
+        )
+        rf = _build_recipes_rule(bp)
+        assert rf is not None
+        assert "Add a new API endpoint" in rf.body
+        assert "Create route file" in rf.body
+
+
+# ---------------------------------------------------------------------------
+# Pitfalls rule tests
+# ---------------------------------------------------------------------------
+
+class TestPitfallsRule:
+    """Tests for _build_pitfalls_rule()."""
+
+    def test_contains_pitfalls(self, sample_blueprint):
+        rf = _build_pitfalls_rule(sample_blueprint)
+        assert rf is not None
+        assert "Dependency Injection" in rf.body
+        assert "Don't instantiate services directly" in rf.body
+
+    def test_contains_error_mapping(self, sample_blueprint):
+        rf = _build_pitfalls_rule(sample_blueprint)
+        assert "NotFoundError" in rf.body
+        assert "404" in rf.body
+
+    def test_none_when_empty(self, minimal_blueprint):
+        rf = _build_pitfalls_rule(minimal_blueprint)
+        assert rf is None
+
+
+# ---------------------------------------------------------------------------
+# Frontend glob detection tests
+# ---------------------------------------------------------------------------
+
+class TestFrontendGlobDetection:
+    """Tests for _detect_frontend_globs()."""
+
+    def test_nextjs_globs(self, fullstack_blueprint):
+        globs = _detect_frontend_globs(fullstack_blueprint)
+        assert "**/*.tsx" in globs or "**/*.jsx" in globs
+
+    def test_vue_globs(self):
+        bp = StructuredBlueprint(
+            frontend=Frontend(framework="Vue 3"),
+        )
+        globs = _detect_frontend_globs(bp)
+        assert "**/*.vue" in globs
+
+    def test_flutter_globs(self):
+        bp = StructuredBlueprint(
+            frontend=Frontend(framework="Flutter"),
+        )
+        globs = _detect_frontend_globs(bp)
+        assert "**/*.dart" in globs
+
+    def test_fallback_when_unknown(self):
+        bp = StructuredBlueprint(
+            frontend=Frontend(framework="SomeUnknownFramework"),
+        )
+        globs = _detect_frontend_globs(bp)
+        assert globs == ["**/*"]
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatibility tests
+# ---------------------------------------------------------------------------
+
+class TestBackwardCompat:
+    """Tests that old public API still works."""
+
+    def test_generate_claude_md_returns_lean(self, sample_blueprint):
+        content = generate_claude_md(sample_blueprint)
+        assert "# CLAUDE.md" in content
+        assert ".claude/rules/" in content
+
+    def test_generate_cursor_rules_concatenates(self, sample_blueprint):
+        content = generate_cursor_rules(sample_blueprint)
+        # Should have Cursor frontmatter
         assert "---" in content
-        assert "globs:" in content
-        assert len(content) > 30
+        assert "alwaysApply:" in content
+        # Should contain content from multiple rules
+        assert "where_to_put" in content
+
+    def test_generate_agents_md_still_works(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert "# AGENTS.md" in content
+        assert "Agent Roles" in content
+
+    def test_generate_agents_md_updated_file_placement(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert ".claude/rules/" in content
+        assert ".cursor/rules/" in content
 
 
-# ── AGENTS.md tests ──────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------------------------
+# AGENTS.md tests
+# ---------------------------------------------------------------------------
 
 class TestGenerateAgentsMd:
     """Tests for generate_agents_md()."""
@@ -363,17 +741,6 @@ class TestGenerateAgentsMd:
         assert "check_naming" in content
         assert "do NOT proceed" in content
 
-    def test_contains_file_placement_instructions(self, sample_blueprint):
-        content = generate_agents_md(sample_blueprint)
-        assert "CLAUDE.md" in content
-        assert "AGENTS.md" in content
-
-    def test_minimal_blueprint_still_generates(self, minimal_blueprint):
-        content = generate_agents_md(minimal_blueprint)
-        assert "# AGENTS.md" in content
-        assert "Agent Roles" in content
-        assert len(content) > 100
-
     def test_contains_all_mcp_tools(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
         assert "where_to_put" in content
@@ -387,105 +754,10 @@ class TestGenerateAgentsMd:
 
     def test_summary_includes_rule_counts(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        # Should mention count of components
         assert "Components: 3" in content
 
-
-# ── Glob detection tests ─────────────────────────────────────────────────────
-
-
-class TestGlobDetection:
-    """Tests for glob pattern detection from technology stack."""
-
-    def test_python_detected(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "**/*.py" in content
-
-    def test_react_detected(self):
-        bp = StructuredBlueprint(
-            technology=Technology(
-                stack=[TechStackEntry(category="framework", name="React", version="18", purpose="UI")],
-            ),
-        )
-        content = generate_cursor_rules(bp)
-        assert "**/*.tsx" in content or "**/*.jsx" in content
-
-    def test_fallback_glob_when_no_tech(self):
-        bp = StructuredBlueprint()
-        content = generate_cursor_rules(bp)
-        assert "**/*" in content
-
-    def test_multiple_languages_detected(self):
-        bp = StructuredBlueprint(
-            technology=Technology(
-                stack=[
-                    TechStackEntry(category="runtime", name="Python", version="3.13", purpose="Runtime"),
-                    TechStackEntry(category="runtime", name="TypeScript", version="5", purpose="Frontend"),
-                ],
-            ),
-        )
-        content = generate_cursor_rules(bp)
-        assert "**/*.py" in content
-        assert "**/*.ts" in content
-
-
-# ── Implementation Guidelines tests ─────────────────────────────────────────
-
-
-class TestImplementationGuidelinesInClaudeMd:
-    """Tests for implementation guidelines in CLAUDE.md."""
-
-    def test_contains_heading(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "## Implementation Guidelines" in content
-
-    def test_contains_capabilities(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "Push Notifications" in content
-        assert "Map Display" in content
-
-    def test_contains_libraries(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "Firebase Cloud Messaging 10.x" in content
-        assert "Mapbox Maps SDK 10.x" in content
-
-    def test_contains_key_files(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "Services/NotificationService.swift" in content
-
-    def test_contains_pattern(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "FCM topic-based subscriptions" in content
-
-    def test_omitted_when_empty(self, minimal_blueprint):
-        content = generate_claude_md(minimal_blueprint)
-        assert "Implementation Guidelines" not in content
-
-
-class TestImplementationGuidelinesInCursorRules:
-    """Tests for implementation guidelines in Cursor rules."""
-
-    def test_contains_section_heading(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "## Implementation Guidelines" in content
-
-    def test_contains_capabilities(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        assert "Push Notifications" in content
-        assert "Map Display" in content
-
-    def test_omitted_when_empty(self, minimal_blueprint):
-        content = generate_cursor_rules(minimal_blueprint)
-        assert "Implementation Guidelines" not in content
-
-
-class TestImplementationGuidelinesInAgentsMd:
-    """Tests for implementation guidelines in AGENTS.md."""
-
-    def test_count_shows_in_summary(self, sample_blueprint):
-        content = generate_agents_md(sample_blueprint)
-        assert "Implementation guidelines: 2" in content
-
-    def test_no_count_when_empty(self, minimal_blueprint):
+    def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_agents_md(minimal_blueprint)
-        assert "Implementation guidelines:" not in content
+        assert "# AGENTS.md" in content
+        assert "Agent Roles" in content
+        assert len(content) > 100

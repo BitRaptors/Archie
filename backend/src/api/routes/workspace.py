@@ -11,6 +11,7 @@ from infrastructure.persistence.user_profile_repository import UserProfileReposi
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
 from application.services.agent_file_generator import (
+    generate_all,
     generate_claude_md,
     generate_cursor_rules,
     generate_agents_md,
@@ -190,10 +191,12 @@ async def get_agent_files(repo_id: str, request: Request):
             detail="Structured blueprint (blueprint.json) not found. Re-analyze to generate.",
         )
 
+    output = generate_all(blueprint)
     return {
-        "claude_md": generate_claude_md(blueprint),
-        "cursor_rules": generate_cursor_rules(blueprint),
-        "agents_md": generate_agents_md(blueprint),
+        "claude_md": output.claude_md,
+        "cursor_rules": "\n\n".join(rf.render_cursor() for rf in output.rule_files),
+        "agents_md": output.agents_md,
+        "files": output.to_file_map(),
     }
 
 

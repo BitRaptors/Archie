@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, Loader2, CheckCircle2, X, Layers, Eye, Activity } from 'lucide-react'
+import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, DownloadCloud } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
@@ -71,7 +71,9 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         claude_md: string
         cursor_rules: string
         agents_md: string
+        files?: Record<string, string>
     } | null>(null)
+    const [selectedFile, setSelectedFile] = useState<string | null>(null)
     const [debugData, setDebugData] = useState<any>({
         gathered: {},
         phases: [],
@@ -360,7 +362,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         <Database className="w-4 h-4" /> Blueprint
                     </button>
                     <button
-                        onClick={() => setActiveTab('claude')}
+                        onClick={() => { setActiveTab('claude'); setSelectedFile(null) }}
                         className={cn(
                             "py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px] flex items-center gap-2",
                             activeTab === 'claude' ? "text-teal border-teal" : "text-ink/40 hover:text-ink/60 border-transparent"
@@ -369,7 +371,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         <FileText className="w-4 h-4" /> CLAUDE.md
                     </button>
                     <button
-                        onClick={() => setActiveTab('cursor')}
+                        onClick={() => { setActiveTab('cursor'); setSelectedFile(null) }}
                         className={cn(
                             "py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px] flex items-center gap-2",
                             activeTab === 'cursor' ? "text-teal border-teal" : "text-ink/40 hover:text-ink/60 border-transparent"
@@ -480,7 +482,122 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                             </div>
                         )}
 
-                        {activeTab === 'claude' && agentFiles?.claude_md && (
+                        {(activeTab === 'claude' || activeTab === 'cursor') && agentFiles?.files && (() => {
+                            const isClaude = activeTab === 'claude'
+                            const prefix = isClaude ? '.claude/' : '.cursor/'
+
+                            // Build file entries: root files + platform-specific rules
+                            const rootFiles = isClaude
+                                ? ['CLAUDE.md', 'AGENTS.md']
+                                : []
+                            const ruleFiles = Object.keys(agentFiles.files)
+                                .filter(p => p.startsWith(prefix))
+                                .sort()
+                            const allPaths = [...rootFiles, ...ruleFiles].filter(p => agentFiles.files![p])
+
+                            // Build tree structure
+                            type TreeNode = { name: string; path?: string; children: TreeNode[] }
+                            const treeRoot: TreeNode = { name: '/', children: [] }
+
+                            for (const filePath of allPaths) {
+                                const parts = filePath.split('/')
+                                let current = treeRoot
+                                for (let i = 0; i < parts.length; i++) {
+                                    const part = parts[i]
+                                    const isFile = i === parts.length - 1
+                                    let child = current.children.find(c => c.name === part)
+                                    if (!child) {
+                                        child = { name: part, children: [], ...(isFile ? { path: filePath } : {}) }
+                                        current.children.push(child)
+                                    }
+                                    current = child
+                                }
+                            }
+
+                            const currentFile = selectedFile && agentFiles.files[selectedFile] ? selectedFile : allPaths[0]
+                            const currentContent = currentFile ? agentFiles.files[currentFile] : ''
+                            const currentFileName = currentFile?.split('/').pop() || ''
+
+                            const handleDownloadAll = () => {
+                                for (const p of allPaths) {
+                                    handleDownload(agentFiles.files![p], p.replace(/\//g, '_'))
+                                }
+                            }
+
+                            const renderTree = (nodes: TreeNode[], depth: number = 0) => (
+                                <div className={depth > 0 ? 'ml-3' : ''}>
+                                    {nodes.map(node => (
+                                        <div key={node.path || node.name}>
+                                            {node.path ? (
+                                                <button
+                                                    onClick={() => setSelectedFile(node.path!)}
+                                                    className={cn(
+                                                        'flex items-center gap-1.5 w-full text-left px-2 py-1.5 rounded-lg text-xs transition-all duration-200',
+                                                        currentFile === node.path
+                                                            ? 'bg-teal/5 text-teal font-bold'
+                                                            : 'text-ink/40 hover:text-ink/60 hover:bg-papaya-300/30 font-medium'
+                                                    )}
+                                                >
+                                                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                    <span className="truncate">{node.name}</span>
+                                                    {currentFile === node.path && <div className="w-1.5 h-1.5 rounded-full bg-teal ml-auto shrink-0" />}
+                                                </button>
+                                            ) : (
+                                                <div className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold text-ink/60">
+                                                    <Folder className="w-3.5 h-3.5 shrink-0 text-tangerine" />
+                                                    <span>{node.name}</span>
+                                                </div>
+                                            )}
+                                            {node.children.length > 0 && renderTree(node.children, depth + 1)}
+                                        </div>
+                                    ))}
+                                </div>
+                            )
+
+                            return (
+                                <div className="flex h-full">
+                                    {/* File tree sidebar */}
+                                    <div className="w-56 shrink-0 border-r border-papaya-400/40 p-4 overflow-y-auto">
+                                        <div className="flex items-center gap-2 mb-4 px-1">
+                                            <div className="p-1.5 rounded-md bg-papaya-300/30">
+                                                <Layers className="w-3.5 h-3.5 text-teal" />
+                                            </div>
+                                            <p className="text-[11px] font-black text-ink/30 uppercase tracking-[0.15em]">Files</p>
+                                            <Badge className="ml-auto bg-papaya-300/30 text-ink/40 text-[10px] border-papaya-400/40">
+                                                {allPaths.length}
+                                            </Badge>
+                                        </div>
+                                        {renderTree(treeRoot.children)}
+                                    </div>
+
+                                    {/* File content */}
+                                    <div className="flex-1 overflow-y-auto p-10">
+                                        <div className={cn(
+                                            'p-4 rounded-2xl mb-8 flex items-center justify-between',
+                                            isClaude ? 'bg-teal-50 border border-teal-200' : 'bg-tangerine/5 border border-tangerine/20'
+                                        )}>
+                                            <code className={cn('text-xs font-mono font-medium', isClaude ? 'text-teal-800' : 'text-ink/80')}>{currentFile}</code>
+                                            <div className="flex items-center gap-2">
+                                                <Button variant="outline" size="sm" className={cn(isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
+                                                    onClick={() => handleDownload(currentContent, currentFileName)}>
+                                                    <Download className="w-3.5 h-3.5 mr-1.5" />Download
+                                                </Button>
+                                                <Button variant="outline" size="sm" className={cn(isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
+                                                    onClick={handleDownloadAll}>
+                                                    <DownloadCloud className="w-3.5 h-3.5 mr-1.5" />All
+                                                </Button>
+                                            </div>
+                                        </div>
+                                        <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })()}
+
+                        {/* Fallback when files map not available */}
+                        {activeTab === 'claude' && agentFiles?.claude_md && !agentFiles?.files && (
                             <div className="p-10">
                                 <div className="bg-teal-50 border border-teal-200 p-4 rounded-2xl mb-8 flex justify-between items-center">
                                     <p className="text-sm text-teal-800 font-medium"><strong>CLAUDE.md</strong>: Place in root for AI context.</p>
@@ -490,7 +607,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                             </div>
                         )}
 
-                        {activeTab === 'cursor' && agentFiles?.cursor_rules && (
+                        {activeTab === 'cursor' && agentFiles?.cursor_rules && !agentFiles?.files && (
                             <div className="p-10">
                                 <div className="bg-tangerine/5 border border-tangerine/20 p-4 rounded-2xl mb-8 flex justify-between items-center">
                                     <p className="text-sm text-ink/80 font-medium"><strong>.cursor/rules/architecture.md</strong>: Place in rules folder.</p>
