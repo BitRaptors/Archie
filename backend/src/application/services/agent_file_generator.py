@@ -416,45 +416,6 @@ def _detect_frontend_globs(blueprint: StructuredBlueprint) -> list[str]:
     return sorted(globs) if globs else ["**/*"]
 
 
-def _detect_globs(blueprint: StructuredBlueprint) -> list[str]:
-    """Detect file extension globs from the technology stack."""
-    ext_map = {
-        "python": "**/*.py",
-        "typescript": "**/*.ts",
-        "javascript": "**/*.js",
-        "java": "**/*.java",
-        "go": "**/*.go",
-        "rust": "**/*.rs",
-        "swift": "**/*.swift",
-        "kotlin": "**/*.kt",
-        "ruby": "**/*.rb",
-        "php": "**/*.php",
-        "c#": "**/*.cs",
-        "c++": "**/*.cpp",
-    }
-
-    globs = set()
-    for entry in blueprint.technology.stack:
-        name_lower = entry.name.lower()
-        for lang, glob in ext_map.items():
-            if lang in name_lower:
-                globs.add(glob)
-
-        # Also check for React/Next.js etc.
-        if "react" in name_lower or "next" in name_lower:
-            globs.add("**/*.tsx")
-            globs.add("**/*.jsx")
-
-    # Check file placement rules for extensions
-    for fp in blueprint.architecture_rules.file_placement_rules:
-        if fp.naming_pattern:
-            ext = fp.naming_pattern.rsplit(".", 1)[-1] if "." in fp.naming_pattern else ""
-            if ext and len(ext) <= 4:
-                globs.add(f"**/*.{ext}")
-
-    return sorted(globs) if globs else ["**/*"]
-
-
 # ---------------------------------------------------------------------------
 # Lean root CLAUDE.md
 # ---------------------------------------------------------------------------
@@ -569,32 +530,6 @@ def generate_all(blueprint: StructuredBlueprint) -> GeneratedOutput:
         agents_md=generate_agents_md(blueprint),
         rule_files=rule_files,
     )
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible public API
-# ---------------------------------------------------------------------------
-
-def generate_claude_md(blueprint: StructuredBlueprint) -> str:
-    """Generate CLAUDE.md from structured blueprint data.
-
-    Now delegates to the lean root generator. The detailed content
-    lives in topic-split rule files under ``.claude/rules/``.
-    """
-    return generate_claude_md_lean(blueprint)
-
-
-def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
-    """Generate Cursor rules from structured blueprint data.
-
-    For backward compatibility, concatenates all Cursor rule file renders
-    into a single string (the old monolithic format).
-    """
-    output = generate_all(blueprint)
-    parts: list[str] = []
-    for rf in output.rule_files:
-        parts.append(rf.render_cursor())
-    return "\n\n".join(parts) if parts else ""
 
 
 def generate_agents_md(blueprint: StructuredBlueprint) -> str:

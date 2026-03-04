@@ -36,9 +36,7 @@ from application.services.agent_file_generator import (
     GeneratedOutput,
     generate_all,
     generate_agents_md,
-    generate_claude_md,
     generate_claude_md_lean,
-    generate_cursor_rules,
     _build_architecture_rule,
     _build_patterns_rule,
     _build_frontend_rule,
@@ -672,36 +670,6 @@ class TestFrontendGlobDetection:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compatibility tests
-# ---------------------------------------------------------------------------
-
-class TestBackwardCompat:
-    """Tests that old public API still works."""
-
-    def test_generate_claude_md_returns_lean(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "# CLAUDE.md" in content
-        assert ".claude/rules/" in content
-
-    def test_generate_cursor_rules_concatenates(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        # Should have Cursor frontmatter
-        assert "---" in content
-        assert "alwaysApply:" in content
-        # Should contain content from multiple rules
-        assert "where_to_put" in content
-
-    def test_generate_agents_md_still_works(self, sample_blueprint):
-        content = generate_agents_md(sample_blueprint)
-        assert "# AGENTS.md" in content
-        assert "Agent Roles" in content
-
-    def test_generate_agents_md_updated_file_placement(self, sample_blueprint):
-        content = generate_agents_md(sample_blueprint)
-        assert ".claude/rules/" in content
-        assert ".cursor/rules/" in content
-
-
 # ---------------------------------------------------------------------------
 # AGENTS.md tests
 # ---------------------------------------------------------------------------

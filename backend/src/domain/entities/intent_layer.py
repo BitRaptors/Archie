@@ -18,18 +18,6 @@ class FolderNode(BaseModel):
     extensions: list[str] = []  # Unique extensions found
 
 
-class FolderContext(BaseModel):
-    """AI-generated context for a folder (used by optional AI enrichment mode)."""
-    path: str
-    purpose: str = ""
-    scope: str = ""
-    key_files: list[dict[str, str]] = []    # [{file, description}]
-    patterns: list[str] = []
-    anti_patterns: list[str] = []
-    cross_references: list[dict[str, str]] = []  # [{path, relationship}]
-    downlinks: list[dict[str, str]] = []    # [{path, summary}]
-
-
 class FolderBlueprint(BaseModel):
     """Blueprint data projected onto a single folder. Deterministic, not AI-generated."""
     path: str
@@ -122,7 +110,6 @@ class IntentLayerOutput(BaseModel):
     """Output of the intent layer generation process."""
     claude_md_files: dict[str, str] = {}   # rel_path -> content
     codebase_map: str = ""                  # CODEBASE_MAP.md content
-    folder_contexts: dict[str, FolderContext] = {}
     folder_count: int = 0
     total_ai_calls: int = 0
     generation_time_seconds: float = 0.0

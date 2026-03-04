@@ -123,13 +123,6 @@
       ],
       "is_default": true
     },
-    "intent_layer_folder": {
-      "name": "Intent Layer Folder Context",
-      "category": "intent_layer",
-      "prompt_template": "## Intent Layer — Folder Context Generation\n\nYou are generating precise, token-efficient context for AI coding agents. Each folder gets a context node that is auto-loaded when the agent works in that directory.\n\n### Blueprint Summary\n{blueprint_summary}\n\n### Ancestor Code Context (root -> parent chain)\n{ancestor_code_context}\n\n### Parent Folder Context\n{parent_context}\n\n### Folders to Analyze\n{folders_json}\n\n### File Contents (key files from these folders)\n{file_contents}\n\n## Task\n\nFor EACH folder in the list above, produce a JSON object. The top-level keys are the folder paths, and each value is an object with these fields:\n\n- `purpose` (string): One sentence — what this folder IS and DOES\n- `scope` (string): What this folder owns. Be specific: name the domain concepts, API routes, or UI components it manages\n- `key_files` (array of {file, description}): The 3-5 most important files with one-line descriptions. Use ACTUAL filenames from the listing\n- `patterns` (array of strings): Conventions to follow when adding code here (naming, structure, imports)\n- `anti_patterns` (array of strings): What NOT to do — common mistakes an AI agent might make\n- `cross_references` (array of {path, relationship}): Related folders with how they relate\n- `downlinks` (array of {path, summary}): Direct child folders with one-line summaries\n\n## Rules\n\n1. **USE ANCESTOR CODE**: Use ancestor code context to understand imports, class hierarchies, wiring, and how this folder connects to the rest of the codebase\n2. **NO REPETITION**: If the parent context already covers something, write \"Inherits from parent\" instead of repeating\n3. **ACTUAL FILES ONLY**: Only reference files that appear in the listing. Never invent file names\n4. **TOKEN EFFICIENCY**: Be concise. Agents have limited context windows\n5. **ACTIONABLE**: Focus on what an AI agent needs to know to write correct code in this folder\n6. **SPECIFIC**: Bad: \"handles business logic\". Good: \"orchestrates user authentication via JWT tokens and OAuth2 providers\"\n\nReturn ONLY valid JSON — no markdown fences, no explanation:\n\n{\"folder/path\": {purpose, scope, key_files, patterns, anti_patterns, cross_references, downlinks}, ...}",
-      "variables": ["blueprint_summary", "parent_context", "folders_json", "file_contents", "ancestor_code_context"],
-      "is_default": true
-    },
     "intent_layer_enrichment": {
       "name": "Intent Layer Folder Enrichment",
       "category": "intent_layer",

@@ -8,9 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from domain.entities.architecture_rule import ArchitectureRule, RepositoryArchitectureConfig
-from domain.entities.validation_result import ValidationResult, Violation, ViolationSeverity
-from domain.entities.resolved_architecture import ResolvedArchitecture
-from domain.entities.worker_assignment import WorkerAssignment, OrchestrationPlan
 
 
 @pytest.fixture
@@ -374,52 +371,3 @@ def mock_prompt_loader():
     return mock
 
 
-@pytest.fixture
-def sample_repository_config():
-    """Sample repository architecture config."""
-    return RepositoryArchitectureConfig.create(
-        repository_id="test-repo-123",
-        reference_blueprint_id="python-backend",
-        use_learned_architecture=True,
-        merge_strategy="learned_primary",
-    )
-
-
-@pytest.fixture
-def sample_resolved_architecture(sample_architecture_rules, sample_repository_config):
-    """Sample resolved architecture."""
-    return ResolvedArchitecture.create(
-        repository_id="test-repo-123",
-        config=sample_repository_config,
-        rules=sample_architecture_rules,
-    )
-
-
-@pytest.fixture
-def mock_architecture_rule_repo():
-    """Mock architecture rule repository."""
-    mock = AsyncMock()
-    mock.get_by_blueprint_id = AsyncMock(return_value=[])
-    mock.add = AsyncMock()
-    mock.delete_by_blueprint_id = AsyncMock(return_value=0)
-    mock.list_blueprints = AsyncMock(return_value=["python-backend"])
-    return mock
-
-
-@pytest.fixture
-def mock_repository_architecture_repo():
-    """Mock repository architecture repository."""
-    mock = AsyncMock()
-    mock.get_by_repository_id = AsyncMock(return_value=[])
-    mock.add_many = AsyncMock(return_value=[])
-    mock.delete_by_repository_id = AsyncMock(return_value=0)
-    return mock
-
-
-@pytest.fixture
-def mock_config_repo():
-    """Mock repository architecture config repository."""
-    mock = AsyncMock()
-    mock.get_by_repository_id = AsyncMock(return_value=None)
-    mock.upsert = AsyncMock()
-    return mock

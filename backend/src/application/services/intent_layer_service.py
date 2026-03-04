@@ -12,7 +12,6 @@ from domain.entities.blueprint import StructuredBlueprint
 from domain.entities.intent_layer import (
     FolderNode,
     FolderBlueprint,
-    FolderContext,
     FolderEnrichment,
     IntentLayerConfig,
     IntentLayerOutput,
@@ -352,7 +351,6 @@ class IntentLayerService:
         return IntentLayerOutput(
             claude_md_files=claude_md_files,
             codebase_map=codebase_map,
-            folder_contexts={},
             folder_count=len(significant),
             total_ai_calls=total_ai_calls,
             generation_time_seconds=round(elapsed, 2),
@@ -445,30 +443,3 @@ class IntentLayerService:
 
         return reader
 
-    async def _run_ai_enrichment(
-        self,
-        uncovered_paths: list[str],
-        significant: dict[str, FolderNode],
-        builder: FolderHierarchyBuilder,
-        blueprint: StructuredBlueprint,
-        repo_name: str,
-        config: IntentLayerConfig,
-    ) -> dict[str, FolderContext]:
-        """Run AI generation only for uncovered folders."""
-        from application.services.intent_layer_generator import IntentLayerGenerator
-
-        # Build depth groups for uncovered folders only
-        uncovered_nodes = {p: significant[p] for p in uncovered_paths if p in significant}
-        depth_groups = builder.group_by_depth(uncovered_nodes)
-
-        blueprint_summary = f"Repository: {blueprint.meta.repository}\nArchitecture: {blueprint.meta.architecture_style}\n{blueprint.meta.executive_summary[:300]}"
-
-        file_reader = self._make_storage_reader(repo_name)
-
-        generator = IntentLayerGenerator(self._settings, config)
-        return await generator.generate(
-            depth_groups=depth_groups,
-            blueprint_summary=blueprint_summary,
-            file_reader=file_reader,
-            total_source_chars=0,
-        )

@@ -62,7 +62,7 @@ def _truncate_to_tokens(text: str, max_tokens: int) -> str:
     return enc.decode(tokens[:max_tokens])
 
 
-# File priority tiers — reuse from intent_layer_generator
+# File priority tiers for enrichment budget allocation
 _PRIORITY_TIERS: dict[str, int] = {
     "__init__.py": 4, "app.py": 4, "main.py": 4, "index.ts": 4,
     "index.tsx": 4, "index.js": 4, "mod.rs": 4, "lib.rs": 4,

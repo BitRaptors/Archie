@@ -65,25 +65,11 @@ class Settings(BaseSettings):
     # Embedding Model
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
 
-    # Vector Database
-    vector_db_type: str = Field(default="pgvector")  # "pgvector", "qdrant", "pinecone"
-    qdrant_url: str | None = Field(default=None)
-    qdrant_api_key: str | None = Field(default=None)
-    pinecone_api_key: str | None = Field(default=None)
-    pinecone_environment: str | None = Field(default=None)
-
     # Storage
-    storage_type: str = Field(default="local")  # "local", "gcs", "s3"
     storage_path: str = Field(default="./storage")  # Local storage path
     temp_storage_path: str = Field(default="./temp")  # Temp storage path
-    gcs_bucket_name: str | None = Field(default=None)
-    s3_bucket_name: str | None = Field(default=None)
-    aws_access_key_id: str | None = Field(default=None)
-    aws_secret_access_key: str | None = Field(default=None)
-    aws_region: str | None = Field(default=None)
 
     # Analysis
-    max_analysis_workers: int = Field(default=4)
     analysis_timeout_seconds: int = Field(default=3600)  # 1 hour
 
     # File reading budget (0 = auto/dynamic based on repo size)

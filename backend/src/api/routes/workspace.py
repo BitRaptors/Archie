@@ -10,12 +10,7 @@ from domain.entities.blueprint import StructuredBlueprint
 from infrastructure.persistence.user_profile_repository import UserProfileRepository
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
-from application.services.agent_file_generator import (
-    generate_all,
-    generate_claude_md,
-    generate_cursor_rules,
-    generate_agents_md,
-)
+from application.services.agent_file_generator import generate_all
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 

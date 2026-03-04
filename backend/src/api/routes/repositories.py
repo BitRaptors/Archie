@@ -3,7 +3,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Header, Request
 from typing import List, Optional
-from api.dto.requests import CreateRepositoryRequest, StartAnalysisRequest
+from api.dto.requests import StartAnalysisRequest
 from api.dto.responses import RepositoryResponse, AnalysisResponse
 from application.services.github_service import GitHubService
 from config.settings import get_settings
@@ -60,24 +60,6 @@ async def list_repositories(request: Request):
             )
 
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/", response_model=RepositoryResponse)
-async def create_repository(
-    request: CreateRepositoryRequest,
-    user_id: str,  # Would come from auth
-    token: str,  # Would come from auth
-):
-    """Create repository from GitHub."""
-    # TODO: Implement with proper service injection
-    raise HTTPException(status_code=501, detail="Not implemented")
-
-
-@router.get("/{repo_id}", response_model=RepositoryResponse)
-async def get_repository(repo_id: str):
-    """Get repository details."""
-    # TODO: Implement with proper service injection
-    raise HTTPException(status_code=501, detail="Not implemented")
 
 
 @router.post("/{owner}/{repo}/analyze", response_model=AnalysisResponse)
@@ -285,15 +267,3 @@ async def _run_analysis_in_process(
             pass
 
 
-@router.get("/{repo_id}/status", response_model=AnalysisResponse)
-async def get_analysis_status(repo_id: str):
-    """Get analysis status for repository."""
-    # TODO: Implement with proper service injection
-    raise HTTPException(status_code=501, detail="Not implemented")
-
-
-@router.get("/{repo_id}/blueprint")
-async def get_blueprint(repo_id: str):
-    """Get generated blueprint."""
-    # TODO: Implement with proper service injection
-    raise HTTPException(status_code=501, detail="Not implemented")

@@ -1,6 +1,5 @@
 """Dependency injection container."""
 from dependency_injector import containers, providers
-import redis.asyncio as redis
 from arq import create_pool
 from arq.connections import RedisSettings
 from config.settings import get_settings
@@ -39,12 +38,6 @@ class Container(containers.DeclarativeContainer):
     # Configuration
     config = providers.Configuration()
     settings = providers.Singleton(get_settings)
-
-    # Redis
-    redis_client = providers.Singleton(
-        redis.from_url,
-        url=settings.provided.redis_url,
-    )
 
     # Database — backend-agnostic (Supabase or local Postgres)
     db = providers.Resource(

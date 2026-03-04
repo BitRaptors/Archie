@@ -3,7 +3,6 @@ import pytest
 
 from domain.entities.intent_layer import (
     FolderNode,
-    FolderContext,
     FolderBlueprint,
     FolderEnrichment,
     KeyFileGuide,
@@ -26,23 +25,6 @@ def sample_folder():
         parent_path="src",
         files=["routes.py", "middleware.py"],
         file_count=2,
-    )
-
-
-@pytest.fixture
-def sample_context():
-    return FolderContext(
-        path="src/api",
-        purpose="HTTP API layer handling REST endpoints",
-        scope="All REST endpoints and middleware",
-        key_files=[
-            {"file": "routes.py", "description": "Route definitions"},
-            {"file": "middleware.py", "description": "Auth middleware"},
-        ],
-        patterns=["Use dependency injection", "Return Pydantic models"],
-        anti_patterns=["Don't put business logic in routes"],
-        cross_references=[{"path": "../services/", "relationship": "Calls service layer"}],
-        downlinks=[{"path": "handlers/", "summary": "Request handlers"}],
     )
 
 
@@ -76,104 +58,6 @@ def sample_folder_blueprint():
         parent_component="Backend",
         has_blueprint_coverage=True,
     )
-
-
-# ── Legacy AI-based rendering ──
-
-class TestRenderFolderClaudeMd:
-
-    def test_basic_structure(self, renderer, sample_folder, sample_context):
-        result = renderer.render_folder_claude_md(sample_folder, sample_context, "my-repo")
-
-        assert "# api/" in result
-        assert "> HTTP API layer handling REST endpoints" in result
-        assert "## Scope" in result
-        assert "## Key Files" in result
-        assert "## Patterns" in result
-        assert "## Anti-Patterns" in result
-
-    def test_key_files_table(self, renderer, sample_folder, sample_context):
-        result = renderer.render_folder_claude_md(sample_folder, sample_context, "my-repo")
-
-        assert "| `routes.py` | Route definitions |" in result
-        assert "| `middleware.py` | Auth middleware |" in result
-
-    def test_cross_references(self, renderer, sample_folder, sample_context):
-        result = renderer.render_folder_claude_md(sample_folder, sample_context, "my-repo")
-
-        assert "## Related" in result
-        assert "`../services/`" in result
-
-    def test_downlinks(self, renderer, sample_folder, sample_context):
-        result = renderer.render_folder_claude_md(sample_folder, sample_context, "my-repo")
-
-        assert "## Subfolders" in result
-        assert "`handlers/`" in result
-
-    def test_root_folder_uses_repo_name(self, renderer):
-        root = FolderNode(path="", name="root", depth=0)
-        ctx = FolderContext(path="", purpose="Project root")
-        result = renderer.render_folder_claude_md(root, ctx, "my-app")
-
-        assert "# my-app" in result
-
-    def test_empty_context_minimal(self, renderer, sample_folder):
-        ctx = FolderContext(path="src/api")
-        result = renderer.render_folder_claude_md(sample_folder, ctx, "repo")
-
-        assert "# api/" in result
-        assert "## Key Files" not in result
-        assert "## Patterns" not in result
-
-    def test_ends_with_newline(self, renderer, sample_folder, sample_context):
-        result = renderer.render_folder_claude_md(sample_folder, sample_context, "repo")
-        assert result.endswith("\n")
-
-
-class TestRenderClaudeRule:
-
-    def test_frontmatter(self, renderer, sample_folder, sample_context):
-        result = renderer.render_claude_rule(sample_folder, sample_context, "repo")
-
-        assert result.startswith("---\n")
-        assert 'description: "src/api conventions"' in result
-        assert '- "src/api/**"' in result
-        assert "---" in result
-
-    def test_has_sections(self, renderer, sample_folder, sample_context):
-        result = renderer.render_claude_rule(sample_folder, sample_context, "repo")
-
-        assert "# api Rules" in result
-        assert "## Purpose" in result
-        assert "## Conventions" in result
-        assert "## Anti-Patterns" in result
-
-    def test_root_conventions(self, renderer):
-        root = FolderNode(path="", name="root", depth=0)
-        ctx = FolderContext(path="", purpose="Project root", patterns=["Follow PEP 8"])
-        result = renderer.render_claude_rule(root, ctx, "repo")
-
-        assert '"root conventions"' in result  # description uses "root" for empty path
-        assert '"**"' in result  # glob matches everything
-
-    def test_ends_with_newline(self, renderer, sample_folder, sample_context):
-        result = renderer.render_claude_rule(sample_folder, sample_context, "repo")
-        assert result.endswith("\n")
-
-
-class TestRenderRuleFilename:
-
-    def test_basic_path(self):
-        assert IntentLayerRenderer.render_rule_filename("src/api/routes") == "src-api-routes.md"
-
-    def test_root(self):
-        assert IntentLayerRenderer.render_rule_filename("") == "root.md"
-
-    def test_single_level(self):
-        assert IntentLayerRenderer.render_rule_filename("src") == "src.md"
-
-    def test_deep_path(self):
-        assert IntentLayerRenderer.render_rule_filename("a/b/c/d") == "a-b-c-d.md"
 
 
 # ── Blueprint-driven rendering ──

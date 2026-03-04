@@ -6,7 +6,6 @@ from application.services.repository_service import RepositoryService
 from application.services.analysis_data_collector import analysis_data_collector
 from config.settings import get_settings
 from config.container import Container
-from infrastructure.persistence.user_repository import UserRepository
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
 from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
@@ -42,7 +41,6 @@ async def startup(ctx):
     print("Worker startup: Analysis data collector initialized")
 
     # Create repositories using DB abstraction
-    user_repo = UserRepository(db=db)
     repo_repo = RepositoryRepository(db=db)
     analysis_repo = AnalysisRepository(db=db)
     event_repo = AnalysisEventRepository(db=db)

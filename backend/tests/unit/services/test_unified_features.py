@@ -28,8 +28,7 @@ from domain.entities.blueprint import (
 from application.services.blueprint_renderer import render_blueprint_markdown
 from application.services.agent_file_generator import (
     generate_agents_md,
-    generate_claude_md,
-    generate_cursor_rules,
+    generate_all,
 )
 
 
@@ -377,15 +376,15 @@ class TestCursorRulesFrontend:
     """Tests for frontend sections in Cursor rules generation."""
 
     def test_frontend_section_present(self, fullstack_blueprint):
-        content = generate_cursor_rules(fullstack_blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(fullstack_blueprint).rule_files)
         assert "## Frontend Architecture" in content
 
     def test_frontend_framework(self, fullstack_blueprint):
-        content = generate_cursor_rules(fullstack_blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(fullstack_blueprint).rule_files)
         assert "Next.js 14" in content
 
     def test_detects_tsx_globs(self, fullstack_blueprint):
-        content = generate_cursor_rules(fullstack_blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(fullstack_blueprint).rule_files)
         # Should detect .tsx and .jsx from React/Next.js in tech stack
         assert "**/*.tsx" in content or "**/*.jsx" in content
 
@@ -400,7 +399,7 @@ class TestCursorRulesFrontend:
         assert "**/*.tsx" in cursor_content or "**/*.jsx" in cursor_content
 
     def test_no_frontend_section_when_empty(self, backend_only_blueprint):
-        content = generate_cursor_rules(backend_only_blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(backend_only_blueprint).rule_files)
         assert "## Frontend Architecture" not in content
 
 
