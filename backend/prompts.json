@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 6,
   "prompts": {
     "observation": {
       "name": "Architecture Observation",
@@ -121,6 +121,20 @@
         "provided_capabilities",
         "file_registry"
       ],
+      "is_default": true
+    },
+    "intent_layer_folder": {
+      "name": "Intent Layer Folder Context",
+      "category": "intent_layer",
+      "prompt_template": "## Intent Layer — Folder Context Generation\n\nYou are generating precise, token-efficient context for AI coding agents. Each folder gets a context node that is auto-loaded when the agent works in that directory.\n\n### Blueprint Summary\n{blueprint_summary}\n\n### Ancestor Code Context (root -> parent chain)\n{ancestor_code_context}\n\n### Parent Folder Context\n{parent_context}\n\n### Folders to Analyze\n{folders_json}\n\n### File Contents (key files from these folders)\n{file_contents}\n\n## Task\n\nFor EACH folder in the list above, produce a JSON object. The top-level keys are the folder paths, and each value is an object with these fields:\n\n- `purpose` (string): One sentence — what this folder IS and DOES\n- `scope` (string): What this folder owns. Be specific: name the domain concepts, API routes, or UI components it manages\n- `key_files` (array of {file, description}): The 3-5 most important files with one-line descriptions. Use ACTUAL filenames from the listing\n- `patterns` (array of strings): Conventions to follow when adding code here (naming, structure, imports)\n- `anti_patterns` (array of strings): What NOT to do — common mistakes an AI agent might make\n- `cross_references` (array of {path, relationship}): Related folders with how they relate\n- `downlinks` (array of {path, summary}): Direct child folders with one-line summaries\n\n## Rules\n\n1. **USE ANCESTOR CODE**: Use ancestor code context to understand imports, class hierarchies, wiring, and how this folder connects to the rest of the codebase\n2. **NO REPETITION**: If the parent context already covers something, write \"Inherits from parent\" instead of repeating\n3. **ACTUAL FILES ONLY**: Only reference files that appear in the listing. Never invent file names\n4. **TOKEN EFFICIENCY**: Be concise. Agents have limited context windows\n5. **ACTIONABLE**: Focus on what an AI agent needs to know to write correct code in this folder\n6. **SPECIFIC**: Bad: \"handles business logic\". Good: \"orchestrates user authentication via JWT tokens and OAuth2 providers\"\n\nReturn ONLY valid JSON — no markdown fences, no explanation:\n\n{\"folder/path\": {purpose, scope, key_files, patterns, anti_patterns, cross_references, downlinks}, ...}",
+      "variables": ["blueprint_summary", "parent_context", "folders_json", "file_contents", "ancestor_code_context"],
+      "is_default": true
+    },
+    "intent_layer_enrichment": {
+      "name": "Intent Layer Folder Enrichment",
+      "category": "intent_layer",
+      "prompt_template": "## Compound Learning — Folder Deep Work Session\n\nYou just completed a deep work session in this folder. Write down everything you learned so your future self can write correct code immediately next time.\n\nYour notes should read like auto-memory from an experienced developer: patterns discovered, mistakes to avoid, debugging insights, historical decisions — NOT generated documentation.\n\n### Folder\n{folder_path}\n\n### Component Context\nName: {component_name}\nResponsibility: {component_responsibility}\nDepends on: {depends_on}\nExposes to: {exposes_to}\n\n### Interfaces Summary\n{interfaces_summary}\n\n### What Children Taught Us\n{children_learned}\n\n### Files in This Folder\n{file_listing}\n\n### File Contents\n{file_contents}\n\n## Task\n\nStudy the actual code above. Write down compound learning notes — everything a developer needs to write correct code in this folder on day one.\n\nReturn ONLY valid JSON with this structure:\n\n{{\"purpose\": \"One sentence: what this folder IS + its single most important constraint\", \"patterns\": [\"Coding patterns discovered from actual code (4-8 items)\"], \"key_file_guides\": [{{\"file\": \"actual_filename.ext\", \"purpose\": \"What this file does\", \"modification_guide\": \"How to modify it correctly\"}}], \"anti_patterns\": [\"Don't X -- Y instead (2-4 items)\"], \"common_task\": {{\"task\": \"Most common modification task\", \"steps\": [\"Step 1\", \"Step 2\"]}}, \"testing\": [\"How to test code in this folder (2-3 items)\"], \"debugging\": [\"Common debugging insights (1-3 items)\"], \"decisions\": [\"Why key design choices were made (1-3 items)\"]}}\n\n## Rules\n\n1. Derive patterns from ACTUAL code you see, not generic best practices\n2. Every pattern must be something a code reviewer could verify mechanically\n3. For testing: include actual commands, file patterns, and mock strategies you observed\n4. For debugging: note specific error types, tools, and config gotchas\n5. For decisions: explain WHY based on what the code reveals, not speculation\n6. Reference ONLY files in the listing. If you can't ground a claim in code, skip it\n7. Keep total output under 1000 tokens\n8. If children_learned is provided, build on that knowledge — add cross-cutting insights, don't repeat what children already cover",
+      "variables": ["folder_path", "component_name", "component_responsibility", "depends_on", "exposes_to", "interfaces_summary", "children_learned", "file_listing", "file_contents"],
       "is_default": true
     }
   }

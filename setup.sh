@@ -369,7 +369,7 @@ if [ "$DB_BACKEND" = "postgres" ]; then
     # Re-apply migration (idempotent — safe to run on every setup)
     info "Applying migration (idempotent)..."
     $DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp \
-      -f /docker-entrypoint-initdb.d/001_initial_setup.sql 2>&1 | tail -5
+      < backend/migrations/001_initial_setup.sql 2>&1 | tail -5
 
     # Verify tables exist
     TABLE_EXISTS=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp -tAc \

@@ -1,9 +1,8 @@
 """Embedding generator for code."""
 from pathlib import Path
 from typing import Any
-from sentence_transformers import SentenceTransformer
-from config.settings import get_settings
 from infrastructure.analysis.vector_store import IVectorStore
+from infrastructure.analysis.shared_embedder import get_model
 
 
 class EmbeddingGenerator:
@@ -11,9 +10,13 @@ class EmbeddingGenerator:
 
     def __init__(self, vector_store: IVectorStore):
         """Initialize embedding generator."""
-        settings = get_settings()
-        self._model = SentenceTransformer(settings.embedding_model)
+        self._model = None  # Lazy — loaded on first use
         self._vector_store = vector_store
+
+    def _get_model(self):
+        if self._model is None:
+            self._model = get_model()
+        return self._model
 
     async def generate_embeddings(self, repository_id: str, repo_path: Path) -> None:
         """Generate embeddings for all code files."""
@@ -68,7 +71,7 @@ class EmbeddingGenerator:
     ) -> list[dict[str, Any]]:
         """Generate embeddings for a file (module-level)."""
         # Generate module-level embedding
-        embedding_vector = self._model.encode(content, show_progress_bar=False)
+        embedding_vector = self._get_model().encode(content, show_progress_bar=False)
         
         return [{
             "repository_id": repository_id,

@@ -1,4 +1,5 @@
 """Repository service."""
+import asyncio
 import subprocess
 import tempfile
 import shutil
@@ -70,17 +71,17 @@ class RepositoryService:
         """List user's repositories."""
         return await self._repo.get_by_user_id(user_id, limit=limit, offset=offset)
 
-    async def clone_repository(self, repo: Repository, token: str, temp_dir: Path) -> Path:
-        """Clone repository to temporary directory."""
+    def _clone_repository_sync(self, repo: Repository, token: str, temp_dir: Path) -> Path:
+        """Clone repository to temporary directory (sync I/O)."""
         repo_path = temp_dir / repo.full_name.replace("/", "_")
-        
+
         # Clean up if already exists
         if repo_path.exists():
             shutil.rmtree(repo_path)
-        
+
         # Ensure temp_dir exists
         temp_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Clone with token authentication
         clone_url = f"https://{token}@github.com/{repo.full_name}.git"
         result = subprocess.run(
@@ -89,26 +90,34 @@ class RepositoryService:
             capture_output=True,
             text=True,
         )
-        
+
         # Verify clone succeeded - check if directory exists and has content
         if not repo_path.exists():
             raise RuntimeError(f"Repository clone failed: directory {repo_path} does not exist after clone")
-        
+
         if not repo_path.is_dir():
             raise RuntimeError(f"Repository clone failed: {repo_path} is not a directory")
-        
+
         # Check if repository has any content (at least .git should be there)
         items = list(repo_path.iterdir())
         if len(items) == 0:
             raise RuntimeError(f"Repository clone failed: directory {repo_path} is empty after clone")
-        
+
         # Resolve to absolute path to avoid any path resolution issues
         repo_path = repo_path.resolve()
-        
+
         return repo_path
+
+    async def clone_repository(self, repo: Repository, token: str, temp_dir: Path) -> Path:
+        """Clone repository to temporary directory."""
+        return await asyncio.to_thread(self._clone_repository_sync, repo, token, temp_dir)
+
+    def _cleanup_sync(self, repo_path: Path) -> None:
+        """Clean up temporary repository directory (sync I/O)."""
+        if repo_path.exists():
+            shutil.rmtree(repo_path)
 
     async def cleanup_temp_repository(self, repo_path: Path) -> None:
         """Clean up temporary repository directory."""
-        if repo_path.exists():
-            shutil.rmtree(repo_path)
+        await asyncio.to_thread(self._cleanup_sync, repo_path)
 

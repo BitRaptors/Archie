@@ -712,3 +712,125 @@ ON CONFLICT (key) WHERE key IS NOT NULL DO UPDATE SET
     variables = EXCLUDED.variables,
     is_default = EXCLUDED.is_default,
     updated_at = NOW();
+
+INSERT INTO analysis_prompts (name, category, prompt_template, variables, is_default, key, type)
+VALUES (
+    'Intent Layer Folder Context',
+    'intent_layer',
+    '## Intent Layer — Folder Context Generation
+
+You are generating precise, token-efficient context for AI coding agents. Each folder gets a context node that is auto-loaded when the agent works in that directory.
+
+### Blueprint Summary
+{blueprint_summary}
+
+### Ancestor Code Context (root -> parent chain)
+{ancestor_code_context}
+
+### Parent Folder Context
+{parent_context}
+
+### Folders to Analyze
+{folders_json}
+
+### File Contents (key files from these folders)
+{file_contents}
+
+## Task
+
+For EACH folder in the list above, produce a JSON object. The top-level keys are the folder paths, and each value is an object with these fields:
+
+- `purpose` (string): One sentence — what this folder IS and DOES
+- `scope` (string): What this folder owns. Be specific: name the domain concepts, API routes, or UI components it manages
+- `key_files` (array of {file, description}): The 3-5 most important files with one-line descriptions. Use ACTUAL filenames from the listing
+- `patterns` (array of strings): Conventions to follow when adding code here (naming, structure, imports)
+- `anti_patterns` (array of strings): What NOT to do — common mistakes an AI agent might make
+- `cross_references` (array of {path, relationship}): Related folders with how they relate
+- `downlinks` (array of {path, summary}): Direct child folders with one-line summaries
+
+## Rules
+
+1. **USE ANCESTOR CODE**: Use ancestor code context to understand imports, class hierarchies, wiring, and how this folder connects to the rest of the codebase
+2. **NO REPETITION**: If the parent context already covers something, write "Inherits from parent" instead of repeating
+3. **ACTUAL FILES ONLY**: Only reference files that appear in the listing. Never invent file names
+4. **TOKEN EFFICIENCY**: Be concise. Agents have limited context windows
+5. **ACTIONABLE**: Focus on what an AI agent needs to know to write correct code in this folder
+6. **SPECIFIC**: Bad: "handles business logic". Good: "orchestrates user authentication via JWT tokens and OAuth2 providers"
+
+Return ONLY valid JSON — no markdown fences, no explanation:
+
+{"folder/path": {purpose, scope, key_files, patterns, anti_patterns, cross_references, downlinks}, ...}',
+    '["blueprint_summary", "parent_context", "folders_json", "file_contents", "ancestor_code_context"]'::jsonb,
+    TRUE,
+    'intent_layer_folder',
+    'prompt'
+)
+ON CONFLICT (key) WHERE key IS NOT NULL DO UPDATE SET
+    name = EXCLUDED.name,
+    category = EXCLUDED.category,
+    prompt_template = EXCLUDED.prompt_template,
+    variables = EXCLUDED.variables,
+    is_default = EXCLUDED.is_default,
+    updated_at = NOW();
+
+INSERT INTO analysis_prompts (name, category, prompt_template, variables, is_default, key, type)
+VALUES (
+    'Intent Layer Folder Enrichment',
+    'intent_layer',
+    '## Compound Learning — Folder Deep Work Session
+
+You just completed a deep work session in this folder. Write down everything you learned so your future self can write correct code immediately next time.
+
+Your notes should read like auto-memory from an experienced developer: patterns discovered, mistakes to avoid, debugging insights, historical decisions — NOT generated documentation.
+
+### Folder
+{folder_path}
+
+### Component Context
+Name: {component_name}
+Responsibility: {component_responsibility}
+Depends on: {depends_on}
+Exposes to: {exposes_to}
+
+### Interfaces Summary
+{interfaces_summary}
+
+### What Children Taught Us
+{children_learned}
+
+### Files in This Folder
+{file_listing}
+
+### File Contents
+{file_contents}
+
+## Task
+
+Study the actual code above. Write down compound learning notes — everything a developer needs to write correct code in this folder on day one.
+
+Return ONLY valid JSON with this structure:
+
+{{"purpose": "One sentence: what this folder IS + its single most important constraint", "patterns": ["Coding patterns discovered from actual code (4-8 items)"], "key_file_guides": [{{"file": "actual_filename.ext", "purpose": "What this file does", "modification_guide": "How to modify it correctly"}}], "anti_patterns": ["Don''t X -- Y instead (2-4 items)"], "common_task": {{"task": "Most common modification task", "steps": ["Step 1", "Step 2"]}}, "testing": ["How to test code in this folder (2-3 items)"], "debugging": ["Common debugging insights (1-3 items)"], "decisions": ["Why key design choices were made (1-3 items)"]}}
+
+## Rules
+
+1. Derive patterns from ACTUAL code you see, not generic best practices
+2. Every pattern must be something a code reviewer could verify mechanically
+3. For testing: include actual commands, file patterns, and mock strategies you observed
+4. For debugging: note specific error types, tools, and config gotchas
+5. For decisions: explain WHY based on what the code reveals, not speculation
+6. Reference ONLY files in the listing. If you can''t ground a claim in code, skip it
+7. Keep total output under 1000 tokens
+8. If children_learned is provided, build on that knowledge — add cross-cutting insights, don''t repeat what children already cover',
+    '["folder_path", "component_name", "component_responsibility", "depends_on", "exposes_to", "interfaces_summary", "children_learned", "file_listing", "file_contents"]'::jsonb,
+    TRUE,
+    'intent_layer_enrichment',
+    'prompt'
+)
+ON CONFLICT (key) WHERE key IS NOT NULL DO UPDATE SET
+    name = EXCLUDED.name,
+    category = EXCLUDED.category,
+    prompt_template = EXCLUDED.prompt_template,
+    variables = EXCLUDED.variables,
+    is_default = EXCLUDED.is_default,
+    updated_at = NOW();

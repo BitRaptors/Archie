@@ -29,8 +29,8 @@ _STATIC_FILE_MAP: dict[str, str] = {
 # Aggregate keys that expand into multiple rule files
 _AGGREGATE_KEYS = {"claude_rules", "cursor_rules"}
 
-# All valid output keys (static + aggregate)
-VALID_OUTPUTS = set(_STATIC_FILE_MAP.keys()) | _AGGREGATE_KEYS
+# All valid output keys (static + aggregate + async)
+VALID_OUTPUTS = set(_STATIC_FILE_MAP.keys()) | _AGGREGATE_KEYS | {"intent_layer", "codebase_map"}
 
 # Merge strategy per output key
 _STATIC_MERGE_STRATEGY: dict[str, str] = {
@@ -123,8 +123,9 @@ class DeliveryResult:
 class DeliveryService:
     """Orchestrates pushing architecture outputs to a target GitHub repository."""
 
-    def __init__(self, storage):
+    def __init__(self, storage, intent_layer_service=None):
         self._storage = storage
+        self._intent_layer_service = intent_layer_service
 
     async def preview(
         self,
@@ -133,7 +134,20 @@ class DeliveryService:
     ) -> dict[str, str]:
         """Generate and return selected outputs without pushing."""
         blueprint = await self._load_blueprint(source_repo_id)
-        return self._generate_outputs(blueprint, outputs)
+        result = self._generate_outputs(blueprint, outputs)
+
+        # Handle intent_layer and codebase_map via intent layer service
+        if ("intent_layer" in outputs or "codebase_map" in outputs) and self._intent_layer_service:
+            il_output = await self._intent_layer_service.preview(source_repo_id=source_repo_id)
+            if "intent_layer" in outputs:
+                for path, content in il_output.claude_md_files.items():
+                    if path == "CLAUDE.md" and "claude_md" in outputs:
+                        continue  # Root already handled by main pipeline
+                    result[path] = content
+            if "codebase_map" in outputs and il_output.codebase_map:
+                result["CODEBASE_MAP.md"] = il_output.codebase_map
+
+        return result
 
     async def apply(
         self,
@@ -150,6 +164,17 @@ class DeliveryService:
 
         blueprint = await self._load_blueprint(source_repo_id)
         generated = self._generate_outputs(blueprint, outputs)
+
+        # Handle intent_layer and codebase_map via intent layer service
+        if ("intent_layer" in outputs or "codebase_map" in outputs) and self._intent_layer_service:
+            il_output = await self._intent_layer_service.preview(source_repo_id=source_repo_id)
+            if "intent_layer" in outputs:
+                for path, content in il_output.claude_md_files.items():
+                    if path == "CLAUDE.md" and "claude_md" in outputs:
+                        continue  # Root already handled by main pipeline
+                    generated[path] = content
+            if "codebase_map" in outputs and il_output.codebase_map:
+                generated["CODEBASE_MAP.md"] = il_output.codebase_map
 
         push_client = GitHubPushClient(token)
         default_branch = push_client.get_default_branch(target_repo_full_name)
@@ -252,6 +277,10 @@ class DeliveryService:
         result: dict[str, str] = {}
 
         for key in outputs:
+            if key == "intent_layer":
+                continue  # Handled separately in apply()/preview()
+            if key == "codebase_map":
+                continue  # Handled separately via intent_layer_service
             if key == "claude_md":
                 result["CLAUDE.md"] = gen_output.claude_md
             elif key == "agents_md":

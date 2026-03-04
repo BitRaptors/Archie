@@ -50,6 +50,17 @@ class LocalStorage(IStorage):
             return True
         return False
 
+    async def list_files(self, path: str) -> list[str]:
+        """List all files under a directory path (relative to base)."""
+        full_path = self._base_path / path
+        if not full_path.exists() or not full_path.is_dir():
+            return []
+        return [
+            str(f.relative_to(self._base_path))
+            for f in full_path.rglob("*")
+            if f.is_file()
+        ]
+
     async def get_url(self, path: str) -> str:
         """Get local file path (not a URL for local storage)."""
         return str(self._base_path / path)

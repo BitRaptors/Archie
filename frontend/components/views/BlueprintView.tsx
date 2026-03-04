@@ -59,7 +59,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
     const [syncSettings, setSyncSettings] = useState({
         targetRepo: '',
         strategy: 'pr' as 'pr' | 'commit',
-        outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor']
+        outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor', 'intent_layer', 'codebase_map']
     })
     const [deliveryResult, setDeliveryResult] = useState<any>(null)
     const [needsSync, setNeedsSync] = useState(false)
@@ -486,14 +486,20 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                             const isClaude = activeTab === 'claude'
                             const prefix = isClaude ? '.claude/' : '.cursor/'
 
-                            // Build file entries: root files + platform-specific rules
+                            // Build file entries: root files + per-folder CLAUDE.md + platform-specific rules
                             const rootFiles = isClaude
                                 ? ['CLAUDE.md', 'AGENTS.md']
                                 : []
                             const ruleFiles = Object.keys(agentFiles.files)
                                 .filter(p => p.startsWith(prefix))
                                 .sort()
-                            const allPaths = [...rootFiles, ...ruleFiles].filter(p => agentFiles.files![p])
+                            // Include per-folder CLAUDE.md files and CODEBASE_MAP.md in Claude tab
+                            const intentLayerFiles = isClaude
+                                ? Object.keys(agentFiles.files)
+                                    .filter(p => (p.endsWith('/CLAUDE.md') || p === 'CODEBASE_MAP.md') && !rootFiles.includes(p))
+                                    .sort()
+                                : []
+                            const allPaths = [...rootFiles, ...intentLayerFiles, ...ruleFiles].filter(p => agentFiles.files![p])
 
                             // Build tree structure
                             type TreeNode = { name: string; path?: string; children: TreeNode[] }
@@ -761,6 +767,24 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                             <div>
                                                 <p className="text-xs font-bold text-ink">AI Knowledge</p>
                                                 <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CLAUDE.md`, `agents.md` — Essential context for AI agents to operate on this codebase.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Layers className="w-4 h-4 text-emerald-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Per-Folder Context</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CLAUDE.md` per folder — Granular, code-aware context for every directory in your project.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Layers className="w-4 h-4 text-indigo-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Codebase Map</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CODEBASE_MAP.md` — Complete architecture map with module guide, navigation, and gotchas in a single file.</p>
                                             </div>
                                         </div>
                                     </div>

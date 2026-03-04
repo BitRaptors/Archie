@@ -1,10 +1,14 @@
 """RAG-based code retriever for semantic code search."""
+import asyncio
+import logging
 from pathlib import Path
 from typing import Any
-from sentence_transformers import SentenceTransformer
 from config.settings import get_settings
+from infrastructure.analysis.shared_embedder import get_model
 from domain.interfaces.database import DatabaseClient
 from application.services.analysis_data_collector import analysis_data_collector
+
+logger = logging.getLogger("rag_retriever")
 
 
 # Phase-specific chunk type preferences for retrieval reordering
@@ -35,12 +39,17 @@ class RAGRetriever:
             db_client: DatabaseClient for database access (Supabase or Postgres)
             progress_callback: Optional async callback function(analysis_id, event_type, message) for progress logging
         """
-        settings = get_settings()
-        self._model = SentenceTransformer(settings.embedding_model)
+        self._model = None  # Lazy — loaded on first use via _get_model()
         self._db = db_client
         self._embedding_dim = 384  # all-MiniLM-L6-v2 dimension
         self._progress_callback = progress_callback
         self._custom_queries = {}  # Custom queries from observation phase
+
+    def _get_model(self):
+        """Return the embedding model, loading it on first use."""
+        if self._model is None:
+            self._model = get_model()
+        return self._model
     
     def set_custom_queries(self, custom_queries: dict[str, list[str]]) -> None:
         """Set custom queries generated from observation phase.
@@ -79,20 +88,25 @@ class RAGRetriever:
             await self._db.table("embeddings").delete().eq(
                 "repository_id", repository_id
             ).execute()
-        except Exception:
-            pass  # Non-fatal — per-batch dedup in _batch_insert_embeddings is a safety net
+        except Exception as del_err:
+            logger.warning("Failed to delete stale embeddings for repo %s: %s", repository_id, del_err)
 
         embeddings_batch = []
 
-        code_files = self._find_code_files(repo_path, discovery_ignored_dirs=discovery_ignored_dirs)
+        code_files = await asyncio.to_thread(self._find_code_files, repo_path, discovery_ignored_dirs)
         total_files = len(code_files)
-        
+
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", f"Found {total_files} code files to index")
-        
+
+        # Batch-read all file contents in a thread to avoid blocking the event loop
+        file_contents = await asyncio.to_thread(self._read_all_files, code_files, repo_path)
+
         for idx, file_path in enumerate(code_files):
             try:
-                content = file_path.read_text(encoding="utf-8", errors="ignore")
+                content = file_contents.get(file_path)
+                if content is None:
+                    continue
                 relative_path = str(file_path.relative_to(repo_path))
                 
                 # Generate chunks with context
@@ -100,7 +114,7 @@ class RAGRetriever:
                 
                 for chunk in chunks:
                     # Generate embedding
-                    embedding = self._model.encode(chunk["content"], show_progress_bar=False)
+                    embedding = self._get_model().encode(chunk["content"], show_progress_bar=False)
                     
                     embeddings_batch.append({
                         "repository_id": repository_id,
@@ -136,8 +150,8 @@ class RAGRetriever:
                         await self._progress_callback(analysis_id, "INFO", f"Saved {len(embeddings_batch)} embeddings to database")
                     embeddings_batch = []
                     
-            except Exception:
-                # Skip files that can't be read
+            except Exception as file_err:
+                logger.debug("Skipping file during indexing %s: %s", file_path, file_err)
                 continue
         
         # Insert remaining embeddings
@@ -176,7 +190,7 @@ class RAGRetriever:
             List of relevant code chunks with similarity scores
         """
         # Generate query embedding
-        query_embedding = self._model.encode(query, show_progress_bar=False).tolist()
+        query_embedding = self._get_model().encode(query, show_progress_bar=False).tolist()
         
         # Search using pgvector similarity
         return await self._search_similar(query_embedding, repository_id, limit)
@@ -240,9 +254,23 @@ class RAGRetriever:
                 .execute()
             if result.data:
                 return sorted(set(row["file_path"] for row in result.data))
-        except Exception:
-            pass
+        except Exception as reg_err:
+            logger.warning("Failed to query file registry: %s", reg_err)
         return []
+
+    def _get_file_content_sync(
+        self,
+        file_path: str,
+        repo_path: Path,
+    ) -> str | None:
+        """Get full content of a specific file (sync I/O)."""
+        full_path = repo_path / file_path
+        if full_path.exists() and full_path.is_file():
+            try:
+                return full_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                return None
+        return None
 
     async def get_file_content(
         self,
@@ -251,22 +279,16 @@ class RAGRetriever:
         repo_path: Path,
     ) -> str | None:
         """Get full content of a specific file.
-        
+
         Args:
             repository_id: UUID of the repository
             file_path: Relative path to the file
             repo_path: Path to the cloned repository
-            
+
         Returns:
             File content or None if not found
         """
-        full_path = repo_path / file_path
-        if full_path.exists() and full_path.is_file():
-            try:
-                return full_path.read_text(encoding="utf-8", errors="ignore")
-            except Exception:
-                return None
-        return None
+        return await asyncio.to_thread(self._get_file_content_sync, file_path, repo_path)
 
     async def retrieve_files_for_phase(
         self,
@@ -305,6 +327,16 @@ class RAGRetriever:
                 })
 
         return results
+
+    def _read_all_files(self, code_files: list[Path], repo_path: Path) -> dict[Path, str]:
+        """Read all code files and return their contents (sync I/O)."""
+        contents: dict[Path, str] = {}
+        for file_path in code_files:
+            try:
+                contents[file_path] = file_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+        return contents
 
     def _find_code_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> list[Path]:
         """Find all code files in repository."""
@@ -616,9 +648,8 @@ class RAGRetriever:
                     }
                     for row in result.data
                 ]
-        except Exception:
-            # Fallback: Return empty if RPC doesn't exist yet
-            pass
+        except Exception as rpc_err:
+            logger.warning("pgvector RPC search failed: %s", rpc_err)
 
         return []
 
@@ -638,7 +669,6 @@ class RAGRetriever:
 
             # Insert new embeddings
             await self._db.table("embeddings").insert(embeddings).execute()
-        except Exception:
-            # Log error but don't fail the whole process
-            pass
+        except Exception as batch_err:
+            logger.error("Failed to batch insert %d embeddings: %s", len(embeddings), batch_err)
 

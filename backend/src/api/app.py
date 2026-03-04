@@ -1,4 +1,5 @@
 """FastAPI application factory."""
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -22,11 +23,24 @@ async def lifespan(app: FastAPI):
 
     yield
     # Shutdown resources
+    try:
+        from infrastructure.analysis.shared_embedder import release_model
+        release_model()
+    except Exception:
+        pass
     await app.container.shutdown_resources()
 
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI application."""
+    # Configure logging so service-level loggers emit to stderr/console
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     settings = get_settings()
     container = Container()
 

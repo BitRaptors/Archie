@@ -65,6 +65,12 @@ class TestValidOutputs:
         assert "mcp_claude" in VALID_OUTPUTS
         assert "mcp_cursor" in VALID_OUTPUTS
 
+    def test_valid_outputs_includes_codebase_map(self):
+        assert "codebase_map" in VALID_OUTPUTS
+
+    def test_valid_outputs_includes_intent_layer(self):
+        assert "intent_layer" in VALID_OUTPUTS
+
 
 class TestPreview:
 

@@ -81,13 +81,13 @@ async def stream_analysis_progress(
     """Stream analysis progress and events via SSE."""
     analysis_repo = await get_analysis_repo(request)
     event_repo = await get_event_repo(request)
-    
+
     async def event_generator():
         last_event_id = None
         sent_completion = False
         sent_phases = set()
         sent_gathered = False
-        
+
         while True:
             # Check if client disconnected
             if await request.is_disconnected():
@@ -110,7 +110,7 @@ async def stream_analysis_progress(
 
             # Handle Analysis Data
             analysis_data = await analysis_data_collector.get_data(analysis_id)
-            
+
             # Send gathered data once
             if analysis_data.get("gathered") and not sent_gathered:
                 yield {
@@ -118,7 +118,7 @@ async def stream_analysis_progress(
                     "data": json.dumps(analysis_data["gathered"]),
                 }
                 sent_gathered = True
-                
+
             # Send new phases
             for phase_info in analysis_data.get("phases", []):
                 phase_name = phase_info["phase"]
@@ -138,7 +138,7 @@ async def stream_analysis_progress(
                         "event": "analysis_complete",
                         "data": json.dumps(analysis_data),
                     }
-                    
+
                     # Send any remaining events first
                     events = await event_repo.get_by_analysis_id(analysis_id)
                     if last_event_id:
@@ -157,7 +157,7 @@ async def stream_analysis_progress(
                                 last_event_id = e.id
                             if e.id == last_event_id:
                                 found = True
-                    
+
                     # Send completion event
                     yield {
                         "event": "complete",
@@ -200,7 +200,7 @@ async def stream_analysis_progress(
                 last_event_id = e.id
 
             await asyncio.sleep(2)
-    
+
     return EventSourceResponse(event_generator())
 
 
@@ -274,11 +274,38 @@ async def get_agent_files(
         )
     
     output = generate_all(blueprint)
+    files = output.to_file_map()
+
+    # Load pre-generated intent layer files, or generate on-demand as fallback
+    try:
+        il_base = f"blueprints/{analysis.repository_id}/intent_layer"
+        if await storage.exists(f"{il_base}/CLAUDE.md") or await storage.exists(f"{il_base}/CODEBASE_MAP.md"):
+            # Load from storage (generated during analysis pipeline)
+            il_files = await storage.list_files(il_base)
+            for file_path in il_files:
+                rel_path = file_path[len(il_base) + 1:]  # strip prefix + /
+                if rel_path and rel_path not in files:
+                    content = await storage.read(file_path)
+                    text = content.decode("utf-8") if isinstance(content, bytes) else content
+                    files[rel_path] = text
+        else:
+            # Fallback: generate on-demand
+            il_service = request.app.container.intent_layer_service()
+            il_output = await il_service.preview(source_repo_id=analysis.repository_id)
+            for path, content in il_output.claude_md_files.items():
+                if path not in files:
+                    files[path] = content
+            if il_output.codebase_map:
+                files["CODEBASE_MAP.md"] = il_output.codebase_map
+    except Exception as e:
+        import logging
+        logging.getLogger("intent_layer").error(f"Intent layer load failed: {e}", exc_info=True)
+
     return {
         "claude_md": output.claude_md,
         "cursor_rules": "\n\n".join(rf.render_cursor() for rf in output.rule_files),
         "agents_md": output.agents_md,
-        "files": output.to_file_map(),
+        "files": files,
     }
 
 

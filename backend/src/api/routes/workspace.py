@@ -178,7 +178,7 @@ async def clear_active(request: Request):
 
 @router.get("/repositories/{repo_id}/agent-files")
 async def get_agent_files(repo_id: str, request: Request):
-    """Generate and return CLAUDE.md, cursor rules, AGENTS.md for a repo.
+    """Generate and return CLAUDE.md, cursor rules, AGENTS.md, and per-folder CLAUDE.md files.
 
     Only works when a structured blueprint.json is available.
     """
@@ -192,11 +192,36 @@ async def get_agent_files(repo_id: str, request: Request):
         )
 
     output = generate_all(blueprint)
+    files = output.to_file_map()
+
+    # Load pre-generated intent layer files, or generate on-demand as fallback
+    try:
+        il_base = f"blueprints/{repo_id}/intent_layer"
+        if await storage.exists(f"{il_base}/CLAUDE.md") or await storage.exists(f"{il_base}/CODEBASE_MAP.md"):
+            il_files = await storage.list_files(il_base)
+            for file_path in il_files:
+                rel_path = file_path[len(il_base) + 1:]
+                if rel_path and rel_path not in files:
+                    content = await storage.read(file_path)
+                    text = content.decode("utf-8") if isinstance(content, bytes) else content
+                    files[rel_path] = text
+        else:
+            il_service = request.app.container.intent_layer_service()
+            il_output = await il_service.preview(source_repo_id=repo_id)
+            for path, content in il_output.claude_md_files.items():
+                if path not in files:
+                    files[path] = content
+            if il_output.codebase_map:
+                files["CODEBASE_MAP.md"] = il_output.codebase_map
+    except Exception as e:
+        import logging
+        logging.getLogger("intent_layer").error(f"Intent layer load failed: {e}", exc_info=True)
+
     return {
         "claude_md": output.claude_md,
         "cursor_rules": "\n\n".join(rf.render_cursor() for rf in output.rule_files),
         "agents_md": output.agents_md,
-        "files": output.to_file_map(),
+        "files": files,
     }
 
 

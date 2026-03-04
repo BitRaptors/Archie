@@ -1,5 +1,8 @@
 """Analysis service orchestrator."""
+import asyncio
 import json
+import logging
+import traceback
 from pathlib import Path
 from typing import Any, Optional
 from domain.entities.analysis import Analysis
@@ -21,6 +24,7 @@ from infrastructure.storage.storage_interface import IStorage
 from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
 from application.services.analysis_data_collector import analysis_data_collector
 from application.services.architecture_extractor import ArchitectureExtractor
+from infrastructure.events.event_bus import publish as _publish_event
 
 
 class AnalysisService:
@@ -43,6 +47,7 @@ class AnalysisService:
         architecture_repo: Optional[IRepositoryArchitectureRepository] = None,
         architecture_extractor: Optional[ArchitectureExtractor] = None,
         db_client=None,
+        intent_layer_service=None,
     ):
         """Initialize analysis service."""
         self._analysis_repo = analysis_repo
@@ -54,13 +59,29 @@ class AnalysisService:
         self._architecture_repo = architecture_repo
         self._architecture_extractor = architecture_extractor or ArchitectureExtractor()
         self._db_client = db_client
+        self._intent_layer_service = intent_layer_service
         # Set progress callback on generator to use our logging
         self._phased_blueprint_generator._progress_callback = self._log_event
 
+    _logger = logging.getLogger("analysis_service")
+
     async def _log_event(self, analysis_id: str, event_type: str, message: str, details: dict | None = None) -> None:
-        """Log an analysis event."""
-        event = AnalysisEvent.create(analysis_id, event_type, message, details)
-        await self._event_repo.add(event)
+        """Log an analysis event. Never raises — falls back to stderr on DB failure."""
+        try:
+            event = AnalysisEvent.create(analysis_id, event_type, message, details)
+            await self._event_repo.add(event)
+        except Exception as log_err:
+            # DB write failed — print to stderr so it still appears in server logs
+            self._logger.error(
+                "[%s] Failed to write event to DB (type=%s): %s | Original message: %s",
+                analysis_id[:8], event_type, log_err, message,
+            )
+        # Push to in-memory event bus for real-time SSE delivery
+        try:
+            from infrastructure.events.event_bus import publish
+            await publish(analysis_id, {"event": "log", "type": event_type, "message": message})
+        except Exception:
+            pass
 
     async def start_analysis(
         self,
@@ -115,8 +136,11 @@ class AnalysisService:
                             lib.library_name: {"capabilities": lib.capabilities, "ecosystem": lib.ecosystem}
                             for lib in lib_rows
                         }
-                except Exception:
-                    pass  # No DB = no filtering, analysis still works
+                except Exception as settings_err:
+                    self._logger.warning("[%s] Failed to load analysis settings from DB: %s", analysis_id[:8], settings_err)
+
+            # Publish initial status to event bus
+            await _publish_event(analysis_id, {"event": "status", "status": "analyzing", "progress": 10})
 
             # Phase 1: Structure scan (data extraction only)
             await self._log_event(analysis_id, "PHASE_START", "Phase 1: Scanning file structure")
@@ -252,6 +276,7 @@ class AnalysisService:
             await self._log_event(analysis_id, "PHASE_START", "Phase 3: Running phased AI analysis")
             analysis.update_progress(30)
             await self._analysis_repo.update(analysis)
+            await _publish_event(analysis_id, {"event": "status", "status": "analyzing", "progress": 30})
             
             # Get repository name
             repo = await self._repository_repo.get_by_id(analysis.repository_id)
@@ -348,8 +373,8 @@ class AnalysisService:
                         try:
                             phase_content = phase_data if isinstance(phase_data, str) else json.dumps(phase_data, indent=2, ensure_ascii=False)
                             await self._persistent_storage.save(phase_path, phase_content)
-                        except Exception:
-                            pass  # Non-critical — blueprint.json is the source of truth
+                        except Exception as phase_save_err:
+                            self._logger.warning("[%s] Failed to save phase output '%s': %s", analysis_id[:8], phase_name, phase_save_err)
                 await self._log_event(analysis_id, "INFO", f"Phase outputs saved: {list(phase_outputs.keys())}")
 
             await self._log_event(analysis_id, "PHASE_END", "Phase 4 complete: Blueprint saved")
@@ -388,7 +413,8 @@ class AnalysisService:
                 collector = SourceFileCollector()
                 storage_base = Path(self._persistent_storage._base_path)
                 dest_dir = storage_base / "repos" / str(analysis.repository_id)
-                manifest = collector.copy_repo(
+                manifest = await asyncio.to_thread(
+                    collector.copy_repo,
                     temp_repo_dir=repo_path_obj,
                     dest_dir=dest_dir,
                     ignored_dirs=discovery_ignored_dirs,
@@ -405,17 +431,65 @@ class AnalysisService:
                     f"Repository copy failed (non-fatal): {str(collect_error)}"
                 )
 
+            # Phase 7: Intent layer — per-folder CLAUDE.md with AI enrichment
+            if self._intent_layer_service:
+                try:
+                    await self._log_event(analysis_id, "PHASE_START", "Phase 7: Generating per-folder CLAUDE.md (intent layer)")
+
+                    async def _il_progress(msg: str) -> None:
+                        await self._log_event(analysis_id, "INFO", f"[Intent Layer] {msg}")
+
+                    il_output = await self._intent_layer_service.preview(
+                        source_repo_id=analysis.repository_id,
+                        progress_callback=_il_progress,
+                    )
+                    # Save generated files to storage
+                    for rel_path, content in il_output.claude_md_files.items():
+                        storage_path = f"blueprints/{analysis.repository_id}/intent_layer/{rel_path}"
+                        await self._persistent_storage.save(storage_path, content)
+                    if il_output.codebase_map:
+                        map_path = f"blueprints/{analysis.repository_id}/intent_layer/CODEBASE_MAP.md"
+                        await self._persistent_storage.save(map_path, il_output.codebase_map)
+
+                    await self._log_event(
+                        analysis_id, "INFO",
+                        f"Intent layer complete: {il_output.folder_count} folders, "
+                        f"{il_output.total_ai_calls} AI calls, "
+                        f"{il_output.generation_time_seconds}s"
+                    )
+                    await self._log_event(analysis_id, "PHASE_END", "Phase 7 complete: Intent layer generated")
+                except Exception as il_error:
+                    await self._log_event(
+                        analysis_id, "WARNING",
+                        f"Intent layer generation failed (non-fatal): {str(il_error)}"
+                    )
+
             # Complete analysis
             await self._log_event(analysis_id, "INFO", "Analysis completed successfully")
             analysis.update_progress(100)
             analysis.complete()
             await self._analysis_repo.update(analysis)
+            await _publish_event(analysis_id, {"event": "complete", "status": "completed", "progress": 100})
 
         except Exception as e:
+            tb = traceback.format_exc()
+            self._logger.error("[%s] Analysis failed: %s\n%s", analysis_id[:8], e, tb)
             await self._log_event(analysis_id, "ERROR", f"Analysis failed: {str(e)}")
-            analysis.fail(str(e))
-            await self._analysis_repo.update(analysis)
+            await self._log_event(analysis_id, "ERROR", f"Traceback:\n{tb[-1500:]}")
+            try:
+                analysis.fail(str(e))
+                await self._analysis_repo.update(analysis)
+                await _publish_event(analysis_id, {"event": "complete", "status": "failed", "error_message": str(e)})
+            except Exception as status_err:
+                self._logger.error("[%s] Failed to mark analysis as failed: %s", analysis_id[:8], status_err)
             raise
+        finally:
+            # Release embedding model to free ~400 MB
+            try:
+                from infrastructure.analysis.shared_embedder import release_model
+                release_model()
+            except Exception:
+                pass
 
     def _format_file_tree(self, structure_data: dict[str, Any]) -> str:
         """Format structure data as a compressed file tree."""
@@ -439,18 +513,18 @@ class AnalysisService:
         
         return "\n".join(lines)
 
-    async def _extract_dependencies(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> str:
-        """Extract dependencies from package files recursively."""
+    def _extract_dependencies_sync(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> str:
+        """Extract dependencies from package files recursively (sync I/O)."""
         dependencies = []
 
         ignore_patterns = discovery_ignored_dirs or set()
-        
+
         # Find all requirements.txt files recursively
         for requirements_file in repo_path.rglob("requirements.txt"):
             # Skip if in ignored directory
             if any(part in ignore_patterns for part in requirements_file.relative_to(repo_path).parts):
                 continue
-            
+
             try:
                 content = requirements_file.read_text(encoding="utf-8", errors="ignore")
                 # Get relative path from repo root
@@ -458,13 +532,13 @@ class AnalysisService:
                 dependencies.append(f"**{rel_path}:**\n```\n{content[:1000]}\n```")
             except Exception:
                 continue
-        
+
         # Find all package.json files recursively
         for package_json in repo_path.rglob("package.json"):
             # Skip if in ignored directory
             if any(part in ignore_patterns for part in package_json.relative_to(repo_path).parts):
                 continue
-            
+
             try:
                 content = package_json.read_text(encoding="utf-8", errors="ignore")
                 # Get relative path from repo root
@@ -472,43 +546,43 @@ class AnalysisService:
                 dependencies.append(f"**{rel_path}:**\n```json\n{content[:1000]}\n```")
             except Exception:
                 continue
-        
+
         # Find all pyproject.toml files recursively (Python projects using modern tooling)
         for pyproject_toml in repo_path.rglob("pyproject.toml"):
             if any(part in ignore_patterns for part in pyproject_toml.relative_to(repo_path).parts):
                 continue
-            
+
             try:
                 content = pyproject_toml.read_text(encoding="utf-8", errors="ignore")
                 rel_path = pyproject_toml.relative_to(repo_path)
                 dependencies.append(f"**{rel_path}:**\n```toml\n{content[:1000]}\n```")
             except Exception:
                 continue
-        
+
         # Find all Gemfile files recursively (Ruby projects)
         for gemfile in repo_path.rglob("Gemfile"):
             if any(part in ignore_patterns for part in gemfile.relative_to(repo_path).parts):
                 continue
-            
+
             try:
                 content = gemfile.read_text(encoding="utf-8", errors="ignore")
                 rel_path = gemfile.relative_to(repo_path)
                 dependencies.append(f"**{rel_path}:**\n```ruby\n{content[:1000]}\n```")
             except Exception:
                 continue
-        
+
         # Find all Cargo.toml files recursively (Rust projects)
         for cargo_toml in repo_path.rglob("Cargo.toml"):
             if any(part in ignore_patterns for part in cargo_toml.relative_to(repo_path).parts):
                 continue
-            
+
             try:
                 content = cargo_toml.read_text(encoding="utf-8", errors="ignore")
                 rel_path = cargo_toml.relative_to(repo_path)
                 dependencies.append(f"**{rel_path}:**\n```toml\n{content[:1000]}\n```")
             except Exception:
                 continue
-        
+
         # Find all Podfile files recursively (iOS CocoaPods)
         for podfile in repo_path.rglob("Podfile"):
             if any(part in ignore_patterns for part in podfile.relative_to(repo_path).parts):
@@ -580,22 +654,26 @@ class AnalysisService:
         for go_mod in repo_path.rglob("go.mod"):
             if any(part in ignore_patterns for part in go_mod.relative_to(repo_path).parts):
                 continue
-            
+
             try:
                 content = go_mod.read_text(encoding="utf-8", errors="ignore")
                 rel_path = go_mod.relative_to(repo_path)
                 dependencies.append(f"**{rel_path}:**\n```\n{content[:1000]}\n```")
             except Exception:
                 continue
-        
+
         return "\n\n".join(dependencies) if dependencies else "No dependency files found"
 
-    async def _extract_config_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
-        """Extract key configuration files recursively."""
+    async def _extract_dependencies(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> str:
+        """Extract dependencies from package files recursively."""
+        return await asyncio.to_thread(self._extract_dependencies_sync, repo_path, discovery_ignored_dirs)
+
+    def _extract_config_files_sync(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
+        """Extract key configuration files recursively (sync I/O)."""
         config_files = {}
 
         ignore_patterns = discovery_ignored_dirs or set()
-        
+
         # Common configuration file patterns (exact matches)
         exact_config_patterns = [
             # Environment files
@@ -618,7 +696,7 @@ class AnalysisService:
             # Other common config files
             ".editorconfig", ".gitignore",
         ]
-        
+
         # Patterns with extensions (search for base name with any extension)
         config_base_names = [
             # Build tools
@@ -635,24 +713,24 @@ class AnalysisService:
             # Mobile build files
             "build.gradle", "settings.gradle",
         ]
-        
+
         # Extension patterns to check
         config_extensions = [".json", ".js", ".ts", ".mjs", ".cjs", ".yml", ".yaml", ".toml"]
-        
+
         # Search for exact patterns
         for pattern in exact_config_patterns:
             for config_file in repo_path.rglob(pattern):
                 # Skip if in ignored directory
                 if any(part in ignore_patterns for part in config_file.relative_to(repo_path).parts):
                     continue
-                
+
                 try:
                     content = config_file.read_text(encoding="utf-8", errors="ignore")
                     rel_path = config_file.relative_to(repo_path)
                     config_files[str(rel_path)] = content[:1000]
                 except Exception:
                     continue
-        
+
         # Search for base names with various extensions
         for base_name in config_base_names:
             for ext in config_extensions:
@@ -660,14 +738,14 @@ class AnalysisService:
                 for config_file in repo_path.rglob(pattern):
                     if any(part in ignore_patterns for part in config_file.relative_to(repo_path).parts):
                         continue
-                    
+
                     try:
                         content = config_file.read_text(encoding="utf-8", errors="ignore")
                         rel_path = config_file.relative_to(repo_path)
                         config_files[str(rel_path)] = content[:1000]
                     except Exception:
                         continue
-        
+
         # Search for CI/CD workflow files
         for workflow_file in (repo_path / ".github" / "workflows").rglob("*.yml"):
             if any(part in ignore_patterns for part in workflow_file.relative_to(repo_path).parts):
@@ -678,7 +756,7 @@ class AnalysisService:
                 config_files[str(rel_path)] = content[:1000]
             except Exception:
                 pass
-        
+
         for workflow_file in (repo_path / ".github" / "workflows").rglob("*.yaml"):
             if any(part in ignore_patterns for part in workflow_file.relative_to(repo_path).parts):
                 continue
@@ -688,7 +766,7 @@ class AnalysisService:
                 config_files[str(rel_path)] = content[:1000]
             except Exception:
                 pass
-        
+
         # Search for .circleci/config.yml
         circleci_config = repo_path / ".circleci" / "config.yml"
         if circleci_config.exists():
@@ -698,7 +776,7 @@ class AnalysisService:
                 config_files[str(rel_path)] = content[:1000]
             except Exception:
                 pass
-        
+
         # Search for pyproject.toml (Python modern config)
         for pyproject in repo_path.rglob("pyproject.toml"):
             if any(part in ignore_patterns for part in pyproject.relative_to(repo_path).parts):
@@ -709,11 +787,15 @@ class AnalysisService:
                 config_files[str(rel_path)] = content[:1000]
             except Exception:
                 continue
-        
+
         return config_files
 
-    async def _extract_code_samples(self, repo_path: Path, structure_data: dict[str, Any], discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
-        """Extract representative code samples."""
+    async def _extract_config_files(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
+        """Extract key configuration files recursively."""
+        return await asyncio.to_thread(self._extract_config_files_sync, repo_path, discovery_ignored_dirs)
+
+    def _extract_code_samples_sync(self, repo_path: Path, structure_data: dict[str, Any], discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
+        """Extract representative code samples (sync I/O)."""
         ignored = discovery_ignored_dirs or set()
         code_samples = {}
 
@@ -730,11 +812,11 @@ class AnalysisService:
                         if any(part in ignored for part in Path(file_path).parts):
                             continue
                         files_to_sample.append(file_path)
-                
+
                 # Limit initial search
                 if len(files_to_sample) >= 50:
                     break
-            
+
             # Read up to 10 files
             for file_path in files_to_sample[:10]:
                 full_path = repo_path / file_path
@@ -746,8 +828,12 @@ class AnalysisService:
                         code_samples[str(file_path)] = '\n'.join(lines)
                     except Exception:
                         pass
-        
+
         return code_samples
+
+    async def _extract_code_samples(self, repo_path: Path, structure_data: dict[str, Any], discovery_ignored_dirs: set[str] | None = None) -> dict[str, str]:
+        """Extract representative code samples."""
+        return await asyncio.to_thread(self._extract_code_samples_sync, repo_path, structure_data, discovery_ignored_dirs)
 
     async def _extract_and_store_architecture_rules(
         self,

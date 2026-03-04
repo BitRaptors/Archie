@@ -142,10 +142,17 @@ class AnalysisDataCollector:
         }
         
         self._data[analysis_id]["gathered"] = gathered
-        
+
         # Persist to Supabase
         if self.is_initialized:
             await self._save_to_supabase(analysis_id, "gathered", gathered)
+
+        # Push to event bus for real-time SSE
+        try:
+            from infrastructure.events.event_bus import publish
+            await publish(analysis_id, {"event": "gathered", "data": gathered})
+        except Exception:
+            pass
 
     async def capture_phase_data(
         self, 
@@ -177,10 +184,17 @@ class AnalysisDataCollector:
             await self._save_to_supabase(analysis_id, f"phase_{phase_name}", phase_info)
             # Also update summary
             await self._save_to_supabase(
-                analysis_id, 
-                "summary", 
+                analysis_id,
+                "summary",
                 self._data[analysis_id]["summary"]
             )
+
+        # Push to event bus for real-time SSE
+        try:
+            from infrastructure.events.event_bus import publish
+            await publish(analysis_id, {"event": "phase", "data": phase_info})
+        except Exception:
+            pass
 
     async def capture_rag_stats(self, analysis_id: str, stats: Dict[str, Any]) -> None:
         """Update RAG indexing statistics."""
