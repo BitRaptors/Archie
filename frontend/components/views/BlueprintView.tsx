@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, DownloadCloud } from 'lucide-react'
+import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, ChevronDown, Search, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, FolderOpen, DownloadCloud } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
@@ -80,6 +80,15 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         summary: {}
     })
     const [activeSection, setActiveSection] = useState('')
+    const [fileSearchQuery, setFileSearchQuery] = useState('')
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/']))
+
+    const toggleFolder = (folderName: string) => {
+        const next = new Set(expandedFolders)
+        if (next.has(folderName)) next.delete(folderName)
+        else next.add(folderName)
+        setExpandedFolders(next)
+    }
 
     const markdownComponents = useMemo(() => ({
         code({ className, children, ...props }: any) {
@@ -503,9 +512,14 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
 
                             // Build tree structure
                             type TreeNode = { name: string; path?: string; children: TreeNode[] }
+
+                            const filteredPaths = allPaths.filter(p =>
+                                !fileSearchQuery || p.toLowerCase().includes(fileSearchQuery.toLowerCase())
+                            )
+
                             const treeRoot: TreeNode = { name: '/', children: [] }
 
-                            for (const filePath of allPaths) {
+                            for (const filePath of filteredPaths) {
                                 const parts = filePath.split('/')
                                 let current = treeRoot
                                 for (let i = 0; i < parts.length; i++) {
@@ -520,6 +534,26 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                 }
                             }
 
+                            // Compact logic: merge single-child folders
+                            const compactTree = (nodes: TreeNode[]): TreeNode[] => {
+                                return nodes.map(node => {
+                                    let current = { ...node };
+                                    while (current.children && current.children.length === 1 && !current.path && !current.children[0].path) {
+                                        const child = current.children[0];
+                                        current = {
+                                            ...child,
+                                            name: `${current.name}/${child.name}`
+                                        };
+                                    }
+                                    if (current.children && current.children.length > 0) {
+                                        current.children = compactTree(current.children);
+                                    }
+                                    return current;
+                                });
+                            };
+
+                            const compactedTree = compactTree(treeRoot.children)
+
                             const currentFile = selectedFile && agentFiles.files[selectedFile] ? selectedFile : allPaths[0]
                             const currentContent = currentFile ? agentFiles.files[currentFile] : ''
                             const currentFileName = currentFile?.split('/').pop() || ''
@@ -530,76 +564,154 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                 }
                             }
 
-                            const renderTree = (nodes: TreeNode[], depth: number = 0) => (
-                                <div className={depth > 0 ? 'ml-3' : ''}>
-                                    {nodes.map(node => (
-                                        <div key={node.path || node.name}>
-                                            {node.path ? (
-                                                <button
-                                                    onClick={() => setSelectedFile(node.path!)}
-                                                    className={cn(
-                                                        'flex items-center gap-1.5 w-full text-left px-2 py-1.5 rounded-lg text-xs transition-all duration-200',
-                                                        currentFile === node.path
-                                                            ? 'bg-teal/5 text-teal font-bold'
-                                                            : 'text-ink/40 hover:text-ink/60 hover:bg-papaya-300/30 font-medium'
-                                                    )}
-                                                >
-                                                    <FileText className="w-3.5 h-3.5 shrink-0" />
-                                                    <span className="truncate">{node.name}</span>
-                                                    {currentFile === node.path && <div className="w-1.5 h-1.5 rounded-full bg-teal ml-auto shrink-0" />}
-                                                </button>
-                                            ) : (
-                                                <div className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold text-ink/60">
-                                                    <Folder className="w-3.5 h-3.5 shrink-0 text-tangerine" />
-                                                    <span>{node.name}</span>
-                                                </div>
-                                            )}
-                                            {node.children.length > 0 && renderTree(node.children, depth + 1)}
-                                        </div>
-                                    ))}
+                            const renderTree = (nodes: TreeNode[], depth: number = 0, parentPath: string = '') => (
+                                <div className={cn(
+                                    "flex flex-col",
+                                    depth > 0 ? 'ml-3 border-l border-papaya-400/20' : ''
+                                )}>
+                                    {nodes.map(node => {
+                                        const nodePath = `${parentPath}/${node.name}`
+                                        const isExpanded = expandedFolders.has(nodePath) || fileSearchQuery.length > 0
+                                        const hasChildren = node.children.length > 0
+
+                                        return (
+                                            <div key={nodePath} className="flex flex-col">
+                                                {node.path ? (
+                                                    <button
+                                                        onClick={() => setSelectedFile(node.path!)}
+                                                        className={cn(
+                                                            'flex items-center gap-1.5 w-full text-left px-2 py-1.5 rounded-lg text-xs transition-all duration-200 relative group',
+                                                            currentFile === node.path
+                                                                ? 'bg-teal/5 text-teal font-bold'
+                                                                : 'text-ink/40 hover:text-ink/60 hover:bg-papaya-300/30 font-medium'
+                                                        )}
+                                                    >
+                                                        <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                        <span className="truncate">{node.name}</span>
+                                                        {currentFile === node.path && <div className="w-1.5 h-1.5 rounded-full bg-teal ml-auto shrink-0 shadow-[0_0_8px_rgba(45,161,176,0.5)]" />}
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => toggleFolder(nodePath)}
+                                                        className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold text-ink/60 hover:bg-papaya-300/20 rounded-lg transition-all w-full text-left group"
+                                                    >
+                                                        {hasChildren ? (
+                                                            isExpanded ? <ChevronDown className="w-3 h-3 text-ink/30" /> : <ChevronRight className="w-3 h-3 text-ink/30" />
+                                                        ) : (
+                                                            <div className="w-3 h-3" />
+                                                        )}
+                                                        {isExpanded ? (
+                                                            <FolderOpen className="w-3.5 h-3.5 shrink-0 text-tangerine/60 group-hover:text-tangerine" />
+                                                        ) : (
+                                                            <Folder className="w-3.5 h-3.5 shrink-0 text-tangerine/60 group-hover:text-tangerine" />
+                                                        )}
+                                                        <span className="truncate">{node.name}</span>
+                                                        {hasChildren && <span className="text-[10px] text-ink/20 ml-auto font-medium">{node.children.length}</span>}
+                                                    </button>
+                                                )}
+                                                {hasChildren && isExpanded && renderTree(node.children, depth + 1, nodePath)}
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             )
 
                             return (
                                 <div className="flex h-full">
                                     {/* File tree sidebar */}
-                                    <div className="w-56 shrink-0 border-r border-papaya-400/40 p-4 overflow-y-auto">
-                                        <div className="flex items-center gap-2 mb-4 px-1">
-                                            <div className="p-1.5 rounded-md bg-papaya-300/30">
-                                                <Layers className="w-3.5 h-3.5 text-teal" />
+                                    <div className="w-64 shrink-0 border-r border-papaya-400/40 flex flex-col bg-white/40">
+                                        <div className="p-4 border-b border-papaya-400/20">
+                                            <div className="flex items-center gap-2 mb-4 px-1">
+                                                <div className="p-1.5 rounded-md bg-papaya-300/30">
+                                                    <Layers className="w-3.5 h-3.5 text-teal" />
+                                                </div>
+                                                <p className="text-[11px] font-black text-ink/30 uppercase tracking-[0.15em]">Structure</p>
+                                                <Badge className="ml-auto bg-papaya-300/30 text-ink/40 text-[10px] border-papaya-400/40">
+                                                    {allPaths.length}
+                                                </Badge>
                                             </div>
-                                            <p className="text-[11px] font-black text-ink/30 uppercase tracking-[0.15em]">Files</p>
-                                            <Badge className="ml-auto bg-papaya-300/30 text-ink/40 text-[10px] border-papaya-400/40">
-                                                {allPaths.length}
-                                            </Badge>
+
+                                            <div className="relative">
+                                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink/20" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Filter files..."
+                                                    value={fileSearchQuery}
+                                                    onChange={(e) => setFileSearchQuery(e.target.value)}
+                                                    className="w-full h-8 pl-8 pr-3 text-xs bg-papaya-300/20 border-transparent focus:border-teal/30 focus:ring-0 rounded-lg placeholder:text-ink/20 text-ink/80 transition-all font-medium"
+                                                />
+                                                {fileSearchQuery && (
+                                                    <button
+                                                        onClick={() => setFileSearchQuery('')}
+                                                        className="absolute right-2 top-1/2 -translate-y-1/2"
+                                                    >
+                                                        <X className="w-3 h-3 text-ink/20 hover:text-ink/40" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                        {renderTree(treeRoot.children)}
+
+                                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                                            {compactedTree.length > 0 ? (
+                                                renderTree(compactedTree)
+                                            ) : (
+                                                <div className="py-10 text-center space-y-2">
+                                                    <div className="w-8 h-8 bg-papaya-300/20 rounded-full flex items-center justify-center mx-auto">
+                                                        <Search className="w-4 h-4 text-ink/20" />
+                                                    </div>
+                                                    <p className="text-[10px] font-bold text-ink/20 uppercase tracking-widest">No results</p>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* File content */}
-                                    <div className="flex-1 overflow-y-auto p-10">
+                                    <div className="flex-1 overflow-y-auto flex flex-col">
                                         <div className={cn(
-                                            'p-4 rounded-2xl mb-8 flex items-center justify-between',
-                                            isClaude ? 'bg-teal-50 border border-teal-200' : 'bg-tangerine/5 border border-tangerine/20'
+                                            'px-8 py-4 border-b border-papaya-400/20 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-md z-20',
+                                            isClaude ? 'bg-teal-50/50' : 'bg-tangerine-50/10'
                                         )}>
-                                            <code className={cn('text-xs font-mono font-medium', isClaude ? 'text-teal-800' : 'text-ink/80')}>{currentFile}</code>
-                                            <div className="flex items-center gap-2">
-                                                <Button variant="outline" size="sm" className={cn(isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
+                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                <div className={cn(
+                                                    "p-1.5 rounded-md",
+                                                    isClaude ? "bg-teal/10 text-teal" : "bg-tangerine/10 text-tangerine"
+                                                )}>
+                                                    <FileText className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex items-center gap-1 text-[11px] font-mono text-ink/40 overflow-hidden">
+                                                    {currentFile?.split('/').map((part, i, arr) => (
+                                                        <React.Fragment key={i}>
+                                                            <span className={cn(
+                                                                "truncate",
+                                                                i === arr.length - 1 ? "text-ink font-bold" : ""
+                                                            )}>
+                                                                {part}
+                                                            </span>
+                                                            {i < arr.length - 1 && <ChevronRight className="w-3 h-3 shrink-0 opacity-40" />}
+                                                        </React.Fragment>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 ml-4">
+                                                <Button variant="outline" size="sm" className={cn("h-8 text-[11px]", isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
                                                     onClick={() => handleDownload(currentContent, currentFileName)}>
                                                     <Download className="w-3.5 h-3.5 mr-1.5" />Download
                                                 </Button>
-                                                <Button variant="outline" size="sm" className={cn(isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
+                                                <Button variant="outline" size="sm" className={cn("h-8 text-[11px]", isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
                                                     onClick={handleDownloadAll}>
                                                     <DownloadCloud className="w-3.5 h-3.5 mr-1.5" />All
                                                 </Button>
                                             </div>
                                         </div>
-                                        <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
+                                        <div className="p-10 flex-1">
+                                            <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             )
+
                         })()}
 
                         {/* Fallback when files map not available */}
