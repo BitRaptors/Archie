@@ -63,6 +63,13 @@ class CommonTask(BaseModel):
     steps: list[str]             # Imperative numbered steps
 
 
+class CodeExample(BaseModel):
+    """A short code snippet showing how to use this folder's main abstraction."""
+    label: str          # "Create a new service", "Register a route"
+    code: str           # Actual code (3-10 lines, from the folder's files)
+    language: str = ""  # "python", "typescript", etc.
+
+
 class FolderEnrichment(BaseModel):
     """AI-produced compound learning for a single folder.
 
@@ -78,6 +85,8 @@ class FolderEnrichment(BaseModel):
     testing: list[str] = []     # How to test code in this folder
     debugging: list[str] = []   # Debugging insights and common issues
     decisions: list[str] = []   # Why things are built this way
+    code_examples: list[CodeExample] = []  # 1-2 usage snippets from actual code
+    key_imports: list[str] = []            # Critical exports other folders depend on
     has_ai_content: bool = False
 
 

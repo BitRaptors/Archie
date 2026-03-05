@@ -5,6 +5,7 @@ from domain.entities.intent_layer import (
     FolderNode,
     FolderBlueprint,
     FolderEnrichment,
+    CodeExample,
 )
 
 MAX_LINES = 200
@@ -302,7 +303,9 @@ class IntentLayerRenderer:
             self._render_patterns(enrichment),
             self._render_navigation(folder, fb),
             self._render_hybrid_key_files(fb, enrichment),
+            self._render_key_imports(enrichment),
             self._render_hybrid_common_task(fb, enrichment),
+            self._render_code_examples(enrichment),
             self._render_hybrid_anti_patterns(enrichment),
             self._render_testing(enrichment),
             self._render_debugging(enrichment),
@@ -408,6 +411,29 @@ class IntentLayerRenderer:
         lines = ["## Debugging", ""]
         for d in enrichment.debugging:
             lines.append(f"- {d}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_code_examples(enrichment: FolderEnrichment) -> str | None:
+        if not enrichment.code_examples:
+            return None
+        lines = ["## Usage Examples", ""]
+        for ex in enrichment.code_examples:
+            lines.append(f"### {ex.label}")
+            lang = ex.language or ""
+            lines.append(f"```{lang}")
+            lines.append(ex.code)
+            lines.append("```")
+            lines.append("")
+        return "\n".join(lines).rstrip()
+
+    @staticmethod
+    def _render_key_imports(enrichment: FolderEnrichment) -> str | None:
+        if not enrichment.key_imports:
+            return None
+        lines = ["## Key Imports", ""]
+        for imp in enrichment.key_imports:
+            lines.append(f"- `{imp}`")
         return "\n".join(lines)
 
     @staticmethod

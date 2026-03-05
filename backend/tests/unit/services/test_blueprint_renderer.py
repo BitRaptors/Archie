@@ -204,33 +204,33 @@ class TestSectionOrdering:
         md = render_blueprint_markdown(rich_blueprint)
         assert "## 5. Architecture Rules" in md
 
-    def test_decisions_is_section_6(self, rich_blueprint):
+    def test_decisions_is_section_7(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 6. Key Decisions & Trade-offs" in md
+        assert "## 7. Key Decisions & Trade-offs" in md
 
-    def test_communication_is_section_7(self, rich_blueprint):
+    def test_communication_is_section_8(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 7. Communication Patterns" in md
+        assert "## 8. Communication Patterns" in md
 
-    def test_implementation_guidelines_is_section_8(self, rich_blueprint):
+    def test_implementation_guidelines_is_section_9(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 8. Implementation Guidelines" in md
+        assert "## 9. Implementation Guidelines" in md
 
-    def test_recipes_is_section_9(self, rich_blueprint):
+    def test_recipes_is_section_10(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 9. Developer Recipes" in md
+        assert "## 10. Developer Recipes" in md
 
-    def test_tech_stack_is_section_10(self, rich_blueprint):
+    def test_tech_stack_is_section_11(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 10. Technology Stack" in md
+        assert "## 11. Technology Stack" in md
 
-    def test_pitfalls_is_section_11(self, rich_blueprint):
+    def test_pitfalls_is_section_12(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 11. Pitfalls & Edge Cases" in md
+        assert "## 12. Pitfalls & Edge Cases" in md
 
-    def test_quick_ref_is_section_12(self, rich_blueprint):
+    def test_quick_ref_is_section_13(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 12. Quick Reference" in md
+        assert "## 13. Quick Reference" in md
 
     def test_section_order_correct(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
@@ -239,13 +239,13 @@ class TestSectionOrdering:
         idx_structure = md.index("## 3. Project Structure")
         idx_components = md.index("## 4. Components & Layers")
         idx_rules = md.index("## 5. Architecture Rules")
-        idx_decisions = md.index("## 6. Key Decisions")
-        idx_comm = md.index("## 7. Communication")
-        idx_impl = md.index("## 8. Implementation")
-        idx_recipes = md.index("## 9. Developer Recipes")
-        idx_tech = md.index("## 10. Technology Stack")
-        idx_pitfalls = md.index("## 11. Pitfalls")
-        idx_quick = md.index("## 12. Quick Reference")
+        idx_decisions = md.index("## 7. Key Decisions")
+        idx_comm = md.index("## 8. Communication")
+        idx_impl = md.index("## 9. Implementation")
+        idx_recipes = md.index("## 10. Developer Recipes")
+        idx_tech = md.index("## 11. Technology Stack")
+        idx_pitfalls = md.index("## 12. Pitfalls")
+        idx_quick = md.index("## 13. Quick Reference")
         assert idx_overview < idx_diagram < idx_structure < idx_components < idx_rules
         assert idx_rules < idx_decisions < idx_comm < idx_impl < idx_recipes
         assert idx_recipes < idx_tech < idx_pitfalls < idx_quick
@@ -396,15 +396,15 @@ class TestPitfalls:
 class TestImplementationGuidelines:
     """Tests for implementation_guidelines rendering."""
 
-    def test_section_heading_is_number_8(self, rich_blueprint):
+    def test_section_heading_is_number_9(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        assert "## 8. Implementation Guidelines" in md
+        assert "## 9. Implementation Guidelines" in md
 
     def test_section_between_communication_and_recipes(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
-        idx_comm = md.index("## 7. Communication")
-        idx_impl = md.index("## 8. Implementation Guidelines")
-        idx_recipes = md.index("## 9. Developer Recipes")
+        idx_comm = md.index("## 8. Communication")
+        idx_impl = md.index("## 9. Implementation Guidelines")
+        idx_recipes = md.index("## 10. Developer Recipes")
         assert idx_comm < idx_impl < idx_recipes
 
     def test_renders_capability_names(self, rich_blueprint):
@@ -453,7 +453,7 @@ class TestDecisionsFormatting:
     def test_no_why_heading(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
         assert "Why Clean Architecture?" not in md
-        assert "Why " not in md.split("## 6.")[1].split("## 7.")[0] if "## 7." in md else True
+        assert "Why " not in md.split("## 7.")[1].split("## 8.")[0] if "## 8." in md else True
 
     def test_uses_title_heading(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
@@ -567,7 +567,7 @@ class TestProjectStructureMoved:
     def test_project_structure_not_in_technology(self, rich_blueprint):
         md = render_blueprint_markdown(rich_blueprint)
         # Project structure should NOT appear under Technology section
-        tech_section = md.split("## 10. Technology Stack")[1].split("## 11.")[0] if "## 10." in md else ""
+        tech_section = md.split("## 11. Technology Stack")[1].split("## 12.")[0] if "## 11." in md else ""
         assert "Project Structure" not in tech_section
 
 

@@ -330,6 +330,13 @@ class ArchitecturalPitfall(BaseModel):
     recommendation: str = ""
 
 
+class DevelopmentRule(BaseModel):
+    """Imperative development rule extracted from codebase signals."""
+    category: str = ""   # dependency_management, testing, code_style, ci_cd, environment, git
+    rule: str = ""       # "Always use poetry for dependency management"
+    source: str = ""     # "pyproject.toml uses [tool.poetry]"
+
+
 class ImplementationGuideline(BaseModel):
     """How an existing capability was implemented — replication guide for agents."""
     capability: str = ""          # "Push Notifications", "Map Display"
@@ -362,3 +369,4 @@ class StructuredBlueprint(BaseModel):
     architecture_diagram: str = ""  # Mermaid graph TD syntax
     pitfalls: list[ArchitecturalPitfall] = Field(default_factory=list)
     implementation_guidelines: list[ImplementationGuideline] = Field(default_factory=list)
+    development_rules: list[DevelopmentRule] = Field(default_factory=list)

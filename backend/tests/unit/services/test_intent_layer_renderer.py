@@ -7,6 +7,7 @@ from domain.entities.intent_layer import (
     FolderEnrichment,
     KeyFileGuide,
     CommonTask,
+    CodeExample,
 )
 from application.services.intent_layer_renderer import IntentLayerRenderer, MAX_LINES
 
@@ -302,6 +303,17 @@ class TestRenderHybrid:
             testing=["Route tests mock the DI container", "Use AsyncMock for async services"],
             debugging=["Check request.app.container if DI fails"],
             decisions=["Routes are thin by design -- clean architecture boundary"],
+            code_examples=[
+                CodeExample(
+                    label="Create a new route",
+                    code="@router.get('/items')\nasync def list_items(service: ItemService = Depends()):\n    return await service.list_all()",
+                    language="python",
+                ),
+            ],
+            key_imports=[
+                "from api.routes import router",
+                "from api.middleware import auth_middleware",
+            ],
             has_ai_content=True,
         )
 
@@ -392,3 +404,58 @@ class TestRenderHybrid:
         result = renderer.render_hybrid(sample_folder, fb, enrichment, "my-repo")
         line_count = len(result.split("\n"))
         assert line_count <= MAX_LINES, f"Output has {line_count} lines, exceeds {MAX_LINES} cap"
+
+
+# ── Code Examples & Key Imports rendering ──
+
+class TestRenderCodeExamples:
+
+    def test_render_code_examples(self, renderer, sample_folder, sample_folder_blueprint):
+        enrichment = FolderEnrichment(
+            path="src/api",
+            code_examples=[
+                CodeExample(label="Create a service", code="class MyService:\n    pass", language="python"),
+            ],
+            has_ai_content=True,
+        )
+        result = renderer._render_code_examples(enrichment)
+        assert result is not None
+        assert "## Usage Examples" in result
+        assert "### Create a service" in result
+        assert "```python" in result
+        assert "class MyService:" in result
+
+    def test_render_code_examples_empty(self, renderer):
+        enrichment = FolderEnrichment(path="src/api")
+        result = renderer._render_code_examples(enrichment)
+        assert result is None
+
+    def test_render_key_imports(self, renderer):
+        enrichment = FolderEnrichment(
+            path="src/api",
+            key_imports=["from api.routes import router", "from api.auth import get_user"],
+            has_ai_content=True,
+        )
+        result = renderer._render_key_imports(enrichment)
+        assert result is not None
+        assert "## Key Imports" in result
+        assert "`from api.routes import router`" in result
+
+    def test_render_key_imports_empty(self, renderer):
+        enrichment = FolderEnrichment(path="src/api")
+        result = renderer._render_key_imports(enrichment)
+        assert result is None
+
+    def test_code_examples_in_hybrid(self, renderer, sample_folder, sample_folder_blueprint):
+        enrichment = FolderEnrichment(
+            path="src/api",
+            purpose="API layer",
+            code_examples=[
+                CodeExample(label="Add route", code="@router.get('/x')\ndef handler(): ...", language="python"),
+            ],
+            key_imports=["from api import router"],
+            has_ai_content=True,
+        )
+        result = renderer.render_hybrid(sample_folder, sample_folder_blueprint, enrichment, "my-repo")
+        assert "## Usage Examples" in result
+        assert "## Key Imports" in result

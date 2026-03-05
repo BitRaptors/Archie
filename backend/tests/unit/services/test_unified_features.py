@@ -251,7 +251,7 @@ class TestRendererFrontendSection:
 
     def test_renders_frontend_section_header(self, fullstack_blueprint):
         md = render_blueprint_markdown(fullstack_blueprint)
-        assert "## 13. Frontend Architecture" in md
+        assert "## 14. Frontend Architecture" in md
 
     def test_renders_framework(self, fullstack_blueprint):
         md = render_blueprint_markdown(fullstack_blueprint)
@@ -316,12 +316,12 @@ class TestRendererFrontendSection:
 
     def test_no_frontend_section_for_backend_only(self, backend_only_blueprint):
         md = render_blueprint_markdown(backend_only_blueprint)
-        assert "## 13. Frontend Architecture" not in md
+        assert "## 14. Frontend Architecture" not in md
 
     def test_backend_only_still_renders_other_sections(self, backend_only_blueprint):
         md = render_blueprint_markdown(backend_only_blueprint)
         assert "## 1. Architecture Overview" in md
-        assert "## 10. Technology Stack" in md
+        assert "## 11. Technology Stack" in md
 
 
 # ── Agent File Generator: CLAUDE.md Frontend Tests ───────────────────────────
@@ -407,23 +407,22 @@ class TestCursorRulesFrontend:
 
 
 class TestAgentsMdFrontend:
-    """Tests for frontend sections in AGENTS.md generation."""
+    """Tests for AGENTS.md generation with frontend data."""
 
-    def test_summary_includes_platforms(self, fullstack_blueprint):
+    def test_contains_mcp_section(self, fullstack_blueprint):
         content = generate_agents_md(fullstack_blueprint)
-        assert "Platforms:" in content
-        assert "backend" in content
-        assert "web-frontend" in content
+        assert "## Architecture MCP Server (MANDATORY)" in content
+        assert "where_to_put" in content
 
-    def test_summary_includes_frontend_framework(self, fullstack_blueprint):
+    def test_contains_onboarding_header(self, fullstack_blueprint):
         content = generate_agents_md(fullstack_blueprint)
-        assert "Frontend framework:" in content
-        assert "Next.js 14" in content
+        assert "Agent onboarding guide" in content
+        assert "acme/fullstack-app" in content
 
-    def test_no_platform_line_when_empty(self, backend_only_blueprint):
+    def test_minimal_agents_md_still_generates(self, backend_only_blueprint):
         content = generate_agents_md(backend_only_blueprint)
-        # Should include platform since it's set
-        assert "backend" in content
+        assert "# AGENTS.md" in content
+        assert "Architecture MCP Server" in content
 
 
 # ── Frontend Detection Tests ─────────────────────────────────────────────────

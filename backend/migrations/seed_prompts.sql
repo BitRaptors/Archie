@@ -418,6 +418,16 @@ Create a complete technology inventory organized by category. Include technologi
 13. **Linting/Formatting**: Tools, configuration
 14. **Deployment**: Container, CI/CD, cloud platform
 15. **Monitoring**: Logging, metrics, error tracking
+16. **Development Rules**: Imperative rules inferred from tooling config:
+    - Package manager preference (lockfiles: poetry.lock, yarn.lock, pnpm-lock.yaml, etc.)
+    - Pre-commit/quality checks (.pre-commit-config.yaml, husky, lint-staged)
+    - CI enforcement (.github/workflows/, Makefile, tox.ini)
+    - Linting/formatting mandates (ruff.toml, .eslintrc, prettier, editorconfig)
+    - Environment setup (setup.sh, Makefile, docker-compose.yml, .env.example)
+    - Testing requirements (CI configs, pytest.ini, jest.config)
+    - Git conventions (.gitignore, commit hooks, branch protection)
+
+    State each as an imperative: "Always X" or "Never Y", cite the source file.
 
 For each technology, include:
 - Component name
@@ -443,7 +453,8 @@ Provide your analysis in structured JSON format:
   "testing": [{"framework": "...", "type": "...", "platform": "..."}],
   "linting": [{"tool": "...", "purpose": "..."}],
   "deployment": {"container": "...", "cicd": "...", "platform": "..."},
-  "monitoring": [{"tool": "...", "purpose": "..."}]
+  "monitoring": [{"tool": "...", "purpose": "..."}],
+  "development_rules": [{"category": "dependency_management|testing|code_style|ci_cd|environment|git", "rule": "Always/Never ...", "source": "file that proves it"}]
 }
 ```',
     '["repository_name", "all_analyses", "dependencies", "file_registry"]'::jsonb,
@@ -681,7 +692,7 @@ The following file paths exist in this repository. You MUST ONLY reference file 
 2. BE CONCISE. Use short descriptions (1 sentence max). Prefer brevity over elaboration.
 3. Every rule must be grounded in the analysis above. Do NOT invent rules or file paths. Every file path in the output MUST appear in the File Registry.
 4. Use glob patterns for source_pattern fields.
-5. Limit arrays: 8 file_placement_rules, 5 naming_conventions, 10 components, 5 key_decisions, 3 trade_offs, 7 communication patterns, 15 stack items, 5 templates, 5 developer_recipes, 5 pitfalls, 8 implementation_guidelines.
+5. Limit arrays: 8 file_placement_rules, 5 naming_conventions, 10 components, 5 key_decisions, 3 trade_offs, 7 communication patterns, 15 stack items, 5 templates, 5 developer_recipes, 5 pitfalls, 8 implementation_guidelines, 8 development_rules.
 6. Confidence: 0.9+ = clearly observed, 0.7-0.9 = inferred, <0.7 = omit.
 7. COMPLETE the entire JSON structure. A complete but concise blueprint is far better than a detailed but truncated one.
 
@@ -694,75 +705,16 @@ The following file paths exist in this repository. You MUST ONLY reference file 
 - **architecture_diagram**: A Mermaid `graph TD` diagram with 8-12 nodes showing the main components and their relationships. Use short node labels.
 - **pitfalls**: 3-5 non-obvious behaviors, edge cases, or common mistakes specific to this codebase. Each has an area, description, and recommendation.
 - **implementation_guidelines**: Use the Implementation Analysis output. Include 5-8 guidelines documenting capabilities already implemented. These document what ALREADY EXISTS — not future tasks.
+- **development_rules**: 5-8 imperative rules from the technology analysis. "Always X" or "Never Y" with source citation. Categories: dependency_management, testing, code_style, ci_cd, environment, git.
 
 ### JSON Structure (fill all sections):
 
-{"meta":{"repository":"","repository_id":"","analyzed_at":"ISO-8601","schema_version":"2.0.0","architecture_style":"plain language","platforms":[],"executive_summary":"","confidence":{"architecture_rules":0,"decisions":0,"components":0,"communication":0,"technology":0,"frontend":0}},"architecture_rules":{"file_placement_rules":[{"component_type":"","naming_pattern":"","location":"","example":"","description":""}],"naming_conventions":[{"scope":"","pattern":"","examples":[],"description":""}]},"decisions":{"architectural_style":{"title":"","chosen":"","rationale":"","alternatives_rejected":[]},"key_decisions":[{"title":"","chosen":"","rationale":"","alternatives_rejected":[]}],"trade_offs":[{"accept":"","benefit":""}],"out_of_scope":[]},"components":{"structure_type":"","components":[{"name":"","location":"","platform":"backend|frontend|shared","responsibility":"","depends_on":[],"exposes_to":[],"key_interfaces":[{"name":"","methods":[],"description":""}],"key_files":[{"file":"","description":""}]}],"contracts":[]},"communication":{"patterns":[{"name":"","when_to_use":"","how_it_works":"","examples":[]}],"integrations":[{"service":"","purpose":"","integration_point":""}],"pattern_selection_guide":[{"scenario":"","pattern":"","rationale":""}]},"quick_reference":{"where_to_put_code":{},"pattern_selection":{},"error_mapping":[{"error":"","status_code":0,"description":""}]},"technology":{"stack":[{"category":"","name":"","version":"","purpose":""}],"templates":[{"component_type":"","description":"","file_path_template":"","code":""}],"project_structure":"","run_commands":{}},"frontend":{"framework":"","rendering_strategy":"","ui_components":[{"name":"","location":"","component_type":"","description":"","props":[],"children":[]}],"state_management":{"approach":"","global_state":[],"server_state":"","local_state":"","rationale":""},"routing":[{"path":"","component":"","description":"","auth_required":false}],"data_fetching":[{"name":"","mechanism":"","when_to_use":"","examples":[]}],"styling":"","key_conventions":[]},"developer_recipes":[{"task":"","files":[],"steps":[]}],"architecture_diagram":"","pitfalls":[{"area":"","description":"","recommendation":""}],"implementation_guidelines":[{"capability":"","category":"","libraries":[],"pattern_description":"","key_files":[],"usage_example":"","tips":[]}]}
+{"meta":{"repository":"","repository_id":"","analyzed_at":"ISO-8601","schema_version":"2.0.0","architecture_style":"plain language","platforms":[],"executive_summary":"","confidence":{"architecture_rules":0,"decisions":0,"components":0,"communication":0,"technology":0,"frontend":0}},"architecture_rules":{"file_placement_rules":[{"component_type":"","naming_pattern":"","location":"","example":"","description":""}],"naming_conventions":[{"scope":"","pattern":"","examples":[],"description":""}]},"decisions":{"architectural_style":{"title":"","chosen":"","rationale":"","alternatives_rejected":[]},"key_decisions":[{"title":"","chosen":"","rationale":"","alternatives_rejected":[]}],"trade_offs":[{"accept":"","benefit":""}],"out_of_scope":[]},"components":{"structure_type":"","components":[{"name":"","location":"","platform":"backend|frontend|shared","responsibility":"","depends_on":[],"exposes_to":[],"key_interfaces":[{"name":"","methods":[],"description":""}],"key_files":[{"file":"","description":""}]}],"contracts":[]},"communication":{"patterns":[{"name":"","when_to_use":"","how_it_works":"","examples":[]}],"integrations":[{"service":"","purpose":"","integration_point":""}],"pattern_selection_guide":[{"scenario":"","pattern":"","rationale":""}]},"quick_reference":{"where_to_put_code":{},"pattern_selection":{},"error_mapping":[{"error":"","status_code":0,"description":""}]},"technology":{"stack":[{"category":"","name":"","version":"","purpose":""}],"templates":[{"component_type":"","description":"","file_path_template":"","code":""}],"project_structure":"","run_commands":{}},"frontend":{"framework":"","rendering_strategy":"","ui_components":[{"name":"","location":"","component_type":"","description":"","props":[],"children":[]}],"state_management":{"approach":"","global_state":[],"server_state":"","local_state":"","rationale":""},"routing":[{"path":"","component":"","description":"","auth_required":false}],"data_fetching":[{"name":"","mechanism":"","when_to_use":"","examples":[]}],"styling":"","key_conventions":[]},"developer_recipes":[{"task":"","files":[],"steps":[]}],"architecture_diagram":"","pitfalls":[{"area":"","description":"","recommendation":""}],"implementation_guidelines":[{"capability":"","category":"","libraries":[],"pattern_description":"","key_files":[],"usage_example":"","tips":[]}],"development_rules":[{"category":"","rule":"","source":""}]}
 
 Generate the complete JSON for {repository_name}.',
     '["repository_name", "discovery", "layers", "patterns", "communication", "technology", "frontend_analysis", "implementation_analysis", "code_samples", "platform_hint", "file_tree", "framework_usage", "provided_capabilities", "file_registry"]'::jsonb,
     TRUE,
     'blueprint_synthesis',
-    'prompt'
-)
-ON CONFLICT (key) WHERE key IS NOT NULL DO UPDATE SET
-    name = EXCLUDED.name,
-    category = EXCLUDED.category,
-    prompt_template = EXCLUDED.prompt_template,
-    variables = EXCLUDED.variables,
-    is_default = EXCLUDED.is_default,
-    updated_at = NOW();
-
-INSERT INTO analysis_prompts (name, category, prompt_template, variables, is_default, key, type)
-VALUES (
-    'Intent Layer Folder Context',
-    'intent_layer',
-    '## Intent Layer — Folder Context Generation
-
-You are generating precise, token-efficient context for AI coding agents. Each folder gets a context node that is auto-loaded when the agent works in that directory.
-
-### Blueprint Summary
-{blueprint_summary}
-
-### Ancestor Code Context (root -> parent chain)
-{ancestor_code_context}
-
-### Parent Folder Context
-{parent_context}
-
-### Folders to Analyze
-{folders_json}
-
-### File Contents (key files from these folders)
-{file_contents}
-
-## Task
-
-For EACH folder in the list above, produce a JSON object. The top-level keys are the folder paths, and each value is an object with these fields:
-
-- `purpose` (string): One sentence — what this folder IS and DOES
-- `scope` (string): What this folder owns. Be specific: name the domain concepts, API routes, or UI components it manages
-- `key_files` (array of {file, description}): The 3-5 most important files with one-line descriptions. Use ACTUAL filenames from the listing
-- `patterns` (array of strings): Conventions to follow when adding code here (naming, structure, imports)
-- `anti_patterns` (array of strings): What NOT to do — common mistakes an AI agent might make
-- `cross_references` (array of {path, relationship}): Related folders with how they relate
-- `downlinks` (array of {path, summary}): Direct child folders with one-line summaries
-
-## Rules
-
-1. **USE ANCESTOR CODE**: Use ancestor code context to understand imports, class hierarchies, wiring, and how this folder connects to the rest of the codebase
-2. **NO REPETITION**: If the parent context already covers something, write "Inherits from parent" instead of repeating
-3. **ACTUAL FILES ONLY**: Only reference files that appear in the listing. Never invent file names
-4. **TOKEN EFFICIENCY**: Be concise. Agents have limited context windows
-5. **ACTIONABLE**: Focus on what an AI agent needs to know to write correct code in this folder
-6. **SPECIFIC**: Bad: "handles business logic". Good: "orchestrates user authentication via JWT tokens and OAuth2 providers"
-
-Return ONLY valid JSON — no markdown fences, no explanation:
-
-{"folder/path": {purpose, scope, key_files, patterns, anti_patterns, cross_references, downlinks}, ...}',
-    '["blueprint_summary", "parent_context", "folders_json", "file_contents", "ancestor_code_context"]'::jsonb,
-    TRUE,
-    'intent_layer_folder',
     'prompt'
 )
 ON CONFLICT (key) WHERE key IS NOT NULL DO UPDATE SET
@@ -810,7 +762,7 @@ Study the actual code above. Write down compound learning notes — everything a
 
 Return ONLY valid JSON with this structure:
 
-{{"purpose": "One sentence: what this folder IS + its single most important constraint", "patterns": ["Coding patterns discovered from actual code (4-8 items)"], "key_file_guides": [{{"file": "actual_filename.ext", "purpose": "What this file does", "modification_guide": "How to modify it correctly"}}], "anti_patterns": ["Don''t X -- Y instead (2-4 items)"], "common_task": {{"task": "Most common modification task", "steps": ["Step 1", "Step 2"]}}, "testing": ["How to test code in this folder (2-3 items)"], "debugging": ["Common debugging insights (1-3 items)"], "decisions": ["Why key design choices were made (1-3 items)"]}}
+{{"purpose": "One sentence: what this folder IS + its single most important constraint", "patterns": ["Coding patterns discovered from actual code (4-8 items)"], "key_file_guides": [{{"file": "actual_filename.ext", "purpose": "What this file does", "modification_guide": "How to modify it correctly"}}], "anti_patterns": ["Don''t X -- Y instead (2-4 items)"], "common_task": {{"task": "Most common modification task", "steps": ["Step 1", "Step 2"]}}, "testing": ["How to test code in this folder (2-3 items)"], "debugging": ["Common debugging insights (1-3 items)"], "decisions": ["Why key design choices were made (1-3 items)"], "code_examples": [{{"label": "Short description of usage", "code": "actual code snippet (3-10 lines)", "language": "python"}}], "key_imports": ["from this_folder.module import ClassName"]}}
 
 ## Rules
 
@@ -821,7 +773,9 @@ Return ONLY valid JSON with this structure:
 5. For decisions: explain WHY based on what the code reveals, not speculation
 6. Reference ONLY files in the listing. If you can''t ground a claim in code, skip it
 7. Keep total output under 1000 tokens
-8. If children_learned is provided, build on that knowledge — add cross-cutting insights, don''t repeat what children already cover',
+8. If children_learned is provided, build on that knowledge — add cross-cutting insights, don''t repeat what children already cover
+9. For code_examples: Extract 1-2 SHORT snippets (3-10 lines) from actual files showing the most common usage pattern. Include only real code from the files listed above, not invented examples. Detect language from file extensions.
+10. For key_imports: List the 2-4 most important imports that OTHER folders use from this folder (look at __init__.py exports or the most commonly referenced classes/functions).',
     '["folder_path", "component_name", "component_responsibility", "depends_on", "exposes_to", "interfaces_summary", "children_learned", "file_listing", "file_contents"]'::jsonb,
     TRUE,
     'intent_layer_enrichment',
