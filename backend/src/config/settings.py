@@ -90,6 +90,7 @@ class Settings(BaseSettings):
         "env_file": ".env.local",
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
+        "extra": "ignore",  # Ignore stale/removed env vars from old .env.local files
     }
 
 
