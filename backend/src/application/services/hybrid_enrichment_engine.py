@@ -21,6 +21,7 @@ from domain.entities.intent_layer import (
     FolderEnrichment,
     KeyFileGuide,
     CommonTask,
+    CodeExample,
     IntentLayerConfig,
 )
 
@@ -357,6 +358,16 @@ class HybridEnrichmentEngine:
                 steps=ct_data.get("steps", []),
             )
 
+        # Parse code_examples
+        code_examples = []
+        for ce in data.get("code_examples", []):
+            if isinstance(ce, dict) and "label" in ce and "code" in ce:
+                code_examples.append(CodeExample(
+                    label=ce["label"],
+                    code=ce["code"],
+                    language=ce.get("language", ""),
+                ))
+
         return FolderEnrichment(
             path=folder_path,
             purpose=data.get("purpose", ""),
@@ -367,6 +378,8 @@ class HybridEnrichmentEngine:
             testing=data.get("testing", []),
             debugging=data.get("debugging", []),
             decisions=data.get("decisions", []),
+            code_examples=code_examples,
+            key_imports=data.get("key_imports", []),
             has_ai_content=True,
         )
 
