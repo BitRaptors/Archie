@@ -758,24 +758,31 @@ Exposes to: {exposes_to}
 
 ## Task
 
-Study the actual code above. Write down compound learning notes — everything a developer needs to write correct code in this folder on day one.
+Study the actual code above. Write compound learning notes — everything a developer needs to write correct code in this folder on day one.
 
 Return ONLY valid JSON with this structure:
 
-{{"purpose": "One sentence: what this folder IS + its single most important constraint", "patterns": ["Coding patterns discovered from actual code (4-8 items)"], "key_file_guides": [{{"file": "actual_filename.ext", "purpose": "What this file does", "modification_guide": "How to modify it correctly"}}], "anti_patterns": ["Don''t X -- Y instead (2-4 items)"], "common_task": {{"task": "Most common modification task", "steps": ["Step 1", "Step 2"]}}, "testing": ["How to test code in this folder (2-3 items)"], "debugging": ["Common debugging insights (1-3 items)"], "decisions": ["Why key design choices were made (1-3 items)"], "code_examples": [{{"label": "Short description of usage", "code": "actual code snippet (3-10 lines)", "language": "python"}}], "key_imports": ["from this_folder.module import ClassName"]}}
+{{"purpose": "One dense sentence: what this folder IS + its primary constraint (max 20 words)", "patterns": ["Pattern derived from actual code (max 6 items, one line each)"], "key_file_guides": [{{"file": "actual_filename.ext", "purpose": "10 words max", "modification_guide": "15 words max"}}], "anti_patterns": ["Don''t X -- Y instead (max 3 items, one line each)"], "common_task": {{"task": "Most frequent modification", "steps": ["Terse step (max 4 steps)"]}}, "testing": ["How to test (max 2 items, one line each)"], "debugging": ["Debug insight (max 2 items, one line each)"], "decisions": ["Why this design choice (max 2 items, one line each)"], "code_examples": [{{"label": "Short description", "code": "3-8 lines max", "language": "python"}}], "key_imports": ["from module import Name (max 3 items)"]}}
+
+## Line Budget
+
+Your output renders into a CLAUDE.md file with a HARD 200-line cap shared with structural sections (navigation, dependencies, subfolders). The AI-generated content gets ~120 lines. Every line must earn its place.
+
+Line costs: purpose=1, each pattern=1, each key_file row=1, each step=1, each code_example=5+lines_of_code, each list item=1. Section headings+separators cost ~3 lines each.
+
+Prioritize: purpose > patterns > key_files > common_task > anti_patterns > testing. Only include code_examples, debugging, decisions, key_imports if space allows and they add unique value.
 
 ## Rules
 
-1. Derive patterns from ACTUAL code you see, not generic best practices
-2. Every pattern must be something a code reviewer could verify mechanically
-3. For testing: include actual commands, file patterns, and mock strategies you observed
-4. For debugging: note specific error types, tools, and config gotchas
-5. For decisions: explain WHY based on what the code reveals, not speculation
-6. Reference ONLY files in the listing. If you can''t ground a claim in code, skip it
-7. Keep total output under 1000 tokens
-8. If children_learned is provided, build on that knowledge — add cross-cutting insights, don''t repeat what children already cover
-9. For code_examples: Extract 1-2 SHORT snippets (3-10 lines) from actual files showing the most common usage pattern. Include only real code from the files listed above, not invented examples. Detect language from file extensions.
-10. For key_imports: List the 2-4 most important imports that OTHER folders use from this folder (look at __init__.py exports or the most commonly referenced classes/functions).',
+1. Derive patterns from ACTUAL code — not generic best practices
+2. Every pattern must be mechanically verifiable by a code reviewer
+3. Reference ONLY files in the listing. If you can''t ground a claim in code, skip it
+4. If children_learned is provided, add cross-cutting insights — don''t repeat what children cover
+5. Prefer density over completeness: one precise sentence beats three vague ones
+6. For code_examples: extract from actual files only, not invented. Max 1 example, 3-8 lines. Detect language from extensions
+7. For key_imports: only the imports OTHER folders use from this folder (check __init__.py exports)
+8. Omit any field where you have nothing code-grounded to say — empty arrays are fine
+9. If Previous CLAUDE.md Content is provided below, preserve valuable insights and user-added notes that are still accurate. Update or drop anything outdated. Improve, don''t copy.',
     '["folder_path", "component_name", "component_responsibility", "depends_on", "exposes_to", "interfaces_summary", "children_learned", "file_listing", "file_contents"]'::jsonb,
     TRUE,
     'intent_layer_enrichment',

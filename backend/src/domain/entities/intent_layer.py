@@ -16,6 +16,7 @@ class FolderNode(BaseModel):
     file_count: int = 0         # Recursive file count
     children: list[str] = []    # Child folder paths
     extensions: list[str] = []  # Unique extensions found
+    is_passthrough: bool = False  # Namespace-only folder (1 child, 0 source files)
 
 
 class FolderBlueprint(BaseModel):

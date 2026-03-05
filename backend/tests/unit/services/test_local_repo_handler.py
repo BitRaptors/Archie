@@ -22,13 +22,13 @@ class TestBuildFileTree:
         assert "README.md" in paths
 
     def test_ignores_node_modules(self, tmp_path):
-        """Skips node_modules by default."""
+        """Skips node_modules when provided in ignored_dirs."""
         (tmp_path / "node_modules" / "pkg").mkdir(parents=True)
         (tmp_path / "node_modules" / "pkg" / "index.js").write_text("x")
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "app.js").write_text("app")
 
-        handler = LocalRepoHandler(tmp_path)
+        handler = LocalRepoHandler(tmp_path, ignored_dirs={"node_modules"})
         tree = handler.build_file_tree()
 
         paths = {f["path"] for f in tree}

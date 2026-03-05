@@ -73,9 +73,17 @@ CAPABILITY_OPTIONS: list[str] = sorted([
 # Canonical set of source code file extensions — used by file registry,
 # signature extraction, budget calculation, supplementary reading, and RAG indexing.
 SOURCE_CODE_EXTENSIONS: frozenset[str] = frozenset({
+    # General
     ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs",
-    ".swift", ".kt", ".rb", ".php", ".cs", ".cpp", ".c", ".h",
-    ".hpp", ".m", ".mm", ".scala", ".xml",
+    ".rb", ".php", ".cs", ".cpp", ".c", ".h", ".hpp", ".scala",
+    # iOS / macOS
+    ".swift", ".m", ".mm",
+    # Android / Kotlin
+    ".kt", ".kts",
+    # Flutter / Dart
+    ".dart",
+    # Config-as-code (build scripts, manifests, layouts)
+    ".xml", ".gradle",
 })
 
 

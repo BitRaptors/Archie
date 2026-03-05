@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Callable
+from typing import Callable, Optional
 
 import tiktoken
 
@@ -115,12 +115,18 @@ class HybridEnrichmentEngine:
         folders: dict[str, FolderNode],
         folder_blueprints: dict[str, FolderBlueprint],
         file_reader: Callable[[str], str | None],
+        previous_content: Optional[dict[str, str]] = None,
     ) -> dict[str, FolderEnrichment]:
         """Enrich all folders bottom-up, propagating child summaries upward.
 
         Groups folders by depth (deepest first), processes each depth level
         in parallel, then builds child summaries for the next (shallower) level.
+
+        Args:
+            previous_content: Optional mapping of folder_path -> raw CLAUDE.md content
+                from a previous generation. Fed to AI as context for refinement.
         """
+        previous_content = previous_content or {}
         # Group by depth (deepest first)
         depth_groups: dict[int, list[FolderNode]] = {}
         for node in folders.values():
@@ -134,6 +140,8 @@ class HybridEnrichmentEngine:
         max_depth = max(depth_groups.keys()) if depth_groups else 0
         min_depth = min(depth_groups.keys()) if depth_groups else 0
         model = self._config.enrichment_model or self._settings.default_ai_model
+        if previous_content:
+            logger.info(f"Previous CLAUDE.md found for {len(previous_content)} folders")
         logger.info(
             f"Hybrid enrichment: {total_folders} folders, "
             f"depth {min_depth}-{max_depth}, model={model}, "
@@ -155,7 +163,7 @@ class HybridEnrichmentEngine:
                     )
                 await self._enrich_depth_level(
                     client, nodes, folder_blueprints, file_reader,
-                    prompt_template, enrichments,
+                    prompt_template, enrichments, previous_content,
                 )
         finally:
             await client.close()
@@ -180,15 +188,22 @@ class HybridEnrichmentEngine:
         file_reader: Callable[[str], str | None],
         prompt_template: str,
         enrichments: dict[str, FolderEnrichment],
+        previous_content: dict[str, str] | None = None,
     ) -> None:
         """Process all folders at one depth level in parallel."""
+        previous_content = previous_content or {}
         tasks = []
         for node in nodes:
+            if node.is_passthrough:
+                enrichments[node.path] = FolderEnrichment(path=node.path, has_ai_content=False)
+                continue
             fb = folder_blueprints.get(node.path, FolderBlueprint(path=node.path))
             children_summary = self._summarize_children(enrichments, node)
+            prev_claude_md = previous_content.get(node.path, "")
             tasks.append(
                 self._enrich_folder_with_semaphore(
                     client, node, fb, file_reader, prompt_template, children_summary,
+                    prev_claude_md,
                 )
             )
 
@@ -209,10 +224,12 @@ class HybridEnrichmentEngine:
         file_reader: Callable[[str], str | None],
         prompt_template: str,
         children_summary: str,
+        previous_claude_md: str = "",
     ) -> FolderEnrichment:
         async with self._semaphore:
             return await self._enrich_single_folder(
                 client, node, fb, file_reader, prompt_template, children_summary,
+                previous_claude_md,
             )
 
     async def _enrich_single_folder(
@@ -223,6 +240,7 @@ class HybridEnrichmentEngine:
         file_reader: Callable[[str], str | None],
         prompt_template: str,
         children_summary: str,
+        previous_claude_md: str = "",
     ) -> FolderEnrichment:
         """Call AI for a single folder and parse the response."""
         self.total_calls += 1
@@ -230,7 +248,7 @@ class HybridEnrichmentEngine:
 
         file_contents = self._read_folder_files(node, file_reader)
         logger.info(f"Enriching {folder_label}/ — {len(file_contents)} files read, {len(node.files)} total")
-        prompt = self._build_prompt(prompt_template, node, fb, file_contents, children_summary)
+        prompt = self._build_prompt(prompt_template, node, fb, file_contents, children_summary, previous_claude_md)
 
         model = (
             self._config.enrichment_model
@@ -277,6 +295,7 @@ class HybridEnrichmentEngine:
         fb: FolderBlueprint,
         file_contents: dict[str, str],
         children_summary: str,
+        previous_claude_md: str = "",
     ) -> str:
         """Build the enrichment prompt from template and context."""
         # Format file contents
@@ -296,7 +315,7 @@ class HybridEnrichmentEngine:
         # File listing
         file_listing = "\n".join(f"- {f}" for f in node.files) if node.files else "No files"
 
-        return template.format(
+        prompt = template.format(
             folder_path=node.path or "root",
             component_name=fb.component_name or node.name,
             component_responsibility=fb.component_responsibility or "Not documented",
@@ -307,6 +326,18 @@ class HybridEnrichmentEngine:
             file_listing=file_listing,
             file_contents=contents_str or "No file contents available.",
         )
+
+        if previous_claude_md:
+            prompt += (
+                "\n\n### Previous CLAUDE.md Content\n"
+                "The following is the previously generated documentation for this folder. "
+                "Preserve valuable insights, user-added notes, and accurate information. "
+                "Update or correct anything outdated based on current code. "
+                "Do not blindly copy — improve.\n\n"
+                f"{previous_claude_md}\n"
+            )
+
+        return prompt
 
     @staticmethod
     def _summarize_children(
@@ -409,6 +440,8 @@ class HybridEnrichmentEngine:
 
 You just completed a deep work session in this folder. Write down everything you learned so your future self can write correct code immediately next time.
 
+Your notes should read like auto-memory from an experienced developer — NOT generated documentation.
+
 ### Folder
 {folder_path}
 
@@ -432,15 +465,23 @@ Exposes to: {exposes_to}
 
 ## Task
 
-Study the actual code above. Write down compound learning notes.
+Study the actual code above. Write compound learning notes — everything a developer needs to write correct code in this folder on day one.
 
 Return ONLY valid JSON:
 
-{{"purpose": "...", "patterns": ["..."], "key_file_guides": [{{"file": "...", "purpose": "...", "modification_guide": "..."}}], "anti_patterns": ["..."], "common_task": {{"task": "...", "steps": ["..."]}}, "testing": ["..."], "debugging": ["..."], "decisions": ["..."]}}
+{{"purpose": "One dense sentence: what this folder IS + its primary constraint (max 20 words)", "patterns": ["Pattern from actual code (max 6 items, one line each)"], "key_file_guides": [{{"file": "filename.ext", "purpose": "10 words max", "modification_guide": "15 words max"}}], "anti_patterns": ["Don't X -- Y instead (max 3 items)"], "common_task": {{"task": "Most frequent modification", "steps": ["Terse step (max 4 steps)"]}}, "testing": ["How to test (max 2 items)"], "debugging": ["Debug insight (max 2 items)"], "decisions": ["Why this design choice (max 2 items)"], "code_examples": [{{"label": "Short description", "code": "3-8 lines max", "language": "python"}}], "key_imports": ["from module import Name (max 3 items)"]}}
 
-Rules:
-1. Derive patterns from ACTUAL code you see
-2. Every pattern must be mechanically verifiable
+## Line Budget
+
+Output renders into a CLAUDE.md with a HARD 200-line cap. AI content gets ~120 lines. Every line must earn its place.
+Prioritize: purpose > patterns > key_files > common_task > anti_patterns > testing.
+Omit fields where you have nothing code-grounded to say.
+
+## Rules
+
+1. Derive patterns from ACTUAL code — not generic best practices
+2. Every pattern must be mechanically verifiable by a code reviewer
 3. Reference ONLY files in the listing
-4. Keep output under 1000 tokens
+4. Prefer density over completeness: one precise sentence beats three vague ones
+5. If Previous CLAUDE.md Content is provided below, preserve accurate insights and update outdated ones. Improve, don't copy.
 """

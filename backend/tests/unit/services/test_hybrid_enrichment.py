@@ -385,9 +385,9 @@ class TestEnrichAllIntegration:
 
         original_enrich = engine._enrich_single_folder
 
-        async def tracking_enrich(client, node, fb, file_reader, prompt, children_summary):
+        async def tracking_enrich(client, node, fb, file_reader, prompt, children_summary, previous_claude_md=""):
             call_order.append(node.path)
-            return await original_enrich(client, node, fb, file_reader, prompt, children_summary)
+            return await original_enrich(client, node, fb, file_reader, prompt, children_summary, previous_claude_md)
 
         mock_client = AsyncMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
@@ -470,3 +470,117 @@ class TestEnrichAllIntegration:
             enrichments = await engine.enrich_all(folders, folder_blueprints, reader)
 
         assert enrichments["src/leaf"].has_ai_content is True
+
+
+# ── TestPreviousContentInPrompt ──
+
+class TestPreviousContentInPrompt:
+
+    def test_previous_content_appended_to_prompt(self):
+        node = _make_node("src/api", 2, files=["routes.py"])
+        fb = FolderBlueprint(path="src/api", component_name="API")
+        template = "{folder_path} {component_name} {component_responsibility} {depends_on} {exposes_to} {interfaces_summary} {children_learned} {file_listing} {file_contents}"
+
+        result = HybridEnrichmentEngine._build_prompt(
+            template, node, fb, {}, "", previous_claude_md="Previous insights here",
+        )
+
+        assert "### Previous CLAUDE.md Content" in result
+        assert "Previous insights here" in result
+        assert "Preserve valuable insights" in result
+
+    def test_previous_content_omitted_when_empty(self):
+        node = _make_node("src/api", 2, files=["routes.py"])
+        fb = FolderBlueprint(path="src/api", component_name="API")
+        template = "{folder_path} {component_name} {component_responsibility} {depends_on} {exposes_to} {interfaces_summary} {children_learned} {file_listing} {file_contents}"
+
+        result = HybridEnrichmentEngine._build_prompt(
+            template, node, fb, {}, "", previous_claude_md="",
+        )
+
+        assert "### Previous CLAUDE.md Content" not in result
+
+    def test_previous_content_passed_through_untruncated(self):
+        node = _make_node("src/api", 2, files=[])
+        fb = FolderBlueprint(path="src/api")
+        template = "{folder_path} {component_name} {component_responsibility} {depends_on} {exposes_to} {interfaces_summary} {children_learned} {file_listing} {file_contents}"
+
+        content = "## Patterns\n- Important pattern\n" * 50
+        result = HybridEnrichmentEngine._build_prompt(
+            template, node, fb, {}, "", previous_claude_md=content,
+        )
+
+        assert "### Previous CLAUDE.md Content" in result
+        # Full content should be present, no truncation
+        assert content in result
+
+
+# ── TestPreviousContentIntegration ──
+
+class TestPreviousContentIntegration:
+
+    @pytest.mark.asyncio
+    async def test_previous_content_passed_to_prompt(self, settings, config):
+        """Previous CLAUDE.md content appears in the AI prompt."""
+        engine = HybridEnrichmentEngine(settings, config)
+        captured_prompts: list[str] = []
+
+        folders = {
+            "src": _make_node("src", 1, files=["main.py"]),
+        }
+        folder_blueprints = {"src": FolderBlueprint(path="src")}
+        previous_content = {"src": "# Previous notes\nKey insight here"}
+
+        def reader(path):
+            return f"# {path}"
+
+        ai_response = json.dumps({"purpose": "Test", "patterns": ["p1"]})
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text=ai_response)]
+
+        async def mock_create(**kwargs):
+            msg = kwargs.get("messages", [{}])[0].get("content", "")
+            captured_prompts.append(msg)
+            return mock_response
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(side_effect=mock_create)
+
+        with patch.object(engine, '_make_client', return_value=mock_client):
+            await engine.enrich_all(folders, folder_blueprints, reader, previous_content)
+
+        assert len(captured_prompts) == 1
+        assert "Key insight here" in captured_prompts[0]
+        assert "### Previous CLAUDE.md Content" in captured_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_no_previous_content_no_section(self, settings, config):
+        """Without previous content, no extra section in prompt."""
+        engine = HybridEnrichmentEngine(settings, config)
+        captured_prompts: list[str] = []
+
+        folders = {
+            "src": _make_node("src", 1, files=["main.py"]),
+        }
+        folder_blueprints = {"src": FolderBlueprint(path="src")}
+
+        def reader(path):
+            return f"# {path}"
+
+        ai_response = json.dumps({"purpose": "Test", "patterns": []})
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text=ai_response)]
+
+        async def mock_create(**kwargs):
+            msg = kwargs.get("messages", [{}])[0].get("content", "")
+            captured_prompts.append(msg)
+            return mock_response
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(side_effect=mock_create)
+
+        with patch.object(engine, '_make_client', return_value=mock_client):
+            await engine.enrich_all(folders, folder_blueprints, reader)
+
+        assert len(captured_prompts) == 1
+        assert "### Previous CLAUDE.md Content" not in captured_prompts[0]

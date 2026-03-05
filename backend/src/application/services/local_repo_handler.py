@@ -2,7 +2,6 @@
 import os
 from pathlib import Path
 
-from domain.entities.analysis_settings import SEED_IGNORED_DIRS
 from application.services.delivery_service import _merge_markdown
 
 
@@ -11,7 +10,7 @@ class LocalRepoHandler:
 
     def __init__(self, repo_path: Path, ignored_dirs: set[str] | None = None):
         self.repo_path = repo_path.resolve()
-        self._ignored = ignored_dirs or SEED_IGNORED_DIRS
+        self._ignored = ignored_dirs or set()
 
     def build_file_tree(self) -> list[dict]:
         """Walk the local directory, return file tree in structure_analyzer format.

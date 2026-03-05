@@ -16,18 +16,22 @@ from domain.entities.intent_layer import (
     IntentLayerConfig,
     IntentLayerOutput,
 )
-from domain.entities.analysis_settings import SEED_IGNORED_DIRS
+from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
+from infrastructure.persistence.analysis_settings_repository import IgnoredDirsRepository
 
 logger = logging.getLogger(__name__)
+
+# Files that exist for namespace/module plumbing only — not real source code
+_TRIVIAL_MARKERS = {"__init__.py", "__init__.pyi", "__main__.py", "py.typed", "package-info.java", "mod.rs"}
 
 
 class FolderHierarchyBuilder:
     """Builds a hierarchy of FolderNodes from a file tree."""
 
-    def __init__(self, config: IntentLayerConfig | None = None):
+    def __init__(self, config: IntentLayerConfig | None = None, ignored_dirs: set[str] | None = None):
         self._config = config or IntentLayerConfig()
-        # Combine configured exclusions with defaults
-        self._excluded = self._config.excluded_dirs | SEED_IGNORED_DIRS
+        # Combine configured exclusions with DB-loaded ignored dirs
+        self._excluded = self._config.excluded_dirs | (ignored_dirs or set())
 
     def build_from_path(self, repo_path: Path) -> dict[str, FolderNode]:
         """Walk a local directory and build FolderNode hierarchy."""
@@ -82,6 +86,13 @@ class FolderHierarchyBuilder:
                 if child_path in nodes:
                     recursive_count += nodes[child_path].file_count
             node.file_count = recursive_count
+
+        # Mark pass-through namespace folders
+        for path, node in nodes.items():
+            if node.depth == 0:
+                continue
+            source_files = [f for f in node.files if f not in _TRIVIAL_MARKERS]
+            node.is_passthrough = len(source_files) == 0 and len(node.children) == 1
 
         return nodes
 
@@ -170,17 +181,55 @@ class FolderHierarchyBuilder:
                     recursive_count += nodes[child_path].file_count
             node.file_count = recursive_count
 
+        # Mark pass-through namespace folders
+        for path, node in nodes.items():
+            if node.depth == 0:
+                continue
+            source_files = [f for f in node.files if f not in _TRIVIAL_MARKERS]
+            node.is_passthrough = len(source_files) == 0 and len(node.children) == 1
+
         return nodes
 
-    def filter_significant(self, nodes: dict[str, FolderNode]) -> dict[str, FolderNode]:
-        """Remove folders below min_files threshold or beyond max_depth.
+    @staticmethod
+    def _has_source_code(node: FolderNode) -> bool:
+        """Check if a folder contains at least one source code file (by extension)."""
+        return any(
+            Path(f).suffix in SOURCE_CODE_EXTENSIONS
+            for f in node.files
+        )
 
-        Always keeps root (depth 0).
+    @staticmethod
+    def _subtree_has_source_code(node: FolderNode, nodes: dict[str, FolderNode]) -> bool:
+        """Check if a folder or any descendant contains source code files.
+
+        Handles resource trees like Assets.xcassets/ where the parent has
+        children but no descendant contains actual code.
+        """
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            if any(Path(f).suffix in SOURCE_CODE_EXTENSIONS for f in current.files):
+                return True
+            for child_path in current.children:
+                child = nodes.get(child_path)
+                if child:
+                    stack.append(child)
+        return False
+
+    def filter_significant(self, nodes: dict[str, FolderNode]) -> dict[str, FolderNode]:
+        """Remove folders below min_files threshold, beyond max_depth, or resource-only.
+
+        Always keeps root (depth 0). Skips folders whose entire subtree contains
+        no source code files (e.g. Assets.xcassets/, res/drawable/, assets/fonts/).
         """
         return {
             path: node for path, node in nodes.items()
             if node.depth == 0  # Always keep root
-            or (node.file_count >= self._config.min_files and node.depth <= self._config.max_depth)
+            or (
+                node.file_count >= self._config.min_files
+                and node.depth <= self._config.max_depth
+                and self._subtree_has_source_code(node, nodes)
+            )
         }
 
     def group_by_depth(self, nodes: dict[str, FolderNode]) -> dict[int, list[FolderNode]]:
@@ -223,9 +272,10 @@ class IntentLayerService:
     Optional AI enrichment for folders with zero blueprint coverage.
     """
 
-    def __init__(self, storage, settings):
+    def __init__(self, storage, settings, db_client=None):
         self._storage = storage
         self._settings = settings
+        self._db_client = db_client
 
     async def preview(
         self,
@@ -249,13 +299,16 @@ class IntentLayerService:
             raise ValidationError("Either source_repo_id or local_path is required")
 
         config = config or self._build_config()
-        builder = FolderHierarchyBuilder(config)
         start_time = time.time()
+
+        # Load ignored dirs from DB
+        ignored_dirs = await self._load_ignored_dirs()
+        builder = FolderHierarchyBuilder(config, ignored_dirs=ignored_dirs)
 
         # Build hierarchy
         if local_path:
             from application.services.local_repo_handler import LocalRepoHandler
-            handler = LocalRepoHandler(Path(local_path))
+            handler = LocalRepoHandler(Path(local_path), ignored_dirs=ignored_dirs)
             file_tree = await asyncio.to_thread(handler.build_file_tree)
             nodes = builder.build_from_file_tree(file_tree)
             repo_name = Path(local_path).name
@@ -292,15 +345,27 @@ class IntentLayerService:
                 )
                 engine = HybridEnrichmentEngine(self._settings, config, progress_callback=progress_callback)
                 file_reader = self._make_storage_reader(source_repo_id) if source_repo_id else self._make_storage_reader(repo_name)
-                enrichments = await engine.enrich_all(significant, folder_blueprints, file_reader)
+
+                # Read previous CLAUDE.md content for AI context
+                previous_content: dict[str, str] = {}
+                for folder_path in significant:
+                    md_rel = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
+                    raw = file_reader(md_rel)
+                    if raw:
+                        previous_content[folder_path] = raw
+
+                enrichments = await engine.enrich_all(significant, folder_blueprints, file_reader, previous_content)
                 total_ai_calls = engine.total_calls
 
                 for folder_path, fb in folder_blueprints.items():
                     node = significant.get(folder_path)
                     if not node:
                         continue
-                    enrichment = enrichments.get(folder_path, FolderEnrichment(path=folder_path))
                     md_path = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
+                    if node.is_passthrough:
+                        claude_md_files[md_path] = renderer.render_passthrough(node, fb, repo_name)
+                        continue
+                    enrichment = enrichments.get(folder_path, FolderEnrichment(path=folder_path))
                     claude_md_files[md_path] = renderer.render_hybrid(node, fb, enrichment, repo_name)
             else:
                 # Deterministic-only path (no AI calls)
@@ -308,12 +373,12 @@ class IntentLayerService:
                     node = significant.get(folder_path)
                     if not node:
                         continue
-
-                    if fb.has_blueprint_coverage:
-                        md_path = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
+                    md_path = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
+                    if node.is_passthrough:
+                        claude_md_files[md_path] = renderer.render_passthrough(node, fb, repo_name)
+                    elif fb.has_blueprint_coverage:
                         claude_md_files[md_path] = renderer.render_from_blueprint(node, fb, repo_name)
                     else:
-                        md_path = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
                         claude_md_files[md_path] = renderer.render_minimal(node, fb, repo_name)
         else:
             # No blueprint available — render minimal for all
@@ -365,7 +430,8 @@ class IntentLayerService:
         from application.services.local_repo_handler import LocalRepoHandler
 
         output = await self.preview(local_path=local_path, config=config)
-        handler = LocalRepoHandler(Path(local_path))
+        ignored_dirs = await self._load_ignored_dirs()
+        handler = LocalRepoHandler(Path(local_path), ignored_dirs=ignored_dirs)
         repo_name = Path(local_path).name
 
         # Write CLAUDE.md files with merge
@@ -394,6 +460,20 @@ class IntentLayerService:
             generate_codebase_map=getattr(self._settings, 'intent_layer_generate_codebase_map', True),
         )
 
+    async def _load_ignored_dirs(self) -> set[str]:
+        """Load ignored directories from the database."""
+        if not self._db_client:
+            logger.warning("No DB client available — ignored dirs will be empty")
+            return set()
+        try:
+            repo = IgnoredDirsRepository(db=self._db_client)
+            rows = await repo.get_all()
+            if rows:
+                return {d.directory_name for d in rows}
+        except Exception as e:
+            logger.warning(f"Failed to load ignored dirs from DB: {e}")
+        return set()
+
     async def _load_file_tree(self, repo_id: str) -> list[dict]:
         """Load file tree from stored repo files."""
         repo_dir = f"repos/{repo_id}"
@@ -411,7 +491,8 @@ class IntentLayerService:
         local_path = Path(self._settings.storage_path) / repo_dir
         if local_path.exists():
             from application.services.local_repo_handler import LocalRepoHandler
-            handler = LocalRepoHandler(local_path)
+            ignored_dirs = await self._load_ignored_dirs()
+            handler = LocalRepoHandler(local_path, ignored_dirs=ignored_dirs)
             return await asyncio.to_thread(handler.build_file_tree)
         return []
 

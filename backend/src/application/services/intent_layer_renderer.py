@@ -90,6 +90,17 @@ class IntentLayerRenderer:
 
         return "\n".join(lines).rstrip() + "\n"
 
+    def render_passthrough(
+        self,
+        folder: FolderNode,
+        fb: FolderBlueprint,
+        repo_name: str,
+    ) -> str:
+        """One-liner for namespace-only pass-through folders."""
+        folder_label = f"{folder.name}/" if folder.path else repo_name
+        child_name = folder.children[0].rsplit("/", 1)[-1] if folder.children else "child"
+        return f"# {folder_label}\n> Namespace folder — see [`{child_name}/`]({child_name}/CLAUDE.md) for documentation.\n"
+
     # ── Section renderers ──
 
     def _render_header(

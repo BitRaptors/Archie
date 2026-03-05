@@ -3,7 +3,6 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from domain.entities.analysis_settings import SEED_IGNORED_DIRS
 
 
 class StructureAnalyzer:

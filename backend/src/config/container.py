@@ -122,6 +122,7 @@ class Container(containers.DeclarativeContainer):
         IntentLayerService,
         storage=storage,
         settings=settings,
+        db_client=db,
     )
 
     analysis_service = providers.Singleton(
