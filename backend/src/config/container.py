@@ -139,7 +139,6 @@ class Container(containers.DeclarativeContainer):
     delivery_service = providers.Singleton(
         DeliveryService,
         storage=storage,
-        intent_layer_service=intent_layer_service,
     )
 
     prompt_service = providers.Singleton(

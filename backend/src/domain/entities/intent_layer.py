@@ -118,8 +118,7 @@ class IntentLayerConfig(BaseModel):
 
 class IntentLayerOutput(BaseModel):
     """Output of the intent layer generation process."""
-    claude_md_files: dict[str, str] = {}   # rel_path -> content
-    codebase_map: str = ""                  # CODEBASE_MAP.md content
+    claude_md_files: dict[str, str] = {}   # rel_path -> content (commit-ready file tree)
     folder_count: int = 0
     total_ai_calls: int = 0
     generation_time_seconds: float = 0.0

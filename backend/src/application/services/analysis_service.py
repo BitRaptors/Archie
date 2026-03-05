@@ -410,13 +410,10 @@ class AnalysisService:
                         source_repo_id=analysis.repository_id,
                         progress_callback=_il_progress,
                     )
-                    # Save generated files to storage
+                    # Save the commit-ready file tree to storage
                     for rel_path, content in il_output.claude_md_files.items():
                         storage_path = f"blueprints/{analysis.repository_id}/intent_layer/{rel_path}"
                         await self._persistent_storage.save(storage_path, content)
-                    if il_output.codebase_map:
-                        map_path = f"blueprints/{analysis.repository_id}/intent_layer/CODEBASE_MAP.md"
-                        await self._persistent_storage.save(map_path, il_output.codebase_map)
 
                     await self._log_event(
                         analysis_id, "INFO",

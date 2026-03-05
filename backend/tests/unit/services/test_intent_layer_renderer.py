@@ -628,6 +628,89 @@ class TestResourceFolderFiltering:
         # drawable/ excluded — only PNGs
         assert "res/drawable" not in significant
 
+    def test_android_values_xml_excluded(self):
+        """Android res/values/ with strings.xml, colors.xml, etc. should be excluded."""
+        tree = [
+            {"name": "MainActivity.kt", "path": "app/src/main/kotlin/MainActivity.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "App.kt", "path": "app/src/main/kotlin/App.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "strings.xml", "path": "app/src/main/res/values/strings.xml", "type": "file", "size": 200, "extension": "xml"},
+            {"name": "colors.xml", "path": "app/src/main/res/values/colors.xml", "type": "file", "size": 100, "extension": "xml"},
+            {"name": "styles.xml", "path": "app/src/main/res/values/styles.xml", "type": "file", "size": 150, "extension": "xml"},
+        ]
+        significant = self._build_and_filter(tree)
+        assert "app/src/main/kotlin" in significant
+        assert "app/src/main/res/values" not in significant
+
+    def test_android_drawable_xml_excluded(self):
+        """Android res/drawable/ with vector drawable XMLs should be excluded."""
+        tree = [
+            {"name": "MainActivity.kt", "path": "app/src/main/kotlin/MainActivity.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "App.kt", "path": "app/src/main/kotlin/App.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "ic_launcher.xml", "path": "app/src/main/res/drawable/ic_launcher.xml", "type": "file", "size": 300, "extension": "xml"},
+            {"name": "bg_gradient.xml", "path": "app/src/main/res/drawable/bg_gradient.xml", "type": "file", "size": 200, "extension": "xml"},
+        ]
+        significant = self._build_and_filter(tree)
+        assert "app/src/main/kotlin" in significant
+        assert "app/src/main/res/drawable" not in significant
+
+    def test_android_mipmap_excluded(self):
+        """Android res/mipmap-*/ directories should be excluded."""
+        tree = [
+            {"name": "MainActivity.kt", "path": "app/src/main/kotlin/MainActivity.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "App.kt", "path": "app/src/main/kotlin/App.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "ic_launcher.png", "path": "app/src/main/res/mipmap-hdpi/ic_launcher.png", "type": "file", "size": 500, "extension": "png"},
+            {"name": "ic_launcher.xml", "path": "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml", "type": "file", "size": 200, "extension": "xml"},
+        ]
+        significant = self._build_and_filter(tree)
+        assert "app/src/main/kotlin" in significant
+        assert "app/src/main/res/mipmap-hdpi" not in significant
+        assert "app/src/main/res/mipmap-anydpi-v26" not in significant
+
+    def test_android_xml_dir_excluded(self):
+        """Android res/xml/ (preferences, etc.) should be excluded."""
+        tree = [
+            {"name": "MainActivity.kt", "path": "app/src/main/kotlin/MainActivity.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "App.kt", "path": "app/src/main/kotlin/App.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "preferences.xml", "path": "app/src/main/res/xml/preferences.xml", "type": "file", "size": 100, "extension": "xml"},
+            {"name": "backup_rules.xml", "path": "app/src/main/res/xml/backup_rules.xml", "type": "file", "size": 100, "extension": "xml"},
+        ]
+        significant = self._build_and_filter(tree)
+        assert "app/src/main/kotlin" in significant
+        assert "app/src/main/res/xml" not in significant
+
+    def test_android_res_parent_kept_with_layout(self):
+        """Android res/ parent should be kept when it has layout/ subtree."""
+        tree = [
+            {"name": "strings.xml", "path": "res/values/strings.xml", "type": "file", "size": 200, "extension": "xml"},
+            {"name": "colors.xml", "path": "res/values/colors.xml", "type": "file", "size": 100, "extension": "xml"},
+            {"name": "ic_launcher.xml", "path": "res/drawable/ic_launcher.xml", "type": "file", "size": 300, "extension": "xml"},
+            {"name": "bg.xml", "path": "res/drawable/bg.xml", "type": "file", "size": 200, "extension": "xml"},
+            {"name": "activity_main.xml", "path": "res/layout/activity_main.xml", "type": "file", "size": 400, "extension": "xml"},
+            {"name": "fragment_home.xml", "path": "res/layout/fragment_home.xml", "type": "file", "size": 300, "extension": "xml"},
+        ]
+        significant = self._build_and_filter(tree)
+        assert "res" in significant  # kept because layout/ has code
+        assert "res/layout" in significant  # layout XMLs are source
+        assert "res/values" not in significant  # resource data
+        assert "res/drawable" not in significant  # resource data
+
+    def test_android_qualified_values_excluded(self):
+        """Qualified Android resource dirs like values-es, drawable-night should be excluded."""
+        tree = [
+            {"name": "MainActivity.kt", "path": "src/MainActivity.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "App.kt", "path": "src/App.kt", "type": "file", "size": 100, "extension": "kt"},
+            {"name": "strings.xml", "path": "res/values-es/strings.xml", "type": "file", "size": 200, "extension": "xml"},
+            {"name": "strings2.xml", "path": "res/values-es/strings2.xml", "type": "file", "size": 200, "extension": "xml"},
+            {"name": "colors.xml", "path": "res/values-night/colors.xml", "type": "file", "size": 100, "extension": "xml"},
+            {"name": "themes.xml", "path": "res/values-night/themes.xml", "type": "file", "size": 100, "extension": "xml"},
+            {"name": "bg.xml", "path": "res/drawable-night/bg.xml", "type": "file", "size": 150, "extension": "xml"},
+            {"name": "fg.xml", "path": "res/drawable-night/fg.xml", "type": "file", "size": 150, "extension": "xml"},
+        ]
+        significant = self._build_and_filter(tree)
+        assert "res/values-es" not in significant
+        assert "res/values-night" not in significant
+        assert "res/drawable-night" not in significant
+
     def test_xcassets_excluded(self):
         """Xcode asset catalog tree has no source code — entire subtree excluded."""
         tree = [

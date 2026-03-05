@@ -8,7 +8,6 @@ from domain.entities.blueprint import StructuredBlueprint
 from infrastructure.persistence.analysis_repository import AnalysisRepository
 from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
 from application.services.analysis_data_collector import analysis_data_collector
-from application.services.agent_file_generator import generate_all
 import asyncio
 import json
 
@@ -232,74 +231,57 @@ async def get_agent_files(
     analysis_id: str,
     request: Request,
 ):
-    """Get generated agent instruction files (CLAUDE.md, Cursor rules).
-    
-    These files are generated from the structured JSON blueprint to ensure
-    consistency across all outputs.
-    
-    Args:
-        analysis_id: ID of the analysis
-        
-    Returns:
-        Dict with claude_md, cursor_rules, and agents_md content
+    """Get the commit-ready file tree for an analysis.
+
+    Returns CLAUDE.md, AGENTS.md, rules, per-folder CLAUDE.md, CODEBASE_MAP.md.
     """
     analysis_repo = await get_analysis_repo(request)
     analysis = await analysis_repo.get_by_id(analysis_id)
-    
+
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    
+
     if analysis.status != "completed":
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Analysis is not completed. Current status: {analysis.status}"
         )
-    
-    # Get storage from container
+
     container = request.app.container
     storage = container.storage()
-    
-    # Load structured JSON blueprint (single source of truth)
-    blueprint = await _load_structured_blueprint(storage, analysis.repository_id)
-    
-    if not blueprint:
-        raise HTTPException(
-            status_code=404,
-            detail="Structured blueprint (blueprint.json) not found. Re-analyze to generate.",
-        )
-    
-    output = generate_all(blueprint)
-    files = output.to_file_map()
+    files: dict[str, str] = {}
 
-    # Load pre-generated intent layer files, or generate on-demand as fallback
+    # Try loading pre-generated intent layer files (includes everything since consolidation)
     try:
         il_base = f"blueprints/{analysis.repository_id}/intent_layer"
-        if await storage.exists(f"{il_base}/CLAUDE.md") or await storage.exists(f"{il_base}/CODEBASE_MAP.md"):
-            # Load from storage (generated during analysis pipeline)
+        if await storage.exists(f"{il_base}/CLAUDE.md"):
             il_files = await storage.list_files(il_base)
             for file_path in il_files:
-                rel_path = file_path[len(il_base) + 1:]  # strip prefix + /
-                if rel_path and rel_path not in files:
+                rel_path = file_path[len(il_base) + 1:]
+                if rel_path:
                     content = await storage.read(file_path)
                     text = content.decode("utf-8") if isinstance(content, bytes) else content
                     files[rel_path] = text
-        else:
-            # Fallback: generate on-demand
-            il_service = request.app.container.intent_layer_service()
-            il_output = await il_service.preview(source_repo_id=analysis.repository_id)
-            for path, content in il_output.claude_md_files.items():
-                if path not in files:
-                    files[path] = content
-            if il_output.codebase_map:
-                files["CODEBASE_MAP.md"] = il_output.codebase_map
-    except Exception as e:
-        import logging
-        logging.getLogger("intent_layer").error(f"Intent layer load failed: {e}", exc_info=True)
+    except Exception:
+        pass
 
+    # Fallback: generate on-demand via intent layer service
+    if not files:
+        il_service = container.intent_layer_service()
+        try:
+            il_output = await il_service.preview(source_repo_id=analysis.repository_id)
+            files = il_output.claude_md_files
+        except Exception as e:
+            import logging
+            logging.getLogger("intent_layer").error(f"Intent layer generation failed: {e}", exc_info=True)
+            raise HTTPException(status_code=404, detail="Could not generate agent files. Blueprint may be missing.")
+
+    # Backward-compatible response shape
+    cursor_rules_parts = [v for k, v in sorted(files.items()) if k.startswith(".cursor/rules/")]
     return {
-        "claude_md": output.claude_md,
-        "cursor_rules": "\n\n".join(rf.render_cursor() for rf in output.rule_files),
-        "agents_md": output.agents_md,
+        "claude_md": files.get("CLAUDE.md", ""),
+        "cursor_rules": "\n\n".join(cursor_rules_parts),
+        "agents_md": files.get("AGENTS.md", ""),
         "files": files,
     }
 

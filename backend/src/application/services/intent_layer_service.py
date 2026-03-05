@@ -11,7 +11,6 @@ from pathlib import Path
 from domain.entities.blueprint import StructuredBlueprint
 from domain.entities.intent_layer import (
     FolderNode,
-    FolderBlueprint,
     FolderEnrichment,
     IntentLayerConfig,
     IntentLayerOutput,
@@ -23,6 +22,22 @@ logger = logging.getLogger(__name__)
 
 # Files that exist for namespace/module plumbing only — not real source code
 _TRIVIAL_MARKERS = {"__init__.py", "__init__.pyi", "__main__.py", "py.typed", "package-info.java", "mod.rs"}
+
+# Android resource directory prefixes — .xml files inside these are data/config, not source code.
+# Covers qualified variants like drawable-hdpi, values-es, mipmap-xxxhdpi, etc.
+# Notably excludes "layout" — layout XMLs are genuine UI source code.
+_ANDROID_RESOURCE_PREFIXES = (
+    "drawable", "mipmap", "values", "xml", "raw", "anim", "animator",
+    "color", "font", "menu", "navigation", "transition",
+)
+
+
+def _is_android_resource_dir(name: str) -> bool:
+    """Check if a directory name matches an Android resource dir pattern."""
+    return any(
+        name == prefix or name.startswith(prefix + "-")
+        for prefix in _ANDROID_RESOURCE_PREFIXES
+    )
 
 
 class FolderHierarchyBuilder:
@@ -203,12 +218,19 @@ class FolderHierarchyBuilder:
         """Check if a folder or any descendant contains source code files.
 
         Handles resource trees like Assets.xcassets/ where the parent has
-        children but no descendant contains actual code.
+        children but no descendant contains actual code.  For Android resource
+        directories (drawable, values, mipmap, etc.) .xml files are treated as
+        data, not source code — only layout/ XMLs count.
         """
         stack = [node]
         while stack:
             current = stack.pop()
-            if any(Path(f).suffix in SOURCE_CODE_EXTENSIONS for f in current.files):
+            # In Android resource dirs, .xml is data — exclude it from the check
+            if _is_android_resource_dir(current.name):
+                exts = SOURCE_CODE_EXTENSIONS - {".xml"}
+            else:
+                exts = SOURCE_CODE_EXTENSIONS
+            if any(Path(f).suffix in exts for f in current.files):
                 return True
             for child_path in current.children:
                 child = nodes.get(child_path)
@@ -305,6 +327,11 @@ class IntentLayerService:
         ignored_dirs = await self._load_ignored_dirs()
         builder = FolderHierarchyBuilder(config, ignored_dirs=ignored_dirs)
 
+        # Load full blueprint (early — needed for repo name resolution)
+        blueprint = None
+        if source_repo_id:
+            blueprint = await self._load_blueprint(source_repo_id)
+
         # Build hierarchy
         if local_path:
             from application.services.local_repo_handler import LocalRepoHandler
@@ -315,16 +342,16 @@ class IntentLayerService:
         else:
             file_tree = await self._load_file_tree(source_repo_id)
             nodes = builder.build_from_file_tree(file_tree)
-            repo_name = source_repo_id
+            # Resolve human-readable name from blueprint metadata; fall back to repo ID
+            repo_name = (
+                blueprint.meta.repository
+                if blueprint and blueprint.meta.repository
+                else source_repo_id
+            )
 
         # Filter significant folders
         significant = builder.filter_significant(nodes)
         folder_paths = list(significant.keys())
-
-        # Load full blueprint
-        blueprint = None
-        if source_repo_id:
-            blueprint = await self._load_blueprint(source_repo_id)
 
         # Deterministic path: map blueprint onto folders
         mapper = BlueprintFolderMapper()
@@ -391,22 +418,29 @@ class IntentLayerService:
                 md_path = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
                 claude_md_files[md_path] = renderer.render_minimal(node, fb, repo_name)
 
-        # Generate codebase map
-        codebase_map = ""
+        # Generate codebase map and add to file tree
         if config.generate_codebase_map and blueprint:
             codebase_map = CodebaseMapRenderer().render(blueprint)
+            if codebase_map:
+                claude_md_files["CODEBASE_MAP.md"] = codebase_map
 
-        # Incremental update tracking (build manifest without copying the full dict)
+        # Merge blueprint-derived outputs (root CLAUDE.md, AGENTS.md, rules)
+        if blueprint:
+            from application.services.agent_file_generator import generate_all
+            agent_output = generate_all(blueprint)
+            agent_files = agent_output.to_file_map()
+            for path, content in agent_files.items():
+                if path == "CLAUDE.md":
+                    claude_md_files[path] = content  # blueprint root always wins
+                elif path not in claude_md_files:
+                    claude_md_files[path] = content  # AGENTS.md, rules
+
+        # Incremental update tracking
         if source_repo_id and blueprint:
             try:
                 manifest_mgr = ManifestManager(self._storage)
                 bp_hash = compute_blueprint_hash(blueprint)
-                # Pass claude_md_files directly; add codebase_map entry in-place temporarily
-                if codebase_map:
-                    claude_md_files["CODEBASE_MAP.md"] = codebase_map
                 manifest = manifest_mgr.build_manifest(bp_hash, claude_md_files)
-                if codebase_map:
-                    del claude_md_files["CODEBASE_MAP.md"]
                 await manifest_mgr.save(source_repo_id, manifest)
             except Exception as e:
                 logger.warning(f"Failed to save manifest: {e}")
@@ -415,7 +449,6 @@ class IntentLayerService:
 
         return IntentLayerOutput(
             claude_md_files=claude_md_files,
-            codebase_map=codebase_map,
             folder_count=len(significant),
             total_ai_calls=total_ai_calls,
             generation_time_seconds=round(elapsed, 2),
@@ -475,14 +508,26 @@ class IntentLayerService:
         return set()
 
     async def _load_file_tree(self, repo_id: str) -> list[dict]:
-        """Load file tree from stored repo files."""
+        """Load file tree from stored repo files.
+
+        Returns paths relative to the repository root (strips the
+        ``repos/{repo_id}/`` storage prefix so the intent-layer hierarchy
+        starts at the actual checkout root).
+        """
         repo_dir = f"repos/{repo_id}"
+        prefix = f"{repo_dir}/"
         # Try to list files from storage
         try:
             if hasattr(self._storage, 'list_files'):
                 files = await self._storage.list_files(repo_dir)
                 return [
-                    {"name": os.path.basename(f), "path": f, "type": "file", "size": 0, "extension": Path(f).suffix.lstrip('.')}
+                    {
+                        "name": os.path.basename(f),
+                        "path": f[len(prefix):] if f.startswith(prefix) else f,
+                        "type": "file",
+                        "size": 0,
+                        "extension": Path(f).suffix.lstrip('.'),
+                    }
                     for f in files
                 ]
         except Exception:

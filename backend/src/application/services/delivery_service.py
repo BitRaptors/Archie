@@ -6,7 +6,6 @@ from typing import Optional
 
 from domain.entities.blueprint import StructuredBlueprint
 from domain.exceptions.domain_exceptions import ValidationError
-from application.services.agent_file_generator import generate_all
 from infrastructure.external.github_push_client import GitHubPushClient
 
 
@@ -118,9 +117,8 @@ class DeliveryResult:
 class DeliveryService:
     """Orchestrates pushing architecture outputs to a target GitHub repository."""
 
-    def __init__(self, storage, intent_layer_service=None):
+    def __init__(self, storage):
         self._storage = storage
-        self._intent_layer_service = intent_layer_service
 
     async def preview(
         self,
@@ -128,19 +126,34 @@ class DeliveryService:
         outputs: list[str],
     ) -> dict[str, str]:
         """Generate and return selected outputs without pushing."""
-        blueprint = await self._load_blueprint(source_repo_id)
-        result = self._generate_outputs(blueprint, outputs)
+        for key in outputs:
+            if key not in VALID_OUTPUTS:
+                raise ValidationError(f"Unknown output type: {key}. Valid: {VALID_OUTPUTS}")
 
-        # Handle intent_layer and codebase_map via intent layer service
-        if ("intent_layer" in outputs or "codebase_map" in outputs) and self._intent_layer_service:
-            il_output = await self._intent_layer_service.preview(source_repo_id=source_repo_id)
-            if "intent_layer" in outputs:
-                for path, content in il_output.claude_md_files.items():
-                    if path == "CLAUDE.md" and "claude_md" in outputs:
-                        continue  # Root already handled by main pipeline
+        result: dict[str, str] = {}
+
+        # Check if any non-MCP outputs are requested (those come from the intent layer)
+        needs_il = any(
+            k in outputs
+            for k in ("claude_md", "agents_md", "claude_rules", "cursor_rules", "intent_layer", "codebase_map")
+        )
+
+        if needs_il:
+            # Load pre-generated files from storage (saved during analysis pipeline)
+            all_files = await self._load_intent_layer_files(source_repo_id)
+            if not all_files:
+                raise ValidationError(f"Blueprint not found for repository {source_repo_id}")
+            for path, content in all_files.items():
+                if self._should_include(path, outputs):
                     result[path] = content
-            if "codebase_map" in outputs and il_output.codebase_map:
-                result["CODEBASE_MAP.md"] = il_output.codebase_map
+
+        # MCP configs are not part of the intent layer
+        if "mcp_claude" in outputs or "mcp_cursor" in outputs:
+            blueprint = await self._load_blueprint(source_repo_id)
+            if "mcp_claude" in outputs:
+                result[".mcp.json"] = _generate_mcp_config(blueprint)
+            if "mcp_cursor" in outputs:
+                result[".cursor/mcp.json"] = _generate_mcp_config(blueprint)
 
         return result
 
@@ -157,34 +170,28 @@ class DeliveryService:
         if strategy not in ("pr", "commit"):
             raise ValidationError(f"Invalid strategy: {strategy}. Must be 'pr' or 'commit'.")
 
-        blueprint = await self._load_blueprint(source_repo_id)
-        generated = self._generate_outputs(blueprint, outputs)
-
-        # Handle intent_layer and codebase_map via intent layer service
-        if ("intent_layer" in outputs or "codebase_map" in outputs) and self._intent_layer_service:
-            il_output = await self._intent_layer_service.preview(source_repo_id=source_repo_id)
-            if "intent_layer" in outputs:
-                for path, content in il_output.claude_md_files.items():
-                    if path == "CLAUDE.md" and "claude_md" in outputs:
-                        continue  # Root already handled by main pipeline
-                    generated[path] = content
-            if "codebase_map" in outputs and il_output.codebase_map:
-                generated["CODEBASE_MAP.md"] = il_output.codebase_map
+        generated = await self.preview(source_repo_id, outputs)
 
         push_client = GitHubPushClient(token)
         default_branch = push_client.get_default_branch(target_repo_full_name)
 
-        # Build file map with merge: read existing content, then merge
+        # Build file map with merge for root-level files only.
+        # Per-folder CLAUDE.md and rule files are fully generated — no merge needed.
         repo_name = target_repo_full_name.split("/")[-1] if "/" in target_repo_full_name else target_repo_full_name
+        # Only these root files may have user content that needs merge-preserving
+        _MERGE_CANDIDATES = {"CLAUDE.md", "AGENTS.md", ".mcp.json", ".cursor/mcp.json"}
         files: dict[str, str] = {}
         for path, content in generated.items():
-            existing = push_client.get_file_content(target_repo_full_name, path, default_branch)
-            merge_strategy = self._get_merge_strategy(path)
-            if merge_strategy == "markdown":
-                files[path] = _merge_markdown(existing, content, repo_name)
-            elif merge_strategy == "json":
-                generated_config = json.loads(content)
-                files[path] = _merge_json_config(existing, generated_config)
+            if path in _MERGE_CANDIDATES:
+                existing = push_client.get_file_content(target_repo_full_name, path, default_branch)
+                merge_strategy = self._get_merge_strategy(path)
+                if merge_strategy == "markdown":
+                    files[path] = _merge_markdown(existing, content, repo_name)
+                elif merge_strategy == "json":
+                    generated_config = json.loads(content)
+                    files[path] = _merge_json_config(existing, generated_config)
+                else:
+                    files[path] = content
             else:
                 files[path] = content
         delivered_paths = list(files.keys())
@@ -231,6 +238,26 @@ class DeliveryService:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    async def _load_intent_layer_files(self, repo_id: str) -> dict[str, str]:
+        """Load pre-generated intent layer files from storage."""
+        il_base = f"blueprints/{repo_id}/intent_layer"
+        try:
+            if not await self._storage.exists(il_base + "/CLAUDE.md"):
+                return {}
+            raw_paths = await self._storage.list_files(il_base)
+            prefix = il_base + "/"
+            files: dict[str, str] = {}
+            for file_path in raw_paths:
+                rel_path = file_path[len(prefix):] if file_path.startswith(prefix) else file_path
+                if not rel_path:
+                    continue
+                content = await self._storage.read(file_path)
+                text = content.decode("utf-8") if isinstance(content, bytes) else content
+                files[rel_path] = text
+            return files
+        except Exception:
+            return {}
+
     async def _load_blueprint(self, repo_id: str) -> StructuredBlueprint:
         """Load a structured blueprint from storage."""
         json_path = f"blueprints/{repo_id}/blueprint.json"
@@ -253,45 +280,22 @@ class DeliveryService:
             return "markdown"
         return "overwrite"
 
-    def _generate_outputs(
-        self,
-        blueprint: StructuredBlueprint,
-        outputs: list[str],
-    ) -> dict[str, str]:
-        """Generate selected output files from a blueprint.
-
-        Returns ``{file_path: content}`` -- aggregate keys (``claude_rules``,
-        ``cursor_rules``) are expanded into individual rule file entries.
-        """
-        # Validate all keys first
-        for key in outputs:
-            if key not in VALID_OUTPUTS:
-                raise ValidationError(f"Unknown output type: {key}. Valid: {VALID_OUTPUTS}")
-
-        gen_output = generate_all(blueprint)
-        result: dict[str, str] = {}
-
-        for key in outputs:
-            if key == "intent_layer":
-                continue  # Handled separately in apply()/preview()
-            if key == "codebase_map":
-                continue  # Handled separately via intent_layer_service
-            if key == "claude_md":
-                result["CLAUDE.md"] = gen_output.claude_md
-            elif key == "agents_md":
-                result["AGENTS.md"] = gen_output.agents_md
-            elif key == "mcp_claude":
-                result[".mcp.json"] = _generate_mcp_config(blueprint)
-            elif key == "mcp_cursor":
-                result[".cursor/mcp.json"] = _generate_mcp_config(blueprint)
-            elif key == "claude_rules":
-                for rf in gen_output.rule_files:
-                    result[rf.claude_path] = rf.render_claude()
-            elif key == "cursor_rules":
-                for rf in gen_output.rule_files:
-                    result[rf.cursor_path] = rf.render_cursor()
-
-        return result
+    @staticmethod
+    def _should_include(path: str, outputs: list[str]) -> bool:
+        """Check if a file path should be included based on requested outputs."""
+        if path == "CLAUDE.md":
+            return "claude_md" in outputs
+        if path == "AGENTS.md":
+            return "agents_md" in outputs
+        if path == "CODEBASE_MAP.md":
+            return "codebase_map" in outputs
+        if path.startswith(".claude/rules/"):
+            return "claude_rules" in outputs
+        if path.startswith(".cursor/rules/"):
+            return "cursor_rules" in outputs
+        if path.endswith("/CLAUDE.md"):
+            return "intent_layer" in outputs
+        return False
 
     @staticmethod
     def _build_pr_body(files: list[str], source_repo_id: str) -> str:

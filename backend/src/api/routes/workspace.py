@@ -1,6 +1,5 @@
 """Workspace routes -- manage analyzed repositories, active repo, agent files."""
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +9,6 @@ from domain.entities.blueprint import StructuredBlueprint
 from infrastructure.persistence.user_profile_repository import UserProfileRepository
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
-from application.services.agent_file_generator import generate_all
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
@@ -173,49 +171,44 @@ async def clear_active(request: Request):
 
 @router.get("/repositories/{repo_id}/agent-files")
 async def get_agent_files(repo_id: str, request: Request):
-    """Generate and return CLAUDE.md, cursor rules, AGENTS.md, and per-folder CLAUDE.md files.
+    """Return the commit-ready file tree: CLAUDE.md, AGENTS.md, rules, per-folder CLAUDE.md, CODEBASE_MAP.md.
 
-    Only works when a structured blueprint.json is available.
+    Loads pre-generated files from storage, falling back to on-demand generation.
     """
     storage = _get_storage(request)
-    blueprint = await _load_structured_blueprint(storage, repo_id)
+    files: dict[str, str] = {}
 
-    if not blueprint:
-        raise HTTPException(
-            status_code=404,
-            detail="Structured blueprint (blueprint.json) not found. Re-analyze to generate.",
-        )
-
-    output = generate_all(blueprint)
-    files = output.to_file_map()
-
-    # Load pre-generated intent layer files, or generate on-demand as fallback
+    # Try loading pre-generated intent layer files (includes everything since consolidation)
     try:
         il_base = f"blueprints/{repo_id}/intent_layer"
-        if await storage.exists(f"{il_base}/CLAUDE.md") or await storage.exists(f"{il_base}/CODEBASE_MAP.md"):
+        if await storage.exists(f"{il_base}/CLAUDE.md"):
             il_files = await storage.list_files(il_base)
             for file_path in il_files:
                 rel_path = file_path[len(il_base) + 1:]
-                if rel_path and rel_path not in files:
+                if rel_path:
                     content = await storage.read(file_path)
                     text = content.decode("utf-8") if isinstance(content, bytes) else content
                     files[rel_path] = text
-        else:
-            il_service = request.app.container.intent_layer_service()
-            il_output = await il_service.preview(source_repo_id=repo_id)
-            for path, content in il_output.claude_md_files.items():
-                if path not in files:
-                    files[path] = content
-            if il_output.codebase_map:
-                files["CODEBASE_MAP.md"] = il_output.codebase_map
-    except Exception as e:
-        import logging
-        logging.getLogger("intent_layer").error(f"Intent layer load failed: {e}", exc_info=True)
+    except Exception:
+        pass
 
+    # Fallback: generate on-demand via intent layer service
+    if not files:
+        il_service = request.app.container.intent_layer_service()
+        try:
+            il_output = await il_service.preview(source_repo_id=repo_id)
+            files = il_output.claude_md_files
+        except Exception as e:
+            import logging
+            logging.getLogger("intent_layer").error(f"Intent layer generation failed: {e}", exc_info=True)
+            raise HTTPException(status_code=404, detail="Could not generate agent files. Blueprint may be missing.")
+
+    # Backward-compatible response shape
+    cursor_rules_parts = [v for k, v in sorted(files.items()) if k.startswith(".cursor/rules/")]
     return {
-        "claude_md": output.claude_md,
-        "cursor_rules": "\n\n".join(rf.render_cursor() for rf in output.rule_files),
-        "agents_md": output.agents_md,
+        "claude_md": files.get("CLAUDE.md", ""),
+        "cursor_rules": "\n\n".join(cursor_rules_parts),
+        "agents_md": files.get("AGENTS.md", ""),
         "files": files,
     }
 
