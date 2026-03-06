@@ -6,6 +6,9 @@ interface MermaidDiagramProps {
   chart: string
 }
 
+// Global initialization state to avoid multiple re-initializations
+let isInitialized = false;
+
 export function MermaidDiagram({ chart }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [svg, setSvg] = useState<string>('')
@@ -17,23 +20,27 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
     async function render() {
       try {
         const mermaid = (await import('mermaid')).default
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: 'base',
-          themeVariables: {
-            background: 'transparent',
-            primaryColor: '#CEEEF6',
-            primaryTextColor: '#023047',
-            primaryBorderColor: '#219EBC',
-            lineColor: '#219EBC',
-            secondaryColor: '#FFB703',
-            tertiaryColor: '#FB8500',
-            fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-            fontSize: '14px',
-          },
-          securityLevel: 'loose',
-          suppressErrorUI: true,
-        })
+
+        if (!isInitialized) {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: 'base',
+            themeVariables: {
+              background: 'transparent',
+              primaryColor: '#CEEEF6',
+              primaryTextColor: '#023047',
+              primaryBorderColor: '#219EBC',
+              lineColor: '#219EBC',
+              secondaryColor: '#FFB703',
+              tertiaryColor: '#FB8500',
+              fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+              fontSize: '14px',
+            },
+            securityLevel: 'loose',
+            suppressErrorUI: true, // This should stop injections
+          })
+          isInitialized = true;
+        }
 
         const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -43,8 +50,27 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
         // Heuristic: If we see something like [Text / More], wrap in quotes: ["Text / More"]
         cleanChart = cleanChart.replace(/\[([^\]]*\/[^\]]*)\]/g, '["$1"]')
 
+        // Function to perform render and catch internal Mermaid UI injection
+        const doRender = async (cid: string, code: string) => {
+          // Passing a dummy container helps Mermaid NOT to inject into body
+          const tempDiv = document.createElement('div');
+          tempDiv.style.display = 'none';
+          document.body.appendChild(tempDiv);
+
+          try {
+            const result = await mermaid.render(cid, code, tempDiv);
+            document.body.removeChild(tempDiv);
+            return result.svg;
+          } catch (err) {
+            if (document.body.contains(tempDiv)) {
+              document.body.removeChild(tempDiv);
+            }
+            throw err;
+          }
+        }
+
         try {
-          const { svg: rendered } = await mermaid.render(id, cleanChart)
+          const rendered = await doRender(id, cleanChart);
           if (!cancelled) {
             setSvg(rendered)
             setError(null)
@@ -52,7 +78,7 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
         } catch (renderErr: any) {
           // Retry with original chart if quoted one failed
           try {
-            const { svg: rendered } = await mermaid.render(id + '-retry', chart.trim())
+            const rendered = await doRender(id + '-retry', chart.trim())
             if (!cancelled) {
               setSvg(rendered)
               setError(null)
@@ -63,7 +89,7 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
         }
       } catch (err: any) {
         if (!cancelled) {
-          console.error('Mermaid render error:', err)
+          console.warn('Mermaid render failure:', err.message);
           setError(err.message || 'Failed to render diagram')
           setSvg('')
         }

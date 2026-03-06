@@ -83,14 +83,13 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
     })
     const [activeSection, setActiveSection] = useState('')
     const [fileSearchQuery, setFileSearchQuery] = useState('')
-    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/']))
+    const [currentExplorePath, setCurrentExplorePath] = useState<string>('/')
 
-    const toggleFolder = (folderName: string) => {
-        const next = new Set(expandedFolders)
-        if (next.has(folderName)) next.delete(folderName)
-        else next.add(folderName)
-        setExpandedFolders(next)
-    }
+    // Reset explore path when changing tabs to prevent getting stuck in a missing folder
+    useEffect(() => {
+        setCurrentExplorePath('/')
+        setFileSearchQuery('')
+    }, [activeTab])
 
     const markdownComponents = useMemo(() => ({
         code({ className, children, ...props }: any) {
@@ -340,7 +339,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
         <div className="flex flex-col h-screen overflow-hidden bg-white/50 animate-in fade-in duration-500">
             <PageHeader
                 title="Architecture Blueprint"
-                subtitle={repoId ? `Repository: ${repoId}` : `Analysis: ${analysisId?.slice(0, 8)}`}
+                subtitle={repoFullName ? `Repository: ${repoFullName}` : (repoId ? (isLoading ? 'Repository: Loading...' : `Repository: ${repoId.slice(0, 8)}...`) : `Analysis: ${analysisId?.slice(0, 8)}`)}
                 icon={Layers}
                 actions={
                     <div className="flex gap-2">
@@ -568,49 +567,9 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                 : []
                             const allPaths = [...rootFiles, ...intentLayerFiles, ...ruleFiles].filter(p => agentFiles.files![p])
 
-                            // Build tree structure
-                            type TreeNode = { name: string; path?: string; children: TreeNode[] }
-
                             const filteredPaths = allPaths.filter(p =>
                                 !fileSearchQuery || p.toLowerCase().includes(fileSearchQuery.toLowerCase())
                             )
-
-                            const treeRoot: TreeNode = { name: '/', children: [] }
-
-                            for (const filePath of filteredPaths) {
-                                const parts = filePath.split('/')
-                                let current = treeRoot
-                                for (let i = 0; i < parts.length; i++) {
-                                    const part = parts[i]
-                                    const isFile = i === parts.length - 1
-                                    let child = current.children.find(c => c.name === part)
-                                    if (!child) {
-                                        child = { name: part, children: [], ...(isFile ? { path: filePath } : {}) }
-                                        current.children.push(child)
-                                    }
-                                    current = child
-                                }
-                            }
-
-                            // Compact logic: merge single-child folders
-                            const compactTree = (nodes: TreeNode[]): TreeNode[] => {
-                                return nodes.map(node => {
-                                    let current = { ...node };
-                                    while (current.children && current.children.length === 1 && !current.path && !current.children[0].path) {
-                                        const child = current.children[0];
-                                        current = {
-                                            ...child,
-                                            name: `${current.name}/${child.name}`
-                                        };
-                                    }
-                                    if (current.children && current.children.length > 0) {
-                                        current.children = compactTree(current.children);
-                                    }
-                                    return current;
-                                });
-                            };
-
-                            const compactedTree = compactTree(treeRoot.children)
 
                             const currentFile = selectedFile && agentFiles.files[selectedFile] ? selectedFile : allPaths[0]
                             const currentContent = currentFile ? agentFiles.files[currentFile] : ''
@@ -622,70 +581,93 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                 }
                             }
 
-                            const renderTree = (nodes: TreeNode[], depth: number = 0, parentPath: string = '') => (
-                                <div className={cn(
-                                    "flex flex-col",
-                                    depth > 0 ? 'ml-3 border-l border-papaya-400/20' : ''
-                                )}>
-                                    {nodes.map(node => {
-                                        const nodePath = `${parentPath}/${node.name}`
-                                        const isExpanded = expandedFolders.has(nodePath) || fileSearchQuery.length > 0
-                                        const hasChildren = node.children.length > 0
+                            const getFolderContents = (paths: string[], currentPath: string) => {
+                                const files: { name: string, fullPath: string }[] = [];
+                                const rawFolders: Map<string, string[]> = new Map();
 
-                                        return (
-                                            <div key={nodePath} className="flex flex-col">
-                                                {node.path ? (
-                                                    <button
-                                                        onClick={() => setSelectedFile(node.path!)}
-                                                        className={cn(
-                                                            'flex items-center gap-1.5 w-full text-left px-2 py-1.5 rounded-lg text-xs transition-all duration-200 relative group',
-                                                            currentFile === node.path
-                                                                ? 'bg-teal/5 text-teal font-bold'
-                                                                : 'text-ink/40 hover:text-ink/60 hover:bg-papaya-300/30 font-medium'
-                                                        )}
-                                                    >
-                                                        <FileText className="w-3.5 h-3.5 shrink-0" />
-                                                        <span className="truncate">{node.name}</span>
-                                                        {currentFile === node.path && <div className="w-1.5 h-1.5 rounded-full bg-teal ml-auto shrink-0 shadow-[0_0_8px_rgba(45,161,176,0.5)]" />}
-                                                    </button>
-                                                ) : (
-                                                    <button
-                                                        onClick={() => toggleFolder(nodePath)}
-                                                        className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold text-ink/60 hover:bg-papaya-300/20 rounded-lg transition-all w-full text-left group"
-                                                    >
-                                                        {hasChildren ? (
-                                                            isExpanded ? <ChevronDown className="w-3 h-3 text-ink/30" /> : <ChevronRight className="w-3 h-3 text-ink/30" />
-                                                        ) : (
-                                                            <div className="w-3 h-3" />
-                                                        )}
-                                                        {isExpanded ? (
-                                                            <FolderOpen className="w-3.5 h-3.5 shrink-0 text-tangerine/60 group-hover:text-tangerine" />
-                                                        ) : (
-                                                            <Folder className="w-3.5 h-3.5 shrink-0 text-tangerine/60 group-hover:text-tangerine" />
-                                                        )}
-                                                        <span className="truncate">{node.name}</span>
-                                                        {hasChildren && <span className="text-[10px] text-ink/20 ml-auto font-medium">{node.children.length}</span>}
-                                                    </button>
-                                                )}
-                                                {hasChildren && isExpanded && renderTree(node.children, depth + 1, nodePath)}
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            )
+                                paths.forEach(p => {
+                                    let rel = p;
+                                    if (currentPath !== '/') {
+                                        const prefix = currentPath + '/';
+                                        if (!p.startsWith(prefix)) return;
+                                        rel = p.slice(prefix.length);
+                                    }
+
+                                    if (!rel.includes('/')) {
+                                        files.push({ name: rel, fullPath: p });
+                                    } else {
+                                        const folderName = rel.split('/')[0];
+                                        if (!rawFolders.has(folderName)) rawFolders.set(folderName, []);
+                                        rawFolders.get(folderName)!.push(p);
+                                    }
+                                });
+
+                                const compactFolders = Array.from(rawFolders.entries()).map(([name, subPaths]) => {
+                                    let displayName = name;
+                                    let targetPath = currentPath === '/' ? name : `${currentPath}/${name}`;
+                                    let currentPrefix = targetPath;
+
+                                    while (true) {
+                                        const levelFiles: string[] = [];
+                                        const levelFolders: Set<string> = new Set();
+
+                                        subPaths.forEach(p => {
+                                            const rest = p.slice(currentPrefix.length + 1);
+                                            if (!rest.includes('/')) {
+                                                levelFiles.push(rest);
+                                            } else {
+                                                levelFolders.add(rest.split('/')[0]);
+                                            }
+                                        });
+
+                                        if (levelFiles.length === 0 && levelFolders.size === 1) {
+                                            const nextFolderName = Array.from(levelFolders)[0];
+                                            displayName += '/' + nextFolderName;
+                                            currentPrefix += '/' + nextFolderName;
+                                            targetPath = currentPrefix;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+
+                                    return { name: displayName, fullPath: targetPath };
+                                });
+
+                                return {
+                                    files: files.sort((a, b) => a.name.localeCompare(b.name)),
+                                    folders: compactFolders.sort((a, b) => a.name.localeCompare(b.name))
+                                };
+                            };
+
+                            const { files, folders } = getFolderContents(allPaths, currentExplorePath);
 
                             return (
                                 <div className="flex h-full">
                                     {/* File tree sidebar */}
-                                    <div className="w-64 shrink-0 border-r border-papaya-400/40 flex flex-col bg-white/40">
-                                        <div className="p-4 border-b border-papaya-400/20">
+                                    <div className="w-72 shrink-0 border-r border-papaya-400/40 flex flex-col bg-white/40">
+                                        <div className="p-4 border-b border-papaya-400/20 bg-white/50 backdrop-blur-sm z-10 sticky top-0">
                                             <div className="flex items-center gap-2 mb-4 px-1">
-                                                <div className="p-1.5 rounded-md bg-papaya-300/30">
-                                                    <Layers className="w-3.5 h-3.5 text-teal" />
-                                                </div>
-                                                <p className="text-[11px] font-black text-ink/30 uppercase tracking-[0.15em]">Structure</p>
-                                                <Badge className="ml-auto bg-papaya-300/30 text-ink/40 text-[10px] border-papaya-400/40">
-                                                    {allPaths.length}
+                                                {currentExplorePath !== '/' ? (
+                                                    <button
+                                                        onClick={() => {
+                                                            const parts = currentExplorePath.split('/');
+                                                            parts.pop();
+                                                            setCurrentExplorePath(parts.length > 0 ? parts.join('/') : '/');
+                                                        }}
+                                                        className="p-1 rounded-md hover:bg-papaya-300/50 text-ink/40 hover:text-ink transition-colors"
+                                                    >
+                                                        <ChevronLeft className="w-4 h-4" />
+                                                    </button>
+                                                ) : (
+                                                    <div className="p-1.5 rounded-md bg-gradient-to-br from-teal/20 to-teal/5 border border-teal/10 shadow-inner">
+                                                        <Layers className="w-3.5 h-3.5 text-teal drop-shadow-sm" />
+                                                    </div>
+                                                )}
+                                                <p className="text-[11px] font-black text-ink/50 uppercase tracking-[0.2em] font-sans">
+                                                    {currentExplorePath === '/' ? 'Explorer' : currentExplorePath.split('/').pop()}
+                                                </p>
+                                                <Badge className="ml-auto bg-papaya-300/30 text-ink/50 text-[10px] items-center border-papaya-400/40 px-1.5">
+                                                    {fileSearchQuery ? filteredPaths.length : (files.length + folders.length)} <span className="text-[9px] text-ink/30 ml-1 font-bold">Items</span>
                                                 </Badge>
                                             </div>
 
@@ -693,10 +675,10 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink/20" />
                                                 <input
                                                     type="text"
-                                                    placeholder="Filter files..."
+                                                    placeholder="Search files..."
                                                     value={fileSearchQuery}
                                                     onChange={(e) => setFileSearchQuery(e.target.value)}
-                                                    className="w-full h-8 pl-8 pr-3 text-xs bg-papaya-300/20 border-transparent focus:border-teal/30 focus:ring-0 rounded-lg placeholder:text-ink/20 text-ink/80 transition-all font-medium"
+                                                    className="w-full h-8 pl-8 pr-3 text-xs bg-papaya-300/20 border-transparent focus:border-teal/30 focus:ring-0 rounded-lg placeholder:text-ink/20 text-ink/80 transition-all font-medium shadow-inner"
                                                 />
                                                 {fileSearchQuery && (
                                                     <button
@@ -709,15 +691,92 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                             </div>
                                         </div>
 
-                                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-                                            {compactedTree.length > 0 ? (
-                                                renderTree(compactedTree)
+                                        <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
+                                            {fileSearchQuery ? (
+                                                <div className="space-y-1">
+                                                    {filteredPaths.length > 0 ? filteredPaths.map(p => {
+                                                        const isSelected = currentFile === p;
+                                                        const parts = p.split('/');
+                                                        const name = parts.pop();
+                                                        const dir = parts.join('/');
+                                                        return (
+                                                            <button
+                                                                key={p}
+                                                                onClick={() => {
+                                                                    setSelectedFile(p)
+                                                                    const parts = p.split('/')
+                                                                    parts.pop()
+                                                                    setCurrentExplorePath(parts.length > 0 ? parts.join('/') : '/')
+                                                                    setFileSearchQuery('')
+                                                                }}
+                                                                className={cn(
+                                                                    "flex items-center gap-2.5 w-full text-left px-2.5 py-2 rounded-xl text-xs font-semibold transition-all group",
+                                                                    isSelected
+                                                                        ? "bg-teal/10 text-teal ring-1 ring-teal/20 shadow-sm"
+                                                                        : "text-ink/60 hover:text-ink hover:bg-papaya-300/30"
+                                                                )}
+                                                            >
+                                                                <div className={cn(
+                                                                    "p-1.5 rounded-lg transition-colors shrink-0",
+                                                                    isSelected ? "bg-teal text-white shadow-md shadow-teal/20" : "bg-ink/5 text-ink/40 group-hover:bg-ink/10"
+                                                                )}>
+                                                                    <FileText className="w-3.5 h-3.5" />
+                                                                </div>
+                                                                <div className="flex flex-col min-w-0 pr-2">
+                                                                    <span className="truncate text-xs font-bold leading-tight">{name}</span>
+                                                                    {dir && <span className="truncate text-[9px] text-ink/30 tracking-wide mt-0.5">{dir}</span>}
+                                                                </div>
+                                                            </button>
+                                                        )
+                                                    }) : (
+                                                        <div className="py-10 text-center space-y-2">
+                                                            <div className="w-8 h-8 bg-papaya-300/20 rounded-full flex items-center justify-center mx-auto">
+                                                                <Search className="w-4 h-4 text-ink/20" />
+                                                            </div>
+                                                            <p className="text-[10px] font-bold text-ink/20 uppercase tracking-widest">No results</p>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             ) : (
-                                                <div className="py-10 text-center space-y-2">
-                                                    <div className="w-8 h-8 bg-papaya-300/20 rounded-full flex items-center justify-center mx-auto">
-                                                        <Search className="w-4 h-4 text-ink/20" />
-                                                    </div>
-                                                    <p className="text-[10px] font-bold text-ink/20 uppercase tracking-widest">No results</p>
+                                                <div className="space-y-1">
+                                                    {folders.map(folder => (
+                                                        <button
+                                                            key={folder.fullPath}
+                                                            onClick={() => setCurrentExplorePath(folder.fullPath)}
+                                                            className="flex items-center gap-2.5 w-full text-left px-2.5 py-2.5 rounded-xl text-xs font-bold text-ink/70 hover:text-ink hover:bg-papaya-300/30 transition-all group border border-transparent hover:border-papaya-400/30"
+                                                        >
+                                                            <div className="p-1.5 rounded-lg bg-gradient-to-br from-tangerine/10 to-tangerine/5 text-tangerine group-hover:from-tangerine group-hover:to-tangerine/90 group-hover:text-white transition-all shadow-sm">
+                                                                <Folder className="w-3.5 h-3.5 fill-current opacity-40 group-hover:opacity-100" />
+                                                            </div>
+                                                            <span className="truncate flex-1 tracking-tight">{folder.name}</span>
+                                                            <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-tangerine drop-shadow-sm -translate-x-2 group-hover:translate-x-0" />
+                                                        </button>
+                                                    ))}
+
+                                                    {files.map(file => {
+                                                        const isSelected = currentFile === file.fullPath;
+                                                        return (
+                                                            <button
+                                                                key={file.fullPath}
+                                                                onClick={() => setSelectedFile(file.fullPath)}
+                                                                className={cn(
+                                                                    "flex items-center gap-2.5 w-full text-left px-2.5 py-2.5 rounded-xl text-xs font-semibold transition-all group border",
+                                                                    isSelected
+                                                                        ? "bg-teal/5 text-teal border-teal/20 shadow-sm"
+                                                                        : "text-ink/60 hover:text-ink hover:bg-papaya-300/30 border-transparent hover:border-papaya-400/20"
+                                                                )}
+                                                            >
+                                                                <div className={cn(
+                                                                    "p-1.5 rounded-lg transition-colors shrink-0 shadow-sm",
+                                                                    isSelected ? "bg-teal text-white" : "bg-white border border-papaya-400/40 text-ink/40 group-hover:text-teal"
+                                                                )}>
+                                                                    <FileText className="w-3.5 h-3.5" />
+                                                                </div>
+                                                                <span className="truncate">{file.name}</span>
+                                                                {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-teal ml-auto shadow-[0_0_8px_rgba(45,161,176,0.5)]" />}
+                                                            </button>
+                                                        )
+                                                    })}
                                                 </div>
                                             )}
                                         </div>
@@ -737,17 +796,34 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                                     <FileText className="w-3.5 h-3.5" />
                                                 </div>
                                                 <div className="flex items-center gap-1 text-[11px] font-mono text-ink/40 overflow-hidden">
-                                                    {currentFile?.split('/').map((part, i, arr) => (
-                                                        <React.Fragment key={i}>
-                                                            <span className={cn(
-                                                                "truncate",
-                                                                i === arr.length - 1 ? "text-ink font-bold" : ""
-                                                            )}>
-                                                                {part}
-                                                            </span>
-                                                            {i < arr.length - 1 && <ChevronRight className="w-3 h-3 shrink-0 opacity-40" />}
-                                                        </React.Fragment>
-                                                    ))}
+                                                    <button
+                                                        onClick={() => setCurrentExplorePath('/')}
+                                                        className="hover:text-ink hover:bg-ink/5 px-1 rounded transition-colors"
+                                                    >
+                                                        Root
+                                                    </button>
+                                                    <ChevronRight className="w-3 h-3 shrink-0 opacity-40" />
+                                                    {currentFile?.split('/').map((part, i, arr) => {
+                                                        const isLast = i === arr.length - 1;
+                                                        const path = arr.slice(0, i + 1).join('/');
+                                                        return (
+                                                            <React.Fragment key={i}>
+                                                                {!isLast ? (
+                                                                    <button
+                                                                        onClick={() => setCurrentExplorePath(path)}
+                                                                        className="hover:text-ink hover:bg-ink/5 px-1 rounded transition-colors truncate max-w-[120px]"
+                                                                    >
+                                                                        {part}
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="text-ink font-bold truncate">
+                                                                        {part}
+                                                                    </span>
+                                                                )}
+                                                                {i < arr.length - 1 && <ChevronRight className="w-3 h-3 shrink-0 opacity-40" />}
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-2 ml-4">

@@ -72,6 +72,7 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -91,3 +92,20 @@
   @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40 transition-colors;
 }
 
+/* Hide Mermaid Error Leakage and persistings */
+div[id^="d-mermaid"],
+div[id*="mermaid-error"],
+svg[id*="mermaid-error"],
+#mermaid-error-svg,
+.mermaid-error,
+body>div:has(> .mermaid-error),
+body>div:has(> #mermaid-error-svg) {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  width: 0 !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  z-index: -9999 !important;
+  opacity: 0 !important;
+}
