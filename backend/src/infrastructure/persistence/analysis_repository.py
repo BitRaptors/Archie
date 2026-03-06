@@ -58,6 +58,25 @@ class AnalysisRepository(IRepository[Analysis, str]):
         except Exception:
             return None
 
+    async def get_latest_completed_by_repo_id(self, repository_id: str) -> Analysis | None:
+        """Get the latest *completed* analysis for a repository (has commit_sha)."""
+        try:
+            result = await (
+                self._db.table(self.TABLE)
+                .select("*")
+                .eq("repository_id", repository_id)
+                .eq("status", "completed")
+                .order("created_at", desc=True)
+                .limit(1)
+                .maybe_single()
+                .execute()
+            )
+            if result and result.data:
+                return self._to_entity(result.data)
+            return None
+        except Exception:
+            return None
+
     async def add(self, entity: Analysis) -> Analysis:
         data = self._to_dict(entity)
         result = await self._db.table(self.TABLE).insert(data).execute()

@@ -81,6 +81,7 @@ class AnalysisService:
         self,
         repository_id: str,
         prompt_config: dict[str, str] | None = None,
+        mode: str = "full",
     ) -> Analysis:
         """Start analysis for a repository."""
         # Get repository
@@ -93,7 +94,8 @@ class AnalysisService:
         analysis = await self._analysis_repo.add(analysis)
 
         # Log start event
-        await self._log_event(analysis.id, "PHASE_START", f"Starting analysis for {repo.full_name}")
+        mode_label = "Incremental" if mode == "incremental" else "Full"
+        await self._log_event(analysis.id, "PHASE_START", f"Starting {mode_label} analysis for {repo.full_name}")
 
         # Start analysis (will be run in background worker)
         analysis.start()
@@ -119,6 +121,47 @@ class AnalysisService:
         if commit_sha:
             analysis.commit_sha = commit_sha
             await self._analysis_repo.update(analysis)
+
+        # Log analysis mode
+        mode_label = "incremental" if mode == "incremental" else "full"
+        await self._log_event(
+            analysis_id, "INFO",
+            f"Analysis mode: {mode_label}"
+        )
+
+        # For incremental mode, check if anything changed since last completed analysis
+        if mode == "incremental":
+            try:
+                previous = await self._analysis_repo.get_latest_completed_by_repo_id(analysis.repository_id)
+                prev_sha = previous.commit_sha if previous else None
+                if not prev_sha:
+                    mode = "full"
+                    await self._log_event(
+                        analysis_id, "INFO",
+                        "No previous completed analysis with commit SHA found — falling back to full analysis"
+                    )
+                elif commit_sha and prev_sha == commit_sha:
+                    # Nothing changed — short-circuit
+                    await self._log_event(
+                        analysis_id, "INFO",
+                        f"No changes detected (SHA {commit_sha[:12]} matches previous analysis) — skipping"
+                    )
+                    analysis.update_progress(100)
+                    analysis.complete()
+                    await self._analysis_repo.update(analysis)
+                    await _publish_event(analysis_id, {"event": "complete", "status": "completed", "progress": 100})
+                    return
+                else:
+                    await self._log_event(
+                        analysis_id, "INFO",
+                        f"Changes detected: {prev_sha[:12]} → {commit_sha[:12] if commit_sha else '(unknown)'}"
+                    )
+            except Exception:
+                mode = "full"
+                await self._log_event(
+                    analysis_id, "INFO",
+                    "Could not check previous analysis — falling back to full analysis"
+                )
 
         try:
             # Load analysis settings from DB (no DB = no filtering)

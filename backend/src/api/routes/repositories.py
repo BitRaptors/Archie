@@ -180,7 +180,7 @@ async def start_analysis(
         # 2. Start analysis
         prompt_config = analysis_request.prompt_config if analysis_request else None
         mode = analysis_request.mode if analysis_request else "full"
-        analysis = await analysis_service.start_analysis(repository.id, prompt_config)
+        analysis = await analysis_service.start_analysis(repository.id, prompt_config, mode)
         
         # 3. Run analysis via ARQ worker (preferred) or in-process fallback
         arq_pool = await container.arq_pool()

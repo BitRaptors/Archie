@@ -39,10 +39,11 @@ interface BlueprintViewProps {
     analysisId?: string
     repoId?: string
     onBack: () => void
+    onAnalyze?: (id: string, name: string) => void
     initialTab?: 'backend' | 'claude' | 'cursor' | 'mcp' | 'debug' | 'delivery'
 }
 
-export function BlueprintView({ analysisId, repoId, onBack, initialTab }: BlueprintViewProps) {
+export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTab }: BlueprintViewProps) {
     const { token, isAuthenticated } = useAuth()
     const { mutate: setActiveRepo, isPending: isSettingActive } = useSetActiveRepository()
     const { mutate: deleteAnalysis, isPending: isDeleting } = useDeleteRepository()
@@ -283,13 +284,19 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
 
     const handleRerun = (mode: 'full' | 'incremental') => {
         if (!owner || !repoName) return
+        if (mode === 'incremental' && upToDate) {
+            toast.info('Nothing changed — the blueprint is already up to date with the latest commit.')
+            setShowRerunDialog(false)
+            return
+        }
         analyzeMutation.mutate({ owner, repo: repoName, mode, promptConfig: undefined }, {
             onSuccess: (data: any) => {
                 toast.success(`Analysis started in ${mode} mode`)
                 setShowRerunDialog(false)
-                // Optionally redirect to analysis stream or just show indicator
-                if (data.id) {
-                    onBack() // Or navigate to active analysis
+                if (data.id && onAnalyze) {
+                    onAnalyze(data.id, `${owner}/${repoName}`)
+                } else if (data.id) {
+                    onBack()
                 }
             },
             onError: (err: any) => {
