@@ -62,6 +62,27 @@ async def list_repositories(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{owner}/{repo}/latest-commit")
+async def get_latest_commit(
+    owner: str,
+    repo: str,
+    request: Request,
+):
+    """Get the latest commit SHA for a repository."""
+    token = resolve_github_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="No GitHub token available.")
+
+    container = request.app.container
+    github_service = container.github_service()
+
+    try:
+        sha = await github_service.get_latest_commit_sha(owner, repo, token)
+        return {"sha": sha}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{owner}/{repo}/analyze", response_model=AnalysisResponse)
 async def start_analysis(
     owner: str,
@@ -158,6 +179,7 @@ async def start_analysis(
 
         # 2. Start analysis
         prompt_config = analysis_request.prompt_config if analysis_request else None
+        mode = analysis_request.mode if analysis_request else "full"
         analysis = await analysis_service.start_analysis(repository.id, prompt_config)
         
         # 3. Run analysis via ARQ worker (preferred) or in-process fallback
@@ -181,6 +203,7 @@ async def start_analysis(
                     repository_id=repository.id,
                     token=token,
                     prompt_config=prompt_config,
+                    mode=mode,
                 )
                 if job is None:
                     analysis.fail("Job was not enqueued (possible duplicate)")
@@ -206,6 +229,7 @@ async def start_analysis(
                     repository_id=repository.id,
                     token=token,
                     prompt_config=prompt_config,
+                    mode=mode,
                 )
             )
             _background_tasks.add(task)
@@ -225,8 +249,10 @@ async def _run_analysis_in_process(
     repository_id: str,
     token: str,
     prompt_config: dict | None = None,
+    mode: str = "full",
 ) -> None:
     """Run analysis as an in-process background task (no Redis/ARQ needed)."""
+    import subprocess
     from pathlib import Path
     from infrastructure.persistence.analysis_repository import AnalysisRepository
     from infrastructure.storage.temp_storage import TempStorage
@@ -244,11 +270,24 @@ async def _run_analysis_in_process(
         repo_path = await repo_service.clone_repository(repo, token, temp_dir)
         repo_path = Path(repo_path).resolve()
 
+        # Capture HEAD commit SHA
+        commit_sha = None
+        try:
+            sha_result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=str(repo_path),
+                capture_output=True, text=True, check=True,
+            )
+            commit_sha = sha_result.stdout.strip()
+        except Exception:
+            pass
+
         await analysis_service.run_analysis(
             analysis_id=analysis_id,
             repo_path=repo_path,
             token=token,
             prompt_config=prompt_config,
+            commit_sha=commit_sha,
+            mode=mode,
         )
         logger.info("In-process analysis %s completed", analysis_id)
     except Exception as e:

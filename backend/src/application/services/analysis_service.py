@@ -107,11 +107,18 @@ class AnalysisService:
         repo_path: Path,
         token: str,
         prompt_config: dict[str, str] | None = None,
+        commit_sha: str | None = None,
+        mode: str = "full",
     ) -> None:
         """Run the full analysis pipeline."""
         analysis = await self._analysis_repo.get_by_id(analysis_id)
         if not analysis:
             raise NotFoundError("Analysis", analysis_id)
+
+        # Persist commit SHA if available
+        if commit_sha:
+            analysis.commit_sha = commit_sha
+            await self._analysis_repo.update(analysis)
 
         try:
             # Load analysis settings from DB (no DB = no filtering)
@@ -409,6 +416,7 @@ class AnalysisService:
                     il_output = await self._intent_layer_service.preview(
                         source_repo_id=analysis.repository_id,
                         progress_callback=_il_progress,
+                        incremental=(mode == "incremental"),
                     )
                     # Save the commit-ready file tree to storage
                     for rel_path, content in il_output.claude_md_files.items():
@@ -417,8 +425,8 @@ class AnalysisService:
 
                     await self._log_event(
                         analysis_id, "INFO",
-                        f"Intent layer complete: {il_output.folder_count} folders, "
-                        f"{il_output.total_ai_calls} AI calls, "
+                        f"Intent layer complete: {il_output.folder_count} folders "
+                        f"({il_output.skipped_folder_count} cached, {il_output.total_ai_calls} AI calls), "
                         f"{il_output.generation_time_seconds}s"
                     )
                     await self._log_event(analysis_id, "PHASE_END", "Phase 7 complete: Intent layer generated")

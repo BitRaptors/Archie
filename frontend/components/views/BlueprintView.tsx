@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, ChevronDown, Search, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, FolderOpen, DownloadCloud } from 'lucide-react'
+import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, ChevronDown, Search, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, FolderOpen, DownloadCloud, RotateCw, AlertTriangle, RefreshCcw } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
@@ -19,7 +19,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { SERVER_TOKEN } from '@/context/auth'
 import { useActiveRepository, useSetActiveRepository, useDeleteRepository, useWorkspaceRepositories } from '@/hooks/api/useWorkspace'
 import { useDeliveryApply } from '@/hooks/api/useDelivery'
-import { useRepositoriesQuery } from '@/hooks/api/useRepositoriesQuery'
+import { useRepositoriesQuery, useAnalyzeRepository, useLatestCommitSha } from '@/hooks/api/useRepositoriesQuery'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
 import { generateId, parseNavigation } from '@/lib/blueprint-toc'
@@ -74,6 +74,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         files?: Record<string, string>
     } | null>(null)
     const [selectedFile, setSelectedFile] = useState<string | null>(null)
+    const [showRerunDialog, setShowRerunDialog] = useState(false)
     const [debugData, setDebugData] = useState<any>({
         gathered: {},
         phases: [],
@@ -252,6 +253,51 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         }, null, 2)
     }
 
+    const isActive = activeRepo?.active_repo_id === backendBlueprint?.repository_id
+    const currentRepoId = repoId || backendBlueprint?.repository_id
+    const repoFullName =
+        workspaceRepos?.find((r: any) => r.repo_id === currentRepoId)?.name ||
+        repos?.find((r: any) => r.id === currentRepoId || r.full_name === currentRepoId)?.full_name ||
+        activeRepo?.repository?.name
+
+    const [owner, repoName] = (repoFullName || '').split('/')
+    const { data: latestSha } = useLatestCommitSha(owner, repoName, showRerunDialog)
+    const analyzeMutation = useAnalyzeRepository()
+
+    // Check if current analysis matches latest SHA
+    // backendBlueprint.analysis_id or analysisId
+    const [currentAnalysis, setCurrentAnalysis] = useState<any>(null)
+    useEffect(() => {
+        if (!backendBlueprint?.analysis_id || !token) return
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+        fetch(`${API_URL}/api/v1/analyses/${backendBlueprint.analysis_id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+            .then(res => res.json())
+            .then(data => setCurrentAnalysis(data))
+            .catch(() => { })
+    }, [backendBlueprint?.analysis_id, token])
+
+    const hasChanges = latestSha && currentAnalysis?.commit_sha && latestSha !== currentAnalysis.commit_sha
+    const upToDate = latestSha && currentAnalysis?.commit_sha && latestSha === currentAnalysis.commit_sha
+
+    const handleRerun = (mode: 'full' | 'incremental') => {
+        if (!owner || !repoName) return
+        analyzeMutation.mutate({ owner, repo: repoName, mode, promptConfig: undefined }, {
+            onSuccess: (data: any) => {
+                toast.success(`Analysis started in ${mode} mode`)
+                setShowRerunDialog(false)
+                // Optionally redirect to analysis stream or just show indicator
+                if (data.id) {
+                    onBack() // Or navigate to active analysis
+                }
+            },
+            onError: (err: any) => {
+                toast.error(`Failed to start analysis: ${err.message}`)
+            }
+        })
+    }
+
     if (isLoading) {
         return (
             <div className="flex flex-col h-screen bg-white/50">
@@ -283,13 +329,6 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         )
     }
 
-    const isActive = activeRepo?.active_repo_id === backendBlueprint?.repository_id
-    const currentRepoId = repoId || backendBlueprint?.repository_id
-    const repoFullName =
-        workspaceRepos?.find((r: any) => r.repo_id === currentRepoId)?.name ||
-        repos?.find((r: any) => r.id === currentRepoId || r.full_name === currentRepoId)?.full_name ||
-        activeRepo?.repository?.name
-
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white/50 animate-in fade-in duration-500">
             <PageHeader
@@ -307,6 +346,18 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Delete
+                        </Button>
+
+                        <div className="w-px h-6 bg-papaya-300 mx-1" />
+
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-white hover:bg-papaya-100 text-teal h-9 border-papaya-400/60"
+                            onClick={() => setShowRerunDialog(true)}
+                        >
+                            <RefreshCcw className="w-4 h-4 mr-2" />
+                            Rerun Analysis
                         </Button>
 
                         <div className="w-px h-6 bg-papaya-300 mx-1" />
@@ -927,6 +978,97 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
 
             {showDeleteDialog && <ConfirmationDialog isOpen={showDeleteDialog} onClose={() => setShowDeleteDialog(false)} onConfirm={() => deleteAnalysis(repoId || backendBlueprint?.repository_id || '', { onSuccess: () => { setShowDeleteDialog(false); onBack() } })} title="Delete Blueprint" message="Are you sure? This action is permanent." confirmText="Delete" destructive isLoading={isDeleting} />}
             {sourceFilePath && currentRepoId && <SourceFileModal filePath={sourceFilePath} repoId={currentRepoId} isOpen={!!sourceFilePath} onClose={() => setSourceFilePath(null)} />}
+
+            {/* Rerun Analysis Dialog */}
+            {showRerunDialog && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setShowRerunDialog(false)} />
+                    <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 font-sans">
+                        <div className="p-8 border-b border-papaya-300 bg-papaya-300/10 flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 rounded-2xl bg-teal shadow-lg shadow-teal/20 text-white">
+                                    <RefreshCcw className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-ink">Rerun Analysis</h3>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-ink/30">Select Analysis Mode</p>
+                                </div>
+                            </div>
+                            <Button variant="ghost" size="icon" onClick={() => setShowRerunDialog(false)}>
+                                <X className="w-5 h-5 text-ink/40" />
+                            </Button>
+                        </div>
+
+                        <div className="p-8 space-y-6">
+                            {upToDate && (
+                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-teal-50 border border-teal-200">
+                                    <CheckCircle2 className="w-5 h-5 text-teal shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="text-sm font-bold text-teal-800">You are up to date</p>
+                                        <p className="text-xs text-teal-600 mt-1">Current analysis matches the latest commit on GitHub ({latestSha?.slice(0, 7)}). No rerun is strictly necessary.</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {hasChanges && (
+                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-brandy/5 border border-brandy/20">
+                                    <AlertTriangle className="w-5 h-5 text-brandy shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="text-sm font-bold text-brandy">Changes detected</p>
+                                        <p className="text-xs text-brandy/70 mt-1">New commits found since last analysis. A rerun is recommended to stay current.</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="grid gap-4">
+                                <button
+                                    onClick={() => handleRerun('incremental')}
+                                    disabled={analyzeMutation.isPending}
+                                    className="flex items-start gap-4 p-5 rounded-2xl border-2 border-papaya-400/40 hover:border-teal/50 hover:bg-teal/5 transition-all text-left group"
+                                >
+                                    <div className="w-10 h-10 rounded-xl bg-white border border-papaya-400 flex items-center justify-center shrink-0 shadow-sm group-hover:border-teal/30">
+                                        <Zap className="w-5 h-5 text-tangerine group-hover:text-teal transition-colors" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm font-bold text-ink">Incremental Rerun</p>
+                                            <Badge className="bg-teal/10 text-teal border-teal/20 text-[10px]">Fastest</Badge>
+                                        </div>
+                                        <p className="text-[11px] text-ink-300 mt-1 leading-relaxed">
+                                            Only analyzes new or modified folders. Reuses cached context for unchanged directories to save time and credits.
+                                        </p>
+                                    </div>
+                                </button>
+
+                                <button
+                                    onClick={() => handleRerun('full')}
+                                    disabled={analyzeMutation.isPending}
+                                    className="flex items-start gap-4 p-5 rounded-2xl border-2 border-papaya-400/40 hover:border-brandy/50 hover:bg-brandy/5 transition-all text-left group"
+                                >
+                                    <div className="w-10 h-10 rounded-xl bg-white border border-papaya-400 flex items-center justify-center shrink-0 shadow-sm group-hover:border-brandy/30">
+                                        <RefreshCcw className="w-5 h-5 text-brandy" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm font-bold text-ink">Full Rerun</p>
+                                            <Badge className="bg-brandy/10 text-brandy border-brandy/20 text-[10px]">Deep Dive</Badge>
+                                        </div>
+                                        <p className="text-[11px] text-ink-300 mt-1 leading-relaxed">
+                                            Scans every file and folder from scratch. Ensures 100% fresh architectural understanding without relying on any cache.
+                                        </p>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="p-8 bg-papaya-300/10 border-t border-papaya-300 flex justify-end gap-3">
+                            <Button variant="outline" onClick={() => setShowRerunDialog(false)} className="h-11 px-6">
+                                Cancel
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

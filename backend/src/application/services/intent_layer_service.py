@@ -305,6 +305,7 @@ class IntentLayerService:
         local_path: str | None = None,
         config: IntentLayerConfig | None = None,
         progress_callback=None,
+        incremental: bool = False,
     ) -> IntentLayerOutput:
         """Generate intent layer output without writing files.
 
@@ -358,6 +359,8 @@ class IntentLayerService:
         renderer = IntentLayerRenderer()
         claude_md_files: dict[str, str] = {}
         total_ai_calls = 0
+        total_significant_count = len(significant)
+        skipped_folder_count = 0
 
         if blueprint:
             folder_blueprints = mapper.map_all(blueprint, folder_paths)
@@ -367,9 +370,62 @@ class IntentLayerService:
                 from application.services.hybrid_enrichment_engine import HybridEnrichmentEngine
 
                 logger.info(
-                    f"Intent layer: hybrid enrichment enabled for {len(significant)} folders "
+                    f"Intent layer: hybrid enrichment enabled for {total_significant_count} folders "
                     f"(blueprint covers {sum(1 for fb in folder_blueprints.values() if fb.has_blueprint_coverage)})"
                 )
+
+                # Incremental mode: skip unchanged folders using manifest diff
+                if incremental and source_repo_id and blueprint:
+                    manifest_mgr = ManifestManager(self._storage)
+                    old_manifest = await manifest_mgr.load(source_repo_id)
+
+                    if old_manifest is not None:
+                        # Build deterministic content for all folders (no AI, cheap)
+                        deterministic_content: dict[str, str] = {}
+                        for folder_path, fb in folder_blueprints.items():
+                            node = significant.get(folder_path)
+                            if not node:
+                                continue
+                            md_path = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
+                            if node.is_passthrough:
+                                deterministic_content[md_path] = renderer.render_passthrough(node, fb, repo_name)
+                            elif fb.has_blueprint_coverage:
+                                deterministic_content[md_path] = renderer.render_from_blueprint(node, fb, repo_name)
+                            else:
+                                deterministic_content[md_path] = renderer.render_minimal(node, fb, repo_name)
+
+                        bp_hash = compute_blueprint_hash(blueprint)
+                        changed_files, unchanged_paths = ManifestManager.diff(
+                            old_manifest, deterministic_content, bp_hash
+                        )
+
+                        if unchanged_paths:
+                            # Load cached final output for unchanged folders
+                            for md_path in list(unchanged_paths):
+                                storage_path = f"blueprints/{source_repo_id}/intent_layer/{md_path}"
+                                try:
+                                    if await self._storage.exists(storage_path):
+                                        cached = await self._storage.read(storage_path)
+                                        cached_text = cached.decode("utf-8") if isinstance(cached, bytes) else cached
+                                        claude_md_files[md_path] = cached_text
+                                        # Remove from significant so enrich_all skips it
+                                        folder_path = md_path.replace("/CLAUDE.md", "") if md_path != "CLAUDE.md" else ""
+                                        significant.pop(folder_path, None)
+                                        folder_blueprints.pop(folder_path, None)
+                                        skipped_folder_count += 1
+                                    else:
+                                        # Cached file missing — keep in significant for re-enrichment
+                                        unchanged_paths.discard(md_path)
+                                except Exception:
+                                    # Storage read failed — fall back to re-enrichment
+                                    unchanged_paths.discard(md_path)
+
+                            if progress_callback:
+                                await progress_callback(
+                                    f"Incremental: {skipped_folder_count} folders cached, "
+                                    f"{len(significant)} folders to enrich"
+                                )
+
                 engine = HybridEnrichmentEngine(self._settings, config, progress_callback=progress_callback)
                 file_reader = self._make_storage_reader(source_repo_id) if source_repo_id else self._make_storage_reader(repo_name)
 
@@ -435,12 +491,29 @@ class IntentLayerService:
                 elif path not in claude_md_files:
                     claude_md_files[path] = content  # AGENTS.md, rules
 
-        # Incremental update tracking
+        # Incremental update tracking — save deterministic content hashes
+        # so next incremental run can diff against them
         if source_repo_id and blueprint:
             try:
                 manifest_mgr = ManifestManager(self._storage)
                 bp_hash = compute_blueprint_hash(blueprint)
-                manifest = manifest_mgr.build_manifest(bp_hash, claude_md_files)
+                # Build deterministic content for manifest (not AI-enriched)
+                det_files: dict[str, str] = {}
+                det_mapper = BlueprintFolderMapper()
+                det_renderer = IntentLayerRenderer()
+                all_fb = det_mapper.map_all(blueprint, folder_paths)
+                for fp, fb in all_fb.items():
+                    node = nodes.get(fp)
+                    if not node:
+                        continue
+                    mp = f"{fp}/CLAUDE.md" if fp else "CLAUDE.md"
+                    if node.is_passthrough:
+                        det_files[mp] = det_renderer.render_passthrough(node, fb, repo_name)
+                    elif fb.has_blueprint_coverage:
+                        det_files[mp] = det_renderer.render_from_blueprint(node, fb, repo_name)
+                    else:
+                        det_files[mp] = det_renderer.render_minimal(node, fb, repo_name)
+                manifest = manifest_mgr.build_manifest(bp_hash, det_files)
                 await manifest_mgr.save(source_repo_id, manifest)
             except Exception as e:
                 logger.warning(f"Failed to save manifest: {e}")
@@ -449,7 +522,8 @@ class IntentLayerService:
 
         return IntentLayerOutput(
             claude_md_files=claude_md_files,
-            folder_count=len(significant),
+            folder_count=total_significant_count,
+            skipped_folder_count=skipped_folder_count,
             total_ai_calls=total_ai_calls,
             generation_time_seconds=round(elapsed, 2),
         )

@@ -19,6 +19,7 @@ class StartAnalysisRequest(BaseModel):
         default=None,
         description="Custom prompt configuration per category"
     )
+    mode: str = Field(default="full", description="'full' or 'incremental'")
 
 
 class CreatePromptRequest(BaseModel):

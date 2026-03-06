@@ -19,6 +19,7 @@ class Analysis:
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime | None = None
+    commit_sha: str | None = None
 
     @classmethod
     def create(cls, repository_id: str) -> Self:

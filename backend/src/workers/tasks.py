@@ -107,7 +107,7 @@ async def shutdown(ctx):
         await ctx["container"].shutdown_resources()
 
 
-async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: str, prompt_config: dict | None = None):
+async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: str, prompt_config: dict | None = None, mode: str = "full"):
     """Background task to analyze a repository."""
     import asyncio
     import os
@@ -171,6 +171,19 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
         repo_path = Path(repo_path).resolve()
         await _safe_log("INFO", f"Repository cloned to: {repo_path}")
 
+        # Capture HEAD commit SHA
+        import subprocess
+        commit_sha = None
+        try:
+            sha_result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=str(repo_path),
+                capture_output=True, text=True, check=True,
+            )
+            commit_sha = sha_result.stdout.strip()
+            await _safe_log("INFO", f"HEAD SHA: {commit_sha[:12]}")
+        except Exception:
+            pass
+
         # Verify the clone before proceeding
         if not repo_path.exists():
             raise RuntimeError(f"Repository path does not exist after clone: {repo_path}")
@@ -187,6 +200,8 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
             repo_path=repo_path,
             token=token,
             prompt_config=prompt_config,
+            commit_sha=commit_sha,
+            mode=mode,
         )
         print("analyze_repository: Analysis complete")
     except asyncio.CancelledError:

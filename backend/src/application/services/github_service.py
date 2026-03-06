@@ -35,4 +35,9 @@ class GitHubService:
         client = self.create_client(token)
         return client.get_repository(owner, name)
 
+    async def get_latest_commit_sha(self, owner: str, name: str, token: str) -> str:
+        """Get the latest commit SHA for a repository."""
+        client = self.create_client(token)
+        return client.get_latest_commit_sha(owner, name)
+
 

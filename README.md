@@ -11,8 +11,10 @@ AI agents write code that works but is architecturally blind — each session th
 Architecture Blueprints fixes this:
 
 - **Deep analysis** — 7-9 AI phases scan your entire codebase: layers, naming, communication patterns, implementation patterns. Minutes of structured analysis, not seconds of skimming.
+- **Per-folder context** — Every significant folder gets its own `CLAUDE.md` with architecture guidance, coding patterns, key file guides, and common tasks. AI agents land in any folder and immediately know the rules.
 - **Real-time enforcement** — MCP tools the agent calls *before* acting. `where_to_put`, `check_naming`, `how_to_implement` return concrete answers, not suggestions.
 - **One source of truth** — CLAUDE.md, Cursor rules, AGENTS.md, and MCP tools all derive from the same blueprint. Switch tools, onboard someone — same rules.
+- **Incremental re-analysis** — Changed a few folders? Incremental mode reuses cached AI enrichment for unchanged folders, cutting re-analysis time dramatically.
 - **Reuse what works** — Analyzed a well-architected project? Apply its blueprint as a reference architecture for new projects. Your best codebase becomes a reusable template that every AI agent follows — proven patterns, not reinvented ones.
 
 ## How It Works
@@ -37,11 +39,22 @@ Architecture Blueprints fixes this:
        v
   4. StructuredBlueprint -- single JSON source of truth (Pydantic model)
        |
-       ├──> CLAUDE.md          -- AI agent instructions for project root
-       ├──> .cursor/rules/     -- Cursor IDE integration
-       ├──> AGENTS.md          -- multi-agent system guidance
-       ├──> MCP Server         -- real-time where_to_put, check_naming
-       └──> Delivery to GitHub -- push outputs via PR or direct commit (non-destructive merge)
+       v
+  5. Intent Layer        -- per-folder CLAUDE.md generation
+       |                     deterministic blueprint mapping onto folder hierarchy
+       |                     optional AI enrichment (patterns, key file guides,
+       |                     common tasks, anti-patterns, code examples)
+       |                     CODEBASE_MAP.md for cross-cutting navigation
+       |                     incremental mode skips unchanged folders
+       |
+       ├──> CLAUDE.md (root)    -- AI agent instructions for project root
+       ├──> src/api/CLAUDE.md   -- per-folder context (every significant folder)
+       ├──> CODEBASE_MAP.md     -- flat architecture overview for quick reference
+       ├──> .claude/rules/      -- Claude Code rule files
+       ├──> .cursor/rules/      -- Cursor IDE integration
+       ├──> AGENTS.md           -- multi-agent system guidance
+       ├──> MCP Server          -- real-time where_to_put, check_naming
+       └──> Delivery to GitHub  -- push outputs via PR or direct commit (non-destructive merge)
 ```
 
 The AI agent in your IDE connects to the MCP server. Before it creates a file, it calls `where_to_put`. Before it names a class, it calls `check_naming`. If any check fails, the agent fixes the violation before proceeding.
@@ -51,7 +64,7 @@ The AI agent in your IDE connects to the MCP server. Before it creates a file, i
 ### Prerequisites
 
 - An [Anthropic API key](https://console.anthropic.com) (the only required secret)
-- A [Supabase](https://supabase.com) project (recommended) — or Docker (installed automatically by setup script) for local PostgreSQL
+- Docker (installed automatically by setup script) — runs PostgreSQL + Redis locally
 - Python 3.11+ and Node.js 18+ (installed automatically by setup script if missing)
 
 ### Quick Start (recommended)
@@ -69,9 +82,9 @@ cd architecture-blueprints
 ```
 
 **That's it.** The setup script will:
-1. Ask you to choose a database: **supabase** (cloud, recommended) or **postgres** (local Docker)
+1. Ask you to choose a database: **postgres** (local Docker, recommended) or **supabase** (cloud)
 2. Install Docker, Python, and Node.js if missing
-3. Start PostgreSQL + Redis containers (if postgres chosen)
+3. Start PostgreSQL (with pgvector) + Redis containers
 4. Run database migrations automatically (tables, indexes, seed data)
 5. Create Python venv and install backend dependencies
 6. Install frontend dependencies
@@ -83,10 +96,8 @@ Then `start-dev.sh` starts backend (`http://localhost:8000`), frontend (`http://
 
 | Option | When to use | What happens |
 |--------|------------|--------------|
-| **supabase** (recommended) | Production-ready, cloud-hosted database with full pgvector support | Create a project at [supabase.com](https://supabase.com), then run `backend/migrations/001_initial_setup.sql` in the Supabase SQL editor. Reliable and battle-tested. |
-| **postgres** | Local development, no cloud account needed | Docker runs PostgreSQL (with pgvector) + Redis locally. Migration runs automatically on first start. |
-
-> **Note:** Local PostgreSQL via Docker is functional but has received less testing than the Supabase backend. If you encounter database-related issues with the local setup, we recommend switching to Supabase.
+| **postgres** (recommended) | Local development, zero cloud dependency | Docker runs PostgreSQL (with pgvector) + Redis locally. Migration runs automatically on first start. |
+| **supabase** | Production-ready, cloud-hosted database | Create a project at [supabase.com](https://supabase.com), then run `backend/migrations/001_initial_setup.sql` in the Supabase SQL editor. |
 
 ### Manual Setup (alternative)
 
@@ -97,9 +108,8 @@ If you prefer not to use `setup.sh`:
 cp backend/.env.example backend/.env.local   # Fill in ANTHROPIC_API_KEY + DB credentials
 cp frontend/.env.example frontend/.env.local  # Defaults work as-is
 
-# 2. Start database (pick one)
+# 2. Start database
 docker compose up -d                          # Local postgres + redis
-# OR: run 001_initial_setup.sql in your Supabase SQL editor
 
 # 3. Install dependencies
 cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
@@ -123,12 +133,19 @@ You need a GitHub Personal Access Token for repository access: [github.com/setti
 2. Authenticate with your GitHub token
 3. Enter a repository URL and start analysis
 4. Wait for the phased analysis to complete (typically 1-3 minutes)
-5. View the generated blueprint, CLAUDE.md, Cursor rules, and analysis data
+5. View the generated blueprint, per-folder CLAUDE.md files, and analysis data
+
+### Re-analyze with incremental mode
+
+When re-analyzing a repository that already has a blueprint, the UI offers two options:
+
+- **Incremental** (faster) — Reuses cached AI enrichment for folders whose deterministic content hasn't changed. Only re-enriches folders affected by blueprint changes.
+- **Full** — Re-runs the entire pipeline from scratch, including all AI enrichment calls.
 
 ### Deliver outputs to a repo
 
 1. From the blueprint view, open the Delivery panel
-2. Select which outputs to push (CLAUDE.md, AGENTS.md, Cursor rules, MCP configs)
+2. Select which outputs to push (CLAUDE.md, per-folder context, AGENTS.md, Cursor rules, MCP configs, CODEBASE_MAP.md)
 3. Choose strategy: **PR** (creates a branch + pull request) or **commit** (direct to default branch)
 4. The delivery pipeline merges non-destructively — your existing content is preserved
 
