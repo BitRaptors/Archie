@@ -10,7 +10,7 @@ from infrastructure.prompts.prompt_loader import PromptLoader
 from infrastructure.analysis.rag_retriever import RAGRetriever
 from application.services.analysis_data_collector import analysis_data_collector
 from domain.entities.blueprint import StructuredBlueprint
-from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
+from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS, INFRASTRUCTURE_FILE_NAMES
 from config.settings import Settings
 
 
@@ -316,6 +316,7 @@ class PhasedBlueprintGenerator:
             dependencies=dependencies,
             rag_enabled=rag_enabled,
             analysis_id=analysis_id,
+            discovery_ignored_dirs=discovery_ignored_dirs,
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Technology inventory complete")
@@ -713,6 +714,59 @@ class PhasedBlueprintGenerator:
 
         return output_text
 
+    def _collect_infrastructure_files(
+        self,
+        repo_path: Path,
+        discovery_ignored_dirs: set[str] | None = None,
+    ) -> str:
+        """Scan repository for infrastructure/deployment config files and return their content.
+
+        Reads files matching INFRASTRUCTURE_FILE_NAMES (Dockerfiles, CI/CD configs,
+        cloud platform configs, IaC, etc.) plus CI/CD workflow directories.
+        Returns formatted content capped at 15KB to fit in the technology phase context.
+        """
+        ignore_patterns = discovery_ignored_dirs or set()
+        infra_parts: list[str] = []
+        total_chars = 0
+        max_chars = 15_000
+
+        # Scan for known infrastructure file names
+        for file_path in sorted(repo_path.rglob("*")):
+            if total_chars >= max_chars:
+                break
+            if not file_path.is_file():
+                continue
+            try:
+                relative = str(file_path.relative_to(repo_path))
+            except ValueError:
+                continue
+            if any(part in ignore_patterns for part in Path(relative).parts):
+                continue
+
+            # Match by exact filename or by being in CI/CD dirs
+            fname = file_path.name
+            in_ci_dir = any(
+                ci_dir in relative
+                for ci_dir in (".github/workflows/", ".gitlab-ci", ".circleci/")
+            )
+            is_tf = fname.endswith(".tf")
+            is_infra = fname in INFRASTRUCTURE_FILE_NAMES or in_ci_dir or is_tf
+
+            if not is_infra:
+                continue
+
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="ignore")
+                # Cap individual file at 3KB
+                if len(content) > 3000:
+                    content = content[:3000] + "\n... (truncated)"
+                infra_parts.append(f"### {relative}\n```\n{content}\n```")
+                total_chars += len(content)
+            except Exception:
+                continue
+
+        return "\n\n".join(infra_parts) if infra_parts else ""
+
     async def _run_technology_analysis(
         self,
         repository_name: str,
@@ -722,6 +776,7 @@ class PhasedBlueprintGenerator:
         dependencies: str,
         rag_enabled: bool,
         analysis_id: str | None = None,
+        discovery_ignored_dirs: set[str] | None = None,
     ) -> str:
         """Run Technology analysis: complete tech stack inventory."""
         prompt = await self._load_prompt("technology")
@@ -739,8 +794,21 @@ class PhasedBlueprintGenerator:
                 f"  Technology context: {source_label} ({len(code_to_analyze):,} chars)",
             )
 
-        # Combine dependencies with retrieved/targeted code for tech analysis
+        # Collect infrastructure/deployment config files
+        infra_content = await asyncio.to_thread(
+            self._collect_infrastructure_files, repo_path, discovery_ignored_dirs,
+        )
+        if self._progress_callback and analysis_id and infra_content:
+            file_count = infra_content.count("### ")
+            await self._progress_callback(
+                analysis_id, "INFO",
+                f"  Infrastructure files found: {file_count} ({len(infra_content):,} chars)",
+            )
+
+        # Combine dependencies + code + infrastructure files for tech analysis
         tech_context = f"{dependencies[:2000]}\n\n{code_to_analyze[:10_000]}"
+        if infra_content:
+            tech_context += f"\n\n## Infrastructure & Deployment Files\n\n{infra_content}"
 
         prompt_text = prompt.render({
             "repository_name": repository_name,

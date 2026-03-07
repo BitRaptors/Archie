@@ -495,6 +495,17 @@ def generate_claude_md_lean(blueprint: StructuredBlueprint) -> str:
             lines.append(ad.rationale)
         lines.append("")
 
+    # Deployment
+    dep = blueprint.deployment
+    if dep.runtime_environment:
+        parts = [f"**Runs on:** {dep.runtime_environment}"]
+        if dep.compute_services:
+            parts.append(f"({', '.join(dep.compute_services)})")
+        if dep.ci_cd:
+            parts.append(f"| **CI/CD:** {', '.join(dep.ci_cd)}")
+        lines.append(" ".join(parts))
+        lines.append("")
+
     # Commands
     if blueprint.technology.run_commands:
         lines.append("## Commands")
@@ -570,7 +581,20 @@ def generate_all(blueprint: StructuredBlueprint) -> GeneratedOutput:
 
 
 def generate_agents_md(blueprint: StructuredBlueprint) -> str:
-    """Generate AGENTS.md — a complete agent onboarding document."""
+    """Generate AGENTS.md following GitHub's 6 core areas for effective agent files.
+
+    Structure (commands early, boundaries clear, examples over prose):
+    1. Tech Stack — specific versions
+    2. Commands — executable, with flags
+    3. Project Structure
+    4. Code Style — concrete examples from templates
+    5. Development Rules — imperative always/never
+    6. Boundaries — three-tier (always/ask/never)
+    7. Testing
+    8. Common Workflows
+    9. Pitfalls
+    10. Architecture MCP Server
+    """
     import re
 
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -580,22 +604,59 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
 
     lines.append("# AGENTS.md")
     lines.append("")
-    lines.append(f"> Agent onboarding guide for **{repo}**")
+    lines.append(f"> Agent guidance for **{repo}**")
     lines.append(f"> Generated: {timestamp}")
-    lines.append("")
-    lines.append("---")
     lines.append("")
 
     # ── Overview ──
     if blueprint.meta.executive_summary:
-        lines.append("## Overview")
-        lines.append("")
         lines.append(blueprint.meta.executive_summary)
         lines.append("")
 
-    # ── Quick Setup ──
+    lines.append("---")
+    lines.append("")
+
+    # ── 1. Tech Stack (specific versions, not vague) ──
+    if blueprint.technology.stack:
+        lines.append("## Tech Stack")
+        lines.append("")
+        # Group by category for a compact summary line
+        by_cat: dict[str, list[str]] = defaultdict(list)
+        for entry in blueprint.technology.stack:
+            version = f" {entry.version}" if entry.version else ""
+            by_cat[entry.category].append(f"{entry.name}{version}")
+        for cat in sorted(by_cat.keys()):
+            techs = ", ".join(by_cat[cat])
+            lines.append(f"- **{cat}:** {techs}")
+        lines.append("")
+
+    # ── 2. Deployment (where it runs) ──
+    dep = blueprint.deployment
+    has_deployment = dep.runtime_environment or dep.compute_services or dep.ci_cd
+    if has_deployment:
+        lines.append("## Deployment")
+        lines.append("")
+        parts = []
+        if dep.runtime_environment:
+            parts.append(f"**Runs on:** {dep.runtime_environment}")
+        if dep.compute_services:
+            parts.append(f"**Compute:** {', '.join(dep.compute_services)}")
+        if dep.container_runtime:
+            container = dep.container_runtime
+            if dep.orchestration:
+                container += f" + {dep.orchestration}"
+            parts.append(f"**Container:** {container}")
+        if dep.ci_cd:
+            parts.append(f"**CI/CD:** {', '.join(dep.ci_cd)}")
+        if dep.distribution:
+            parts.append(f"**Distribution:** {', '.join(dep.distribution)}")
+        for p in parts:
+            lines.append(p)
+        lines.append("")
+
+    # ── 3. Commands (early, with flags — most referenced section) ──
     if blueprint.technology.run_commands:
-        lines.append("## Quick Setup")
+        lines.append("## Commands")
         lines.append("")
         lines.append("```bash")
         for cmd_name, cmd_value in blueprint.technology.run_commands.items():
@@ -604,39 +665,126 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
         lines.append("```")
         lines.append("")
 
-    # ── Development Rules ──
+    # ── 4. Project Structure ──
+    if blueprint.technology.project_structure:
+        lines.append("## Project Structure")
+        lines.append("")
+        lines.append("```")
+        lines.append(blueprint.technology.project_structure)
+        lines.append("```")
+        lines.append("")
+
+    # ── 5. Code Style (concrete examples beat prose) ──
+    has_code_style = (
+        blueprint.architecture_rules.naming_conventions
+        or blueprint.technology.templates
+    )
+    if has_code_style:
+        lines.append("## Code Style")
+        lines.append("")
+
+        # Naming conventions with examples
+        if blueprint.architecture_rules.naming_conventions:
+            for nc in blueprint.architecture_rules.naming_conventions:
+                examples = ", ".join(f"`{e}`" for e in nc.examples[:4])
+                lines.append(f"- **{nc.scope}:** {nc.pattern} (e.g. {examples})")
+            lines.append("")
+
+        # Code templates — real code snippets showing the project's style
+        if blueprint.technology.templates:
+            for tmpl in blueprint.technology.templates[:3]:
+                if tmpl.code:
+                    lines.append(f"### {tmpl.component_type}: {tmpl.description}")
+                    lines.append("")
+                    lines.append(f"File: `{tmpl.file_path_template}`")
+                    lines.append("")
+                    lines.append("```")
+                    lines.append(tmpl.code)
+                    lines.append("```")
+                    lines.append("")
+
+    # ── 6. Development Rules ──
     if blueprint.development_rules:
-        by_cat: dict[str, list] = defaultdict(list)
+        by_rule_cat: dict[str, list] = defaultdict(list)
         for dr in blueprint.development_rules:
             cat = dr.category.strip() or "general"
-            by_cat[cat].append(dr)
+            by_rule_cat[cat].append(dr)
 
         lines.append("## Development Rules")
         lines.append("")
-        for cat_name in sorted(by_cat.keys()):
+        for cat_name in sorted(by_rule_cat.keys()):
             heading = cat_name.replace("_", " ").title()
             lines.append(f"### {heading}")
             lines.append("")
-            for dr in by_cat[cat_name]:
+            for dr in by_rule_cat[cat_name]:
                 if dr.source:
                     lines.append(f"- {dr.rule} *(source: `{dr.source}`)*")
                 else:
                     lines.append(f"- {dr.rule}")
             lines.append("")
 
-    # ── Architecture at a Glance ──
-    if blueprint.decisions.key_decisions:
-        lines.append("## Architecture at a Glance")
-        lines.append("")
-        ad = blueprint.decisions.architectural_style
-        if ad.chosen:
-            lines.append(f"**Style:** {ad.chosen}")
-            lines.append("")
-        for dec in blueprint.decisions.key_decisions[:5]:
-            lines.append(f"- **{dec.title}:** {dec.chosen}")
-        lines.append("")
+    # ── 7. Boundaries (three-tier: always / ask / never) ──
+    lines.append("## Boundaries")
+    lines.append("")
+    lines.append("### Always")
+    lines.append("")
+    always_items = [
+        "Run tests before committing",
+        "Use `where_to_put` MCP tool before creating files",
+        "Use `check_naming` MCP tool before naming components",
+        "Follow file placement rules (see `.claude/rules/architecture.md`)",
+    ]
+    for item in always_items:
+        lines.append(f"- {item}")
+    lines.append("")
+    lines.append("### Ask First")
+    lines.append("")
+    ask_items = [
+        "Database schema changes",
+        "Adding new dependencies",
+        "Modifying CI/CD configuration",
+        "Changes to deployment configuration",
+    ]
+    for item in ask_items:
+        lines.append(f"- {item}")
+    lines.append("")
+    lines.append("### Never")
+    lines.append("")
+    never_items = [
+        "Commit secrets or API keys",
+        "Edit vendor/node_modules directories",
+        "Remove failing tests without authorization",
+    ]
+    # Add project-specific nevers from pitfalls
+    for pitfall in blueprint.pitfalls[:3]:
+        if pitfall.recommendation and "never" in pitfall.recommendation.lower():
+            never_items.append(pitfall.recommendation)
+    for item in never_items:
+        lines.append(f"- {item}")
+    lines.append("")
 
-    # ── Common Workflows ──
+    # ── 8. Testing ──
+    test_commands = {k: v for k, v in blueprint.technology.run_commands.items()
+                     if any(t in k.lower() for t in ("test", "lint", "check", "verify"))}
+    test_stack = [e for e in blueprint.technology.stack
+                  if e.category.lower() in ("testing", "linting")]
+    if test_commands or test_stack:
+        lines.append("## Testing")
+        lines.append("")
+        if test_stack:
+            for entry in test_stack:
+                version = f" {entry.version}" if entry.version else ""
+                lines.append(f"- **{entry.name}{version}** — {entry.purpose}")
+            lines.append("")
+        if test_commands:
+            lines.append("```bash")
+            for cmd_name, cmd_value in test_commands.items():
+                lines.append(f"# {cmd_name}")
+                lines.append(cmd_value)
+            lines.append("```")
+            lines.append("")
+
+    # ── 9. Common Workflows ──
     if blueprint.developer_recipes:
         lines.append("## Common Workflows")
         lines.append("")
@@ -652,7 +800,7 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
                     lines.append(f"{i}. {step}")
             lines.append("")
 
-    # ── Pitfalls & Gotchas ──
+    # ── 10. Pitfalls & Gotchas ──
     if blueprint.pitfalls:
         lines.append("## Pitfalls & Gotchas")
         lines.append("")
@@ -665,38 +813,25 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
                 lines.append(f"  - *{pitfall.recommendation}*")
         lines.append("")
 
-    # ── Architecture MCP Server ──
-    lines.append("## Architecture MCP Server (MANDATORY)")
+    # ── 11. Architecture MCP Server (at end, not top) ──
+    lines.append("## Architecture MCP Server")
     lines.append("")
-    lines.append("The `architecture-blueprints` MCP server is the single source of truth for this codebase's architecture.")
-    lines.append("ALL agents MUST call its tools for every architecture decision — no exceptions.")
+    lines.append("The `architecture-blueprints` MCP server is the single source of truth.")
+    lines.append("Call its tools for every architecture decision.")
     lines.append("")
-    lines.append("| Tool | When to Use | Required |")
-    lines.append("|------|------------|----------|")
-    lines.append("| `where_to_put` | Before creating or moving any file | **Always** |")
-    lines.append("| `check_naming` | Before naming any new component | **Always** |")
-    lines.append("| `list_implementations` | Discovering available implementation patterns | **Always** |")
-    lines.append("| `how_to_implement_by_id` | Getting full details for a specific capability | **Always** |")
-    lines.append("| `how_to_implement` | Fuzzy search when exact capability name unknown | Fallback |")
-    lines.append("| `get_file_content` | Reading source files referenced in guidelines | As needed |")
-    lines.append("| `list_source_files` | Browsing available source files | As needed |")
-    lines.append("| `get_repository_blueprint` | To understand overall architecture | As needed |")
-    lines.append("")
-    lines.append("### Workflow")
-    lines.append("")
-    lines.append("1. Call `list_implementations` to see all known patterns")
-    lines.append("2. Match task to capability, call `how_to_implement_by_id` with its ID")
-    lines.append("3. Fall back to `how_to_implement` with keyword search if no match")
-    lines.append("4. Call `get_file_content` to study referenced source files")
-    lines.append("5. Call `where_to_put` before creating any file")
-    lines.append("6. Call `check_naming` before naming any component")
-    lines.append("")
-    lines.append("**If a tool rejects a decision, do NOT proceed — fix the violation first.**")
+    lines.append("| Tool | When to Use |")
+    lines.append("|------|------------|")
+    lines.append("| `where_to_put` | Before creating or moving any file |")
+    lines.append("| `check_naming` | Before naming any new component |")
+    lines.append("| `list_implementations` | Discovering available implementation patterns |")
+    lines.append("| `how_to_implement_by_id` | Getting full details for a specific capability |")
+    lines.append("| `how_to_implement` | Fuzzy search when exact capability name unknown |")
+    lines.append("| `get_file_content` | Reading source files referenced in guidelines |")
     lines.append("")
 
     # ── File Placement Quick Reference ──
     if blueprint.quick_reference.where_to_put_code:
-        lines.append("## File Placement Quick Reference")
+        lines.append("## File Placement")
         lines.append("")
         for comp_type, loc in blueprint.quick_reference.where_to_put_code.items():
             lines.append(f"- **{comp_type}** → `{loc}`")

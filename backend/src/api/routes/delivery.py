@@ -1,4 +1,6 @@
-"""Delivery routes -- push architecture outputs to a target GitHub repository."""
+"""Delivery routes -- push architecture outputs to a target GitHub repository or local path."""
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -14,10 +16,11 @@ router = APIRouter(prefix="/delivery", tags=["delivery"])
 
 class ApplyRequest(BaseModel):
     source_repo_id: str
-    target_repo: str  # "owner/repo"
+    target_repo: Optional[str] = None  # "owner/repo" — required for pr/commit
     strategy: str = "pr"
     outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor", "intent_layer", "codebase_map"]
     branch_prefix: str = "gbr"
+    target_local_path: Optional[str] = None  # required for local strategy
 
 
 class PreviewRequest(BaseModel):
@@ -54,7 +57,39 @@ async def preview(body: PreviewRequest, request: Request):
 
 @router.post("/apply")
 async def apply(body: ApplyRequest, request: Request):
-    """Generate architecture outputs and push them to a target GitHub repository."""
+    """Generate architecture outputs and push them to a target GitHub repository or local path."""
+    service = _get_delivery_service(request)
+
+    if body.strategy == "local":
+        if not body.target_local_path:
+            raise HTTPException(status_code=400, detail="target_local_path is required for local strategy.")
+        try:
+            result = await service.apply(
+                source_repo_id=body.source_repo_id,
+                target_repo_full_name="",
+                token="",
+                outputs=body.outputs,
+                strategy="local",
+                target_local_path=body.target_local_path,
+            )
+            return {
+                "status": result.status,
+                "strategy": result.strategy,
+                "pr_url": result.pr_url,
+                "commit_sha": result.commit_sha,
+                "branch": result.branch,
+                "files_delivered": result.files_delivered,
+            }
+        except Exception as e:
+            from domain.exceptions.domain_exceptions import ValidationError as VE
+            if isinstance(e, VE):
+                raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # GitHub strategies (pr / commit)
+    if not body.target_repo:
+        raise HTTPException(status_code=400, detail="target_repo is required for pr/commit strategy.")
+
     token = resolve_github_token(request)
     if not token:
         raise HTTPException(
@@ -62,7 +97,6 @@ async def apply(body: ApplyRequest, request: Request):
             detail="GitHub token required. Set GITHUB_TOKEN in env or pass Authorization header.",
         )
 
-    service = _get_delivery_service(request)
     try:
         result = await service.apply(
             source_repo_id=body.source_repo_id,

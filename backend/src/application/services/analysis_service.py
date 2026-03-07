@@ -224,9 +224,8 @@ class AnalysisService:
                             await self._log_event(analysis_id, "ERROR", ".git directory does NOT exist - repository may not have been cloned correctly!")
                 except Exception as e:
                     await self._log_event(analysis_id, "ERROR", f"Cannot read repository directory: {str(e)}")
-                    import traceback
                     await self._log_event(analysis_id, "ERROR", f"Traceback: {traceback.format_exc()}")
-            
+
             analysis.update_progress(10)
             await self._analysis_repo.update(analysis)
             
@@ -244,7 +243,6 @@ class AnalysisService:
                     await self._log_event(analysis_id, "ERROR", "Structure analyzer returned None or empty data!")
             except Exception as e:
                 await self._log_event(analysis_id, "ERROR", f"Structure analyzer raised exception: {str(e)}")
-                import traceback
                 await self._log_event(analysis_id, "ERROR", f"Traceback: {traceback.format_exc()}")
                 raise
             
@@ -404,7 +402,6 @@ class AnalysisService:
                     await self._log_event(analysis_id, "INFO", f"Verified: Blueprint file exists at: {json_blueprint_path}")
             except Exception as save_error:
                 await self._log_event(analysis_id, "ERROR", f"Failed to save blueprint: {str(save_error)}")
-                import traceback
                 await self._log_event(analysis_id, "ERROR", f"Traceback: {traceback.format_exc()}")
                 raise
             

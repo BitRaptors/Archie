@@ -7,6 +7,7 @@ from typing import Optional
 from domain.entities.blueprint import StructuredBlueprint
 from domain.exceptions.domain_exceptions import ValidationError
 from infrastructure.external.github_push_client import GitHubPushClient
+from infrastructure.external.local_push_client import LocalPushClient
 
 
 # ---------------------------------------------------------------------------
@@ -165,10 +166,14 @@ class DeliveryService:
         outputs: list[str],
         strategy: str = "pr",
         branch_prefix: str = "gbr",
+        target_local_path: Optional[str] = None,
     ) -> DeliveryResult:
-        """Generate outputs and push them to the target repository."""
-        if strategy not in ("pr", "commit"):
-            raise ValidationError(f"Invalid strategy: {strategy}. Must be 'pr' or 'commit'.")
+        """Generate outputs and push them to the target repository or local path."""
+        if strategy not in ("pr", "commit", "local"):
+            raise ValidationError(f"Invalid strategy: {strategy}. Must be 'pr', 'commit', or 'local'.")
+
+        if strategy == "local":
+            return await self._apply_local(source_repo_id, outputs, target_local_path)
 
         generated = await self.preview(source_repo_id, outputs)
 
@@ -237,6 +242,44 @@ class DeliveryService:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _apply_local(
+        self,
+        source_repo_id: str,
+        outputs: list[str],
+        target_local_path: Optional[str],
+    ) -> DeliveryResult:
+        """Write outputs directly to a local directory."""
+        if not target_local_path:
+            raise ValidationError("target_local_path is required for local strategy.")
+
+        generated = await self.preview(source_repo_id, outputs)
+        local_client = LocalPushClient(target_local_path)
+
+        # Merge root-level files that may have user content
+        _MERGE_CANDIDATES = {"CLAUDE.md", "AGENTS.md", ".mcp.json", ".cursor/mcp.json"}
+        repo_name = target_local_path.rstrip("/").split("/")[-1]
+        files: dict[str, str] = {}
+        for path, content in generated.items():
+            if path in _MERGE_CANDIDATES:
+                existing = local_client.get_file_content(path)
+                merge_strategy = self._get_merge_strategy(path)
+                if merge_strategy == "markdown":
+                    files[path] = _merge_markdown(existing, content, repo_name)
+                elif merge_strategy == "json":
+                    generated_config = json.loads(content)
+                    files[path] = _merge_json_config(existing, generated_config)
+                else:
+                    files[path] = content
+            else:
+                files[path] = content
+
+        written = local_client.write_files(files)
+        return DeliveryResult(
+            status="success",
+            strategy="local",
+            files_delivered=written,
+        )
 
     async def _load_intent_layer_files(self, repo_id: str) -> dict[str, str]:
         """Load pre-generated intent layer files from storage."""
