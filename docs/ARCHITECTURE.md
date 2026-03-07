@@ -313,7 +313,7 @@ Eight to nine sequential Claude API calls, each building on previous outputs:
 | **2. Layers** | Discovery output + file tree + priority files (or RAG) | Layer definitions, dependency rules | Identify architectural boundaries |
 | **3. Patterns** | Discovery + layers + priority files (or RAG) | Structural/behavioral patterns, cross-cutting concerns | Extract design patterns |
 | **4. Communication** | All previous + priority files (or RAG) | Internal/external communication, pattern selection guide | Map how components communicate |
-| **5. Technology** | All previous + dependencies | Complete tech stack inventory | Document all technologies |
+| **5. Technology** | All previous + dependencies + infrastructure files | Complete tech stack inventory + deployment environment | Document all technologies; scans infra files (`INFRASTRUCTURE_FILE_NAMES`) for deployment detection |
 | **6. Frontend** (conditional) | Discovery results checked for frontend indicators | Frontend framework, rendering, state management, styling | Only runs if frontend code detected |
 | **7. Implementation Analysis** | Technology + communication + patterns + code samples | Implementation guidelines for existing capabilities | Document how features were built |
 | **8. Synthesis** | All phase outputs combined | `StructuredBlueprint` JSON | Produce the final structured model |
@@ -536,12 +536,13 @@ Defined in `domain/entities/blueprint.py`. This is the single source of truth �
 ```python
 class StructuredBlueprint(BaseModel):
     meta: BlueprintMeta               # Repository info, architecture style, platforms
-    architecture_rules: ArchitectureRules  # Dependency constraints, file placement, naming
+    architecture_rules: ArchitectureRules  # File placement, naming conventions
     decisions: ArchitectureDecisions   # Style choice, rationale, trade-offs
     components: ComponentMap           # Named components with locations and responsibilities
     communication: CommunicationMap    # Patterns, selection guide
     quick_reference: QuickReference    # Where-to-put-code map, error mapping
     technology: TechnologyStack        # Categorized tech stack inventory
+    deployment: DeploymentEnvironment  # Runtime, compute, CI/CD, distribution (auto-detected)
     frontend: FrontendArchitecture     # Framework, rendering, state, styling (optional)
     implementation_guidelines: list[ImplementationGuideline]  # How existing capabilities were built
 ```
@@ -555,6 +556,8 @@ class StructuredBlueprint(BaseModel):
 **`components`** — Discovered architectural components with location, responsibility, dependencies, public interface.
 
 **`communication`** — Patterns (name, when to use, how it works) and pattern selection guide.
+
+**`deployment`** — Auto-detected deployment/distribution environment. Fields: `runtime_environment`, `compute_services[]`, `container_runtime`, `orchestration`, `serverless_functions`, `ci_cd[]`, `distribution[]`, `infrastructure_as_code`, `supporting_services[]`, `environment_config`, `key_files[]`. Detection covers cloud providers (GCP, AWS, Azure), PaaS (Vercel, Netlify, Fly.io), mobile distribution (App Store, Play Store), package registries (npm, PyPI), and desktop distribution. Infrastructure files are scanned via `INFRASTRUCTURE_FILE_NAMES` in `analysis_settings.py` and injected into the technology analysis phase.
 
 **`frontend`** (populated only when frontend code is detected) — Framework, rendering strategy, styling, state management, routing, data fetching, key conventions.
 

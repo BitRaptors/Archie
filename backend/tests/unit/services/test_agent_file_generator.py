@@ -744,18 +744,17 @@ class TestGenerateAgentsMd:
         content = generate_agents_md(sample_blueprint)
         assert "acme/backend-api" in content
 
-    def test_contains_agent_onboarding_subtitle(self, sample_blueprint):
+    def test_contains_agent_guidance_subtitle(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "Agent onboarding guide" in content
+        assert "Agent guidance" in content
 
     def test_contains_overview(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "## Overview" in content
         assert "backend API" in content
 
-    def test_contains_quick_setup(self, sample_blueprint):
+    def test_contains_commands(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "## Quick Setup" in content
+        assert "## Commands" in content
         assert "uvicorn" in content
 
     def test_contains_development_rules(self, sample_blueprint):
@@ -773,15 +772,13 @@ class TestGenerateAgentsMd:
         assert "## Pitfalls & Gotchas" in content
         assert "Dependency Injection" in content
 
-    def test_contains_mandatory_mcp_section(self, sample_blueprint):
+    def test_contains_mcp_section(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "## Architecture MCP Server (MANDATORY)" in content
-        assert "`architecture-blueprints`" in content
+        assert "## Architecture MCP Server" in content
         assert "where_to_put" in content
         assert "check_naming" in content
-        assert "do NOT proceed" in content
 
-    def test_contains_all_mcp_tools(self, sample_blueprint):
+    def test_contains_key_mcp_tools(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
         assert "where_to_put" in content
         assert "check_naming" in content
@@ -789,13 +786,18 @@ class TestGenerateAgentsMd:
         assert "list_implementations" in content
         assert "how_to_implement_by_id" in content
         assert "get_file_content" in content
-        assert "list_source_files" in content
-        assert "get_repository_blueprint" in content
 
-    def test_contains_architecture_at_a_glance(self, sample_blueprint):
+    def test_contains_boundaries(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "## Architecture at a Glance" in content
-        assert "Repository Pattern" in content
+        assert "## Boundaries" in content
+        assert "### Always" in content
+        assert "### Ask First" in content
+        assert "### Never" in content
+        assert "Commit secrets" in content
+
+    def test_contains_tech_stack(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert "## Tech Stack" in content
 
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_agents_md(minimal_blueprint)

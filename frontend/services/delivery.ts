@@ -4,10 +4,11 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export interface DeliveryRequest {
   source_repo_id: string
-  target_repo: string
-  strategy: 'pr' | 'commit'
+  target_repo?: string
+  strategy: 'pr' | 'commit' | 'local'
   outputs: string[]
   branch_prefix?: string
+  target_local_path?: string
 }
 
 export interface DeliveryResult {

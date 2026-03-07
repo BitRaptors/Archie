@@ -57,6 +57,7 @@ You are analyzing a codebase to understand its architecture. Your goal is to OBS
    - patterns: Files showing design patterns (factories, decorators, middleware, state management)
    - communication: HTTP clients/servers, event handlers, message queue code, WebSocket handlers
    - technology: Build configs, CI/CD, Dockerfiles, deployment scripts
+   - deployment: Dockerfiles, CI/CD configs (.github/workflows/, .gitlab-ci.yml), cloud platform configs (app.yaml, cloudbuild.yaml, serverless.yml, vercel.json, fly.toml), IaC files (*.tf, template.yaml), deployment scripts (Makefile, deploy.sh), mobile distribution (Fastfile, google-services.json), container orchestration (docker-compose.yml, skaffold.yaml, kustomization.yaml)
    - frontend: UI entry points and navigation setup. Web: root layout, route config, state store, data fetching hooks. iOS: AppDelegate/SceneDelegate, root SwiftUI View, navigation stack, CoreData/persistence setup. Android: Application class, MainActivity, NavGraph, Hilt/Dagger modules. Flutter: main.dart, app widget, router config, state management (Bloc/Riverpod/Provider)
 
 Provide your analysis in JSON format:
@@ -78,6 +79,7 @@ Provide your analysis in JSON format:
     "patterns": ["file paths"],
     "communication": ["file paths"],
     "technology": ["file paths"],
+    "deployment": ["file paths"],
     "frontend": ["file paths"]
   },
   "concerns": ["Any architectural concerns or unusual patterns noted"]
@@ -416,7 +418,19 @@ Create a complete technology inventory organized by category. Include technologi
 11. **Validation**: Library, approach (both client and server)
 12. **Testing**: Framework, tools, coverage approach (for each platform)
 13. **Linting/Formatting**: Tools, configuration
-14. **Deployment**: Container, CI/CD, cloud platform
+14. **Deployment & Runtime Environment**: This is CRITICAL — determine WHERE and HOW this application runs:
+    - Cloud provider: GCP (look for app.yaml, cloudbuild.yaml, google-cloud-* deps, firebase.json), AWS (boto3, aws-cdk, serverless.yml, buildspec.yml, template.yaml), Azure (azure-* SDKs, azure-pipelines.yml, host.json), Vercel (vercel.json), Netlify (netlify.toml), Fly.io (fly.toml), Railway (railway.json), Render (render.yaml)
+    - Compute services: Cloud Run, App Engine, Lambda, EC2, Fargate, Azure Functions, Vercel Edge, Heroku dynos
+    - Container: Docker (Dockerfile, .dockerignore), Podman; orchestration (Kubernetes, Docker Compose, ECS, Helm, skaffold)
+    - Serverless: Cloud Functions, Lambda, Edge Functions, Vercel Serverless
+    - CI/CD: GitHub Actions (.github/workflows/), Cloud Build (cloudbuild.yaml), GitLab CI (.gitlab-ci.yml), CircleCI, Jenkins, Fastlane (Fastfile), Bitrise
+    - Distribution: App Store, Google Play, npm registry, PyPI, Docker Hub, Maven Central, CocoaPods, pub.dev, Homebrew, APK sideload
+    - IaC: Terraform (*.tf), CloudFormation/SAM (template.yaml), Pulumi, Helm charts
+    - Supporting services: Firebase, Supabase, Redis Cloud, managed databases, CDNs, object storage (GCS, S3)
+    - Environment config: .env files, Secret Manager, SSM Parameter Store, Vault, config maps
+    - For mobile apps: also identify backend services (BaaS), push notification providers, analytics platforms, OTA update mechanisms, app signing config
+    - For libraries/packages: identify package registry, build/publish pipeline, versioning strategy
+    - List all deployment-related KEY FILES found in the repository
 15. **Monitoring**: Logging, metrics, error tracking
 16. **Development Rules**: Imperative rules inferred from tooling config:
     - Package manager preference (lockfiles: poetry.lock, yarn.lock, pnpm-lock.yaml, etc.)
@@ -428,6 +442,11 @@ Create a complete technology inventory organized by category. Include technologi
     - Git conventions (.gitignore, commit hooks, branch protection)
 
     State each as an imperative: "Always X" or "Never Y", cite the source file.
+    CRITICAL: Every rule MUST be specific to THIS project. Generic rules like "Use meaningful variable names" or "Write clean code" are WORTHLESS. 
+    GOOD examples: "Always register new routes in api/app.py — uses explicit include_router()" (source: api/app.py)
+    "Never import from infrastructure/ in domain/ — dependency rule enforced by layer structure" (source: directory layout)
+    "Always use @inject decorator for service constructors" (source: config/container.py)
+    BAD examples: "Use descriptive variable names", "Follow SOLID principles", "Write unit tests"
 
 For each technology, include:
 - Component name
@@ -454,7 +473,8 @@ Provide your analysis in structured JSON format:
   "linting": [{"tool": "...", "purpose": "..."}],
   "deployment": {"container": "...", "cicd": "...", "platform": "..."},
   "monitoring": [{"tool": "...", "purpose": "..."}],
-  "development_rules": [{"category": "dependency_management|testing|code_style|ci_cd|environment|git", "rule": "Always/Never ...", "source": "file that proves it"}]
+  "development_rules": [{"category": "dependency_management|testing|code_style|ci_cd|environment|git", "rule": "Always/Never ...", "source": "file that proves it"}],
+  "deployment_environment": {"runtime_environment": "GCP|AWS|Azure|Vercel|on-device|browser|self-hosted|...", "compute_services": ["..."], "container_runtime": "Docker|Podman|none", "orchestration": "Kubernetes|Docker Compose|ECS|none", "serverless_functions": "Cloud Functions|Lambda|Edge Functions|none", "ci_cd": ["..."], "distribution": ["App Store|Google Play|npm|PyPI|Docker Hub|..."], "infrastructure_as_code": "Terraform|CloudFormation|Pulumi|none", "supporting_services": ["Firebase|Supabase|Redis Cloud|..."], "environment_config": "env files|Secret Manager|SSM|...", "key_files": ["Dockerfile", "app.yaml", "..."]}
 }
 ```',
     '["repository_name", "all_analyses", "dependencies", "file_registry"]'::jsonb,
@@ -704,12 +724,13 @@ The following file paths exist in this repository. You MUST ONLY reference file 
 - **developer_recipes**: 3-5 actionable recipes for common development tasks in this codebase. Each recipe has a task description, list of files to touch, and numbered steps.
 - **architecture_diagram**: A Mermaid `graph TD` diagram with 8-12 nodes showing the main components and their relationships. Use short node labels.
 - **pitfalls**: 3-5 non-obvious behaviors, edge cases, or common mistakes specific to this codebase. Each has an area, description, and recommendation.
+- **deployment**: Use the deployment_environment from technology analysis. Populate ALL fields with evidence from the codebase. runtime_environment is the primary platform (e.g. "Google Cloud Platform", "AWS", "on-device (iOS)", "browser + Vercel"). For mobile-only apps, runtime_environment should reflect the device platform and any backend services.
 - **implementation_guidelines**: Use the Implementation Analysis output. Include 5-8 guidelines documenting capabilities already implemented. These document what ALREADY EXISTS — not future tasks.
-- **development_rules**: 5-8 imperative rules from the technology analysis. "Always X" or "Never Y" with source citation. Categories: dependency_management, testing, code_style, ci_cd, environment, git.
+- **development_rules**: 5-8 imperative rules from the technology analysis. REJECT generic rules — every rule must cite a specific file and describe a pattern unique to THIS codebase. "Always X" or "Never Y" with source citation. Categories: dependency_management, testing, code_style, ci_cd, environment, git.
 
 ### JSON Structure (fill all sections):
 
-{"meta":{"repository":"","repository_id":"","analyzed_at":"ISO-8601","schema_version":"2.0.0","architecture_style":"plain language","platforms":[],"executive_summary":"","confidence":{"architecture_rules":0,"decisions":0,"components":0,"communication":0,"technology":0,"frontend":0}},"architecture_rules":{"file_placement_rules":[{"component_type":"","naming_pattern":"","location":"","example":"","description":""}],"naming_conventions":[{"scope":"","pattern":"","examples":[],"description":""}]},"decisions":{"architectural_style":{"title":"","chosen":"","rationale":"","alternatives_rejected":[]},"key_decisions":[{"title":"","chosen":"","rationale":"","alternatives_rejected":[]}],"trade_offs":[{"accept":"","benefit":""}],"out_of_scope":[]},"components":{"structure_type":"","components":[{"name":"","location":"","platform":"backend|frontend|shared","responsibility":"","depends_on":[],"exposes_to":[],"key_interfaces":[{"name":"","methods":[],"description":""}],"key_files":[{"file":"","description":""}]}],"contracts":[]},"communication":{"patterns":[{"name":"","when_to_use":"","how_it_works":"","examples":[]}],"integrations":[{"service":"","purpose":"","integration_point":""}],"pattern_selection_guide":[{"scenario":"","pattern":"","rationale":""}]},"quick_reference":{"where_to_put_code":{},"pattern_selection":{},"error_mapping":[{"error":"","status_code":0,"description":""}]},"technology":{"stack":[{"category":"","name":"","version":"","purpose":""}],"templates":[{"component_type":"","description":"","file_path_template":"","code":""}],"project_structure":"","run_commands":{}},"frontend":{"framework":"","rendering_strategy":"","ui_components":[{"name":"","location":"","component_type":"","description":"","props":[],"children":[]}],"state_management":{"approach":"","global_state":[],"server_state":"","local_state":"","rationale":""},"routing":[{"path":"","component":"","description":"","auth_required":false}],"data_fetching":[{"name":"","mechanism":"","when_to_use":"","examples":[]}],"styling":"","key_conventions":[]},"developer_recipes":[{"task":"","files":[],"steps":[]}],"architecture_diagram":"","pitfalls":[{"area":"","description":"","recommendation":""}],"implementation_guidelines":[{"capability":"","category":"","libraries":[],"pattern_description":"","key_files":[],"usage_example":"","tips":[]}],"development_rules":[{"category":"","rule":"","source":""}]}
+{"meta":{"repository":"","repository_id":"","analyzed_at":"ISO-8601","schema_version":"2.0.0","architecture_style":"plain language","platforms":[],"executive_summary":"","confidence":{"architecture_rules":0,"decisions":0,"components":0,"communication":0,"technology":0,"frontend":0,"deployment":0}},"architecture_rules":{"file_placement_rules":[{"component_type":"","naming_pattern":"","location":"","example":"","description":""}],"naming_conventions":[{"scope":"","pattern":"","examples":[],"description":""}]},"decisions":{"architectural_style":{"title":"","chosen":"","rationale":"","alternatives_rejected":[]},"key_decisions":[{"title":"","chosen":"","rationale":"","alternatives_rejected":[]}],"trade_offs":[{"accept":"","benefit":""}],"out_of_scope":[]},"components":{"structure_type":"","components":[{"name":"","location":"","platform":"backend|frontend|shared","responsibility":"","depends_on":[],"exposes_to":[],"key_interfaces":[{"name":"","methods":[],"description":""}],"key_files":[{"file":"","description":""}]}],"contracts":[]},"communication":{"patterns":[{"name":"","when_to_use":"","how_it_works":"","examples":[]}],"integrations":[{"service":"","purpose":"","integration_point":""}],"pattern_selection_guide":[{"scenario":"","pattern":"","rationale":""}]},"quick_reference":{"where_to_put_code":{},"pattern_selection":{},"error_mapping":[{"error":"","status_code":0,"description":""}]},"technology":{"stack":[{"category":"","name":"","version":"","purpose":""}],"templates":[{"component_type":"","description":"","file_path_template":"","code":""}],"project_structure":"","run_commands":{}},"frontend":{"framework":"","rendering_strategy":"","ui_components":[{"name":"","location":"","component_type":"","description":"","props":[],"children":[]}],"state_management":{"approach":"","global_state":[],"server_state":"","local_state":"","rationale":""},"routing":[{"path":"","component":"","description":"","auth_required":false}],"data_fetching":[{"name":"","mechanism":"","when_to_use":"","examples":[]}],"styling":"","key_conventions":[]},"developer_recipes":[{"task":"","files":[],"steps":[]}],"architecture_diagram":"","pitfalls":[{"area":"","description":"","recommendation":""}],"implementation_guidelines":[{"capability":"","category":"","libraries":[],"pattern_description":"","key_files":[],"usage_example":"","tips":[]}],"development_rules":[{"category":"","rule":"","source":""}],"deployment":{"runtime_environment":"","compute_services":[],"container_runtime":"","orchestration":"","serverless_functions":"","ci_cd":[],"distribution":[],"infrastructure_as_code":"","supporting_services":[],"environment_config":"","key_files":[]}}
 
 Generate the complete JSON for {repository_name}.',
     '["repository_name", "discovery", "layers", "patterns", "communication", "technology", "frontend_analysis", "implementation_analysis", "code_samples", "platform_hint", "file_tree", "framework_usage", "provided_capabilities", "file_registry"]'::jsonb,

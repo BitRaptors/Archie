@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, ChevronDown, Search, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, FolderOpen, DownloadCloud, RotateCw, AlertTriangle, RefreshCcw } from 'lucide-react'
+import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, ChevronDown, Search, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, FolderOpen, DownloadCloud, RotateCw, AlertTriangle, RefreshCcw, HardDrive } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
@@ -59,7 +59,8 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
     const [isSyncPanelOpen, setIsSyncPanelOpen] = useState(false)
     const [syncSettings, setSyncSettings] = useState({
         targetRepo: '',
-        strategy: 'pr' as 'pr' | 'commit',
+        strategy: 'local' as 'pr' | 'commit' | 'local',
+        targetLocalPath: '',
         outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor', 'intent_layer', 'codebase_map']
     })
     const [deliveryResult, setDeliveryResult] = useState<any>(null)
@@ -917,24 +918,29 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                 </Card>
                                 <Card className="p-5 border-papaya-400 bg-white">
                                     <div className="text-[10px] font-black uppercase text-ink/30 mb-3 tracking-widest">Target</div>
-                                    <div className="text-2xl font-black text-ink truncate">{syncSettings.targetRepo.split('/')[1] || "—"}</div>
+                                    <div className="text-2xl font-black text-ink truncate">
+                                        {syncSettings.strategy === 'local'
+                                            ? (syncSettings.targetLocalPath.split('/').filter(Boolean).pop() || "—")
+                                            : (syncSettings.targetRepo.split('/')[1] || "—")}
+                                    </div>
                                 </Card>
-                            </div>
-                            <div className="space-y-6">
-                                <label className="text-[10px] font-black uppercase text-ink/40 tracking-widest">Target Repository</label>
-                                <select
-                                    className="w-full h-12 px-4 rounded-xl border border-papaya-400 bg-white text-sm font-bold text-ink"
-                                    value={syncSettings.targetRepo}
-                                    onChange={(e) => setSyncSettings(p => ({ ...p, targetRepo: e.target.value }))}
-                                >
-                                    <option value="">Select a repository...</option>
-                                    {repos?.map(r => <option key={r.full_name} value={r.full_name}>{r.full_name}</option>)}
-                                </select>
                             </div>
 
                             <div className="space-y-6">
                                 <label className="text-[10px] font-black uppercase text-ink/40 tracking-widest">Sync Strategy</label>
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-3 gap-3">
+                                    <button
+                                        onClick={() => setSyncSettings(p => ({ ...p, strategy: 'local' }))}
+                                        className={cn(
+                                            "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2",
+                                            syncSettings.strategy === 'local'
+                                                ? "bg-green-500/5 border-green-500 text-green-600 shadow-sm ring-1 ring-green-500/20"
+                                                : "bg-white border-papaya-400 text-ink/40 hover:border-green-500/40"
+                                        )}
+                                    >
+                                        <HardDrive className="w-5 h-5" />
+                                        <span className="text-xs font-bold">Local Project</span>
+                                    </button>
                                     <button
                                         onClick={() => setSyncSettings(p => ({ ...p, strategy: 'pr' }))}
                                         className={cn(
@@ -945,7 +951,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                         )}
                                     >
                                         <GitPullRequest className="w-5 h-5" />
-                                        <span className="text-xs font-bold">Create Pull Request</span>
+                                        <span className="text-xs font-bold">Pull Request</span>
                                     </button>
                                     <button
                                         onClick={() => setSyncSettings(p => ({ ...p, strategy: 'commit' }))}
@@ -961,6 +967,68 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                     </button>
                                 </div>
                             </div>
+
+                            {syncSettings.strategy === 'local' ? (
+                                <div className="space-y-6">
+                                    <label className="text-[10px] font-black uppercase text-ink/40 tracking-widest">Project Folder</label>
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1 group">
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                className="w-full h-12 pl-12 pr-4 rounded-xl border border-papaya-400 bg-papaya-300/10 text-sm font-bold text-ink cursor-default"
+                                                placeholder="Select folder..."
+                                                value={syncSettings.targetLocalPath}
+                                            />
+                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/30">
+                                                <Folder className="w-4 h-4" />
+                                            </div>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-12 px-6 rounded-xl border-papaya-400 bg-white hover:bg-papaya-300/20 text-teal font-bold shadow-sm"
+                                            onClick={async () => {
+                                                const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+                                                try {
+                                                    const res = await fetch(`${API_URL}/api/v1/system/pick-folder`, {
+                                                        headers: { Authorization: `Bearer ${token}` }
+                                                    })
+                                                    if (res.ok) {
+                                                        const data = await res.json()
+                                                        if (data.path) {
+                                                            setSyncSettings(p => ({ ...p, targetLocalPath: data.path }))
+                                                            toast.success('Folder selected')
+                                                        } else if (data.error) {
+                                                            toast.error(data.error)
+                                                        }
+                                                    }
+                                                } catch (err: any) {
+                                                    toast.error('Failed to open folder picker')
+                                                }
+                                            }}
+                                        >
+                                            <FolderOpen className="w-4 h-4 mr-2" />
+                                            Select Folder
+                                        </Button>
+                                    </div>
+                                    <p className="text-[10px] text-ink/30 leading-relaxed italic">
+                                        Click "Select Folder" to choose where to write the provisioned files.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <label className="text-[10px] font-black uppercase text-ink/40 tracking-widest">Target Repository</label>
+                                    <select
+                                        className="w-full h-12 px-4 rounded-xl border border-papaya-400 bg-white text-sm font-bold text-ink"
+                                        value={syncSettings.targetRepo}
+                                        onChange={(e) => setSyncSettings(p => ({ ...p, targetRepo: e.target.value }))}
+                                    >
+                                        <option value="">Select a repository...</option>
+                                        {repos?.map(r => <option key={r.full_name} value={r.full_name}>{r.full_name}</option>)}
+                                    </select>
+                                </div>
+                            )}
 
                             <div className="space-y-6 pt-4 border-t border-papaya-300">
                                 <div className="space-y-4">
@@ -1040,19 +1108,26 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                         <div className="p-10 border-t border-papaya-300 bg-papaya-300/10">
                             <Button
                                 className={cn("w-full h-14 gap-3 text-lg transition-all", theme.interactive.cta)}
-                                disabled={!syncSettings.targetRepo || deliveryApply.isPending}
+                                disabled={
+                                    deliveryApply.isPending ||
+                                    (syncSettings.strategy === 'local' ? !syncSettings.targetLocalPath : !syncSettings.targetRepo)
+                                }
                                 onClick={() => {
                                     const authToken = token && token !== SERVER_TOKEN ? token : undefined
+                                    const sourceId = repoId || backendBlueprint?.repository_id || ''
+                                    const req = syncSettings.strategy === 'local'
+                                        ? { source_repo_id: sourceId, strategy: 'local' as const, outputs: syncSettings.outputs, target_local_path: syncSettings.targetLocalPath }
+                                        : { source_repo_id: sourceId, target_repo: syncSettings.targetRepo, strategy: syncSettings.strategy, outputs: syncSettings.outputs }
                                     deliveryApply.mutate({
-                                        req: { source_repo_id: repoId || backendBlueprint?.repository_id || '', target_repo: syncSettings.targetRepo, strategy: syncSettings.strategy, outputs: syncSettings.outputs },
-                                        token: authToken
+                                        req,
+                                        token: syncSettings.strategy === 'local' ? undefined : authToken
                                     }, {
-                                        onSuccess: (data) => { setDeliveryResult(data); setNeedsSync(false); toast.success('Sync successful') },
+                                        onSuccess: (data) => { setDeliveryResult(data); setNeedsSync(false); toast.success(syncSettings.strategy === 'local' ? 'Files written to local project' : 'Sync successful') },
                                         onError: (err: any) => toast.error(err.response?.data?.detail || err.message)
                                     })
                                 }}
                             >
-                                {deliveryApply.isPending ? <Loader2 className="w-6 h-6 animate-spin" /> : <><Rocket className="w-6 h-6" /> Deploy Blueprint</>}
+                                {deliveryApply.isPending ? <Loader2 className="w-6 h-6 animate-spin" /> : <><Rocket className="w-6 h-6" /> {syncSettings.strategy === 'local' ? 'Write to Project' : 'Deploy Blueprint'}</>}
                             </Button>
                         </div>
                     </div>

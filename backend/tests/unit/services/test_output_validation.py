@@ -133,7 +133,7 @@ class TestMarkdownNoRemovedFeatures:
 
     def test_architecture_rules_section_renders(self, blueprint):
         md = render_blueprint_markdown(blueprint)
-        assert "## 5. Architecture Rules" in md
+        assert "## 6. Architecture Rules" in md
         assert "### File Placement Rules" in md
         assert "### Naming Conventions" in md
 

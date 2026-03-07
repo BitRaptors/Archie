@@ -1,12 +1,39 @@
 """Render a StructuredBlueprint (JSON) into human-readable Markdown."""
 from __future__ import annotations
 
+import ast
 import base64
 import re
 import zlib
 from collections import defaultdict
 
 from domain.entities.blueprint import StructuredBlueprint
+
+
+def _clean_str_item(s: str) -> str:
+    """Clean a stringified Python dict/list back into readable text.
+
+    AI output sometimes produces list items that are repr'd dicts like
+    ``"{'provider': 'GitHub Actions', 'trigger': '...'}"`` instead of
+    clean prose.  This function detects that pattern, parses it with
+    ``ast.literal_eval``, and flattens the dict into readable text.
+    """
+    stripped = s.strip()
+    if not (stripped.startswith("{") and stripped.endswith("}")):
+        return s
+    try:
+        obj = ast.literal_eval(stripped)
+    except (ValueError, SyntaxError):
+        return s
+    if not isinstance(obj, dict):
+        return s
+    parts = []
+    for k, v in obj.items():
+        if isinstance(v, list):
+            parts.append(f"{k}: {', '.join(str(x) for x in v)}")
+        elif v:
+            parts.append(f"{k}: {v}")
+    return "; ".join(parts)
 
 
 def _mermaid_live_url(chart: str) -> str:
@@ -110,9 +137,68 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
         lines.append(f"**Confidence:** {' | '.join(confidence_parts)}")
         lines.append("")
 
-    # ── 2. Architecture Diagram (NEW) ─────────────────────────────────
+    # ── 2. Deployment & Runtime Environment ─────────────────────────────
+    dep = bp.deployment
+    has_deployment = dep.runtime_environment or dep.compute_services or dep.ci_cd or dep.distribution
+    if has_deployment:
+        lines.append("## 2. Deployment & Runtime Environment")
+        lines.append("")
+        if dep.runtime_environment:
+            lines.append(f"**Runs on:** {dep.runtime_environment}")
+            lines.append("")
+        if dep.compute_services:
+            if len(dep.compute_services) == 1:
+                lines.append(f"**Compute:** {dep.compute_services[0]}")
+            else:
+                lines.append("**Compute:**")
+                for svc in dep.compute_services:
+                    lines.append(f"- {svc}")
+            lines.append("")
+        if dep.container_runtime:
+            lines.append(f"**Container:** {dep.container_runtime}")
+            if dep.orchestration:
+                lines.append(f"**Orchestration:** {dep.orchestration}")
+            lines.append("")
+        if dep.serverless_functions:
+            lines.append(f"**Serverless:** {dep.serverless_functions}")
+            lines.append("")
+        if dep.ci_cd:
+            cleaned = [_clean_str_item(x) for x in dep.ci_cd]
+            if len(cleaned) == 1:
+                lines.append(f"**CI/CD:** {cleaned[0]}")
+            else:
+                lines.append("**CI/CD:**")
+                for item in cleaned:
+                    lines.append(f"- {item}")
+            lines.append("")
+        if dep.distribution:
+            cleaned = [_clean_str_item(x) for x in dep.distribution]
+            if len(cleaned) == 1:
+                lines.append(f"**Distribution:** {cleaned[0]}")
+            else:
+                lines.append("**Distribution:**")
+                for item in cleaned:
+                    lines.append(f"- {item}")
+            lines.append("")
+        if dep.infrastructure_as_code:
+            lines.append(f"**IaC:** {dep.infrastructure_as_code}")
+            lines.append("")
+        if dep.supporting_services:
+            cleaned = [_clean_str_item(x) for x in dep.supporting_services]
+            lines.append(f"**Supporting services:** {', '.join(cleaned)}")
+            lines.append("")
+        if dep.environment_config:
+            lines.append(f"**Environment config:** {dep.environment_config}")
+            lines.append("")
+        if dep.key_files:
+            lines.append("**Key deployment files:**")
+            for kf in dep.key_files:
+                lines.append(f"- [`{kf}`](source://{kf})")
+            lines.append("")
+
+    # ── 3. Architecture Diagram ───────────────────────────────────────
     if bp.architecture_diagram:
-        lines.append("## 2. Architecture Diagram")
+        lines.append("## 3. Architecture Diagram")
         lines.append("")
         lines.append("```mermaid")
         lines.append(bp.architecture_diagram)
@@ -123,7 +209,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
 
     # ── 3. Project Structure (MOVED from Technology) ──────────────────
     if bp.technology.project_structure:
-        lines.append("## 3. Project Structure")
+        lines.append("## 4. Project Structure")
         lines.append("")
         lines.append("```")
         lines.append(bp.technology.project_structure)
@@ -133,7 +219,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
     # ── 4. Components & Layers ────────────────────────────────────────
     has_components = bp.components.components or bp.components.contracts
     if has_components:
-        lines.append("## 4. Components & Layers")
+        lines.append("## 5. Components & Layers")
         lines.append("")
         if bp.components.structure_type:
             lines.append(f"**Structure type:** {bp.components.structure_type}")
@@ -194,7 +280,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
         or bp.architecture_rules.naming_conventions
     )
     if has_rules:
-        lines.append("## 5. Architecture Rules")
+        lines.append("## 6. Architecture Rules")
         lines.append("")
 
         # File placement
@@ -222,7 +308,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
 
     # ── 6. Development Rules ──────────────────────────────────────────
     if bp.development_rules:
-        lines.append("## 6. Development Rules")
+        lines.append("## 7. Development Rules")
         lines.append("")
 
         dr_by_cat: dict[str, list] = defaultdict(list)
@@ -248,7 +334,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
         or bp.decisions.out_of_scope
     )
     if has_decisions:
-        lines.append("## 7. Key Decisions & Trade-offs")
+        lines.append("## 8. Key Decisions & Trade-offs")
         lines.append("")
 
         ad = bp.decisions.architectural_style
@@ -294,7 +380,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
         or bp.communication.pattern_selection_guide
     )
     if has_communication:
-        lines.append("## 8. Communication Patterns")
+        lines.append("## 9. Communication Patterns")
         lines.append("")
 
         for pat in bp.communication.patterns:
@@ -330,7 +416,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
 
     # ── 9. Implementation Guidelines ─────────────────────────────────
     if bp.implementation_guidelines:
-        lines.append("## 9. Implementation Guidelines")
+        lines.append("## 10. Implementation Guidelines")
         lines.append("")
 
         # Group by category
@@ -392,7 +478,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
 
     # ── 10. Developer Recipes ─────────────────────────────────────────
     if bp.developer_recipes:
-        lines.append("## 10. Developer Recipes")
+        lines.append("## 11. Developer Recipes")
         lines.append("")
         for recipe in bp.developer_recipes:
             if not recipe.task:
@@ -415,7 +501,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
     # ── 11. Technology Stack ─────────────────────────────────────────
     has_tech = bp.technology.stack or bp.technology.run_commands or bp.technology.templates
     if has_tech:
-        lines.append("## 11. Technology Stack")
+        lines.append("## 12. Technology Stack")
         lines.append("")
 
         if bp.technology.stack:
@@ -452,7 +538,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
 
     # ── 12. Pitfalls & Edge Cases ─────────────────────────────────────
     if bp.pitfalls:
-        lines.append("## 12. Pitfalls & Edge Cases")
+        lines.append("## 13. Pitfalls & Edge Cases")
         lines.append("")
         for pitfall in bp.pitfalls:
             if not pitfall.area and not pitfall.description:
@@ -470,7 +556,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
         or bp.quick_reference.error_mapping
     )
     if has_quick_ref:
-        lines.append("## 13. Quick Reference")
+        lines.append("## 14. Quick Reference")
         lines.append("")
 
         if bp.quick_reference.where_to_put_code:
@@ -505,7 +591,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
     has_frontend = fe.framework or fe.ui_components or fe.routing or fe.data_fetching
 
     if has_frontend:
-        lines.append("## 14. Frontend Architecture")
+        lines.append("## 15. Frontend Architecture")
         lines.append("")
         if fe.framework:
             lines.append(f"**Framework:** {fe.framework}")

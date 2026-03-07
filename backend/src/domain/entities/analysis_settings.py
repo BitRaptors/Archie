@@ -86,6 +86,43 @@ SOURCE_CODE_EXTENSIONS: frozenset[str] = frozenset({
     ".xml", ".gradle",
 })
 
+# Infrastructure and deployment config files to scan for environment detection.
+# These are NOT full source code — they are read in full (typically small) during
+# the observation phase to feed deployment/environment detection.
+INFRASTRUCTURE_FILE_NAMES: frozenset[str] = frozenset({
+    # Containers
+    "Dockerfile", "Dockerfile.prod", "Dockerfile.dev",
+    ".dockerignore", "docker-compose.yml", "docker-compose.yaml",
+    "docker-compose.prod.yml", "docker-compose.production.yml",
+    # GCP
+    "app.yaml", "app.yml", "cloudbuild.yaml", "cloudbuild.yml",
+    ".gcloudignore", "dispatch.yaml", "cron.yaml", "queue.yaml",
+    "firebase.json", ".firebaserc", "firestore.rules",
+    "firestore.indexes.json", "storage.rules",
+    # AWS
+    "buildspec.yml", "template.yaml", "template.yml",
+    "samconfig.toml", "serverless.yml", "serverless.yaml",
+    "appspec.yml", "taskdef.json", "ecs-task-definition.json",
+    # Azure
+    "azure-pipelines.yml", "host.json", "local.settings.json",
+    # Vercel / Netlify / Render / Railway / Fly
+    "vercel.json", "netlify.toml", "render.yaml",
+    "railway.json", "fly.toml",
+    # Kubernetes / Helm
+    "skaffold.yaml", "kustomization.yaml",
+    # CI/CD
+    "Jenkinsfile", "Fastfile", "Appfile", "Matchfile",
+    ".travis.yml", ".circleci/config.yml",
+    # IaC
+    "main.tf", "variables.tf", "outputs.tf",
+    "pulumi.yaml", "Pulumi.yaml",
+    # General
+    "Makefile", "Procfile", "nixpacks.toml",
+    # Mobile distribution
+    "google-services.json", "GoogleService-Info.plist",
+    "ExportOptions.plist",
+})
+
 
 # Seed defaults for the "reset to defaults" API endpoints only.
 # These are NOT used as runtime fallbacks — if the DB is unavailable,

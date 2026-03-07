@@ -31,20 +31,63 @@ def _coerce_str_list(v: Any) -> list[str]:
         if isinstance(item, str):
             result.append(item)
         elif isinstance(item, dict):
+            # Try common key patterns first
             name = item.get("name", item.get("title", ""))
             extra = item.get("version", item.get("type", item.get("description", "")))
-            if extra and extra not in ("unspecified", ""):
-                result.append(f"{name} {extra}" if name else str(extra))
+            if name and extra and extra not in ("unspecified", ""):
+                result.append(f"{name} {extra}")
             elif name:
                 result.append(name)
             else:
-                result.append(str(item))
+                # Flatten dict values into readable string
+                parts = []
+                for k, val in item.items():
+                    if isinstance(val, list):
+                        parts.append(f"{k}: {', '.join(str(x) for x in val)}")
+                    elif val:
+                        parts.append(f"{k}: {val}")
+                result.append("; ".join(parts))
         else:
             result.append(str(item))
     return result
 
 
 StrList = Annotated[list[str], BeforeValidator(_coerce_str_list)]
+
+
+def _coerce_to_str(v: Any) -> str:
+    """Coerce non-string values (list, dict) from AI output into a flat string.
+
+    The AI sometimes returns structured objects for fields declared as str.
+    E.g. a list of dicts for serverless_functions or a nested dict for
+    environment_config.  This validator flattens them into a readable string.
+    """
+    if isinstance(v, str):
+        return v
+    if isinstance(v, list):
+        parts = []
+        for item in v:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                name = item.get("name", item.get("service", ""))
+                desc = item.get("description", item.get("purpose", ""))
+                parts.append(f"{name}: {desc}" if name and desc else name or str(item))
+            else:
+                parts.append(str(item))
+        return "; ".join(parts)
+    if isinstance(v, dict):
+        parts = []
+        for k, val in v.items():
+            if isinstance(val, list):
+                parts.append(f"{k}: {', '.join(str(x) for x in val)}")
+            else:
+                parts.append(f"{k}: {val}")
+        return "; ".join(parts)
+    return str(v) if v else ""
+
+
+CoercedStr = Annotated[str, BeforeValidator(_coerce_to_str)]
 
 
 # ── Meta ──────────────────────────────────────────────────────────────────────
@@ -57,6 +100,7 @@ class ConfidenceScores(BaseModel):
     communication: float = 0.0
     technology: float = 0.0
     frontend: float = 0.0
+    deployment: float = 0.0
 
 
 class BlueprintMeta(BaseModel):
@@ -330,6 +374,25 @@ class ArchitecturalPitfall(BaseModel):
     recommendation: str = ""
 
 
+class DeploymentEnvironment(BaseModel):
+    """Where and how the application is deployed/distributed.
+
+    Covers cloud-hosted services, mobile app stores, package registries,
+    desktop distribution, embedded targets, and self-hosted setups.
+    """
+    runtime_environment: CoercedStr = ""       # "Google Cloud Platform", "AWS", "on-device (iOS/Android)", "browser", "self-hosted"
+    compute_services: StrList = Field(default_factory=list)    # "Cloud Run", "App Engine", "Lambda", "Vercel"
+    container_runtime: CoercedStr = ""         # "Docker", "Podman", ""
+    orchestration: CoercedStr = ""             # "Kubernetes", "Docker Compose", "ECS", ""
+    serverless_functions: CoercedStr = ""      # "Cloud Functions", "Lambda", "Edge Functions", ""
+    ci_cd: StrList = Field(default_factory=list)               # "GitHub Actions", "Cloud Build", "Fastlane"
+    distribution: StrList = Field(default_factory=list)        # "App Store", "Google Play", "npm registry", "Docker Hub"
+    infrastructure_as_code: CoercedStr = ""    # "Terraform", "CloudFormation", "Pulumi", ""
+    supporting_services: StrList = Field(default_factory=list) # "Firebase", "Supabase", "Redis Cloud"
+    environment_config: CoercedStr = ""        # "env files per stage", "GCP Secret Manager", "SSM Parameter Store"
+    key_files: StrList = Field(default_factory=list)           # "Dockerfile", "app.yaml", ".github/workflows/deploy.yml"
+
+
 class DevelopmentRule(BaseModel):
     """Imperative development rule extracted from codebase signals."""
     category: str = ""   # dependency_management, testing, code_style, ci_cd, environment, git
@@ -370,3 +433,4 @@ class StructuredBlueprint(BaseModel):
     pitfalls: list[ArchitecturalPitfall] = Field(default_factory=list)
     implementation_guidelines: list[ImplementationGuideline] = Field(default_factory=list)
     development_rules: list[DevelopmentRule] = Field(default_factory=list)
+    deployment: DeploymentEnvironment = Field(default_factory=DeploymentEnvironment)
