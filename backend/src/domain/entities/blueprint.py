@@ -38,11 +38,15 @@ def _coerce_str_list(v: Any) -> list[str]:
                 result.append(f"{name} {extra}")
             elif name:
                 result.append(name)
-            elif len(item) <= 3:
-                # Small dicts: join as "key: value" pairs
-                result.append("; ".join(f"{k}: {v}" for k, v in item.items() if v))
             else:
-                result.append(str(item))
+                # Flatten dict values into readable string
+                parts = []
+                for k, val in item.items():
+                    if isinstance(val, list):
+                        parts.append(f"{k}: {', '.join(str(x) for x in val)}")
+                    elif val:
+                        parts.append(f"{k}: {val}")
+                result.append("; ".join(parts))
         else:
             result.append(str(item))
     return result

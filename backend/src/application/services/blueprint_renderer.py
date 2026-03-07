@@ -1,12 +1,39 @@
 """Render a StructuredBlueprint (JSON) into human-readable Markdown."""
 from __future__ import annotations
 
+import ast
 import base64
 import re
 import zlib
 from collections import defaultdict
 
 from domain.entities.blueprint import StructuredBlueprint
+
+
+def _clean_str_item(s: str) -> str:
+    """Clean a stringified Python dict/list back into readable text.
+
+    AI output sometimes produces list items that are repr'd dicts like
+    ``"{'provider': 'GitHub Actions', 'trigger': '...'}"`` instead of
+    clean prose.  This function detects that pattern, parses it with
+    ``ast.literal_eval``, and flattens the dict into readable text.
+    """
+    stripped = s.strip()
+    if not (stripped.startswith("{") and stripped.endswith("}")):
+        return s
+    try:
+        obj = ast.literal_eval(stripped)
+    except (ValueError, SyntaxError):
+        return s
+    if not isinstance(obj, dict):
+        return s
+    parts = []
+    for k, v in obj.items():
+        if isinstance(v, list):
+            parts.append(f"{k}: {', '.join(str(x) for x in v)}")
+        elif v:
+            parts.append(f"{k}: {v}")
+    return "; ".join(parts)
 
 
 def _mermaid_live_url(chart: str) -> str:
@@ -120,7 +147,12 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             lines.append(f"**Runs on:** {dep.runtime_environment}")
             lines.append("")
         if dep.compute_services:
-            lines.append(f"**Compute:** {', '.join(dep.compute_services)}")
+            if len(dep.compute_services) == 1:
+                lines.append(f"**Compute:** {dep.compute_services[0]}")
+            else:
+                lines.append("**Compute:**")
+                for svc in dep.compute_services:
+                    lines.append(f"- {svc}")
             lines.append("")
         if dep.container_runtime:
             lines.append(f"**Container:** {dep.container_runtime}")
@@ -131,16 +163,29 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
             lines.append(f"**Serverless:** {dep.serverless_functions}")
             lines.append("")
         if dep.ci_cd:
-            lines.append(f"**CI/CD:** {', '.join(dep.ci_cd)}")
+            cleaned = [_clean_str_item(x) for x in dep.ci_cd]
+            if len(cleaned) == 1:
+                lines.append(f"**CI/CD:** {cleaned[0]}")
+            else:
+                lines.append("**CI/CD:**")
+                for item in cleaned:
+                    lines.append(f"- {item}")
             lines.append("")
         if dep.distribution:
-            lines.append(f"**Distribution:** {', '.join(dep.distribution)}")
+            cleaned = [_clean_str_item(x) for x in dep.distribution]
+            if len(cleaned) == 1:
+                lines.append(f"**Distribution:** {cleaned[0]}")
+            else:
+                lines.append("**Distribution:**")
+                for item in cleaned:
+                    lines.append(f"- {item}")
             lines.append("")
         if dep.infrastructure_as_code:
             lines.append(f"**IaC:** {dep.infrastructure_as_code}")
             lines.append("")
         if dep.supporting_services:
-            lines.append(f"**Supporting services:** {', '.join(dep.supporting_services)}")
+            cleaned = [_clean_str_item(x) for x in dep.supporting_services]
+            lines.append(f"**Supporting services:** {', '.join(cleaned)}")
             lines.append("")
         if dep.environment_config:
             lines.append(f"**Environment config:** {dep.environment_config}")

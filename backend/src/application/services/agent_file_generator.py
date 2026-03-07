@@ -9,9 +9,30 @@ both ``.claude/rules/`` and ``.cursor/rules/``.
 """
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
+
+
+def _clean_str_item(s: str) -> str:
+    """Clean a stringified Python dict back into readable text."""
+    stripped = s.strip()
+    if not (stripped.startswith("{") and stripped.endswith("}")):
+        return s
+    try:
+        obj = ast.literal_eval(stripped)
+    except (ValueError, SyntaxError):
+        return s
+    if not isinstance(obj, dict):
+        return s
+    parts = []
+    for k, v in obj.items():
+        if isinstance(v, list):
+            parts.append(f"{k}: {', '.join(str(x) for x in v)}")
+        elif v:
+            parts.append(f"{k}: {v}")
+    return "; ".join(parts)
 
 from collections import defaultdict
 
@@ -498,12 +519,12 @@ def generate_claude_md_lean(blueprint: StructuredBlueprint) -> str:
     # Deployment
     dep = blueprint.deployment
     if dep.runtime_environment:
-        parts = [f"**Runs on:** {dep.runtime_environment}"]
+        lines.append(f"**Runs on:** {dep.runtime_environment}")
         if dep.compute_services:
-            parts.append(f"({', '.join(dep.compute_services)})")
+            lines.append(f"**Compute:** {', '.join(dep.compute_services)}")
         if dep.ci_cd:
-            parts.append(f"| **CI/CD:** {', '.join(dep.ci_cd)}")
-        lines.append(" ".join(parts))
+            cleaned = [_clean_str_item(x) for x in dep.ci_cd]
+            lines.append(f"**CI/CD:** {', '.join(cleaned)}")
         lines.append("")
 
     # Commands
@@ -636,22 +657,23 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
     if has_deployment:
         lines.append("## Deployment")
         lines.append("")
-        parts = []
         if dep.runtime_environment:
-            parts.append(f"**Runs on:** {dep.runtime_environment}")
+            lines.append(f"**Runs on:** {dep.runtime_environment}")
         if dep.compute_services:
-            parts.append(f"**Compute:** {', '.join(dep.compute_services)}")
+            lines.append(f"**Compute:** {', '.join(dep.compute_services)}")
         if dep.container_runtime:
             container = dep.container_runtime
             if dep.orchestration:
                 container += f" + {dep.orchestration}"
-            parts.append(f"**Container:** {container}")
+            lines.append(f"**Container:** {container}")
         if dep.ci_cd:
-            parts.append(f"**CI/CD:** {', '.join(dep.ci_cd)}")
+            lines.append("**CI/CD:**")
+            for item in dep.ci_cd:
+                lines.append(f"- {_clean_str_item(item)}")
         if dep.distribution:
-            parts.append(f"**Distribution:** {', '.join(dep.distribution)}")
-        for p in parts:
-            lines.append(p)
+            lines.append("**Distribution:**")
+            for item in dep.distribution:
+                lines.append(f"- {_clean_str_item(item)}")
         lines.append("")
 
     # ── 3. Commands (early, with flags — most referenced section) ──
