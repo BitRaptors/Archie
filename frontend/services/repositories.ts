@@ -16,21 +16,28 @@ export const repositoriesService = {
     })
     return response.data
   },
-  
+
   async get(id: string, token: string) {
     const response = await axios.get(`${API_URL}/api/v1/repositories/${id}`, {
       headers: authHeaders(token),
     })
     return response.data
   },
-  
-  async analyze(owner: string, repo: string, token: string, promptConfig?: Record<string, string>) {
+
+  async analyze(owner: string, repo: string, token: string, mode: string = 'full', promptConfig?: Record<string, string>) {
     const response = await axios.post(
       `${API_URL}/api/v1/repositories/${owner}/${repo}/analyze`,
-      { prompt_config: promptConfig },
+      { prompt_config: promptConfig, mode },
       { headers: authHeaders(token) }
     )
     return response.data
+  },
+
+  async getLatestCommitSha(owner: string, repo: string, token: string) {
+    const response = await axios.get(`${API_URL}/api/v1/repositories/${owner}/${repo}/latest-commit`, {
+      headers: authHeaders(token),
+    })
+    return response.data.sha
   },
 }
 

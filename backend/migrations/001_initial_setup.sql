@@ -66,8 +66,11 @@ CREATE TABLE IF NOT EXISTS analyses (
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ
+    updated_at TIMESTAMPTZ,
+    commit_sha VARCHAR(40)
 );
+
+ALTER TABLE analyses ADD COLUMN IF NOT EXISTS commit_sha VARCHAR(40);
 
 CREATE INDEX IF NOT EXISTS idx_analyses_repository_id ON analyses(repository_id);
 CREATE INDEX IF NOT EXISTS idx_analyses_status ON analyses(status);

@@ -26,8 +26,8 @@ from domain.entities.blueprint import (
 from application.services.blueprint_renderer import render_blueprint_markdown
 from application.services.agent_file_generator import (
     generate_agents_md,
-    generate_claude_md,
-    generate_cursor_rules,
+    generate_all,
+    generate_claude_md_lean,
 )
 from infrastructure.mcp.tools import BlueprintTools
 
@@ -146,19 +146,19 @@ class TestMarkdownNoRemovedFeatures:
 class TestClaudeMdNoRemovedFeatures:
 
     def test_no_dependency_rules_in_claude_md(self, blueprint):
-        content = generate_claude_md(blueprint)
+        content = generate_claude_md_lean(blueprint)
         assert "## Dependency Rules" not in content
 
     def test_no_validate_import_in_claude_md(self, blueprint):
-        content = generate_claude_md(blueprint)
+        content = generate_claude_md_lean(blueprint)
         assert "validate_import" not in content
 
     def test_no_technology_guidelines_in_claude_md(self, blueprint):
-        content = generate_claude_md(blueprint)
+        content = generate_claude_md_lean(blueprint)
         assert "## Technology Guidelines" not in content
 
     def test_no_what_to_use_in_claude_md(self, blueprint):
-        content = generate_claude_md(blueprint)
+        content = generate_claude_md_lean(blueprint)
         assert "what_to_use" not in content
 
     def test_mcp_workflow_no_removed_tools(self, blueprint):
@@ -178,23 +178,23 @@ class TestClaudeMdNoRemovedFeatures:
 class TestCursorRulesNoRemovedFeatures:
 
     def test_no_dependency_rules_in_cursor(self, blueprint):
-        content = generate_cursor_rules(blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(blueprint).rule_files)
         assert "## Dependency Rules" not in content
 
     def test_no_anti_patterns_section(self, blueprint):
-        content = generate_cursor_rules(blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(blueprint).rule_files)
         assert "## Anti-Patterns" not in content
 
     def test_no_validate_import_in_cursor(self, blueprint):
-        content = generate_cursor_rules(blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(blueprint).rule_files)
         assert "validate_import" not in content
 
     def test_no_technology_guidelines_in_cursor(self, blueprint):
-        content = generate_cursor_rules(blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(blueprint).rule_files)
         assert "## Technology Guidelines" not in content
 
     def test_no_what_to_use_in_cursor(self, blueprint):
-        content = generate_cursor_rules(blueprint)
+        content = "\n\n".join(rf.render_cursor() for rf in generate_all(blueprint).rule_files)
         assert "what_to_use" not in content
 
 

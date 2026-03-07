@@ -1,6 +1,5 @@
 """Dependency injection container."""
 from dependency_injector import containers, providers
-import redis.asyncio as redis
 from arq import create_pool
 from arq.connections import RedisSettings
 from config.settings import get_settings
@@ -16,6 +15,7 @@ from application.services.github_service import GitHubService
 from application.services.repository_service import RepositoryService
 from application.services.analysis_service import AnalysisService
 from application.services.delivery_service import DeliveryService
+from application.services.intent_layer_service import IntentLayerService
 from application.services.prompt_service import PromptService
 from infrastructure.prompts.database_prompt_loader import DatabasePromptLoader
 from infrastructure.storage.local_storage import LocalStorage
@@ -38,12 +38,6 @@ class Container(containers.DeclarativeContainer):
     # Configuration
     config = providers.Configuration()
     settings = providers.Singleton(get_settings)
-
-    # Redis
-    redis_client = providers.Singleton(
-        redis.from_url,
-        url=settings.provided.redis_url,
-    )
 
     # Database — backend-agnostic (Supabase or local Postgres)
     db = providers.Resource(
@@ -124,6 +118,13 @@ class Container(containers.DeclarativeContainer):
         lambda: None  # Will be initialized in worker with actual Settings
     )
 
+    intent_layer_service = providers.Singleton(
+        IntentLayerService,
+        storage=storage,
+        settings=settings,
+        db_client=db,
+    )
+
     analysis_service = providers.Singleton(
         AnalysisService,
         analysis_repo=analysis_repository,
@@ -132,6 +133,7 @@ class Container(containers.DeclarativeContainer):
         structure_analyzer=structure_analyzer,
         persistent_storage=storage,
         phased_blueprint_generator=phased_blueprint_generator,
+        intent_layer_service=intent_layer_service,
     )
 
     delivery_service = providers.Singleton(

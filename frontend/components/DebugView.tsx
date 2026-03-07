@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { theme } from '@/lib/theme';
+import { MermaidDiagram } from '@/components/MermaidDiagram';
 
 interface ContentInfo {
   content: string;
@@ -98,7 +99,26 @@ export const DebugView: React.FC<DebugViewProps> = ({ data }) => {
 
   const renderMarkdown = (content: string) => (
     <div className={cn("prose prose-sm max-w-none text-foreground/90 p-6 rounded-xl leading-relaxed", theme.surface.markdown)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({ className, children, ...props }: any) {
+            if (className === 'language-mermaid') {
+              return <MermaidDiagram chart={String(children).trim()} />
+            }
+            return <code className={className} {...props}>{children}</code>
+          },
+          pre({ children, node, ...props }: any) {
+            const child = node?.children?.[0] as any
+            if (child?.tagName === 'code' && child?.properties?.className?.[0] === 'language-mermaid') {
+              return <>{children}</>
+            }
+            return <pre {...props}>{children}</pre>
+          }
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 

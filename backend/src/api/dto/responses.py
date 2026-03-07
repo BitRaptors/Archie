@@ -27,6 +27,7 @@ class AnalysisResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+    commit_sha: str | None = None
 
 
 class AnalysisEventResponse(BaseModel):

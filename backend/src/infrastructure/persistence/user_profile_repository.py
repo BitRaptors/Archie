@@ -1,9 +1,13 @@
 """User profile repository implementation."""
+import uuid
 from datetime import datetime, timezone
 
 from domain.entities.user_profile import UserProfile
 from domain.interfaces.database import DatabaseClient, DatabaseError
 from domain.interfaces.repositories import IUserProfileRepository
+
+# Deterministic default user ID — matches the one used in repositories.py route
+_DEFAULT_USER_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, "default-user"))
 
 
 class UserProfileRepository(IUserProfileRepository):
@@ -57,7 +61,7 @@ class UserProfileRepository(IUserProfileRepository):
         if profile:
             await (
                 self._db.table(self.TABLE)
-                .update({"active_repo_id": repo_id, "updated_at": now})
+                .update({"active_repository_id": repo_id, "updated_at": now})
                 .eq("id", profile.id)
                 .execute()
             )
@@ -65,7 +69,7 @@ class UserProfileRepository(IUserProfileRepository):
             # Create a new profile row
             await (
                 self._db.table(self.TABLE)
-                .insert({"active_repo_id": repo_id, "updated_at": now})
+                .insert({"user_id": _DEFAULT_USER_ID, "active_repository_id": repo_id, "updated_at": now})
                 .execute()
             )
 
@@ -84,7 +88,7 @@ class UserProfileRepository(IUserProfileRepository):
             )
         return UserProfile(
             id=data["id"],
-            active_repo_id=data.get("active_repo_id"),
+            active_repo_id=data.get("active_repository_id"),
             preferences=data.get("preferences") or {},
             created_at=created_at,
             updated_at=updated_at,
@@ -92,7 +96,8 @@ class UserProfileRepository(IUserProfileRepository):
 
     def _to_dict(self, entity: UserProfile) -> dict:
         d: dict = {
-            "active_repo_id": entity.active_repo_id,
+            "user_id": _DEFAULT_USER_ID,
+            "active_repository_id": entity.active_repo_id,
             "preferences": entity.preferences,
         }
         if entity.id:

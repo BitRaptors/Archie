@@ -3,7 +3,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Header, Request
 from typing import List, Optional
-from api.dto.requests import CreateRepositoryRequest, StartAnalysisRequest
+from api.dto.requests import StartAnalysisRequest
 from api.dto.responses import RepositoryResponse, AnalysisResponse
 from application.services.github_service import GitHubService
 from config.settings import get_settings
@@ -62,22 +62,25 @@ async def list_repositories(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/", response_model=RepositoryResponse)
-async def create_repository(
-    request: CreateRepositoryRequest,
-    user_id: str,  # Would come from auth
-    token: str,  # Would come from auth
+@router.get("/{owner}/{repo}/latest-commit")
+async def get_latest_commit(
+    owner: str,
+    repo: str,
+    request: Request,
 ):
-    """Create repository from GitHub."""
-    # TODO: Implement with proper service injection
-    raise HTTPException(status_code=501, detail="Not implemented")
+    """Get the latest commit SHA for a repository."""
+    token = resolve_github_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="No GitHub token available.")
 
+    container = request.app.container
+    github_service = container.github_service()
 
-@router.get("/{repo_id}", response_model=RepositoryResponse)
-async def get_repository(repo_id: str):
-    """Get repository details."""
-    # TODO: Implement with proper service injection
-    raise HTTPException(status_code=501, detail="Not implemented")
+    try:
+        sha = await github_service.get_latest_commit_sha(owner, repo, token)
+        return {"sha": sha}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{owner}/{repo}/analyze", response_model=AnalysisResponse)
@@ -136,7 +139,8 @@ async def start_analysis(
         prompt_loader=prompt_loader,
     )
 
-    # Create analysis service
+    # Create analysis service (with intent layer so Phase 7 runs in-pipeline)
+    intent_layer_service = container.intent_layer_service()
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,
         repository_repo=repo_repo,
@@ -145,6 +149,7 @@ async def start_analysis(
         persistent_storage=storage,
         phased_blueprint_generator=phased_blueprint_generator,
         db_client=db,
+        intent_layer_service=intent_layer_service,
     )
     
     try:
@@ -174,44 +179,61 @@ async def start_analysis(
 
         # 2. Start analysis
         prompt_config = analysis_request.prompt_config if analysis_request else None
-        analysis = await analysis_service.start_analysis(repository.id, prompt_config)
+        mode = analysis_request.mode if analysis_request else "full"
+        analysis = await analysis_service.start_analysis(repository.id, prompt_config, mode)
         
-        # 3. Run analysis via ARQ worker
+        # 3. Run analysis via ARQ worker (preferred) or in-process fallback
         arq_pool = await container.arq_pool()
         logger.info("ARQ pool resolved: %s (type=%s)", arq_pool is not None, type(arq_pool).__name__)
-        if arq_pool is None:
-            analysis.fail("Task queue unavailable: Redis/ARQ pool is not initialized")
-            await analysis_repo.update(analysis)
-            raise HTTPException(status_code=503, detail="Task queue unavailable — Redis is not running")
 
-        # Verify Redis is actually reachable (pool may be stale)
-        try:
-            await arq_pool.ping()
-        except Exception as ping_err:
-            analysis.fail(f"Task queue unreachable: {ping_err}")
-            await analysis_repo.update(analysis)
-            raise HTTPException(status_code=503, detail=f"Task queue unreachable: {ping_err}")
+        redis_available = False
+        if arq_pool is not None:
+            try:
+                await arq_pool.ping()
+                redis_available = True
+            except Exception as ping_err:
+                logger.warning("Redis unreachable (%s), falling back to in-process analysis", ping_err)
 
-        try:
-            job = await arq_pool.enqueue_job(
-                "analyze_repository",
-                analysis_id=analysis.id,
-                repository_id=repository.id,
-                token=token,
-                prompt_config=prompt_config,
-            )
-            if job is None:
-                analysis.fail("Job was not enqueued (possible duplicate)")
+        if redis_available:
+            # Enqueue to ARQ worker
+            try:
+                job = await arq_pool.enqueue_job(
+                    "analyze_repository",
+                    analysis_id=analysis.id,
+                    repository_id=repository.id,
+                    token=token,
+                    prompt_config=prompt_config,
+                    mode=mode,
+                )
+                if job is None:
+                    analysis.fail("Job was not enqueued (possible duplicate)")
+                    await analysis_repo.update(analysis)
+                    raise HTTPException(status_code=409, detail="Analysis job was not enqueued — a duplicate may already be running")
+                logger.info("Job enqueued: id=%s, analysis=%s", job.job_id, analysis.id)
+            except HTTPException:
+                raise
+            except Exception as queue_err:
+                logger.exception("Failed to enqueue job for analysis %s", analysis.id)
+                analysis.fail(f"Failed to queue: {queue_err}")
                 await analysis_repo.update(analysis)
-                raise HTTPException(status_code=409, detail="Analysis job was not enqueued — a duplicate may already be running")
-            logger.info("Job enqueued: id=%s, analysis=%s", job.job_id, analysis.id)
-        except HTTPException:
-            raise
-        except Exception as queue_err:
-            logger.exception("Failed to enqueue job for analysis %s", analysis.id)
-            analysis.fail(f"Failed to queue: {queue_err}")
-            await analysis_repo.update(analysis)
-            raise HTTPException(status_code=500, detail=f"Task queue error: {queue_err}")
+                raise HTTPException(status_code=500, detail=f"Task queue error: {queue_err}")
+        else:
+            # No Redis — run analysis in-process as a background asyncio task
+            logger.info("Running analysis %s in-process (no Redis)", analysis.id)
+            task = asyncio.create_task(
+                _run_analysis_in_process(
+                    container=container,
+                    analysis_service=analysis_service,
+                    repo_service=repo_service,
+                    analysis_id=analysis.id,
+                    repository_id=repository.id,
+                    token=token,
+                    prompt_config=prompt_config,
+                    mode=mode,
+                )
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
         
         return analysis
     except Exception as e:
@@ -219,15 +241,68 @@ async def start_analysis(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{repo_id}/status", response_model=AnalysisResponse)
-async def get_analysis_status(repo_id: str):
-    """Get analysis status for repository."""
-    # TODO: Implement with proper service injection
-    raise HTTPException(status_code=501, detail="Not implemented")
+async def _run_analysis_in_process(
+    container,
+    analysis_service,
+    repo_service,
+    analysis_id: str,
+    repository_id: str,
+    token: str,
+    prompt_config: dict | None = None,
+    mode: str = "full",
+) -> None:
+    """Run analysis as an in-process background task (no Redis/ARQ needed)."""
+    import subprocess
+    from pathlib import Path
+    from infrastructure.persistence.analysis_repository import AnalysisRepository
+    from infrastructure.storage.temp_storage import TempStorage
+
+    db = await container.db()
+    analysis_repo = AnalysisRepository(db=db)
+    temp_storage = TempStorage()
+    temp_dir = temp_storage.get_base_path()
+
+    try:
+        repo = await repo_service.get_repository(repository_id)
+        if not repo:
+            raise ValueError(f"Repository {repository_id} not found")
+
+        repo_path = await repo_service.clone_repository(repo, token, temp_dir)
+        repo_path = Path(repo_path).resolve()
+
+        # Capture HEAD commit SHA
+        commit_sha = None
+        try:
+            sha_result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=str(repo_path),
+                capture_output=True, text=True, check=True,
+            )
+            commit_sha = sha_result.stdout.strip()
+        except Exception:
+            pass
+
+        await analysis_service.run_analysis(
+            analysis_id=analysis_id,
+            repo_path=repo_path,
+            token=token,
+            prompt_config=prompt_config,
+            commit_sha=commit_sha,
+            mode=mode,
+        )
+        logger.info("In-process analysis %s completed", analysis_id)
+    except Exception as e:
+        logger.exception("In-process analysis %s failed", analysis_id)
+        try:
+            analysis = await analysis_repo.get_by_id(analysis_id)
+            if analysis and analysis.status != "failed":
+                analysis.fail(str(e))
+                await analysis_repo.update(analysis)
+        except Exception:
+            pass
+    finally:
+        try:
+            await repo_service.cleanup_temp_repository(temp_dir)
+        except Exception:
+            pass
 
 
-@router.get("/{repo_id}/blueprint")
-async def get_blueprint(repo_id: str):
-    """Get generated blueprint."""
-    # TODO: Implement with proper service injection
-    raise HTTPException(status_code=501, detail="Not implemented")

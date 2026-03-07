@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+from collections import defaultdict
+
 from domain.entities.blueprint import StructuredBlueprint
 
 
@@ -378,6 +380,39 @@ def _build_pitfalls_rule(blueprint: StructuredBlueprint) -> Optional[RuleFile]:
     )
 
 
+def _build_dev_rules_rule(blueprint: StructuredBlueprint) -> Optional[RuleFile]:
+    """Build the dev-rules rule: imperative development rules grouped by category."""
+    if not blueprint.development_rules:
+        return None
+
+    by_category: dict[str, list] = defaultdict(list)
+    for dr in blueprint.development_rules:
+        cat = dr.category.strip() or "general"
+        by_category[cat].append(dr)
+
+    lines: list[str] = []
+    lines.append("## Development Rules")
+    lines.append("")
+
+    for cat_name in sorted(by_category.keys()):
+        heading = cat_name.replace("_", " ").title()
+        lines.append(f"### {heading}")
+        lines.append("")
+        for dr in by_category[cat_name]:
+            if dr.source:
+                lines.append(f"- {dr.rule} *(source: `{dr.source}`)*")
+            else:
+                lines.append(f"- {dr.rule}")
+        lines.append("")
+
+    return RuleFile(
+        topic="dev-rules",
+        body="\n".join(lines).rstrip(),
+        description="Development rules: imperative do/don't rules from codebase signals",
+        always_apply=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Frontend glob detection
 # ---------------------------------------------------------------------------
@@ -412,45 +447,6 @@ def _detect_frontend_globs(blueprint: StructuredBlueprint) -> list[str]:
         for key, patterns in _FRONTEND_GLOB_MAP.items():
             if key in name_lower:
                 globs.update(patterns)
-
-    return sorted(globs) if globs else ["**/*"]
-
-
-def _detect_globs(blueprint: StructuredBlueprint) -> list[str]:
-    """Detect file extension globs from the technology stack."""
-    ext_map = {
-        "python": "**/*.py",
-        "typescript": "**/*.ts",
-        "javascript": "**/*.js",
-        "java": "**/*.java",
-        "go": "**/*.go",
-        "rust": "**/*.rs",
-        "swift": "**/*.swift",
-        "kotlin": "**/*.kt",
-        "ruby": "**/*.rb",
-        "php": "**/*.php",
-        "c#": "**/*.cs",
-        "c++": "**/*.cpp",
-    }
-
-    globs = set()
-    for entry in blueprint.technology.stack:
-        name_lower = entry.name.lower()
-        for lang, glob in ext_map.items():
-            if lang in name_lower:
-                globs.add(glob)
-
-        # Also check for React/Next.js etc.
-        if "react" in name_lower or "next" in name_lower:
-            globs.add("**/*.tsx")
-            globs.add("**/*.jsx")
-
-    # Check file placement rules for extensions
-    for fp in blueprint.architecture_rules.file_placement_rules:
-        if fp.naming_pattern:
-            ext = fp.naming_pattern.rsplit(".", 1)[-1] if "." in fp.naming_pattern else ""
-            if ext and len(ext) <= 4:
-                globs.add(f"**/*.{ext}")
 
     return sorted(globs) if globs else ["**/*"]
 
@@ -519,6 +515,7 @@ def generate_claude_md_lean(blueprint: StructuredBlueprint) -> str:
     lines.append("- `patterns.md` — Communication patterns, key decisions")
     lines.append("- `recipes.md` — Developer recipes, implementation guidelines")
     lines.append("- `pitfalls.md` — Common pitfalls, error mapping")
+    lines.append("- `dev-rules.md` — Development rules (always/never imperatives)")
     lines.append("- `mcp-tools.md` — MCP server tool reference")
     lines.append("- `frontend.md` — Frontend rules (when applicable)")
     lines.append("")
@@ -557,6 +554,7 @@ def generate_all(blueprint: StructuredBlueprint) -> GeneratedOutput:
         _build_mcp_tools_rule,
         _build_recipes_rule,
         _build_pitfalls_rule,
+        _build_dev_rules_rule,
     ]
 
     for builder in builders:
@@ -571,84 +569,107 @@ def generate_all(blueprint: StructuredBlueprint) -> GeneratedOutput:
     )
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatible public API
-# ---------------------------------------------------------------------------
-
-def generate_claude_md(blueprint: StructuredBlueprint) -> str:
-    """Generate CLAUDE.md from structured blueprint data.
-
-    Now delegates to the lean root generator. The detailed content
-    lives in topic-split rule files under ``.claude/rules/``.
-    """
-    return generate_claude_md_lean(blueprint)
-
-
-def generate_cursor_rules(blueprint: StructuredBlueprint) -> str:
-    """Generate Cursor rules from structured blueprint data.
-
-    For backward compatibility, concatenates all Cursor rule file renders
-    into a single string (the old monolithic format).
-    """
-    output = generate_all(blueprint)
-    parts: list[str] = []
-    for rf in output.rule_files:
-        parts.append(rf.render_cursor())
-    return "\n\n".join(parts) if parts else ""
-
-
 def generate_agents_md(blueprint: StructuredBlueprint) -> str:
-    """Generate AGENTS.md from structured blueprint data."""
+    """Generate AGENTS.md — a complete agent onboarding document."""
+    import re
+
     timestamp = datetime.now(timezone.utc).isoformat()
     repo = blueprint.meta.repository or "Unknown Repository"
-    repo_id = blueprint.meta.repository_id or ""
 
     lines: list[str] = []
 
     lines.append("# AGENTS.md")
     lines.append("")
-    lines.append(f"> Multi-agent system guidance for **{repo}**")
-    lines.append(f"> Repository ID: {repo_id}")
+    lines.append(f"> Agent onboarding guide for **{repo}**")
     lines.append(f"> Generated: {timestamp}")
     lines.append("")
     lines.append("---")
     lines.append("")
 
-    # Blueprint sections overview
-    sections = []
-    if blueprint.decisions.architectural_style.chosen:
-        sections.append(f"- Architecture: {blueprint.decisions.architectural_style.chosen}")
-    if blueprint.components.components:
-        sections.append(f"- Components: {len(blueprint.components.components)}")
-    if blueprint.architecture_rules.file_placement_rules:
-        sections.append(f"- File placement rules: {len(blueprint.architecture_rules.file_placement_rules)}")
-    if blueprint.communication.patterns:
-        sections.append(f"- Communication patterns: {len(blueprint.communication.patterns)}")
+    # ── Overview ──
+    if blueprint.meta.executive_summary:
+        lines.append("## Overview")
+        lines.append("")
+        lines.append(blueprint.meta.executive_summary)
+        lines.append("")
+
+    # ── Quick Setup ──
+    if blueprint.technology.run_commands:
+        lines.append("## Quick Setup")
+        lines.append("")
+        lines.append("```bash")
+        for cmd_name, cmd_value in blueprint.technology.run_commands.items():
+            lines.append(f"# {cmd_name}")
+            lines.append(cmd_value)
+        lines.append("```")
+        lines.append("")
+
+    # ── Development Rules ──
+    if blueprint.development_rules:
+        by_cat: dict[str, list] = defaultdict(list)
+        for dr in blueprint.development_rules:
+            cat = dr.category.strip() or "general"
+            by_cat[cat].append(dr)
+
+        lines.append("## Development Rules")
+        lines.append("")
+        for cat_name in sorted(by_cat.keys()):
+            heading = cat_name.replace("_", " ").title()
+            lines.append(f"### {heading}")
+            lines.append("")
+            for dr in by_cat[cat_name]:
+                if dr.source:
+                    lines.append(f"- {dr.rule} *(source: `{dr.source}`)*")
+                else:
+                    lines.append(f"- {dr.rule}")
+            lines.append("")
+
+    # ── Architecture at a Glance ──
+    if blueprint.decisions.key_decisions:
+        lines.append("## Architecture at a Glance")
+        lines.append("")
+        ad = blueprint.decisions.architectural_style
+        if ad.chosen:
+            lines.append(f"**Style:** {ad.chosen}")
+            lines.append("")
+        for dec in blueprint.decisions.key_decisions[:5]:
+            lines.append(f"- **{dec.title}:** {dec.chosen}")
+        lines.append("")
+
+    # ── Common Workflows ──
     if blueprint.developer_recipes:
-        sections.append(f"- Developer recipes: {len(blueprint.developer_recipes)}")
+        lines.append("## Common Workflows")
+        lines.append("")
+        for recipe in blueprint.developer_recipes:
+            if not recipe.task:
+                continue
+            lines.append(f"### {recipe.task}")
+            if recipe.files:
+                lines.append(f"Files: {', '.join(f'`{f}`' for f in recipe.files)}")
+            if recipe.steps:
+                for i, step in enumerate(recipe.steps, 1):
+                    step = re.sub(r'^\d+[\.\)]\s*', '', step)
+                    lines.append(f"{i}. {step}")
+            lines.append("")
+
+    # ── Pitfalls & Gotchas ──
     if blueprint.pitfalls:
-        sections.append(f"- Pitfalls: {len(blueprint.pitfalls)}")
-    if blueprint.implementation_guidelines:
-        sections.append(f"- Implementation guidelines: {len(blueprint.implementation_guidelines)}")
-
-    if blueprint.meta.platforms:
-        sections.append(f"- Platforms: {', '.join(blueprint.meta.platforms)}")
-    fe = blueprint.frontend
-    if fe.framework:
-        sections.append(f"- Frontend framework: {fe.framework}")
-
-    if sections:
-        lines.append("## Blueprint Summary")
+        lines.append("## Pitfalls & Gotchas")
         lines.append("")
-        lines.extend(sections)
+        for pitfall in blueprint.pitfalls:
+            if not pitfall.area and not pitfall.description:
+                continue
+            area_label = f"**{pitfall.area}:** " if pitfall.area else ""
+            lines.append(f"- {area_label}{pitfall.description}")
+            if pitfall.recommendation:
+                lines.append(f"  - *{pitfall.recommendation}*")
         lines.append("")
 
+    # ── Architecture MCP Server ──
     lines.append("## Architecture MCP Server (MANDATORY)")
     lines.append("")
     lines.append("The `architecture-blueprints` MCP server is the single source of truth for this codebase's architecture.")
     lines.append("ALL agents MUST call its tools for every architecture decision — no exceptions.")
-    lines.append("")
-    lines.append("### Required MCP Calls")
     lines.append("")
     lines.append("| Tool | When to Use | Required |")
     lines.append("|------|------------|----------|")
@@ -661,51 +682,26 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
     lines.append("| `list_source_files` | Browsing available source files | As needed |")
     lines.append("| `get_repository_blueprint` | To understand overall architecture | As needed |")
     lines.append("")
+    lines.append("### Workflow")
+    lines.append("")
+    lines.append("1. Call `list_implementations` to see all known patterns")
+    lines.append("2. Match task to capability, call `how_to_implement_by_id` with its ID")
+    lines.append("3. Fall back to `how_to_implement` with keyword search if no match")
+    lines.append("4. Call `get_file_content` to study referenced source files")
+    lines.append("5. Call `where_to_put` before creating any file")
+    lines.append("6. Call `check_naming` before naming any component")
+    lines.append("")
     lines.append("**If a tool rejects a decision, do NOT proceed — fix the violation first.**")
     lines.append("")
 
-    lines.append("## Agent Roles")
-    lines.append("")
-    lines.append("### Architecture Analysis Agent")
-    lines.append("- Analyzes codebase structure and patterns")
-    lines.append("- Discovers actual architecture without predefined assumptions")
-    lines.append("- Generates structured JSON blueprint as single source of truth")
-    lines.append("")
-    lines.append("### Code Generation Agent")
-    lines.append("- MUST call `architecture-blueprints` MCP tools before every file creation and naming decision")
-    lines.append("- Calls `how_to_implement` to check for existing patterns before building new features")
-    lines.append("- Uses `get_file_content` to study referenced source files")
-    lines.append("- Places new code in correct locations per `where_to_put` response")
-    lines.append("- Verifies all names via `check_naming` before committing")
-    lines.append("")
-    lines.append("### Validation Agent")
-    lines.append("- Uses `architecture-blueprints` MCP tools to validate code changes against architecture rules")
-    lines.append("- Checks file locations and naming conventions via MCP")
-    lines.append("- Reports violations with severity levels")
-    lines.append("")
+    # ── File Placement Quick Reference ──
+    if blueprint.quick_reference.where_to_put_code:
+        lines.append("## File Placement Quick Reference")
+        lines.append("")
+        for comp_type, loc in blueprint.quick_reference.where_to_put_code.items():
+            lines.append(f"- **{comp_type}** → `{loc}`")
+        lines.append("")
 
-    lines.append("## Agent Workflow")
-    lines.append("")
-    lines.append("```")
-    lines.append("1. Receive task")
-    lines.append("2. Call list_implementations to see all known patterns")
-    lines.append("3. Match task to capability using IDs and descriptions")
-    lines.append("4. Call how_to_implement_by_id with matching ID")
-    lines.append("5. Fall back to how_to_implement with keyword search if no match")
-    lines.append("6. If key files listed, call get_file_content to study them")
-    lines.append("7. Call where_to_put for each new file -> use returned path")
-    lines.append("8. Call check_naming for each new name -> fix before committing")
-    lines.append("9. Submit code only after all checks pass")
-    lines.append("```")
-    lines.append("")
-
-    lines.append("## File Placement")
-    lines.append("")
-    lines.append("- `CLAUDE.md` — Project root (lean overview + commands)")
-    lines.append("- `.claude/rules/` — Claude Code rule files (topic-split)")
-    lines.append("- `.cursor/rules/` — Cursor IDE rule files (topic-split)")
-    lines.append("- `AGENTS.md` — Multi-agent system configuration")
-    lines.append("")
     lines.append("---")
     lines.append("*Auto-generated from structured architecture analysis.*")
 

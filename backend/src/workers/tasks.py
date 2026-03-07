@@ -6,7 +6,6 @@ from application.services.repository_service import RepositoryService
 from application.services.analysis_data_collector import analysis_data_collector
 from config.settings import get_settings
 from config.container import Container
-from infrastructure.persistence.user_repository import UserRepository
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
 from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
@@ -19,6 +18,14 @@ from application.services.phased_blueprint_generator import PhasedBlueprintGener
 
 async def startup(ctx):
     """Worker startup hook."""
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     print("Worker startup: Initializing container...")
     container = Container()
     # Initialize async resources
@@ -34,7 +41,6 @@ async def startup(ctx):
     print("Worker startup: Analysis data collector initialized")
 
     # Create repositories using DB abstraction
-    user_repo = UserRepository(db=db)
     repo_repo = RepositoryRepository(db=db)
     analysis_repo = AnalysisRepository(db=db)
     event_repo = AnalysisEventRepository(db=db)
@@ -69,6 +75,10 @@ async def startup(ctx):
 
     print(f"Worker startup: Analysis infrastructure initialized with RAG enabled")
 
+    # Build intent layer service so Phase 7 runs in-pipeline
+    from application.services.intent_layer_service import IntentLayerService
+    intent_layer_service = IntentLayerService(storage=storage, settings=settings)
+
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,
         repository_repo=repo_repo,
@@ -77,6 +87,7 @@ async def startup(ctx):
         persistent_storage=storage,
         phased_blueprint_generator=phased_blueprint_generator,
         db_client=db,
+        intent_layer_service=intent_layer_service,
     )
     print(f"Worker startup: Analysis service created: {type(analysis_service)}")
 
@@ -96,7 +107,7 @@ async def shutdown(ctx):
         await ctx["container"].shutdown_resources()
 
 
-async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: str, prompt_config: dict | None = None):
+async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: str, prompt_config: dict | None = None, mode: str = "full"):
     """Background task to analyze a repository."""
     import asyncio
     import os
@@ -160,13 +171,26 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
         repo_path = Path(repo_path).resolve()
         await _safe_log("INFO", f"Repository cloned to: {repo_path}")
 
+        # Capture HEAD commit SHA
+        import subprocess
+        commit_sha = None
+        try:
+            sha_result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=str(repo_path),
+                capture_output=True, text=True, check=True,
+            )
+            commit_sha = sha_result.stdout.strip()
+            await _safe_log("INFO", f"HEAD SHA: {commit_sha[:12]}")
+        except Exception:
+            pass
+
         # Verify the clone before proceeding
         if not repo_path.exists():
             raise RuntimeError(f"Repository path does not exist after clone: {repo_path}")
         if not repo_path.is_dir():
             raise RuntimeError(f"Repository path is not a directory: {repo_path}")
 
-        items = list(repo_path.iterdir())
+        items = await asyncio.to_thread(lambda: list(repo_path.iterdir()))
         await _safe_log("INFO", f"Repository has {len(items)} items")
 
         # Run analysis
@@ -176,8 +200,17 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
             repo_path=repo_path,
             token=token,
             prompt_config=prompt_config,
+            commit_sha=commit_sha,
+            mode=mode,
         )
         print("analyze_repository: Analysis complete")
+    except asyncio.CancelledError:
+        # ARQ job timeout sends CancelledError which bypasses `except Exception`
+        error_msg = "Analysis cancelled (job timeout exceeded)"
+        print(f"analyze_repository: {error_msg}")
+        await _safe_log("ERROR", error_msg)
+        await _mark_failed(error_msg)
+        raise
     except Exception as e:
         error_msg = str(e)
         print(f"analyze_repository: Error: {error_msg}")
@@ -212,6 +245,8 @@ except Exception:
 class WorkerSettings:
     """ARQ worker settings."""
     redis_settings = RedisSettings.from_dsn(_redis_url)
+    redis_settings.conn_timeout = 10  # Analysis blocks event loop; 1s default causes reconnect failures
+    redis_settings.retry_on_timeout = True
     functions = [analyze_repository]
     on_startup = startup
     on_shutdown = shutdown

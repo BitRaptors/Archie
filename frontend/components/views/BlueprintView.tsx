@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, DownloadCloud } from 'lucide-react'
+import { Download, Copy, Check, FileText, Code, Database, Terminal, Server, Star, Rocket, Zap, Shield, GitPullRequest, Trash2, ChevronLeft, Github, ChevronRight, ChevronDown, Search, Loader2, CheckCircle2, X, Layers, Eye, Activity, Folder, FolderOpen, DownloadCloud, RotateCw, AlertTriangle, RefreshCcw } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
@@ -19,7 +19,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { SERVER_TOKEN } from '@/context/auth'
 import { useActiveRepository, useSetActiveRepository, useDeleteRepository, useWorkspaceRepositories } from '@/hooks/api/useWorkspace'
 import { useDeliveryApply } from '@/hooks/api/useDelivery'
-import { useRepositoriesQuery } from '@/hooks/api/useRepositoriesQuery'
+import { useRepositoriesQuery, useAnalyzeRepository, useLatestCommitSha } from '@/hooks/api/useRepositoriesQuery'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
 import { generateId, parseNavigation } from '@/lib/blueprint-toc'
@@ -39,10 +39,11 @@ interface BlueprintViewProps {
     analysisId?: string
     repoId?: string
     onBack: () => void
+    onAnalyze?: (id: string, name: string) => void
     initialTab?: 'backend' | 'claude' | 'cursor' | 'mcp' | 'debug' | 'delivery'
 }
 
-export function BlueprintView({ analysisId, repoId, onBack, initialTab }: BlueprintViewProps) {
+export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTab }: BlueprintViewProps) {
     const { token, isAuthenticated } = useAuth()
     const { mutate: setActiveRepo, isPending: isSettingActive } = useSetActiveRepository()
     const { mutate: deleteAnalysis, isPending: isDeleting } = useDeleteRepository()
@@ -59,7 +60,7 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
     const [syncSettings, setSyncSettings] = useState({
         targetRepo: '',
         strategy: 'pr' as 'pr' | 'commit',
-        outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor']
+        outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor', 'intent_layer', 'codebase_map']
     })
     const [deliveryResult, setDeliveryResult] = useState<any>(null)
     const [needsSync, setNeedsSync] = useState(false)
@@ -74,12 +75,21 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         files?: Record<string, string>
     } | null>(null)
     const [selectedFile, setSelectedFile] = useState<string | null>(null)
+    const [showRerunDialog, setShowRerunDialog] = useState(false)
     const [debugData, setDebugData] = useState<any>({
         gathered: {},
         phases: [],
         summary: {}
     })
     const [activeSection, setActiveSection] = useState('')
+    const [fileSearchQuery, setFileSearchQuery] = useState('')
+    const [currentExplorePath, setCurrentExplorePath] = useState<string>('/')
+
+    // Reset explore path when changing tabs to prevent getting stuck in a missing folder
+    useEffect(() => {
+        setCurrentExplorePath('/')
+        setFileSearchQuery('')
+    }, [activeTab])
 
     const markdownComponents = useMemo(() => ({
         code({ className, children, ...props }: any) {
@@ -243,6 +253,57 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         }, null, 2)
     }
 
+    const isActive = activeRepo?.active_repo_id === backendBlueprint?.repository_id
+    const currentRepoId = repoId || backendBlueprint?.repository_id
+    const repoFullName =
+        workspaceRepos?.find((r: any) => r.repo_id === currentRepoId)?.name ||
+        repos?.find((r: any) => r.id === currentRepoId || r.full_name === currentRepoId)?.full_name ||
+        activeRepo?.repository?.name
+
+    const [owner, repoName] = (repoFullName || '').split('/')
+    const { data: latestSha } = useLatestCommitSha(owner, repoName, showRerunDialog)
+    const analyzeMutation = useAnalyzeRepository()
+
+    // Check if current analysis matches latest SHA
+    // backendBlueprint.analysis_id or analysisId
+    const [currentAnalysis, setCurrentAnalysis] = useState<any>(null)
+    useEffect(() => {
+        if (!backendBlueprint?.analysis_id || !token) return
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+        fetch(`${API_URL}/api/v1/analyses/${backendBlueprint.analysis_id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+            .then(res => res.json())
+            .then(data => setCurrentAnalysis(data))
+            .catch(() => { })
+    }, [backendBlueprint?.analysis_id, token])
+
+    const hasChanges = latestSha && currentAnalysis?.commit_sha && latestSha !== currentAnalysis.commit_sha
+    const upToDate = latestSha && currentAnalysis?.commit_sha && latestSha === currentAnalysis.commit_sha
+
+    const handleRerun = (mode: 'full' | 'incremental') => {
+        if (!owner || !repoName) return
+        if (mode === 'incremental' && upToDate) {
+            toast.info('Nothing changed — the blueprint is already up to date with the latest commit.')
+            setShowRerunDialog(false)
+            return
+        }
+        analyzeMutation.mutate({ owner, repo: repoName, mode, promptConfig: undefined }, {
+            onSuccess: (data: any) => {
+                toast.success(`Analysis started in ${mode} mode`)
+                setShowRerunDialog(false)
+                if (data.id && onAnalyze) {
+                    onAnalyze(data.id, `${owner}/${repoName}`)
+                } else if (data.id) {
+                    onBack()
+                }
+            },
+            onError: (err: any) => {
+                toast.error(`Failed to start analysis: ${err.message}`)
+            }
+        })
+    }
+
     if (isLoading) {
         return (
             <div className="flex flex-col h-screen bg-white/50">
@@ -274,18 +335,11 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
         )
     }
 
-    const isActive = activeRepo?.active_repo_id === backendBlueprint?.repository_id
-    const currentRepoId = repoId || backendBlueprint?.repository_id
-    const repoFullName =
-        workspaceRepos?.find((r: any) => r.repo_id === currentRepoId)?.name ||
-        repos?.find((r: any) => r.id === currentRepoId || r.full_name === currentRepoId)?.full_name ||
-        activeRepo?.repository?.name
-
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white/50 animate-in fade-in duration-500">
             <PageHeader
                 title="Architecture Blueprint"
-                subtitle={repoId ? `Repository: ${repoId}` : `Analysis: ${analysisId?.slice(0, 8)}`}
+                subtitle={repoFullName ? `Repository: ${repoFullName}` : (repoId ? (isLoading ? 'Repository: Loading...' : `Repository: ${repoId.slice(0, 8)}...`) : `Analysis: ${analysisId?.slice(0, 8)}`)}
                 icon={Layers}
                 actions={
                     <div className="flex gap-2">
@@ -298,6 +352,18 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                         >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Delete
+                        </Button>
+
+                        <div className="w-px h-6 bg-papaya-300 mx-1" />
+
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-white hover:bg-papaya-100 text-teal h-9 border-papaya-400/60"
+                            onClick={() => setShowRerunDialog(true)}
+                        >
+                            <RefreshCcw className="w-4 h-4 mr-2" />
+                            Rerun Analysis
                         </Button>
 
                         <div className="w-px h-6 bg-papaya-300 mx-1" />
@@ -486,33 +552,24 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                             const isClaude = activeTab === 'claude'
                             const prefix = isClaude ? '.claude/' : '.cursor/'
 
-                            // Build file entries: root files + platform-specific rules
+                            // Build file entries: root files + per-folder CLAUDE.md + platform-specific rules
                             const rootFiles = isClaude
                                 ? ['CLAUDE.md', 'AGENTS.md']
                                 : []
                             const ruleFiles = Object.keys(agentFiles.files)
                                 .filter(p => p.startsWith(prefix))
                                 .sort()
-                            const allPaths = [...rootFiles, ...ruleFiles].filter(p => agentFiles.files![p])
+                            // Include per-folder CLAUDE.md files and CODEBASE_MAP.md in Claude tab
+                            const intentLayerFiles = isClaude
+                                ? Object.keys(agentFiles.files)
+                                    .filter(p => (p.endsWith('/CLAUDE.md') || p === 'CODEBASE_MAP.md') && !rootFiles.includes(p))
+                                    .sort()
+                                : []
+                            const allPaths = [...rootFiles, ...intentLayerFiles, ...ruleFiles].filter(p => agentFiles.files![p])
 
-                            // Build tree structure
-                            type TreeNode = { name: string; path?: string; children: TreeNode[] }
-                            const treeRoot: TreeNode = { name: '/', children: [] }
-
-                            for (const filePath of allPaths) {
-                                const parts = filePath.split('/')
-                                let current = treeRoot
-                                for (let i = 0; i < parts.length; i++) {
-                                    const part = parts[i]
-                                    const isFile = i === parts.length - 1
-                                    let child = current.children.find(c => c.name === part)
-                                    if (!child) {
-                                        child = { name: part, children: [], ...(isFile ? { path: filePath } : {}) }
-                                        current.children.push(child)
-                                    }
-                                    current = child
-                                }
-                            }
+                            const filteredPaths = allPaths.filter(p =>
+                                !fileSearchQuery || p.toLowerCase().includes(fileSearchQuery.toLowerCase())
+                            )
 
                             const currentFile = selectedFile && agentFiles.files[selectedFile] ? selectedFile : allPaths[0]
                             const currentContent = currentFile ? agentFiles.files[currentFile] : ''
@@ -524,76 +581,271 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                 }
                             }
 
-                            const renderTree = (nodes: TreeNode[], depth: number = 0) => (
-                                <div className={depth > 0 ? 'ml-3' : ''}>
-                                    {nodes.map(node => (
-                                        <div key={node.path || node.name}>
-                                            {node.path ? (
-                                                <button
-                                                    onClick={() => setSelectedFile(node.path!)}
-                                                    className={cn(
-                                                        'flex items-center gap-1.5 w-full text-left px-2 py-1.5 rounded-lg text-xs transition-all duration-200',
-                                                        currentFile === node.path
-                                                            ? 'bg-teal/5 text-teal font-bold'
-                                                            : 'text-ink/40 hover:text-ink/60 hover:bg-papaya-300/30 font-medium'
-                                                    )}
-                                                >
-                                                    <FileText className="w-3.5 h-3.5 shrink-0" />
-                                                    <span className="truncate">{node.name}</span>
-                                                    {currentFile === node.path && <div className="w-1.5 h-1.5 rounded-full bg-teal ml-auto shrink-0" />}
-                                                </button>
-                                            ) : (
-                                                <div className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold text-ink/60">
-                                                    <Folder className="w-3.5 h-3.5 shrink-0 text-tangerine" />
-                                                    <span>{node.name}</span>
-                                                </div>
-                                            )}
-                                            {node.children.length > 0 && renderTree(node.children, depth + 1)}
-                                        </div>
-                                    ))}
-                                </div>
-                            )
+                            const getFolderContents = (paths: string[], currentPath: string) => {
+                                const files: { name: string, fullPath: string }[] = [];
+                                const rawFolders: Map<string, string[]> = new Map();
+
+                                paths.forEach(p => {
+                                    let rel = p;
+                                    if (currentPath !== '/') {
+                                        const prefix = currentPath + '/';
+                                        if (!p.startsWith(prefix)) return;
+                                        rel = p.slice(prefix.length);
+                                    }
+
+                                    if (!rel.includes('/')) {
+                                        files.push({ name: rel, fullPath: p });
+                                    } else {
+                                        const folderName = rel.split('/')[0];
+                                        if (!rawFolders.has(folderName)) rawFolders.set(folderName, []);
+                                        rawFolders.get(folderName)!.push(p);
+                                    }
+                                });
+
+                                const compactFolders = Array.from(rawFolders.entries()).map(([name, subPaths]) => {
+                                    let displayName = name;
+                                    let targetPath = currentPath === '/' ? name : `${currentPath}/${name}`;
+                                    let currentPrefix = targetPath;
+
+                                    while (true) {
+                                        const levelFiles: string[] = [];
+                                        const levelFolders: Set<string> = new Set();
+
+                                        subPaths.forEach(p => {
+                                            const rest = p.slice(currentPrefix.length + 1);
+                                            if (!rest.includes('/')) {
+                                                levelFiles.push(rest);
+                                            } else {
+                                                levelFolders.add(rest.split('/')[0]);
+                                            }
+                                        });
+
+                                        if (levelFiles.length === 0 && levelFolders.size === 1) {
+                                            const nextFolderName = Array.from(levelFolders)[0];
+                                            displayName += '/' + nextFolderName;
+                                            currentPrefix += '/' + nextFolderName;
+                                            targetPath = currentPrefix;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+
+                                    return { name: displayName, fullPath: targetPath };
+                                });
+
+                                return {
+                                    files: files.sort((a, b) => a.name.localeCompare(b.name)),
+                                    folders: compactFolders.sort((a, b) => a.name.localeCompare(b.name))
+                                };
+                            };
+
+                            const { files, folders } = getFolderContents(allPaths, currentExplorePath);
 
                             return (
                                 <div className="flex h-full">
                                     {/* File tree sidebar */}
-                                    <div className="w-56 shrink-0 border-r border-papaya-400/40 p-4 overflow-y-auto">
-                                        <div className="flex items-center gap-2 mb-4 px-1">
-                                            <div className="p-1.5 rounded-md bg-papaya-300/30">
-                                                <Layers className="w-3.5 h-3.5 text-teal" />
+                                    <div className="w-72 shrink-0 border-r border-papaya-400/40 flex flex-col bg-white/40">
+                                        <div className="p-4 border-b border-papaya-400/20 bg-white/50 backdrop-blur-sm z-10 sticky top-0">
+                                            <div className="flex items-center gap-2 mb-4 px-1">
+                                                {currentExplorePath !== '/' ? (
+                                                    <button
+                                                        onClick={() => {
+                                                            const parts = currentExplorePath.split('/');
+                                                            parts.pop();
+                                                            setCurrentExplorePath(parts.length > 0 ? parts.join('/') : '/');
+                                                        }}
+                                                        className="p-1 rounded-md hover:bg-papaya-300/50 text-ink/40 hover:text-ink transition-colors"
+                                                    >
+                                                        <ChevronLeft className="w-4 h-4" />
+                                                    </button>
+                                                ) : (
+                                                    <div className="p-1.5 rounded-md bg-gradient-to-br from-teal/20 to-teal/5 border border-teal/10 shadow-inner">
+                                                        <Layers className="w-3.5 h-3.5 text-teal drop-shadow-sm" />
+                                                    </div>
+                                                )}
+                                                <p className="text-[11px] font-black text-ink/50 uppercase tracking-[0.2em] font-sans">
+                                                    {currentExplorePath === '/' ? 'Explorer' : currentExplorePath.split('/').pop()}
+                                                </p>
+                                                <Badge className="ml-auto bg-papaya-300/30 text-ink/50 text-[10px] items-center border-papaya-400/40 px-1.5">
+                                                    {fileSearchQuery ? filteredPaths.length : (files.length + folders.length)} <span className="text-[9px] text-ink/30 ml-1 font-bold">Items</span>
+                                                </Badge>
                                             </div>
-                                            <p className="text-[11px] font-black text-ink/30 uppercase tracking-[0.15em]">Files</p>
-                                            <Badge className="ml-auto bg-papaya-300/30 text-ink/40 text-[10px] border-papaya-400/40">
-                                                {allPaths.length}
-                                            </Badge>
+
+                                            <div className="relative">
+                                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink/20" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search files..."
+                                                    value={fileSearchQuery}
+                                                    onChange={(e) => setFileSearchQuery(e.target.value)}
+                                                    className="w-full h-8 pl-8 pr-3 text-xs bg-papaya-300/20 border-transparent focus:border-teal/30 focus:ring-0 rounded-lg placeholder:text-ink/20 text-ink/80 transition-all font-medium shadow-inner"
+                                                />
+                                                {fileSearchQuery && (
+                                                    <button
+                                                        onClick={() => setFileSearchQuery('')}
+                                                        className="absolute right-2 top-1/2 -translate-y-1/2"
+                                                    >
+                                                        <X className="w-3 h-3 text-ink/20 hover:text-ink/40" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                        {renderTree(treeRoot.children)}
+
+                                        <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
+                                            {fileSearchQuery ? (
+                                                <div className="space-y-1">
+                                                    {filteredPaths.length > 0 ? filteredPaths.map(p => {
+                                                        const isSelected = currentFile === p;
+                                                        const parts = p.split('/');
+                                                        const name = parts.pop();
+                                                        const dir = parts.join('/');
+                                                        return (
+                                                            <button
+                                                                key={p}
+                                                                onClick={() => {
+                                                                    setSelectedFile(p)
+                                                                    const parts = p.split('/')
+                                                                    parts.pop()
+                                                                    setCurrentExplorePath(parts.length > 0 ? parts.join('/') : '/')
+                                                                    setFileSearchQuery('')
+                                                                }}
+                                                                className={cn(
+                                                                    "flex items-center gap-2.5 w-full text-left px-2.5 py-2 rounded-xl text-xs font-semibold transition-all group",
+                                                                    isSelected
+                                                                        ? "bg-teal/10 text-teal ring-1 ring-teal/20 shadow-sm"
+                                                                        : "text-ink/60 hover:text-ink hover:bg-papaya-300/30"
+                                                                )}
+                                                            >
+                                                                <div className={cn(
+                                                                    "p-1.5 rounded-lg transition-colors shrink-0",
+                                                                    isSelected ? "bg-teal text-white shadow-md shadow-teal/20" : "bg-ink/5 text-ink/40 group-hover:bg-ink/10"
+                                                                )}>
+                                                                    <FileText className="w-3.5 h-3.5" />
+                                                                </div>
+                                                                <div className="flex flex-col min-w-0 pr-2">
+                                                                    <span className="truncate text-xs font-bold leading-tight">{name}</span>
+                                                                    {dir && <span className="truncate text-[9px] text-ink/30 tracking-wide mt-0.5">{dir}</span>}
+                                                                </div>
+                                                            </button>
+                                                        )
+                                                    }) : (
+                                                        <div className="py-10 text-center space-y-2">
+                                                            <div className="w-8 h-8 bg-papaya-300/20 rounded-full flex items-center justify-center mx-auto">
+                                                                <Search className="w-4 h-4 text-ink/20" />
+                                                            </div>
+                                                            <p className="text-[10px] font-bold text-ink/20 uppercase tracking-widest">No results</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-1">
+                                                    {folders.map(folder => (
+                                                        <button
+                                                            key={folder.fullPath}
+                                                            onClick={() => setCurrentExplorePath(folder.fullPath)}
+                                                            className="flex items-center gap-2.5 w-full text-left px-2.5 py-2.5 rounded-xl text-xs font-bold text-ink/70 hover:text-ink hover:bg-papaya-300/30 transition-all group border border-transparent hover:border-papaya-400/30"
+                                                        >
+                                                            <div className="p-1.5 rounded-lg bg-gradient-to-br from-tangerine/10 to-tangerine/5 text-tangerine group-hover:from-tangerine group-hover:to-tangerine/90 group-hover:text-white transition-all shadow-sm">
+                                                                <Folder className="w-3.5 h-3.5 fill-current opacity-40 group-hover:opacity-100" />
+                                                            </div>
+                                                            <span className="truncate flex-1 tracking-tight">{folder.name}</span>
+                                                            <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-tangerine drop-shadow-sm -translate-x-2 group-hover:translate-x-0" />
+                                                        </button>
+                                                    ))}
+
+                                                    {files.map(file => {
+                                                        const isSelected = currentFile === file.fullPath;
+                                                        return (
+                                                            <button
+                                                                key={file.fullPath}
+                                                                onClick={() => setSelectedFile(file.fullPath)}
+                                                                className={cn(
+                                                                    "flex items-center gap-2.5 w-full text-left px-2.5 py-2.5 rounded-xl text-xs font-semibold transition-all group border",
+                                                                    isSelected
+                                                                        ? "bg-teal/5 text-teal border-teal/20 shadow-sm"
+                                                                        : "text-ink/60 hover:text-ink hover:bg-papaya-300/30 border-transparent hover:border-papaya-400/20"
+                                                                )}
+                                                            >
+                                                                <div className={cn(
+                                                                    "p-1.5 rounded-lg transition-colors shrink-0 shadow-sm",
+                                                                    isSelected ? "bg-teal text-white" : "bg-white border border-papaya-400/40 text-ink/40 group-hover:text-teal"
+                                                                )}>
+                                                                    <FileText className="w-3.5 h-3.5" />
+                                                                </div>
+                                                                <span className="truncate">{file.name}</span>
+                                                                {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-teal ml-auto shadow-[0_0_8px_rgba(45,161,176,0.5)]" />}
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* File content */}
-                                    <div className="flex-1 overflow-y-auto p-10">
+                                    <div className="flex-1 overflow-y-auto flex flex-col">
                                         <div className={cn(
-                                            'p-4 rounded-2xl mb-8 flex items-center justify-between',
-                                            isClaude ? 'bg-teal-50 border border-teal-200' : 'bg-tangerine/5 border border-tangerine/20'
+                                            'px-8 py-4 border-b border-papaya-400/20 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-md z-20',
+                                            isClaude ? 'bg-teal-50/50' : 'bg-tangerine-50/10'
                                         )}>
-                                            <code className={cn('text-xs font-mono font-medium', isClaude ? 'text-teal-800' : 'text-ink/80')}>{currentFile}</code>
-                                            <div className="flex items-center gap-2">
-                                                <Button variant="outline" size="sm" className={cn(isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
+                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                <div className={cn(
+                                                    "p-1.5 rounded-md",
+                                                    isClaude ? "bg-teal/10 text-teal" : "bg-tangerine/10 text-tangerine"
+                                                )}>
+                                                    <FileText className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex items-center gap-1 text-[11px] font-mono text-ink/40 overflow-hidden">
+                                                    <button
+                                                        onClick={() => setCurrentExplorePath('/')}
+                                                        className="hover:text-ink hover:bg-ink/5 px-1 rounded transition-colors"
+                                                    >
+                                                        Root
+                                                    </button>
+                                                    <ChevronRight className="w-3 h-3 shrink-0 opacity-40" />
+                                                    {currentFile?.split('/').map((part, i, arr) => {
+                                                        const isLast = i === arr.length - 1;
+                                                        const path = arr.slice(0, i + 1).join('/');
+                                                        return (
+                                                            <React.Fragment key={i}>
+                                                                {!isLast ? (
+                                                                    <button
+                                                                        onClick={() => setCurrentExplorePath(path)}
+                                                                        className="hover:text-ink hover:bg-ink/5 px-1 rounded transition-colors truncate max-w-[120px]"
+                                                                    >
+                                                                        {part}
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="text-ink font-bold truncate">
+                                                                        {part}
+                                                                    </span>
+                                                                )}
+                                                                {i < arr.length - 1 && <ChevronRight className="w-3 h-3 shrink-0 opacity-40" />}
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 ml-4">
+                                                <Button variant="outline" size="sm" className={cn("h-8 text-[11px]", isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
                                                     onClick={() => handleDownload(currentContent, currentFileName)}>
                                                     <Download className="w-3.5 h-3.5 mr-1.5" />Download
                                                 </Button>
-                                                <Button variant="outline" size="sm" className={cn(isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
+                                                <Button variant="outline" size="sm" className={cn("h-8 text-[11px]", isClaude ? 'border-teal-200 text-teal' : 'border-tangerine/20 text-tangerine')}
                                                     onClick={handleDownloadAll}>
                                                     <DownloadCloud className="w-3.5 h-3.5 mr-1.5" />All
                                                 </Button>
                                             </div>
                                         </div>
-                                        <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
+                                        <div className="p-10 flex-1">
+                                            <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             )
+
                         })()}
 
                         {/* Fallback when files map not available */}
@@ -763,6 +1015,24 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
                                                 <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CLAUDE.md`, `agents.md` — Essential context for AI agents to operate on this codebase.</p>
                                             </div>
                                         </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Layers className="w-4 h-4 text-emerald-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Per-Folder Context</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CLAUDE.md` per folder — Granular, code-aware context for every directory in your project.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Layers className="w-4 h-4 text-indigo-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Codebase Map</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CODEBASE_MAP.md` — Complete architecture map with module guide, navigation, and gotchas in a single file.</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -791,6 +1061,97 @@ export function BlueprintView({ analysisId, repoId, onBack, initialTab }: Bluepr
 
             {showDeleteDialog && <ConfirmationDialog isOpen={showDeleteDialog} onClose={() => setShowDeleteDialog(false)} onConfirm={() => deleteAnalysis(repoId || backendBlueprint?.repository_id || '', { onSuccess: () => { setShowDeleteDialog(false); onBack() } })} title="Delete Blueprint" message="Are you sure? This action is permanent." confirmText="Delete" destructive isLoading={isDeleting} />}
             {sourceFilePath && currentRepoId && <SourceFileModal filePath={sourceFilePath} repoId={currentRepoId} isOpen={!!sourceFilePath} onClose={() => setSourceFilePath(null)} />}
+
+            {/* Rerun Analysis Dialog */}
+            {showRerunDialog && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setShowRerunDialog(false)} />
+                    <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 font-sans">
+                        <div className="p-8 border-b border-papaya-300 bg-papaya-300/10 flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 rounded-2xl bg-teal shadow-lg shadow-teal/20 text-white">
+                                    <RefreshCcw className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-ink">Rerun Analysis</h3>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-ink/30">Select Analysis Mode</p>
+                                </div>
+                            </div>
+                            <Button variant="ghost" size="icon" onClick={() => setShowRerunDialog(false)}>
+                                <X className="w-5 h-5 text-ink/40" />
+                            </Button>
+                        </div>
+
+                        <div className="p-8 space-y-6">
+                            {upToDate && (
+                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-teal-50 border border-teal-200">
+                                    <CheckCircle2 className="w-5 h-5 text-teal shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="text-sm font-bold text-teal-800">You are up to date</p>
+                                        <p className="text-xs text-teal-600 mt-1">Current analysis matches the latest commit on GitHub ({latestSha?.slice(0, 7)}). No rerun is strictly necessary.</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {hasChanges && (
+                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-brandy/5 border border-brandy/20">
+                                    <AlertTriangle className="w-5 h-5 text-brandy shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="text-sm font-bold text-brandy">Changes detected</p>
+                                        <p className="text-xs text-brandy/70 mt-1">New commits found since last analysis. A rerun is recommended to stay current.</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="grid gap-4">
+                                <button
+                                    onClick={() => handleRerun('incremental')}
+                                    disabled={analyzeMutation.isPending}
+                                    className="flex items-start gap-4 p-5 rounded-2xl border-2 border-papaya-400/40 hover:border-teal/50 hover:bg-teal/5 transition-all text-left group"
+                                >
+                                    <div className="w-10 h-10 rounded-xl bg-white border border-papaya-400 flex items-center justify-center shrink-0 shadow-sm group-hover:border-teal/30">
+                                        <Zap className="w-5 h-5 text-tangerine group-hover:text-teal transition-colors" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm font-bold text-ink">Incremental Rerun</p>
+                                            <Badge className="bg-teal/10 text-teal border-teal/20 text-[10px]">Fastest</Badge>
+                                        </div>
+                                        <p className="text-[11px] text-ink-300 mt-1 leading-relaxed">
+                                            Only analyzes new or modified folders. Reuses cached context for unchanged directories to save time and credits.
+                                        </p>
+                                    </div>
+                                </button>
+
+                                <button
+                                    onClick={() => handleRerun('full')}
+                                    disabled={analyzeMutation.isPending}
+                                    className="flex items-start gap-4 p-5 rounded-2xl border-2 border-papaya-400/40 hover:border-brandy/50 hover:bg-brandy/5 transition-all text-left group"
+                                >
+                                    <div className="w-10 h-10 rounded-xl bg-white border border-papaya-400 flex items-center justify-center shrink-0 shadow-sm group-hover:border-brandy/30">
+                                        <RefreshCcw className="w-5 h-5 text-brandy" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm font-bold text-ink">Full Rerun</p>
+                                            <Badge className="bg-brandy/10 text-brandy border-brandy/20 text-[10px]">Deep Dive</Badge>
+                                        </div>
+                                        <p className="text-[11px] text-ink-300 mt-1 leading-relaxed">
+                                            Scans every file and folder from scratch. Ensures 100% fresh architectural understanding without relying on any cache.
+                                        </p>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="p-8 bg-papaya-300/10 border-t border-papaya-300 flex justify-end gap-3">
+                            <Button variant="outline" onClick={() => setShowRerunDialog(false)} className="h-11 px-6">
+                                Cancel
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

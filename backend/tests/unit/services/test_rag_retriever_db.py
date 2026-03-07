@@ -50,17 +50,13 @@ def make_retriever(mock_db):
         else:
             mock_db.rpc_mock.return_value = QueryResult(data=[])
 
-        mock_settings = MagicMock()
-        mock_settings.embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+        mock_model = MagicMock()
+        mock_model.encode.return_value = MagicMock(tolist=lambda: [0.1] * 384)
 
-        with patch("infrastructure.analysis.rag_retriever.SentenceTransformer") as mock_st, \
-             patch("infrastructure.analysis.rag_retriever.get_settings", return_value=mock_settings):
-            mock_model = MagicMock()
-            mock_model.encode.return_value = MagicMock(tolist=lambda: [0.1] * 384)
-            mock_st.return_value = mock_model
-
-            from infrastructure.analysis.rag_retriever import RAGRetriever
-            return RAGRetriever(db_client=mock_db)
+        from infrastructure.analysis.rag_retriever import RAGRetriever
+        retriever = RAGRetriever(db_client=mock_db)
+        retriever._model = mock_model  # Bypass lazy get_model()
+        return retriever
 
     return _make
 

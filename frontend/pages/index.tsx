@@ -164,6 +164,7 @@ export default function Dashboard() {
           repoId={repoId || undefined}
           initialTab={initialBlueprintTab as any}
           onBack={handleBackToAnalysis}
+          onAnalyze={handleAnalyze}
         />
       )}
 

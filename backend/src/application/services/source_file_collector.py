@@ -13,12 +13,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from domain.entities.analysis_settings import SEED_IGNORED_DIRS
-
 logger = logging.getLogger(__name__)
-
-# Re-export so tests can reference it; used as fallback only.
-IGNORED_DIRS = SEED_IGNORED_DIRS
 
 
 def _make_ignore_callback(ignored: set[str]):
@@ -44,12 +39,11 @@ class SourceFileCollector:
             dest_dir: Destination directory in persistent storage
                       (e.g. ``storage/repos/{repo_id}``).
             ignored_dirs: Directory names to skip (user-configured from DB).
-                          Falls back to SEED_IGNORED_DIRS when not provided.
 
         Returns:
             Manifest dict with file list and total size.
         """
-        effective_ignored = ignored_dirs if ignored_dirs is not None else SEED_IGNORED_DIRS
+        effective_ignored = ignored_dirs or set()
 
         # Remove old copy if it exists
         if dest_dir.exists():

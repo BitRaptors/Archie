@@ -34,12 +34,17 @@ def _normalise_row(row: asyncpg.Record) -> dict[str, Any]:
 
 
 def _coerce_param(value: Any) -> Any:
-    """Coerce ISO-8601 datetime strings to native datetime objects for asyncpg."""
-    if isinstance(value, str):
+    """Coerce ISO-8601 datetime strings to native datetime objects for asyncpg.
+
+    Only matches strings that contain both a date and a time component
+    (i.e. 'T' or a space separator) to avoid misinterpreting short strings
+    like plain dates, UUIDs, or other text as datetimes.
+    """
+    if isinstance(value, str) and len(value) >= 19 and ("T" in value or (value[4] == "-" and " " in value)):
         try:
             return datetime.fromisoformat(value)
         except (ValueError, TypeError):
-            return value
+            pass
     return value
 
 

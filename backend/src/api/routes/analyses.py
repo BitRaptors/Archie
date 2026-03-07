@@ -8,12 +8,6 @@ from domain.entities.blueprint import StructuredBlueprint
 from infrastructure.persistence.analysis_repository import AnalysisRepository
 from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
 from application.services.analysis_data_collector import analysis_data_collector
-from application.services.agent_file_generator import (
-    generate_all,
-    generate_claude_md,
-    generate_cursor_rules,
-    generate_agents_md,
-)
 import asyncio
 import json
 
@@ -81,13 +75,13 @@ async def stream_analysis_progress(
     """Stream analysis progress and events via SSE."""
     analysis_repo = await get_analysis_repo(request)
     event_repo = await get_event_repo(request)
-    
+
     async def event_generator():
         last_event_id = None
         sent_completion = False
         sent_phases = set()
         sent_gathered = False
-        
+
         while True:
             # Check if client disconnected
             if await request.is_disconnected():
@@ -110,7 +104,7 @@ async def stream_analysis_progress(
 
             # Handle Analysis Data
             analysis_data = await analysis_data_collector.get_data(analysis_id)
-            
+
             # Send gathered data once
             if analysis_data.get("gathered") and not sent_gathered:
                 yield {
@@ -118,7 +112,7 @@ async def stream_analysis_progress(
                     "data": json.dumps(analysis_data["gathered"]),
                 }
                 sent_gathered = True
-                
+
             # Send new phases
             for phase_info in analysis_data.get("phases", []):
                 phase_name = phase_info["phase"]
@@ -138,7 +132,7 @@ async def stream_analysis_progress(
                         "event": "analysis_complete",
                         "data": json.dumps(analysis_data),
                     }
-                    
+
                     # Send any remaining events first
                     events = await event_repo.get_by_analysis_id(analysis_id)
                     if last_event_id:
@@ -157,7 +151,7 @@ async def stream_analysis_progress(
                                 last_event_id = e.id
                             if e.id == last_event_id:
                                 found = True
-                    
+
                     # Send completion event
                     yield {
                         "event": "complete",
@@ -200,7 +194,7 @@ async def stream_analysis_progress(
                 last_event_id = e.id
 
             await asyncio.sleep(2)
-    
+
     return EventSourceResponse(event_generator())
 
 
@@ -237,48 +231,58 @@ async def get_agent_files(
     analysis_id: str,
     request: Request,
 ):
-    """Get generated agent instruction files (CLAUDE.md, Cursor rules).
-    
-    These files are generated from the structured JSON blueprint to ensure
-    consistency across all outputs.
-    
-    Args:
-        analysis_id: ID of the analysis
-        
-    Returns:
-        Dict with claude_md, cursor_rules, and agents_md content
+    """Get the commit-ready file tree for an analysis.
+
+    Returns CLAUDE.md, AGENTS.md, rules, per-folder CLAUDE.md, CODEBASE_MAP.md.
     """
     analysis_repo = await get_analysis_repo(request)
     analysis = await analysis_repo.get_by_id(analysis_id)
-    
+
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    
+
     if analysis.status != "completed":
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Analysis is not completed. Current status: {analysis.status}"
         )
-    
-    # Get storage from container
+
     container = request.app.container
     storage = container.storage()
-    
-    # Load structured JSON blueprint (single source of truth)
-    blueprint = await _load_structured_blueprint(storage, analysis.repository_id)
-    
-    if not blueprint:
-        raise HTTPException(
-            status_code=404,
-            detail="Structured blueprint (blueprint.json) not found. Re-analyze to generate.",
-        )
-    
-    output = generate_all(blueprint)
+    files: dict[str, str] = {}
+
+    # Try loading pre-generated intent layer files (includes everything since consolidation)
+    try:
+        il_base = f"blueprints/{analysis.repository_id}/intent_layer"
+        if await storage.exists(f"{il_base}/CLAUDE.md"):
+            il_files = await storage.list_files(il_base)
+            for file_path in il_files:
+                rel_path = file_path[len(il_base) + 1:]
+                if rel_path:
+                    content = await storage.read(file_path)
+                    text = content.decode("utf-8") if isinstance(content, bytes) else content
+                    files[rel_path] = text
+    except Exception:
+        pass
+
+    # Fallback: generate on-demand via intent layer service
+    if not files:
+        il_service = container.intent_layer_service()
+        try:
+            il_output = await il_service.preview(source_repo_id=analysis.repository_id)
+            files = il_output.claude_md_files
+        except Exception as e:
+            import logging
+            logging.getLogger("intent_layer").error(f"Intent layer generation failed: {e}", exc_info=True)
+            raise HTTPException(status_code=404, detail="Could not generate agent files. Blueprint may be missing.")
+
+    # Backward-compatible response shape
+    cursor_rules_parts = [v for k, v in sorted(files.items()) if k.startswith(".cursor/rules/")]
     return {
-        "claude_md": output.claude_md,
-        "cursor_rules": "\n\n".join(rf.render_cursor() for rf in output.rule_files),
-        "agents_md": output.agents_md,
-        "files": output.to_file_map(),
+        "claude_md": files.get("CLAUDE.md", ""),
+        "cursor_rules": "\n\n".join(cursor_rules_parts),
+        "agents_md": files.get("AGENTS.md", ""),
+        "files": files,
     }
 
 

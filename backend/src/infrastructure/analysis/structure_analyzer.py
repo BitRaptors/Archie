@@ -1,8 +1,8 @@
 """Structure analyzer."""
+import asyncio
 from pathlib import Path
 from typing import Any
 
-from domain.entities.analysis_settings import SEED_IGNORED_DIRS
 
 
 class StructureAnalyzer:
@@ -12,27 +12,13 @@ class StructureAnalyzer:
         """Initialize structure analyzer."""
         pass
 
-    async def analyze(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> dict[str, Any]:
-        """Analyze repository structure."""
-        # Resolve path to absolute
-        repo_path = Path(repo_path).resolve()
-
+    def _analyze_sync(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> dict[str, Any]:
+        """Analyze repository structure (sync I/O)."""
         structure = {
             "file_tree": [],
             "technologies": [],
             "directory_structure": {},
         }
-
-        # Verify path before processing
-        if not repo_path.exists():
-            import logging
-            logging.error(f"Structure analyzer: Path does not exist: {repo_path}")
-            return structure
-
-        if not repo_path.is_dir():
-            import logging
-            logging.error(f"Structure analyzer: Path is not a directory: {repo_path}")
-            return structure
 
         # Check what's actually in the directory
         try:
@@ -48,7 +34,7 @@ class StructureAnalyzer:
 
         # Build file tree
         structure["file_tree"] = self._build_file_tree(repo_path, discovery_ignored_dirs=discovery_ignored_dirs)
-        
+
         import logging
         logging.info(f"Structure analyzer: Built file tree with {len(structure['file_tree'])} items")
 
@@ -59,6 +45,24 @@ class StructureAnalyzer:
         structure["directory_structure"] = self._analyze_directories(repo_path)
 
         return structure
+
+    async def analyze(self, repo_path: Path, discovery_ignored_dirs: set[str] | None = None) -> dict[str, Any]:
+        """Analyze repository structure."""
+        # Resolve path to absolute
+        repo_path = Path(repo_path).resolve()
+
+        # Verify path before processing (trivial checks stay on event loop)
+        if not repo_path.exists():
+            import logging
+            logging.error(f"Structure analyzer: Path does not exist: {repo_path}")
+            return {"file_tree": [], "technologies": [], "directory_structure": {}}
+
+        if not repo_path.is_dir():
+            import logging
+            logging.error(f"Structure analyzer: Path is not a directory: {repo_path}")
+            return {"file_tree": [], "technologies": [], "directory_structure": {}}
+
+        return await asyncio.to_thread(self._analyze_sync, repo_path, discovery_ignored_dirs)
 
     def _build_file_tree(self, repo_path: Path, max_depth: int = 5, discovery_ignored_dirs: set[str] | None = None) -> list[dict[str, Any]]:
         """Build file tree structure."""

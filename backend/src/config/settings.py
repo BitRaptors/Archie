@@ -65,35 +65,32 @@ class Settings(BaseSettings):
     # Embedding Model
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
 
-    # Vector Database
-    vector_db_type: str = Field(default="pgvector")  # "pgvector", "qdrant", "pinecone"
-    qdrant_url: str | None = Field(default=None)
-    qdrant_api_key: str | None = Field(default=None)
-    pinecone_api_key: str | None = Field(default=None)
-    pinecone_environment: str | None = Field(default=None)
-
     # Storage
-    storage_type: str = Field(default="local")  # "local", "gcs", "s3"
     storage_path: str = Field(default="./storage")  # Local storage path
     temp_storage_path: str = Field(default="./temp")  # Temp storage path
-    gcs_bucket_name: str | None = Field(default=None)
-    s3_bucket_name: str | None = Field(default=None)
-    aws_access_key_id: str | None = Field(default=None)
-    aws_secret_access_key: str | None = Field(default=None)
-    aws_region: str | None = Field(default=None)
 
     # Analysis
-    max_analysis_workers: int = Field(default=4)
     analysis_timeout_seconds: int = Field(default=3600)  # 1 hour
 
     # File reading budget (0 = auto/dynamic based on repo size)
     file_reading_budget: int = Field(default=0)
     file_reading_per_file_max: int = Field(default=0)
 
+    # Intent Layer
+    intent_layer_max_depth: int = Field(default=99)
+    intent_layer_min_files: int = Field(default=2)
+    intent_layer_max_concurrent: int = Field(default=5)
+    intent_layer_excluded_dirs: str = Field(default="")  # Comma-separated
+    intent_layer_ai_model: str = Field(default="")       # Empty = use default_ai_model
+    intent_layer_enable_ai_enrichment: bool = Field(default=True)
+    intent_layer_enrichment_model: str = Field(default="")  # Empty = use default_ai_model
+    intent_layer_generate_codebase_map: bool = Field(default=True)
+
     model_config = {
         "env_file": ".env.local",
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
+        "extra": "ignore",  # Ignore stale/removed env vars from old .env.local files
     }
 
 

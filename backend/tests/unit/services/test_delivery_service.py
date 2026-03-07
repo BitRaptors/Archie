@@ -25,12 +25,44 @@ def sample_blueprint() -> StructuredBlueprint:
 
 @pytest.fixture
 def mock_storage(sample_blueprint):
-    """Mock storage that returns a blueprint."""
+    """Mock storage with blueprint + pre-generated intent layer files."""
+    from application.services.agent_file_generator import generate_all
+    agent_output = generate_all(sample_blueprint)
+    agent_files = agent_output.to_file_map()  # {CLAUDE.md, AGENTS.md, .claude/rules/*, .cursor/rules/*}
+
+    bp_json = json.dumps(sample_blueprint.model_dump()).encode("utf-8")
+    il_base = "blueprints/repo-uuid-123/intent_layer"
+
+    # Build storage path -> content map for intent layer files
+    il_stored: dict[str, bytes] = {}
+    for rel_path, content in agent_files.items():
+        il_stored[f"{il_base}/{rel_path}"] = content.encode("utf-8")
+
+    all_il_paths = list(il_stored.keys())
+
+    async def _exists(path):
+        if path == "blueprints/repo-uuid-123/blueprint.json":
+            return True
+        if path == f"{il_base}/CLAUDE.md":
+            return True
+        return False
+
+    async def _read(path):
+        if path == "blueprints/repo-uuid-123/blueprint.json":
+            return bp_json
+        if path in il_stored:
+            return il_stored[path]
+        raise FileNotFoundError(path)
+
+    async def _list_files(prefix):
+        if prefix == il_base:
+            return all_il_paths
+        return []
+
     storage = AsyncMock()
-    storage.exists = AsyncMock(return_value=True)
-    storage.read = AsyncMock(
-        return_value=json.dumps(sample_blueprint.model_dump()).encode("utf-8")
-    )
+    storage.exists = AsyncMock(side_effect=_exists)
+    storage.read = AsyncMock(side_effect=_read)
+    storage.list_files = AsyncMock(side_effect=_list_files)
     return storage
 
 
@@ -65,6 +97,12 @@ class TestValidOutputs:
         assert "mcp_claude" in VALID_OUTPUTS
         assert "mcp_cursor" in VALID_OUTPUTS
 
+    def test_valid_outputs_includes_codebase_map(self):
+        assert "codebase_map" in VALID_OUTPUTS
+
+    def test_valid_outputs_includes_intent_layer(self):
+        assert "intent_layer" in VALID_OUTPUTS
+
 
 class TestPreview:
 
@@ -92,8 +130,10 @@ class TestPreview:
         assert ".cursor/rules/mcp-tools.md" in result
 
     @pytest.mark.asyncio
-    async def test_preview_raises_when_blueprint_not_found(self, service, mock_storage):
-        mock_storage.exists = AsyncMock(return_value=False)
+    async def test_preview_raises_when_blueprint_not_found(self):
+        storage = AsyncMock()
+        storage.exists = AsyncMock(return_value=False)
+        service = DeliveryService(storage=storage)
         with pytest.raises(ValidationError, match="Blueprint not found"):
             await service.preview("missing-repo", ["claude_md"])
 
@@ -198,10 +238,10 @@ class TestApply:
         assert ".claude/rules/mcp-tools.md" in commit_call_files
 
     @pytest.mark.asyncio
-    async def test_apply_raises_when_blueprint_not_found(
-        self, service, mock_storage, mock_push_client
-    ):
-        mock_storage.exists = AsyncMock(return_value=False)
+    async def test_apply_raises_when_blueprint_not_found(self, mock_push_client):
+        storage = AsyncMock()
+        storage.exists = AsyncMock(return_value=False)
+        service = DeliveryService(storage=storage)
         with pytest.raises(ValidationError, match="Blueprint not found"):
             await service.apply(
                 source_repo_id="missing",

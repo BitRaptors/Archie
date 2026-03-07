@@ -4,8 +4,7 @@ import os
 import pytest
 from pathlib import Path
 
-from application.services.source_file_collector import SourceFileCollector, IGNORED_DIRS
-from domain.entities.analysis_settings import SEED_IGNORED_DIRS
+from application.services.source_file_collector import SourceFileCollector
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -48,7 +47,7 @@ class TestCopyRepo:
         _write_file(repo, ".git/objects/abc", "blob data")
 
         collector = SourceFileCollector()
-        manifest = collector.copy_repo(repo, dest)
+        manifest = collector.copy_repo(repo, dest, ignored_dirs={".git"})
 
         assert (dest / "src" / "main.py").exists()
         assert not (dest / ".git").exists()
@@ -62,7 +61,7 @@ class TestCopyRepo:
         _write_file(repo, "node_modules/react/index.js", "react")
 
         collector = SourceFileCollector()
-        manifest = collector.copy_repo(repo, dest)
+        manifest = collector.copy_repo(repo, dest, ignored_dirs={"node_modules"})
 
         assert (dest / "index.js").exists()
         assert not (dest / "node_modules").exists()
@@ -74,7 +73,7 @@ class TestCopyRepo:
         _write_file(repo, "__pycache__/app.cpython-313.pyc", "bytecode")
 
         collector = SourceFileCollector()
-        collector.copy_repo(repo, dest)
+        collector.copy_repo(repo, dest, ignored_dirs={"__pycache__"})
 
         assert (dest / "app.py").exists()
         assert not (dest / "__pycache__").exists()
@@ -86,7 +85,7 @@ class TestCopyRepo:
         _write_file(repo, ".venv/bin/python", "python")
 
         collector = SourceFileCollector()
-        collector.copy_repo(repo, dest)
+        collector.copy_repo(repo, dest, ignored_dirs={".venv"})
 
         assert (dest / "app.py").exists()
         assert not (dest / ".venv").exists()
@@ -168,40 +167,6 @@ class TestManifest:
         manifest = collector.copy_repo(repo, dest)
 
         assert manifest["total_size"] == 5
-
-
-class TestIgnoredDirs:
-    """Tests that IGNORED_DIRS fallback matches SEED_IGNORED_DIRS."""
-
-    def test_fallback_matches_default_ignored_dirs(self):
-        """Module-level IGNORED_DIRS is SEED_IGNORED_DIRS (fallback)."""
-        assert IGNORED_DIRS is SEED_IGNORED_DIRS
-
-    def test_default_fallback_skips_node_modules(self, tmp_path):
-        """Without ignored_dirs param, defaults skip node_modules."""
-        repo = tmp_path / "repo"
-        dest = tmp_path / "dest"
-        _write_file(repo, "index.js", "app")
-        _write_file(repo, "node_modules/react/index.js", "react")
-
-        collector = SourceFileCollector()
-        collector.copy_repo(repo, dest)
-
-        assert (dest / "index.js").exists()
-        assert not (dest / "node_modules").exists()
-
-    def test_default_fallback_skips_git(self, tmp_path):
-        """Without ignored_dirs param, defaults skip .git."""
-        repo = tmp_path / "repo"
-        dest = tmp_path / "dest"
-        _write_file(repo, "src/main.py", "main")
-        _write_file(repo, ".git/HEAD", "ref: refs/heads/main")
-
-        collector = SourceFileCollector()
-        collector.copy_repo(repo, dest)
-
-        assert (dest / "src" / "main.py").exists()
-        assert not (dest / ".git").exists()
 
 
 class TestUserConfiguredIgnoredDirs:

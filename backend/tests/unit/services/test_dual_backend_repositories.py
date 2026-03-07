@@ -49,6 +49,9 @@ class MockQueryBuilder(QueryBuilder):
     def eq(self, column, value):
         return self._record("eq", column, value)
 
+    def neq(self, column, value):
+        return self._record("neq", column, value)
+
     def in_(self, column, values):
         return self._record("in_", column, values)
 

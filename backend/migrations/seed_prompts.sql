@@ -418,6 +418,16 @@ Create a complete technology inventory organized by category. Include technologi
 13. **Linting/Formatting**: Tools, configuration
 14. **Deployment**: Container, CI/CD, cloud platform
 15. **Monitoring**: Logging, metrics, error tracking
+16. **Development Rules**: Imperative rules inferred from tooling config:
+    - Package manager preference (lockfiles: poetry.lock, yarn.lock, pnpm-lock.yaml, etc.)
+    - Pre-commit/quality checks (.pre-commit-config.yaml, husky, lint-staged)
+    - CI enforcement (.github/workflows/, Makefile, tox.ini)
+    - Linting/formatting mandates (ruff.toml, .eslintrc, prettier, editorconfig)
+    - Environment setup (setup.sh, Makefile, docker-compose.yml, .env.example)
+    - Testing requirements (CI configs, pytest.ini, jest.config)
+    - Git conventions (.gitignore, commit hooks, branch protection)
+
+    State each as an imperative: "Always X" or "Never Y", cite the source file.
 
 For each technology, include:
 - Component name
@@ -443,7 +453,8 @@ Provide your analysis in structured JSON format:
   "testing": [{"framework": "...", "type": "...", "platform": "..."}],
   "linting": [{"tool": "...", "purpose": "..."}],
   "deployment": {"container": "...", "cicd": "...", "platform": "..."},
-  "monitoring": [{"tool": "...", "purpose": "..."}]
+  "monitoring": [{"tool": "...", "purpose": "..."}],
+  "development_rules": [{"category": "dependency_management|testing|code_style|ci_cd|environment|git", "rule": "Always/Never ...", "source": "file that proves it"}]
 }
 ```',
     '["repository_name", "all_analyses", "dependencies", "file_registry"]'::jsonb,
@@ -681,7 +692,7 @@ The following file paths exist in this repository. You MUST ONLY reference file 
 2. BE CONCISE. Use short descriptions (1 sentence max). Prefer brevity over elaboration.
 3. Every rule must be grounded in the analysis above. Do NOT invent rules or file paths. Every file path in the output MUST appear in the File Registry.
 4. Use glob patterns for source_pattern fields.
-5. Limit arrays: 8 file_placement_rules, 5 naming_conventions, 10 components, 5 key_decisions, 3 trade_offs, 7 communication patterns, 15 stack items, 5 templates, 5 developer_recipes, 5 pitfalls, 8 implementation_guidelines.
+5. Limit arrays: 8 file_placement_rules, 5 naming_conventions, 10 components, 5 key_decisions, 3 trade_offs, 7 communication patterns, 15 stack items, 5 templates, 5 developer_recipes, 5 pitfalls, 8 implementation_guidelines, 8 development_rules.
 6. Confidence: 0.9+ = clearly observed, 0.7-0.9 = inferred, <0.7 = omit.
 7. COMPLETE the entire JSON structure. A complete but concise blueprint is far better than a detailed but truncated one.
 
@@ -694,15 +705,87 @@ The following file paths exist in this repository. You MUST ONLY reference file 
 - **architecture_diagram**: A Mermaid `graph TD` diagram with 8-12 nodes showing the main components and their relationships. Use short node labels.
 - **pitfalls**: 3-5 non-obvious behaviors, edge cases, or common mistakes specific to this codebase. Each has an area, description, and recommendation.
 - **implementation_guidelines**: Use the Implementation Analysis output. Include 5-8 guidelines documenting capabilities already implemented. These document what ALREADY EXISTS — not future tasks.
+- **development_rules**: 5-8 imperative rules from the technology analysis. "Always X" or "Never Y" with source citation. Categories: dependency_management, testing, code_style, ci_cd, environment, git.
 
 ### JSON Structure (fill all sections):
 
-{"meta":{"repository":"","repository_id":"","analyzed_at":"ISO-8601","schema_version":"2.0.0","architecture_style":"plain language","platforms":[],"executive_summary":"","confidence":{"architecture_rules":0,"decisions":0,"components":0,"communication":0,"technology":0,"frontend":0}},"architecture_rules":{"file_placement_rules":[{"component_type":"","naming_pattern":"","location":"","example":"","description":""}],"naming_conventions":[{"scope":"","pattern":"","examples":[],"description":""}]},"decisions":{"architectural_style":{"title":"","chosen":"","rationale":"","alternatives_rejected":[]},"key_decisions":[{"title":"","chosen":"","rationale":"","alternatives_rejected":[]}],"trade_offs":[{"accept":"","benefit":""}],"out_of_scope":[]},"components":{"structure_type":"","components":[{"name":"","location":"","platform":"backend|frontend|shared","responsibility":"","depends_on":[],"exposes_to":[],"key_interfaces":[{"name":"","methods":[],"description":""}],"key_files":[{"file":"","description":""}]}],"contracts":[]},"communication":{"patterns":[{"name":"","when_to_use":"","how_it_works":"","examples":[]}],"integrations":[{"service":"","purpose":"","integration_point":""}],"pattern_selection_guide":[{"scenario":"","pattern":"","rationale":""}]},"quick_reference":{"where_to_put_code":{},"pattern_selection":{},"error_mapping":[{"error":"","status_code":0,"description":""}]},"technology":{"stack":[{"category":"","name":"","version":"","purpose":""}],"templates":[{"component_type":"","description":"","file_path_template":"","code":""}],"project_structure":"","run_commands":{}},"frontend":{"framework":"","rendering_strategy":"","ui_components":[{"name":"","location":"","component_type":"","description":"","props":[],"children":[]}],"state_management":{"approach":"","global_state":[],"server_state":"","local_state":"","rationale":""},"routing":[{"path":"","component":"","description":"","auth_required":false}],"data_fetching":[{"name":"","mechanism":"","when_to_use":"","examples":[]}],"styling":"","key_conventions":[]},"developer_recipes":[{"task":"","files":[],"steps":[]}],"architecture_diagram":"","pitfalls":[{"area":"","description":"","recommendation":""}],"implementation_guidelines":[{"capability":"","category":"","libraries":[],"pattern_description":"","key_files":[],"usage_example":"","tips":[]}]}
+{"meta":{"repository":"","repository_id":"","analyzed_at":"ISO-8601","schema_version":"2.0.0","architecture_style":"plain language","platforms":[],"executive_summary":"","confidence":{"architecture_rules":0,"decisions":0,"components":0,"communication":0,"technology":0,"frontend":0}},"architecture_rules":{"file_placement_rules":[{"component_type":"","naming_pattern":"","location":"","example":"","description":""}],"naming_conventions":[{"scope":"","pattern":"","examples":[],"description":""}]},"decisions":{"architectural_style":{"title":"","chosen":"","rationale":"","alternatives_rejected":[]},"key_decisions":[{"title":"","chosen":"","rationale":"","alternatives_rejected":[]}],"trade_offs":[{"accept":"","benefit":""}],"out_of_scope":[]},"components":{"structure_type":"","components":[{"name":"","location":"","platform":"backend|frontend|shared","responsibility":"","depends_on":[],"exposes_to":[],"key_interfaces":[{"name":"","methods":[],"description":""}],"key_files":[{"file":"","description":""}]}],"contracts":[]},"communication":{"patterns":[{"name":"","when_to_use":"","how_it_works":"","examples":[]}],"integrations":[{"service":"","purpose":"","integration_point":""}],"pattern_selection_guide":[{"scenario":"","pattern":"","rationale":""}]},"quick_reference":{"where_to_put_code":{},"pattern_selection":{},"error_mapping":[{"error":"","status_code":0,"description":""}]},"technology":{"stack":[{"category":"","name":"","version":"","purpose":""}],"templates":[{"component_type":"","description":"","file_path_template":"","code":""}],"project_structure":"","run_commands":{}},"frontend":{"framework":"","rendering_strategy":"","ui_components":[{"name":"","location":"","component_type":"","description":"","props":[],"children":[]}],"state_management":{"approach":"","global_state":[],"server_state":"","local_state":"","rationale":""},"routing":[{"path":"","component":"","description":"","auth_required":false}],"data_fetching":[{"name":"","mechanism":"","when_to_use":"","examples":[]}],"styling":"","key_conventions":[]},"developer_recipes":[{"task":"","files":[],"steps":[]}],"architecture_diagram":"","pitfalls":[{"area":"","description":"","recommendation":""}],"implementation_guidelines":[{"capability":"","category":"","libraries":[],"pattern_description":"","key_files":[],"usage_example":"","tips":[]}],"development_rules":[{"category":"","rule":"","source":""}]}
 
 Generate the complete JSON for {repository_name}.',
     '["repository_name", "discovery", "layers", "patterns", "communication", "technology", "frontend_analysis", "implementation_analysis", "code_samples", "platform_hint", "file_tree", "framework_usage", "provided_capabilities", "file_registry"]'::jsonb,
     TRUE,
     'blueprint_synthesis',
+    'prompt'
+)
+ON CONFLICT (key) WHERE key IS NOT NULL DO UPDATE SET
+    name = EXCLUDED.name,
+    category = EXCLUDED.category,
+    prompt_template = EXCLUDED.prompt_template,
+    variables = EXCLUDED.variables,
+    is_default = EXCLUDED.is_default,
+    updated_at = NOW();
+
+INSERT INTO analysis_prompts (name, category, prompt_template, variables, is_default, key, type)
+VALUES (
+    'Intent Layer Folder Enrichment',
+    'intent_layer',
+    '## Compound Learning — Folder Deep Work Session
+
+You just completed a deep work session in this folder. Write down everything you learned so your future self can write correct code immediately next time.
+
+Your notes should read like auto-memory from an experienced developer: patterns discovered, mistakes to avoid, debugging insights, historical decisions — NOT generated documentation.
+
+### Folder
+{folder_path}
+
+### Component Context
+Name: {component_name}
+Responsibility: {component_responsibility}
+Depends on: {depends_on}
+Exposes to: {exposes_to}
+
+### Interfaces Summary
+{interfaces_summary}
+
+### What Children Taught Us
+{children_learned}
+
+### Files in This Folder
+{file_listing}
+
+### File Contents
+{file_contents}
+
+## Task
+
+Study the actual code above. Write compound learning notes — everything a developer needs to write correct code in this folder on day one.
+
+Return ONLY valid JSON with this structure:
+
+{{"purpose": "One dense sentence: what this folder IS + its primary constraint (max 20 words)", "patterns": ["Pattern derived from actual code (max 6 items, one line each)"], "key_file_guides": [{{"file": "actual_filename.ext", "purpose": "10 words max", "modification_guide": "15 words max"}}], "anti_patterns": ["Don''t X -- Y instead (max 3 items, one line each)"], "common_task": {{"task": "Most frequent modification", "steps": ["Terse step (max 4 steps)"]}}, "testing": ["How to test (max 2 items, one line each)"], "debugging": ["Debug insight (max 2 items, one line each)"], "decisions": ["Why this design choice (max 2 items, one line each)"], "code_examples": [{{"label": "Short description", "code": "3-8 lines max", "language": "python"}}], "key_imports": ["from module import Name (max 3 items)"]}}
+
+## Line Budget
+
+Your output renders into a CLAUDE.md file with a HARD 200-line cap shared with structural sections (navigation, dependencies, subfolders). The AI-generated content gets ~120 lines. Every line must earn its place.
+
+Line costs: purpose=1, each pattern=1, each key_file row=1, each step=1, each code_example=5+lines_of_code, each list item=1. Section headings+separators cost ~3 lines each.
+
+Prioritize: purpose > patterns > key_files > common_task > anti_patterns > testing. Only include code_examples, debugging, decisions, key_imports if space allows and they add unique value.
+
+## Rules
+
+1. Derive patterns from ACTUAL code — not generic best practices
+2. Every pattern must be mechanically verifiable by a code reviewer
+3. Reference ONLY files in the listing. If you can''t ground a claim in code, skip it
+4. If children_learned is provided, add cross-cutting insights — don''t repeat what children cover
+5. Prefer density over completeness: one precise sentence beats three vague ones
+6. For code_examples: extract from actual files only, not invented. Max 1 example, 3-8 lines. Detect language from extensions
+7. For key_imports: only the imports OTHER folders use from this folder (check __init__.py exports)
+8. Omit any field where you have nothing code-grounded to say — empty arrays are fine
+9. If Previous CLAUDE.md Content is provided below, preserve valuable insights and user-added notes that are still accurate. Update or drop anything outdated. Improve, don''t copy.',
+    '["folder_path", "component_name", "component_responsibility", "depends_on", "exposes_to", "interfaces_summary", "children_learned", "file_listing", "file_contents"]'::jsonb,
+    TRUE,
+    'intent_layer_enrichment',
     'prompt'
 )
 ON CONFLICT (key) WHERE key IS NOT NULL DO UPDATE SET

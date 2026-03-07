@@ -88,3 +88,15 @@ class GitHubClient:
                 raise AuthorizationError("Invalid GitHub token")
             raise ValidationError(f"Failed to get repository: {str(e)}")
 
+    def get_latest_commit_sha(self, owner: str, name: str) -> str:
+        """Get the latest commit SHA for the default branch."""
+        try:
+            repo = self._client.get_repo(f"{owner}/{name}")
+            return repo.get_branch(repo.default_branch).commit.sha
+        except GithubException as e:
+            if e.status == 404:
+                raise ValidationError(f"Repository {owner}/{name} not found")
+            if e.status == 401:
+                raise AuthorizationError("Invalid GitHub token")
+            raise ValidationError(f"Failed to get latest commit: {str(e)}")
+

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Search, GitBranch, ArrowRight, Github, Star, CheckCircle2, Globe, Loader2, RotateCw, Eye, LayoutDashboard, Zap, Activity } from 'lucide-react'
+import { Search, GitBranch, ArrowRight, Github, Star, CheckCircle2, Globe, Loader2, RotateCw, Eye, LayoutDashboard, Zap, Activity, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { useSetActiveRepository, useWorkspaceRepositories } from '@/hooks/api/useWorkspace'
@@ -38,6 +38,7 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
     const [search, setSearch] = useState('')
     const [publicUrl, setPublicUrl] = useState('')
     const [isAnalyzingPublic, setIsAnalyzingPublic] = useState(false)
+    const [confirmDialog, setConfirmDialog] = useState<{owner: string, name: string} | null>(null)
 
     // Map GitHub full_name to workspace repo data (for blueprint status)
     const workspaceByName = new Map(workspaceRepos?.map(r => [r.name, r]) || [])
@@ -61,15 +62,13 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
         return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
     }, [filteredRepos, repos])
 
-    const handleAnalyze = async (owner: string, name: string) => {
+    const handleAnalyze = async (owner: string, name: string, mode: string = 'full') => {
         if (!token) return
         const key = `${owner}/${name}`
         setAnalyzing(prev => new Set(prev).add(key))
         try {
-            const analysis = await repositoriesService.analyze(owner, name, token)
+            const analysis = await repositoriesService.analyze(owner, name, token, mode)
             onAnalyze(analysis.id, key)
-            // refetchRepos is not directly possible if it's from useRepositoriesQuery, 
-            // but we can assume onAnalyze handles navigation.
         } catch (err: any) {
             const detail = err?.response?.data?.detail
             toast.error(typeof detail === 'string' ? detail : err.message || 'Failed to start analysis')
@@ -79,6 +78,14 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
                 next.delete(key)
                 return next
             })
+        }
+    }
+
+    const handleReAnalyze = (owner: string, name: string, hasBlueprint: boolean) => {
+        if (hasBlueprint) {
+            setConfirmDialog({ owner, name })
+        } else {
+            handleAnalyze(owner, name, 'full')
         }
     }
 
@@ -252,7 +259,7 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
                                                                     variant="ghost"
                                                                     size="icon"
                                                                     className="h-9 w-9 border border-papaya-400/40 text-ink/40 hover:bg-papaya-300/20"
-                                                                    onClick={() => handleAnalyze(repo.owner, repo.name)}
+                                                                    onClick={() => handleReAnalyze(repo.owner, repo.name, hasBlueprint)}
                                                                     disabled={isAnalyzing}
                                                                 >
                                                                     <RotateCw className={cn("w-4 h-4", isAnalyzing && "animate-spin")} />
@@ -287,6 +294,49 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
                     </div>
                 </div>
             </div>
+
+            {/* Re-analyze confirmation dialog */}
+            {confirmDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-papaya-400/60 p-6 w-full max-w-md mx-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-ink">Re-analyze Repository</h3>
+                            <button
+                                className="p-1 rounded-lg hover:bg-papaya-300/20 text-ink/40"
+                                onClick={() => setConfirmDialog(null)}
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <p className="text-sm text-ink-300 mb-6">
+                            <strong>{confirmDialog.owner}/{confirmDialog.name}</strong> already has a blueprint. How would you like to re-analyze?
+                        </p>
+                        <div className="flex gap-3">
+                            <Button
+                                className="flex-1 h-10 gap-2 bg-tangerine hover:bg-tangerine/90 text-white font-bold"
+                                onClick={() => {
+                                    const { owner, name } = confirmDialog
+                                    setConfirmDialog(null)
+                                    handleAnalyze(owner, name, 'incremental')
+                                }}
+                            >
+                                <Zap className="w-4 h-4" /> Incremental
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="flex-1 h-10 gap-2 border-papaya-400 text-ink font-bold hover:bg-papaya-300/20"
+                                onClick={() => {
+                                    const { owner, name } = confirmDialog
+                                    setConfirmDialog(null)
+                                    handleAnalyze(owner, name, 'full')
+                                }}
+                            >
+                                <RotateCw className="w-4 h-4" /> Full
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

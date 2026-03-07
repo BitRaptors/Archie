@@ -1,6 +1,8 @@
 """Phased blueprint generator using AI for comprehensive architecture documentation."""
 import asyncio
 import json
+import logging
+import traceback
 from pathlib import Path
 from typing import Any
 from anthropic import AsyncAnthropic, APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
@@ -12,9 +14,12 @@ from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
 from config.settings import Settings
 
 
+logger = logging.getLogger("phased_blueprint_generator")
+
+
 class PhasedBlueprintGenerator:
     """Generates comprehensive architecture blueprints through phased AI analysis.
-    
+
     This generator uses an OBSERVATION-FIRST approach:
     1. Full File Scan: Extract signatures from ALL files (not just RAG matches)
     2. Pattern Detection: AI observes patterns WITHOUT predefined assumptions
@@ -147,10 +152,12 @@ class PhasedBlueprintGenerator:
                 if self._progress_callback and analysis_id:
                     await self._progress_callback(analysis_id, "INFO", "Starting repository indexing for semantic search...")
                 await self._rag_retriever.index_repository(repository_id, repo_path, analysis_id, discovery_ignored_dirs=discovery_ignored_dirs)
-            except Exception:
+            except Exception as rag_err:
+                tb = traceback.format_exc()
+                logger.error("RAG indexing failed: %s\n%s", rag_err, tb)
                 rag_enabled = False  # Fall back to sample-based analysis
                 if self._progress_callback and analysis_id:
-                    await self._progress_callback(analysis_id, "INFO", "RAG indexing failed, falling back to sample-based analysis")
+                    await self._progress_callback(analysis_id, "WARNING", f"RAG indexing failed: {rag_err} — falling back to sample-based analysis")
         
         # PHASE 0: Observation-first full file scan (architecture-agnostic)
         if self._progress_callback and analysis_id:
@@ -194,7 +201,8 @@ class PhasedBlueprintGenerator:
 
         # For small repos: fill remaining budget with all source files not yet read
         if total_budget > 150_000 and self._phase_files:
-            self._phase_files = self._supplement_with_remaining_files(
+            self._phase_files = await asyncio.to_thread(
+                self._supplement_with_remaining_files,
                 repo_path, self._phase_files, total_budget, per_file_budget,
                 discovery_ignored_dirs,
             )
@@ -427,7 +435,8 @@ class PhasedBlueprintGenerator:
                     f"```\n{content}\n```\n"
                 )
             return "\n".join(formatted)
-        except Exception:
+        except Exception as retrieval_err:
+            logger.warning("RAG retrieval failed for stage '%s': %s", stage, retrieval_err)
             return ""
 
     async def _run_discovery_analysis(
@@ -1255,7 +1264,8 @@ class PhasedBlueprintGenerator:
                 priority_map["discovery"] = merged
 
             return priority_map
-        except Exception:
+        except Exception as parse_err:
+            logger.warning("Failed to parse priority files from observation: %s", parse_err)
             return {}
 
     async def _read_priority_files(
@@ -1282,6 +1292,34 @@ class PhasedBlueprintGenerator:
 
         Returns:
             Mapping of phase → {filepath: content}.
+        """
+        result, file_count, total_chars = await asyncio.to_thread(
+            self._read_priority_files_sync,
+            repo_path, priority_map, total_budget_chars, per_file_max_chars,
+            discovery_ignored_dirs,
+        )
+
+        if self._progress_callback and analysis_id:
+            await self._progress_callback(
+                analysis_id,
+                "INFO",
+                f"Phase 0.5: Read {file_count} priority files ({total_chars:,} chars) for per-phase context",
+            )
+
+        return result
+
+    def _read_priority_files_sync(
+        self,
+        repo_path: Path,
+        priority_map: dict[str, list[str]],
+        total_budget_chars: int,
+        per_file_max_chars: int,
+        discovery_ignored_dirs: set[str] | None = None,
+    ) -> tuple[dict[str, dict[str, str]], int, int]:
+        """Read priority files (sync I/O).
+
+        Returns:
+            Tuple of (phase→{filepath: content}, file_count, total_chars).
         """
         ignored = discovery_ignored_dirs or set()
 
@@ -1313,8 +1351,9 @@ class PhasedBlueprintGenerator:
                 truncated = content[:per_file_max_chars]
                 file_cache[rel_path] = truncated
                 total_chars += len(truncated)
-            except Exception:
-                continue  # skip missing / unreadable files
+            except Exception as read_err:
+                logger.debug("Skipping unreadable priority file %s: %s", rel_path, read_err)
+                continue
 
         # Distribute cached content into per-phase structure
         result: dict[str, dict[str, str]] = {}
@@ -1328,14 +1367,7 @@ class PhasedBlueprintGenerator:
             if phase_dict:
                 result[phase] = phase_dict
 
-        if self._progress_callback and analysis_id:
-            await self._progress_callback(
-                analysis_id,
-                "INFO",
-                f"Phase 0.5: Read {len(file_cache)} priority files ({total_chars:,} chars) for per-phase context",
-            )
-
-        return result
+        return result, len(file_cache), total_chars
 
     def _build_phase_context(self, phase: str, max_chars: int = 20_000) -> str:
         """Build formatted context string from priority files for a phase.
@@ -1491,7 +1523,8 @@ class PhasedBlueprintGenerator:
                     supplementary[rel] = truncated
                     remaining -= len(truncated)
                     already_read.add(rel)
-                except Exception:
+                except Exception as supp_err:
+                    logger.debug("Skipping supplementary file %s: %s", rel, supp_err)
                     continue
             if remaining <= 0:
                 break
@@ -1646,45 +1679,33 @@ Please configure the Anthropic API key to enable full blueprint generation.
                 obs_json = obs_json.split("```json")[1].split("```")[0]
             parsed = json.loads(obs_json)
             self._framework_usage = parsed.get("framework_usage", {})
-        except Exception:
+        except Exception as fw_err:
+            logger.warning("Failed to parse framework_usage from observation: %s", fw_err)
             self._framework_usage = {}
 
         return output_text
 
-    async def _extract_all_file_signatures(
+    def _extract_all_file_signatures_sync(
         self,
         repo_path: Path,
-        analysis_id: str | None = None,
         discovery_ignored_dirs: set[str] | None = None,
-    ) -> str:
-        """Extract signatures from ALL code files in the repository.
-        
-        For each file, extracts:
-        - File path
-        - Import statements (first 30 lines)
-        - Class/function signatures (names only, not implementation)
-        
-        This gives the AI visibility into the ENTIRE codebase structure
-        without needing to fit full file contents in context.
-        
-        Args:
-            repo_path: Path to repository
-            analysis_id: For progress logging
-            
+    ) -> tuple[str, int]:
+        """Extract signatures from ALL code files (sync I/O).
+
         Returns:
-            Formatted string of all file signatures
+            Tuple of (formatted signatures string, file count).
         """
         ignore_patterns = discovery_ignored_dirs or set()
-        
+
         signatures = []
         file_count = 0
         max_files = 300  # Limit to keep within token budget
-        
+
         for ext in SOURCE_CODE_EXTENSIONS:
             for file_path in repo_path.rglob(f"*{ext}"):
                 if file_count >= max_files:
                     break
-                    
+
                 try:
                     relative_path = str(file_path.relative_to(repo_path))
                 except ValueError:
@@ -1694,27 +1715,57 @@ Please configure the Anthropic API key to enable full blueprint generation.
 
                 try:
                     content = file_path.read_text(encoding="utf-8", errors="ignore")
-                    
+
                     # Extract signature components
                     signature = self._extract_file_signature(content, relative_path, ext)
                     if signature:
                         signatures.append(signature)
                         file_count += 1
-                        
-                except Exception:
+
+                except Exception as sig_err:
+                    logger.debug("Skipping file during signature scan %s: %s", relative_path, sig_err)
                     continue
-            
+
             if file_count >= max_files:
                 break
-        
+
+        return "\n\n".join(signatures), file_count
+
+    async def _extract_all_file_signatures(
+        self,
+        repo_path: Path,
+        analysis_id: str | None = None,
+        discovery_ignored_dirs: set[str] | None = None,
+    ) -> str:
+        """Extract signatures from ALL code files in the repository.
+
+        For each file, extracts:
+        - File path
+        - Import statements (first 30 lines)
+        - Class/function signatures (names only, not implementation)
+
+        This gives the AI visibility into the ENTIRE codebase structure
+        without needing to fit full file contents in context.
+
+        Args:
+            repo_path: Path to repository
+            analysis_id: For progress logging
+
+        Returns:
+            Formatted string of all file signatures
+        """
+        result, file_count = await asyncio.to_thread(
+            self._extract_all_file_signatures_sync, repo_path, discovery_ignored_dirs,
+        )
+
         if self._progress_callback and analysis_id:
             await self._progress_callback(
-                analysis_id, 
-                "INFO", 
+                analysis_id,
+                "INFO",
                 f"Extracted signatures from {file_count} code files"
             )
-        
-        return "\n\n".join(signatures)
+
+        return result
 
     def _extract_file_signature(self, content: str, file_path: str, ext: str) -> str:
         """Extract signature from a single file.
@@ -1906,7 +1957,7 @@ Please configure the Anthropic API key to enable full blueprint generation.
                         )
 
             return custom_queries
-            
-        except Exception:
-            # Fall back to default queries if parsing fails
+
+        except Exception as query_err:
+            logger.warning("Failed to generate dynamic RAG queries: %s", query_err)
             return {}

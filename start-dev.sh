@@ -171,6 +171,50 @@ if [ -n "$PROMPTS_VERSION" ] && [ "$PROMPTS_VERSION" != "$SYNCED_VERSION" ]; the
     exit 1
 fi
 
+# ── Validate .env.local for stale/missing keys ──────────────────────────
+# Known removed keys that old .env.local files may still contain
+STALE_KEYS="VECTOR_DB_TYPE STORAGE_TYPE MAX_ANALYSIS_WORKERS RAG_ENABLED EMBEDDING_PROVIDER OPENAI_API_KEY"
+HAS_STALE=false
+for KEY in $STALE_KEYS; do
+    if grep -qE "^${KEY}=" .env.local 2>/dev/null; then
+        if [ "$HAS_STALE" = false ]; then
+            echo -e "${YELLOW}⚠️  Your .env.local contains outdated variables:${NC}"
+            HAS_STALE=true
+        fi
+        echo -e "${YELLOW}   - ${KEY} (no longer used — safe to remove)${NC}"
+    fi
+done
+if [ "$HAS_STALE" = true ]; then
+    echo -e "${YELLOW}   These won't cause errors but should be cleaned up.${NC}"
+    echo ""
+fi
+
+# Check required keys
+MISSING_REQUIRED=false
+if ! grep -qE '^ANTHROPIC_API_KEY=.+' .env.local 2>/dev/null; then
+    echo -e "${RED}❌ ANTHROPIC_API_KEY is missing or empty in .env.local${NC}"
+    MISSING_REQUIRED=true
+fi
+if [ "$DB_BACKEND" = "postgres" ]; then
+    if ! grep -qE '^DATABASE_URL=.+' .env.local 2>/dev/null; then
+        echo -e "${RED}❌ DATABASE_URL is missing or empty (required for DB_BACKEND=postgres)${NC}"
+        MISSING_REQUIRED=true
+    fi
+elif [ "$DB_BACKEND" = "supabase" ]; then
+    if ! grep -qE '^SUPABASE_URL=.+' .env.local 2>/dev/null; then
+        echo -e "${RED}❌ SUPABASE_URL is missing or empty (required for DB_BACKEND=supabase)${NC}"
+        MISSING_REQUIRED=true
+    fi
+    if ! grep -qE '^SUPABASE_KEY=.+' .env.local 2>/dev/null; then
+        echo -e "${RED}❌ SUPABASE_KEY is missing or empty (required for DB_BACKEND=supabase)${NC}"
+        MISSING_REQUIRED=true
+    fi
+fi
+if [ "$MISSING_REQUIRED" = true ]; then
+    echo -e "${RED}Fix the above in backend/.env.local, or run ./setup.sh to regenerate.${NC}"
+    exit 1
+fi
+
 # Start backend in background
 python src/main.py &
 BACKEND_PID=$!

@@ -46,7 +46,7 @@ async def create_db() -> DatabaseClient:
             # pgvector → Python lists (avoids requiring the pgvector Python lib)
             await conn.set_type_codec(
                 "vector",
-                encoder=lambda v: v,
+                encoder=lambda v: v if isinstance(v, str) else "[" + ",".join(str(x) for x in v) + "]",
                 decoder=lambda v: [float(x) for x in v.strip("[]").split(",")],
                 schema="public",
                 format="text",

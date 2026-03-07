@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import re
 import zlib
+from collections import defaultdict
 
 from domain.entities.blueprint import StructuredBlueprint
 
@@ -219,7 +220,27 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append(f"| {nc.scope} | {nc.pattern} | {examples} |")
             lines.append("")
 
-    # ── 6. Key Decisions & Trade-offs ─────────────────────────────────
+    # ── 6. Development Rules ──────────────────────────────────────────
+    if bp.development_rules:
+        lines.append("## 6. Development Rules")
+        lines.append("")
+
+        dr_by_cat: dict[str, list] = defaultdict(list)
+        for dr in bp.development_rules:
+            cat = dr.category.strip().replace("_", " ").title() if dr.category else "General"
+            dr_by_cat[cat].append(dr)
+
+        for cat_name in sorted(dr_by_cat.keys()):
+            lines.append(f"### {cat_name}")
+            lines.append("")
+            for dr in dr_by_cat[cat_name]:
+                if dr.source:
+                    lines.append(f"- {dr.rule} *(source: `{dr.source}`)*")
+                else:
+                    lines.append(f"- {dr.rule}")
+            lines.append("")
+
+    # ── 7. Key Decisions & Trade-offs ─────────────────────────────────
     has_decisions = (
         bp.decisions.architectural_style.chosen
         or bp.decisions.key_decisions
@@ -227,7 +248,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
         or bp.decisions.out_of_scope
     )
     if has_decisions:
-        lines.append("## 6. Key Decisions & Trade-offs")
+        lines.append("## 7. Key Decisions & Trade-offs")
         lines.append("")
 
         ad = bp.decisions.architectural_style
@@ -273,7 +294,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
         or bp.communication.pattern_selection_guide
     )
     if has_communication:
-        lines.append("## 7. Communication Patterns")
+        lines.append("## 8. Communication Patterns")
         lines.append("")
 
         for pat in bp.communication.patterns:
@@ -307,13 +328,12 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append(f"| {psg.scenario} | {psg.pattern} | {psg.rationale} |")
             lines.append("")
 
-    # ── 8. Implementation Guidelines ──────────────────────────────────
+    # ── 9. Implementation Guidelines ─────────────────────────────────
     if bp.implementation_guidelines:
-        lines.append("## 8. Implementation Guidelines")
+        lines.append("## 9. Implementation Guidelines")
         lines.append("")
 
         # Group by category
-        from collections import defaultdict
         by_category: dict[str, list] = defaultdict(list)
         for gl in bp.implementation_guidelines:
             cat = gl.category.strip().title() if gl.category else "General"
@@ -370,9 +390,9 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                         lines.append(f"- {tip}")
                     lines.append("")
 
-    # ── 9. Developer Recipes ──────────────────────────────────────────
+    # ── 10. Developer Recipes ─────────────────────────────────────────
     if bp.developer_recipes:
-        lines.append("## 9. Developer Recipes")
+        lines.append("## 10. Developer Recipes")
         lines.append("")
         for recipe in bp.developer_recipes:
             if not recipe.task:
@@ -392,10 +412,10 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                     lines.append(f"{i}. {step}")
                 lines.append("")
 
-    # ── 10. Technology Stack ──────────────────────────────────────────
+    # ── 11. Technology Stack ─────────────────────────────────────────
     has_tech = bp.technology.stack or bp.technology.run_commands or bp.technology.templates
     if has_tech:
-        lines.append("## 10. Technology Stack")
+        lines.append("## 11. Technology Stack")
         lines.append("")
 
         if bp.technology.stack:
@@ -430,9 +450,9 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append("```")
                 lines.append("")
 
-    # ── 11. Pitfalls & Edge Cases ──────────────────────────────────────
+    # ── 12. Pitfalls & Edge Cases ─────────────────────────────────────
     if bp.pitfalls:
-        lines.append("## 11. Pitfalls & Edge Cases")
+        lines.append("## 12. Pitfalls & Edge Cases")
         lines.append("")
         for pitfall in bp.pitfalls:
             if not pitfall.area and not pitfall.description:
@@ -443,14 +463,14 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append(f"  - *Recommendation:* {pitfall.recommendation}")
         lines.append("")
 
-    # ── 12. Quick Reference ──────────────────────────────────────────
+    # ── 13. Quick Reference ─────────────────────────────────────────
     has_quick_ref = (
         bp.quick_reference.where_to_put_code
         or bp.quick_reference.pattern_selection
         or bp.quick_reference.error_mapping
     )
     if has_quick_ref:
-        lines.append("## 12. Quick Reference")
+        lines.append("## 13. Quick Reference")
         lines.append("")
 
         if bp.quick_reference.where_to_put_code:
@@ -480,12 +500,12 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
                 lines.append(f"| `{em.error}` | {em.status_code} | {em.description} |")
             lines.append("")
 
-    # ── 13. Frontend Architecture ────────────────────────────────────
+    # ── 14. Frontend Architecture ───────────────────────────────────
     fe = bp.frontend
     has_frontend = fe.framework or fe.ui_components or fe.routing or fe.data_fetching
 
     if has_frontend:
-        lines.append("## 13. Frontend Architecture")
+        lines.append("## 14. Frontend Architecture")
         lines.append("")
         if fe.framework:
             lines.append(f"**Framework:** {fe.framework}")

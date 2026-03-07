@@ -17,6 +17,7 @@ from domain.entities.blueprint import (
     DataFetchingPattern,
     Decisions,
     DeveloperRecipe,
+    DevelopmentRule,
     ErrorMapping,
     FilePlacementRule,
     Frontend,
@@ -36,15 +37,14 @@ from application.services.agent_file_generator import (
     GeneratedOutput,
     generate_all,
     generate_agents_md,
-    generate_claude_md,
     generate_claude_md_lean,
-    generate_cursor_rules,
     _build_architecture_rule,
     _build_patterns_rule,
     _build_frontend_rule,
     _build_mcp_tools_rule,
     _build_recipes_rule,
     _build_pitfalls_rule,
+    _build_dev_rules_rule,
     _detect_frontend_globs,
 )
 
@@ -61,6 +61,7 @@ def sample_blueprint() -> StructuredBlueprint:
             repository="acme/backend-api",
             repository_id="repo-uuid-123",
             architecture_style="Layered (Clean Architecture)",
+            executive_summary="A backend API built with Python FastAPI using Clean Architecture patterns.",
         ),
         architecture_rules=ArchitectureRules(
             file_placement_rules=[
@@ -164,6 +165,13 @@ def sample_blueprint() -> StructuredBlueprint:
                 "test": "pytest tests/ -v",
             },
         ),
+        developer_recipes=[
+            DeveloperRecipe(
+                task="Add a new API endpoint",
+                files=["src/api/routes/new_route.py", "src/api/app.py"],
+                steps=["Create route file", "Register in app.py", "Add tests"],
+            ),
+        ],
         implementation_guidelines=[
             ImplementationGuideline(
                 capability="Push Notifications",
@@ -189,6 +197,23 @@ def sample_blueprint() -> StructuredBlueprint:
                 area="Dependency Injection",
                 description="Don't instantiate services directly; use the container.",
                 recommendation="Always inject via constructor.",
+            ),
+        ],
+        development_rules=[
+            DevelopmentRule(
+                category="dependency_management",
+                rule="Always use pip with requirements.txt for dependency management",
+                source="requirements.txt",
+            ),
+            DevelopmentRule(
+                category="testing",
+                rule="Always run pytest with PYTHONPATH=src",
+                source="pytest.ini",
+            ),
+            DevelopmentRule(
+                category="code_style",
+                rule="Always use ruff for linting",
+                source="ruff.toml",
             ),
         ],
     )
@@ -367,6 +392,7 @@ class TestGenerateAll:
         assert "mcp-tools" in topics
         assert "recipes" in topics
         assert "pitfalls" in topics
+        assert "dev-rules" in topics
 
     def test_frontend_conditional_absent(self, sample_blueprint):
         output = generate_all(sample_blueprint)
@@ -428,6 +454,7 @@ class TestLeanClaudeMd:
     def test_references_rules_dir(self, sample_blueprint):
         content = generate_claude_md_lean(sample_blueprint)
         assert ".claude/rules/" in content
+        assert "dev-rules.md" in content
 
     def test_contains_mcp_mandatory_note(self, sample_blueprint):
         content = generate_claude_md_lean(sample_blueprint)
@@ -639,6 +666,36 @@ class TestPitfallsRule:
 
 
 # ---------------------------------------------------------------------------
+# Dev rules rule tests
+# ---------------------------------------------------------------------------
+
+class TestDevRulesRule:
+    """Tests for _build_dev_rules_rule()."""
+
+    def test_contains_rules(self, sample_blueprint):
+        rf = _build_dev_rules_rule(sample_blueprint)
+        assert rf is not None
+        assert rf.topic == "dev-rules"
+        assert "Always use ruff for linting" in rf.body
+        assert "Always run pytest with PYTHONPATH=src" in rf.body
+
+    def test_groups_by_category(self, sample_blueprint):
+        rf = _build_dev_rules_rule(sample_blueprint)
+        assert "### Dependency Management" in rf.body
+        assert "### Testing" in rf.body
+        assert "### Code Style" in rf.body
+
+    def test_includes_source_citations(self, sample_blueprint):
+        rf = _build_dev_rules_rule(sample_blueprint)
+        assert "ruff.toml" in rf.body
+        assert "pytest.ini" in rf.body
+
+    def test_none_when_empty(self, minimal_blueprint):
+        rf = _build_dev_rules_rule(minimal_blueprint)
+        assert rf is None
+
+
+# ---------------------------------------------------------------------------
 # Frontend glob detection tests
 # ---------------------------------------------------------------------------
 
@@ -672,36 +729,6 @@ class TestFrontendGlobDetection:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compatibility tests
-# ---------------------------------------------------------------------------
-
-class TestBackwardCompat:
-    """Tests that old public API still works."""
-
-    def test_generate_claude_md_returns_lean(self, sample_blueprint):
-        content = generate_claude_md(sample_blueprint)
-        assert "# CLAUDE.md" in content
-        assert ".claude/rules/" in content
-
-    def test_generate_cursor_rules_concatenates(self, sample_blueprint):
-        content = generate_cursor_rules(sample_blueprint)
-        # Should have Cursor frontmatter
-        assert "---" in content
-        assert "alwaysApply:" in content
-        # Should contain content from multiple rules
-        assert "where_to_put" in content
-
-    def test_generate_agents_md_still_works(self, sample_blueprint):
-        content = generate_agents_md(sample_blueprint)
-        assert "# AGENTS.md" in content
-        assert "Agent Roles" in content
-
-    def test_generate_agents_md_updated_file_placement(self, sample_blueprint):
-        content = generate_agents_md(sample_blueprint)
-        assert ".claude/rules/" in content
-        assert ".cursor/rules/" in content
-
-
 # ---------------------------------------------------------------------------
 # AGENTS.md tests
 # ---------------------------------------------------------------------------
@@ -717,21 +744,34 @@ class TestGenerateAgentsMd:
         content = generate_agents_md(sample_blueprint)
         assert "acme/backend-api" in content
 
-    def test_contains_repository_id(self, sample_blueprint):
+    def test_contains_agent_onboarding_subtitle(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "repo-uuid-123" in content
+        assert "Agent onboarding guide" in content
 
-    def test_contains_blueprint_summary(self, sample_blueprint):
+    def test_contains_overview(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "## Blueprint Summary" in content
-        assert "Layered (Clean Architecture)" in content
+        assert "## Overview" in content
+        assert "backend API" in content
 
-    def test_contains_agent_roles(self, sample_blueprint):
+    def test_contains_quick_setup(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "## Agent Roles" in content
-        assert "Architecture Analysis Agent" in content
-        assert "Code Generation Agent" in content
-        assert "Validation Agent" in content
+        assert "## Quick Setup" in content
+        assert "uvicorn" in content
+
+    def test_contains_development_rules(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert "## Development Rules" in content
+        assert "Always use ruff for linting" in content
+
+    def test_contains_common_workflows(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert "## Common Workflows" in content
+        assert "Add a new API endpoint" in content
+
+    def test_contains_pitfalls_and_gotchas(self, sample_blueprint):
+        content = generate_agents_md(sample_blueprint)
+        assert "## Pitfalls & Gotchas" in content
+        assert "Dependency Injection" in content
 
     def test_contains_mandatory_mcp_section(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
@@ -752,12 +792,13 @@ class TestGenerateAgentsMd:
         assert "list_source_files" in content
         assert "get_repository_blueprint" in content
 
-    def test_summary_includes_rule_counts(self, sample_blueprint):
+    def test_contains_architecture_at_a_glance(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "Components: 3" in content
+        assert "## Architecture at a Glance" in content
+        assert "Repository Pattern" in content
 
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_agents_md(minimal_blueprint)
         assert "# AGENTS.md" in content
-        assert "Agent Roles" in content
+        assert "Architecture MCP Server" in content
         assert len(content) > 100

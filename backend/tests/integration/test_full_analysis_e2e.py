@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 from config.container import Container
 from application.services.repository_service import RepositoryService
 from application.services.analysis_service import AnalysisService
-from infrastructure.persistence.supabase_adapter import SupabaseAdapter
 from infrastructure.persistence.user_repository import UserRepository
 from infrastructure.persistence.repository_repository import RepositoryRepository
 from infrastructure.persistence.analysis_repository import AnalysisRepository
@@ -47,10 +46,9 @@ def github_token():
 async def services(container):
     """Create all necessary services."""
     # Resolve async resources
-    supabase_client = await container.supabase_client()
-    
+    db = await container.db()
+
     # Create repositories
-    db = SupabaseAdapter(supabase_client)
     user_repo = UserRepository(db=db)
     repo_repo = RepositoryRepository(db=db)
     analysis_repo = AnalysisRepository(db=db)
@@ -73,10 +71,10 @@ async def services(container):
     from config.settings import get_settings
     settings = get_settings()
     
-    # Pass supabase_client to enable RAG-based retrieval for full codebase analysis
+    # Pass db_client to enable RAG-based retrieval for full codebase analysis
     phased_blueprint_generator = PhasedBlueprintGenerator(
         settings=settings,
-        supabase_client=supabase_client,  # Enable RAG for comprehensive analysis
+        db_client=db,  # Enable RAG for comprehensive analysis
     )
 
     # Create analysis service

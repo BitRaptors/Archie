@@ -58,6 +58,25 @@ class AnalysisRepository(IRepository[Analysis, str]):
         except Exception:
             return None
 
+    async def get_latest_completed_by_repo_id(self, repository_id: str) -> Analysis | None:
+        """Get the latest *completed* analysis for a repository (has commit_sha)."""
+        try:
+            result = await (
+                self._db.table(self.TABLE)
+                .select("*")
+                .eq("repository_id", repository_id)
+                .eq("status", "completed")
+                .order("created_at", desc=True)
+                .limit(1)
+                .maybe_single()
+                .execute()
+            )
+            if result and result.data:
+                return self._to_entity(result.data)
+            return None
+        except Exception:
+            return None
+
     async def add(self, entity: Analysis) -> Analysis:
         data = self._to_dict(entity)
         result = await self._db.table(self.TABLE).insert(data).execute()
@@ -87,6 +106,7 @@ class AnalysisRepository(IRepository[Analysis, str]):
             started_at=datetime.fromisoformat(data["started_at"].replace("Z", "+00:00")) if data.get("started_at") else None,
             completed_at=datetime.fromisoformat(data["completed_at"].replace("Z", "+00:00")) if data.get("completed_at") else None,
             created_at=datetime.fromisoformat(data["created_at"].replace("Z", "+00:00")),
+            commit_sha=data.get("commit_sha"),
         )
 
     def _to_dict(self, entity: Analysis) -> dict:
@@ -99,4 +119,5 @@ class AnalysisRepository(IRepository[Analysis, str]):
             "started_at": entity.started_at.isoformat() if entity.started_at else None,
             "completed_at": entity.completed_at.isoformat() if entity.completed_at else None,
             "created_at": entity.created_at.isoformat(),
+            "commit_sha": entity.commit_sha,
         }
