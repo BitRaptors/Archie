@@ -165,11 +165,13 @@ Summary: 2 passed, 1 issue found
 
 ---
 
-## Hook: Architecture Staleness Check
+## Hooks
+
+### Architecture Staleness Check
 
 **File:** `.claude/hooks/check-architecture-staleness.sh`
 
-**Trigger:** Conversation start (must be registered in `.claude/settings.json`)
+**Trigger:** `SessionStart` — fires when a Claude Code conversation begins.
 
 **What it does:**
 - Checks if local `CLAUDE.md` is older than the source blueprint
@@ -178,6 +180,63 @@ Summary: 2 passed, 1 issue found
 - If current: silent (no output)
 
 **Why it's useful:** Developers don't have to remember to re-sync after a re-analysis. The staleness check is passive — it notifies but doesn't auto-modify files.
+
+---
+
+### Post-Edit Architecture Validation
+
+**File:** `.claude/hooks/validate-architecture.sh`
+
+**Trigger:** `PostToolUse` on `Write` — fires after Claude Code creates a new file.
+
+**What it does:**
+1. Reads the new file's path from the hook input (stdin JSON)
+2. Loads the project's `blueprint.json` from Archie storage
+3. Matches the filename against `architecture_rules.file_placement_rules` naming patterns
+4. If the file matches a known component type, checks whether it's in the expected directory
+5. If it's in the wrong location: **exits with code 2** and sends feedback via stderr
+6. Claude Code receives the feedback and self-corrects by moving the file
+
+**What it skips:**
+- Edit operations (existing files are assumed to be in the right place)
+- Non-source files (markdown, JSON, YAML, CSS, HTML)
+- Files in ignored directories (node_modules, .git, __pycache__, etc.)
+- Files that don't match any known naming pattern (no rule = no opinion)
+
+**Example flow:**
+```
+1. Developer: "add a new service for notifications"
+2. Claude Code creates worker/notifications/service.py
+3. Hook fires, reads blueprint placement rules
+4. Finds: *_service.py files belong in worker/auto_browser/services/
+5. Hook exits 2 with: "Architecture violation: Service implementation
+   files belong in worker/auto_browser/services/"
+6. Claude Code receives feedback, moves the file to the correct location
+```
+
+**Why it's useful:** Turns the architecture blueprint from a passive document into an active guardrail. Catches placement violations at the moment of creation, before they reach code review. Claude Code self-corrects immediately — no human intervention needed.
+
+**Performance:** The hook reads one JSON file and does string matching. Typical execution is <100ms. Only fires on `Write` (new files), not `Edit`, so it doesn't add latency to every keystroke.
+
+**Configuration** (in `.claude/settings.json` or project settings):
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/validate-architecture.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ---
 
