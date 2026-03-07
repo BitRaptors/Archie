@@ -103,5 +103,7 @@ mcp-server.log
 .mcp.json
 
 # Claude Code
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/hooks/
 CLAUDE.md
