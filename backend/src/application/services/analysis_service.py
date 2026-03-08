@@ -258,6 +258,28 @@ class AnalysisService:
             await self._log_event(analysis_id, "INFO", f"Structure scan complete: {file_count} files, {dir_count} directories")
             await self._log_event(analysis_id, "PHASE_END", "Phase 1 complete: File structure indexed")
 
+            # Launch repo copy early — runs in background during AI analysis
+            repo_copy_task: asyncio.Task | None = None
+            try:
+                from application.services.source_file_collector import SourceFileCollector
+                collector = SourceFileCollector()
+                storage_base = Path(self._persistent_storage._base_path)
+                dest_dir = storage_base / "repos" / str(analysis.repository_id)
+                repo_copy_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        collector.copy_repo,
+                        temp_repo_dir=repo_path_obj,
+                        dest_dir=dest_dir,
+                        ignored_dirs=discovery_ignored_dirs,
+                    )
+                )
+                await self._log_event(analysis_id, "INFO", "Repository copy started in background")
+            except Exception as copy_start_err:
+                await self._log_event(
+                    analysis_id, "WARNING",
+                    f"Failed to start background repo copy (non-fatal): {str(copy_start_err)}"
+                )
+
             # Phase 2: Prepare data for phased analysis
             await self._log_event(analysis_id, "PHASE_START", "Phase 2: Preparing repository data")
             analysis.update_progress(20)
@@ -277,30 +299,26 @@ class AnalysisService:
                 await self._log_event(analysis_id, "ERROR", f"structure_data['file_tree'] type: {type(file_tree_from_data)}")
                 raise ValueError("file_tree is empty - structure analysis returned no files")
             
-            # Extract file tree
+            # Extract file tree (sync, fast)
             await self._log_event(analysis_id, "INFO", "Formatting file tree structure...")
             file_tree = self._format_file_tree(structure_data)
             await self._log_event(analysis_id, "INFO", f"Formatted file tree length: {len(file_tree.split(chr(10))) if file_tree else 0} lines")
-            
-            # Extract dependencies
-            await self._log_event(analysis_id, "INFO", "Extracting dependencies from package files...")
-            dependencies = await self._extract_dependencies(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs)
+
+            # Extract dependencies, config files, and code samples in parallel
+            # — all three are independent I/O tasks reading different file sets.
+            await self._log_event(analysis_id, "INFO", "Extracting dependencies, config files, and code samples (parallel)...")
+            dependencies, config_files, code_samples = await asyncio.gather(
+                self._extract_dependencies(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs),
+                self._extract_config_files(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs),
+                self._extract_code_samples(repo_path_obj, structure_data, discovery_ignored_dirs=discovery_ignored_dirs),
+            )
             # Count dependency files found (each "**filename:**" indicates a file)
             if dependencies and "No dependency files found" not in dependencies:
-                # Count occurrences of "**" pattern (each file has "**path:**")
                 dep_count = dependencies.count("**") // 2
             else:
                 dep_count = 0
             await self._log_event(analysis_id, "INFO", f"Dependencies extracted: {dep_count} dependency files found")
-            
-            # Extract config files
-            await self._log_event(analysis_id, "INFO", "Extracting configuration files...")
-            config_files = await self._extract_config_files(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs)
             await self._log_event(analysis_id, "INFO", f"Configuration files extracted: {len(config_files)} files")
-            
-            # Extract code samples
-            await self._log_event(analysis_id, "INFO", "Extracting representative code samples...")
-            code_samples = await self._extract_code_samples(repo_path_obj, structure_data, discovery_ignored_dirs=discovery_ignored_dirs)
             await self._log_event(analysis_id, "INFO", f"Code samples extracted: {len(code_samples)} files")
             
             # Capture gathered data for analysis data view
@@ -420,30 +438,22 @@ class AnalysisService:
 
             await self._log_event(analysis_id, "PHASE_END", "Phase 4 complete: Blueprint saved")
 
-            # Phase 6: Copy repository to persistent storage
-            try:
-                await self._log_event(analysis_id, "PHASE_START", "Phase 6: Copying repository to storage")
-                from application.services.source_file_collector import SourceFileCollector
-                collector = SourceFileCollector()
-                storage_base = Path(self._persistent_storage._base_path)
-                dest_dir = storage_base / "repos" / str(analysis.repository_id)
-                manifest = await asyncio.to_thread(
-                    collector.copy_repo,
-                    temp_repo_dir=repo_path_obj,
-                    dest_dir=dest_dir,
-                    ignored_dirs=discovery_ignored_dirs,
-                )
-                await self._log_event(
-                    analysis_id, "INFO",
-                    f"Copied {manifest.get('file_count', 0)} files "
-                    f"({manifest.get('total_size', 0)} bytes) to persistent storage"
-                )
-                await self._log_event(analysis_id, "PHASE_END", "Phase 6 complete: Repository copied")
-            except Exception as collect_error:
-                await self._log_event(
-                    analysis_id, "WARNING",
-                    f"Repository copy failed (non-fatal): {str(collect_error)}"
-                )
+            # Phase 6: Await background repository copy (started after Phase 1)
+            if repo_copy_task is not None:
+                try:
+                    await self._log_event(analysis_id, "PHASE_START", "Phase 6: Awaiting repository copy")
+                    manifest = await repo_copy_task
+                    await self._log_event(
+                        analysis_id, "INFO",
+                        f"Copied {manifest.get('file_count', 0)} files "
+                        f"({manifest.get('total_size', 0)} bytes) to persistent storage"
+                    )
+                    await self._log_event(analysis_id, "PHASE_END", "Phase 6 complete: Repository copied")
+                except Exception as collect_error:
+                    await self._log_event(
+                        analysis_id, "WARNING",
+                        f"Repository copy failed (non-fatal): {str(collect_error)}"
+                    )
 
             # Phase 7: Intent layer — per-folder CLAUDE.md with AI enrichment
             if self._intent_layer_service:
