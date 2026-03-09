@@ -196,6 +196,14 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
+
+          {/* Analysis Pipeline Screenshot */}
+          <div className="mt-20 fade-up brutalist-border relative border-4 bg-black" style={{ borderColor: "#39ff14", boxShadow: "16px 16px 0px 0px #39ff14" }}>
+            <div className="absolute flex gap-2 top-0 left-0 bg-neon text-black font-black px-6 py-2 text-xl z-20 border-b-4 border-r-4 border-black">
+              LIVE ANALYSIS PIPELINE
+            </div>
+            <img src="/pipeline.png" alt="Analysis Pipeline" className="w-full h-auto opacity-90 hover:opacity-100 transition-opacity object-cover" />
+          </div>
         </div>
       </section>
 
@@ -340,7 +348,7 @@ export default function LandingPage() {
             A single root-level CLAUDE.md doesn't scale. Your frontend has different patterns than your backend. Architecture Blueprints
             generates per-folder files.
           </p>
-          <div className="bg-black p-16 brutalist-border mx-auto max-w-4xl transform hover:scale-105 transition-transform">
+          <div className="bg-black p-16 brutalist-border mx-auto max-w-4xl transform hover:scale-105 transition-transform mb-20">
             <h3 className="text-4xl font-black text-neon mb-8 uppercase">Compound Learning</h3>
             <p className="text-2xl mb-8">Stop teaching your AI the same lessons twice. Every session starts from zero without us.</p>
             <blockquote className="text-xl italic text-gray-400 border-l-4 border-white pl-8 text-left bg-gray-900 p-8 shadow-inner">
@@ -349,6 +357,14 @@ export default function LandingPage() {
               <br />
               <span className="block mt-6 text-sky-blue font-bold text-2xl uppercase not-italic">— Codified Context, arxiv 2026</span>
             </blockquote>
+          </div>
+
+          {/* Per-Folder Screenshot */}
+          <div className="fade-up brutalist-border relative border-4 max-w-5xl mx-auto bg-black" style={{ borderColor: "#8ecae6", boxShadow: "16px 16px 0px 0px #8ecae6" }}>
+            <div className="absolute top-0 right-0 bg-sky-blue text-black font-black px-6 py-2 text-xl z-20 border-b-4 border-l-4 border-black">
+              SERVICES / CLAUDE.MD
+            </div>
+            <img src="/per-folder.png" alt="Per-Folder CLAUDE.md Context" className="w-full h-auto opacity-90 hover:opacity-100 transition-opacity" />
           </div>
         </div>
       </section>
@@ -412,6 +428,14 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Blueprint Screenshot */}
+          <div className="mt-24 fade-up brutalist-border relative border-4 bg-black" style={{ borderColor: "#ffb703", boxShadow: "16px 16px 0px 0px #ffb703" }}>
+            <div className="absolute -top-6 left-8 bg-amber-flame text-black font-black px-8 py-3 text-2xl z-20 border-4 border-black">
+              THE ARCHITECTURE BLUEPRINT
+            </div>
+            <img src="/blueprint.png" alt="Architecture Blueprint Dashboard" className="w-full h-auto opacity-90 hover:opacity-100 transition-opacity pt-4" />
           </div>
         </div>
       </section>
