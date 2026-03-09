@@ -51,7 +51,6 @@ class PhasedBlueprintGenerator:
         self._synthesis_model = getattr(settings, "synthesis_ai_model", settings.default_ai_model)  # Capable model for synthesis
         self._synthesis_max_tokens = getattr(settings, "synthesis_max_tokens", 10000)
         self._progress_callback = progress_callback
-        self._progress_updater = None
         self._rag_retriever = RAGRetriever(db_client, progress_callback) if db_client else None
         self._db_client = db_client
         self._framework_usage: dict[str, str] = {}  # Populated by observation phase
@@ -162,7 +161,7 @@ class PhasedBlueprintGenerator:
         # PHASE 0: Observation-first full file scan (architecture-agnostic)
         # Runs IN PARALLEL with RAG indexing above.
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Observation — scanning file signatures...")
+            await self._progress_callback(analysis_id, "INFO", "Phase 0: Full file signature scan (architecture-agnostic observation)...")
 
         observation_result = await self._run_observation_phase(
             repo_path=repo_path,
@@ -172,9 +171,7 @@ class PhasedBlueprintGenerator:
         )
 
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Observation complete — detected architecture style and patterns")
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 25)
+            await self._progress_callback(analysis_id, "INFO", "Observation complete - detected architecture style and patterns")
 
         # PHASE 0.5: Smart File Reading — read full content of priority files
         self._structure_data = structure_data
@@ -184,8 +181,9 @@ class PhasedBlueprintGenerator:
             if self._progress_callback and analysis_id:
                 total_files = len({f for paths in priority_map.values() for f in paths})
                 await self._progress_callback(
-                    analysis_id, "STEP",
-                    f"Reading {total_files} priority files (budget: {total_budget:,} chars)...",
+                    analysis_id, "INFO",
+                    f"Phase 0.5: Reading full content of {total_files} AI-selected priority files "
+                    f"(budget: {total_budget:,} chars total, {per_file_budget:,} per file)...",
                 )
             self._phase_files = await self._read_priority_files(
                 repo_path, priority_map,
@@ -215,9 +213,6 @@ class PhasedBlueprintGenerator:
                         analysis_id, "INFO",
                         f"Phase 0.5: Supplemented with {len(supp)} additional source files (small repo full coverage)",
                     )
-
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 30)
 
         # Build file registry for grounding constraint
         self._file_registry = self._build_file_registry(structure_data)
@@ -249,7 +244,7 @@ class PhasedBlueprintGenerator:
 
         # Discovery: understand project purpose and structure
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Discovery — analyzing project purpose...")
+            await self._progress_callback(analysis_id, "INFO", "Analyzing project structure and discovery...")
         discovery_result = await self._run_discovery_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
@@ -262,13 +257,11 @@ class PhasedBlueprintGenerator:
             observation_result=observation_result,  # Pass observation insights
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Discovery complete")
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 38)
+            await self._progress_callback(analysis_id, "INFO", "Project discovery finished")
         
         # Layers: identify architectural layers
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Layers — identifying architecture layers...")
+            await self._progress_callback(analysis_id, "INFO", "Identifying architectural layers...")
         layers_result = await self._run_layers_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
@@ -280,13 +273,11 @@ class PhasedBlueprintGenerator:
             analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Layers complete")
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 46)
+            await self._progress_callback(analysis_id, "INFO", "Layer architecture identified")
         
         # Patterns: identify design patterns
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Patterns — extracting design patterns...")
+            await self._progress_callback(analysis_id, "INFO", "Extracting design patterns...")
         patterns_result = await self._run_patterns_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
@@ -298,9 +289,7 @@ class PhasedBlueprintGenerator:
             analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Patterns complete")
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 54)
+            await self._progress_callback(analysis_id, "INFO", "Design patterns extracted")
 
         # Detect frontend early — needed to decide whether to launch parallel task
         has_frontend = self._detect_frontend(discovery_result, file_tree, dependencies)
@@ -312,7 +301,7 @@ class PhasedBlueprintGenerator:
         frontend_result = ""
         if has_frontend:
             if self._progress_callback and analysis_id:
-                await self._progress_callback(analysis_id, "STEP", "Frontend — analyzing UI architecture...")
+                await self._progress_callback(analysis_id, "INFO", "Analyzing frontend architecture (parallel)...")
             frontend_task = asyncio.create_task(self._run_frontend_analysis(
                 repository_name=repository_name,
                 repository_id=repository_id,
@@ -329,7 +318,7 @@ class PhasedBlueprintGenerator:
 
         # Communication: how components communicate
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Communication — analyzing component interaction...")
+            await self._progress_callback(analysis_id, "INFO", "Analyzing communication patterns...")
         previous_analyses = {
             "discovery": discovery_result,
             "layers": layers_result,
@@ -345,13 +334,11 @@ class PhasedBlueprintGenerator:
             analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Communication complete")
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 62)
+            await self._progress_callback(analysis_id, "INFO", "Communication patterns analyzed")
 
         # Technology: complete tech stack inventory
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Technology — inventorying tech stack...")
+            await self._progress_callback(analysis_id, "INFO", "Inventorying technology stack...")
         all_analyses = {
             "discovery": discovery_result,
             "layers": layers_result,
@@ -369,20 +356,18 @@ class PhasedBlueprintGenerator:
             discovery_ignored_dirs=discovery_ignored_dirs,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Technology complete")
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 70)
+            await self._progress_callback(analysis_id, "INFO", "Technology inventory complete")
 
         # Await Frontend Analysis (launched in parallel above)
         if frontend_task is not None:
             frontend_result = await frontend_task
             if self._progress_callback and analysis_id:
-                await self._progress_callback(analysis_id, "STEP", "Frontend complete")
+                await self._progress_callback(analysis_id, "INFO", "Frontend architecture analyzed")
 
         # Implementation Analysis: identify existing capabilities
         implementation_result = ""
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Implementation — analyzing existing capabilities...")
+            await self._progress_callback(analysis_id, "INFO", "Analyzing implementation patterns...")
         implementation_result = await self._run_implementation_analysis(
             repository_name=repository_name,
             repository_id=repository_id,
@@ -396,13 +381,11 @@ class PhasedBlueprintGenerator:
             analysis_id=analysis_id,
         )
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Implementation complete")
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 80)
+            await self._progress_callback(analysis_id, "INFO", "Implementation analysis complete")
 
         # Final Synthesis: Generate structured JSON blueprint
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "STEP", "Synthesis — generating unified blueprint...")
+            await self._progress_callback(analysis_id, "INFO", "Generating unified architecture blueprint...")
 
         synthesis_result = await self._run_blueprint_synthesis(
             repository_name=repository_name,
@@ -1173,14 +1156,11 @@ class PhasedBlueprintGenerator:
             blueprint.meta.repository_id = repository_id
 
         if self._progress_callback and analysis_id:
-            blueprint_json = json.dumps(structured_data)
             await self._progress_callback(
                 analysis_id,
-                "STEP",
-                f"Blueprint generated ({len(blueprint_json):,} chars)",
+                "INFO",
+                f"Blueprint generated: {len(json.dumps(structured_data))} chars JSON",
             )
-        if hasattr(self, '_progress_updater') and self._progress_updater and analysis_id:
-            await self._progress_updater(analysis_id, 85)
 
         return {
             "structured": blueprint.model_dump(),
