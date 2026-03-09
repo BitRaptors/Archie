@@ -258,6 +258,28 @@ class AnalysisService:
             await self._log_event(analysis_id, "INFO", f"Structure scan complete: {file_count} files, {dir_count} directories")
             await self._log_event(analysis_id, "PHASE_END", "Phase 1 complete: File structure indexed")
 
+            # Launch repo copy early — runs in background during AI analysis
+            repo_copy_task: asyncio.Task | None = None
+            try:
+                from application.services.source_file_collector import SourceFileCollector
+                collector = SourceFileCollector()
+                storage_base = Path(self._persistent_storage._base_path)
+                dest_dir = storage_base / "repos" / str(analysis.repository_id)
+                repo_copy_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        collector.copy_repo,
+                        temp_repo_dir=repo_path_obj,
+                        dest_dir=dest_dir,
+                        ignored_dirs=discovery_ignored_dirs,
+                    )
+                )
+                await self._log_event(analysis_id, "INFO", "Repository copy started in background")
+            except Exception as copy_start_err:
+                await self._log_event(
+                    analysis_id, "WARNING",
+                    f"Failed to start background repo copy (non-fatal): {str(copy_start_err)}"
+                )
+
             # Phase 2: Prepare data for phased analysis
             await self._log_event(analysis_id, "PHASE_START", "Phase 2: Preparing repository data")
             analysis.update_progress(20)
@@ -277,30 +299,26 @@ class AnalysisService:
                 await self._log_event(analysis_id, "ERROR", f"structure_data['file_tree'] type: {type(file_tree_from_data)}")
                 raise ValueError("file_tree is empty - structure analysis returned no files")
             
-            # Extract file tree
+            # Extract file tree (sync, fast)
             await self._log_event(analysis_id, "INFO", "Formatting file tree structure...")
             file_tree = self._format_file_tree(structure_data)
             await self._log_event(analysis_id, "INFO", f"Formatted file tree length: {len(file_tree.split(chr(10))) if file_tree else 0} lines")
-            
-            # Extract dependencies
-            await self._log_event(analysis_id, "INFO", "Extracting dependencies from package files...")
-            dependencies = await self._extract_dependencies(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs)
+
+            # Extract dependencies, config files, and code samples in parallel
+            # — all three are independent I/O tasks reading different file sets.
+            await self._log_event(analysis_id, "INFO", "Extracting dependencies, config files, and code samples (parallel)...")
+            dependencies, config_files, code_samples = await asyncio.gather(
+                self._extract_dependencies(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs),
+                self._extract_config_files(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs),
+                self._extract_code_samples(repo_path_obj, structure_data, discovery_ignored_dirs=discovery_ignored_dirs),
+            )
             # Count dependency files found (each "**filename:**" indicates a file)
             if dependencies and "No dependency files found" not in dependencies:
-                # Count occurrences of "**" pattern (each file has "**path:**")
                 dep_count = dependencies.count("**") // 2
             else:
                 dep_count = 0
             await self._log_event(analysis_id, "INFO", f"Dependencies extracted: {dep_count} dependency files found")
-            
-            # Extract config files
-            await self._log_event(analysis_id, "INFO", "Extracting configuration files...")
-            config_files = await self._extract_config_files(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs)
             await self._log_event(analysis_id, "INFO", f"Configuration files extracted: {len(config_files)} files")
-            
-            # Extract code samples
-            await self._log_event(analysis_id, "INFO", "Extracting representative code samples...")
-            code_samples = await self._extract_code_samples(repo_path_obj, structure_data, discovery_ignored_dirs=discovery_ignored_dirs)
             await self._log_event(analysis_id, "INFO", f"Code samples extracted: {len(code_samples)} files")
             
             # Capture gathered data for analysis data view
@@ -313,6 +331,31 @@ class AnalysisService:
             })
             
             await self._log_event(analysis_id, "PHASE_END", "Phase 2 complete: Repository data prepared")
+
+            # Launch Intent Layer AI enrichment in background (runs during AI analysis)
+            # Enrichment reads source files and asks Claude to describe each folder —
+            # it doesn't need the blueprint. The final merge with the blueprint happens later.
+            enrichment_task: asyncio.Task | None = None
+            if self._intent_layer_service:
+                async def _run_enrichment_after_copy():
+                    """Await repo copy, then run enrichment."""
+                    if repo_copy_task is not None:
+                        await repo_copy_task  # enrichment needs files in storage
+                    async def _il_progress(msg: str) -> None:
+                        await self._log_event(analysis_id, "INFO", f"[Intent Layer] {msg}")
+                    return await self._intent_layer_service.start_enrichment(
+                        source_repo_id=analysis.repository_id,
+                        progress_callback=_il_progress,
+                    )
+
+                try:
+                    enrichment_task = asyncio.create_task(_run_enrichment_after_copy())
+                    await self._log_event(analysis_id, "INFO", "Intent layer enrichment started in background")
+                except Exception as enrich_start_err:
+                    await self._log_event(
+                        analysis_id, "WARNING",
+                        f"Failed to start background enrichment (non-fatal): {str(enrich_start_err)}"
+                    )
 
             # Phase 3: Phased blueprint generation (AI-driven)
             await self._log_event(analysis_id, "PHASE_START", "Phase 3: Running phased AI analysis")
@@ -420,32 +463,27 @@ class AnalysisService:
 
             await self._log_event(analysis_id, "PHASE_END", "Phase 4 complete: Blueprint saved")
 
-            # Phase 6: Copy repository to persistent storage
-            try:
-                await self._log_event(analysis_id, "PHASE_START", "Phase 6: Copying repository to storage")
-                from application.services.source_file_collector import SourceFileCollector
-                collector = SourceFileCollector()
-                storage_base = Path(self._persistent_storage._base_path)
-                dest_dir = storage_base / "repos" / str(analysis.repository_id)
-                manifest = await asyncio.to_thread(
-                    collector.copy_repo,
-                    temp_repo_dir=repo_path_obj,
-                    dest_dir=dest_dir,
-                    ignored_dirs=discovery_ignored_dirs,
-                )
-                await self._log_event(
-                    analysis_id, "INFO",
-                    f"Copied {manifest.get('file_count', 0)} files "
-                    f"({manifest.get('total_size', 0)} bytes) to persistent storage"
-                )
-                await self._log_event(analysis_id, "PHASE_END", "Phase 6 complete: Repository copied")
-            except Exception as collect_error:
-                await self._log_event(
-                    analysis_id, "WARNING",
-                    f"Repository copy failed (non-fatal): {str(collect_error)}"
-                )
+            # Phase 6: Await background repository copy (started after Phase 1)
+            # Note: if enrichment_task is running, it already awaits repo_copy_task
+            # internally.  Awaiting a completed task is a no-op, so this is safe.
+            if repo_copy_task is not None and enrichment_task is None:
+                try:
+                    await self._log_event(analysis_id, "PHASE_START", "Phase 6: Awaiting repository copy")
+                    manifest = await repo_copy_task
+                    await self._log_event(
+                        analysis_id, "INFO",
+                        f"Copied {manifest.get('file_count', 0)} files "
+                        f"({manifest.get('total_size', 0)} bytes) to persistent storage"
+                    )
+                    await self._log_event(analysis_id, "PHASE_END", "Phase 6 complete: Repository copied")
+                except Exception as collect_error:
+                    await self._log_event(
+                        analysis_id, "WARNING",
+                        f"Repository copy failed (non-fatal): {str(collect_error)}"
+                    )
 
             # Phase 7: Intent layer — per-folder CLAUDE.md with AI enrichment
+            # If enrichment ran in background, finalize with blueprint; otherwise fall back to preview()
             if self._intent_layer_service:
                 try:
                     await self._log_event(analysis_id, "PHASE_START", "Phase 7: Generating per-folder CLAUDE.md (intent layer)")
@@ -453,11 +491,27 @@ class AnalysisService:
                     async def _il_progress(msg: str) -> None:
                         await self._log_event(analysis_id, "INFO", f"[Intent Layer] {msg}")
 
-                    il_output = await self._intent_layer_service.preview(
-                        source_repo_id=analysis.repository_id,
-                        progress_callback=_il_progress,
-                        incremental=(mode == "incremental"),
-                    )
+                    if enrichment_task is not None:
+                        # Background enrichment was launched — await it and merge with blueprint
+                        enrichment_state = await enrichment_task
+                        await self._log_event(
+                            analysis_id, "INFO",
+                            f"Background enrichment complete: {enrichment_state.get('total_ai_calls', 0)} AI calls, "
+                            f"{enrichment_state.get('enrichment_time', 0)}s"
+                        )
+                        il_output = await self._intent_layer_service.finalize_with_blueprint(
+                            source_repo_id=analysis.repository_id,
+                            enrichment_state=enrichment_state,
+                            progress_callback=_il_progress,
+                        )
+                    else:
+                        # Fallback: run full preview() synchronously
+                        il_output = await self._intent_layer_service.preview(
+                            source_repo_id=analysis.repository_id,
+                            progress_callback=_il_progress,
+                            incremental=(mode == "incremental"),
+                        )
+
                     # Save the commit-ready file tree to storage
                     for rel_path, content in il_output.claude_md_files.items():
                         storage_path = f"blueprints/{analysis.repository_id}/intent_layer/{rel_path}"

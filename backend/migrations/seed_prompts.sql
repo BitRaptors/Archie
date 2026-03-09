@@ -709,10 +709,10 @@ The following file paths exist in this repository. You MUST ONLY reference file 
 ### OUTPUT RULES
 
 1. Output ONLY a JSON object. No markdown fences, no commentary before or after.
-2. BE CONCISE. Use short descriptions (1 sentence max). Prefer brevity over elaboration.
+2. BE CONCISE — this is critical for performance. Use short descriptions (1 sentence max, under 80 chars). No filler words. Descriptions should be telegraphic, not prose. Code templates: max 5 lines each. usage_example in implementation_guidelines: max 2 lines. how_it_works: max 1 sentence. methods arrays: max 4 items each.
 3. Every rule must be grounded in the analysis above. Do NOT invent rules or file paths. Every file path in the output MUST appear in the File Registry.
 4. Use glob patterns for source_pattern fields.
-5. Limit arrays: 8 file_placement_rules, 5 naming_conventions, 10 components, 5 key_decisions, 3 trade_offs, 7 communication patterns, 15 stack items, 5 templates, 5 developer_recipes, 5 pitfalls, 8 implementation_guidelines, 8 development_rules.
+5. Limit arrays: 6 file_placement_rules, 4 naming_conventions, 7 components, 5 key_decisions, 3 trade_offs, 5 communication patterns, 10 stack items, 3 templates, 4 developer_recipes, 4 pitfalls, 5 implementation_guidelines, 6 development_rules.
 6. Confidence: 0.9+ = clearly observed, 0.7-0.9 = inferred, <0.7 = omit.
 7. COMPLETE the entire JSON structure. A complete but concise blueprint is far better than a detailed but truncated one.
 
