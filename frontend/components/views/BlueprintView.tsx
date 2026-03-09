@@ -566,7 +566,13 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                     .filter(p => (p.endsWith('/CLAUDE.md') || p === 'CODEBASE_MAP.md') && !rootFiles.includes(p))
                                     .sort()
                                 : []
-                            const allPaths = [...rootFiles, ...intentLayerFiles, ...ruleFiles].filter(p => agentFiles.files![p])
+                            // Include hook files and settings in Claude tab
+                            const hookFiles = isClaude
+                                ? Object.keys(agentFiles.files)
+                                    .filter(p => p.startsWith('.claude/hooks/') || p === '.claude/settings.json')
+                                    .sort()
+                                : []
+                            const allPaths = [...rootFiles, ...intentLayerFiles, ...ruleFiles, ...hookFiles].filter(p => agentFiles.files![p])
 
                             const filteredPaths = allPaths.filter(p =>
                                 !fileSearchQuery || p.toLowerCase().includes(fileSearchQuery.toLowerCase())
