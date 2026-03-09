@@ -79,6 +79,7 @@ class SmartRefreshService:
         self._storage = storage
         self._settings = settings
         self._intent_layer_service = intent_layer_service
+        self._ai_client: anthropic.AsyncAnthropic | None = None
 
     # ── Public API ───────────────────────────────────────────────────────
 
@@ -125,6 +126,7 @@ class SmartRefreshService:
             repo_id=repo_id,
             blueprint=blueprint,
             affected_folders=affected_folders,
+            covered_folders=covered_folders,
             source_files=source_files,
             target_local_path=target_local_path,
         )
@@ -253,11 +255,12 @@ class SmartRefreshService:
         repo_id: str,
         blueprint: StructuredBlueprint,
         affected_folders: set[str],
+        covered_folders: dict[str, dict[str, Any]],
         source_files: list[str],
         target_local_path: str,
     ) -> list[_FolderContext]:
         """Build context packets for each affected folder."""
-        covered = self._get_covered_folders(blueprint)
+        covered = covered_folders
 
         # Map files to their containing covered folder
         folder_files: dict[str, list[str]] = {f: [] for f in affected_folders}
@@ -358,13 +361,18 @@ class SmartRefreshService:
                 all_results.extend(folders_data)
             except Exception:
                 logger.exception("AI evaluation failed for batch %d", i // _MAX_FOLDERS_PER_BATCH)
-                # On failure, mark all folders in batch as potentially stale
+                # On failure, flag as incomplete so caller knows evaluation was skipped
                 for ctx in batch:
                     all_results.append({
                         "path": ctx.path,
                         "aligned": True,
-                        "warnings": [],
-                        "claude_md_stale": False,
+                        "warnings": [{
+                            "severity": "info",
+                            "message": "AI evaluation unavailable — alignment not verified",
+                            "rule_violated": "",
+                            "suggestion": "Re-run smart refresh when AI service is available",
+                        }],
+                        "claude_md_stale": True,
                         "suggestion": "",
                     })
 
@@ -410,7 +418,7 @@ class SmartRefreshService:
             if ctx.changed_files:
                 folders_section += "Changed files:\n"
                 for cf in ctx.changed_files:
-                    snippet = cf["content"][:800]  # Further truncate for prompt
+                    snippet = cf["content"]
                     folders_section += f"- `{cf['name']}`:\n```\n{snippet}\n```\n"
 
             if ctx.existing_claude_md:
@@ -440,9 +448,15 @@ Rules:
 
         return prompt
 
+    def _get_ai_client(self) -> anthropic.AsyncAnthropic:
+        """Lazy-init and return the cached Anthropic client."""
+        if self._ai_client is None:
+            self._ai_client = anthropic.AsyncAnthropic(api_key=self._settings.anthropic_api_key)
+        return self._ai_client
+
     async def _call_ai(self, prompt: str) -> dict[str, Any]:
         """Make a single AI call and parse the JSON response."""
-        client = anthropic.AsyncAnthropic(api_key=self._settings.anthropic_api_key)
+        client = self._get_ai_client()
 
         response = await client.messages.create(
             model=_AI_MODEL,
@@ -494,7 +508,7 @@ Rules:
                 )
                 # Filter to only the stale folders and write them
                 files_to_write: dict[str, str] = {}
-                for file_path, content in output.files.items():
+                for file_path, content in output.claude_md_files.items():
                     # Check if this file belongs to a stale folder
                     for stale_folder in stale_folders:
                         if file_path.startswith(stale_folder) and file_path.endswith("CLAUDE.md"):
@@ -514,7 +528,7 @@ Rules:
                     for file_path, content in files_to_write.items():
                         storage_path = f"blueprints/{repo_id}/intent_layer/{file_path}"
                         try:
-                            await self._storage.write(
+                            await self._storage.save(
                                 storage_path,
                                 content.encode("utf-8") if isinstance(content, str) else content,
                             )
@@ -615,7 +629,7 @@ Rules:
         for file_path, content in files_to_write.items():
             storage_path = f"blueprints/{repo_id}/intent_layer/{file_path}"
             try:
-                await self._storage.write(
+                await self._storage.save(
                     storage_path,
                     content.encode("utf-8") if isinstance(content, str) else content,
                 )
@@ -635,8 +649,11 @@ def _is_source_file(filepath: str) -> bool:
 
 
 def _read_local_file(base_dir: str, relative_path: str) -> str | None:
-    """Read a file from the local checkout, returning None if missing."""
-    full_path = os.path.join(base_dir, relative_path)
+    """Read a file from the local checkout, returning None if missing or outside base."""
+    base = os.path.realpath(base_dir)
+    full_path = os.path.realpath(os.path.join(base, relative_path))
+    if not full_path.startswith(base + os.sep) and full_path != base:
+        return None
     try:
         with open(full_path, encoding="utf-8", errors="replace") as f:
             return f.read()
