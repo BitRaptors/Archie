@@ -291,130 +291,105 @@ VIOLATION_COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(len(json.l
 STALE_COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('stale_claude_mds',[])))" 2>/dev/null)
 CHECKED_COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('files_checked',[])))" 2>/dev/null)
 
-# --- Call backend API if refresh warranted ---
-# Refresh if 3+ files changed OR any stale CLAUDE.md found
-SHOULD_REFRESH="false"
-if [[ "$FILE_COUNT" -ge 3 ]] || [[ "$STALE_COUNT" -gt 0 ]]; then
-    SHOULD_REFRESH="true"
-fi
-
+# --- Call smart-refresh API ---
 BACKEND_URL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('backend_url', 'http://localhost:8000'))" 2>/dev/null || echo "http://localhost:8000")
 
-export REFRESH_STATUS=""
-if [[ "$SHOULD_REFRESH" == "true" ]]; then
-    REFRESH_RESULT=$(curl -s -X POST "$BACKEND_URL/delivery/apply" \
-        -H "Content-Type: application/json" \
-        -d "{\"source_repo_id\": \"$REPO_ID\", \"strategy\": \"local\", \"target_local_path\": \"$CWD\", \"outputs\": [\"intent_layer\", \"claude_md\"]}" \
-        --connect-timeout 3 --max-time 15 2>/dev/null) || true
+# Build changed files JSON array
+CHANGED_FILES_JSON=$(echo "$CHANGED_FILES" | python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
 
-    if [[ -n "$REFRESH_RESULT" ]]; then
-        # Check if the response indicates success
-        API_OK=$(echo "$REFRESH_RESULT" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    print('ok' if data.get('status') == 'ok' or 'error' not in data else 'error')
-except:
-    print('error')
-" 2>/dev/null)
-        if [[ "$API_OK" == "ok" ]]; then
-            export REFRESH_STATUS="refreshed"
-        else
-            export REFRESH_STATUS="api_error"
-        fi
-    else
-        export REFRESH_STATUS="backend_unavailable"
-    fi
-fi
+REFRESH_RESULT=$(curl -s -X POST "$BACKEND_URL/delivery/smart-refresh" \
+    -H "Content-Type: application/json" \
+    -d "{\"repo_id\": \"$REPO_ID\", \"changed_files\": $CHANGED_FILES_JSON, \"target_local_path\": \"$CWD\"}" \
+    --connect-timeout 3 --max-time 25 2>/dev/null) || true
 
-# --- Output ---
-if [[ "$VIOLATION_COUNT" -gt 0 ]]; then
-    # Violations found — output to stderr and exit 2
-    echo "$RESULT" | python3 -c "
-import sys, json
-
-data = json.load(sys.stdin)
-violations = data['violations']
-stale = data.get('stale_claude_mds', [])
-file_count = data.get('file_count', 0)
-checked = data.get('files_checked', [])
-
-print(f'Session review: {file_count} file(s) changed, {len(checked)} source file(s) checked.', file=sys.stderr)
-print(f'Found {len(violations)} violation(s):', file=sys.stderr)
-print(file=sys.stderr)
-
-for v in violations:
-    if v['type'] == 'file_placement':
-        print(
-            f\"  File placement violation: \\\"{v['component_type']}\\\" files belong in {v['expected_location']}\n\"
-            f\"    Current path: {v['current_path']}\n\"
-            f\"    Expected pattern: {v['naming_pattern']}\n\"
-            f\"    Example: {v['example']}\",
-            file=sys.stderr
-        )
-    elif v['type'] == 'naming_convention':
-        print(
-            f\"  Naming convention violation: {v['current_name']} should follow {v['convention']} ({v['expected_pattern']})\n\"
-            f\"    File: {v['current_path']}\n\"
-            f\"    Applies to: {v['applies_to']}\n\"
-            f\"    Example: {v['example']}\",
-            file=sys.stderr
-        )
-    print(file=sys.stderr)
-
-if stale:
-    print(f'Stale CLAUDE.md file(s) detected ({len(stale)}):', file=sys.stderr)
-    for s in stale:
-        print(f\"  {s['local']} — source is newer than local copy\", file=sys.stderr)
-    print(file=sys.stderr)
-
-print('Fix the file paths/names to comply with the project architecture rules.', file=sys.stderr)
-" 2>&2
-
-    # Also print refresh status to stdout if refresh was attempted
-    if [[ -n "$REFRESH_STATUS" ]]; then
-        case "$REFRESH_STATUS" in
-            refreshed)
-                echo "Intent layer refreshed successfully."
-                ;;
-            api_error)
-                echo "Intent layer refresh attempted but API returned an error."
-                ;;
-            backend_unavailable)
-                echo "Intent layer refresh skipped — backend unavailable."
-                ;;
-        esac
-    fi
-
-    exit 2
-fi
-
-# --- Clean report to stdout ---
-echo "$RESULT" | python3 -c "
+# --- Combine local validation + smart-refresh results and output ---
+python3 << PYEOF2
 import sys, json, os
 
-data = json.load(sys.stdin)
-stale = data.get('stale_claude_mds', [])
-file_count = data.get('file_count', 0)
-checked = data.get('files_checked', [])
+# Local validation results
+result_json = '''$RESULT'''
+local_data = json.loads(result_json)
+violations = local_data.get("violations", [])
+stale = local_data.get("stale_claude_mds", [])
+file_count = local_data.get("file_count", 0)
+checked = local_data.get("files_checked", [])
 
-refresh_status = os.environ.get('REFRESH_STATUS', '')
+# Smart-refresh results
+refresh_json = '''$REFRESH_RESULT'''
+refresh_data = {}
+try:
+    if refresh_json.strip():
+        refresh_data = json.loads(refresh_json)
+except Exception:
+    pass
 
-print(f'Session review: {file_count} file(s) changed, {len(checked)} source file(s) checked. No violations.')
+refresh_status = refresh_data.get("status", "")
+refresh_warnings = refresh_data.get("warnings", [])
+refresh_updated = refresh_data.get("updated_files", [])
+refresh_suggestions = refresh_data.get("suggestions", [])
 
-if stale:
-    print(f'Stale CLAUDE.md file(s) detected ({len(stale)}):')
-    for s in stale:
-        print(f\"  {s['local']} — source is newer than local copy\")
+# Count architecture errors from AI
+error_warnings = [w for w in refresh_warnings if w.get("severity") == "error"]
+has_violations = len(violations) > 0 or len(error_warnings) > 0
 
-if refresh_status == 'refreshed':
-    print('Intent layer refreshed successfully.')
-elif refresh_status == 'api_error':
-    print('Intent layer refresh attempted but API returned an error.')
-elif refresh_status == 'backend_unavailable':
-    print('Intent layer refresh skipped — backend unavailable.')
-elif file_count >= 3 or stale:
-    pass  # already handled
-"
+output_lines = []
+output_lines.append(f"Session review: {file_count} file(s) changed, {len(checked)} source file(s) checked.")
 
-exit 0
+# Local violations
+if violations:
+    output_lines.append(f"Found {len(violations)} local validation violation(s):")
+    output_lines.append("")
+    for v in violations:
+        if v["type"] == "file_placement":
+            output_lines.append(f'  File placement: "{v["component_type"]}" files belong in {v["expected_location"]}')
+            output_lines.append(f"    Current: {v['current_path']}")
+            if v.get("example"):
+                output_lines.append(f"    Example: {v['example']}")
+        elif v["type"] == "naming_convention":
+            output_lines.append(f"  Naming: {v['current_name']} should follow {v.get('convention', '')} ({v.get('expected_pattern', '')})")
+            output_lines.append(f"    File: {v['current_path']}")
+        output_lines.append("")
+
+# AI architecture warnings
+if refresh_warnings:
+    output_lines.append(f"Architecture review ({len(refresh_warnings)} finding(s)):")
+    for w in refresh_warnings:
+        severity = w.get("severity", "warning").upper()
+        folder = w.get("folder", "")
+        message = w.get("message", "")
+        suggestion = w.get("suggestion", "")
+        output_lines.append(f"  [{severity}] {folder}: {message}")
+        if suggestion:
+            output_lines.append(f"    Suggestion: {suggestion}")
+    output_lines.append("")
+
+# Updated CLAUDE.md files
+if refresh_updated:
+    output_lines.append(f"Updated {len(refresh_updated)} CLAUDE.md file(s):")
+    for f in refresh_updated:
+        output_lines.append(f"  {f}")
+    output_lines.append("")
+
+# Suggestions
+if refresh_suggestions:
+    output_lines.append("Suggestions:")
+    for s in refresh_suggestions:
+        output_lines.append(f"  {s}")
+    output_lines.append("")
+
+if not violations and not refresh_warnings:
+    output_lines.append("No violations. Architecture looks good.")
+    if refresh_status == "refreshed":
+        output_lines.append("Intent layer documentation updated.")
+elif not has_violations:
+    output_lines.append("No critical violations. Review the findings above.")
+
+# Output to stderr if errors, stdout otherwise
+text = "\n".join(output_lines)
+if has_violations:
+    print(text, file=sys.stderr)
+    sys.exit(2)
+else:
+    print(text)
+    sys.exit(0)
+PYEOF2
