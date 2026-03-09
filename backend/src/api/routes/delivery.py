@@ -28,6 +28,12 @@ class PreviewRequest(BaseModel):
     outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor", "intent_layer", "codebase_map"]
 
 
+class SmartRefreshRequest(BaseModel):
+    repo_id: str
+    changed_files: list[str]
+    target_local_path: str
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -120,4 +126,22 @@ async def apply(body: ApplyRequest, request: Request):
             raise HTTPException(status_code=401, detail=str(e))
         if isinstance(e, ValidationError):
             raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/smart-refresh")
+async def smart_refresh(body: SmartRefreshRequest, request: Request):
+    """Evaluate code changes against the architecture blueprint.
+
+    Called by the Stop hook to check alignment and refresh stale CLAUDE.md files.
+    """
+    service = request.app.container.smart_refresh_service()
+    try:
+        result = await service.refresh(
+            repo_id=body.repo_id,
+            changed_files=body.changed_files,
+            target_local_path=body.target_local_path,
+        )
+        return result.model_dump()
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

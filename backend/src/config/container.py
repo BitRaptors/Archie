@@ -17,6 +17,7 @@ from application.services.analysis_service import AnalysisService
 from application.services.delivery_service import DeliveryService
 from application.services.intent_layer_service import IntentLayerService
 from application.services.prompt_service import PromptService
+from application.services.smart_refresh_service import SmartRefreshService
 from infrastructure.prompts.database_prompt_loader import DatabasePromptLoader
 from infrastructure.storage.local_storage import LocalStorage
 
@@ -139,6 +140,13 @@ class Container(containers.DeclarativeContainer):
     delivery_service = providers.Singleton(
         DeliveryService,
         storage=storage,
+    )
+
+    smart_refresh_service = providers.Singleton(
+        SmartRefreshService,
+        storage=storage,
+        settings=settings,
+        intent_layer_service=intent_layer_service,
     )
 
     prompt_service = providers.Singleton(
