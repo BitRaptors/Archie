@@ -558,7 +558,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                 ? ['CLAUDE.md', 'AGENTS.md']
                                 : []
                             const ruleFiles = Object.keys(agentFiles.files)
-                                .filter(p => p.startsWith(prefix))
+                                .filter(p => p.startsWith(prefix) && !p.startsWith('.claude/hooks/') && p !== '.claude/settings.json')
                                 .sort()
                             // Include per-folder CLAUDE.md files and CODEBASE_MAP.md in Claude tab
                             const intentLayerFiles = isClaude
