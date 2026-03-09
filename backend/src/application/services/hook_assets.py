@@ -1086,16 +1086,39 @@ HOOKS_SETTINGS: dict = {
 
 
 # ---------------------------------------------------------------------------
+# Skill files (.claude/skills/*.md)
+# ---------------------------------------------------------------------------
+
+SKILL_FILES: dict[str, str] = {}
+
+# Load skills from the repo's .claude/skills/ directory at import time.
+# Falls back gracefully if the directory doesn't exist (e.g. in tests).
+import os as _os
+_SKILLS_DIR = _os.path.join(_os.path.dirname(__file__), "..", "..", "..", "..", ".claude", "skills")
+_SKILLS_DIR = _os.path.normpath(_SKILLS_DIR)
+if _os.path.isdir(_SKILLS_DIR):
+    for _fname in sorted(_os.listdir(_SKILLS_DIR)):
+        if _fname.endswith(".md"):
+            _fpath = _os.path.join(_SKILLS_DIR, _fname)
+            try:
+                with open(_fpath, encoding="utf-8") as _f:
+                    SKILL_FILES[f".claude/skills/{_fname}"] = _f.read()
+            except OSError:
+                pass
+
+
+# ---------------------------------------------------------------------------
 # Public helper
 # ---------------------------------------------------------------------------
 
 
 def get_hook_files() -> dict[str, str]:
-    """Return all deliverable hook files (scripts + settings.json).
+    """Return all deliverable hook files (scripts + settings.json + skills).
 
     Returns a dict mapping relative file paths to their string content,
     ready to be written into a target project.
     """
     files: dict[str, str] = dict(HOOK_SCRIPTS)
     files[".claude/settings.json"] = json.dumps(HOOKS_SETTINGS, indent=2) + "\n"
+    files.update(SKILL_FILES)
     return files

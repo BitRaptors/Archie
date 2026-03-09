@@ -1111,6 +1111,24 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                                 <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CODEBASE_MAP.md` — Complete architecture map with module guide, navigation, and gotchas in a single file.</p>
                                             </div>
                                         </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Shield className="w-4 h-4 text-rose-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Claude Code Hooks</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`.claude/hooks/` — Automated architecture validation on every file write, edit, and session end.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Star className="w-4 h-4 text-amber-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Claude Code Skills</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`.claude/skills/` — Custom slash commands like `/sync-architecture` and `/check-architecture`.</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
