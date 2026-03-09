@@ -574,7 +574,7 @@ fi
 exit 0
 '''.lstrip()
 
-_STOP_REVIEW_AND_REFRESH_SH = r'''#!/bin/bash
+_STOP_REVIEW_AND_REFRESH_SH = r"""#!/bin/bash
 # Hook: stop-review-and-refresh (Stop)
 #
 # Fires when Claude Code finishes responding. Performs a session-end review:
@@ -968,7 +968,7 @@ else:
     print(text)
     sys.exit(0)
 PYEOF2
-'''.lstrip()
+""".lstrip()
 
 _CHECK_ARCHITECTURE_STALENESS_SH = r'''#!/bin/bash
 # Hook: check-architecture-staleness
