@@ -25,7 +25,7 @@ _STATIC_FILE_MAP: dict[str, str] = {
 _AGGREGATE_KEYS = {"claude_rules", "cursor_rules"}
 
 # All valid output keys (static + aggregate + async)
-VALID_OUTPUTS = set(_STATIC_FILE_MAP.keys()) | _AGGREGATE_KEYS | {"intent_layer", "codebase_map"}
+VALID_OUTPUTS = set(_STATIC_FILE_MAP.keys()) | _AGGREGATE_KEYS | {"intent_layer", "codebase_map", "claude_hooks"}
 
 # Merge strategy per output key
 _STATIC_MERGE_STRATEGY: dict[str, str] = {
@@ -105,6 +105,29 @@ def _merge_json_config(existing: str | None, generated_config: dict) -> str:
     return json.dumps(data, indent=2)
 
 
+def _merge_settings_json(existing: str | None, generated_hooks: dict) -> str:
+    """Merge hooks config into an existing .claude/settings.json.
+
+    Only upserts the ``hooks`` key -- all other keys (permissions, etc.)
+    are preserved.  Within hooks, replaces per event type.
+    """
+    if existing is None:
+        return json.dumps(generated_hooks, indent=2)
+
+    try:
+        data = json.loads(existing)
+    except (json.JSONDecodeError, ValueError):
+        return json.dumps(generated_hooks, indent=2)
+
+    our_hooks = generated_hooks.get("hooks", {})
+    if "hooks" not in data:
+        data["hooks"] = {}
+    for event_type, entries in our_hooks.items():
+        data["hooks"][event_type] = entries
+
+    return json.dumps(data, indent=2)
+
+
 @dataclass
 class DeliveryResult:
     status: str
@@ -148,6 +171,12 @@ class DeliveryService:
                 if self._should_include(path, outputs):
                     result[path] = content
 
+        # Hook scripts are static -- not generated from the blueprint
+        if "claude_hooks" in outputs:
+            from application.services.hook_assets import get_hook_files
+            for path, content in get_hook_files().items():
+                result[path] = content
+
         # MCP configs are not part of the intent layer
         if "mcp_claude" in outputs or "mcp_cursor" in outputs:
             blueprint = await self._load_blueprint(source_repo_id)
@@ -184,22 +213,27 @@ class DeliveryService:
         # Per-folder CLAUDE.md and rule files are fully generated — no merge needed.
         repo_name = target_repo_full_name.split("/")[-1] if "/" in target_repo_full_name else target_repo_full_name
         # Only these root files may have user content that needs merge-preserving
-        _MERGE_CANDIDATES = {"CLAUDE.md", "AGENTS.md", ".mcp.json", ".cursor/mcp.json"}
+        _MERGE_CANDIDATES = {"CLAUDE.md", "AGENTS.md", ".mcp.json", ".cursor/mcp.json", ".claude/settings.json"}
         files: dict[str, str] = {}
         for path, content in generated.items():
             if path in _MERGE_CANDIDATES:
                 existing = push_client.get_file_content(target_repo_full_name, path, default_branch)
-                merge_strategy = self._get_merge_strategy(path)
-                if merge_strategy == "markdown":
-                    files[path] = _merge_markdown(existing, content, repo_name)
-                elif merge_strategy == "json":
+                if path == ".claude/settings.json":
                     generated_config = json.loads(content)
-                    files[path] = _merge_json_config(existing, generated_config)
+                    files[path] = _merge_settings_json(existing, generated_config)
                 else:
-                    files[path] = content
+                    merge_strategy = self._get_merge_strategy(path)
+                    if merge_strategy == "markdown":
+                        files[path] = _merge_markdown(existing, content, repo_name)
+                    elif merge_strategy == "json":
+                        generated_config = json.loads(content)
+                        files[path] = _merge_json_config(existing, generated_config)
+                    else:
+                        files[path] = content
             else:
                 files[path] = content
         delivered_paths = list(files.keys())
+        executable_paths = {p for p in files if p.endswith(".sh")}
 
         if strategy == "pr":
             branch_name = f"{branch_prefix}/sync-architecture-outputs"
@@ -209,6 +243,7 @@ class DeliveryService:
                 branch_name,
                 files,
                 "chore: sync architecture outputs from blueprint analysis",
+                executable_paths=executable_paths,
             )
             pr = push_client.create_pull_request(
                 target_repo_full_name,
@@ -230,6 +265,7 @@ class DeliveryService:
                 default_branch,
                 files,
                 "chore: sync architecture outputs from blueprint analysis",
+                executable_paths=executable_paths,
             )
             return DeliveryResult(
                 status="success",
@@ -257,24 +293,29 @@ class DeliveryService:
         local_client = LocalPushClient(target_local_path)
 
         # Merge root-level files that may have user content
-        _MERGE_CANDIDATES = {"CLAUDE.md", "AGENTS.md", ".mcp.json", ".cursor/mcp.json"}
+        _MERGE_CANDIDATES = {"CLAUDE.md", "AGENTS.md", ".mcp.json", ".cursor/mcp.json", ".claude/settings.json"}
         repo_name = target_local_path.rstrip("/").split("/")[-1]
         files: dict[str, str] = {}
         for path, content in generated.items():
             if path in _MERGE_CANDIDATES:
                 existing = local_client.get_file_content(path)
-                merge_strategy = self._get_merge_strategy(path)
-                if merge_strategy == "markdown":
-                    files[path] = _merge_markdown(existing, content, repo_name)
-                elif merge_strategy == "json":
+                if path == ".claude/settings.json":
                     generated_config = json.loads(content)
-                    files[path] = _merge_json_config(existing, generated_config)
+                    files[path] = _merge_settings_json(existing, generated_config)
                 else:
-                    files[path] = content
+                    merge_strategy = self._get_merge_strategy(path)
+                    if merge_strategy == "markdown":
+                        files[path] = _merge_markdown(existing, content, repo_name)
+                    elif merge_strategy == "json":
+                        generated_config = json.loads(content)
+                        files[path] = _merge_json_config(existing, generated_config)
+                    else:
+                        files[path] = content
             else:
                 files[path] = content
 
-        written = local_client.write_files(files)
+        executable_paths = {p for p in files if p.endswith(".sh")}
+        written = local_client.write_files(files, executable_paths=executable_paths)
         return DeliveryResult(
             status="success",
             strategy="local",
