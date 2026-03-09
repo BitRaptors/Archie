@@ -332,6 +332,31 @@ class AnalysisService:
             
             await self._log_event(analysis_id, "PHASE_END", "Phase 2 complete: Repository data prepared")
 
+            # Launch Intent Layer AI enrichment in background (runs during AI analysis)
+            # Enrichment reads source files and asks Claude to describe each folder —
+            # it doesn't need the blueprint. The final merge with the blueprint happens later.
+            enrichment_task: asyncio.Task | None = None
+            if self._intent_layer_service:
+                async def _run_enrichment_after_copy():
+                    """Await repo copy, then run enrichment."""
+                    if repo_copy_task is not None:
+                        await repo_copy_task  # enrichment needs files in storage
+                    async def _il_progress(msg: str) -> None:
+                        await self._log_event(analysis_id, "INFO", f"[Intent Layer] {msg}")
+                    return await self._intent_layer_service.start_enrichment(
+                        source_repo_id=analysis.repository_id,
+                        progress_callback=_il_progress,
+                    )
+
+                try:
+                    enrichment_task = asyncio.create_task(_run_enrichment_after_copy())
+                    await self._log_event(analysis_id, "INFO", "Intent layer enrichment started in background")
+                except Exception as enrich_start_err:
+                    await self._log_event(
+                        analysis_id, "WARNING",
+                        f"Failed to start background enrichment (non-fatal): {str(enrich_start_err)}"
+                    )
+
             # Phase 3: Phased blueprint generation (AI-driven)
             await self._log_event(analysis_id, "PHASE_START", "Phase 3: Running phased AI analysis")
             analysis.update_progress(30)
@@ -439,7 +464,9 @@ class AnalysisService:
             await self._log_event(analysis_id, "PHASE_END", "Phase 4 complete: Blueprint saved")
 
             # Phase 6: Await background repository copy (started after Phase 1)
-            if repo_copy_task is not None:
+            # Note: if enrichment_task is running, it already awaits repo_copy_task
+            # internally.  Awaiting a completed task is a no-op, so this is safe.
+            if repo_copy_task is not None and enrichment_task is None:
                 try:
                     await self._log_event(analysis_id, "PHASE_START", "Phase 6: Awaiting repository copy")
                     manifest = await repo_copy_task
@@ -456,6 +483,7 @@ class AnalysisService:
                     )
 
             # Phase 7: Intent layer — per-folder CLAUDE.md with AI enrichment
+            # If enrichment ran in background, finalize with blueprint; otherwise fall back to preview()
             if self._intent_layer_service:
                 try:
                     await self._log_event(analysis_id, "PHASE_START", "Phase 7: Generating per-folder CLAUDE.md (intent layer)")
@@ -463,11 +491,27 @@ class AnalysisService:
                     async def _il_progress(msg: str) -> None:
                         await self._log_event(analysis_id, "INFO", f"[Intent Layer] {msg}")
 
-                    il_output = await self._intent_layer_service.preview(
-                        source_repo_id=analysis.repository_id,
-                        progress_callback=_il_progress,
-                        incremental=(mode == "incremental"),
-                    )
+                    if enrichment_task is not None:
+                        # Background enrichment was launched — await it and merge with blueprint
+                        enrichment_state = await enrichment_task
+                        await self._log_event(
+                            analysis_id, "INFO",
+                            f"Background enrichment complete: {enrichment_state.get('total_ai_calls', 0)} AI calls, "
+                            f"{enrichment_state.get('enrichment_time', 0)}s"
+                        )
+                        il_output = await self._intent_layer_service.finalize_with_blueprint(
+                            source_repo_id=analysis.repository_id,
+                            enrichment_state=enrichment_state,
+                            progress_callback=_il_progress,
+                        )
+                    else:
+                        # Fallback: run full preview() synchronously
+                        il_output = await self._intent_layer_service.preview(
+                            source_repo_id=analysis.repository_id,
+                            progress_callback=_il_progress,
+                            incremental=(mode == "incremental"),
+                        )
+
                     # Save the commit-ready file tree to storage
                     for rel_path, content in il_output.claude_md_files.items():
                         storage_path = f"blueprints/{analysis.repository_id}/intent_layer/{rel_path}"
