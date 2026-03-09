@@ -56,6 +56,7 @@ class AnalysisService:
         self._intent_layer_service = intent_layer_service
         # Set progress callback on generator to use our logging
         self._phased_blueprint_generator._progress_callback = self._log_event
+        self._phased_blueprint_generator._progress_updater = self._update_phase3_progress
 
     _logger = logging.getLogger("analysis_service")
 
@@ -74,6 +75,16 @@ class AnalysisService:
         try:
             from infrastructure.events.event_bus import publish
             await publish(analysis_id, {"event": "log", "type": event_type, "message": message})
+        except Exception:
+            pass
+
+    async def _update_phase3_progress(self, analysis_id: str, progress: int) -> None:
+        """Update progress from within Phase 3 sub-phases."""
+        try:
+            analysis = await self._analysis_repo.get(analysis_id)
+            if analysis:
+                analysis.update_progress(progress)
+                await self._analysis_repo.update(analysis)
         except Exception:
             pass
 
@@ -255,7 +266,7 @@ class AnalysisService:
             
             file_count = len([node for node in file_tree if node.get("type") == "file"])
             dir_count = len([node for node in file_tree if node.get("type") == "directory"])
-            await self._log_event(analysis_id, "INFO", f"Structure scan complete: {file_count} files, {dir_count} directories")
+            await self._log_event(analysis_id, "STEP", f"Structure scan complete: {file_count} files, {dir_count} directories")
             await self._log_event(analysis_id, "PHASE_END", "Phase 1 complete: File structure indexed")
 
             # Launch repo copy early — runs in background during AI analysis
@@ -306,7 +317,7 @@ class AnalysisService:
 
             # Extract dependencies, config files, and code samples in parallel
             # — all three are independent I/O tasks reading different file sets.
-            await self._log_event(analysis_id, "INFO", "Extracting dependencies, config files, and code samples (parallel)...")
+            await self._log_event(analysis_id, "STEP", "Extracting dependencies, config files, and code samples (parallel)...")
             dependencies, config_files, code_samples = await asyncio.gather(
                 self._extract_dependencies(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs),
                 self._extract_config_files(repo_path_obj, discovery_ignored_dirs=discovery_ignored_dirs),
@@ -359,9 +370,9 @@ class AnalysisService:
 
             # Phase 3: Phased blueprint generation (AI-driven)
             await self._log_event(analysis_id, "PHASE_START", "Phase 3: Running phased AI analysis")
-            analysis.update_progress(30)
+            analysis.update_progress(20)
             await self._analysis_repo.update(analysis)
-            await _publish_event(analysis_id, {"event": "status", "status": "analyzing", "progress": 30})
+            await _publish_event(analysis_id, {"event": "status", "status": "analyzing", "progress": 20})
             
             # Get repository name
             repo = await self._repository_repo.get_by_id(analysis.repository_id)
@@ -387,7 +398,7 @@ class AnalysisService:
                 )
 
             # Generate Backend Blueprint (dual format: JSON + Markdown)
-            await self._log_event(analysis_id, "INFO", "Starting backend architecture analysis...")
+            await self._log_event(analysis_id, "STEP", "Starting backend architecture analysis...")
             blueprint_result = await self._phased_blueprint_generator.generate(
                 repo_path=repo_path_obj,
                 repository_name=repo_name,
@@ -419,14 +430,14 @@ class AnalysisService:
                 f"Backend blueprint generated: "
                 f"{len(json.dumps(structured_blueprint))} chars JSON"
             )
-            analysis.update_progress(90)
+            analysis.update_progress(85)
             await self._analysis_repo.update(analysis)
-            
+
             await self._log_event(analysis_id, "PHASE_END", "Phase 3 complete: Backend blueprint generated")
 
             # Phase 4: Save structured JSON blueprint (single source of truth)
             await self._log_event(analysis_id, "PHASE_START", "Phase 4: Saving blueprint")
-            analysis.update_progress(95)
+            analysis.update_progress(88)
             await self._analysis_repo.update(analysis)
             
             json_blueprint_path = f"blueprints/{analysis.repository_id}/blueprint.json"
@@ -468,6 +479,8 @@ class AnalysisService:
             # internally.  Awaiting a completed task is a no-op, so this is safe.
             if repo_copy_task is not None and enrichment_task is None:
                 try:
+                    analysis.update_progress(90)
+                    await self._analysis_repo.update(analysis)
                     await self._log_event(analysis_id, "PHASE_START", "Phase 6: Awaiting repository copy")
                     manifest = await repo_copy_task
                     await self._log_event(
@@ -486,6 +499,8 @@ class AnalysisService:
             # If enrichment ran in background, finalize with blueprint; otherwise fall back to preview()
             if self._intent_layer_service:
                 try:
+                    analysis.update_progress(92)
+                    await self._analysis_repo.update(analysis)
                     await self._log_event(analysis_id, "PHASE_START", "Phase 7: Generating per-folder CLAUDE.md (intent layer)")
 
                     async def _il_progress(msg: str) -> None:
@@ -531,7 +546,7 @@ class AnalysisService:
                     )
 
             # Complete analysis
-            await self._log_event(analysis_id, "INFO", "Analysis completed successfully")
+            await self._log_event(analysis_id, "STEP", "Analysis completed successfully")
             analysis.update_progress(100)
             analysis.complete()
             await self._analysis_repo.update(analysis)

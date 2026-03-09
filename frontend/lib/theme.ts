@@ -89,6 +89,7 @@ export const theme = {
     error: "text-brandy-200",
     warning: "text-amber-400",
     phaseEndAlt: "text-tangerine-300", // Optional: if we want to use tangerine for specific phase ends
+    step: "text-papaya-200",
   },
 
   /* ── Brand / identity ───────────────────────────────────────────────── */
