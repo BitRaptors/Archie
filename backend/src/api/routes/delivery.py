@@ -18,14 +18,14 @@ class ApplyRequest(BaseModel):
     source_repo_id: str
     target_repo: Optional[str] = None  # "owner/repo" — required for pr/commit
     strategy: str = "pr"
-    outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor", "intent_layer", "codebase_map"]
+    outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor", "intent_layer", "codebase_map", "claude_hooks"]
     branch_prefix: str = "gbr"
     target_local_path: Optional[str] = None  # required for local strategy
 
 
 class PreviewRequest(BaseModel):
     source_repo_id: str
-    outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor", "intent_layer", "codebase_map"]
+    outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor", "intent_layer", "codebase_map", "claude_hooks"]
 
 
 class SmartRefreshRequest(BaseModel):

@@ -61,7 +61,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
         targetRepo: '',
         strategy: 'local' as 'pr' | 'commit' | 'local',
         targetLocalPath: '',
-        outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor', 'intent_layer', 'codebase_map']
+        outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor', 'intent_layer', 'codebase_map', 'claude_hooks']
     })
     const [deliveryResult, setDeliveryResult] = useState<any>(null)
     const [needsSync, setNeedsSync] = useState(false)
