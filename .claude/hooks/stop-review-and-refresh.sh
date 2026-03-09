@@ -144,7 +144,7 @@ for rel_path in changed_files:
     # Skip non-source files
     if ext in SKIP_EXTENSIONS:
         continue
-    if any(part in rel_path for part in SKIP_PATH_PARTS):
+    if any(part in rel_path.split("/") for part in SKIP_PATH_PARTS):
         continue
 
     # --- Check 1: File placement rules ---
@@ -253,7 +253,11 @@ for d in sorted(dirs_seen):
     local_claude = os.path.join(cwd, d, "CLAUDE.md") if d else os.path.join(cwd, "CLAUDE.md")
     source_claude = os.path.join(intent_layer_dir, d, "CLAUDE.md") if d else os.path.join(intent_layer_dir, "CLAUDE.md")
 
-    if not os.path.isfile(local_claude) or not os.path.isfile(source_claude):
+    if not os.path.isfile(source_claude):
+        continue
+    if not os.path.isfile(local_claude):
+        check_dir = d if d else "."
+        stale_claude_mds.append(f"  {check_dir}/CLAUDE.md — missing locally (source exists)")
         continue
 
     local_mtime = os.path.getmtime(local_claude)
@@ -272,7 +276,7 @@ output = {
     "file_count": len(changed_files),
     "files_checked": [f for f in changed_files
                       if os.path.splitext(f)[1] not in SKIP_EXTENSIONS
-                      and not any(part in f for part in SKIP_PATH_PARTS)],
+                      and not any(part in f.split("/") for part in SKIP_PATH_PARTS)],
 }
 print(json.dumps(output))
 PYEOF
