@@ -298,9 +298,11 @@ if [[ "$FILE_COUNT" -ge 3 ]] || [[ "$STALE_COUNT" -gt 0 ]]; then
     SHOULD_REFRESH="true"
 fi
 
+BACKEND_URL=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('backend_url', 'http://localhost:8000'))" 2>/dev/null || echo "http://localhost:8000")
+
 export REFRESH_STATUS=""
 if [[ "$SHOULD_REFRESH" == "true" ]]; then
-    REFRESH_RESULT=$(curl -s -X POST http://localhost:8000/delivery/apply \
+    REFRESH_RESULT=$(curl -s -X POST "$BACKEND_URL/delivery/apply" \
         -H "Content-Type: application/json" \
         -d "{\"source_repo_id\": \"$REPO_ID\", \"strategy\": \"local\", \"target_local_path\": \"$CWD\", \"outputs\": [\"intent_layer\", \"claude_md\"]}" \
         --connect-timeout 3 --max-time 15 2>/dev/null) || true
