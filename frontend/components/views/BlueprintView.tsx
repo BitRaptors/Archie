@@ -845,9 +845,13 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                             </div>
                                         </div>
                                         <div className="p-10 flex-1">
-                                            <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
-                                            </div>
+                                            {selectedFile && (selectedFile.endsWith('.sh') || selectedFile.endsWith('.json')) ? (
+                                                <pre className="bg-slate-50 border border-slate-200 rounded-xl p-6 overflow-x-auto text-sm font-mono text-slate-800 leading-relaxed whitespace-pre">{currentContent}</pre>
+                                            ) : (
+                                                <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
