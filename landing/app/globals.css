@@ -46,6 +46,22 @@ h6 {
   transform: translate(4px, 4px);
 }
 
+.brutalist-border-sm {
+  border: 1px solid rgba(57, 255, 20, 0.4);
+  box-shadow: 4px 4px 0px 0px rgba(57, 255, 20, 0.2);
+}
+
+.text-glow-neon {
+  text-shadow: 0 0 10px rgba(57, 255, 20, 0.5), 0 0 20px rgba(57, 255, 20, 0.3);
+}
+
+.glassy-card {
+  background: rgba(2, 48, 71, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 .parallax-img-container {
   overflow: hidden;
   position: relative;
