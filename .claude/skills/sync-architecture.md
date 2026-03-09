@@ -47,6 +47,14 @@ For each file from the intent layer, write it to the corresponding relative path
   - Only upsert the `mcpServers.architecture-blueprints` key — preserve all other keys
   - If the file doesn't exist, write the new JSON directly
 
+- **`.claude/settings.json`**: If the file already exists:
+  - Parse the existing JSON
+  - Only upsert the `hooks` key — preserve `permissions` and all other top-level keys
+  - Within `hooks`, replace per event type (PreToolUse, PostToolUse, Stop, SessionStart)
+  - If the file doesn't exist, write the new JSON directly
+
+- **`.claude/hooks/*.sh`**: Overwrite entirely. After writing, set executable permissions (`chmod +x`).
+
 - **All other files** (rule files, per-folder CLAUDE.md files): Overwrite entirely. These are fully generated and not meant to be hand-edited.
 
 ### Step 5: Report
@@ -55,6 +63,7 @@ List all files that were written or updated, grouped by category:
 - Root documentation (CLAUDE.md, AGENTS.md, CODEBASE_MAP.md)
 - Claude Code rules (.claude/rules/*)
 - Cursor rules (.cursor/rules/*)
+- Claude Code hooks (.claude/hooks/*.sh, .claude/settings.json)
 - MCP config (.mcp.json, .cursor/mcp.json)
 - Per-folder context (*/CLAUDE.md)
 
