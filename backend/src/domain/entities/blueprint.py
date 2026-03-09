@@ -194,11 +194,26 @@ class Contract(BaseModel):
     implementing_files: StrList = Field(default_factory=list)
 
 
+def _coerce_contracts(v: Any) -> list[Any]:
+    """Coerce AI output that returns contracts as plain strings into Contract dicts."""
+    if not isinstance(v, list):
+        return []
+    result = []
+    for item in v:
+        if isinstance(item, dict):
+            result.append(item)
+        elif isinstance(item, str):
+            result.append({"interface_name": item, "description": item})
+        else:
+            result.append(item)
+    return result
+
+
 class Components(BaseModel):
     """All architectural components and their contracts."""
     structure_type: str = ""  # layered | modular | feature-based | flat | other
     components: list[Component] = Field(default_factory=list)
-    contracts: list[Contract] = Field(default_factory=list)
+    contracts: Annotated[list[Contract], BeforeValidator(_coerce_contracts)] = Field(default_factory=list)
 
 
 # ── Communication ─────────────────────────────────────────────────────────────
