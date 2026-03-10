@@ -140,6 +140,7 @@ class Container(containers.DeclarativeContainer):
     delivery_service = providers.Singleton(
         DeliveryService,
         storage=storage,
+        settings=settings,
     )
 
     smart_refresh_service = providers.Singleton(

@@ -67,8 +67,22 @@ def mock_storage(sample_blueprint):
 
 
 @pytest.fixture
+def mock_settings():
+    settings = MagicMock()
+    settings.host = "0.0.0.0"
+    settings.port = 8000
+    settings.storage_path = "/tmp/test_storage"
+    return settings
+
+
+@pytest.fixture
 def service(mock_storage):
     return DeliveryService(storage=mock_storage)
+
+
+@pytest.fixture
+def service_with_settings(mock_storage, mock_settings):
+    return DeliveryService(storage=mock_storage, settings=mock_settings)
 
 
 @pytest.fixture
@@ -473,3 +487,74 @@ class TestApplyWithMerge:
         merged = json.loads(committed_files[".mcp.json"])
         assert "my-other-server" in merged["mcpServers"]
         assert "architecture-blueprints" in merged["mcpServers"]
+
+
+class TestClaudeHooksExport:
+    """Verify that exporting claude_hooks delivers all files the hooks need."""
+
+    @pytest.mark.asyncio
+    async def test_export_includes_all_hook_scripts(self, service_with_settings):
+        result = await service_with_settings.preview("repo-uuid-123", ["claude_hooks"])
+        expected_scripts = [
+            ".claude/hooks/pre-validate-architecture.sh",
+            ".claude/hooks/validate-architecture.sh",
+            ".claude/hooks/stop-review-and-refresh.sh",
+            ".claude/hooks/check-architecture-staleness.sh",
+        ]
+        for script in expected_scripts:
+            assert script in result, f"Missing hook script: {script}"
+
+    @pytest.mark.asyncio
+    async def test_export_includes_settings_json(self, service_with_settings):
+        result = await service_with_settings.preview("repo-uuid-123", ["claude_hooks"])
+        assert ".claude/settings.json" in result
+        parsed = json.loads(result[".claude/settings.json"])
+        assert "hooks" in parsed
+        # All four hook types must be registered
+        for hook_type in ("PreToolUse", "PostToolUse", "Stop", "SessionStart"):
+            assert hook_type in parsed["hooks"], f"Missing hook type: {hook_type}"
+
+    @pytest.mark.asyncio
+    async def test_export_includes_archie_config(self, service_with_settings):
+        result = await service_with_settings.preview("repo-uuid-123", ["claude_hooks"])
+        assert ".archie/config.json" in result
+        parsed = json.loads(result[".archie/config.json"])
+        assert parsed["storage_path"] == "/tmp/test_storage"
+        assert parsed["backend_url"] == "http://0.0.0.0:8000"
+
+    @pytest.mark.asyncio
+    async def test_export_includes_archie_repo_id(self, service_with_settings):
+        result = await service_with_settings.preview("repo-uuid-123", ["claude_hooks"])
+        assert ".archie/repo_id" in result
+        assert result[".archie/repo_id"].strip() == "repo-uuid-123"
+
+    @pytest.mark.asyncio
+    async def test_export_scripts_are_executable_bash(self, service_with_settings):
+        result = await service_with_settings.preview("repo-uuid-123", ["claude_hooks"])
+        for path, content in result.items():
+            if path.endswith(".sh"):
+                assert content.startswith("#!/bin/bash"), f"{path} missing shebang"
+
+    @pytest.mark.asyncio
+    async def test_export_without_settings_omits_archie(self, service):
+        """When DeliveryService has no settings, archie files are not included."""
+        result = await service.preview("repo-uuid-123", ["claude_hooks"])
+        assert ".archie/config.json" not in result
+        assert ".archie/repo_id" not in result
+        # Hook scripts should still be present
+        assert ".claude/hooks/stop-review-and-refresh.sh" in result
+
+    @pytest.mark.asyncio
+    async def test_export_settings_reference_correct_scripts(self, service_with_settings):
+        """Each hook command in settings.json points to a script that is also exported."""
+        result = await service_with_settings.preview("repo-uuid-123", ["claude_hooks"])
+        settings = json.loads(result[".claude/settings.json"])
+        for hook_type, entries in settings["hooks"].items():
+            for entry in entries:
+                for hook in entry["hooks"]:
+                    cmd = hook["command"]
+                    # Strip leading ./ to get relative path
+                    script_path = cmd.removeprefix("./")
+                    assert script_path in result, (
+                        f"settings.json references {cmd} but it's not in the export"
+                    )

@@ -141,8 +141,9 @@ class DeliveryResult:
 class DeliveryService:
     """Orchestrates pushing architecture outputs to a target GitHub repository."""
 
-    def __init__(self, storage):
+    def __init__(self, storage, settings=None):
         self._storage = storage
+        self._settings = settings
 
     async def preview(
         self,
@@ -171,10 +172,17 @@ class DeliveryService:
                 if self._should_include(path, outputs):
                     result[path] = content
 
-        # Hook scripts are static -- not generated from the blueprint
+        # Hook scripts + .archie config for the target project
         if "claude_hooks" in outputs:
             from application.services.hook_assets import get_hook_files
-            for path, content in get_hook_files().items():
+            hook_kwargs = {}
+            if self._settings:
+                hook_kwargs = {
+                    "repo_id": source_repo_id,
+                    "backend_url": f"http://{self._settings.host}:{self._settings.port}",
+                    "storage_path": self._settings.storage_path,
+                }
+            for path, content in get_hook_files(**hook_kwargs).items():
                 result[path] = content
 
         # MCP configs are not part of the intent layer

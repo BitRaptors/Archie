@@ -1112,13 +1112,42 @@ if _os.path.isdir(_SKILLS_DIR):
 # ---------------------------------------------------------------------------
 
 
-def get_hook_files() -> dict[str, str]:
-    """Return all deliverable hook files (scripts + settings.json + skills).
+def get_archie_files(repo_id: str, backend_url: str, storage_path: str) -> dict[str, str]:
+    """Return the .archie/ config files needed by hook scripts.
+
+    Args:
+        repo_id: Repository identifier for this project.
+        backend_url: Backend API URL (e.g. "http://localhost:8000").
+        storage_path: Absolute path to the archie storage directory.
+
+    Returns a dict mapping relative file paths to their string content.
+    """
+    config = {
+        "storage_path": storage_path,
+        "backend_url": backend_url,
+    }
+    return {
+        ".archie/config.json": json.dumps(config, indent=2) + "\n",
+        ".archie/repo_id": repo_id + "\n",
+    }
+
+
+def get_hook_files(
+    repo_id: str = "",
+    backend_url: str = "http://localhost:8000",
+    storage_path: str = "",
+) -> dict[str, str]:
+    """Return all deliverable hook files (scripts + settings.json + skills + archie config).
 
     Returns a dict mapping relative file paths to their string content,
     ready to be written into a target project.
+
+    When repo_id and storage_path are provided, .archie/ config files are
+    included so the hook scripts can locate the blueprint and backend.
     """
     files: dict[str, str] = dict(HOOK_SCRIPTS)
     files[".claude/settings.json"] = json.dumps(HOOKS_SETTINGS, indent=2) + "\n"
     files.update(SKILL_FILES)
+    if repo_id and storage_path:
+        files.update(get_archie_files(repo_id, backend_url, storage_path))
     return files
