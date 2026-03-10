@@ -145,31 +145,31 @@ class PhasedBlueprintGenerator:
         config_files = config_files or {}
         code_samples = code_samples or {}
         
-        # If RAG is available, index the repository first
+        # Launch RAG indexing in parallel with Observation — they share no data.
+        # RAG indexes file content for semantic search; Observation scans file
+        # signatures for architecture detection.  We await the RAG task before
+        # Discovery (the first phase that uses RAG retrieval).
         rag_enabled = self._rag_retriever and repository_id
+        rag_task: asyncio.Task | None = None
         if rag_enabled:
-            try:
-                if self._progress_callback and analysis_id:
-                    await self._progress_callback(analysis_id, "INFO", "Starting repository indexing for semantic search...")
-                await self._rag_retriever.index_repository(repository_id, repo_path, analysis_id, discovery_ignored_dirs=discovery_ignored_dirs)
-            except Exception as rag_err:
-                tb = traceback.format_exc()
-                logger.error("RAG indexing failed: %s\n%s", rag_err, tb)
-                rag_enabled = False  # Fall back to sample-based analysis
-                if self._progress_callback and analysis_id:
-                    await self._progress_callback(analysis_id, "WARNING", f"RAG indexing failed: {rag_err} — falling back to sample-based analysis")
-        
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(analysis_id, "INFO", "Starting repository indexing for semantic search...")
+            rag_task = asyncio.create_task(
+                self._rag_retriever.index_repository(repository_id, repo_path, analysis_id, discovery_ignored_dirs=discovery_ignored_dirs)
+            )
+
         # PHASE 0: Observation-first full file scan (architecture-agnostic)
+        # Runs IN PARALLEL with RAG indexing above.
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Phase 0: Full file signature scan (architecture-agnostic observation)...")
-        
+
         observation_result = await self._run_observation_phase(
             repo_path=repo_path,
             repository_name=repository_name,
             analysis_id=analysis_id,
             discovery_ignored_dirs=discovery_ignored_dirs,
         )
-        
+
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Observation complete - detected architecture style and patterns")
 
@@ -223,13 +223,25 @@ class PhasedBlueprintGenerator:
                 f"File registry built: {line_count} source files ({len(self._file_registry):,} chars)",
             )
 
+        # Await RAG indexing (launched in parallel with Observation above).
+        # Must complete before Discovery, which is the first phase to use RAG retrieval.
+        if rag_task is not None:
+            try:
+                await rag_task
+            except Exception as rag_err:
+                tb = traceback.format_exc()
+                logger.error("RAG indexing failed: %s\n%s", rag_err, tb)
+                rag_enabled = False
+                if self._progress_callback and analysis_id:
+                    await self._progress_callback(analysis_id, "WARNING", f"RAG indexing failed: {rag_err} — falling back to sample-based analysis")
+
         # Update RAG queries based on observations (if RAG is enabled)
         custom_rag_queries = None
         if rag_enabled and observation_result:
             custom_rag_queries = await self._generate_dynamic_rag_queries(observation_result, analysis_id)
             if self._rag_retriever:
                 self._rag_retriever.set_custom_queries(custom_rag_queries)
-        
+
         # Discovery: understand project purpose and structure
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Analyzing project structure and discovery...")
@@ -278,7 +290,32 @@ class PhasedBlueprintGenerator:
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Design patterns extracted")
-        
+
+        # Detect frontend early — needed to decide whether to launch parallel task
+        has_frontend = self._detect_frontend(discovery_result, file_tree, dependencies)
+
+        # Launch Frontend Analysis in parallel with Communication + Technology.
+        # Frontend only needs discovery + layers + patterns (same inputs as Communication),
+        # so it can run concurrently while Communication and Technology proceed serially.
+        frontend_task: asyncio.Task | None = None
+        frontend_result = ""
+        if has_frontend:
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(analysis_id, "INFO", "Analyzing frontend architecture (parallel)...")
+            frontend_task = asyncio.create_task(self._run_frontend_analysis(
+                repository_name=repository_name,
+                repository_id=repository_id,
+                repo_path=repo_path,
+                previous_analyses=json.dumps({
+                    "discovery": discovery_result,
+                    "layers": layers_result,
+                    "patterns": patterns_result,
+                }, indent=2),
+                code_samples=code_samples,
+                rag_enabled=rag_enabled,
+                analysis_id=analysis_id,
+            ))
+
         # Communication: how components communicate
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Analyzing communication patterns...")
@@ -298,7 +335,7 @@ class PhasedBlueprintGenerator:
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Communication patterns analyzed")
-        
+
         # Technology: complete tech stack inventory
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Inventorying technology stack...")
@@ -320,28 +357,10 @@ class PhasedBlueprintGenerator:
         )
         if self._progress_callback and analysis_id:
             await self._progress_callback(analysis_id, "INFO", "Technology inventory complete")
-        
-        # Detect platforms from discovery result
-        has_frontend = self._detect_frontend(discovery_result, file_tree, dependencies)
 
-        # Frontend Analysis (if frontend detected)
-        frontend_result = ""
-        if has_frontend:
-            if self._progress_callback and analysis_id:
-                await self._progress_callback(analysis_id, "INFO", "Analyzing frontend architecture...")
-            frontend_result = await self._run_frontend_analysis(
-                repository_name=repository_name,
-                repository_id=repository_id,
-                repo_path=repo_path,
-                previous_analyses=json.dumps({
-                    "discovery": discovery_result,
-                    "layers": layers_result,
-                    "patterns": patterns_result,
-                }, indent=2),
-                code_samples=code_samples,
-                rag_enabled=rag_enabled,
-                analysis_id=analysis_id,
-            )
+        # Await Frontend Analysis (launched in parallel above)
+        if frontend_task is not None:
+            frontend_result = await frontend_task
             if self._progress_callback and analysis_id:
                 await self._progress_callback(analysis_id, "INFO", "Frontend architecture analyzed")
 

@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     # AI Providers
     anthropic_api_key: str = Field(...)  # Claude API
     default_ai_model: str = Field(default="claude-haiku-4-5-20251001")  # Fast model for intermediate phases
-    synthesis_ai_model: str = Field(default="claude-haiku-4-5-20251001")  # Model for final synthesis (supports up to 64K output tokens)
+    synthesis_ai_model: str = Field(default="claude-sonnet-4-6")  # Model for final synthesis — Sonnet is faster and more concise than Haiku for large JSON output
     synthesis_max_tokens: int = Field(default=64000)  # Max output tokens — Haiku 4.5 & Sonnet 4.5 support 64K, Opus 4.6 supports 128K
 
     # Embedding Model

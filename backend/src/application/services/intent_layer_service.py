@@ -534,6 +534,180 @@ class IntentLayerService:
             generation_time_seconds=round(elapsed, 2),
         )
 
+    async def start_enrichment(
+        self,
+        source_repo_id: str,
+        progress_callback=None,
+    ) -> dict:
+        """Run ONLY the AI enrichment step (no blueprint needed).
+
+        This can be launched in parallel with the main AI analysis pipeline.
+        Returns an intermediate state dict that ``finalize_with_blueprint()``
+        consumes after the blueprint is available.
+        """
+        config = self._build_config()
+        start_time = time.time()
+        ignored_dirs = await self._load_ignored_dirs()
+        builder = FolderHierarchyBuilder(config, ignored_dirs=ignored_dirs)
+
+        file_tree = await self._load_file_tree(source_repo_id)
+        nodes = builder.build_from_file_tree(file_tree)
+        significant = builder.filter_significant(nodes)
+
+        enrichments: dict[str, FolderEnrichment] = {}
+        total_ai_calls = 0
+
+        if config.enable_ai_enrichment:
+            from application.services.hybrid_enrichment_engine import HybridEnrichmentEngine
+
+            engine = HybridEnrichmentEngine(self._settings, config, progress_callback=progress_callback)
+            file_reader = self._make_storage_reader(source_repo_id)
+
+            # Read previous CLAUDE.md content for AI context
+            previous_content: dict[str, str] = {}
+            for folder_path in significant:
+                md_rel = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
+                raw = file_reader(md_rel)
+                if raw:
+                    previous_content[folder_path] = raw
+
+            # Empty folder_blueprints — we don't have the blueprint yet.
+            # The engine uses them as fallback context only; enrichment still works.
+            from domain.entities.intent_layer import FolderBlueprint
+            empty_blueprints = {fp: FolderBlueprint(path=fp) for fp in significant}
+
+            enrichments = await engine.enrich_all(significant, empty_blueprints, file_reader, previous_content)
+            total_ai_calls = engine.total_calls
+
+        elapsed = time.time() - start_time
+        logger.info(f"Enrichment-only complete: {total_ai_calls} AI calls in {elapsed:.1f}s")
+
+        return {
+            "nodes": nodes,
+            "significant": significant,
+            "enrichments": enrichments,
+            "total_ai_calls": total_ai_calls,
+            "config": config,
+            "ignored_dirs": ignored_dirs,
+            "enrichment_time": round(elapsed, 2),
+        }
+
+    async def finalize_with_blueprint(
+        self,
+        source_repo_id: str,
+        enrichment_state: dict,
+        progress_callback=None,
+    ) -> IntentLayerOutput:
+        """Merge pre-computed AI enrichments with the completed blueprint.
+
+        Call this after both ``start_enrichment()`` and blueprint generation
+        are done.
+        """
+        from application.services.blueprint_folder_mapper import BlueprintFolderMapper, compute_blueprint_hash
+        from application.services.intent_layer_renderer import IntentLayerRenderer
+        from application.services.codebase_map_renderer import CodebaseMapRenderer
+        from application.services.intent_layer_manifest import ManifestManager
+
+        start_time = time.time()
+
+        nodes = enrichment_state["nodes"]
+        significant = enrichment_state["significant"]
+        enrichments = enrichment_state["enrichments"]
+        total_ai_calls = enrichment_state["total_ai_calls"]
+        config = enrichment_state["config"]
+
+        # Load blueprint (now available)
+        blueprint = await self._load_blueprint(source_repo_id)
+        repo_name = (
+            blueprint.meta.repository
+            if blueprint and blueprint.meta.repository
+            else source_repo_id
+        )
+
+        folder_paths = list(significant.keys())
+        mapper = BlueprintFolderMapper()
+        renderer = IntentLayerRenderer()
+        claude_md_files: dict[str, str] = {}
+
+        if blueprint:
+            folder_blueprints = mapper.map_all(blueprint, folder_paths)
+
+            # Merge enrichments with blueprint data
+            for folder_path, fb in folder_blueprints.items():
+                node = significant.get(folder_path)
+                if not node:
+                    continue
+                md_path = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
+                if node.is_passthrough:
+                    claude_md_files[md_path] = renderer.render_passthrough(node, fb, repo_name)
+                    continue
+                enrichment = enrichments.get(folder_path, FolderEnrichment(path=folder_path))
+                claude_md_files[md_path] = renderer.render_hybrid(node, fb, enrichment, repo_name)
+        else:
+            # No blueprint — render minimal
+            from domain.entities.intent_layer import FolderBlueprint
+            for folder_path in folder_paths:
+                node = significant.get(folder_path)
+                if not node:
+                    continue
+                fb = FolderBlueprint(path=folder_path)
+                md_path = f"{folder_path}/CLAUDE.md" if folder_path else "CLAUDE.md"
+                claude_md_files[md_path] = renderer.render_minimal(node, fb, repo_name)
+
+        # Generate codebase map
+        if config.generate_codebase_map and blueprint:
+            from application.services.codebase_map_renderer import CodebaseMapRenderer
+            codebase_map = CodebaseMapRenderer().render(blueprint)
+            if codebase_map:
+                claude_md_files["CODEBASE_MAP.md"] = codebase_map
+
+        # Merge blueprint-derived outputs (root CLAUDE.md, AGENTS.md, rules)
+        if blueprint:
+            from application.services.agent_file_generator import generate_all
+            agent_output = generate_all(blueprint)
+            agent_files = agent_output.to_file_map()
+            for path, content in agent_files.items():
+                if path == "CLAUDE.md":
+                    claude_md_files[path] = content
+                elif path not in claude_md_files:
+                    claude_md_files[path] = content
+
+        # Save manifest for incremental mode
+        if source_repo_id and blueprint:
+            try:
+                manifest_mgr = ManifestManager(self._storage)
+                bp_hash = compute_blueprint_hash(blueprint)
+                det_files: dict[str, str] = {}
+                det_mapper = BlueprintFolderMapper()
+                det_renderer = IntentLayerRenderer()
+                all_fb = det_mapper.map_all(blueprint, folder_paths)
+                for fp, fb in all_fb.items():
+                    node = nodes.get(fp)
+                    if not node:
+                        continue
+                    mp = f"{fp}/CLAUDE.md" if fp else "CLAUDE.md"
+                    if node.is_passthrough:
+                        det_files[mp] = det_renderer.render_passthrough(node, fb, repo_name)
+                    elif fb.has_blueprint_coverage:
+                        det_files[mp] = det_renderer.render_from_blueprint(node, fb, repo_name)
+                    else:
+                        det_files[mp] = det_renderer.render_minimal(node, fb, repo_name)
+                manifest = manifest_mgr.build_manifest(bp_hash, det_files)
+                await manifest_mgr.save(source_repo_id, manifest)
+            except Exception as e:
+                logger.warning(f"Failed to save manifest: {e}")
+
+        elapsed = time.time() - start_time
+        total_time = enrichment_state["enrichment_time"] + round(elapsed, 2)
+
+        return IntentLayerOutput(
+            claude_md_files=claude_md_files,
+            folder_count=len(significant),
+            skipped_folder_count=0,
+            total_ai_calls=total_ai_calls,
+            generation_time_seconds=total_time,
+        )
+
     async def apply_local(
         self,
         local_path: str,

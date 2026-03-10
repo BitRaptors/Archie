@@ -91,8 +91,6 @@ class RAGRetriever:
         except Exception as del_err:
             logger.warning("Failed to delete stale embeddings for repo %s: %s", repository_id, del_err)
 
-        embeddings_batch = []
-
         code_files = await asyncio.to_thread(self._find_code_files, repo_path, discovery_ignored_dirs)
         total_files = len(code_files)
 
@@ -102,25 +100,26 @@ class RAGRetriever:
         # Batch-read all file contents in a thread to avoid blocking the event loop
         file_contents = await asyncio.to_thread(self._read_all_files, code_files, repo_path)
 
+        # Collect ALL chunks across all files first, then batch-encode them.
+        # GPU (MPS/CUDA) and even CPU benefit massively from batched encoding
+        # vs the previous one-at-a-time loop.
+        all_chunk_records: list[dict] = []  # {repository_id, file_path, chunk_type, content, metadata}
+
         for idx, file_path in enumerate(code_files):
             try:
                 content = file_contents.get(file_path)
                 if content is None:
                     continue
                 relative_path = str(file_path.relative_to(repo_path))
-                
-                # Generate chunks with context
+
                 chunks = self._chunk_file(content, relative_path)
-                
+
                 for chunk in chunks:
-                    # Generate embedding
-                    embedding = self._get_model().encode(chunk["content"], show_progress_bar=False)
-                    
-                    embeddings_batch.append({
+                    all_chunk_records.append({
                         "repository_id": repository_id,
                         "file_path": relative_path,
                         "chunk_type": chunk["type"],
-                        "embedding": embedding.tolist(),
+                        "content": chunk["content"],
                         "metadata": {
                             "start_line": chunk["start_line"],
                             "end_line": chunk["end_line"],
@@ -128,37 +127,67 @@ class RAGRetriever:
                             "context": chunk.get("context", ""),
                         },
                     })
-                    stats["chunks"] += 1
-                
+
                 stats["files"] += 1
                 stats["total_lines"] += len(content.splitlines())
-                
-                # Log progress for every 10 files or important files
+                stats["chunks"] += len(chunks)
+
                 if self._progress_callback and analysis_id:
-                    if stats["files"] % 10 == 0 or idx == 0:
-                        relative_path = str(file_path.relative_to(repo_path))
+                    if stats["files"] % 20 == 0 or idx == 0:
                         await self._progress_callback(
-                            analysis_id, 
-                            "INFO", 
-                            f"Indexing file {stats['files']}/{total_files}: {relative_path} ({len(chunks)} chunks)"
+                            analysis_id, "INFO",
+                            f"Chunked file {stats['files']}/{total_files}: {relative_path} ({len(chunks)} chunks)"
                         )
-                
-                # Batch insert every 100 embeddings to avoid memory issues
-                if len(embeddings_batch) >= 100:
-                    await self._batch_insert_embeddings(embeddings_batch)
-                    if self._progress_callback and analysis_id:
-                        await self._progress_callback(analysis_id, "INFO", f"Saved {len(embeddings_batch)} embeddings to database")
-                    embeddings_batch = []
-                    
+
             except Exception as file_err:
                 logger.debug("Skipping file during indexing %s: %s", file_path, file_err)
                 continue
-        
-        # Insert remaining embeddings
-        if embeddings_batch:
-            await self._batch_insert_embeddings(embeddings_batch)
+
+        # Batch-encode all chunks at once — this is the main speedup.
+        # sentence-transformers encode() accepts a list and processes in
+        # GPU-friendly batches internally.
+        if all_chunk_records:
             if self._progress_callback and analysis_id:
-                await self._progress_callback(analysis_id, "INFO", f"Saved final batch of {len(embeddings_batch)} embeddings")
+                await self._progress_callback(
+                    analysis_id, "INFO",
+                    f"Encoding {len(all_chunk_records)} chunks (batched)..."
+                )
+
+            all_texts = [r["content"] for r in all_chunk_records]
+            all_embeddings = await asyncio.to_thread(
+                self._get_model().encode, all_texts,
+                batch_size=64, show_progress_bar=False,
+            )
+
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(
+                    analysis_id, "INFO",
+                    f"Encoding complete, inserting into database..."
+                )
+
+            # Build DB records and batch-insert
+            embeddings_batch = []
+            for record, embedding in zip(all_chunk_records, all_embeddings):
+                embeddings_batch.append({
+                    "repository_id": record["repository_id"],
+                    "file_path": record["file_path"],
+                    "chunk_type": record["chunk_type"],
+                    "embedding": embedding.tolist(),
+                    "metadata": record["metadata"],
+                })
+
+                if len(embeddings_batch) >= 100:
+                    await self._batch_insert_embeddings(embeddings_batch)
+                    embeddings_batch = []
+
+            if embeddings_batch:
+                await self._batch_insert_embeddings(embeddings_batch)
+
+            if self._progress_callback and analysis_id:
+                await self._progress_callback(
+                    analysis_id, "INFO",
+                    f"Saved {len(all_chunk_records)} embeddings to database"
+                )
         
         if self._progress_callback and analysis_id:
             await self._progress_callback(
