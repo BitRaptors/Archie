@@ -1,7 +1,13 @@
 #!/bin/bash
 
-# Startup script for Repository Analysis System
-# Starts both backend and frontend servers
+# Legacy startup script — use ./run instead.
+# This wrapper exists so existing instructions/muscle-memory still work.
+
+echo -e "\033[1;33m  Tip: use ./run instead — it handles setup + startup in one step.\033[0m"
+echo ""
+exec "$(dirname "$0")/run" "$@"
+
+# ── Original script below (kept for reference, no longer executes) ──────────
 
 set -e
 

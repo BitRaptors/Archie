@@ -90,6 +90,8 @@ coverage.xml
 
 # Project Specific
 backend/.prompts-version
+backend/.venv/.req-hash
+frontend/node_modules/.lock-hash
 backend/storage/
 backend/temp/
 backend/.debug_data/
