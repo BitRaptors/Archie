@@ -129,7 +129,7 @@ export default function LandingPage() {
             Your AI is only<br />as good as its context.
           </h1>
           <p className="text-xl md:text-2xl text-sky-blue-600 mb-12 max-w-3xl mx-auto border-l-4 border-neon pl-6 text-left bg-black bg-opacity-40 p-6 backdrop-blur-sm">
-            Architecture Blueprints integrates directly into Claude Code (or your favorite agent) to watch your codebase. With auto-validation hooks and per-folder context, it keeps every context file fresh and won't let a single markdown rot away.
+            Architecture Blueprints integrates directly into Claude Code (or your favorite agent) to watch your codebase. Auto-validation hooks fire on every coding session, checking alignment, catching violations, and regenerating stale context files without you lifting a finger.
           </p>
           <a
             href="https://github.com/gbrbks/architecture_mcp"
@@ -395,6 +395,18 @@ export default function LandingPage() {
                 </div>
                 <div className="text-neon font-black text-2xl bg-black p-2 border-2 border-neon text-center mt-8 uppercase">
                   4. Claude moves the file automatically
+                </div>
+              </div>
+              <div className="bg-gray-900 border-2 border-sky-blue p-8 font-mono text-lg brutalist-border mt-8" style={{ borderColor: "#8ecae6", boxShadow: "8px 8px 0px 0px #8ecae6" }}>
+                <div className="text-sky-blue mb-4 text-xl">1. You refactor the auth module</div>
+                <div className="text-gray-400 mb-4 text-xl">
+                  2. Claude finishes responding
+                </div>
+                <div className="text-amber-flame mb-4 bg-black p-4 text-xl border-l-4 border-amber-flame">
+                  3. Stop hook fires: validates changes against blueprint, detects stale docs
+                </div>
+                <div className="text-neon font-black text-2xl bg-black p-2 border-2 border-neon text-center mt-8 uppercase">
+                  4. auth/CLAUDE.md regenerated automatically
                 </div>
               </div>
             </div>
