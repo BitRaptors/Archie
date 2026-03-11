@@ -163,6 +163,35 @@ class TestSmartRefreshPipeline:
         assert result.status == "no_refresh_needed"
 
     @pytest.mark.asyncio
+    async def test_refresh_strips_repo_root_prefix_to_match(self, service, tmp_path):
+        """When git paths have a common root prefix that doesn't match blueprint
+        locations, the service should strip the first component and retry."""
+        # Blueprint has location "src/api", but changed files have "RepoRoot/src/api/..."
+        api_dir = tmp_path / "src" / "api"
+        api_dir.mkdir(parents=True)
+        (api_dir / "user_routes.py").write_text("from fastapi import APIRouter")
+
+        ai_response = _make_ai_response([{
+            "path": "src/api",
+            "aligned": True,
+            "warnings": [],
+            "claude_md_stale": False,
+            "suggestion": "",
+        }])
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=ai_response)
+
+        with patch("application.services.smart_refresh_service.anthropic.AsyncAnthropic", return_value=mock_client):
+            result = await service.refresh(
+                "repo-123",
+                # Git paths with repo root prefix that doesn't match blueprint
+                ["RepoRoot/src/api/user_routes.py"],
+                str(tmp_path),
+            )
+        # The AI was called — meaning folder matching succeeded after stripping
+        mock_client.messages.create.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_refresh_aligned_no_warnings(self, service, tmp_path):
         # Write a source file so _read_local_file can find it
         api_dir = tmp_path / "src" / "api"

@@ -40,7 +40,8 @@ _MCP_CONFIG = json.dumps(
     {
         "mcpServers": {
             "architecture-blueprints": {
-                "url": "http://localhost:8000/mcp/sse"
+                "type": "http",
+                "url": "http://localhost:8000/mcp/"
             }
         }
     },

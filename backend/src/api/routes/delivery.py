@@ -135,7 +135,7 @@ async def smart_refresh(body: SmartRefreshRequest, request: Request):
 
     Called by the Stop hook to check alignment and refresh stale CLAUDE.md files.
     """
-    service = request.app.container.smart_refresh_service()
+    service = await request.app.container.smart_refresh_service()
     try:
         result = await service.refresh(
             repo_id=body.repo_id,

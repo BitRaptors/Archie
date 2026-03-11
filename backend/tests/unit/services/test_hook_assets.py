@@ -15,8 +15,8 @@ from application.services.hook_assets import (
 
 class TestHookScripts:
 
-    def test_has_four_entries(self):
-        assert len(HOOK_SCRIPTS) == 4
+    def test_has_two_entries(self):
+        assert len(HOOK_SCRIPTS) == 2
 
     def test_paths_under_claude_hooks(self):
         for path in HOOK_SCRIPTS:
@@ -30,15 +30,6 @@ class TestHookScripts:
         stop_script = HOOK_SCRIPTS[".claude/hooks/stop-review-and-refresh.sh"]
         assert "smart-refresh" in stop_script
 
-    def test_pre_validate_checks_write_tool(self):
-        pre = HOOK_SCRIPTS[".claude/hooks/pre-validate-architecture.sh"]
-        assert '"Write"' in pre
-
-    def test_post_validate_checks_write_and_edit(self):
-        post = HOOK_SCRIPTS[".claude/hooks/validate-architecture.sh"]
-        assert '"Write"' in post
-        assert '"Edit"' in post
-
     def test_staleness_check_references_archie(self):
         staleness = HOOK_SCRIPTS[".claude/hooks/check-architecture-staleness.sh"]
         assert ".archie" in staleness
@@ -49,12 +40,11 @@ class TestHookScripts:
 
 class TestHooksSettings:
 
-    def test_has_four_hook_types(self):
+    def test_has_two_hook_types(self):
         hooks = HOOKS_SETTINGS["hooks"]
-        assert "PreToolUse" in hooks
-        assert "PostToolUse" in hooks
         assert "Stop" in hooks
         assert "SessionStart" in hooks
+        assert len(hooks) == 2
 
     def test_stop_hook_timeout_30s(self):
         stop_hooks = HOOKS_SETTINGS["hooks"]["Stop"]
@@ -65,14 +55,6 @@ class TestHooksSettings:
         session_hooks = HOOKS_SETTINGS["hooks"]["SessionStart"]
         timeout = session_hooks[0]["hooks"][0]["timeout"]
         assert timeout == 10
-
-    def test_pre_tool_use_matches_write(self):
-        pre = HOOKS_SETTINGS["hooks"]["PreToolUse"]
-        assert pre[0]["matcher"] == "Write"
-
-    def test_post_tool_use_matches_write_and_edit(self):
-        post = HOOKS_SETTINGS["hooks"]["PostToolUse"]
-        assert post[0]["matcher"] == "Write|Edit"
 
     def test_all_hooks_are_command_type(self):
         for hook_type, entries in HOOKS_SETTINGS["hooks"].items():
@@ -110,10 +92,10 @@ class TestGetHookFiles:
         for path in SKILL_FILES:
             assert path in result
 
-    def test_total_file_count_at_least_5(self):
-        """4 hook scripts + settings.json (no archie files without params)."""
+    def test_total_file_count_at_least_3(self):
+        """2 hook scripts + settings.json (no archie files without params)."""
         result = get_hook_files()
-        assert len(result) >= 5
+        assert len(result) >= 3
 
     def test_includes_archie_files_when_params_provided(self):
         result = get_hook_files(

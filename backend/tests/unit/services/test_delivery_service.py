@@ -297,7 +297,7 @@ class TestApply:
         parsed = json.loads(mcp_content)
         assert "mcpServers" in parsed
         assert "architecture-blueprints" in parsed["mcpServers"]
-        assert parsed["mcpServers"]["architecture-blueprints"]["url"] == "http://localhost:8000/mcp/sse"
+        assert parsed["mcpServers"]["architecture-blueprints"]["url"] == "http://localhost:8000/mcp/"
 
     @pytest.mark.asyncio
     async def test_backward_compat_cursor_rules_key(self, service, mock_push_client):
@@ -331,7 +331,7 @@ class TestMcpConfigGeneration:
         cursor_config = json.loads(result[".cursor/mcp.json"])
         assert claude_config == cursor_config
         assert "mcpServers" in claude_config
-        assert claude_config["mcpServers"]["architecture-blueprints"]["url"] == "http://localhost:8000/mcp/sse"
+        assert claude_config["mcpServers"]["architecture-blueprints"]["url"] == "http://localhost:8000/mcp/"
 
 
 class TestMarkdownMerge:
@@ -380,7 +380,7 @@ class TestMarkdownMerge:
 class TestJsonConfigMerge:
 
     def test_merge_no_existing_file(self):
-        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/sse"}}}
+        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/"}}}
         result = json.loads(_merge_json_config(None, config))
         assert result == config
 
@@ -390,7 +390,7 @@ class TestJsonConfigMerge:
                 "my-custom-server": {"url": "http://localhost:3000"}
             }
         })
-        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/sse"}}}
+        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/"}}}
         result = json.loads(_merge_json_config(existing, config))
         assert "my-custom-server" in result["mcpServers"]
         assert "architecture-blueprints" in result["mcpServers"]
@@ -408,7 +408,7 @@ class TestJsonConfigMerge:
         assert result["mcpServers"]["architecture-blueprints"]["url"] == "http://new-url"
 
     def test_merge_invalid_json(self):
-        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/sse"}}}
+        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/"}}}
         result = json.loads(_merge_json_config("not valid json {{{", config))
         assert result == config
 
@@ -496,8 +496,6 @@ class TestClaudeHooksExport:
     async def test_export_includes_all_hook_scripts(self, service_with_settings):
         result = await service_with_settings.preview("repo-uuid-123", ["claude_hooks"])
         expected_scripts = [
-            ".claude/hooks/pre-validate-architecture.sh",
-            ".claude/hooks/validate-architecture.sh",
             ".claude/hooks/stop-review-and-refresh.sh",
             ".claude/hooks/check-architecture-staleness.sh",
         ]
@@ -510,8 +508,7 @@ class TestClaudeHooksExport:
         assert ".claude/settings.json" in result
         parsed = json.loads(result[".claude/settings.json"])
         assert "hooks" in parsed
-        # All four hook types must be registered
-        for hook_type in ("PreToolUse", "PostToolUse", "Stop", "SessionStart"):
+        for hook_type in ("Stop", "SessionStart"):
             assert hook_type in parsed["hooks"], f"Missing hook type: {hook_type}"
 
     @pytest.mark.asyncio

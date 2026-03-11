@@ -117,6 +117,34 @@ class SmartRefreshService:
         # 3. Compute affected folders with blueprint coverage
         covered_folders = self._get_covered_folders(blueprint)
         affected_folders = self._compute_affected_folders(source_files, covered_folders)
+
+        # If no matches, try stripping the first path component from changed
+        # files.  Many repos (especially iOS) have a layout like:
+        #   RepoRoot/ProjectName/Sources/...
+        # Git returns paths relative to the repo root, but blueprint locations
+        # are often relative to the project subfolder, causing a prefix
+        # mismatch.  Stripping the first component aligns them.
+        if not affected_folders and source_files:
+            first_components = {
+                PurePosixPath(f).parts[0]
+                for f in source_files
+                if len(PurePosixPath(f).parts) > 1
+            }
+            if len(first_components) == 1:
+                prefix = first_components.pop()
+                stripped = [
+                    str(PurePosixPath(*PurePosixPath(f).parts[1:]))
+                    for f in source_files
+                    if len(PurePosixPath(f).parts) > 1
+                ]
+                affected_folders = self._compute_affected_folders(stripped, covered_folders)
+                if affected_folders:
+                    logger.info(
+                        "Matched after stripping repo root prefix '%s' — %d folder(s)",
+                        prefix, len(affected_folders),
+                    )
+                    source_files = stripped
+
         if not affected_folders:
             logger.info("No blueprint-covered folders affected — skipping refresh")
             return SmartRefreshResult(status="no_refresh_needed")
