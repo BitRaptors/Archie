@@ -129,7 +129,7 @@ export default function LandingPage() {
             Your AI is only<br />as good as its context.
           </h1>
           <p className="text-xl md:text-2xl text-sky-blue-600 mb-12 max-w-3xl mx-auto border-l-4 border-neon pl-6 text-left bg-black bg-opacity-40 p-6 backdrop-blur-sm">
-            Architecture Blueprints integrates directly into Claude Code (or your favorite agent) to watch your codebase. Auto-validation hooks fire on every coding session, checking alignment, catching violations, and regenerating stale context files without you lifting a finger.
+            Architecture Blueprints integrates directly into Claude Code (or your favorite agent) to watch your codebase. With auto-validation hooks and per-folder context, it keeps every context file fresh and won't let a single markdown rot away.
           </p>
           <a
             href="https://github.com/gbrbks/architecture_mcp"
@@ -292,141 +292,152 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-          <div className="space-y-16 md:space-y-24">
-            <div className="brutalist-border bg-black p-8 relative">
-              <div className="absolute -top-4 -right-4 bg-neon text-black font-black px-4 py-2 text-xl border-2 border-black">
-                /where-to-put
+          <div className="space-y-32">
+
+            {/* Automatic Hooks */}
+            <div>
+              <h3 className="text-4xl font-black text-white mb-12 uppercase inline-block border-b-4 border-amber-flame pb-2 relative">
+                Automatic Hooks
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12 tracking-tight">
+                <div className="brutalist-border bg-black p-8 relative flex flex-col" style={{ borderColor: "#ffb703", boxShadow: "8px 8px 0px 0px #ffb703" }}>
+                  <div className="absolute -top-4 -right-4 bg-amber-flame text-black font-black px-4 py-2 text-lg md:text-xl border-2 border-black">
+                    stop-review-and-refresh
+                  </div>
+                  <div className="text-sky-blue mb-4 text-2xl font-bold pr-16 md:pr-0 mt-2">Validates uncommitted changes</div>
+                  <p className="text-gray-400 mb-6 font-mono text-sm leading-relaxed max-w-sm flex-grow">Fires after every response. Collects diffs, sends to smart-refresh API, checks against blueprints, and regenerates stale CLAUDE.md files.</p>
+                  <pre className="text-sm md:text-base text-green-400 font-mono bg-gray-900 p-6 border border-gray-700 overflow-x-auto">
+                    <code>
+                      Session review: 3 file(s) changed.{"\n"}
+                      Architecture review (2 findings):{"\n"}
+                      <span className="text-amber-flame">  [WARNING]</span> src/api: Outside expected directory{"\n"}
+                      <span className="text-red-500">  [ERROR]</span> src/domain: Imports from infrastructure{"\n"}
+                      {"\n"}
+                      Updated 1 CLAUDE.md file(s):{"\n"}
+                      <span className="text-sky-blue">  src/api/routes/CLAUDE.md</span>
+                    </code>
+                  </pre>
+                </div>
+
+                <div className="brutalist-border bg-black p-8 relative flex flex-col" style={{ borderColor: "#8ecae6", boxShadow: "8px 8px 0px 0px #8ecae6" }}>
+                  <div className="absolute -top-4 -right-4 bg-sky-blue text-black font-black px-4 py-2 text-lg md:text-xl border-2 border-black">
+                    check-architecture-staleness
+                  </div>
+                  <div className="text-sky-blue mb-4 text-2xl font-bold pr-16 md:pr-0 mt-2">Keeps context fresh</div>
+                  <p className="text-gray-400 mb-6 font-mono text-sm leading-relaxed max-w-sm flex-grow">Fires when a new session starts. Compares timestamps of local CLAUDE.md files against the blueprint source. Prompts you to sync if outdated.</p>
+                  <pre className="text-sm md:text-base text-green-400 font-mono bg-gray-900 p-6 border border-gray-700 overflow-x-auto">
+                    <code>
+                      <span className="text-amber-flame">Architecture files are outdated.</span>{"\n"}
+                      {"\n"}
+                      Run <span className="text-sky-blue">/sync-architecture</span> to update.
+                    </code>
+                  </pre>
+                </div>
               </div>
-              <div className="text-sky-blue mb-6 text-2xl font-bold">"Where should I put a new payment webhook handler?"</div>
-              <pre className="text-lg text-green-400 font-mono bg-gray-900 p-6 border border-gray-700 overflow-x-auto">
-                <code>
-                  Location: worker/webhooks/payment_webhook.py{"\n"}
-                  Naming: snake_case, no suffix{"\n"}
-                  Pattern: Follow existing handler structure{"\n"}
-                  Also update: worker/main.py, tests/webhooks/
-                </code>
-              </pre>
             </div>
 
-            <div
-              className="brutalist-border bg-black p-8 relative ml-4 md:ml-12"
-              style={{
-                borderColor: "#219ebc",
-                boxShadow: "8px 8px 0px 0px #219ebc",
-              }}
-            >
-              <div className="absolute -top-4 -right-4 bg-blue-green text-black font-black px-4 py-2 text-xl border-2 border-black">
-                /check-naming
-              </div>
-              <div className="text-sky-blue mb-6 text-2xl font-bold">"Is PaymentService a good class name?"</div>
-              <pre className="text-lg text-green-400 font-mono bg-gray-900 p-6 border border-gray-700 overflow-x-auto">
-                <code>
-                  Convention: PascalCase, no suffix for services{"\n"}
-                  Verdict: <span className="text-neon bg-black px-2">PASS</span>
-                </code>
-              </pre>
-            </div>
+            {/* User-invoked capabilities */}
+            <div>
+              <h3 className="text-4xl font-black text-white mb-12 uppercase inline-block border-b-4 border-neon pb-2">
+                On-Demand Skills
+              </h3>
 
-            <div
-              className="brutalist-border bg-black p-8 relative ml-8 md:ml-24"
-              style={{
-                borderColor: "#fb8500",
-                boxShadow: "8px 8px 0px 0px #fb8500",
-              }}
-            >
-              <div className="absolute -top-4 -right-4 bg-princeton-orange text-black font-black px-4 py-2 text-xl border-2 border-black">
-                /how-to-implement
-              </div>
-              <div className="text-sky-blue mb-6 text-2xl font-bold">"How was email verification built?"</div>
-              <pre className="text-lg text-green-400 font-mono bg-gray-900 p-6 border border-gray-700 overflow-x-auto">
-                <code>
-                  Libraries: firebase-functions, Gmail API{"\n"}
-                  Key files: gmail_webhook/main.py, worker/email_handler.py{"\n"}
-                  Tips: Use existing GmailWebhookParser, don't roll your own
-                </code>
-              </pre>
-            </div>
+              <div className="space-y-16 lg:space-y-24">
+                <div className="brutalist-border bg-black p-8 relative lg:w-[85%]">
+                  <div className="absolute -top-4 -right-4 bg-neon text-black font-black px-4 py-2 text-xl border-2 border-black">
+                    /where-to-put
+                  </div>
+                  <div className="text-sky-blue mb-6 text-2xl font-bold">"Where should I put a new payment webhook handler?"</div>
+                  <pre className="text-lg text-green-400 font-mono bg-gray-900 p-6 border border-gray-700 overflow-x-auto">
+                    <code>
+                      Location: worker/webhooks/payment_webhook.py{"\n"}
+                      Naming: snake_case, no suffix{"\n"}
+                      Pattern: Follow existing handler structure{"\n"}
+                      Also update: worker/main.py, tests/webhooks/
+                    </code>
+                  </pre>
+                </div>
 
-            <div className="flex flex-col md:flex-row gap-8 lg:gap-12 mt-20 md:mt-24">
-              <div
-                className="bg-[#111] border-2 border-amber-flame p-8 flex-1 brutalist-border"
-                style={{
-                  borderColor: "#ffb703",
-                  boxShadow: "8px 8px 0px 0px #ffb703",
-                }}
-              >
-                <span className="text-amber-flame font-black text-2xl mb-4 block inline-block bg-black px-2">
-                  /check-architecture
-                </span>
-                <p className="text-xl text-gray-300">Validate all uncommitted changes against the blueprint in seconds.</p>
-              </div>
-              <div
-                className="bg-[#111] border-2 border-sky-blue p-8 flex-1 brutalist-border"
-                style={{
-                  borderColor: "#8ecae6",
-                  boxShadow: "8px 8px 0px 0px #8ecae6",
-                }}
-              >
-                <span className="text-sky-blue font-black text-2xl mb-4 block inline-block bg-black px-2">/sync-architecture</span>
-                <p className="text-xl text-gray-300">Pull the latest blueprint outputs into your project with smart merging.</p>
+                <div
+                  className="brutalist-border bg-black p-8 relative ml-4 md:ml-12 lg:w-[85%] lg:ml-auto"
+                  style={{
+                    borderColor: "#219ebc",
+                    boxShadow: "8px 8px 0px 0px #219ebc",
+                  }}
+                >
+                  <div className="absolute -top-4 -right-4 md:-right-6 md:-top-5 bg-blue-green text-black font-black px-4 py-2 text-xl border-2 border-black rotate-1 hover:rotate-0 transition-transform">
+                    /check-naming
+                  </div>
+                  <div className="text-sky-blue mb-6 text-2xl font-bold">"Is PaymentService a good class name?"</div>
+                  <pre className="text-lg text-green-400 font-mono bg-gray-900 p-6 border border-gray-700 overflow-x-auto">
+                    <code>
+                      Name: PaymentService{"\n"}
+                      Scope: class{"\n"}
+                      Convention: PascalCase, no suffix for services{"\n"}
+                      Verdict: <span className="text-black bg-neon px-2 font-black">PASS</span>
+                    </code>
+                  </pre>
+                </div>
+
+                <div
+                  className="brutalist-border bg-black p-8 relative ml-8 md:ml-24 lg:w-[85%]"
+                  style={{
+                    borderColor: "#fb8500",
+                    boxShadow: "8px 8px 0px 0px #fb8500",
+                  }}
+                >
+                  <div className="absolute -top-4 -right-4 md:-right-4 md:-top-4 bg-princeton-orange text-black font-black px-4 py-2 text-xl border-2 border-black -rotate-1 hover:rotate-0 transition-transform">
+                    /how-to-implement
+                  </div>
+                  <div className="text-sky-blue mb-6 text-2xl font-bold">"How was push notifications built?"</div>
+                  <pre className="text-lg text-green-400 font-mono bg-gray-900 p-6 border border-gray-700 overflow-x-auto">
+                    <code>
+                      Capability: Push Notifications{"\n"}
+                      Libraries: firebase-admin, APNs2{"\n"}
+                      Key files: worker/push/sender.py, worker/push/formatters.py{"\n"}
+                      {"\n"}
+                      Usage:{"\n"}
+                      <span className="text-gray-400">  from worker.push.sender import send_push</span>{"\n"}
+                      <span className="text-gray-400">  send_push(user_id="abc", title="New msg")</span>{"\n"}
+                      {"\n"}
+                      Tips: Use existing PushFormatter, don't build payloads manually
+                    </code>
+                  </pre>
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-8 lg:gap-12 mt-20 md:mt-24">
+                  <div
+                    className="bg-[#111] border-2 border-amber-flame p-8 flex-1 brutalist-border hover:-translate-y-2 transition-transform"
+                    style={{
+                      borderColor: "#ffb703",
+                      boxShadow: "8px 8px 0px 0px #ffb703",
+                    }}
+                  >
+                    <span className="text-amber-flame font-black text-xl md:text-2xl mb-4 block inline-block bg-black px-3 py-1 border border-amber-flame">
+                      /check-architecture
+                    </span>
+                    <p className="text-xl text-gray-300">Validate all uncommitted changes against the blueprint: file placement, naming, and layer boundaries.</p>
+                  </div>
+                  <div
+                    className="bg-[#111] border-2 border-sky-blue p-8 flex-1 brutalist-border hover:-translate-y-2 transition-transform"
+                    style={{
+                      borderColor: "#8ecae6",
+                      boxShadow: "8px 8px 0px 0px #8ecae6",
+                    }}
+                  >
+                    <span className="text-sky-blue font-black text-xl md:text-2xl mb-4 block inline-block bg-black px-3 py-1 border border-sky-blue">
+                      /sync-architecture
+                    </span>
+                    <p className="text-xl text-gray-300">Pull the latest blueprint outputs into your project with smart merging.</p>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Evolution Section */}
-      <section className="py-32 md:py-40 px-4 bg-black overflow-hidden relative border-y-2 border-gray-800">
-        <div className="absolute inset-0 flex items-center justify-center opacity-[0.02] pointer-events-none">
-          <div className="text-[25vw] font-black text-white whitespace-nowrap scrub-heading inline-block" style={{ transform: "rotate(15deg)" }}>
-            EVOLUTION
-          </div>
-        </div>
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row gap-16 lg:gap-24 relative z-10">
-          <div className="md:w-1/2 fade-up parallax-img-container">
-            <div className="parallax-img justify-start mt-8">
-              <div className="bg-gray-900 border-2 border-neon p-8 font-mono text-lg brutalist-border">
-                <div className="text-sky-blue mb-4 text-xl">1. You: "add a notifications service"</div>
-                <div className="text-gray-400 mb-4 text-xl">
-                  2. Claude creates <span className="text-white">worker/notifications/service.py</span>
-                </div>
-                <div className="text-amber-flame mb-4 bg-black p-4 text-xl border-l-4 border-amber-flame">
-                  3. Hook fires: "Service files belong in worker/services/"
-                </div>
-                <div className="text-neon font-black text-2xl bg-black p-2 border-2 border-neon text-center mt-8 uppercase">
-                  4. Claude moves the file automatically
-                </div>
-              </div>
-              <div className="bg-gray-900 border-2 border-sky-blue p-8 font-mono text-lg brutalist-border mt-8" style={{ borderColor: "#8ecae6", boxShadow: "8px 8px 0px 0px #8ecae6" }}>
-                <div className="text-sky-blue mb-4 text-xl">1. You refactor the auth module</div>
-                <div className="text-gray-400 mb-4 text-xl">
-                  2. Claude finishes responding
-                </div>
-                <div className="text-amber-flame mb-4 bg-black p-4 text-xl border-l-4 border-amber-flame">
-                  3. Stop hook fires: validates changes against blueprint, detects stale docs
-                </div>
-                <div className="text-neon font-black text-2xl bg-black p-2 border-2 border-neon text-center mt-8 uppercase">
-                  4. auth/CLAUDE.md regenerated automatically
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="md:w-1/2 fade-up py-12">
-            <div className="text-princeton-orange font-black text-3xl mb-4 inline-block border-b-4 border-princeton-orange">
-              LIVING ARCHITECTURE
-            </div>
-            <h2 className="text-6xl font-black text-white mb-8 uppercase leading-tight">Your blueprint evolves with your code</h2>
-            <p className="text-2xl text-gray-400 mb-8 font-light">
-              Architecture isn't static. You add new modules, refactor layers, introduce new patterns. Incremental re-analysis detects
-              what changed and regenerates only the affected per-folder context files.
-            </p>
-            <div className="bg-deep-space-blue p-8 brutalist-border text-xl text-sky-blue shadow-xl">
-              Your CLAUDE.md files stay accurate without manual maintenance. The compound knowledge your AI relies on is always grounded
-              in the actual state of your codebase.
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* Per-Folder Section */}
       <section className="py-40 px-4 bg-[#0a0a0a] border-b-[16px] border-neon/20 overflow-hidden relative">
