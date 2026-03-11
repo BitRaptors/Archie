@@ -231,6 +231,33 @@ class SmartRefreshService:
     # ── Folder Coverage ──────────────────────────────────────────────────
 
     @staticmethod
+    def _parse_location(raw: str) -> list[str]:
+        """Parse a component location string into clean folder paths.
+
+        Blueprint locations can contain:
+        - Comma-separated paths: "Foo/A/, Foo/B/"
+        - Semicolon-separated paths: "Foo/ (AppDelegate); Foo/DI/"
+        - Glob suffixes: "Foo/Pages/*"
+        - Inline descriptions in parentheses: "Foo/ (some note)"
+        """
+        import re
+        # Remove parenthetical descriptions BEFORE splitting, since they
+        # may contain commas (e.g. "Foo/ (AppDelegate, SceneDelegate)")
+        cleaned = re.sub(r"\s*\([^)]*\)", "", raw)
+        # Split on comma or semicolon
+        parts = re.split(r"[;,]", cleaned)
+        paths: list[str] = []
+        for part in parts:
+            p = part.strip()
+            if not p:
+                continue
+            # Remove glob wildcards
+            p = p.rstrip("*").rstrip("/").strip()
+            if p:
+                paths.append(p)
+        return paths
+
+    @staticmethod
     def _get_covered_folders(blueprint: StructuredBlueprint) -> dict[str, dict[str, Any]]:
         """Build a mapping of folder paths to their blueprint component info.
 
@@ -239,15 +266,14 @@ class SmartRefreshService:
         """
         covered: dict[str, dict[str, Any]] = {}
         for comp in blueprint.components.components:
-            location = comp.location.strip().rstrip("/")
-            if not location:
-                continue
-            covered[location] = {
+            comp_info = {
                 "name": comp.name,
                 "responsibility": comp.responsibility,
                 "depends_on": comp.depends_on,
                 "exposes_to": comp.exposes_to,
             }
+            for folder in SmartRefreshService._parse_location(comp.location):
+                covered[folder] = comp_info
         return covered
 
     @staticmethod
