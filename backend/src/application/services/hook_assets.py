@@ -28,22 +28,12 @@ if [[ ! -f "$CONFIG" ]]; then
     exit 0
 fi
 
-STORAGE_PATH=$(python3 -c "import json; print(json.load(open('$CONFIG'))['storage_path'])" 2>/dev/null || true)
-if [[ -z "$STORAGE_PATH" ]]; then
-    exit 0
-fi
-
 REPO_ID_FILE="$CWD/.archie/repo_id"
 if [[ ! -f "$REPO_ID_FILE" ]]; then
     exit 0
 fi
 
 REPO_ID=$(cat "$REPO_ID_FILE")
-BLUEPRINT="$STORAGE_PATH/blueprints/$REPO_ID/blueprint.json"
-
-if [[ ! -f "$BLUEPRINT" ]]; then
-    exit 0
-fi
 
 # --- Collect changed files (deduped) ---
 CHANGED_FILES=$(cd "$CWD" && {

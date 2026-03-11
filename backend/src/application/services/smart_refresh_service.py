@@ -12,14 +12,19 @@ from __future__ import annotations
 import json
 import logging
 import os
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import anthropic
 from pydantic import BaseModel, Field
 
+from application.services.blueprint_folder_mapper import BlueprintFolderMapper
+from application.services.hybrid_enrichment_engine import HybridEnrichmentEngine
+from application.services.intent_layer_renderer import IntentLayerRenderer
+from application.services.intent_layer_service import FolderHierarchyBuilder
 from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
 from domain.entities.blueprint import StructuredBlueprint
+from domain.entities.intent_layer import FolderEnrichment, IntentLayerConfig
 from infrastructure.external.local_push_client import LocalPushClient
 
 logger = logging.getLogger(__name__)
@@ -169,8 +174,16 @@ class SmartRefreshService:
         stale_folders: list[str] = []
         suggestions: list[str] = []
 
+        # Build a set of the actual affected folder paths so we can
+        # normalise whatever the AI returns (it sometimes returns file
+        # paths instead of folder paths).
+        _affected_set = affected_folders  # set[str]
+
         for folder_result in ai_results:
-            folder_path = folder_result.get("path", "")
+            raw_path = folder_result.get("path", "")
+            # Normalise: if the AI returned a file path, map it back to
+            # the containing affected folder.
+            folder_path = _resolve_to_affected_folder(raw_path, _affected_set)
 
             # Collect warnings
             for w in folder_result.get("warnings", []):
@@ -182,9 +195,17 @@ class SmartRefreshService:
                     suggestion=w.get("suggestion", ""),
                 ))
 
-            # Track stale folders
-            if folder_result.get("claude_md_stale", False):
-                stale_folders.append(folder_path)
+            # Track stale folders — also treat folders with error/warning
+            # findings as stale, since the CLAUDE.md should reflect the
+            # current state of the code.
+            folder_warnings = folder_result.get("warnings", [])
+            has_actionable_warnings = any(
+                w.get("severity") in ("error", "warning")
+                for w in folder_warnings
+            )
+            if folder_result.get("claude_md_stale", False) or has_actionable_warnings:
+                if folder_path and folder_path not in stale_folders:
+                    stale_folders.append(folder_path)
 
             # Collect suggestions
             suggestion = folder_result.get("suggestion", "")
@@ -199,6 +220,7 @@ class SmartRefreshService:
                 blueprint=blueprint,
                 stale_folders=stale_folders,
                 target_local_path=target_local_path,
+                changed_files=source_files,
             )
 
         # 8. Determine status
@@ -496,7 +518,7 @@ For each affected folder, evaluate:
 
 Rules:
 - severity must be "error", "warning", or "info"
-- Only flag claude_md_stale=true if the changes meaningfully alter the folder's purpose, add new patterns, or change key files
+- Flag claude_md_stale=true if: new files are added, files are removed, the folder's purpose shifts, new patterns appear, key files change, or the existing CLAUDE.md is empty/missing
 - Keep warnings actionable and specific
 - If everything looks good, return aligned=true with empty warnings"""
 
@@ -544,66 +566,203 @@ Rules:
         blueprint: StructuredBlueprint,
         stale_folders: list[str],
         target_local_path: str,
+        changed_files: list[str] | None = None,
     ) -> list[str]:
-        """Regenerate CLAUDE.md for stale folders.
+        """Regenerate CLAUDE.md for stale folders only.
 
-        Uses IntentLayerService if available, otherwise falls back to
-        deterministic IntentLayerRenderer.
+        Targeted pipeline: builds hierarchy, maps blueprint, AI-enriches,
+        and renders only the stale folders (2-3 Haiku calls instead of 54).
+        Falls back to deterministic rendering on failure.
         """
         updated_files: list[str] = []
+        repo_name = blueprint.meta.repository or repo_id
 
-        # Try the full IntentLayerService pipeline first (handles everything)
-        if self._intent_layer_service is not None:
-            try:
-                output = await self._intent_layer_service.preview(
-                    source_repo_id=repo_id,
-                    local_path=target_local_path,
-                    incremental=True,
+        try:
+            # 1. Build folder hierarchy (fast ~100ms filesystem walk), filter to stale only
+            builder = FolderHierarchyBuilder()
+            all_nodes = builder.build_from_path(Path(target_local_path))
+
+            # stale_folders uses blueprint paths (e.g. "Sources/Features").
+            # all_nodes uses filesystem-relative paths (e.g. "BabyWeather/Sources/Features").
+            # Build a mapping: blueprint_path -> fs_path for lookups.
+            bp_to_fs: dict[str, str] = {}  # blueprint path -> filesystem path
+            for sf in stale_folders:
+                if sf in all_nodes:
+                    bp_to_fs[sf] = sf  # direct match
+
+            # If no direct match, try adding a single-level prefix.
+            # The refresh() pipeline may strip a repo-root prefix from
+            # changed files (e.g. "BabyWeather/Sources" → "Sources") to
+            # match blueprint paths.  Hierarchy keys still have the full
+            # relative path, so we need to re-add the prefix here.
+            if not bp_to_fs and stale_folders:
+                top_dirs = {
+                    p.split("/", 1)[0]
+                    for p in all_nodes
+                    if "/" in p
+                }
+                for prefix in top_dirs:
+                    matched = {}
+                    for sf in stale_folders:
+                        fs_path = f"{prefix}/{sf}"
+                        if fs_path in all_nodes:
+                            matched[sf] = fs_path
+                    if matched:
+                        logger.info(
+                            "Matched stale folders after adding prefix '%s'", prefix,
+                        )
+                        bp_to_fs = matched
+                        break
+
+            if not bp_to_fs:
+                logger.info(
+                    "No stale folders found in hierarchy (stale=%s, hierarchy_sample=%s) "
+                    "— falling back to deterministic",
+                    stale_folders,
+                    list(all_nodes.keys())[:10],
                 )
-                # Filter to only the stale folders and write them
-                files_to_write: dict[str, str] = {}
-                for file_path, content in output.claude_md_files.items():
-                    # Check if this file belongs to a stale folder
-                    for stale_folder in stale_folders:
-                        if file_path.startswith(stale_folder) and file_path.endswith("CLAUDE.md"):
-                            files_to_write[file_path] = content
-                            break
+                return await self._regenerate_deterministic(
+                    repo_id=repo_id,
+                    blueprint=blueprint,
+                    stale_folders=stale_folders,
+                    target_local_path=target_local_path,
+                )
 
-                if files_to_write:
-                    # Write to local filesystem
-                    try:
-                        push_client = LocalPushClient(base_dir=target_local_path)
-                        written = push_client.write_files(files_to_write)
-                        updated_files.extend(written)
-                    except Exception:
-                        logger.exception("Failed to write files via LocalPushClient")
+            # Identify which folders DIRECTLY contain changed files (fs-relative).
+            # Only these need AI re-enrichment; ancestors just need navigation fixed.
+            changed_dirs: set[str] = set()
+            if changed_files:
+                for fpath in changed_files:
+                    parent = str(PurePosixPath(fpath).parent)
+                    if parent == ".":
+                        parent = ""
+                    if parent:
+                        changed_dirs.add(parent)
 
-                    # Also persist to storage
-                    for file_path, content in files_to_write.items():
-                        storage_path = f"blueprints/{repo_id}/intent_layer/{file_path}"
-                        try:
-                            await self._storage.save(
-                                storage_path,
-                                content.encode("utf-8") if isinstance(content, str) else content,
-                            )
-                        except Exception:
-                            logger.exception("Failed to persist %s to storage", storage_path)
+            # Expand stale roots to include child sub-folders that directly
+            # contain changed files.
+            if changed_dirs:
+                for sf, fs in list(bp_to_fs.items()):
+                    for node_path in all_nodes:
+                        if node_path.startswith(fs + "/") and node_path != fs:
+                            if node_path not in changed_dirs:
+                                continue
+                            child_suffix = node_path[len(fs) + 1:]
+                            child_bp = f"{sf}/{child_suffix}" if sf else child_suffix
+                            if child_bp not in bp_to_fs:
+                                bp_to_fs[child_bp] = node_path
 
+            # Build stale_nodes keyed by blueprint path
+            stale_nodes = {bp: all_nodes[fs] for bp, fs in bp_to_fs.items()}
+
+            logger.info(
+                "Targeted refresh: %d folders (from %d stale roots)",
+                len(stale_nodes), len(stale_folders),
+            )
+
+            # 2. Map blueprint onto stale folders.  Also include their
+            #    direct children from the hierarchy so that the mapper can
+            #    build complete children_summaries / navigation.
+            all_mapper_paths: set[str] = set(stale_nodes.keys())
+            for bp_path in list(stale_nodes.keys()):
+                fs_path = bp_to_fs[bp_path]
+                node = all_nodes.get(fs_path)
+                if node:
+                    for child_fs in node.children:
+                        child_suffix = child_fs[len(fs_path) + 1:] if fs_path else child_fs
+                        child_bp = f"{bp_path}/{child_suffix}" if bp_path else child_suffix
+                        all_mapper_paths.add(child_bp)
+
+            mapper = BlueprintFolderMapper()
+            folder_blueprints = mapper.map_all(blueprint, list(all_mapper_paths))
+
+            # 3. File reader for enrichment engine
+            def file_reader(rel_path: str) -> str | None:
+                return _read_local_file(target_local_path, rel_path)
+
+            # 4. Load previous CLAUDE.md content from storage for context.
+            #    This lets the AI refine rather than regenerate from scratch.
+            previous_content: dict[str, str] = {}
+            for bp_path in stale_nodes:
+                storage_path = f"blueprints/{repo_id}/intent_layer/{bp_to_fs[bp_path]}/CLAUDE.md"
+                try:
+                    if await self._storage.exists(storage_path):
+                        raw = await self._storage.read(storage_path)
+                        text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+                        previous_content[bp_path] = text
+                except Exception:
+                    pass  # Missing previous content is fine
+
+            # 5. AI enrichment — only for folders that directly contain
+            #    changed files (typically 2-3 Haiku calls, not 54).
+            #    The enrichment prompt preserves existing wording and only
+            #    adds/removes/changes lines reflecting actual code changes.
+            enrich_nodes = {
+                bp: node for bp, node in stale_nodes.items()
+                if bp_to_fs[bp] in changed_dirs
+            }
+            # Also include stale roots that directly contain changed files
+            for sf in stale_folders:
+                if sf in stale_nodes and sf not in enrich_nodes:
+                    if bp_to_fs.get(sf, "") in changed_dirs:
+                        enrich_nodes[sf] = stale_nodes[sf]
+            if not enrich_nodes:
+                logger.info("No folders with direct file changes to enrich — skipping")
                 return updated_files
-            except Exception:
-                logger.warning(
-                    "IntentLayerService.preview() failed — falling back to deterministic renderer",
-                    exc_info=True,
+
+            config = IntentLayerConfig(enable_ai_enrichment=True, max_concurrent=3)
+            engine = HybridEnrichmentEngine(self._settings, config)
+            enrichments = await engine.enrich_all(
+                enrich_nodes, folder_blueprints, file_reader, previous_content,
+            )
+
+            # 6. Render only the folders we AI-enriched
+            renderer = IntentLayerRenderer()
+            files_to_write: dict[str, str] = {}
+            for bp_path in enrich_nodes:
+                fb = folder_blueprints.get(bp_path)
+                if not fb:
+                    continue
+                enrichment = enrichments.get(
+                    bp_path, FolderEnrichment(path=bp_path),
+                )
+                md_path = f"{bp_to_fs[bp_path]}/CLAUDE.md" if bp_path else "CLAUDE.md"
+                files_to_write[md_path] = renderer.render_hybrid(
+                    enrich_nodes[bp_path], fb, enrichment, repo_name,
                 )
 
-        # Fallback: deterministic rendering with IntentLayerRenderer
-        updated_files = await self._regenerate_deterministic(
-            repo_id=repo_id,
-            blueprint=blueprint,
-            stale_folders=stale_folders,
-            target_local_path=target_local_path,
-        )
-        return updated_files
+            # 6. Write locally + persist to storage
+            if files_to_write:
+                try:
+                    push_client = LocalPushClient(base_dir=target_local_path)
+                    written = push_client.write_files(files_to_write)
+                    updated_files.extend(written)
+                except Exception:
+                    logger.exception("Failed to write files via LocalPushClient")
+
+                for file_path, content in files_to_write.items():
+                    storage_path = f"blueprints/{repo_id}/intent_layer/{file_path}"
+                    try:
+                        await self._storage.save(
+                            storage_path,
+                            content.encode("utf-8") if isinstance(content, str) else content,
+                        )
+                    except Exception:
+                        logger.exception("Failed to persist %s to storage", storage_path)
+
+            return updated_files
+
+        except Exception:
+            logger.warning(
+                "Targeted enrichment failed — falling back to deterministic renderer",
+                exc_info=True,
+            )
+            return await self._regenerate_deterministic(
+                repo_id=repo_id,
+                blueprint=blueprint,
+                stale_folders=stale_folders,
+                target_local_path=target_local_path,
+            )
 
     async def _regenerate_deterministic(
         self,
@@ -694,6 +853,27 @@ Rules:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _resolve_to_affected_folder(raw_path: str, affected_folders: set[str]) -> str:
+    """Map a path returned by the AI back to one of the affected folders.
+
+    The AI sometimes returns file paths (e.g. ``Foo/Bar/file.swift``)
+    instead of the folder path (``Foo/Bar``).  Walk up from *raw_path*
+    until we find a match in *affected_folders*.
+    """
+    if raw_path in affected_folders:
+        return raw_path
+    current = str(PurePosixPath(raw_path).parent)
+    while current and current != ".":
+        if current in affected_folders:
+            return current
+        next_parent = str(PurePosixPath(current).parent)
+        if next_parent == current or next_parent == ".":
+            break
+        current = next_parent
+    # No match — return as-is (best effort)
+    return raw_path
 
 
 def _is_source_file(filepath: str) -> bool:
