@@ -117,6 +117,34 @@ class SmartRefreshService:
         # 3. Compute affected folders with blueprint coverage
         covered_folders = self._get_covered_folders(blueprint)
         affected_folders = self._compute_affected_folders(source_files, covered_folders)
+
+        # If no matches, try stripping the first path component from changed
+        # files.  Many repos (especially iOS) have a layout like:
+        #   RepoRoot/ProjectName/Sources/...
+        # Git returns paths relative to the repo root, but blueprint locations
+        # are often relative to the project subfolder, causing a prefix
+        # mismatch.  Stripping the first component aligns them.
+        if not affected_folders and source_files:
+            first_components = {
+                PurePosixPath(f).parts[0]
+                for f in source_files
+                if len(PurePosixPath(f).parts) > 1
+            }
+            if len(first_components) == 1:
+                prefix = first_components.pop()
+                stripped = [
+                    str(PurePosixPath(*PurePosixPath(f).parts[1:]))
+                    for f in source_files
+                    if len(PurePosixPath(f).parts) > 1
+                ]
+                affected_folders = self._compute_affected_folders(stripped, covered_folders)
+                if affected_folders:
+                    logger.info(
+                        "Matched after stripping repo root prefix '%s' — %d folder(s)",
+                        prefix, len(affected_folders),
+                    )
+                    source_files = stripped
+
         if not affected_folders:
             logger.info("No blueprint-covered folders affected — skipping refresh")
             return SmartRefreshResult(status="no_refresh_needed")
@@ -203,6 +231,33 @@ class SmartRefreshService:
     # ── Folder Coverage ──────────────────────────────────────────────────
 
     @staticmethod
+    def _parse_location(raw: str) -> list[str]:
+        """Parse a component location string into clean folder paths.
+
+        Blueprint locations can contain:
+        - Comma-separated paths: "Foo/A/, Foo/B/"
+        - Semicolon-separated paths: "Foo/ (AppDelegate); Foo/DI/"
+        - Glob suffixes: "Foo/Pages/*"
+        - Inline descriptions in parentheses: "Foo/ (some note)"
+        """
+        import re
+        # Remove parenthetical descriptions BEFORE splitting, since they
+        # may contain commas (e.g. "Foo/ (AppDelegate, SceneDelegate)")
+        cleaned = re.sub(r"\s*\([^)]*\)", "", raw)
+        # Split on comma or semicolon
+        parts = re.split(r"[;,]", cleaned)
+        paths: list[str] = []
+        for part in parts:
+            p = part.strip()
+            if not p:
+                continue
+            # Remove glob wildcards
+            p = p.rstrip("*").rstrip("/").strip()
+            if p:
+                paths.append(p)
+        return paths
+
+    @staticmethod
     def _get_covered_folders(blueprint: StructuredBlueprint) -> dict[str, dict[str, Any]]:
         """Build a mapping of folder paths to their blueprint component info.
 
@@ -211,15 +266,14 @@ class SmartRefreshService:
         """
         covered: dict[str, dict[str, Any]] = {}
         for comp in blueprint.components.components:
-            location = comp.location.strip().rstrip("/")
-            if not location:
-                continue
-            covered[location] = {
+            comp_info = {
                 "name": comp.name,
                 "responsibility": comp.responsibility,
                 "depends_on": comp.depends_on,
                 "exposes_to": comp.exposes_to,
             }
+            for folder in SmartRefreshService._parse_location(comp.location):
+                covered[folder] = comp_info
         return covered
 
     @staticmethod
