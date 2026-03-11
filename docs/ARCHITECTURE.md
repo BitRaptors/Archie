@@ -1,4 +1,4 @@
-# Architecture Blueprints — Developer Documentation
+# Architecture Blueprints - Developer Documentation
 
 Comprehensive technical documentation covering system architecture, analysis pipeline internals, intent layer generation, API reference, database schema, MCP server, delivery pipeline, and contribution guidelines.
 
@@ -17,12 +17,13 @@ Comprehensive technical documentation covering system architecture, analysis pip
 9. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
 10. [MCP Server](#mcp-server)
 11. [Delivery Pipeline](#delivery-pipeline)
-12. [API Reference](#api-reference)
-13. [Database Schema](#database-schema)
-14. [Frontend (Web UI)](#frontend-web-ui)
-15. [Configuration](#configuration)
-16. [Testing](#testing)
-17. [Extending the System](#extending-the-system)
+12. [Claude Code Integration](#claude-code-integration)
+13. [API Reference](#api-reference)
+14. [Database Schema](#database-schema)
+15. [Frontend (Web UI)](#frontend-web-ui)
+16. [Configuration](#configuration)
+17. [Testing](#testing)
+18. [Extending the System](#extending-the-system)
 
 ---
 
@@ -30,14 +31,14 @@ Comprehensive technical documentation covering system architecture, analysis pip
 
 Architecture Blueprints is a monorepo with two services:
 
-- **Backend** — Python FastAPI application following Clean Architecture (DDD layers). Handles repository analysis, blueprint generation, intent layer (per-folder CLAUDE.md), MCP server, and delivery.
-- **Frontend** — Next.js 14 application for managing analyses, viewing blueprints, browsing per-folder context, and triggering delivery.
+- **Backend** - Python FastAPI application following Clean Architecture (DDD layers). Handles repository analysis, blueprint generation, intent layer (per-folder CLAUDE.md), MCP server, and delivery.
+- **Frontend** - Next.js 14 application for managing analyses, viewing blueprints, browsing per-folder context, and triggering delivery.
 
 The core workflow:
 
 1. User submits a GitHub repository URL
 2. Backend clones the repo, extracts structural data, and runs a multi-phase AI analysis using Claude
-3. Analysis produces a `StructuredBlueprint` — a Pydantic model that is the single source of truth
+3. Analysis produces a `StructuredBlueprint` - a Pydantic model that is the single source of truth
 4. The **intent layer** maps the blueprint onto every significant folder, optionally enriching each with AI-generated patterns, key file guides, and common tasks
 5. All outputs (root CLAUDE.md, per-folder CLAUDE.md, Cursor rules, AGENTS.md, CODEBASE_MAP.md, MCP tool responses) derive from this blueprint
 6. The delivery pipeline pushes these outputs to the target repository via GitHub API
@@ -85,7 +86,7 @@ The core workflow:
 | Component | Technology |
 |-----------|-----------|
 | Database | Docker PostgreSQL with pgvector (recommended) or Supabase (cloud) |
-| Cache/Queue | Redis (optional — analysis runs in-process without it) |
+| Cache/Queue | Redis (optional - analysis runs in-process without it) |
 | Hosting | Any platform supporting Python + Node.js |
 
 ---
@@ -124,6 +125,8 @@ architecture-blueprints/
 │   │   │   │   ├── blueprint_renderer.py         # JSON → Markdown renderer
 │   │   │   │   ├── agent_file_generator.py       # Root CLAUDE.md, Cursor rules, AGENTS.md
 │   │   │   │   ├── delivery_service.py           # GitHub delivery + merge logic
+│   │   │   │   ├── smart_refresh_service.py     # AI evaluation of code changes + CLAUDE.md regen
+│   │   │   │   ├── hook_assets.py               # Static hook scripts, skills, settings for delivery
 │   │   │   │   ├── source_file_collector.py      # Copies repo to persistent storage
 │   │   │   │   ├── analysis_data_collector.py    # Phase data persistence
 │   │   │   │   └── ...
@@ -160,7 +163,7 @@ architecture-blueprints/
 │           ├── services/               # Service tests
 │           └── infrastructure/         # Infrastructure tests
 ├── frontend/
-│   ├── pages/                          # Next.js pages (SPA — only 2 routes)
+│   ├── pages/                          # Next.js pages (SPA - only 2 routes)
 │   │   ├── index.tsx                   # Dashboard (SPA shell, manages all views via state)
 │   │   └── auth.tsx                    # GitHub token authentication
 │   ├── components/
@@ -183,10 +186,9 @@ architecture-blueprints/
 │   └── ARCHITECTURE.md                 # This file
 ├── docker-compose.yml                  # PostgreSQL (pgvector) + Redis containers
 ├── README.md                           # Project overview
-├── setup.sh                            # One-time setup: prerequisites, Docker, env files, dependencies
-├── start-dev.sh                        # Linux/Mac startup script
-├── start-dev.py                        # Cross-platform startup script
-└── start-dev.bat                       # Windows startup script
+├── run                                 # Single entry point: setup + start (installs prereqs, Docker, deps, seeds DB, starts services)
+├── setup.sh                            # Legacy wrapper (redirects to ./run)
+└── start-dev.sh                        # Legacy wrapper (redirects to ./run)
 ```
 
 ---
@@ -233,12 +235,12 @@ Services receive all dependencies through constructor injection. No service inst
 
 ### Key Patterns
 
-- **Repository pattern** — Domain interfaces in `domain/interfaces/`, implementations in `infrastructure/persistence/`
-- **RAG fallback** — If RAG indexing fails or the database is unavailable, analysis falls back to static code samples
-- **Event bus** — In-memory asyncio queue system (`infrastructure/events/event_bus.py`) for real-time SSE delivery of analysis progress
-- **Shared embedder** — Singleton for the SentenceTransformer model (`infrastructure/analysis/shared_embedder.py`); lazy-loaded, released after each analysis to free ~400 MB
-- **Frontend auto-detection** — `_detect_frontend()` checks 31 indicators covering web, iOS, Android, and cross-platform; branches to unified synthesis when found
-- **Settings resilience** — `extra = "ignore"` in Pydantic settings so stale env vars from old `.env.local` files don't crash startup
+- **Repository pattern** - Domain interfaces in `domain/interfaces/`, implementations in `infrastructure/persistence/`
+- **RAG fallback** - If RAG indexing fails or the database is unavailable, analysis falls back to static code samples
+- **Event bus** - In-memory asyncio queue system (`infrastructure/events/event_bus.py`) for real-time SSE delivery of analysis progress
+- **Shared embedder** - Singleton for the SentenceTransformer model (`infrastructure/analysis/shared_embedder.py`); lazy-loaded, released after each analysis to free ~400 MB
+- **Frontend auto-detection** - `_detect_frontend()` checks 31 indicators covering web, iOS, Android, and cross-platform; branches to unified synthesis when found
+- **Settings resilience** - `extra = "ignore"` in Pydantic settings so stale env vars from old `.env.local` files don't crash startup
 
 ### Background Task Execution (ARQ vs In-Process)
 
@@ -290,16 +292,16 @@ Clones the repository and extracts:
 
 All I/O operations are wrapped in `asyncio.to_thread()` to avoid blocking the event loop. Gathered data is persisted to the database via `analysis_data_collector`.
 
-#### Stage 2: RAG Indexing (`rag_retriever.py`) — Optional
+#### Stage 2: RAG Indexing (`rag_retriever.py`) - Optional
 
 When the database is available, RAG indexing enables phase-specific code retrieval:
 
-1. **Chunking** — Each code file is split by function/class boundaries using tree-sitter AST parsing
-2. **Embedding** — Each chunk is embedded using the shared embedder singleton (sentence-transformers, 384 dimensions)
-3. **Storage** — Vectors are stored in pgvector
-4. **File-level retrieval** — `retrieve_files_for_phase()` uses chunk-level search to identify relevant files, then deduplicates at the file level and returns **full file contents** (up to 3KB per file)
-5. **Phase-specific chunk type preferences** — Each phase has preferred chunk types (e.g., `layers` prefers `class` + `module`)
-6. **File registry** — `get_file_registry()` returns all unique file paths indexed for a repository via `SELECT DISTINCT`
+1. **Chunking** - Each code file is split by function/class boundaries using tree-sitter AST parsing
+2. **Embedding** - Each chunk is embedded using the shared embedder singleton (sentence-transformers, 384 dimensions)
+3. **Storage** - Vectors are stored in pgvector
+4. **File-level retrieval** - `retrieve_files_for_phase()` uses chunk-level search to identify relevant files, then deduplicates at the file level and returns **full file contents** (up to 3KB per file)
+5. **Phase-specific chunk type preferences** - Each phase has preferred chunk types (e.g., `layers` prefers `class` + `module`)
+6. **File registry** - `get_file_registry()` returns all unique file paths indexed for a repository via `SELECT DISTINCT`
 
 #### Stage 3: Phased AI Analysis (`phased_blueprint_generator.py`)
 
@@ -346,7 +348,7 @@ Dynamic reading budget based on actual source code size:
 
 ### File Path Grounding
 
-Every phase prompt includes a **file registry** — a compact list of all source file paths injected as a grounding constraint. This eliminates hallucinated file paths in the AI output (accuracy improved from ~70% to 92%+).
+Every phase prompt includes a **file registry** - a compact list of all source file paths injected as a grounding constraint. This eliminates hallucinated file paths in the AI output (accuracy improved from ~70% to 92%+).
 
 ---
 
@@ -378,7 +380,7 @@ StructuredBlueprint + Folder Hierarchy
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| `IntentLayerService` | `intent_layer_service.py` | Orchestrator — loads blueprint, builds hierarchy, runs enrichment, saves manifest |
+| `IntentLayerService` | `intent_layer_service.py` | Orchestrator - loads blueprint, builds hierarchy, runs enrichment, saves manifest |
 | `FolderHierarchyBuilder` | `intent_layer_service.py` | Builds `FolderNode` tree from file tree or local path |
 | `BlueprintFolderMapper` | `blueprint_folder_mapper.py` | Maps 10 blueprint sections onto folder paths (components, rules, recipes, pitfalls, etc.) |
 | `IntentLayerRenderer` | `intent_layer_renderer.py` | Deterministic markdown rendering with 200-line hard cap |
@@ -397,7 +399,7 @@ IntentLayerService.preview(source_repo_id, incremental=False)
     3. Load file tree from storage/repos/{repo_id}/
     4. FolderHierarchyBuilder.build_from_file_tree()
          → dict[path, FolderNode] with recursive file counts, extensions, children
-    5. filter_significant() — removes shallow dirs, resource-only trees, marks passthroughs
+    5. filter_significant()  - removes shallow dirs, resource-only trees, marks passthroughs
     6. BlueprintFolderMapper.map_all(blueprint, folder_paths)
          → dict[path, FolderBlueprint] with has_blueprint_coverage flag
     │
@@ -436,16 +438,16 @@ IntentLayerService.preview(source_repo_id, incremental=False)
 
 The `HybridEnrichmentEngine` processes folders bottom-up:
 
-1. **Priority files** — Top 5 files per folder, ranked by tier (app/index/main files first), max 1,500 tokens each, max 5,000 tokens total per folder
-2. **Child propagation** — Child purpose and top patterns bubble up to parent prompts
-3. **Previous content** — Existing CLAUDE.md content fed into the AI prompt for refinement
-4. **Output** — `FolderEnrichment` with: purpose, patterns, key file guides (file + purpose + modification guide), common task (task + steps), anti-patterns, testing/debugging insights, decisions, code examples, key imports
+1. **Priority files** - Top 5 files per folder, ranked by tier (app/index/main files first), max 1,500 tokens each, max 5,000 tokens total per folder
+2. **Child propagation** - Child purpose and top patterns bubble up to parent prompts
+3. **Previous content** - Existing CLAUDE.md content fed into the AI prompt for refinement
+4. **Output** - `FolderEnrichment` with: purpose, patterns, key file guides (file + purpose + modification guide), common task (task + steps), anti-patterns, testing/debugging insights, decisions, code examples, key imports
 
 ### Generated Outputs
 
 ```
 blueprints/{repo_id}/intent_layer/
-├── CLAUDE.md                          # Root — from agent_file_generator
+├── CLAUDE.md                          # Root - from agent_file_generator
 ├── AGENTS.md                          # Multi-agent guidance
 ├── CODEBASE_MAP.md                    # Flat architecture overview
 ├── .claude/rules/*.md                 # Claude Code rule files
@@ -471,21 +473,21 @@ Re-runs the entire pipeline from scratch: clone, scan, 7-9 AI calls for blueprin
 
 Reuses cached AI enrichment for folders whose deterministic content hasn't changed:
 
-1. **Commit SHA tracking** — Each analysis stores the HEAD commit SHA (`analyses.commit_sha` column, migration `002_add_commit_sha.sql`)
-2. **Manifest diffing** — The `ManifestManager` stores content hashes of deterministic renders (not AI-enriched content) in `intent_layer_manifest.json`
+1. **Commit SHA tracking** - Each analysis stores the HEAD commit SHA (`analyses.commit_sha` column, migration `002_add_commit_sha.sql`)
+2. **Manifest diffing** - The `ManifestManager` stores content hashes of deterministic renders (not AI-enriched content) in `intent_layer_manifest.json`
 3. **On re-analysis:**
    - Build deterministic content for all folders (no AI, cheap)
    - Compare content hashes against the stored manifest
    - If blueprint hash changed → everything is new (full re-enrichment)
    - For unchanged folders → load cached final output from `blueprints/{repo_id}/intent_layer/`
    - For changed folders → re-run AI enrichment
-4. **Fallback** — If cached file reads fail, folders fall back to re-enrichment
+4. **Fallback** - If cached file reads fail, folders fall back to re-enrichment
 
 ### UI Flow
 
 When clicking re-analyze on a repo with an existing blueprint, a dialog offers:
-- **Incremental** (faster) — Skips unchanged folders
-- **Full** — Re-runs everything from scratch
+- **Incremental** (faster) - Skips unchanged folders
+- **Full** - Re-runs everything from scratch
 
 First-time analysis always runs in full mode.
 
@@ -529,7 +531,7 @@ The intent layer's `filter_significant()` uses these extensions to determine whi
 
 ## StructuredBlueprint Data Model
 
-Defined in `domain/entities/blueprint.py`. This is the single source of truth — every output derives from it.
+Defined in `domain/entities/blueprint.py`. This is the single source of truth; every output derives from it.
 
 ### Top-Level Structure
 
@@ -549,19 +551,19 @@ class StructuredBlueprint(BaseModel):
 
 ### Key Sections
 
-**`architecture_rules`** — What the MCP tools enforce:
-- `file_placement_rules[]` — Component type, location, naming pattern, example
-- `naming_conventions[]` — Scope (classes, files, etc.), pattern, examples
+**`architecture_rules`** - What the MCP tools enforce:
+- `file_placement_rules[]` - Component type, location, naming pattern, example
+- `naming_conventions[]` - Scope (classes, files, etc.), pattern, examples
 
-**`components`** — Discovered architectural components with location, responsibility, dependencies, public interface.
+**`components`** - Discovered architectural components with location, responsibility, dependencies, public interface.
 
-**`communication`** — Patterns (name, when to use, how it works) and pattern selection guide.
+**`communication`** - Patterns (name, when to use, how it works) and pattern selection guide.
 
-**`deployment`** — Auto-detected deployment/distribution environment. Fields: `runtime_environment`, `compute_services[]`, `container_runtime`, `orchestration`, `serverless_functions`, `ci_cd[]`, `distribution[]`, `infrastructure_as_code`, `supporting_services[]`, `environment_config`, `key_files[]`. Detection covers cloud providers (GCP, AWS, Azure), PaaS (Vercel, Netlify, Fly.io), mobile distribution (App Store, Play Store), package registries (npm, PyPI), and desktop distribution. Infrastructure files are scanned via `INFRASTRUCTURE_FILE_NAMES` in `analysis_settings.py` and injected into the technology analysis phase.
+**`deployment`** - Auto-detected deployment/distribution environment. Fields: `runtime_environment`, `compute_services[]`, `container_runtime`, `orchestration`, `serverless_functions`, `ci_cd[]`, `distribution[]`, `infrastructure_as_code`, `supporting_services[]`, `environment_config`, `key_files[]`. Detection covers cloud providers (GCP, AWS, Azure), PaaS (Vercel, Netlify, Fly.io), mobile distribution (App Store, Play Store), package registries (npm, PyPI), and desktop distribution. Infrastructure files are scanned via `INFRASTRUCTURE_FILE_NAMES` in `analysis_settings.py` and injected into the technology analysis phase.
 
-**`frontend`** (populated only when frontend code is detected) — Framework, rendering strategy, styling, state management, routing, data fetching, key conventions.
+**`frontend`** (populated only when frontend code is detected) - Framework, rendering strategy, styling, state management, routing, data fetching, key conventions.
 
-**`implementation_guidelines`** — How existing capabilities were built (libraries, patterns, key files, usage examples).
+**`implementation_guidelines`** - How existing capabilities were built (libraries, patterns, key files, usage examples).
 
 ### Intent Layer Data Model (`domain/entities/intent_layer.py`)
 
@@ -600,15 +602,15 @@ FastAPI app
 
 | Tool | Parameters | Returns | Description |
 |------|-----------|---------|-------------|
-| `get_repository_blueprint` | — | Full blueprint JSON | Returns the complete `StructuredBlueprint` |
-| `list_repository_sections` | — | Section IDs and names | Lists addressable blueprint sections |
+| `get_repository_blueprint` | - | Full blueprint JSON | Returns the complete `StructuredBlueprint` |
+| `list_repository_sections` | - | Section IDs and names | Lists addressable blueprint sections |
 | `get_repository_section` | `section_id` | Section content | Token-efficient alternative to full blueprint |
 | `where_to_put` | `component_type` | Directory, naming pattern, example | Returns correct file location |
 | `check_naming` | `scope`, `name` | Pass/fail with convention details | Validates name against conventions |
 | `how_to_implement` | `feature` | Libraries, patterns, key files, example | Look up existing implementation (fuzzy search) |
-| `list_implementations` | — | All implementation guidelines | Lists all documented capabilities |
+| `list_implementations` | - | All implementation guidelines | Lists all documented capabilities |
 | `how_to_implement_by_id` | `implementation_id` | Specific guideline | Look up by index |
-| `list_source_files` | — | File list with sizes | List all collected source files |
+| `list_source_files` | - | File list with sizes | List all collected source files |
 | `get_file_content` | `file_path` | File content | Read a collected source file |
 
 ### Connecting from an IDE
@@ -631,7 +633,7 @@ Pushes generated outputs to a target GitHub repository via the GitHub API.
 
 ### Architecture
 
-Outputs are **pre-generated** during analysis (stored at `blueprints/{repo_id}/intent_layer/`). At delivery time, files are loaded from storage — not regenerated.
+Outputs are **pre-generated** during analysis (stored at `blueprints/{repo_id}/intent_layer/`). At delivery time, files are loaded from storage, not regenerated.
 
 ### Output Categories
 
@@ -645,19 +647,20 @@ Outputs are **pre-generated** during analysis (stored at `blueprints/{repo_id}/i
 | `cursor_rules` | `.cursor/rules/*.md` | Direct write |
 | `mcp_claude` | `.mcp.json` | JSON (key-level merge) |
 | `mcp_cursor` | `.cursor/mcp.json` | JSON (key-level merge) |
+| `claude_hooks` | `.claude/hooks/*.sh`, `.claude/settings.json`, `.claude/skills/*.md`, `.archie/config.json` | Direct write |
 
 ### Merge Strategies
 
-**Markdown merge** — Uses HTML comment markers for root-level files only:
+**Markdown merge** - Uses HTML comment markers for root-level files only:
 ```markdown
 <!-- gbr:start repo=my-repo -->
 (generated content here)
 <!-- gbr:end -->
 ```
 
-**JSON merge** — Only upserts the `mcpServers.architecture-blueprints` key; other keys are preserved.
+**JSON merge** - Only upserts the `mcpServers.architecture-blueprints` key; other keys are preserved.
 
-**Direct write** — Per-folder CLAUDE.md files and rule files are fully generated and pushed as-is.
+**Direct write** - Per-folder CLAUDE.md files and rule files are fully generated and pushed as-is.
 
 ### Delivery Strategies
 
@@ -667,6 +670,93 @@ Outputs are **pre-generated** during analysis (stored at `blueprints/{repo_id}/i
 | `commit` | Commits files directly to the default branch |
 
 Both strategies use the PyGithub Git Trees API for atomic multi-file commits.
+
+---
+
+## Claude Code Integration
+
+When `claude_hooks` is included in delivery outputs, the target repository receives hook scripts, skill files, settings, and configuration that make Claude Code architecturally aware without any manual setup.
+
+### Delivered Files
+
+| File | Purpose |
+|------|---------|
+| `.claude/hooks/stop-review-and-refresh.sh` | Stop hook - fires after every Claude Code response |
+| `.claude/hooks/check-architecture-staleness.sh` | SessionStart hook - fires when a conversation begins |
+| `.claude/settings.json` | Registers both hooks with Claude Code |
+| `.claude/skills/*.md` | Skill files (slash commands) for architecture operations |
+| `.archie/config.json` | Per-project config: `storage_path`, `backend_url` |
+| `.archie/repo_id` | Repository identifier linking this project to its blueprint |
+
+### Hooks
+
+#### Stop Hook: `stop-review-and-refresh`
+
+Fires after every Claude Code response. Flow:
+
+1. Reads `.archie/config.json` for storage path and backend URL
+2. Collects changed files via `git diff`, `git diff --cached`, and `git ls-files --others`
+3. Calls `POST /api/v1/delivery/smart-refresh` with the changed file list
+4. Formats and displays results: architecture warnings, updated CLAUDE.md files, suggestions
+5. Exits with code 2 if any error-severity violations are found (blocks the session)
+
+#### SessionStart Hook: `check-architecture-staleness`
+
+Fires when a new Claude Code conversation starts. Compares the modification time of the local `CLAUDE.md` against the blueprint source in storage. If the blueprint is newer, it prints a reminder to run `/sync-architecture`.
+
+### Smart Refresh Pipeline (`SmartRefreshService`)
+
+The Stop hook calls the smart-refresh API, which runs in `SmartRefreshService` (`application/services/smart_refresh_service.py`):
+
+```
+Changed files (from git)
+        |
+        v
+  1. Load blueprint from storage/blueprints/{repo_id}/blueprint.json
+  2. Filter to source files only (SOURCE_CODE_EXTENSIONS)
+  3. Match files to blueprint-covered folders (component locations)
+  4. Group changed files by folder, read snippets (max 1500 chars each)
+  5. Read existing CLAUDE.md for each affected folder (max 500 chars)
+        |
+        v
+  6. AI evaluation (batched, max 8 folders per call)
+     Model: claude-haiku-4-5-20251001, timeout: 20s
+     Input: folder context + changed file snippets + existing CLAUDE.md
+     Output: per-folder verdict (aligned/stale/violation) + warnings + suggestions
+        |
+        v
+  7. For stale folders: regenerate CLAUDE.md
+     Primary: IntentLayerService.preview(incremental=True)
+     Fallback: deterministic IntentLayerRenderer
+  8. Write updated files to the local project via LocalPushClient
+  9. Return SmartRefreshResult (status, updated_files, warnings, suggestions)
+```
+
+Key design decisions:
+
+- The **blueprint is never regenerated** by hooks. Only CLAUDE.md files get re-rendered from the existing blueprint.
+- AI evaluation uses **Claude Haiku** for speed (20s timeout). The full analysis pipeline uses the configured model.
+- Folders are **batched** (max 8 per AI call) to balance latency and thoroughness.
+- File snippets are **truncated** to keep prompts small and fast.
+- If the architecture fundamentally changes, the user must re-analyze from the UI.
+
+### Skills
+
+Skill files are `.md` files in `.claude/skills/` that Claude Code discovers automatically. They act as slash commands. Skills delivered include architecture operations like `/where-to-put`, `/check-naming`, `/check-architecture`, `/how-to-implement`, and `/sync-architecture`.
+
+### `.archie/` Configuration
+
+The `.archie/` directory stores per-project configuration that hooks use to locate the blueprint and backend:
+
+```json
+// .archie/config.json
+{
+  "storage_path": "/absolute/path/to/archie/storage",
+  "backend_url": "http://localhost:8000"
+}
+```
+
+The `repo_id` file contains just the UUID linking the project to its blueprint in storage.
 
 ---
 
@@ -699,6 +789,7 @@ All routes are prefixed with `/api/v1` and registered in `api/app.py`.
 |--------|------|-------------|
 | `POST` | `/preview` | Preview outputs without pushing |
 | `POST` | `/apply` | Push outputs to target GitHub repo |
+| `POST` | `/smart-refresh` | Evaluate changed files against blueprint, regenerate stale CLAUDE.md |
 
 **Preview/Apply request:**
 ```json
@@ -706,7 +797,7 @@ All routes are prefixed with `/api/v1` and registered in `api/app.py`.
   "source_repo_id": "uuid",
   "target_repo": "owner/repo",
   "token": "ghp_...",
-  "outputs": ["claude_md", "agents_md", "intent_layer", "codebase_map", "claude_rules", "cursor_rules", "mcp_claude"],
+  "outputs": ["claude_md", "agents_md", "intent_layer", "codebase_map", "claude_rules", "cursor_rules", "mcp_claude", "claude_hooks"],
   "strategy": "pr"
 }
 ```
@@ -783,14 +874,14 @@ The frontend is a **Single Page Application** (SPA). The dashboard (`index.tsx`)
 ### Blueprint View Features
 
 - **File tree sidebar** with search, expand/collapse, and compact path merging (e.g., `src/api` instead of two levels)
-- **Per-folder CLAUDE.md browsing** — Navigate generated context files for every significant folder
-- **Delivery panel** with output toggles for: CLAUDE.md, AGENTS.md, per-folder context, CODEBASE_MAP.md, Claude rules, Cursor rules, MCP configs
+- **Per-folder CLAUDE.md browsing** - Navigate generated context files for every significant folder
+- **Delivery panel** with output toggles for: CLAUDE.md, AGENTS.md, per-folder context, CODEBASE_MAP.md, Claude rules, Cursor rules, MCP configs, Claude hooks
 
 ### Re-Analyze Dialog
 
 When re-analyzing a repo with an existing blueprint, a confirmation dialog appears with:
-- **Incremental** — Faster, reuses cached enrichment for unchanged folders
-- **Full** — Complete re-analysis from scratch
+- **Incremental** - Faster, reuses cached enrichment for unchanged folders
+- **Full** - Complete re-analysis from scratch
 
 ---
 
@@ -800,12 +891,12 @@ When re-analyzing a repo with an existing blueprint, a confirmation dialog appea
 
 | Backend | `DB_BACKEND` | Setup |
 |---------|-------------|-------|
-| **Local PostgreSQL** (recommended) | `postgres` | `docker compose up -d` — PostgreSQL (pgvector) + Redis |
+| **Local PostgreSQL** (recommended) | `postgres` | `docker compose up -d` - PostgreSQL (pgvector) + Redis |
 | **Supabase** (cloud) | `supabase` | Create project at supabase.com, run migration SQL |
 
 ### Backend Environment Variables
 
-Generated by `setup.sh` at `backend/.env.local`:
+Generated by `./run` at `backend/.env.local`:
 
 ```bash
 # ── Database Backend ──────────────────────────────────────────
@@ -824,7 +915,7 @@ DEFAULT_AI_MODEL=claude-haiku-4-5-20251001
 SYNTHESIS_AI_MODEL=claude-haiku-4-5-20251001
 SYNTHESIS_MAX_TOKENS=64000
 
-# ── Redis (optional — without it, analysis runs in-process) ──
+# ── Redis (optional - without it, analysis runs in-process) ──
 REDIS_URL=redis://localhost:6379
 
 # ── Optional ─────────────────────────────────────────────────
@@ -849,7 +940,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ### Prompt Customization
 
-`backend/prompts.json` is the **only** source of truth for prompt content. After editing prompts, bump `"version"` and run `./setup.sh`.
+`backend/prompts.json` is the **only** source of truth for prompt content. After editing prompts, bump `"version"`  - `./run` will auto-reseed on next start.
 
 ---
 
@@ -911,7 +1002,7 @@ tests/unit/
 
 1. Define the tool function in `infrastructure/mcp/tools.py`
 2. Register it with the MCP server in `infrastructure/mcp/server.py`
-3. The tool should read from `StructuredBlueprint` — never write to it
+3. The tool should read from `StructuredBlueprint`  - never write to it
 4. Add tests in `tests/unit/infrastructure/test_mcp_utils.py`
 
 ### Adding a New Analysis Phase

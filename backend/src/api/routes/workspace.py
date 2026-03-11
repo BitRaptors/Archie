@@ -203,6 +203,12 @@ async def get_agent_files(repo_id: str, request: Request):
             logging.getLogger("intent_layer").error(f"Intent layer generation failed: {e}", exc_info=True)
             raise HTTPException(status_code=404, detail="Could not generate agent files. Blueprint may be missing.")
 
+    # Always include Claude Code hooks (static, not analysis-dependent)
+    from application.services.hook_assets import get_hook_files
+    for path, content in get_hook_files().items():
+        if path not in files:
+            files[path] = content
+
     # Backward-compatible response shape
     cursor_rules_parts = [v for k, v in sorted(files.items()) if k.startswith(".cursor/rules/")]
     return {

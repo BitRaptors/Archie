@@ -61,7 +61,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
         targetRepo: '',
         strategy: 'local' as 'pr' | 'commit' | 'local',
         targetLocalPath: '',
-        outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor', 'intent_layer', 'codebase_map']
+        outputs: ['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor', 'intent_layer', 'codebase_map', 'claude_hooks']
     })
     const [deliveryResult, setDeliveryResult] = useState<any>(null)
     const [needsSync, setNeedsSync] = useState(false)
@@ -558,7 +558,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                 ? ['CLAUDE.md', 'AGENTS.md']
                                 : []
                             const ruleFiles = Object.keys(agentFiles.files)
-                                .filter(p => p.startsWith(prefix))
+                                .filter(p => p.startsWith(prefix) && !p.startsWith('.claude/hooks/') && p !== '.claude/settings.json')
                                 .sort()
                             // Include per-folder CLAUDE.md files and CODEBASE_MAP.md in Claude tab
                             const intentLayerFiles = isClaude
@@ -566,7 +566,13 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                     .filter(p => (p.endsWith('/CLAUDE.md') || p === 'CODEBASE_MAP.md') && !rootFiles.includes(p))
                                     .sort()
                                 : []
-                            const allPaths = [...rootFiles, ...intentLayerFiles, ...ruleFiles].filter(p => agentFiles.files![p])
+                            // Include hook files and settings in Claude tab
+                            const hookFiles = isClaude
+                                ? Object.keys(agentFiles.files)
+                                    .filter(p => p.startsWith('.claude/hooks/') || p === '.claude/settings.json')
+                                    .sort()
+                                : []
+                            const allPaths = [...rootFiles, ...intentLayerFiles, ...ruleFiles, ...hookFiles].filter(p => agentFiles.files![p])
 
                             const filteredPaths = allPaths.filter(p =>
                                 !fileSearchQuery || p.toLowerCase().includes(fileSearchQuery.toLowerCase())
@@ -839,9 +845,13 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                             </div>
                                         </div>
                                         <div className="p-10 flex-1">
-                                            <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
-                                            </div>
+                                            {selectedFile && (selectedFile.endsWith('.sh') || selectedFile.endsWith('.json')) ? (
+                                                <pre className="bg-slate-50 border border-slate-200 rounded-xl p-6 overflow-x-auto text-sm font-mono text-slate-800 leading-relaxed whitespace-pre">{currentContent}</pre>
+                                            ) : (
+                                                <div className="prose prose-slate max-w-none prose-headings:text-ink prose-a:text-teal">
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentContent}</ReactMarkdown>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1099,6 +1109,24 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                             <div>
                                                 <p className="text-xs font-bold text-ink">Codebase Map</p>
                                                 <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`CODEBASE_MAP.md` — Complete architecture map with module guide, navigation, and gotchas in a single file.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Shield className="w-4 h-4 text-rose-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Claude Code Hooks</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`.claude/hooks/` — Automated architecture validation on every file write, edit, and session end.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-4 p-4 rounded-2xl bg-papaya-300/10 border border-papaya-400/40">
+                                            <div className="bg-white p-2 rounded-lg border border-papaya-400 shadow-sm shrink-0">
+                                                <Star className="w-4 h-4 text-amber-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-ink">Claude Code Skills</p>
+                                                <p className="text-[10px] text-ink-300 mt-1 leading-relaxed">`.claude/skills/` — Custom slash commands like `/sync-architecture` and `/check-architecture`.</p>
                                             </div>
                                         </div>
                                     </div>

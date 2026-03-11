@@ -330,10 +330,11 @@ class HybridEnrichmentEngine:
         if previous_claude_md:
             prompt += (
                 "\n\n### Previous CLAUDE.md Content\n"
-                "The following is the previously generated documentation for this folder. "
-                "Preserve valuable insights, user-added notes, and accurate information. "
-                "Update or correct anything outdated based on current code. "
-                "Do not blindly copy — improve.\n\n"
+                "Below is the existing documentation for this folder. "
+                "KEEP the existing wording exactly as-is unless the current code "
+                "contradicts it or new files/patterns were added. Only add, remove, "
+                "or change lines that reflect actual code changes. Do NOT rephrase, "
+                "reword, or reorganize content that is still accurate.\n\n"
                 f"{previous_claude_md}\n"
             )
 

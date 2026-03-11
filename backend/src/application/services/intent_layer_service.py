@@ -491,6 +491,12 @@ class IntentLayerService:
                 elif path not in claude_md_files:
                     claude_md_files[path] = content  # AGENTS.md, rules
 
+        # Include Claude Code hooks (static, not blueprint-dependent)
+        from application.services.hook_assets import get_hook_files
+        for path, content in get_hook_files().items():
+            if path not in claude_md_files:
+                claude_md_files[path] = content
+
         # Incremental update tracking — save deterministic content hashes
         # so next incremental run can diff against them
         if source_repo_id and blueprint:

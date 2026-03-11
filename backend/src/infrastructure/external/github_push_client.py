@@ -60,8 +60,10 @@ class GitHubPushClient:
         branch_name: str,
         files: dict[str, str],
         commit_message: str,
+        executable_paths: set[str] | None = None,
     ) -> str:
         """Commit multiple files atomically using the Git Trees API. Returns commit SHA."""
+        executable_paths = executable_paths or set()
         try:
             repo = self._client.get_repo(repo_full_name)
             ref = repo.get_git_ref(f"heads/{branch_name}")
@@ -73,7 +75,7 @@ class GitHubPushClient:
             tree_elements = [
                 InputGitTreeElement(
                     path=path,
-                    mode="100644",
+                    mode="100755" if path in executable_paths else "100644",
                     type="blob",
                     content=content,
                 )

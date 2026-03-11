@@ -21,7 +21,14 @@ async def lifespan(app: FastAPI):
     db = await app.container.db()
     analysis_data_collector.initialize(db)
 
-    yield
+    # Start MCP session manager (if available)
+    from api.routes.mcp import get_session_manager
+    session_mgr = get_session_manager()
+    if session_mgr is not None:
+        async with session_mgr.run():
+            yield
+    else:
+        yield
     # Shutdown resources
     try:
         from infrastructure.analysis.shared_embedder import release_model
@@ -89,7 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(delivery.router, prefix="/api/v1")
     app.include_router(settings.router, prefix="/api/v1")
 
-    # Mount MCP SSE as a Starlette sub-app (raw ASGI, not FastAPI router)
+    # Mount MCP Streamable HTTP as a Starlette sub-app (raw ASGI, not FastAPI router)
     app.mount("/mcp", mcp_app)
 
     @app.get("/health")
