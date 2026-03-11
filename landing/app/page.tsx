@@ -99,7 +99,7 @@ export default function LandingPage() {
 
       {/* Sticky Feedback Badge */}
       <a
-        href="https://github.com/gbrbks/architecture_mcp/issues"
+        href="https://github.com/BitRaptors/Archie/issues"
         target="_blank"
         rel="noopener noreferrer"
         className="fixed bottom-6 right-6 z-50 transform hover:-translate-y-2 hover:scale-105 transition-all group"
@@ -129,10 +129,10 @@ export default function LandingPage() {
             Your AI is only<br />as good as its context.
           </h1>
           <p className="text-xl md:text-2xl text-sky-blue-600 mb-12 max-w-3xl mx-auto border-l-4 border-neon pl-6 text-left bg-black bg-opacity-40 p-6 backdrop-blur-sm">
-            Architecture Blueprints integrates directly into Claude Code (or your favorite agent) to watch your codebase. With auto-validation hooks and per-folder context, it keeps every context file fresh and won't let a single markdown rot away.
+            Archie integrates directly into Claude Code (or your favorite agent) to watch your architecture. With automatic hooks and per-folder context, it keeps every `CLAUDE.md` fresh and prevents architectural drift.
           </p>
           <a
-            href="https://github.com/gbrbks/architecture_mcp"
+            href="https://github.com/BitRaptors/Archie"
             className="brutalist-border inline-flex items-center gap-4 px-12 py-6 bg-deep-space-blue text-neon font-bold text-xl uppercase tracking-wider hover:bg-neon hover:text-deep-space-blue transition-colors"
           >
             <Github className="w-8 h-8" />
@@ -240,7 +240,7 @@ export default function LandingPage() {
             <div className="bg-[#031d2b] p-12 hover:shadow-xl transition-shadow fade-up flex flex-col justify-center min-h-[300px]">
               <h3 className="text-3xl font-black text-white mb-6 uppercase tracking-tight">9-Phase Pipeline</h3>
               <p className="text-gray-400 leading-relaxed text-lg">
-                Other tools scan your package.json and call it a day. Architecture Blueprints runs a deep AI analysis
+                Other tools scan your package.json and call it a day. Archie runs a deep AI analysis
                 pipeline: observation, discovery, implementation analysis, and synthesis.
               </p>
             </div>
@@ -462,7 +462,7 @@ export default function LandingPage() {
             </div>
             <p className="text-2xl text-gray-400 max-w-3xl mx-auto leading-relaxed">
               A single root-level CLAUDE.md doesn't scale. Your frontend has different patterns than your backend.
-              Architecture Blueprints generates per-folder files to keep focus tight and relevant.
+              Archie generates per-folder files to keep focus tight and relevant.
             </p>
           </div>
 
@@ -612,7 +612,7 @@ export default function LandingPage() {
               code evolves.
             </p>
             <a
-              href="https://github.com/gbrbks/architecture_mcp"
+              href="https://github.com/BitRaptors/Archie"
               className="inline-flex items-center gap-4 px-16 py-8 bg-neon text-black font-black text-3xl uppercase tracking-widest hover:bg-white transition-colors brutalist-border"
               style={{ borderColor: "#023047" }}
             >
@@ -626,16 +626,16 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="bg-black py-16 px-4 border-t-2 border-gray-800 text-center text-gray-500 font-mono text-sm">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="text-lg">© 2026 Architecture Blueprints. All systems nominal.</div>
+          <div className="text-lg">© 2026 Archie. All systems nominal.</div>
           <div className="flex gap-8 text-lg underline decoration-gray-800 underline-offset-4">
             <a
-              href="https://github.com/gbrbks/architecture_mcp/blob/main/docs/ARCHITECTURE.md"
+              href="https://github.com/BitRaptors/Archie/blob/main/docs/ARCHITECTURE.md"
               className="hover:text-neon hover:decoration-neon transition-colors"
             >
               Documentation
             </a>
             <a
-              href="https://github.com/gbrbks/architecture_mcp"
+              href="https://github.com/BitRaptors/Archie"
               className="hover:text-neon hover:decoration-neon transition-colors"
             >
               GitHub

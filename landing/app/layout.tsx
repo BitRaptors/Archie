@@ -15,7 +15,7 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Architecture Blueprints",
+  title: "Archie",
   description: "Deeply analyze your codebase and integrate directly into Claude Code.",
 };
 
