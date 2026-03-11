@@ -451,35 +451,59 @@ class TestCallAi:
 class TestRegenerateClaudeMd:
 
     @pytest.mark.asyncio
-    async def test_uses_intent_layer_service_when_available(
-        self, service_with_intent, sample_blueprint, tmp_path,
+    async def test_targeted_enrichment_pipeline(
+        self, service, sample_blueprint, tmp_path,
     ):
-        with patch("application.services.smart_refresh_service.LocalPushClient") as MockPush:
+        """New pipeline: hierarchy -> mapper -> enrichment -> render (no preview())."""
+        from domain.entities.intent_layer import FolderNode, FolderBlueprint, FolderEnrichment
+
+        mock_node = FolderNode(path="src/api", name="api", depth=2, parent_path="src")
+        mock_fb = FolderBlueprint(path="src/api", component_name="API Layer")
+        mock_enrichment = FolderEnrichment(path="src/api", purpose="HTTP handling")
+
+        with (
+            patch("application.services.smart_refresh_service.FolderHierarchyBuilder") as MockBuilder,
+            patch("application.services.smart_refresh_service.BlueprintFolderMapper") as MockMapper,
+            patch("application.services.smart_refresh_service.HybridEnrichmentEngine") as MockEngine,
+            patch("application.services.smart_refresh_service.IntentLayerRenderer") as MockRenderer,
+            patch("application.services.smart_refresh_service.LocalPushClient") as MockPush,
+        ):
+            MockBuilder.return_value.build_from_path.return_value = {"src/api": mock_node}
+            MockMapper.return_value.map_all.return_value = {"src/api": mock_fb}
+            MockEngine.return_value.enrich_all = AsyncMock(return_value={"src/api": mock_enrichment})
+            MockRenderer.return_value.render_hybrid.return_value = "# CLAUDE.md content"
             MockPush.return_value.write_files.return_value = ["src/api/CLAUDE.md"]
 
-            updated = await service_with_intent._regenerate_claude_md(
+            updated = await service._regenerate_claude_md(
                 repo_id="repo-123",
                 blueprint=sample_blueprint,
                 stale_folders=["src/api"],
                 target_local_path=str(tmp_path),
+                changed_files=["src/api/routes.py"],
             )
 
         assert "src/api/CLAUDE.md" in updated
-        service_with_intent._intent_layer_service.preview.assert_awaited_once()
+        MockBuilder.return_value.build_from_path.assert_called_once()
+        MockMapper.return_value.map_all.assert_called_once()
+        MockEngine.return_value.enrich_all.assert_awaited_once()
+        MockRenderer.return_value.render_hybrid.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_falls_back_to_deterministic_on_failure(
         self, mock_storage, mock_settings, sample_blueprint, tmp_path,
     ):
-        failing_intent = AsyncMock()
-        failing_intent.preview = AsyncMock(side_effect=Exception("boom"))
         svc = SmartRefreshService(
             storage=mock_storage,
             settings=mock_settings,
-            intent_layer_service=failing_intent,
         )
 
-        with patch("application.services.smart_refresh_service.LocalPushClient") as MockPush:
+        with (
+            patch(
+                "application.services.smart_refresh_service.FolderHierarchyBuilder",
+                side_effect=Exception("boom"),
+            ),
+            patch("application.services.smart_refresh_service.LocalPushClient") as MockPush,
+        ):
             MockPush.return_value.write_files.return_value = ["src/api/CLAUDE.md"]
 
             updated = await svc._regenerate_claude_md(
