@@ -1,8 +1,8 @@
 @echo off
-REM Startup script for Repository Analysis System (Windows)
+REM Startup script for Archie (Windows)
 REM Starts both backend and frontend servers
 
-echo 🚀 Starting Repository Analysis System...
+echo 🚀 Starting Archie...
 echo.
 
 REM Check if .env.local files exist
@@ -71,7 +71,7 @@ timeout /t 3 /nobreak >nul
 echo ✅ Frontend server started
 echo.
 echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-echo ✨ Repository Analysis System is running!
+echo ✨ Archie is running!
 echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo Backend:  http://localhost:8000
 echo Frontend: http://localhost:4000

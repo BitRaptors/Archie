@@ -1,7 +1,7 @@
-"""Smart Refresh Service — evaluates code changes against architecture blueprint.
+"""Smart Refresh Service — evaluates code changes against Archie blueprint.
 
 When a developer makes changes, this service:
-1. Loads the architecture blueprint for the repository
+1. Loads the Archie blueprint for the repository
 2. Identifies which blueprint-covered folders are affected
 3. Calls an AI model to check alignment and detect staleness
 4. Regenerates CLAUDE.md files for stale folders
@@ -74,7 +74,7 @@ _AI_MODEL = "claude-haiku-4-5-20251001"
 
 
 class SmartRefreshService:
-    """Evaluates code changes against the architecture blueprint.
+    """Evaluates code changes against the Archie blueprint.
 
     Detects misaligned changes, generates warnings, and regenerates
     stale CLAUDE.md files when the underlying code shifts.

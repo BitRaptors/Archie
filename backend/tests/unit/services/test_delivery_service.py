@@ -296,8 +296,8 @@ class TestApply:
         mcp_content = commit_call_files[".mcp.json"]
         parsed = json.loads(mcp_content)
         assert "mcpServers" in parsed
-        assert "architecture-blueprints" in parsed["mcpServers"]
-        assert parsed["mcpServers"]["architecture-blueprints"]["url"] == "http://localhost:8000/mcp/"
+        assert "archie" in parsed["mcpServers"]
+        assert parsed["mcpServers"]["archie"]["url"] == "http://localhost:8000/mcp/"
 
     @pytest.mark.asyncio
     async def test_backward_compat_cursor_rules_key(self, service, mock_push_client):
@@ -331,7 +331,7 @@ class TestMcpConfigGeneration:
         cursor_config = json.loads(result[".cursor/mcp.json"])
         assert claude_config == cursor_config
         assert "mcpServers" in claude_config
-        assert claude_config["mcpServers"]["architecture-blueprints"]["url"] == "http://localhost:8000/mcp/"
+        assert claude_config["mcpServers"]["archie"]["url"] == "http://localhost:8000/mcp/"
 
 
 class TestMarkdownMerge:
@@ -380,7 +380,7 @@ class TestMarkdownMerge:
 class TestJsonConfigMerge:
 
     def test_merge_no_existing_file(self):
-        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/"}}}
+        config = {"mcpServers": {"archie": {"url": "http://localhost:8000/mcp/"}}}
         result = json.loads(_merge_json_config(None, config))
         assert result == config
 
@@ -390,25 +390,25 @@ class TestJsonConfigMerge:
                 "my-custom-server": {"url": "http://localhost:3000"}
             }
         })
-        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/"}}}
+        config = {"mcpServers": {"archie": {"url": "http://localhost:8000/mcp/"}}}
         result = json.loads(_merge_json_config(existing, config))
         assert "my-custom-server" in result["mcpServers"]
-        assert "architecture-blueprints" in result["mcpServers"]
+        assert "archie" in result["mcpServers"]
 
     def test_merge_existing_with_our_key(self):
         existing = json.dumps({
             "mcpServers": {
                 "other-server": {"url": "http://other"},
-                "architecture-blueprints": {"url": "http://old-url"}
+                "archie": {"url": "http://old-url"}
             }
         })
-        config = {"mcpServers": {"architecture-blueprints": {"url": "http://new-url"}}}
+        config = {"mcpServers": {"archie": {"url": "http://new-url"}}}
         result = json.loads(_merge_json_config(existing, config))
         assert result["mcpServers"]["other-server"]["url"] == "http://other"
-        assert result["mcpServers"]["architecture-blueprints"]["url"] == "http://new-url"
+        assert result["mcpServers"]["archie"]["url"] == "http://new-url"
 
     def test_merge_invalid_json(self):
-        config = {"mcpServers": {"architecture-blueprints": {"url": "http://localhost:8000/mcp/"}}}
+        config = {"mcpServers": {"archie": {"url": "http://localhost:8000/mcp/"}}}
         result = json.loads(_merge_json_config("not valid json {{{", config))
         assert result == config
 
@@ -486,7 +486,7 @@ class TestApplyWithMerge:
         committed_files = mock_push_client.commit_files.call_args[0][2]
         merged = json.loads(committed_files[".mcp.json"])
         assert "my-other-server" in merged["mcpServers"]
-        assert "architecture-blueprints" in merged["mcpServers"]
+        assert "archie" in merged["mcpServers"]
 
 
 class TestClaudeHooksExport:

@@ -1,10 +1,10 @@
-# Repository Analysis System - Frontend
+# Archie - Frontend
 
-This is the frontend application for the Repository Analysis System.
+This is the frontend application for Archie.
 
 ## Project Information
 
-- **Name**: repository-analysis-frontend
+- **Name**: archie-frontend
 - **Framework**: Next.js 14
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS

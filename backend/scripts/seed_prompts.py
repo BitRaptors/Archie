@@ -204,7 +204,7 @@ def main() -> None:
 
     if not executed:
         print(f"\nSQL was NOT executed. To apply manually:")
-        print(f"  - Postgres: psql -U postgres -d architecture_mcp -f {SEED_SQL_FILE}")
+        print(f"  - Postgres: psql -U postgres -d archie -f {SEED_SQL_FILE}")
         print(f"  - Supabase: paste contents of {SEED_SQL_FILE} into SQL editor")
 
 

@@ -209,7 +209,7 @@ if [ ! -f "$BACKEND_ENV" ] || [ "$FORCE_RESET" = true ]; then
     cat > "$BACKEND_ENV" <<'ENVEOF'
 # ── Database ─────────────────────────────────────────────────────
 DB_BACKEND=postgres
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/architecture_mcp
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/archie
 
 # ── AI (REQUIRED — get yours at console.anthropic.com) ───────────
 ANTHROPIC_API_KEY=
@@ -295,7 +295,7 @@ if [ "$DB_BACKEND" = "postgres" ]; then
     info "PostgreSQL ready"
 
     # Apply migration (idempotent)
-    $DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp \
+    $DOCKER_COMPOSE exec -T postgres psql -U postgres -d archie \
         < backend/migrations/001_initial_setup.sql >/dev/null 2>&1 || true
     info "Migration applied"
 else

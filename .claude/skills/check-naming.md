@@ -4,7 +4,7 @@ Validate a name (file, class, function, variable) against the project's architec
 
 ## Instructions
 
-The user wants to check if a name follows the project's established conventions. Use the architecture blueprint to validate.
+The user wants to check if a name follows the project's established conventions. Use the Archie blueprint to validate.
 
 ### Step 1: Resolve the blueprint
 

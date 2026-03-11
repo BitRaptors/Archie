@@ -4,7 +4,7 @@ Look up how an existing capability was implemented in the project — libraries,
 
 ## Instructions
 
-The user wants to know how something is already implemented in their project (e.g., "how was auth done?", "how do push notifications work?", "what library handles email?"). Use the architecture blueprint to answer.
+The user wants to know how something is already implemented in their project (e.g., "how was auth done?", "how do push notifications work?", "what library handles email?"). Use the Archie blueprint to answer.
 
 ### Step 1: Resolve the blueprint
 

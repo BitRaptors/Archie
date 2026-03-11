@@ -774,7 +774,7 @@ class TestGenerateAgentsMd:
 
     def test_contains_mcp_section(self, sample_blueprint):
         content = generate_agents_md(sample_blueprint)
-        assert "## Architecture MCP Server" in content
+        assert "## Archie MCP Server" in content
         assert "where_to_put" in content
         assert "check_naming" in content
 
@@ -802,5 +802,5 @@ class TestGenerateAgentsMd:
     def test_minimal_blueprint_still_generates(self, minimal_blueprint):
         content = generate_agents_md(minimal_blueprint)
         assert "# AGENTS.md" in content
-        assert "Architecture MCP Server" in content
+        assert "Archie MCP Server" in content
         assert len(content) > 100

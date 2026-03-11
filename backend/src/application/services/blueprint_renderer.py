@@ -101,7 +101,7 @@ def render_blueprint_markdown(bp: StructuredBlueprint) -> str:
     repo = bp.meta.repository or "Unknown Repository"
 
     # ── Title ─────────────────────────────────────────────────────────
-    lines.append(f"# {repo} — Architecture Blueprint")
+    lines.append(f"# {repo} — Archie Blueprint")
     lines.append("")
     lines.append(f"> **Analyzed:** {bp.meta.analyzed_at}")
     lines.append(f"> **Schema version:** {bp.meta.schema_version}")

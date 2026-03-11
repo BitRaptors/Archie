@@ -131,7 +131,7 @@ async def apply(body: ApplyRequest, request: Request):
 
 @router.post("/smart-refresh")
 async def smart_refresh(body: SmartRefreshRequest, request: Request):
-    """Evaluate code changes against the architecture blueprint.
+    """Evaluate code changes against the Archie blueprint.
 
     Called by the Stop hook to check alignment and refresh stale CLAUDE.md files.
     """

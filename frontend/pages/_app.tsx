@@ -34,8 +34,8 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <>
       <Head>
-        <title>Repository Analysis System</title>
-        <meta name="description" content="Analyze GitHub repositories and generate architecture blueprints" />
+        <title>Archie</title>
+        <meta name="description" content="Archie - AI-powered codebase analysis" />
       </Head>
       <QueryClientProvider client={queryClient}>
         <AuthContextProvider>

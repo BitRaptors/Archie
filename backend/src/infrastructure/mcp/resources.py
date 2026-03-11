@@ -145,7 +145,7 @@ class BlueprintResources:
             resources.append(Resource(
                 uri=f"blueprint://analyzed/{repo_id}",
                 name="Repository Blueprint",
-                description=f"Full architecture blueprint for {display_name}",
+                description=f"Full Archie blueprint for {display_name}",
                 mimeType="text/markdown",
             ))
 

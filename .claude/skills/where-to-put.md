@@ -1,10 +1,10 @@
 # Skill: where-to-put
 
-Answer "where should I put this new code?" by consulting the project's architecture blueprint.
+Answer "where should I put this new code?" by consulting the project's Archie blueprint.
 
 ## Instructions
 
-The user is asking where a new piece of code (component, service, route, utility, test, etc.) should be placed in their project. Use the architecture blueprint to give a precise answer.
+The user is asking where a new piece of code (component, service, route, utility, test, etc.) should be placed in their project. Use the Archie blueprint to give a precise answer.
 
 ### Step 1: Resolve the blueprint
 

@@ -1,16 +1,16 @@
 # Skill: sync-architecture
 
-Provision architecture outputs (CLAUDE.md, rules, per-folder context, MCP config) from a generated blueprint to the target project's local checkout.
+Provision architecture outputs (CLAUDE.md, rules, per-folder context, MCP config) from a generated Archie blueprint to the target project's local checkout.
 
 ## Instructions
 
-You are synchronizing architecture files from the Archie blueprint storage to a developer's local project. Follow these steps exactly.
+You are synchronizing architecture files from Archie blueprint storage to a developer's local project. Follow these steps exactly.
 
 ### Step 1: Identify the Archie storage path
 
 Read `~/.archie/config.json`. Extract the `storage_path` value. If the file does not exist, ask the user:
 
-> "I need to know where Archie stores blueprints. What is the absolute path to the `backend/storage` directory of your architecture_mcp installation?"
+> "I need to know where Archie stores blueprints. What is the absolute path to the `backend/storage` directory of your Archie installation?"
 
 Then create `~/.archie/config.json` with `{ "storage_path": "<their answer>" }`.
 
@@ -44,7 +44,7 @@ For each file from the intent layer, write it to the corresponding relative path
 
 - **`.mcp.json` and `.cursor/mcp.json`**: If the file already exists:
   - Parse the existing JSON
-  - Only upsert the `mcpServers.architecture-blueprints` key — preserve all other keys
+  - Only upsert the `mcpServers.archie` key — preserve all other keys
   - If the file doesn't exist, write the new JSON directly
 
 - **`.claude/settings.json`**: If the file already exists:

@@ -1,4 +1,4 @@
--- Architecture Blueprints — Initial Database Setup
+-- Archie — Initial Database Setup
 -- Consolidated migration: creates all tables, indexes, functions, seeds, and grants.
 -- Run against a Supabase PostgreSQL instance with pgvector support.
 

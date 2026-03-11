@@ -104,7 +104,7 @@ INSERT INTO analysis_prompts (name, category, prompt_template, variables, is_def
 VALUES (
     'Discovery Analysis',
     'discovery',
-    'You are analyzing a codebase to produce a unified architecture blueprint covering ALL platforms (backend, frontend, mobile, etc.).
+    'You are analyzing a codebase to produce a unified Archie blueprint covering ALL platforms (backend, frontend, mobile, etc.).
 
 ## Discovery Analysis
 
@@ -667,9 +667,9 @@ INSERT INTO analysis_prompts (name, category, prompt_template, variables, is_def
 VALUES (
     'Blueprint Synthesis (Structured JSON)',
     'blueprint_synthesis',
-    '## Architecture Blueprint — {repository_name}
+    '## Archie Blueprint — {repository_name}
 
-Synthesize ALL analysis into a single JSON architecture blueprint. This is the **source of truth** for CLAUDE.md, Cursor rules, and MCP validation.
+Synthesize ALL analysis into a single JSON Archie blueprint. This is the **source of truth** for CLAUDE.md, Cursor rules, and MCP validation.
 
 ### Analysis Results
 

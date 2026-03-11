@@ -18,7 +18,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🚀 Starting Repository Analysis System...${NC}\n"
+echo -e "${BLUE}🚀 Starting Archie...${NC}\n"
 
 # ── Helper: run a command with a timeout (macOS lacks `timeout`) ──────────
 run_with_timeout() {
@@ -324,7 +324,7 @@ echo -e "${GREEN}✅ Frontend running on http://localhost:${FRONTEND_PORT} (PID:
 rm -f "$FRONTEND_LOG_FILE"
 
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}✨ Repository Analysis System is running!${NC}"
+echo -e "${GREEN}✨ Archie is running!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BLUE}Backend:${NC}  http://localhost:${BACKEND_PORT}"
 echo -e "${BLUE}Frontend:${NC} http://localhost:${FRONTEND_PORT}"

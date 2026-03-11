@@ -1,10 +1,10 @@
 # Skill: check-architecture
 
-Validate recent code changes against the project's architecture blueprint — check file placement, naming, and layer boundary violations.
+Validate recent code changes against the project's Archie blueprint — check file placement, naming, and layer boundary violations.
 
 ## Instructions
 
-The user wants to verify their recent changes follow the established architecture. Review the git diff against the blueprint rules.
+The user wants to verify their recent changes follow the established architecture. Review the git diff against the Archie blueprint rules.
 
 ### Step 1: Resolve the blueprint
 

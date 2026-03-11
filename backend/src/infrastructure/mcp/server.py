@@ -1,4 +1,4 @@
-"""MCP server for architecture blueprints.
+"""Archie MCP server.
 
 All tools operate on the structured JSON blueprint — the single source of truth.
 No static markdown reference files are used.
@@ -100,10 +100,10 @@ NO_ACTIVE_REPO_MSG = (
 def create_server():
     """Create and configure the MCP server instance."""
     try:
-        srv = Server("architecture-blueprints")
+        srv = Server("archie")
     except TypeError:
         srv = Server()
-        srv.name = "architecture-blueprints"
+        srv.name = "archie"
 
     # ------------------------------------------------------------------
     # Resources — filtered to active repo
@@ -155,7 +155,7 @@ def create_server():
             Tool(
                 name="get_repository_blueprint",
                 description=(
-                    "Get the full architecture blueprint for the active repository. "
+                    "Get the full Archie blueprint for the active repository. "
                     "Contains component boundaries, file placement rules, "
                     "and naming conventions. Use list_repository_sections + get_repository_section "
                     "for token-efficient partial reads."

@@ -19,7 +19,7 @@ On first use of any skill, it will ask for the path and create `~/.archie/config
 
 ```json
 {
-  "storage_path": "/path/to/architecture_mcp/backend/storage"
+  "storage_path": "/path/to/archie/backend/storage"
 }
 ```
 
@@ -36,7 +36,7 @@ Each project also caches its `repo_id` in `.archie/repo_id` after first resoluti
 2. Reads all files from the blueprint's `intent_layer/` directory
 3. Writes them to the project root with smart merging:
    - Root markdown files (`CLAUDE.md`, `AGENTS.md`): Preserves user content outside `<!-- gbr:start -->` markers
-   - JSON configs (`.mcp.json`): Upserts only the `architecture-blueprints` MCP server key
+   - JSON configs (`.mcp.json`): Upserts only the `archie` MCP server key
    - Everything else (rules, per-folder CLAUDE.md): Overwrites entirely
 4. Reports what was written/updated
 
@@ -127,7 +127,7 @@ Tips: Use the existing GmailWebhookParser class, don't roll your own parser
 
 ### `/check-architecture`
 
-**Purpose:** Validate uncommitted changes against the architecture blueprint.
+**Purpose:** Validate uncommitted changes against the Archie blueprint.
 
 **What it does:**
 1. Runs `git diff --name-status` to find added/renamed files
@@ -214,7 +214,7 @@ Summary: 2 passed, 1 issue found
 6. Claude Code receives feedback, moves the file to the correct location
 ```
 
-**Why it's useful:** Turns the architecture blueprint from a passive document into an active guardrail. Catches placement violations at the moment of creation, before they reach code review. Claude Code self-corrects immediately — no human intervention needed.
+**Why it's useful:** Turns the Archie blueprint from a passive document into an active guardrail. Catches placement violations at the moment of creation, before they reach code review. Claude Code self-corrects immediately — no human intervention needed.
 
 **Performance:** The hook reads one JSON file and does string matching. Typical execution is <100ms. Only fires on `Write` (new files), not `Edit`, so it doesn't add latency to every keystroke.
 

@@ -1,3 +1,3 @@
-"""Architecture MCP Server - Exposes architecture blueprints as resources and tools."""
+"""Archie MCP Server - Exposes Archie blueprints as resources and tools."""
 
 

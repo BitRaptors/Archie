@@ -1,4 +1,4 @@
-"""Phased blueprint generator using AI for comprehensive architecture documentation."""
+"""Phased blueprint generator using AI for comprehensive Archie blueprint documentation."""
 import asyncio
 import json
 import logging
@@ -18,7 +18,7 @@ logger = logging.getLogger("phased_blueprint_generator")
 
 
 class PhasedBlueprintGenerator:
-    """Generates comprehensive architecture blueprints through phased AI analysis.
+    """Generates comprehensive Archie blueprints through phased AI analysis.
 
     This generator uses an OBSERVATION-FIRST approach:
     1. Full File Scan: Extract signatures from ALL files (not just RAG matches)
@@ -118,7 +118,7 @@ class PhasedBlueprintGenerator:
         provided_capabilities: dict[str, list[str]] | None = None,
         structure_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Generate comprehensive architecture blueprint through phased analysis.
+        """Generate comprehensive Archie blueprint through phased analysis.
         
         Uses RAG-based retrieval to analyze the ENTIRE codebase, not just samples.
         
@@ -385,7 +385,7 @@ class PhasedBlueprintGenerator:
 
         # Final Synthesis: Generate structured JSON blueprint
         if self._progress_callback and analysis_id:
-            await self._progress_callback(analysis_id, "INFO", "Generating unified architecture blueprint...")
+            await self._progress_callback(analysis_id, "INFO", "Generating unified Archie blueprint...")
 
         synthesis_result = await self._run_blueprint_synthesis(
             repository_name=repository_name,
@@ -1690,7 +1690,7 @@ class PhasedBlueprintGenerator:
 
     def _generate_mock_blueprint(self, repository_name: str) -> str:
         """Generate a mock blueprint when AI client is not available."""
-        return f"""# {repository_name} Architecture Blueprint
+        return f"""# {repository_name} Archie Blueprint
 
 ## Purpose
 

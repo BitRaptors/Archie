@@ -250,7 +250,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
     const getMcpConfig = () => {
         const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
         return JSON.stringify({
-            mcpServers: { "architecture-blueprints": { url: `${API_URL}/mcp/sse` } }
+            mcpServers: { "archie": { url: `${API_URL}/mcp/sse` } }
         }, null, 2)
     }
 
@@ -339,7 +339,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white/50 animate-in fade-in duration-500">
             <PageHeader
-                title="Architecture Blueprint"
+                title="Archie Blueprint"
                 subtitle={repoFullName ? `Repository: ${repoFullName}` : (repoId ? (isLoading ? 'Repository: Loading...' : `Repository: ${repoId.slice(0, 8)}...`) : `Analysis: ${analysisId?.slice(0, 8)}`)}
                 icon={Layers}
                 actions={

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Startup script for Repository Analysis System
+Startup script for Archie
 Starts both backend and frontend servers
 """
 
@@ -248,7 +248,7 @@ def main():
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
     
-    print(f"{BLUE}🚀 Starting Repository Analysis System...{NC}\n")
+    print(f"{BLUE}🚀 Starting Archie...{NC}\n")
     
     # Check environment files
     check_env_files()
@@ -261,7 +261,7 @@ def main():
 
     # Print status
     print(f"{GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{NC}")
-    print(f"{GREEN}✨ Repository Analysis System is running!{NC}")
+    print(f"{GREEN}✨ Archie is running!{NC}")
     print(f"{GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{NC}")
     redis_status = REDIS_URL if check_redis() else f"Not connected ({REDIS_URL})"
     print(f"{BLUE}Backend:{NC}  http://localhost:{backend_port}")

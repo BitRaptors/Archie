@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Application settings from environment variables."""
 
     # Application
-    app_name: str = Field(default="Repository Analysis API")
+    app_name: str = Field(default="Archie API")
     app_version: str = Field(default="1.0.0")
     environment: str = Field(default="development")
     debug: bool = Field(default=False)

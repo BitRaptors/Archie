@@ -276,9 +276,9 @@ def _build_frontend_rule(blueprint: StructuredBlueprint) -> Optional[RuleFile]:
 
 def _build_mcp_tools_rule(_blueprint: StructuredBlueprint) -> RuleFile:
     """Build the MCP tools rule: static tool table + workflow."""
-    body = """## Architecture MCP Server (MANDATORY)
+    body = """## Archie MCP Server (MANDATORY)
 
-The `architecture-blueprints` MCP server is the single source of truth for this codebase's architecture.
+The `archie` MCP server is the single source of truth for this codebase's architecture.
 You MUST call its tools for every architecture decision — no exceptions.
 
 | Tool | When to Use | Required |
@@ -306,7 +306,7 @@ You MUST call its tools for every architecture decision — no exceptions.
     return RuleFile(
         topic="mcp-tools",
         body=body,
-        description="Architecture MCP server usage rules",
+        description="Archie MCP server usage rules",
         always_apply=True,
     )
 
@@ -553,9 +553,9 @@ def generate_claude_md_lean(blueprint: StructuredBlueprint) -> str:
     lines.append("")
 
     # MCP mandatory note
-    lines.append("## Architecture MCP Server (MANDATORY)")
+    lines.append("## Archie MCP Server (MANDATORY)")
     lines.append("")
-    lines.append("The `architecture-blueprints` MCP server is the single source of truth.")
+    lines.append("The `archie` MCP server is the single source of truth.")
     lines.append("You MUST call `where_to_put` before creating files and `check_naming` before naming components.")
     lines.append("See `.claude/rules/mcp-tools.md` for the full tool reference and workflow.")
     lines.append("")
@@ -614,7 +614,7 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
     7. Testing
     8. Common Workflows
     9. Pitfalls
-    10. Architecture MCP Server
+    10. Archie MCP Server
     """
     import re
 
@@ -835,10 +835,10 @@ def generate_agents_md(blueprint: StructuredBlueprint) -> str:
                 lines.append(f"  - *{pitfall.recommendation}*")
         lines.append("")
 
-    # ── 11. Architecture MCP Server (at end, not top) ──
-    lines.append("## Architecture MCP Server")
+    # ── 11. Archie MCP Server (at end, not top) ──
+    lines.append("## Archie MCP Server")
     lines.append("")
-    lines.append("The `architecture-blueprints` MCP server is the single source of truth.")
+    lines.append("The `archie` MCP server is the single source of truth.")
     lines.append("Call its tools for every architecture decision.")
     lines.append("")
     lines.append("| Tool | When to Use |")

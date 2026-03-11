@@ -411,7 +411,7 @@ class TestAgentsMdFrontend:
 
     def test_contains_mcp_section(self, fullstack_blueprint):
         content = generate_agents_md(fullstack_blueprint)
-        assert "## Architecture MCP Server" in content
+        assert "## Archie MCP Server" in content
         assert "where_to_put" in content
 
     def test_contains_guidance_header(self, fullstack_blueprint):
@@ -422,7 +422,7 @@ class TestAgentsMdFrontend:
     def test_minimal_agents_md_still_generates(self, backend_only_blueprint):
         content = generate_agents_md(backend_only_blueprint)
         assert "# AGENTS.md" in content
-        assert "Architecture MCP Server" in content
+        assert "Archie MCP Server" in content
 
 
 # ── Frontend Detection Tests ─────────────────────────────────────────────────

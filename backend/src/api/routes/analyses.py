@@ -345,7 +345,7 @@ async def get_blueprint(
             "analysis_id": analysis_id,
             "repository_id": analysis.repository_id,
             "type": "frontend",
-            "content": "# Frontend Architecture Blueprint\n\n**Coming Soon**\n\nThe frontend analysis engine is currently being developed. Once implemented, this section will contain a deep dive into the frontend architecture, including component patterns, state management, and more.",
+            "content": "# Frontend Archie Blueprint\n\n**Coming Soon**\n\nThe frontend analysis engine is currently being developed. Once implemented, this section will contain a deep dive into the frontend architecture, including component patterns, state management, and more.",
             "path": f"blueprints/{analysis.repository_id}/frontend_blueprint.md"
         }
     

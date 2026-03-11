@@ -5,7 +5,7 @@ export default function Document() {
     <Html lang="en">
       <Head>
         <meta charSet="utf-8" />
-        <meta name="description" content="Repository Analysis System - Analyze GitHub repositories and generate architecture blueprints" />
+        <meta name="description" content="Archie - AI-powered codebase analysis" />
       </Head>
       <body>
         <Main />
