@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { repositoriesService } from '@/services/repositories'
 import { useRepositoriesQuery } from '@/hooks/api/useRepositoriesQuery'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
@@ -31,6 +32,7 @@ interface RepositoryViewProps {
 
 export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: RepositoryViewProps) {
     const { token } = useAuth()
+    const queryClient = useQueryClient()
     const { data: repos, isLoading, refetch: refetchRepos } = useRepositoriesQuery()
     const { data: workspaceRepos } = useWorkspaceRepositories()
     const { mutate: setActiveRepo, isPending: isSettingActive } = useSetActiveRepository()
@@ -68,6 +70,7 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
         setAnalyzing(prev => new Set(prev).add(key))
         try {
             const analysis = await repositoriesService.analyze(owner, name, token, mode)
+            queryClient.invalidateQueries({ queryKey: ['workspace', 'repositories'] })
             onAnalyze(analysis.id, key)
         } catch (err: any) {
             const detail = err?.response?.data?.detail
@@ -99,6 +102,7 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
         setIsAnalyzingPublic(true)
         try {
             const analysis = await repositoriesService.analyze(parsed.owner, parsed.repo, token)
+            queryClient.invalidateQueries({ queryKey: ['workspace', 'repositories'] })
             onAnalyze(analysis.id, `${parsed.owner}/${parsed.repo}`)
             setPublicUrl('')
             refetchRepos()
