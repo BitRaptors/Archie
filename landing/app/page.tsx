@@ -31,18 +31,20 @@ const ExampleFileContent = ({ filePath }: { filePath: string }) => {
   const fileName = filePath.includes("/") ? filePath : `root/${filePath}`;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3 text-sky-blue border-b border-white/10 pb-4 mb-6">
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-3 text-sky-blue border-b border-white/10 pb-4 mb-4 shrink-0">
         {filePath.includes("/") ? <Folder className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
         <span className="font-black tracking-widest uppercase text-sm">{fileName}</span>
       </div>
-      {isMarkdown ? (
-        <MarkdownRenderer content={content} />
-      ) : (
-        <pre className="bg-black/60 border border-white/10 rounded px-4 py-3 overflow-x-auto text-[11px] md:text-xs leading-relaxed">
-          <code className="text-[#39ff14]/80 font-mono">{content}</code>
-        </pre>
-      )}
+      <div className="flex-1 overflow-hidden">
+        {isMarkdown ? (
+          <MarkdownRenderer content={content} />
+        ) : (
+          <pre className="bg-black/60 border border-white/10 rounded px-4 py-3 overflow-x-auto text-[11px] md:text-xs leading-relaxed">
+            <code className="text-[#39ff14]/80 font-mono">{content}</code>
+          </pre>
+        )}
+      </div>
     </div>
   );
 };
@@ -548,7 +550,7 @@ export default function LandingPage() {
       </section>
 
       {/* Showcase Example Output Section */}
-      <section id="showcase" className="py-20 md:py-28 px-4 bg-black relative overflow-hidden border-t-8 border-sky-blue/30">
+      <section id="showcase" className="pt-24 pb-12 md:pt-32 md:pb-16 px-4 bg-black relative overflow-hidden border-t-8 border-sky-blue/30">
         <div className="absolute top-0 right-0 w-[50%] h-full bg-[radial-gradient(circle_at_70%_50%,#023047_0%,transparent_70%)] opacity-30"></div>
 
         <div className="max-w-7xl mx-auto relative z-10">
@@ -565,28 +567,23 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="flex flex-col lg:flex-row gap-6 lg:gap-0 fade-up">
-            {/* File Tree Navigation */}
-            <div className="lg:w-1/3 bg-[#0a0a0a] border-4 border-gray-800 border-r-0 hidden lg:block">
-              <div className="bg-gray-900 border-b-2 border-gray-800 px-4 py-3 flex items-center gap-3">
-                <Search className="w-3.5 h-3.5 text-gray-500" />
-                <span className="text-gray-500 font-mono text-[11px] uppercase tracking-widest">Explorer — {EXAMPLE_FILE_PATHS.length} files</span>
-              </div>
-              <div className="h-[532px] overflow-hidden">
-                <FileTree
-                  filePaths={EXAMPLE_FILE_PATHS}
-                  activePath={activeFile}
-                  onSelect={setActiveFile}
-                />
-              </div>
+          <div className="fade-up flex flex-col lg:flex-row lg:gap-0 gap-4 border-4 border-gray-800 bg-[#0a0a0a] relative group/showcase shadow-[12px_12px_0px_0px_rgba(33,158,188,0.1)]">
+            {/* File Tree */}
+            <div className="lg:w-[280px] shrink-0 border-r border-gray-800 hidden lg:block overflow-hidden h-[600px] relative">
+              <FileTree
+                filePaths={EXAMPLE_FILE_PATHS}
+                activePath={activeFile}
+                onSelect={setActiveFile}
+              />
+              <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none"></div>
             </div>
 
-            {/* Mobile: Simple file selector */}
-            <div className="lg:hidden">
+            {/* Mobile: file selector */}
+            <div className="lg:hidden px-4 pt-4">
               <select
                 value={activeFile}
                 onChange={(e) => setActiveFile(e.target.value)}
-                className="w-full bg-[#0a0a0a] border-2 border-gray-800 text-gray-300 font-mono text-xs p-3 uppercase tracking-wider"
+                className="w-full bg-black border border-gray-800 text-gray-300 font-mono text-xs p-2 uppercase tracking-wider"
               >
                 {EXAMPLE_FILE_PATHS.map((p) => (
                   <option key={p} value={p}>{p}</option>
@@ -594,30 +591,28 @@ export default function LandingPage() {
               </select>
             </div>
 
-            {/* Content Display */}
-            <div className="lg:w-2/3 bg-[#0a0a0a] border-4 border-gray-800 relative shadow-[12px_12px_0px_0px_rgba(33,158,188,0.1)] group/showcase">
-              {/* File Contents */}
-              <div className="p-8 font-mono text-sm h-[564px] overflow-hidden">
-                <ExampleFileContent filePath={activeFile} />
-              </div>
+            {/* Content */}
+            <div className="flex-1 p-6 font-mono text-sm h-[600px] overflow-hidden relative">
+              <ExampleFileContent filePath={activeFile} />
+              <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none"></div>
+            </div>
 
-              {/* Full Screen Button */}
-              <div className="absolute bottom-6 right-6 opacity-40 group-hover/showcase:opacity-100 transition-opacity">
-                <button
-                  onClick={() => setIsModalOpen(true)}
-                  className="bg-gray-800 hover:bg-neon hover:text-black text-gray-400 px-4 py-2 rounded-full flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-colors"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                  Full Screen
-                </button>
-              </div>
+            {/* Full Screen */}
+            <div className="absolute bottom-4 right-4 opacity-0 group-hover/showcase:opacity-100 transition-opacity">
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="bg-gray-800 hover:bg-neon hover:text-black text-gray-400 px-4 py-2 rounded-full flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-colors"
+              >
+                <Maximize2 className="w-4 h-4" />
+                See the full file
+              </button>
             </div>
           </div>
         </div>
       </section>
 
       {/* What Gets Generated & By the Numbers */}
-      <section className="py-32 md:py-40 px-4 bg-black relative">
+      <section className="pt-12 pb-24 md:pt-16 md:pb-32 px-4 bg-black relative">
         <div className="max-w-7xl mx-auto z-10 relative fade-up">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-16 lg:gap-24">
             <div className="text-left">
@@ -677,13 +672,6 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Blueprint Screenshot */}
-          <div className="mt-24 fade-up brutalist-border relative border-4 bg-black" style={{ borderColor: "#ffb703", boxShadow: "16px 16px 0px 0px #ffb703" }}>
-            <div className="absolute -top-6 left-8 bg-amber-flame text-black font-black px-8 py-3 text-2xl z-20 border-4 border-black">
-              THE ARCHITECTURE BLUEPRINT
-            </div>
-            <img src="/blueprint.png" alt="Architecture Blueprint Dashboard" className="w-full h-auto opacity-90 hover:opacity-100 transition-opacity pt-4" />
-          </div>
         </div>
       </section>
 
@@ -771,19 +759,10 @@ export default function LandingPage() {
               className="w-full h-full max-w-7xl bg-[#0a0a0a] border-4 border-white/10 flex flex-col relative overflow-hidden shadow-[0_0_100px_rgba(33,158,188,0.2)]"
             >
               {/* Modal Header */}
-              <div className="bg-gray-900 border-b-2 border-white/5 p-6 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-6">
-                  <div className="flex gap-2">
-                    <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
-                    <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                  </div>
-                  <div className="h-8 w-px bg-white/10 hidden md:block"></div>
-                  <div className="text-white font-black uppercase tracking-[0.2em] text-sm md:text-base">
-                    Archie <span className="text-gray-500 font-mono text-xs ml-2 opacity-50">v1.0.4 - Live Analysis Preview</span>
-                  </div>
+              <div className="bg-gray-900 border-b-2 border-white/5 px-6 py-4 flex items-center justify-between shrink-0">
+                <div className="text-white font-black uppercase tracking-[0.2em] text-sm md:text-base">
+                  Archie <span className="text-gray-500 font-mono text-xs ml-2 opacity-50">Generated Output</span>
                 </div>
-
                 <button
                   onClick={() => setIsModalOpen(false)}
                   className="bg-white/5 hover:bg-neon hover:text-black p-2 transition-all group brutalist-border-sm"
@@ -821,23 +800,6 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* Modal Status Bar */}
-              <div className="bg-gray-900 border-t-2 border-white/5 px-6 py-3 flex items-center justify-between shrink-0 text-[10px] md:text-xs">
-                <div className="flex gap-6 text-gray-400">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span className="opacity-60 uppercase font-black">Connected to Analysis Engine</span>
-                  </div>
-                  <div className="hidden md:flex gap-4">
-                    <span className="opacity-40 tracking-widest text-white uppercase">Ln 1, Col 1</span>
-                    <span className="opacity-40 tracking-widest text-white uppercase">UTF-8</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sky-blue font-bold uppercase tracking-widest">
-                  <CheckCircle2 className="w-3 h-3" />
-                  No structural issues detected
-                </div>
-              </div>
             </motion.div>
           </motion.div>
         )}
