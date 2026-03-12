@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/generate-example-manifest.mjs && next dev",
+    "prebuild": "node scripts/generate-example-manifest.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

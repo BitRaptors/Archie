@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/stop-review-and-refresh.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/check-architecture-staleness.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

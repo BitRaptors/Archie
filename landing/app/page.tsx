@@ -1,16 +1,57 @@
 "use strict";
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Github, ArrowRight, ArrowUpRight } from "lucide-react";
+import { Github, ArrowUpRight, FileText, Folder, Search, CheckCircle2, X, Maximize2 } from "lucide-react";
 import { ShaderBackground } from "@/components/ShaderBackground";
-import { motion, useScroll, useSpring } from "framer-motion";
+import { motion, useScroll, useSpring, AnimatePresence } from "framer-motion";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { FileTree } from "@/components/FileTree";
+import { EXAMPLE_FILES } from "./example-files";
 
 gsap.registerPlugin(ScrollTrigger);
 
+const EXAMPLE_FILE_PATHS = Object.keys(EXAMPLE_FILES).sort();
+const DEFAULT_FILE = "CLAUDE.md";
+
+const ExampleFileContent = ({ filePath }: { filePath: string }) => {
+  const content = EXAMPLE_FILES[filePath];
+  if (!content) {
+    return (
+      <div className="text-gray-500 text-sm font-mono p-8 text-center">
+        <FileText className="w-8 h-8 mx-auto mb-3 opacity-30" />
+        Select a file to preview
+      </div>
+    );
+  }
+
+  const isMarkdown = filePath.endsWith(".md");
+  const fileName = filePath.includes("/") ? filePath : `root/${filePath}`;
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-3 text-sky-blue border-b border-white/10 pb-4 mb-4 shrink-0">
+        {filePath.includes("/") ? <Folder className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+        <span className="font-black tracking-widest uppercase text-sm">{fileName}</span>
+      </div>
+      <div className="flex-1 overflow-hidden">
+        {isMarkdown ? (
+          <MarkdownRenderer content={content} />
+        ) : (
+          <pre className="bg-black/60 border border-white/10 rounded px-4 py-3 overflow-x-auto text-[11px] md:text-xs leading-relaxed">
+            <code className="text-[#39ff14]/80 font-mono">{content}</code>
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default function LandingPage() {
+  const [activeFile, setActiveFile] = useState(DEFAULT_FILE);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll();
   const scaleProgress = useSpring(scrollYProgress, { stiffness: 100, damping: 30 });
@@ -508,8 +549,70 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Showcase Example Output Section */}
+      <section id="showcase" className="pt-24 pb-12 md:pt-32 md:pb-16 px-4 bg-black relative overflow-hidden border-t-8 border-sky-blue/30">
+        <div className="absolute top-0 right-0 w-[50%] h-full bg-[radial-gradient(circle_at_70%_50%,#023047_0%,transparent_70%)] opacity-30"></div>
+
+        <div className="max-w-7xl mx-auto relative z-10">
+          <div className="mb-12 fade-up text-left">
+            <span className="text-sky-blue font-black tracking-widest uppercase text-sm mb-4 block px-2 py-1 bg-sky-blue/10 border-l-2 border-sky-blue inline-block">
+              02. THE OUTPUT
+            </span>
+            <h2 className="text-6xl md:text-7xl font-black text-white uppercase mt-4 mb-8">
+              See it in <span className="text-sky-blue underline decoration-sky-blue decoration-4 underline-offset-8">action.</span>
+            </h2>
+            <p className="text-xl text-gray-400 max-w-2xl">
+              Archie produces high-density, actionable documentation that turns any LLM into a project expert.
+              Zero fluff. Pure architectural intent.
+            </p>
+          </div>
+
+          <div className="fade-up flex flex-col lg:flex-row lg:gap-0 gap-4 border-4 border-gray-800 bg-[#0a0a0a] relative group/showcase shadow-[12px_12px_0px_0px_rgba(33,158,188,0.1)]">
+            {/* File Tree */}
+            <div className="lg:w-[280px] shrink-0 border-r border-gray-800 hidden lg:block overflow-hidden h-[600px] relative">
+              <FileTree
+                filePaths={EXAMPLE_FILE_PATHS}
+                activePath={activeFile}
+                onSelect={setActiveFile}
+              />
+              <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none"></div>
+            </div>
+
+            {/* Mobile: file selector */}
+            <div className="lg:hidden px-4 pt-4">
+              <select
+                value={activeFile}
+                onChange={(e) => setActiveFile(e.target.value)}
+                className="w-full bg-black border border-gray-800 text-gray-300 font-mono text-xs p-2 uppercase tracking-wider"
+              >
+                {EXAMPLE_FILE_PATHS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 p-6 font-mono text-sm h-[600px] overflow-hidden relative">
+              <ExampleFileContent filePath={activeFile} />
+              <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none"></div>
+            </div>
+
+            {/* Full Screen */}
+            <div className="absolute bottom-4 right-4 opacity-0 group-hover/showcase:opacity-100 transition-opacity">
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="bg-gray-800 hover:bg-neon hover:text-black text-gray-400 px-4 py-2 rounded-full flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-colors"
+              >
+                <Maximize2 className="w-4 h-4" />
+                See the full file
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* What Gets Generated & By the Numbers */}
-      <section className="py-32 md:py-40 px-4 bg-black relative">
+      <section className="pt-12 pb-24 md:pt-16 md:pb-32 px-4 bg-black relative">
         <div className="max-w-7xl mx-auto z-10 relative fade-up">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-16 lg:gap-24">
             <div className="text-left">
@@ -569,13 +672,6 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Blueprint Screenshot */}
-          <div className="mt-24 fade-up brutalist-border relative border-4 bg-black" style={{ borderColor: "#ffb703", boxShadow: "16px 16px 0px 0px #ffb703" }}>
-            <div className="absolute -top-6 left-8 bg-amber-flame text-black font-black px-8 py-3 text-2xl z-20 border-4 border-black">
-              THE ARCHITECTURE BLUEPRINT
-            </div>
-            <img src="/blueprint.png" alt="Architecture Blueprint Dashboard" className="w-full h-auto opacity-90 hover:opacity-100 transition-opacity pt-4" />
-          </div>
         </div>
       </section>
 
@@ -626,7 +722,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="bg-black py-16 px-4 border-t-2 border-gray-800 text-center text-gray-500 font-mono text-sm">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="text-lg">© 2026 Archie. All systems nominal.</div>
+          <a href="https://bitraptors.com/" target="_blank" rel="noopener noreferrer" className="text-lg hover:text-neon transition-colors">Made with ❤️ by BitRaptors</a>
           <div className="flex gap-8 text-lg underline decoration-gray-800 underline-offset-4">
             <a
               href="https://github.com/BitRaptors/Archie/blob/main/docs/ARCHITECTURE.md"
@@ -646,6 +742,68 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* Full Screen Showcase Modal */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-12 bg-black/95 backdrop-blur-xl"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="w-full h-full max-w-7xl bg-[#0a0a0a] border-4 border-white/10 flex flex-col relative overflow-hidden shadow-[0_0_100px_rgba(33,158,188,0.2)]"
+            >
+              {/* Modal Header */}
+              <div className="bg-gray-900 border-b-2 border-white/5 px-6 py-4 flex items-center justify-between shrink-0">
+                <div className="text-white font-black uppercase tracking-[0.2em] text-sm md:text-base">
+                  Archie <span className="text-gray-500 font-mono text-xs ml-2 opacity-50">Generated Output</span>
+                </div>
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="bg-white/5 hover:bg-neon hover:text-black p-2 transition-all group brutalist-border-sm"
+                >
+                  <X className="w-8 h-8 group-hover:rotate-90 transition-transform duration-300" />
+                </button>
+              </div>
+
+              <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                {/* Modal Sidebar — File Tree */}
+                <div className="w-full md:w-80 bg-black/50 border-r-2 border-white/5 flex flex-col shrink-0">
+                  <div className="px-4 py-3 border-b border-white/5 flex items-center gap-3">
+                    <Search className="w-3.5 h-3.5 text-gray-500" />
+                    <span className="text-gray-500 font-mono text-[10px] uppercase tracking-widest">Explorer — {EXAMPLE_FILE_PATHS.length} files</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto custom-scrollbar" data-lenis-prevent>
+                    <FileTree
+                      filePaths={EXAMPLE_FILE_PATHS}
+                      activePath={activeFile}
+                      onSelect={setActiveFile}
+                    />
+                  </div>
+                  <div className="hidden md:block p-4 border-t-2 border-white/5">
+                    <div className="text-[10px] text-gray-600 uppercase tracking-widest leading-relaxed">
+                      All files are dynamically generated based on codebase intent analysis and structural mapping.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Content area */}
+                <div className="flex-1 p-8 md:p-12 font-mono text-sm md:text-base overflow-y-auto custom-scrollbar bg-[radial-gradient(circle_at_top_right,rgba(33,158,188,0.05),transparent_50%)]" data-lenis-prevent>
+                  <div className="max-w-4xl mx-auto pb-20">
+                    <ExampleFileContent filePath={activeFile} />
+                  </div>
+                </div>
+              </div>
+
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
