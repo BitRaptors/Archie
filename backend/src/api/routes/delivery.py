@@ -26,7 +26,7 @@ class ApplyRequest(BaseModel):
     target_repo: Optional[str] = None  # "owner/repo" — required for pr/commit
     strategy: str = "pr"
     outputs: list[str] = ["claude_md", "claude_rules", "cursor_rules", "agents_md", "mcp_claude", "mcp_cursor", "intent_layer", "codebase_map", "claude_hooks"]
-    branch_prefix: str = "gbr"
+    branch_prefix: str = "feature/archi"
     target_local_path: Optional[str] = None  # required for local strategy
 
 

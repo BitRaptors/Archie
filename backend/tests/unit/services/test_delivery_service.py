@@ -90,8 +90,9 @@ def mock_push_client():
     client = MagicMock()
     client.get_default_branch.return_value = "main"
     client.get_file_content.return_value = None  # No existing files by default
-    client.create_branch.return_value = "refs/heads/gbr/sync-architecture-outputs"
+    client.create_branch.return_value = "refs/heads/feature/archi/sync-architecture-outputs"
     client.commit_files.return_value = "sha-abc123"
+    client.find_open_pull_request.return_value = None  # No existing PR by default
     client.create_pull_request.return_value = {
         "url": "https://github.com/owner/repo/pull/42",
         "number": 42,
@@ -178,7 +179,7 @@ class TestApply:
         assert result.status == "success"
         assert result.strategy == "pr"
         assert result.pr_url == "https://github.com/owner/repo/pull/42"
-        assert result.branch == "gbr/sync-architecture-outputs"
+        assert result.branch == "feature/archi/sync-architecture-outputs"
         assert "CLAUDE.md" in result.files_delivered
         assert "AGENTS.md" in result.files_delivered
 

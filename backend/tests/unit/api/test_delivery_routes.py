@@ -88,7 +88,7 @@ class TestDeliveryApply:
         mock_delivery_service.apply = AsyncMock(return_value=DeliveryResult(
             status="success",
             strategy="pr",
-            branch="gbr/sync-architecture-outputs",
+            branch="feature/archi/sync-architecture-outputs",
             pr_url="https://github.com/owner/repo/pull/42",
             files_delivered=["CLAUDE.md", "AGENTS.md"],
         ))

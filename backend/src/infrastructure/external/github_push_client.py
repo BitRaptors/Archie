@@ -39,8 +39,14 @@ class GitHubPushClient:
                 raise AuthorizationError("Invalid GitHub token")
             raise ValidationError(f"Failed to read file {path}: {e}")
 
-    def create_branch(self, repo_full_name: str, branch_name: str, base_branch: str) -> str:
-        """Create a new branch from a base branch. Returns the new branch ref."""
+    def create_branch(
+        self, repo_full_name: str, branch_name: str, base_branch: str, *, force: bool = False
+    ) -> str:
+        """Create a new branch from a base branch. Returns the new branch ref.
+
+        If force=True and the branch already exists, it is reset to the
+        current tip of base_branch so the next commit starts fresh.
+        """
         try:
             repo = self._client.get_repo(repo_full_name)
             base_ref = repo.get_git_ref(f"heads/{base_branch}")
@@ -50,6 +56,11 @@ class GitHubPushClient:
         except GithubException as e:
             if e.status == 401:
                 raise AuthorizationError("Invalid GitHub token")
+            if e.status == 422 and force:
+                # Branch already exists — reset it to base branch tip
+                existing_ref = repo.get_git_ref(f"heads/{branch_name}")
+                existing_ref.edit(sha=base_sha, force=True)
+                return f"refs/heads/{branch_name}"
             if e.status == 422:
                 raise ValidationError(f"Branch '{branch_name}' already exists")
             raise ValidationError(f"Failed to create branch: {e}")
@@ -94,6 +105,34 @@ class GitHubPushClient:
             if e.status == 401:
                 raise AuthorizationError("Invalid GitHub token")
             raise ValidationError(f"Failed to commit files: {e}")
+
+    def find_open_pull_request(
+        self, repo_full_name: str, branch_name: str, base_branch: str
+    ) -> dict[str, Any] | None:
+        """Find an existing open PR from branch_name into base_branch. Returns {url, number} or None."""
+        try:
+            repo = self._client.get_repo(repo_full_name)
+            pulls = repo.get_pulls(state="open", head=f"{repo.owner.login}:{branch_name}", base=base_branch)
+            for pr in pulls:
+                return {"url": pr.html_url, "number": pr.number}
+            return None
+        except GithubException as e:
+            if e.status == 401:
+                raise AuthorizationError("Invalid GitHub token")
+            return None
+
+    def update_pull_request(
+        self, repo_full_name: str, pr_number: int, body: str
+    ) -> None:
+        """Update the body of an existing pull request."""
+        try:
+            repo = self._client.get_repo(repo_full_name)
+            pr = repo.get_pull(pr_number)
+            pr.edit(body=body)
+        except GithubException as e:
+            if e.status == 401:
+                raise AuthorizationError("Invalid GitHub token")
+            raise ValidationError(f"Failed to update PR #{pr_number}: {e}")
 
     def create_pull_request(
         self,
