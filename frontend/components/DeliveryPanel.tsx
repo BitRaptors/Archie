@@ -11,6 +11,7 @@ import { theme } from '@/lib/theme'
 
 const OUTPUT_OPTIONS = [
   { key: 'claude_md', label: 'CLAUDE.md' },
+  { key: 'claude_rules', label: 'Claude Rules' },
   { key: 'cursor_rules', label: 'Cursor Rules' },
   { key: 'agents_md', label: 'AGENTS.md' },
   { key: 'mcp_claude', label: '.mcp.json' },
@@ -24,7 +25,7 @@ export default function DeliveryPanel({ repoId }: { repoId: string }) {
 
   const [targetRepo, setTargetRepo] = useState('')
   const [strategy, setStrategy] = useState<'pr' | 'commit'>('pr')
-  const [outputs, setOutputs] = useState<string[]>(['claude_md', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor'])
+  const [outputs, setOutputs] = useState<string[]>(['claude_md', 'claude_rules', 'cursor_rules', 'agents_md', 'mcp_claude', 'mcp_cursor'])
 
   const toggleOutput = useCallback((key: string) => {
     setOutputs((prev) =>
