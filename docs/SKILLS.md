@@ -19,7 +19,7 @@ On first use of any skill, it will ask for the path and create `~/.archie/config
 
 ```json
 {
-  "storage_path": "/path/to/architecture_mcp/backend/storage"
+  "storage_path": "/path/to/archie/backend/storage"
 }
 ```
 

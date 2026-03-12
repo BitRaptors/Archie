@@ -1,4 +1,4 @@
-"""Validate full analysis pipeline against gbrbks/architecture_mcp.
+"""Validate full analysis pipeline against gbrbks/archie.
 
 Runs the REAL pipeline end-to-end: clone → structure scan → embeddings →
 phased AI analysis → blueprint storage. No mocks, no HTTP layer.
@@ -98,7 +98,7 @@ async def main():
     log.info("  All services built OK")
 
     # ── 3. Ensure repository record exists ──────────────────────────
-    log.info("Step 3: Ensuring repository record for gbrbks/architecture_mcp...")
+    log.info("Step 3: Ensuring repository record for gbrbks/archie...")
     import uuid
     token = os.environ.get("GITHUB_TOKEN") or settings.github_token
     if not token:
@@ -108,12 +108,12 @@ async def main():
     # Use the same default user ID as user_profile_repository
     default_user_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "default-user"))
 
-    repo = await repo_repo.get_by_full_name(default_user_id, "gbrbks", "architecture_mcp")
+    repo = await repo_repo.get_by_full_name(default_user_id, "gbrbks", "archie")
     if repo:
         log.info("  Found existing repo record: %s", repo.id)
     else:
         repo = await repo_service.create_repository(
-            user_id=default_user_id, token=token, owner="gbrbks", name="architecture_mcp"
+            user_id=default_user_id, token=token, owner="gbrbks", name="archie"
         )
         log.info("  Created repo record: %s", repo.id)
 

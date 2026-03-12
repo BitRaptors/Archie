@@ -652,7 +652,7 @@ git commit -m "feat: register all 3 architecture validation hooks"
 
 Create a test input and pipe it to the hook:
 ```bash
-echo '{"tool_name":"Write","tool_input":{"file_path":"/Users/csacsi/DEV/architecture_mcp/WRONG_PLACE/service.py"},"cwd":"/Users/csacsi/DEV/architecture_mcp"}' | ./.claude/hooks/pre-validate-architecture.sh
+echo '{"tool_name":"Write","tool_input":{"file_path":"/Users/csacsi/DEV/archie/WRONG_PLACE/service.py"},"cwd":"/Users/csacsi/DEV/archie"}' | ./.claude/hooks/pre-validate-architecture.sh
 echo "Exit code: $?"
 ```
 
@@ -661,7 +661,7 @@ Expected: exit 2 if blueprint has placement rules for services, or exit 0 if no 
 **Step 2: Test PostToolUse hook**
 
 ```bash
-echo '{"tool_name":"Edit","tool_input":{"file_path":"/Users/csacsi/DEV/architecture_mcp/backend/src/api/routes/health.py"},"cwd":"/Users/csacsi/DEV/architecture_mcp"}' | ./.claude/hooks/validate-architecture.sh
+echo '{"tool_name":"Edit","tool_input":{"file_path":"/Users/csacsi/DEV/archie/backend/src/api/routes/health.py"},"cwd":"/Users/csacsi/DEV/archie"}' | ./.claude/hooks/validate-architecture.sh
 echo "Exit code: $?"
 ```
 
@@ -670,7 +670,7 @@ Expected: exit 0 (correct location).
 **Step 3: Test Stop hook**
 
 ```bash
-echo '{"cwd":"/Users/csacsi/DEV/architecture_mcp"}' | ./.claude/hooks/stop-review-and-refresh.sh
+echo '{"cwd":"/Users/csacsi/DEV/archie"}' | ./.claude/hooks/stop-review-and-refresh.sh
 echo "Exit code: $?"
 ```
 
