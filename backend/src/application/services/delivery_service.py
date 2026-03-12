@@ -203,7 +203,7 @@ class DeliveryService:
         token: str,
         outputs: list[str],
         strategy: str = "pr",
-        branch_prefix: str = "gbr",
+        branch_prefix: str = "feature/archi",
         target_local_path: Optional[str] = None,
     ) -> DeliveryResult:
         """Generate outputs and push them to the target repository or local path."""
@@ -246,7 +246,7 @@ class DeliveryService:
 
         if strategy == "pr":
             branch_name = f"{branch_prefix}/sync-architecture-outputs"
-            push_client.create_branch(target_repo_full_name, branch_name, default_branch)
+            push_client.create_branch(target_repo_full_name, branch_name, default_branch, force=True)
             push_client.commit_files(
                 target_repo_full_name,
                 branch_name,
@@ -254,13 +254,19 @@ class DeliveryService:
                 "chore: sync architecture outputs from blueprint analysis",
                 executable_paths=executable_paths,
             )
-            pr = push_client.create_pull_request(
-                target_repo_full_name,
-                branch_name,
-                default_branch,
-                title="Sync architecture outputs",
-                body=self._build_pr_body(delivered_paths, source_repo_id),
-            )
+            # Reuse existing open PR if one exists for this branch
+            pr_body = self._build_pr_body(delivered_paths, source_repo_id)
+            pr = push_client.find_open_pull_request(target_repo_full_name, branch_name, default_branch)
+            if pr:
+                push_client.update_pull_request(target_repo_full_name, pr["number"], pr_body)
+            else:
+                pr = push_client.create_pull_request(
+                    target_repo_full_name,
+                    branch_name,
+                    default_branch,
+                    title="Sync architecture outputs",
+                    body=pr_body,
+                )
             return DeliveryResult(
                 status="success",
                 strategy="pr",
