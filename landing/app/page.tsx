@@ -14,7 +14,7 @@ import { EXAMPLE_FILES } from "./example-files";
 gsap.registerPlugin(ScrollTrigger);
 
 const EXAMPLE_FILE_PATHS = Object.keys(EXAMPLE_FILES).sort();
-const DEFAULT_FILE = "CLAUDE.md";
+const DEFAULT_FILE = "AGENTS.md";
 
 const ExampleFileContent = ({ filePath }: { filePath: string }) => {
   const content = EXAMPLE_FILES[filePath];
