@@ -6,6 +6,7 @@ export default function Document() {
       <Head>
         <meta charSet="utf-8" />
         <meta name="description" content="Repository Analysis System - Analyze GitHub repositories and generate architecture blueprints" />
+        <link rel="icon" type="image/svg+xml" href="/archie-logo.svg" />
       </Head>
       <body>
         <Main />
