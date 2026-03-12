@@ -111,3 +111,32 @@ html.lenis {
 .lenis.lenis-scrolling iframe {
   pointer-events: none;
 }
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #39ff14;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #8ecae6;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #39ff14 rgba(255, 255, 255, 0.05);
+}
+
+/* Modal Scroll Prevention */
+[data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
