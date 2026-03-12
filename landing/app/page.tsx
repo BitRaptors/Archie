@@ -52,6 +52,7 @@ const ExampleFileContent = ({ filePath }: { filePath: string }) => {
 export default function LandingPage() {
   const [activeFile, setActiveFile] = useState(DEFAULT_FILE);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCtaHovered, setIsCtaHovered] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll();
   const scaleProgress = useSpring(scrollYProgress, { stiffness: 100, damping: 30 });
@@ -138,21 +139,41 @@ export default function LandingPage() {
         style={{ scaleX: scaleProgress }}
       />
 
-      {/* Sticky Feedback Badge */}
-      <a
-        href="https://github.com/BitRaptors/Archie/issues"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-6 right-6 z-50 transform hover:-translate-y-2 hover:scale-105 transition-all group"
-      >
-        <div className="bg-neon text-black font-black uppercase tracking-widest px-4 py-2 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center gap-1 text-xs brutalist-border">
-          <div className="flex items-center gap-2 border-b border-black/20 pb-1 w-full justify-center">
-            <span className="animate-pulse w-2 h-2 bg-black rounded-full block"></span>
-            PREVIEW
+      {/* Sticky Feedback Badge & Raptor */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-center pointer-events-none overflow-visible">
+        {/* Raptor SVG peaking out from behind the badge */}
+        <motion.div
+          initial={{ y: 60, opacity: 0 }}
+          animate={{
+            y: isCtaHovered ? -40 : 60,
+            opacity: isCtaHovered ? 1 : 0
+          }}
+          transition={{
+            type: "spring",
+            stiffness: 260,
+            damping: 20
+          }}
+          className="w-24 h-24 mb-[-20px] overflow-visible"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/raptor.svg" alt="BitRaptor" className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(57,255,20,0.5)]" />
+        </motion.div>
+
+        <a
+          href="https://github.com/BitRaptors/Archie/issues"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="pointer-events-auto relative z-10 transform hover:-translate-y-1 hover:scale-105 transition-all group"
+        >
+          <div className="bg-neon text-black font-black uppercase tracking-widest px-4 py-2 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center gap-1 text-xs brutalist-border">
+            <div className="flex items-center gap-2 border-b border-black/20 pb-1 w-full justify-center">
+              <span className="animate-pulse w-2 h-2 bg-black rounded-full block"></span>
+              PREVIEW
+            </div>
+            <span>SEND FEEDBACK</span>
           </div>
-          <span>SEND FEEDBACK</span>
-        </div>
-      </a>
+        </a>
+      </div>
 
       {/* Hero Section */}
       <header className="min-h-screen relative flex flex-col justify-center items-center px-4 overflow-hidden">
@@ -174,6 +195,8 @@ export default function LandingPage() {
           </p>
           <a
             href="https://github.com/BitRaptors/Archie"
+            onPointerEnter={() => setIsCtaHovered(true)}
+            onPointerLeave={() => setIsCtaHovered(false)}
             className="brutalist-border inline-flex items-center gap-4 px-12 py-6 bg-deep-space-blue text-neon font-bold text-xl uppercase tracking-wider hover:bg-neon hover:text-deep-space-blue transition-colors"
           >
             <Github className="w-8 h-8" />
@@ -698,6 +721,8 @@ export default function LandingPage() {
             </p>
             <a
               href="https://github.com/BitRaptors/Archie"
+              onMouseEnter={() => setIsCtaHovered(true)}
+              onMouseLeave={() => setIsCtaHovered(false)}
               className="inline-flex items-center gap-4 px-16 py-8 bg-neon text-black font-black text-3xl uppercase tracking-widest hover:bg-white transition-colors brutalist-border"
               style={{ borderColor: "#023047" }}
             >
