@@ -1,4 +1,4 @@
-# Architecture Blueprints
+# Archie - Architecture Blueprints
 
 AI-powered system that analyzes GitHub repositories, learns their architecture, and enforces it through AI coding agents via MCP.
 
