@@ -183,13 +183,15 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                                             collapsed ? "w-11 mx-auto px-0 justify-center gap-0.5 flex-col py-1" : "w-full px-4 gap-3 py-2.5",
                                             isOpened && !collapsed
                                                 ? "bg-white shadow-sm border border-papaya-400/60 ring-1 ring-black/5"
-                                                : "hover:bg-papaya-300/20"
+                                                : isActivated && !collapsed
+                                                    ? "bg-teal/5 border border-teal/20"
+                                                    : "hover:bg-papaya-300/20"
                                         )}
                                         title={item.name}
                                     >
                                         <div className={cn(
                                             "shrink-0 p-2 rounded-lg transition-colors",
-                                            isOpened ? "bg-teal text-white" : "bg-papaya-300/40 text-ink/30 group-hover:text-ink/60"
+                                            isOpened ? "bg-teal text-white" : isActivated ? "bg-teal/20 text-teal" : "bg-papaya-300/40 text-ink/30 group-hover:text-ink/60"
                                         )}>
                                             <GitBranch className="w-3.5 h-3.5" />
                                         </div>
@@ -199,7 +201,7 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                                         <div className={cn("flex-1 min-w-0 overflow-hidden transition-all duration-300", collapsed ? "opacity-0 max-w-0 absolute" : "opacity-100 max-w-[200px]")}>
                                             <p className={cn(
                                                 "text-xs font-bold truncate transition-colors",
-                                                isOpened ? "text-ink" : "text-ink/60"
+                                                isOpened ? "text-ink" : isActivated ? "text-ink/80" : "text-ink/60"
                                             )}>
                                                 {item.name}
                                             </p>
