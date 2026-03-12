@@ -9,7 +9,6 @@ import {
     FileJson,
     Settings,
     LogOut,
-    Ghost,
     Layers,
     Zap,
     ChevronRight,
@@ -46,8 +45,8 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
             {/* Header / Logo */}
             <div className="p-6">
                 <div className="flex items-center gap-3 mb-8 cursor-pointer group" onClick={() => onNavigate?.('repositories')}>
-                    <div className="p-2.5 rounded-2xl bg-teal shadow-lg shadow-teal/20 text-white transition-transform group-hover:scale-105">
-                        <Ghost className="w-5 h-5 fill-current" />
+                    <div className="rounded-2xl shadow-lg shadow-teal/20 transition-transform group-hover:scale-105 overflow-hidden">
+                        <img src="/archie-logo.svg" alt="Archie" className="w-10 h-10" />
                     </div>
                     <div>
                         <h1 className="text-xl font-black tracking-tight text-ink leading-none">Archie</h1>
