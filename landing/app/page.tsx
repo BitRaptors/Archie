@@ -167,7 +167,7 @@ export default function LandingPage() {
 
         <div className="z-10 text-center max-w-7xl mx-auto mt-10 md:mt-0">
           <h1 className="text-5xl md:text-8xl lg:text-9xl font-black mb-12 uppercase tracking-tighter mix-blend-difference text-neon scrub-heading hero-heading inline-block">
-            Your AI is only<br />as good as its context.
+            Your agent is only<br />as good as its context.
           </h1>
           <p className="text-xl md:text-2xl text-sky-blue-600 mb-12 max-w-3xl mx-auto border-l-4 border-neon pl-6 text-left bg-black bg-opacity-40 p-6 backdrop-blur-sm">
             Archie integrates directly into Claude Code (or your favorite agent) to watch your architecture. With automatic hooks and per-folder context, it keeps every context file fresh and won't let a single markdown rot away.
