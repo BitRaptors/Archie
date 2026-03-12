@@ -74,7 +74,7 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                         collapsed ? "opacity-0 w-0 ml-0" : "opacity-100 w-auto ml-3"
                     )} onClick={() => onNavigate?.('repositories')}>
                         <h1 className="text-xl font-black tracking-tight text-ink leading-none">Archie</h1>
-                        <p className="text-[9px] uppercase font-black tracking-[0.15em] text-ink/30 mt-1.5 line-clamp-1">Warden of Architecture</p>
+                        <p className="text-[9px] uppercase font-black tracking-[0.15em] text-ink/30 mt-1.5 leading-relaxed">Warden of<br />Architecture</p>
                     </div>
                     <button
                         onClick={onToggleCollapse}
