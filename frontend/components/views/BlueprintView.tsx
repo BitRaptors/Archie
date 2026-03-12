@@ -410,9 +410,9 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                 className={cn("h-9", isActive ? "bg-teal/10 text-teal border-teal/20" : "bg-teal hover:bg-teal-600 text-white shadow-lg shadow-teal/20")}
                             >
                                 {isActive ? (
-                                    <><Check className="w-4 h-4 mr-2" /> Active</>
+                                    <><Check className="w-4 h-4 mr-2" /> MCP Active</>
                                 ) : (
-                                    <><Star className="w-4 h-4 mr-2" /> Activate</>
+                                    <><Star className="w-4 h-4 mr-2" /> Activate MCP</>
                                 )}
                             </Button>
                         )}

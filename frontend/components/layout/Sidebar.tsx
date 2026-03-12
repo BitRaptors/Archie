@@ -204,7 +204,7 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                                                 {item.name}
                                             </p>
                                             <p className="text-[9px] font-medium text-ink/30 uppercase tracking-tighter truncate">
-                                                {isActivated ? 'Active Context' : 'Stored Blueprint'}
+                                                {isActivated ? 'MCP Active' : 'Stored Blueprint'}
                                             </p>
                                         </div>
 
