@@ -105,7 +105,7 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                         <div className="relative z-10">
                             <div className={cn("flex items-center gap-2 mb-2 whitespace-nowrap overflow-hidden transition-all duration-300", collapsed ? "opacity-0 max-h-0 mb-0" : "opacity-100 max-h-8")}>
                                 <div className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse shrink-0" />
-                                <span className={cn("text-[10px] font-black uppercase tracking-widest", theme.active.sidebarContextLabel)}>Active Project</span>
+                                <span className={cn("text-[10px] font-black uppercase tracking-widest", theme.active.sidebarContextLabel)}>Active MCP Project</span>
                             </div>
                             <div className={cn("flex items-center whitespace-nowrap overflow-hidden transition-all duration-300", collapsed ? "justify-center gap-0" : "gap-2.5")}>
                                 <div className="relative shrink-0">
