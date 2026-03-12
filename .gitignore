@@ -108,4 +108,3 @@ mcp-server.log
 .claude/*
 !.claude/skills/
 !.claude/hooks/
-CLAUDE.md
