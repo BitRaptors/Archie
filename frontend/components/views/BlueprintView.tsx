@@ -386,6 +386,9 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                             )}
                             onClick={() => {
                                 setDeliveryResult(null)
+                                if (repoFullName) {
+                                    setSyncSettings(p => ({ ...p, targetRepo: repoFullName }))
+                                }
                                 setIsSyncPanelOpen(true)
                             }}
                         >
