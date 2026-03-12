@@ -13,6 +13,7 @@ from domain.entities.intent_layer import (
     IntentLayerConfig,
 )
 from application.services.hybrid_enrichment_engine import (
+    EnrichmentError,
     HybridEnrichmentEngine,
     _count_tokens,
     _truncate_to_tokens,
@@ -340,7 +341,8 @@ class TestEnrichAllIntegration:
         assert engine.total_calls == 2
 
     @pytest.mark.asyncio
-    async def test_failed_call_graceful_degradation(self, settings, config):
+    async def test_total_failure_raises_enrichment_error(self, settings, config):
+        """When ALL non-passthrough enrichment calls fail, EnrichmentError is raised."""
         engine = HybridEnrichmentEngine(settings, config)
 
         folders = {
@@ -355,9 +357,48 @@ class TestEnrichAllIntegration:
         mock_client.messages.create = AsyncMock(side_effect=RuntimeError("API error"))
 
         with patch.object(engine, '_make_client', return_value=mock_client):
+            with pytest.raises(EnrichmentError, match="All 1 enrichment calls failed"):
+                await engine.enrich_all(folders, folder_blueprints, reader)
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_returns_mixed_results(self, settings, config):
+        """When some calls succeed and others fail, returns enrichments without raising."""
+        engine = HybridEnrichmentEngine(settings, config)
+
+        folders = {
+            "src/ok": _make_node("src/ok", 2, files=["ok.py"]),
+            "src/fail": _make_node("src/fail", 2, files=["fail.py"]),
+        }
+        folder_blueprints = {
+            "src/ok": FolderBlueprint(path="src/ok"),
+            "src/fail": FolderBlueprint(path="src/fail"),
+        }
+
+        def reader(path):
+            return "content"
+
+        ai_response = json.dumps({"purpose": "Works", "patterns": ["p1"]})
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text=ai_response)]
+
+        call_count = 0
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_response
+            raise RuntimeError("API error")
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(side_effect=mock_create)
+
+        with patch.object(engine, '_make_client', return_value=mock_client):
             enrichments = await engine.enrich_all(folders, folder_blueprints, reader)
 
-        assert enrichments["src"].has_ai_content is False
+        # One succeeded, one failed — no exception raised
+        ai_count = sum(1 for e in enrichments.values() if e.has_ai_content)
+        assert ai_count == 1
+        assert len(enrichments) == 2
 
     @pytest.mark.asyncio
     async def test_bottom_up_ordering(self, settings, config):
@@ -487,7 +528,7 @@ class TestPreviousContentInPrompt:
 
         assert "### Previous CLAUDE.md Content" in result
         assert "Previous insights here" in result
-        assert "Preserve valuable insights" in result
+        assert "KEEP the existing wording" in result
 
     def test_previous_content_omitted_when_empty(self):
         node = _make_node("src/api", 2, files=["routes.py"])

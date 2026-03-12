@@ -19,7 +19,7 @@ import anthropic
 from pydantic import BaseModel, Field
 
 from application.services.blueprint_folder_mapper import BlueprintFolderMapper
-from application.services.hybrid_enrichment_engine import HybridEnrichmentEngine
+from application.services.hybrid_enrichment_engine import EnrichmentError, HybridEnrichmentEngine
 from application.services.intent_layer_renderer import IntentLayerRenderer
 from application.services.intent_layer_service import FolderHierarchyBuilder
 from domain.entities.analysis_settings import SOURCE_CODE_EXTENSIONS
@@ -47,6 +47,7 @@ class SmartRefreshResult(BaseModel):
     updated_files: list[str] = Field(default_factory=list)
     warnings: list[ArchitectureWarning] = Field(default_factory=list)
     suggestions: list[str] = Field(default_factory=list)
+    stale_folders: list[str] = Field(default_factory=list)
 
 
 # ── Internal Models ──────────────────────────────────────────────────────────
@@ -212,31 +213,49 @@ class SmartRefreshService:
             if suggestion:
                 suggestions.append(f"{folder_path}: {suggestion}")
 
-        # 7. Regenerate CLAUDE.md for stale folders
-        updated_files: list[str] = []
-        if stale_folders:
-            updated_files = await self._regenerate_claude_md(
-                repo_id=repo_id,
-                blueprint=blueprint,
-                stale_folders=stale_folders,
-                target_local_path=target_local_path,
-                changed_files=source_files,
-            )
-
-        # 8. Determine status
+        # 7. Determine status (regeneration happens in background via route)
         if warnings:
             status = "warnings"
-        elif updated_files:
+        elif stale_folders:
             status = "refreshed"
         else:
             status = "no_refresh_needed"
 
         return SmartRefreshResult(
             status=status,
-            updated_files=updated_files,
+            updated_files=[],
             warnings=warnings,
             suggestions=suggestions,
+            stale_folders=stale_folders,
         )
+
+    async def regenerate_stale(
+        self,
+        repo_id: str,
+        stale_folders: list[str],
+        target_local_path: str,
+        changed_files: list[str],
+    ) -> None:
+        """Background: regenerate CLAUDE.md for stale folders.
+
+        Called as a fire-and-forget task from the route after the fast
+        evaluation response has already been sent to the client.
+        """
+        try:
+            blueprint = await self._load_blueprint(repo_id)
+            if not blueprint:
+                logger.warning("Background regeneration: no blueprint for %s", repo_id)
+                return
+            await self._regenerate_claude_md(
+                repo_id=repo_id,
+                blueprint=blueprint,
+                stale_folders=stale_folders,
+                target_local_path=target_local_path,
+                changed_files=changed_files,
+            )
+            logger.info("Background regeneration completed for %s (%d folders)", repo_id, len(stale_folders))
+        except Exception:
+            logger.exception("Background regeneration failed for %s", repo_id)
 
     # ── Blueprint Loading ────────────────────────────────────────────────
 
@@ -716,7 +735,7 @@ Rules:
                 enrich_nodes, folder_blueprints, file_reader, previous_content,
             )
 
-            # 6. Render only the folders we AI-enriched
+            # 6. Render only the folders we AI-enriched (skip failures)
             renderer = IntentLayerRenderer()
             files_to_write: dict[str, str] = {}
             for bp_path in enrich_nodes:
@@ -726,6 +745,12 @@ Rules:
                 enrichment = enrichments.get(
                     bp_path, FolderEnrichment(path=bp_path),
                 )
+                if not enrichment.has_ai_content:
+                    logger.warning(
+                        "Skipping %s — enrichment failed, preserving existing CLAUDE.md",
+                        bp_path,
+                    )
+                    continue
                 md_path = f"{bp_to_fs[bp_path]}/CLAUDE.md" if bp_path else "CLAUDE.md"
                 files_to_write[md_path] = renderer.render_hybrid(
                     enrich_nodes[bp_path], fb, enrichment, repo_name,
@@ -752,6 +777,9 @@ Rules:
 
             return updated_files
 
+        except EnrichmentError as e:
+            logger.error("Enrichment aborted — no files written: %s", e)
+            return []  # Preserve existing CLAUDE.md files
         except Exception:
             logger.warning(
                 "Targeted enrichment failed — falling back to deterministic renderer",

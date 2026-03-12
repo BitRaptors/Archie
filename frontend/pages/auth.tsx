@@ -6,9 +6,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Shield, Key, ExternalLink, AlertCircle, Loader2, CheckCircle2, Zap, GitBranch, Eye, Lock, Ghost, Layers, Rocket } from 'lucide-react'
+import { Shield, Key, ExternalLink, AlertCircle, Loader2, CheckCircle2, Zap, GitBranch, Eye, Lock, Layers, Rocket } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
+import { ArchieLogo } from '@/components/ui/ArchieLogo'
 
 export default function AuthPage() {
   const [token, setToken] = useState('')
@@ -45,8 +46,8 @@ export default function AuthPage() {
         <div className="text-center space-y-4">
           <div className="relative inline-block group">
             <div className="absolute -inset-1 bg-gradient-to-r from-teal to-tangerine rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
-            <div className={cn("relative flex items-center justify-center w-20 h-20 rounded-2xl bg-white border border-papaya-400 shadow-xl")}>
-              <Ghost className="w-10 h-10 text-teal fill-teal/10" />
+            <div className={cn("relative w-20 h-20 rounded-2xl shadow-xl overflow-hidden")}>
+              <ArchieLogo size={80} />
             </div>
             <div className="absolute -bottom-2 -right-2 bg-tangerine p-1.5 rounded-lg shadow-lg text-white">
               <Zap className="w-4 h-4 fill-current" />

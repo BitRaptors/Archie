@@ -27,6 +27,11 @@ from domain.entities.intent_layer import (
 
 logger = logging.getLogger(__name__)
 
+
+class EnrichmentError(Exception):
+    """Raised when all non-passthrough AI enrichment calls fail."""
+    pass
+
 # Token budgets (tiktoken cl100k_base)
 _MAX_FILES_PER_FOLDER = 5
 _MAX_TOKENS_PER_FILE = 1_500
@@ -109,6 +114,7 @@ class HybridEnrichmentEngine:
         self._semaphore = asyncio.Semaphore(config.max_concurrent or 10)
         self.total_calls = 0
         self._progress_callback = progress_callback  # async fn(message: str) -> None
+        self._first_error: Exception | None = None
 
     async def enrich_all(
         self,
@@ -171,6 +177,14 @@ class HybridEnrichmentEngine:
         _release_encoder()  # Free ~10 MB tiktoken data
 
         ai_count = sum(1 for e in enrichments.values() if e.has_ai_content)
+        total_non_passthrough = sum(
+            1 for n in folders.values() if not n.is_passthrough
+        )
+        if ai_count == 0 and total_non_passthrough > 0:
+            raise EnrichmentError(
+                f"All {total_non_passthrough} enrichment calls failed: {self._first_error}"
+            )
+
         done_msg = (
             f"Hybrid enrichment complete: {self.total_calls} API calls, "
             f"{ai_count}/{total_folders} folders enriched"
@@ -211,6 +225,8 @@ class HybridEnrichmentEngine:
         for i, result in enumerate(results):
             node = nodes[i]
             if isinstance(result, Exception):
+                if self._first_error is None:
+                    self._first_error = result
                 logger.error(f"Enrichment failed for {node.path}: {result}")
                 enrichments[node.path] = FolderEnrichment(path=node.path, has_ai_content=False)
             else:

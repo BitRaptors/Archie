@@ -13,6 +13,7 @@ from domain.entities.blueprint import (
     QuickReference,
     StructuredBlueprint,
 )
+from application.services.hybrid_enrichment_engine import EnrichmentError
 from application.services.smart_refresh_service import (
     SmartRefreshService,
     SmartRefreshResult,
@@ -272,7 +273,8 @@ class TestSmartRefreshPipeline:
             )
 
         assert result.status == "refreshed"
-        assert "src/api/CLAUDE.md" in result.updated_files
+        assert "src/api" in result.stale_folders
+        assert result.updated_files == []  # regeneration is now deferred
 
     @pytest.mark.asyncio
     async def test_refresh_ai_failure_returns_info_warnings(self, service, tmp_path):
@@ -459,7 +461,7 @@ class TestRegenerateClaudeMd:
 
         mock_node = FolderNode(path="src/api", name="api", depth=2, parent_path="src")
         mock_fb = FolderBlueprint(path="src/api", component_name="API Layer")
-        mock_enrichment = FolderEnrichment(path="src/api", purpose="HTTP handling")
+        mock_enrichment = FolderEnrichment(path="src/api", purpose="HTTP handling", has_ai_content=True)
 
         with (
             patch("application.services.smart_refresh_service.FolderHierarchyBuilder") as MockBuilder,
@@ -514,4 +516,92 @@ class TestRegenerateClaudeMd:
             )
 
         # Should have fallen back to deterministic rendering
+        assert "src/api/CLAUDE.md" in updated
+
+    @pytest.mark.asyncio
+    async def test_enrichment_error_preserves_existing_files(
+        self, service, sample_blueprint, tmp_path,
+    ):
+        """When EnrichmentError is raised, no files are written and deterministic
+        fallback is NOT triggered — existing CLAUDE.md files are preserved."""
+        from domain.entities.intent_layer import FolderNode, FolderBlueprint
+
+        mock_node = FolderNode(path="src/api", name="api", depth=2, parent_path="src")
+        mock_fb = FolderBlueprint(path="src/api", component_name="API Layer")
+
+        with (
+            patch("application.services.smart_refresh_service.FolderHierarchyBuilder") as MockBuilder,
+            patch("application.services.smart_refresh_service.BlueprintFolderMapper") as MockMapper,
+            patch("application.services.smart_refresh_service.HybridEnrichmentEngine") as MockEngine,
+            patch("application.services.smart_refresh_service.IntentLayerRenderer") as MockRenderer,
+            patch("application.services.smart_refresh_service.LocalPushClient") as MockPush,
+        ):
+            MockBuilder.return_value.build_from_path.return_value = {"src/api": mock_node}
+            MockMapper.return_value.map_all.return_value = {"src/api": mock_fb}
+            MockEngine.return_value.enrich_all = AsyncMock(
+                side_effect=EnrichmentError("All 1 enrichment calls failed: API error"),
+            )
+
+            updated = await service._regenerate_claude_md(
+                repo_id="repo-123",
+                blueprint=sample_blueprint,
+                stale_folders=["src/api"],
+                target_local_path=str(tmp_path),
+                changed_files=["src/api/routes.py"],
+            )
+
+        # No files written, no deterministic fallback
+        assert updated == []
+        MockRenderer.return_value.render_hybrid.assert_not_called()
+        MockPush.return_value.write_files.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_only_writes_successful_folders(
+        self, service, sample_blueprint, tmp_path,
+    ):
+        """When some enrichments fail, only successfully enriched folders are written."""
+        from domain.entities.intent_layer import FolderNode, FolderBlueprint, FolderEnrichment
+
+        mock_node_api = FolderNode(path="src/api", name="api", depth=2, parent_path="src")
+        mock_node_svc = FolderNode(path="src/services", name="services", depth=2, parent_path="src")
+        mock_fb_api = FolderBlueprint(path="src/api", component_name="API Layer")
+        mock_fb_svc = FolderBlueprint(path="src/services", component_name="Service Layer")
+
+        # API succeeded, services failed
+        enrichments = {
+            "src/api": FolderEnrichment(path="src/api", purpose="HTTP handling", has_ai_content=True),
+            "src/services": FolderEnrichment(path="src/services", has_ai_content=False),
+        }
+
+        with (
+            patch("application.services.smart_refresh_service.FolderHierarchyBuilder") as MockBuilder,
+            patch("application.services.smart_refresh_service.BlueprintFolderMapper") as MockMapper,
+            patch("application.services.smart_refresh_service.HybridEnrichmentEngine") as MockEngine,
+            patch("application.services.smart_refresh_service.IntentLayerRenderer") as MockRenderer,
+            patch("application.services.smart_refresh_service.LocalPushClient") as MockPush,
+        ):
+            MockBuilder.return_value.build_from_path.return_value = {
+                "src/api": mock_node_api,
+                "src/services": mock_node_svc,
+            }
+            MockMapper.return_value.map_all.return_value = {
+                "src/api": mock_fb_api,
+                "src/services": mock_fb_svc,
+            }
+            MockEngine.return_value.enrich_all = AsyncMock(return_value=enrichments)
+            MockRenderer.return_value.render_hybrid.return_value = "# CLAUDE.md content"
+            MockPush.return_value.write_files.return_value = ["src/api/CLAUDE.md"]
+
+            updated = await service._regenerate_claude_md(
+                repo_id="repo-123",
+                blueprint=sample_blueprint,
+                stale_folders=["src/api", "src/services"],
+                target_local_path=str(tmp_path),
+                changed_files=["src/api/routes.py", "src/services/user_service.py"],
+            )
+
+        # Only the successful folder was rendered
+        MockRenderer.return_value.render_hybrid.assert_called_once()
+        call_args = MockRenderer.return_value.render_hybrid.call_args
+        assert call_args[0][0].path == "src/api"  # node
         assert "src/api/CLAUDE.md" in updated

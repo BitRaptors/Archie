@@ -23,7 +23,8 @@ def app(mock_smart_refresh_service):
     app.include_router(router, prefix="/api/v1")
 
     mock_container = MagicMock()
-    mock_container.smart_refresh_service.return_value = mock_smart_refresh_service
+    # smart_refresh_service() is awaited in the route, so make it an async callable
+    mock_container.smart_refresh_service = AsyncMock(return_value=mock_smart_refresh_service)
     # Also mock delivery_service so other routes don't break
     mock_container.delivery_service.return_value = AsyncMock()
 
@@ -84,13 +85,14 @@ class TestSmartRefreshRoute:
         assert len(data["warnings"]) == 1
         assert data["warnings"][0]["severity"] == "warning"
 
-    def test_returns_refreshed_with_updated_files(self, client, mock_smart_refresh_service):
+    def test_returns_refreshed_with_stale_folders(self, client, mock_smart_refresh_service):
         mock_smart_refresh_service.refresh = AsyncMock(
             return_value=SmartRefreshResult(
                 status="refreshed",
-                updated_files=["src/api/CLAUDE.md"],
+                stale_folders=["src/api"],
             )
         )
+        mock_smart_refresh_service.regenerate_stale = AsyncMock()
 
         resp = client.post("/api/v1/delivery/smart-refresh", json={
             "repo_id": "repo-123",
@@ -100,7 +102,7 @@ class TestSmartRefreshRoute:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "refreshed"
-        assert "src/api/CLAUDE.md" in data["updated_files"]
+        assert data["stale_folders"] == ["src/api"]
 
     def test_500_on_service_error(self, client, mock_smart_refresh_service):
         mock_smart_refresh_service.refresh = AsyncMock(
