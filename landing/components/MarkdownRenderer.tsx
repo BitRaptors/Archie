@@ -263,9 +263,15 @@ function renderInline(text: string): React.ReactNode[] {
     } else if (match[8] && match[9]) {
       // Link [text](url)
       nodes.push(
-        <span key={key++} className="text-[#8ecae6] underline decoration-[#8ecae6]/30">
+        <a
+          key={key++}
+          href={match[9]}
+          className="text-[#8ecae6] underline decoration-[#8ecae6]/30 hover:text-[#8ecae6]/80 transition-colors"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           {match[8]}
-        </span>
+        </a>
       );
     }
 

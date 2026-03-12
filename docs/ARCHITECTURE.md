@@ -1,4 +1,4 @@
-# Architecture Blueprints - Developer Documentation
+# Archie - Developer Documentation
 
 Comprehensive technical documentation covering system architecture, analysis pipeline internals, intent layer generation, API reference, database schema, MCP server, delivery pipeline, and contribution guidelines.
 
@@ -94,7 +94,7 @@ The core workflow:
 ## Project Structure
 
 ```
-architecture-blueprints/
+Archie/
 ├── backend/
 │   ├── src/
 │   │   ├── api/                          # HTTP layer
@@ -186,6 +186,7 @@ architecture-blueprints/
 │   └── ARCHITECTURE.md                 # This file
 ├── docker-compose.yml                  # PostgreSQL (pgvector) + Redis containers
 ├── README.md                           # Project overview
+├── CLAUDE.md                           # AI agent instructions
 ├── run                                 # Single entry point: setup + start (installs prereqs, Docker, deps, seeds DB, starts services)
 ├── setup.sh                            # Legacy wrapper (redirects to ./run)
 └── start-dev.sh                        # Legacy wrapper (redirects to ./run)
@@ -769,6 +770,7 @@ All routes are prefixed with `/api/v1` and registered in `api/app.py`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | List repositories |
+| `GET` | `/{owner}/{repo}/latest-commit` | Get latest commit SHA for repository |
 | `POST` | `/{owner}/{repo}/analyze` | Start analysis (accepts `mode: "full" \| "incremental"`) |
 
 ### Analyses (`/api/v1/analyses`)
@@ -797,7 +799,7 @@ All routes are prefixed with `/api/v1` and registered in `api/app.py`.
   "source_repo_id": "uuid",
   "target_repo": "owner/repo",
   "token": "ghp_...",
-  "outputs": ["claude_md", "agents_md", "intent_layer", "codebase_map", "claude_rules", "cursor_rules", "mcp_claude", "claude_hooks"],
+  "outputs": ["claude_md", "agents_md", "intent_layer", "codebase_map", "claude_rules", "cursor_rules", "mcp_claude", "mcp_cursor", "claude_hooks"],
   "strategy": "pr"
 }
 ```

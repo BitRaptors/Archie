@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Github, ArrowUpRight, FileText, Folder, Search, CheckCircle2, X, Maximize2 } from "lucide-react";
+import { Github, ArrowUpRight, FileText, Folder, Search, X, Maximize2 } from "lucide-react";
 import { ShaderBackground } from "@/components/ShaderBackground";
 import { motion, useScroll, useSpring, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
@@ -507,7 +507,7 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="bg-[#111]/80 backdrop-blur-xl p-12 md:p-20 border border-white/5 mx-auto max-w-4xl relative mb-32 group">
+          <div className="bg-[#111]/80 backdrop-blur-xl p-12 md:p-20 border border-white/5 mx-auto max-w-4xl relative mb-12 group">
             <div className="absolute -top-1 -left-1 w-20 h-20 border-t-2 border-l-2 border-neon opacity-50 group-hover:w-full group-hover:h-full transition-all duration-700"></div>
             <div className="absolute -bottom-1 -right-1 w-20 h-20 border-b-2 border-r-2 border-sky-blue opacity-50 group-hover:w-full group-hover:h-full transition-all duration-700"></div>
 
@@ -535,17 +535,6 @@ export default function LandingPage() {
             </blockquote>
           </div>
 
-          {/* Per-Folder Screenshot Overlay */}
-          <div className="fade-up relative max-w-5xl mx-auto">
-            <div className="absolute -inset-4 bg-sky-blue/10 blur-3xl rounded-full opacity-20"></div>
-            <div className="relative border-4 border-black bg-black rounded-sm overflow-hidden shadow-[32px_32px_0px_0px_rgba(142,202,230,0.1)]">
-              <div className="absolute top-0 right-0 bg-sky-blue text-black font-black px-6 py-2 text-xl z-20 border-b-4 border-l-4 border-black uppercase">
-                SERVICES / CLAUDE.MD
-              </div>
-              <img src="/per-folder.png" alt="Per-Folder CLAUDE.md Context" className="w-full h-auto opacity-80 hover:opacity-100 transition-opacity" />
-              <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent"></div>
-            </div>
-          </div>
         </div>
       </section>
 
