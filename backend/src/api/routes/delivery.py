@@ -1,4 +1,6 @@
 """Delivery routes -- push architecture outputs to a target GitHub repository or local path."""
+import asyncio
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -7,7 +9,12 @@ from pydantic import BaseModel
 from api.routes.repositories import resolve_github_token
 from application.services.delivery_service import DeliveryService, VALID_OUTPUTS
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/delivery", tags=["delivery"])
+
+# Keep references to background tasks so they aren't garbage-collected
+_background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +140,8 @@ async def apply(body: ApplyRequest, request: Request):
 async def smart_refresh(body: SmartRefreshRequest, request: Request):
     """Evaluate code changes against the architecture blueprint.
 
-    Called by the Stop hook to check alignment and refresh stale CLAUDE.md files.
+    Phase 1 (synchronous): evaluate alignment and return warnings + stale list.
+    Phase 2 (background): regenerate CLAUDE.md for stale folders if any.
     """
     service = await request.app.container.smart_refresh_service()
     try:
@@ -142,6 +150,24 @@ async def smart_refresh(body: SmartRefreshRequest, request: Request):
             changed_files=body.changed_files,
             target_local_path=body.target_local_path,
         )
+
+        # Fire-and-forget regeneration in background
+        if result.stale_folders:
+            task = asyncio.create_task(
+                service.regenerate_stale(
+                    repo_id=body.repo_id,
+                    stale_folders=result.stale_folders,
+                    target_local_path=body.target_local_path,
+                    changed_files=body.changed_files,
+                )
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+            logger.info(
+                "Dispatched background regeneration for %d stale folder(s)",
+                len(result.stale_folders),
+            )
+
         return result.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
