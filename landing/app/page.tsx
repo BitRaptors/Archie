@@ -129,7 +129,7 @@ export default function LandingPage() {
             Your AI is only<br />as good as its context.
           </h1>
           <p className="text-xl md:text-2xl text-sky-blue-600 mb-12 max-w-3xl mx-auto border-l-4 border-neon pl-6 text-left bg-black bg-opacity-40 p-6 backdrop-blur-sm">
-            Archie integrates directly into Claude Code (or your favorite agent) to watch your architecture. With automatic hooks and per-folder context, it keeps every `CLAUDE.md` fresh and prevents architectural drift.
+            Archie integrates directly into Claude Code (or your favorite agent) to watch your architecture. With automatic hooks and per-folder context, it keeps every context file fresh and won't let a single markdown rot away.
           </p>
           <a
             href="https://github.com/BitRaptors/Archie"

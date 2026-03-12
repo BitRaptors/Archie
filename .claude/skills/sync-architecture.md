@@ -10,7 +10,7 @@ You are synchronizing architecture files from the Archie blueprint storage to a 
 
 Read `~/.archie/config.json`. Extract the `storage_path` value. If the file does not exist, ask the user:
 
-> "I need to know where Archie stores blueprints. What is the absolute path to the `backend/storage` directory of your architecture_mcp installation?"
+> "I need to know where Archie stores blueprints. What is the absolute path to the `backend/storage` directory of your archie installation?"
 
 Then create `~/.archie/config.json` with `{ "storage_path": "<their answer>" }`.
 

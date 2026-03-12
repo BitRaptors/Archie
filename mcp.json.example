@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "architecture": {
-      "command": "/path/to/architecture_mcp/.venv/bin/python",
-      "args": ["/path/to/architecture_mcp/run_server.py"],
-      "cwd": "/path/to/architecture_mcp"
+      "command": "/path/to/archie/.venv/bin/python",
+      "args": ["/path/to/archie/run_server.py"],
+      "cwd": "/path/to/archie"
     }
   }
 }

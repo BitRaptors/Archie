@@ -378,11 +378,11 @@ if [ "$DB_BACKEND" = "postgres" ]; then
 
     # Re-apply migration (idempotent — safe to run on every setup)
     info "Applying migration (idempotent)..."
-    $DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp \
+    $DOCKER_COMPOSE exec -T postgres psql -U postgres -d archie \
       < backend/migrations/001_initial_setup.sql 2>&1 | tail -5
 
     # Verify tables exist
-    TABLE_EXISTS=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp -tAc \
+    TABLE_EXISTS=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d archie -tAc \
       "SELECT count(*) FROM information_schema.tables WHERE table_name='analysis_prompts'" 2>/dev/null || echo "0")
     if [ "${TABLE_EXISTS:-0}" -ge 1 ]; then
         info "Migration verified: tables created"
@@ -417,7 +417,7 @@ if [ "$NEEDS_NEW_ENV" = true ]; then
         cat > .env.local <<EOF
 # ── Database Backend ──────────────────────────────────────────
 DB_BACKEND=postgres
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/architecture_mcp
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/archie
 
 # ── Supabase (to switch: set DB_BACKEND=supabase and fill these in)
 # SUPABASE_URL=https://your-project.supabase.co
@@ -437,7 +437,7 @@ SUPABASE_URL=
 SUPABASE_KEY=
 
 # ── PostgreSQL (to switch: set DB_BACKEND=postgres and run docker compose up -d)
-# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/architecture_mcp
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/archie
 
 # ── AI (REQUIRED) ────────────────────────────────────────────
 ANTHROPIC_API_KEY=
@@ -454,7 +454,7 @@ echo ""
 info "Checking backend/.env.local for missing values..."
 
 if [ "$DB_BACKEND" = "postgres" ]; then
-    env_ensure .env.local "DATABASE_URL" "DATABASE_URL: " "postgresql://postgres:postgres@localhost:5432/architecture_mcp"
+    env_ensure .env.local "DATABASE_URL" "DATABASE_URL: " "postgresql://postgres:postgres@localhost:5432/archie"
 elif [ "$DB_BACKEND" = "supabase" ]; then
     env_ensure .env.local "SUPABASE_URL" "SUPABASE_URL (from Supabase dashboard): "
     env_ensure .env.local "SUPABASE_KEY" "SUPABASE_KEY (from Supabase dashboard): "

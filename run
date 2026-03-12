@@ -209,7 +209,7 @@ if [ ! -f "$BACKEND_ENV" ] || [ "$FORCE_RESET" = true ]; then
     cat > "$BACKEND_ENV" <<'ENVEOF'
 # ── Database ─────────────────────────────────────────────────────
 DB_BACKEND=postgres
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/architecture_mcp
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/archie
 
 # ── AI (REQUIRED — get yours at console.anthropic.com) ───────────
 ANTHROPIC_API_KEY=
@@ -270,13 +270,47 @@ DB_BACKEND=${DB_BACKEND:-postgres}
 if [ "$DB_BACKEND" = "postgres" ]; then
     step "Docker services (PostgreSQL + Redis)"
 
+    # Check for port conflicts before starting containers
+    for _port_check in 5432 6379; do
+        _port_pid=$(lsof -ti :"$_port_check" 2>/dev/null | head -1 || true)
+        if [ -n "$_port_pid" ]; then
+            _port_name=$(lsof -i :"$_port_check" -sTCP:LISTEN 2>/dev/null | tail -1 | awk '{print $1}' || echo "unknown")
+            # If it's already our Docker container, that's fine
+            if ! docker compose ps --format '{{.Ports}}' 2>/dev/null | grep -q "$_port_check"; then
+                warn "Port $_port_check is in use by $_port_name (PID $_port_pid)"
+                if [ "$_port_check" = 6379 ]; then
+                    warn "Tip: stop it with 'brew services stop redis' or 'kill $_port_pid'"
+                    warn "Continuing without Docker Redis — will use existing instance"
+                else
+                    err "Port 5432 (PostgreSQL) is required. Stop the conflicting process and retry."
+                    exit 1
+                fi
+            fi
+        fi
+    done
+
     COMPOSE_OUTPUT=$($DOCKER_COMPOSE up -d 2>&1) || {
         echo "$COMPOSE_OUTPUT"
-        if echo "$COMPOSE_OUTPUT" | grep -qiE "connection refused|timeout|no such host|network|dial tcp|TLS handshake"; then
+        if echo "$COMPOSE_OUTPUT" | grep -qiE "port is already allocated"; then
+            # Redis port conflict — start only PostgreSQL
+            if echo "$COMPOSE_OUTPUT" | grep -q "6379" && ! echo "$COMPOSE_OUTPUT" | grep -q "5432"; then
+                warn "Redis port 6379 already in use — starting PostgreSQL only"
+                $DOCKER_COMPOSE up -d postgres || { err "PostgreSQL container failed to start"; exit 1; }
+            else
+                err "Port conflict — check 'docker ps' and 'lsof -i :5432 -i :6379'"
+                exit 1
+            fi
+        elif echo "$COMPOSE_OUTPUT" | grep -qiE "connection refused|timeout|no such host|network|dial tcp|TLS handshake"; then
             if colima status &>/dev/null 2>&1; then
                 warn "Network issue — restarting Colima..."
                 colima stop 2>/dev/null || true; sleep 2
-                colima start --memory 4 --cpu 2 2>&1 || true; sleep 3
+                colima start --memory 4 --cpu 2 2>&1 || true
+                # Wait for Docker daemon to be fully ready after Colima restart
+                for _cw in $(seq 1 30); do
+                    docker_daemon_ok && break
+                    [ "$_cw" -eq 30 ] && { err "Docker daemon not ready after Colima restart"; exit 1; }
+                    sleep 2
+                done
                 $DOCKER_COMPOSE up -d || { err "Docker Compose still failing"; exit 1; }
             else
                 err "Network error pulling Docker images — check your connection"; exit 1
@@ -286,18 +320,47 @@ if [ "$DB_BACKEND" = "postgres" ]; then
         fi
     }
 
-    # Wait for PostgreSQL
+    # Wait for PostgreSQL (check host-side port, not just container-internal)
     for i in $(seq 1 30); do
-        $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1 && break
-        [ "$i" -eq 30 ] && { err "PostgreSQL not ready after 30s"; exit 1; }
+        if (echo > /dev/tcp/localhost/5432) &>/dev/null 2>&1; then
+            # Port is reachable — now verify DB is accepting queries
+            $DOCKER_COMPOSE exec -T postgres pg_isready -U postgres >/dev/null 2>&1 && break
+        fi
+        [ "$i" -eq 30 ] && { err "PostgreSQL not reachable on localhost:5432 after 30s"; exit 1; }
         sleep 1
     done
     info "PostgreSQL ready"
 
+    # Verify database exists; if not, create it and apply migration
+    DB_EXISTS=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -tAc \
+        "SELECT 1 FROM pg_database WHERE datname='archie'" 2>/dev/null || echo "")
+    if [ "$DB_EXISTS" != "1" ]; then
+        warn "Database 'archie' not found — creating..."
+        $DOCKER_COMPOSE exec -T postgres psql -U postgres -c "CREATE DATABASE archie" >/dev/null 2>&1
+        info "Database 'archie' created"
+    fi
+
     # Apply migration (idempotent)
-    $DOCKER_COMPOSE exec -T postgres psql -U postgres -d architecture_mcp \
+    $DOCKER_COMPOSE exec -T postgres psql -U postgres -d archie \
         < backend/migrations/001_initial_setup.sql >/dev/null 2>&1 || true
-    info "Migration applied"
+
+    # Verify all tables exist; if not, re-apply migration
+    EXPECTED_TABLES=11
+    TABLES_OK=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d archie -tAc \
+        "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('users','user_profiles','repositories','analyses','analysis_prompts','prompt_revisions','analysis_data','embeddings','analysis_events','discovery_ignored_dirs','library_capabilities')" 2>/dev/null || echo "0")
+    if [ "${TABLES_OK:-0}" -lt "$EXPECTED_TABLES" ]; then
+        warn "Missing tables (${TABLES_OK}/${EXPECTED_TABLES}) — re-applying migration..."
+        $DOCKER_COMPOSE exec -T postgres psql -U postgres -d archie \
+            < backend/migrations/001_initial_setup.sql 2>&1 | tail -5
+        # Re-check
+        TABLES_OK=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d archie -tAc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('users','user_profiles','repositories','analyses','analysis_prompts','prompt_revisions','analysis_data','embeddings','analysis_events','discovery_ignored_dirs','library_capabilities')" 2>/dev/null || echo "0")
+        if [ "${TABLES_OK:-0}" -lt "$EXPECTED_TABLES" ]; then
+            err "Migration failed — only ${TABLES_OK}/${EXPECTED_TABLES} tables found"
+            exit 1
+        fi
+    fi
+    info "Database ready (${TABLES_OK}/${EXPECTED_TABLES} tables verified)"
 else
     step "Database: Supabase (remote)"
     info "Using remote Supabase — ensure SUPABASE_URL and SUPABASE_KEY are set in $BACKEND_ENV"
@@ -330,18 +393,55 @@ else
     info "Python dependencies up to date"
 fi
 
-# Auto-reseed prompts when version changes (no more hard stop)
+# Auto-reseed prompts when version changes
 PROMPTS_VERSION=$(python3 -c "import json; print(json.load(open('prompts.json'))['version'])" 2>/dev/null || echo "")
 SYNCED_VERSION=$(cat .prompts-version 2>/dev/null || echo "")
 
-if [ -n "$PROMPTS_VERSION" ] && [ "$PROMPTS_VERSION" != "$SYNCED_VERSION" ]; then
-    warn "Prompts changed (v${SYNCED_VERSION:-none} → v${PROMPTS_VERSION}) — resyncing..."
-    PYTHONPATH=src .venv/bin/python scripts/seed_prompts.py || warn "Prompt sync failed — analysis may use stale prompts"
-    info "Prompts synced"
-elif [ -z "$SYNCED_VERSION" ]; then
-    # First run — seed prompts
-    PYTHONPATH=src .venv/bin/python scripts/seed_prompts.py || warn "Prompt sync failed"
-    info "Prompts seeded"
+_seed_prompts() {
+    # Retry up to 3 times — DB may still be starting
+    for _attempt in 1 2 3; do
+        if PYTHONPATH=src .venv/bin/python scripts/seed_prompts.py 2>&1; then
+            return 0
+        fi
+        if [ "$_attempt" -lt 3 ]; then
+            warn "Prompt seed attempt $_attempt failed — retrying in 3s..."
+            sleep 3
+        fi
+    done
+    return 1
+}
+
+_needs_seed() {
+    # Check if version changed
+    if [ -n "$PROMPTS_VERSION" ] && [ "$PROMPTS_VERSION" != "$SYNCED_VERSION" ]; then
+        return 0
+    fi
+    # Check if no version marker at all
+    if [ -z "$SYNCED_VERSION" ]; then
+        return 0
+    fi
+    # Version matches — but verify prompts actually exist in DB
+    if [ "$DB_BACKEND" = "postgres" ]; then
+        PROMPT_COUNT=$($DOCKER_COMPOSE exec -T postgres psql -U postgres -d archie -tAc \
+            "SELECT count(*) FROM analysis_prompts" 2>/dev/null || echo "0")
+        if [ "${PROMPT_COUNT:-0}" -lt 1 ]; then
+            warn "Version marker says v${SYNCED_VERSION} but DB has 0 prompts — reseeding..."
+            rm -f .prompts-version
+            return 0
+        fi
+    fi
+    return 1
+}
+
+if _needs_seed; then
+    warn "Seeding prompts (v${SYNCED_VERSION:-none} → v${PROMPTS_VERSION})..."
+    if _seed_prompts; then
+        info "Prompts synced (v${PROMPTS_VERSION})"
+    else
+        err "Prompt seeding failed after 3 attempts — analysis will not work"
+        err "Fix DB connectivity and re-run ./run"
+        exit 1
+    fi
 else
     info "Prompts up to date (v${SYNCED_VERSION})"
 fi

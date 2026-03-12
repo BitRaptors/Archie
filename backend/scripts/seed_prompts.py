@@ -198,14 +198,15 @@ def main() -> None:
             print(f"  Async execution failed: {e}")
             print(f"  SQL saved to {SEED_SQL_FILE} — paste it into the Supabase SQL editor")
 
-    # Write version marker
-    VERSION_FILE.write_text(str(version), encoding="utf-8")
-    print(f"Version marker written: {VERSION_FILE} = {version}")
-
-    if not executed:
+    if executed:
+        # Only write version marker when seeding actually succeeded
+        VERSION_FILE.write_text(str(version), encoding="utf-8")
+        print(f"Version marker written: {VERSION_FILE} = {version}")
+    else:
         print(f"\nSQL was NOT executed. To apply manually:")
-        print(f"  - Postgres: psql -U postgres -d architecture_mcp -f {SEED_SQL_FILE}")
+        print(f"  - Postgres: psql -U postgres -d archie -f {SEED_SQL_FILE}")
         print(f"  - Supabase: paste contents of {SEED_SQL_FILE} into SQL editor")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
