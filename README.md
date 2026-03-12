@@ -62,8 +62,8 @@ The AI agent in your IDE connects to the MCP server. Before it creates a file, i
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-org/architecture-blueprints.git
-cd architecture-blueprints
+git clone https://github.com/BitRaptors/Archie.git
+cd Archie
 ./run
 ```
 
@@ -190,7 +190,9 @@ This keeps your architecture docs current as you code. The blueprint itself is n
 
 ```bash
 cd backend
-PYTHONPATH=src python -m pytest tests/unit/ -v
+PYTHONPATH=src python -m pytest tests/unit/services/ -v          # Service tests (reliable)
+PYTHONPATH=src python -m pytest tests/unit/services/test_unified_features.py -v  # Single file
+PYTHONPATH=src python -m pytest tests/unit/services/ -k "test_detects_react"     # Single test
 ```
 
 ---
