@@ -722,7 +722,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="bg-black py-16 px-4 border-t-2 border-gray-800 text-center text-gray-500 font-mono text-sm">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="text-lg">© 2026 Archie. All systems nominal.</div>
+          <a href="https://bitraptors.com/" target="_blank" rel="noopener noreferrer" className="text-lg hover:text-neon transition-colors">Made with ❤️ by BitRaptors</a>
           <div className="flex gap-8 text-lg underline decoration-gray-800 underline-offset-4">
             <a
               href="https://github.com/BitRaptors/Archie/blob/main/docs/ARCHITECTURE.md"
