@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { ArchieLogo } from "@/components/ui/ArchieLogo"
 import { WorkspaceRepository } from "@/services/workspace"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -46,7 +47,7 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
             <div className="p-6">
                 <div className="flex items-center gap-3 mb-8 cursor-pointer group" onClick={() => onNavigate?.('repositories')}>
                     <div className="rounded-2xl shadow-lg shadow-teal/20 transition-transform group-hover:scale-105 overflow-hidden">
-                        <img src="/archie-logo.svg" alt="Archie" className="w-10 h-10" />
+                        <ArchieLogo size={40} />
                     </div>
                     <div>
                         <h1 className="text-xl font-black tracking-tight text-ink leading-none">Archie</h1>
