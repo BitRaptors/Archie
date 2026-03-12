@@ -386,6 +386,9 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                             )}
                             onClick={() => {
                                 setDeliveryResult(null)
+                                if (repoFullName) {
+                                    setSyncSettings(p => ({ ...p, targetRepo: repoFullName }))
+                                }
                                 setIsSyncPanelOpen(true)
                             }}
                         >
@@ -393,26 +396,6 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                             {needsSync ? 'Sync Required' : 'Sync with Agent'}
                         </Button>
 
-                        {backendBlueprint && (
-                            <Button
-                                size="sm"
-                                variant={isActive ? "secondary" : "default"}
-                                disabled={isActive || isSettingActive}
-                                onClick={() => {
-                                    if (backendBlueprint) {
-                                        setActiveRepo(backendBlueprint.repository_id)
-                                        setNeedsSync(true)
-                                    }
-                                }}
-                                className={cn("h-9", isActive ? "bg-teal/10 text-teal border-teal/20" : "bg-teal hover:bg-teal-600 text-white shadow-lg shadow-teal/20")}
-                            >
-                                {isActive ? (
-                                    <><Check className="w-4 h-4 mr-2" /> Active</>
-                                ) : (
-                                    <><Star className="w-4 h-4 mr-2" /> Activate</>
-                                )}
-                            </Button>
-                        )}
                     </div>
                 }
             />
@@ -882,7 +865,29 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
 
                         {activeTab === 'mcp' && (
                             <div className="p-10 max-w-3xl">
-                                <h3 className="text-lg font-bold text-ink mb-4">MCP Configuration</h3>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-bold text-ink">MCP Configuration</h3>
+                                    {backendBlueprint && (
+                                        <Button
+                                            size="sm"
+                                            variant={isActive ? "secondary" : "default"}
+                                            disabled={isActive || isSettingActive}
+                                            onClick={() => {
+                                                if (backendBlueprint) {
+                                                    setActiveRepo(backendBlueprint.repository_id)
+                                                    setNeedsSync(true)
+                                                }
+                                            }}
+                                            className={cn("h-9", isActive ? "bg-teal/10 text-teal border-teal/20" : "bg-teal hover:bg-teal-600 text-white shadow-lg shadow-teal/20")}
+                                        >
+                                            {isActive ? (
+                                                <><Check className="w-4 h-4 mr-2" /> MCP Active</>
+                                            ) : (
+                                                <><Star className="w-4 h-4 mr-2" /> Activate MCP</>
+                                            )}
+                                        </Button>
+                                    )}
+                                </div>
                                 <p className="text-sm text-ink-300 mb-6">Connect your workspace to the blueprint server for real-time architectural awareness.</p>
                                 <div className="relative group">
                                     <pre className="p-6 bg-ink text-white rounded-2xl overflow-x-auto text-xs font-mono shadow-xl border-t border-white/10">
