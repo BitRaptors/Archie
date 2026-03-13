@@ -159,17 +159,27 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
     await _safe_log("INFO", "Worker picked up analysis job")
     await _safe_log("INFO", f"Worker directory: {os.getcwd()}, temp: {temp_dir}")
 
+    # Detect local repos early (for cleanup logic in finally)
+    is_local = False
     try:
         # Get repository
         repo = await repo_service.get_repository(repository_id)
         if not repo:
             raise ValueError(f"Repository {repository_id} not found")
 
-        # Clone repository
-        await _safe_log("INFO", f"Cloning {repo.full_name}...")
-        repo_path = await repo_service.clone_repository(repo, token, temp_dir)
-        repo_path = Path(repo_path).resolve()
-        await _safe_log("INFO", f"Repository cloned to: {repo_path}")
+        # Local repos: use path directly (stored in repo.url), skip clone
+        is_local = repo.owner == "local"
+        if is_local:
+            repo_path = Path(repo.url).resolve()
+            if not repo_path.is_dir():
+                raise RuntimeError(f"Local repository path no longer exists: {repo_path}")
+            await _safe_log("INFO", f"Using local path: {repo_path}")
+        else:
+            # Clone repository
+            await _safe_log("INFO", f"Cloning {repo.full_name}...")
+            repo_path = await repo_service.clone_repository(repo, token, temp_dir)
+            repo_path = Path(repo_path).resolve()
+            await _safe_log("INFO", f"Repository cloned to: {repo_path}")
 
         # Capture HEAD commit SHA
         import subprocess
@@ -202,6 +212,7 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
             prompt_config=prompt_config,
             commit_sha=commit_sha,
             mode=mode,
+            is_local=is_local,
         )
         print("analyze_repository: Analysis complete")
     except asyncio.CancelledError:
@@ -224,11 +235,12 @@ async def analyze_repository(ctx, analysis_id: str, repository_id: str, token: s
         await _mark_failed(error_msg)
         raise
     finally:
-        print("analyze_repository: Cleaning up temporary files")
-        try:
-            await repo_service.cleanup_temp_repository(temp_dir)
-        except Exception as cleanup_error:
-            print(f"analyze_repository: Cleanup error: {cleanup_error}")
+        if not is_local:
+            print("analyze_repository: Cleaning up temporary files")
+            try:
+                await repo_service.cleanup_temp_repository(temp_dir)
+            except Exception as cleanup_error:
+                print(f"analyze_repository: Cleanup error: {cleanup_error}")
 
 
 try:

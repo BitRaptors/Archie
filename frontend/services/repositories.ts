@@ -39,5 +39,24 @@ export const repositoriesService = {
     })
     return response.data.sha
   },
+
+  async validateLocalPath(path: string) {
+    const response = await axios.post(`${API_URL}/api/v1/repositories/local/validate`, { path })
+    return response.data as { valid: boolean; name: string | null; is_git_repo: boolean; error?: string }
+  },
+
+  async analyzeLocal(localPath: string, mode: string = 'full', promptConfig?: Record<string, string>) {
+    const response = await axios.post(`${API_URL}/api/v1/repositories/local/analyze`, {
+      local_path: localPath,
+      mode,
+      prompt_config: promptConfig,
+    })
+    return response.data
+  },
+
+  async pickFolder() {
+    const response = await axios.get(`${API_URL}/api/v1/system/pick-folder`)
+    return response.data as { path: string | null; error?: string }
+  },
 }
 

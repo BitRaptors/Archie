@@ -1,9 +1,10 @@
 """Repository routes."""
 import asyncio
+import inspect
 import logging
 from fastapi import APIRouter, HTTPException, Header, Request
 from typing import List, Optional
-from api.dto.requests import StartAnalysisRequest
+from api.dto.requests import StartAnalysisRequest, StartLocalAnalysisRequest, ValidateLocalPathRequest
 from api.dto.responses import RepositoryResponse, AnalysisResponse
 from application.services.github_service import GitHubService
 from config.settings import get_settings
@@ -69,6 +70,27 @@ async def get_latest_commit(
     request: Request,
 ):
     """Get the latest commit SHA for a repository."""
+    # Local repos: read HEAD SHA from the local path stored in the repo record
+    if owner == "local":
+        import subprocess
+        container = request.app.container
+        db = await container.db()
+        from infrastructure.persistence.repository_repository import RepositoryRepository
+        import uuid
+        user_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "default-user"))
+        repo_repo = RepositoryRepository(db=db)
+        repository = await repo_repo.get_by_full_name(user_id, owner, repo)
+        if not repository:
+            raise HTTPException(status_code=404, detail=f"Local repository {owner}/{repo} not found")
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repository.url,
+                capture_output=True, text=True, check=True,
+            )
+            return {"sha": result.stdout.strip()}
+        except Exception:
+            return {"sha": None}
+
     token = resolve_github_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="No GitHub token available.")
@@ -133,6 +155,8 @@ async def start_analysis(
 
     # Pass db_client to enable RAG-based retrieval
     prompt_loader = container.database_prompt_loader()
+    if inspect.isawaitable(prompt_loader):
+        prompt_loader = await prompt_loader
     phased_blueprint_generator = PhasedBlueprintGenerator(
         settings=settings,
         db_client=db,
@@ -141,6 +165,8 @@ async def start_analysis(
 
     # Create analysis service (with intent layer so Phase 7 runs in-pipeline)
     intent_layer_service = container.intent_layer_service()
+    if inspect.isawaitable(intent_layer_service):
+        intent_layer_service = await intent_layer_service
     analysis_service = AnalysisService(
         analysis_repo=analysis_repo,
         repository_repo=repo_repo,
@@ -239,6 +265,198 @@ async def start_analysis(
     except Exception as e:
         logger.exception("Error in start_analysis")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/local/validate")
+async def validate_local_path(body: ValidateLocalPathRequest):
+    """Check whether a local path is a valid directory and optionally a git repo."""
+    import os
+    import subprocess
+
+    path = body.path
+    if not os.path.isabs(path):
+        return {"valid": False, "name": None, "is_git_repo": False, "error": "Path must be absolute"}
+
+    if not os.path.isdir(path):
+        return {"valid": False, "name": None, "is_git_repo": False, "error": "Directory does not exist"}
+
+    name = os.path.basename(os.path.normpath(path))
+    is_git = os.path.isdir(os.path.join(path, ".git"))
+
+    return {"valid": True, "name": name, "is_git_repo": is_git}
+
+
+@router.post("/local/analyze", response_model=AnalysisResponse)
+async def start_local_analysis(
+    body: StartLocalAnalysisRequest,
+    request: Request,
+):
+    """Start analysis for a local repository (no GitHub token required)."""
+    import os
+    import uuid
+    import subprocess
+    from pathlib import Path as _Path
+
+    local_path = body.local_path
+    if not os.path.isabs(local_path) or not os.path.isdir(local_path):
+        raise HTTPException(status_code=400, detail="Invalid local path — must be an absolute path to an existing directory")
+
+    repo_name = os.path.basename(os.path.normpath(local_path))
+    owner = "local"
+
+    container = request.app.container
+    db = await container.db()
+
+    from infrastructure.persistence.user_repository import UserRepository
+    from infrastructure.persistence.repository_repository import RepositoryRepository
+    from infrastructure.persistence.analysis_repository import AnalysisRepository
+    from infrastructure.persistence.analysis_event_repository import AnalysisEventRepository
+
+    user_repo = UserRepository(db=db)
+    repo_repo = RepositoryRepository(db=db)
+    analysis_repo = AnalysisRepository(db=db)
+    event_repo = AnalysisEventRepository(db=db)
+
+    from application.services.repository_service import RepositoryService
+    from application.services.analysis_service import AnalysisService
+    from application.services.phased_blueprint_generator import PhasedBlueprintGenerator
+    from infrastructure.analysis.structure_analyzer import StructureAnalyzer
+    from config.settings import get_settings
+
+    storage = container.storage()
+    github_service = container.github_service()
+    settings = get_settings()
+
+    repo_service = RepositoryService(
+        repository_repo=repo_repo,
+        github_service=github_service,
+        storage=storage,
+    )
+
+    structure_analyzer = StructureAnalyzer()
+    prompt_loader = container.database_prompt_loader()
+    if inspect.isawaitable(prompt_loader):
+        prompt_loader = await prompt_loader
+    phased_blueprint_generator = PhasedBlueprintGenerator(
+        settings=settings,
+        db_client=db,
+        prompt_loader=prompt_loader,
+    )
+
+    intent_layer_service = container.intent_layer_service()
+    if inspect.isawaitable(intent_layer_service):
+        intent_layer_service = await intent_layer_service
+    analysis_service = AnalysisService(
+        analysis_repo=analysis_repo,
+        repository_repo=repo_repo,
+        event_repo=event_repo,
+        structure_analyzer=structure_analyzer,
+        persistent_storage=storage,
+        phased_blueprint_generator=phased_blueprint_generator,
+        db_client=db,
+        intent_layer_service=intent_layer_service,
+    )
+
+    try:
+        user_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "default-user"))
+        user = await user_repo.get_by_id(user_id)
+        if not user:
+            from domain.entities.user import User
+            user = User.create(github_token_encrypted="dummy_encrypted_token")
+            user.id = user_id
+            await user_repo.add(user)
+
+        # Get or create repository record for local repo (bypass GitHub API)
+        repository = await repo_service.get_repository_by_full_name(user_id, owner, repo_name)
+        if not repository:
+            from domain.entities.repository import Repository as RepoEntity
+            repository = RepoEntity.create(
+                user_id=user_id,
+                owner=owner,
+                name=repo_name,
+                full_name=f"{owner}/{repo_name}",
+                url=local_path,
+                description=f"Local repository at {local_path}",
+                language=None,
+                default_branch="main",
+            )
+            repository = await repo_repo.add(repository)
+
+        prompt_config = body.prompt_config
+        mode = body.mode
+        analysis = await analysis_service.start_analysis(repository.id, prompt_config, mode)
+
+        # Capture HEAD commit SHA if it's a git repo
+        commit_sha = None
+        try:
+            sha_result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=local_path,
+                capture_output=True, text=True, check=True,
+            )
+            commit_sha = sha_result.stdout.strip()
+        except Exception:
+            pass
+
+        # Run analysis in-process (local repos don't need ARQ)
+        repo_path = _Path(local_path).resolve()
+        task = asyncio.create_task(
+            _run_local_analysis_in_process(
+                container=container,
+                analysis_service=analysis_service,
+                analysis_id=analysis.id,
+                repo_path=repo_path,
+                commit_sha=commit_sha,
+                prompt_config=prompt_config,
+                mode=mode,
+            )
+        )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+
+        return analysis
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error in start_local_analysis")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _run_local_analysis_in_process(
+    container,
+    analysis_service,
+    analysis_id: str,
+    repo_path,
+    commit_sha: str | None = None,
+    prompt_config: dict | None = None,
+    mode: str = "full",
+) -> None:
+    """Run analysis on a local repo (no cloning, no cleanup)."""
+    from infrastructure.persistence.analysis_repository import AnalysisRepository
+
+    db = await container.db()
+    analysis_repo = AnalysisRepository(db=db)
+
+    try:
+        await analysis_service.run_analysis(
+            analysis_id=analysis_id,
+            repo_path=repo_path,
+            token=None,
+            prompt_config=prompt_config,
+            commit_sha=commit_sha,
+            mode=mode,
+            is_local=True,
+        )
+        logger.info("Local analysis %s completed", analysis_id)
+    except Exception as e:
+        logger.exception("Local analysis %s failed", analysis_id)
+        try:
+            analysis = await analysis_repo.get_by_id(analysis_id)
+            if analysis and analysis.status != "failed":
+                analysis.fail(str(e))
+                await analysis_repo.update(analysis)
+        except Exception:
+            pass
+    # NOTE: No cleanup — we never delete the user's local repo
 
 
 async def _run_analysis_in_process(

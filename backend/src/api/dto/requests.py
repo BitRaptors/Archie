@@ -40,6 +40,21 @@ class UpdatePromptRequest(BaseModel):
     change_summary: str | None = None
 
 
+class StartLocalAnalysisRequest(BaseModel):
+    """Start analysis for a local repository."""
+    local_path: str = Field(..., description="Absolute path to local repository directory")
+    mode: str = Field(default="full", description="'full' or 'incremental'")
+    prompt_config: dict[str, str] | None = Field(
+        default=None,
+        description="Custom prompt configuration per category"
+    )
+
+
+class ValidateLocalPathRequest(BaseModel):
+    """Validate a local path for analysis."""
+    path: str = Field(..., description="Absolute path to validate")
+
+
 class UpdateIgnoredDirsRequest(BaseModel):
     """Replace all ignored directories."""
     directories: list[str] = Field(..., description="List of directory names to ignore")

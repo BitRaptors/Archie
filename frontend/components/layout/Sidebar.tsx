@@ -1,5 +1,3 @@
-import Link from "next/link"
-import { useRouter } from "next/router"
 import { useAuth } from "@/hooks/useAuth"
 import { cn } from "@/lib/utils"
 import { theme } from "@/lib/theme"
@@ -34,12 +32,10 @@ interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export function Sidebar({ className, activeView, onNavigate, history = [], onHistoryClick, activeRepoId, openedRepoId, onActiveClick, collapsed = false, onToggleCollapse }: SidebarProps) {
-    const router = useRouter()
-    const { logout } = useAuth()
+    const { logout, isAuthenticated } = useAuth()
 
     const handleLogout = () => {
         logout()
-        router.push('/auth')
     }
 
     const activeProject = history.find(h => h.repo_id === activeRepoId)
@@ -229,21 +225,23 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                 </div>
             </div>
 
-            {/* Footer / Logout */}
-            <div className={cn("py-4 border-t border-papaya-400/40 bg-white/50 transition-all duration-300", collapsed ? "px-2" : "px-4")}>
-                <Button
-                    variant="ghost"
-                    className={cn(
-                        "h-11 rounded-xl text-ink/40 hover:text-brandy hover:bg-brandy/5 transition-all duration-300 font-bold text-sm whitespace-nowrap overflow-hidden",
-                        collapsed ? "w-11 px-0 justify-center mx-auto gap-0" : "w-full px-4 justify-start gap-3"
-                    )}
-                    onClick={handleLogout}
-                    title="Logout"
-                >
-                    <LogOut className="w-4 h-4 shrink-0" />
-                    <span className={cn("transition-all duration-300 overflow-hidden", collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-[200px]")}>Logout</span>
-                </Button>
-            </div>
+            {/* Footer / Logout — only when authenticated with GitHub */}
+            {isAuthenticated && (
+                <div className={cn("py-4 border-t border-papaya-400/40 bg-white/50 transition-all duration-300", collapsed ? "px-2" : "px-4")}>
+                    <Button
+                        variant="ghost"
+                        className={cn(
+                            "h-11 rounded-xl text-ink/40 hover:text-brandy hover:bg-brandy/5 transition-all duration-300 font-bold text-sm whitespace-nowrap overflow-hidden",
+                            collapsed ? "w-11 px-0 justify-center mx-auto gap-0" : "w-full px-4 justify-start gap-3"
+                        )}
+                        onClick={handleLogout}
+                        title="Disconnect GitHub"
+                    >
+                        <LogOut className="w-4 h-4 shrink-0" />
+                        <span className={cn("transition-all duration-300 overflow-hidden", collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-[200px]")}>Disconnect GitHub</span>
+                    </Button>
+                </div>
+            )}
         </div>
     )
 }

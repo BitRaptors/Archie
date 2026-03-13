@@ -952,28 +952,36 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                         <span className="text-xs font-bold">Local Project</span>
                                     </button>
                                     <button
-                                        onClick={() => setSyncSettings(p => ({ ...p, strategy: 'pr' }))}
+                                        onClick={() => isAuthenticated && setSyncSettings(p => ({ ...p, strategy: 'pr' }))}
                                         className={cn(
-                                            "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2",
-                                            syncSettings.strategy === 'pr'
-                                                ? "bg-teal/5 border-teal text-teal shadow-sm ring-1 ring-teal/20"
-                                                : "bg-white border-papaya-400 text-ink/40 hover:border-teal/40"
+                                            "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2 relative",
+                                            !isAuthenticated
+                                                ? "bg-papaya-300/10 border-papaya-400/30 text-ink/20 cursor-not-allowed opacity-60"
+                                                : syncSettings.strategy === 'pr'
+                                                    ? "bg-teal/5 border-teal text-teal shadow-sm ring-1 ring-teal/20"
+                                                    : "bg-white border-papaya-400 text-ink/40 hover:border-teal/40"
                                         )}
+                                        title={!isAuthenticated ? "GitHub token required — configure in Settings" : undefined}
                                     >
                                         <GitPullRequest className="w-5 h-5" />
                                         <span className="text-xs font-bold">Pull Request</span>
+                                        {!isAuthenticated && <span className="text-[8px] font-bold text-ink/30 uppercase tracking-wider">Token required</span>}
                                     </button>
                                     <button
-                                        onClick={() => setSyncSettings(p => ({ ...p, strategy: 'commit' }))}
+                                        onClick={() => isAuthenticated && setSyncSettings(p => ({ ...p, strategy: 'commit' }))}
                                         className={cn(
-                                            "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2",
-                                            syncSettings.strategy === 'commit'
-                                                ? "bg-tangerine/5 border-tangerine text-tangerine shadow-sm ring-1 ring-tangerine/20"
-                                                : "bg-white border-papaya-400 text-ink/40 hover:border-tangerine/40"
+                                            "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2 relative",
+                                            !isAuthenticated
+                                                ? "bg-papaya-300/10 border-papaya-400/30 text-ink/20 cursor-not-allowed opacity-60"
+                                                : syncSettings.strategy === 'commit'
+                                                    ? "bg-tangerine/5 border-tangerine text-tangerine shadow-sm ring-1 ring-tangerine/20"
+                                                    : "bg-white border-papaya-400 text-ink/40 hover:border-tangerine/40"
                                         )}
+                                        title={!isAuthenticated ? "GitHub token required — configure in Settings" : undefined}
                                     >
                                         <Zap className="w-5 h-5" />
                                         <span className="text-xs font-bold">Direct Commit</span>
+                                        {!isAuthenticated && <span className="text-[8px] font-bold text-ink/30 uppercase tracking-wider">Token required</span>}
                                     </button>
                                 </div>
                             </div>

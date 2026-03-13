@@ -1,7 +1,5 @@
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/router'
-import { useAuth } from '@/hooks/useAuth'
 import { Shell } from '@/components/layout/Shell'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { RepositoryView } from '@/components/views/RepositoryView'
@@ -14,8 +12,6 @@ import { useWorkspaceRepositories, useActiveRepository } from '@/hooks/api/useWo
 type ViewState = 'repositories' | 'analysis' | 'blueprint' | 'settings'
 
 export default function Dashboard() {
-  const router = useRouter()
-  const { isAuthenticated, isLoading: isAuthLoading } = useAuth()
   const { data: history = [] } = useWorkspaceRepositories()
   const { data: activeRepo, isLoading: isActiveLoading } = useActiveRepository()
 
@@ -25,13 +21,6 @@ export default function Dashboard() {
   const [repoId, setRepoId] = useState<string | null>(null)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const [initialBlueprintTab, setInitialBlueprintTab] = useState<'backend' | 'delivery' | undefined>(undefined)
-
-  useEffect(() => {
-    // If not authenticated and not loading, redirect to auth
-    if (!isAuthLoading && !isAuthenticated) {
-      router.push('/auth')
-    }
-  }, [isAuthLoading, isAuthenticated, router])
 
   // Handle initial view state based on active repository
   useEffect(() => {
@@ -59,15 +48,13 @@ export default function Dashboard() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
-  if (!mounted || isAuthLoading || (!initialLoadDone && isActiveLoading)) {
+  if (!mounted || (!initialLoadDone && isActiveLoading)) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     )
   }
-
-  if (!isAuthenticated) return null // Will redirect
 
   // Navigation Handlers
   const handleNavigate = (view: ViewState) => {
@@ -147,6 +134,7 @@ export default function Dashboard() {
           onAnalyze={handleAnalyze}
           onViewBlueprint={(repoId) => handleHistoryClick(repoId, '')}
           activeRepoId={activeRepo?.active_repo_id || undefined}
+          onNavigateToSettings={() => handleNavigate('settings')}
         />
       )}
 
