@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { repositoriesService } from '@/services/repositories'
 import { useRepositoriesQuery } from '@/hooks/api/useRepositoriesQuery'
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Search, GitBranch, ArrowRight, Github, Star, CheckCircle2, Globe, Loader2, RotateCw, Eye, LayoutDashboard, Zap, Activity, X } from 'lucide-react'
+import { Search, GitBranch, ArrowRight, Github, Star, CheckCircle2, Globe, Loader2, RotateCw, Eye, LayoutDashboard, Zap, Activity, X, FolderOpen, CheckCircle, XCircle, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { useSetActiveRepository, useWorkspaceRepositories } from '@/hooks/api/useWorkspace'
@@ -28,10 +28,11 @@ interface RepositoryViewProps {
     onAnalyze: (id: string, name: string) => void
     onViewBlueprint: (repoId: string) => void
     activeRepoId?: string
+    onNavigateToSettings?: () => void
 }
 
-export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: RepositoryViewProps) {
-    const { token } = useAuth()
+export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId, onNavigateToSettings }: RepositoryViewProps) {
+    const { token, isAuthenticated } = useAuth()
     const queryClient = useQueryClient()
     const { data: repos, isLoading, refetch: refetchRepos } = useRepositoriesQuery()
     const { data: workspaceRepos } = useWorkspaceRepositories()
@@ -41,6 +42,47 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
     const [publicUrl, setPublicUrl] = useState('')
     const [isAnalyzingPublic, setIsAnalyzingPublic] = useState(false)
     const [confirmDialog, setConfirmDialog] = useState<{owner: string, name: string} | null>(null)
+
+    // Local repo state
+    const [localPath, setLocalPath] = useState('')
+    const [localValidation, setLocalValidation] = useState<{ valid: boolean; name: string | null; is_git_repo: boolean; error?: string } | null>(null)
+    const [isValidating, setIsValidating] = useState(false)
+    const [isAnalyzingLocal, setIsAnalyzingLocal] = useState(false)
+
+    // Debounced local path validation
+    useEffect(() => {
+        if (!localPath.trim()) {
+            setLocalValidation(null)
+            return
+        }
+        const timer = setTimeout(async () => {
+            setIsValidating(true)
+            try {
+                const result = await repositoriesService.validateLocalPath(localPath.trim())
+                setLocalValidation(result)
+            } catch {
+                setLocalValidation({ valid: false, name: null, is_git_repo: false, error: 'Could not validate path' })
+            } finally {
+                setIsValidating(false)
+            }
+        }, 400)
+        return () => clearTimeout(timer)
+    }, [localPath])
+
+    const handleLocalAnalyze = async () => {
+        if (!localValidation?.valid) return
+        setIsAnalyzingLocal(true)
+        try {
+            const analysis = await repositoriesService.analyzeLocal(localPath.trim())
+            queryClient.invalidateQueries({ queryKey: ['workspace', 'repositories'] })
+            onAnalyze(analysis.id, `local/${localValidation.name}`)
+        } catch (err: any) {
+            const detail = err?.response?.data?.detail
+            toast.error(typeof detail === 'string' ? detail : err.message || 'Failed to start local analysis')
+        } finally {
+            setIsAnalyzingLocal(false)
+        }
+    }
 
     // Map GitHub full_name to workspace repo data (for blueprint status)
     const workspaceByName = new Map(workspaceRepos?.map(r => [r.name, r]) || [])
@@ -153,6 +195,111 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
 
             <div className="flex-1 overflow-y-auto px-8 py-8">
                 <div className="max-w-7xl mx-auto space-y-12">
+                    {/* Local Repository Section — always visible */}
+                    <div className="bg-white/60 border border-papaya-400/60 backdrop-blur-sm rounded-3xl p-6 shadow-sm">
+                        <div className="flex flex-col gap-6">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 rounded-2xl bg-teal/10 text-teal">
+                                    <FolderOpen className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-bold text-ink">Analyze Local Repository</h2>
+                                    <p className="text-sm text-ink-300">Architecture discovery for any project on your machine — no GitHub token needed.</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-3 max-w-2xl md:ml-[68px]">
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1 group">
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            className={cn(
+                                                "w-full h-12 pl-12 pr-4 rounded-xl border bg-papaya-300/10 text-sm font-bold text-ink cursor-default",
+                                                localValidation?.valid ? "border-teal/60" : localValidation && !localValidation.valid ? "border-brandy/60" : "border-papaya-400"
+                                            )}
+                                            placeholder="Select folder..."
+                                            value={localPath}
+                                        />
+                                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/30">
+                                            <FolderOpen className="w-4 h-4" />
+                                        </div>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-12 px-6 rounded-xl border-papaya-400 bg-white hover:bg-papaya-300/20 text-teal font-bold shadow-sm"
+                                        onClick={async () => {
+                                            try {
+                                                const data = await repositoriesService.pickFolder()
+                                                if (data.path) {
+                                                    setLocalPath(data.path)
+                                                } else if (data.error) {
+                                                    toast.error(data.error)
+                                                }
+                                            } catch {
+                                                toast.error('Failed to open folder picker')
+                                            }
+                                        }}
+                                    >
+                                        <FolderOpen className="w-4 h-4 mr-2" />
+                                        Select Folder
+                                    </Button>
+                                    <Button
+                                        className={cn("h-12 px-6 shadow-lg", theme.interactive.cta)}
+                                        disabled={!localValidation?.valid || isAnalyzingLocal}
+                                        onClick={handleLocalAnalyze}
+                                    >
+                                        {isAnalyzingLocal ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-2" /> Analyze</>}
+                                    </Button>
+                                </div>
+                                {localPath.trim() && (
+                                    <div className="flex items-center gap-2 px-1">
+                                        {isValidating ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-ink/30" />
+                                        ) : localValidation?.valid ? (
+                                            <>
+                                                <CheckCircle className="w-3.5 h-3.5 text-teal" />
+                                                <span className="text-xs text-teal font-medium">
+                                                    {localValidation.name}
+                                                    {localValidation.is_git_repo && (
+                                                        <Badge className="ml-2 bg-teal/10 text-teal border-teal/20 text-[9px] h-4 px-1.5">git repo</Badge>
+                                                    )}
+                                                </span>
+                                            </>
+                                        ) : localValidation ? (
+                                            <>
+                                                <XCircle className="w-3.5 h-3.5 text-brandy" />
+                                                <span className="text-xs text-brandy font-medium">{localValidation.error || 'Invalid path'}</span>
+                                            </>
+                                        ) : null}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* GitHub Sections — conditional on authentication */}
+                    {!isAuthenticated ? (
+                        <div className="bg-papaya-300/20 border border-papaya-400/40 rounded-3xl p-8">
+                            <div className="flex items-start gap-4">
+                                <div className="p-3 rounded-2xl bg-papaya-300/30 text-ink/30 shrink-0">
+                                    <Github className="w-6 h-6" />
+                                </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-lg font-bold text-ink/60">GitHub Repositories</h3>
+                                    <p className="text-sm text-ink-300 leading-relaxed">
+                                        To browse and analyze GitHub repositories, add your GitHub token in{' '}
+                                        <button className="text-teal font-bold hover:underline" onClick={onNavigateToSettings}>Settings</button>.
+                                    </p>
+                                    <div className="flex items-center gap-2 text-[10px] text-ink/30 font-bold uppercase tracking-wider">
+                                        <Info className="w-3.5 h-3.5" />
+                                        Your token stays local — stored only in your browser.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                    <>
                     {/* Analyze Public Repo Section */}
                     <div className="bg-white/60 border border-papaya-400/60 backdrop-blur-sm rounded-3xl p-6 shadow-sm">
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -296,6 +443,8 @@ export function RepositoryView({ onAnalyze, onViewBlueprint, activeRepoId }: Rep
                             ))
                         )}
                     </div>
+                    </>
+                    )}
                 </div>
             </div>
 

@@ -103,7 +103,7 @@ export function AuthContextProvider({ children }: { children: ReactNode }) {
       setServerTokenMode(false)
       setIsLoading(false)
       if (typeof window !== 'undefined') {
-        window.location.href = '/auth'
+        window.location.href = '/'
       }
     }
   }

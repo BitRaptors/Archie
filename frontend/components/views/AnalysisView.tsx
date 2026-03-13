@@ -51,13 +51,13 @@ export function AnalysisView({ analysisId, onViewBlueprint, onBack }: AnalysisVi
     }
 
     useEffect(() => {
-        if (!analysisId || !token) return
+        if (!analysisId) return
 
         const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
         let eventSource: EventSource | null = null
 
         fetch(`${API_URL}/api/v1/analyses/${analysisId}`, {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
         })
             .then(res => {
                 if (!res.ok) throw new Error('Analysis not found')
@@ -74,7 +74,7 @@ export function AnalysisView({ analysisId, onViewBlueprint, onBack }: AnalysisVi
                     isCompleteRef.current = true
                     // Fetch historical logs if already complete
                     fetch(`${API_URL}/api/v1/analyses/${analysisId}/logs`, {
-                        headers: { Authorization: `Bearer ${token}` }
+                        headers: token ? { Authorization: `Bearer ${token}` } : {}
                     })
                         .then(res => res.json())
                         .then(data => setEvents(data))

@@ -8,17 +8,18 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
-import { Loader2, Settings, Save, RotateCcw, ChevronRight, FolderX, Zap, FileCode, History, Box, Trash2, Database } from 'lucide-react'
+import { Loader2, Settings, Save, RotateCcw, ChevronRight, FolderX, Zap, FileCode, History, Box, Trash2, Database, Github, Key, Lock, CheckCircle2, ExternalLink, Eye, GitBranch, AlertCircle } from 'lucide-react'
 import { IgnoredDirsSettingsView } from './IgnoredDirsSettingsView'
 import { CapabilitiesSettingsView } from './CapabilitiesSettingsView'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
 import { useResetAllData } from '@/hooks/api/useSettings'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { useAuth } from '@/hooks/useAuth'
 
-type SettingsTab = 'prompts' | 'ignored_dirs' | 'capabilities' | 'database'
+type SettingsTab = 'github' | 'prompts' | 'ignored_dirs' | 'capabilities' | 'database'
 
 export function SettingsView() {
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('prompts')
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('github')
   const [showResetDialog, setShowResetDialog] = useState(false)
   const resetAllData = useResetAllData()
 
@@ -33,6 +34,20 @@ export function SettingsView() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Tab Switcher */}
         <div className="flex items-center gap-8 border-b border-papaya-300 bg-white/30 px-8 z-10 backdrop-blur-sm shrink-0">
+          <button
+            onClick={() => setSettingsTab('github')}
+            className={cn(
+              "py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]",
+              settingsTab === 'github'
+                ? "text-teal border-teal"
+                : "text-ink/40 hover:text-ink/60 border-transparent"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Github className="w-4 h-4" />
+              GitHub
+            </div>
+          </button>
           <button
             onClick={() => setSettingsTab('prompts')}
             className={cn(
@@ -93,6 +108,7 @@ export function SettingsView() {
 
         <div className="flex-1 overflow-y-auto p-6 md:p-8">
           <div className="max-w-7xl mx-auto w-full">
+            {settingsTab === 'github' && <GitHubSettings />}
             {settingsTab === 'prompts' && <PromptsSettings />}
             {settingsTab === 'ignored_dirs' && <IgnoredDirsSettingsView />}
             {settingsTab === 'capabilities' && <CapabilitiesSettingsView />}
@@ -148,6 +164,175 @@ export function SettingsView() {
           destructive
           isLoading={resetAllData.isPending}
         />
+      </div>
+    </div>
+  )
+}
+
+/* ── GitHub Settings ─────────────────────────────────────────────── */
+
+function GitHubSettings() {
+  const { isAuthenticated, serverTokenMode, authenticate, logout, isLoading, error } = useAuth()
+  const [tokenInput, setTokenInput] = useState('')
+  const [connectError, setConnectError] = useState<string | null>(null)
+
+  const handleConnect = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setConnectError(null)
+    try {
+      await authenticate(tokenInput)
+    } catch (err: any) {
+      setConnectError(err?.response?.data?.detail || err?.message || 'Authentication failed')
+    }
+  }
+
+  if (serverTokenMode && isAuthenticated) {
+    return (
+      <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+        <div className="p-8 border border-teal/20 rounded-2xl bg-teal-50/30">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-2.5 rounded-xl bg-teal/10">
+              <CheckCircle2 className="w-5 h-5 text-teal" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-ink">Server-Configured Token</h3>
+              <p className="text-sm text-ink-300 mt-1">GitHub token is configured on the server via <code className="text-[11px] px-1.5 py-0.5 bg-white rounded border border-papaya-400/40 font-mono">GITHUB_TOKEN</code> environment variable.</p>
+            </div>
+          </div>
+          <p className="text-xs text-ink/40 leading-relaxed">
+            No additional setup needed. All GitHub operations use the server-side token automatically.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (isAuthenticated) {
+    return (
+      <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+        <div className="p-8 border border-teal/20 rounded-2xl bg-teal-50/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-2.5 rounded-xl bg-teal/10">
+                <CheckCircle2 className="w-5 h-5 text-teal" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-ink">GitHub Connected</h3>
+                <p className="text-sm text-ink-300 mt-1">Your GitHub token is active. You can browse and analyze GitHub repositories.</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="h-10 px-6 border-brandy/30 text-brandy hover:bg-brandy/5 font-bold"
+              onClick={() => logout()}
+            >
+              Disconnect
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+      <div className={cn("border border-papaya-400/60 rounded-2xl shadow-md overflow-hidden bg-white/60", theme.surface.panelStrong)}>
+        <div className="px-8 py-6 border-b border-papaya-400/60">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center border border-papaya-400/60 shadow-sm shrink-0">
+              <Github className="w-5 h-5 text-ink-300" />
+            </div>
+            <div>
+              <h3 className="font-bold text-xl tracking-tight text-ink leading-none">Connect GitHub</h3>
+              <p className="text-sm text-ink-300 mt-1">Add a Personal Access Token to browse and analyze GitHub repositories.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-8 space-y-8">
+          <form onSubmit={handleConnect} className="space-y-6">
+            <div className="space-y-3">
+              <label htmlFor="github-token" className="text-[11px] font-black text-ink/30 uppercase tracking-widest flex items-center gap-2">
+                <Key className="w-3.5 h-3.5" />
+                GitHub Access Token
+              </label>
+              <div className="relative">
+                <Input
+                  id="github-token"
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxx"
+                  className={cn("h-12 px-4 font-mono text-sm bg-white/50 transition-all", theme.surface.inputBorder, theme.interactive.focusRing)}
+                />
+              </div>
+              <div className="flex items-center gap-2 px-1">
+                <Lock className="w-3 h-3 text-ink/20" />
+                <p className="text-[11px] font-medium text-ink/30">Stored locally in your browser only.</p>
+              </div>
+            </div>
+
+            {(connectError || error) && (
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-brandy/5 border border-brandy/10">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-brandy" />
+                <p className="text-sm text-brandy font-medium">{connectError || error}</p>
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              disabled={isLoading || !tokenInput.trim()}
+              className={cn("h-12 px-8 gap-3", theme.interactive.cta)}
+            >
+              {isLoading ? (
+                <><Loader2 className="w-5 h-5 animate-spin" /> Connecting...</>
+              ) : (
+                <><Github className="w-5 h-5" /> Connect</>
+              )}
+            </Button>
+          </form>
+
+          {/* Setup guide */}
+          <div className="pt-6 border-t border-papaya-400/40 space-y-4">
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-ink/30">Setup Guide</h4>
+            <div className="grid gap-3">
+              {[
+                { step: '01', text: 'Generate a classic PAT in GitHub settings.' },
+                { step: '02', text: 'Enable repo and read:user scopes.' },
+                { step: '03', text: 'Paste the generated token above.' },
+              ].map((item) => (
+                <div key={item.step} className="flex items-start gap-3">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-teal/10 text-[10px] font-black text-teal tabular-nums shrink-0 mt-0.5">
+                    {item.step}
+                  </span>
+                  <p className="text-xs font-bold text-ink/60 uppercase tracking-tight leading-relaxed">{item.text}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <Badge variant="secondary" className="bg-teal/5 text-teal border-teal/10 font-mono text-[9px] h-6 px-2">repo</Badge>
+              <Badge variant="secondary" className="bg-teal/5 text-teal border-teal/10 font-mono text-[9px] h-6 px-2">read:user</Badge>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" size="sm" className="h-9 gap-2 border-papaya-400 rounded-xl hover:bg-white text-xs font-bold" asChild>
+                <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer">
+                  <GitBranch className="w-3.5 h-3.5 text-ink/40" />
+                  Create Token
+                  <ExternalLink className="w-3 h-3 text-ink/20" />
+                </a>
+              </Button>
+              <Button variant="ghost" size="sm" className="h-9 gap-2 text-ink/40 hover:text-ink/60 hover:bg-papaya-300/20 rounded-xl text-xs font-bold" asChild>
+                <a href="https://docs.github.com/en/authentication" target="_blank" rel="noopener noreferrer">
+                  <Eye className="w-3.5 h-3.5" />
+                  Help
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

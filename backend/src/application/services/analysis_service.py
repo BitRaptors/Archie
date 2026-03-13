@@ -111,6 +111,7 @@ class AnalysisService:
         prompt_config: dict[str, str] | None = None,
         commit_sha: str | None = None,
         mode: str = "full",
+        is_local: bool = False,
     ) -> None:
         """Run the full analysis pipeline."""
         analysis = await self._analysis_repo.get_by_id(analysis_id)
@@ -259,26 +260,30 @@ class AnalysisService:
             await self._log_event(analysis_id, "PHASE_END", "Phase 1 complete: File structure indexed")
 
             # Launch repo copy early — runs in background during AI analysis
+            # Skip for local repos: files are already on disk, no need to duplicate
             repo_copy_task: asyncio.Task | None = None
-            try:
-                from application.services.source_file_collector import SourceFileCollector
-                collector = SourceFileCollector()
-                storage_base = Path(self._persistent_storage._base_path)
-                dest_dir = storage_base / "repos" / str(analysis.repository_id)
-                repo_copy_task = asyncio.create_task(
-                    asyncio.to_thread(
-                        collector.copy_repo,
-                        temp_repo_dir=repo_path_obj,
-                        dest_dir=dest_dir,
-                        ignored_dirs=discovery_ignored_dirs,
+            if not is_local:
+                try:
+                    from application.services.source_file_collector import SourceFileCollector
+                    collector = SourceFileCollector()
+                    storage_base = Path(self._persistent_storage._base_path)
+                    dest_dir = storage_base / "repos" / str(analysis.repository_id)
+                    repo_copy_task = asyncio.create_task(
+                        asyncio.to_thread(
+                            collector.copy_repo,
+                            temp_repo_dir=repo_path_obj,
+                            dest_dir=dest_dir,
+                            ignored_dirs=discovery_ignored_dirs,
+                        )
                     )
-                )
-                await self._log_event(analysis_id, "INFO", "Repository copy started in background")
-            except Exception as copy_start_err:
-                await self._log_event(
-                    analysis_id, "WARNING",
-                    f"Failed to start background repo copy (non-fatal): {str(copy_start_err)}"
-                )
+                    await self._log_event(analysis_id, "INFO", "Repository copy started in background")
+                except Exception as copy_start_err:
+                    await self._log_event(
+                        analysis_id, "WARNING",
+                        f"Failed to start background repo copy (non-fatal): {str(copy_start_err)}"
+                    )
+            else:
+                await self._log_event(analysis_id, "INFO", "Local repo — skipping file copy (source files already on disk)")
 
             # Phase 2: Prepare data for phased analysis
             await self._log_event(analysis_id, "PHASE_START", "Phase 2: Preparing repository data")
