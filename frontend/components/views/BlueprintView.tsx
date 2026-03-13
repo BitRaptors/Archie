@@ -137,7 +137,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
     const effectiveId = repoId || analysisId
 
     const fetchBlueprints = useCallback(async () => {
-        if (!effectiveId || !token) return
+        if (!effectiveId) return
         setIsLoading(true)
         setError(null)
         const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -147,7 +147,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                 : `${API_URL}/api/v1/analyses/${analysisId}/blueprint?type=backend`
 
             const backendRes = await fetch(backendUrl, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
             })
             if (!backendRes.ok) throw new Error('Failed to load blueprint')
             const backendData = await backendRes.json()
@@ -156,14 +156,14 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
             const agentUrl = repoId
                 ? `${API_URL}/api/v1/workspace/repositories/${repoId}/agent-files`
                 : `${API_URL}/api/v1/analyses/${analysisId}/agent-files`
-            const agentRes = await fetch(agentUrl, { headers: { Authorization: `Bearer ${token}` } })
+            const agentRes = await fetch(agentUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
             if (agentRes.ok) setAgentFiles(await agentRes.json())
 
             const targetAnalysisId = analysisId || backendData.analysis_id
             if (targetAnalysisId) {
                 try {
                     const adRes = await fetch(`${API_URL}/api/v1/analyses/${targetAnalysisId}/analysis-data`, {
-                        headers: { Authorization: `Bearer ${token}` }
+                        headers: token ? { Authorization: `Bearer ${token}` } : {}
                     })
                     if (adRes.ok) setDebugData(await adRes.json())
                 } catch (e) { }
@@ -176,11 +176,10 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
     }, [effectiveId, repoId, analysisId, token])
 
     const fetchProjectPath = useCallback(async () => {
-        if (!token) return
         const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
         try {
             const res = await fetch(`${API_URL}/api/v1/system/path`, {
-                headers: { Authorization: `Bearer ${token}` },
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
             })
             if (res.ok) {
                 const data = await res.json()
@@ -269,10 +268,10 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
     // backendBlueprint.analysis_id or analysisId
     const [currentAnalysis, setCurrentAnalysis] = useState<any>(null)
     useEffect(() => {
-        if (!backendBlueprint?.analysis_id || !token) return
+        if (!backendBlueprint?.analysis_id) return
         const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
         fetch(`${API_URL}/api/v1/analyses/${backendBlueprint.analysis_id}`, {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
         })
             .then(res => res.json())
             .then(data => setCurrentAnalysis(data))
@@ -1010,7 +1009,7 @@ export function BlueprintView({ analysisId, repoId, onBack, onAnalyze, initialTa
                                                 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
                                                 try {
                                                     const res = await fetch(`${API_URL}/api/v1/system/pick-folder`, {
-                                                        headers: { Authorization: `Bearer ${token}` }
+                                                        headers: token ? { Authorization: `Bearer ${token}` } : {}
                                                     })
                                                     if (res.ok) {
                                                         const data = await res.json()
