@@ -70,7 +70,7 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                         collapsed ? "opacity-0 w-0 ml-0" : "opacity-100 w-auto ml-3"
                     )} onClick={() => onNavigate?.('repositories')}>
                         <h1 className="text-xl font-black tracking-tight text-ink leading-none">Archie</h1>
-                        <p className="text-[9px] uppercase font-black tracking-[0.15em] text-ink/30 mt-1.5 line-clamp-1">Warden of Architecture</p>
+                        <p className="text-[9px] uppercase font-black tracking-[0.15em] text-ink/30 mt-1.5 leading-relaxed">Warden of<br />Architecture</p>
                     </div>
                     <button
                         onClick={onToggleCollapse}
@@ -101,7 +101,7 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                         <div className="relative z-10">
                             <div className={cn("flex items-center gap-2 mb-2 whitespace-nowrap overflow-hidden transition-all duration-300", collapsed ? "opacity-0 max-h-0 mb-0" : "opacity-100 max-h-8")}>
                                 <div className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse shrink-0" />
-                                <span className={cn("text-[10px] font-black uppercase tracking-widest", theme.active.sidebarContextLabel)}>Active Project</span>
+                                <span className={cn("text-[10px] font-black uppercase tracking-widest", theme.active.sidebarContextLabel)}>Active MCP Project</span>
                             </div>
                             <div className={cn("flex items-center whitespace-nowrap overflow-hidden transition-all duration-300", collapsed ? "justify-center gap-0" : "gap-2.5")}>
                                 <div className="relative shrink-0">
@@ -202,7 +202,7 @@ export function Sidebar({ className, activeView, onNavigate, history = [], onHis
                                                 {item.name}
                                             </p>
                                             <p className="text-[9px] font-medium text-ink/30 uppercase tracking-tighter truncate">
-                                                {isActivated ? 'Active Context' : 'Stored Blueprint'}
+                                                {isActivated ? 'MCP Active' : 'Stored Blueprint'}
                                             </p>
                                         </div>
 
