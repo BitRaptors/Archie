@@ -80,7 +80,7 @@ h6 {
 }
 
 .scrub-heading {
-  font-size: clamp(3rem, 10vw, 10rem);
+  font-size: clamp(2rem, 10vw, 10rem);
   line-height: 0.9;
   will-change: transform;
   text-transform: uppercase;

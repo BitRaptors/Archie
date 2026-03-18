@@ -187,7 +187,7 @@ export default function LandingPage() {
         ></div>
 
         <div className="z-10 text-center max-w-7xl mx-auto mt-10 md:mt-0">
-          <h1 className="text-5xl md:text-8xl lg:text-9xl font-black mb-12 uppercase tracking-tighter mix-blend-difference text-neon scrub-heading hero-heading inline-block">
+          <h1 className="text-4xl md:text-8xl lg:text-9xl font-black mb-12 uppercase tracking-tighter mix-blend-difference text-neon scrub-heading hero-heading inline-block">
             Your agent is only<br />as good as its context.
           </h1>
           <p className="text-xl md:text-2xl text-sky-blue-600 mb-12 max-w-3xl mx-auto border-l-4 border-neon pl-6 text-left bg-black bg-opacity-40 p-6 backdrop-blur-sm">
@@ -197,7 +197,7 @@ export default function LandingPage() {
             href="https://github.com/BitRaptors/Archie"
             onPointerEnter={() => setIsCtaHovered(true)}
             onPointerLeave={() => setIsCtaHovered(false)}
-            className="brutalist-border inline-flex items-center gap-4 px-12 py-6 bg-deep-space-blue text-neon font-bold text-xl uppercase tracking-wider hover:bg-neon hover:text-deep-space-blue transition-colors"
+            className="brutalist-border inline-flex items-center gap-4 px-6 py-4 md:px-12 md:py-6 bg-deep-space-blue text-neon font-bold text-lg md:text-xl uppercase tracking-wider hover:bg-neon hover:text-deep-space-blue transition-colors"
           >
             <Github className="w-8 h-8" />
             Analyze your first repo {"->"}
@@ -209,7 +209,7 @@ export default function LandingPage() {
       <section className="py-32 md:py-40 px-4 bg-deep-space-blue-100 relative border-y-4 border-amber-flame">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row gap-16 lg:gap-24">
           <div className="md:w-1/2 fade-up">
-            <h2 className="text-5xl font-black text-amber-flame uppercase mb-8 border-b-4 border-amber-flame pb-4">
+            <h2 className="text-3xl md:text-5xl font-black text-amber-flame uppercase mb-8 border-b-4 border-amber-flame pb-4">
               AI agents are architecturally blind
             </h2>
             <p className="text-xl mb-6 text-gray-300">
@@ -291,7 +291,7 @@ export default function LandingPage() {
             <span className="text-neon font-black tracking-widest uppercase text-sm mb-4 block px-2 py-1 bg-neon/10 border-l-2 border-neon inline-block">
               01. THE SOLUTION
             </span>
-            <h2 className="text-6xl md:text-7xl font-black text-white uppercase mt-4 mb-8">
+            <h2 className="text-4xl md:text-7xl font-black text-white uppercase mt-4 mb-8">
               Deep analysis,<br />
               <span className="text-neon underline decoration-neon decoration-4 underline-offset-8">not surface scanning.</span>
             </h2>
@@ -301,7 +301,7 @@ export default function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12 text-left">
-            <div className="bg-[#031d2b] p-12 hover:shadow-xl transition-shadow fade-up flex flex-col justify-center min-h-[300px]">
+            <div className="bg-[#031d2b] p-8 md:p-12 hover:shadow-xl transition-shadow fade-up flex flex-col justify-center min-h-[300px]">
               <h3 className="text-3xl font-black text-white mb-6 uppercase tracking-tight">9-Phase Pipeline</h3>
               <p className="text-gray-400 leading-relaxed text-lg">
                 Other tools scan your package.json and call it a day. Archie runs a deep AI analysis
@@ -309,7 +309,7 @@ export default function LandingPage() {
               </p>
             </div>
 
-            <div className="bg-[#031d2b] p-12 hover:shadow-xl transition-shadow fade-up flex flex-col justify-center min-h-[300px]">
+            <div className="bg-[#031d2b] p-8 md:p-12 hover:shadow-xl transition-shadow fade-up flex flex-col justify-center min-h-[300px]">
               <h3 className="text-3xl font-black text-white mb-6 uppercase tracking-tight">Source of Truth</h3>
               <p className="text-gray-400 leading-relaxed text-lg">
                 The structured architectural blueprint becomes the truth for every AI tool in your workflow. No more
@@ -317,7 +317,7 @@ export default function LandingPage() {
               </p>
             </div>
 
-            <div className="bg-[#031d2b] p-12 hover:shadow-xl transition-shadow fade-up flex flex-col justify-center min-h-[300px]">
+            <div className="bg-[#031d2b] p-8 md:p-12 hover:shadow-xl transition-shadow fade-up flex flex-col justify-center min-h-[300px]">
               <h3 className="text-3xl font-black text-white mb-6 uppercase tracking-tight">Automatic Updates</h3>
               <p className="text-gray-400 leading-relaxed text-lg">
                 As your code evolves, the blueprint evolves with it <strong className="text-amber-flame font-bold">automatically</strong>. Incremental re-
@@ -329,7 +329,7 @@ export default function LandingPage() {
           {/* Analysis Pipeline Screenshot */}
           <div className="mt-24 md:mt-32 fade-up relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-neon to-blue-green opacity-20 group-hover:opacity-40 blur transition-opacity duration-1000"></div>
-            <div className="relative border-4 border-black bg-black rounded-sm overflow-hidden" style={{ boxShadow: "16px 16px 0px 0px rgba(57, 255, 20, 0.2)" }}>
+            <div className="relative border-4 border-black bg-black rounded-sm overflow-hidden shadow-[8px_8px_0px_0px_rgba(57,255,20,0.2)] md:shadow-[16px_16px_0px_0px_rgba(57,255,20,0.2)]">
               <div className="flex gap-2 top-0 left-0 bg-neon text-black font-black px-6 py-2 text-xl z-20 border-b-4 border-r-4 border-black inline-block">
                 LIVE ANALYSIS PIPELINE
               </div>
@@ -343,7 +343,7 @@ export default function LandingPage() {
       <section className="py-32 md:py-40 px-4 bg-deep-space-blue-100 border-t-8 border-neon relative overflow-hidden">
         <div className="max-w-7xl mx-auto fade-up relative z-10">
           <div className="relative mb-20 md:mb-32">
-            <h2 className="text-5xl md:text-6xl font-black text-white underline decoration-neon decoration-4 underline-offset-8 uppercase relative z-10">
+            <h2 className="text-3xl md:text-6xl font-black text-white underline decoration-neon decoration-4 underline-offset-8 uppercase relative z-10">
               Native inside Claude Code
             </h2>
 
@@ -516,7 +516,7 @@ export default function LandingPage() {
 
         <div className="max-w-6xl mx-auto text-center relative z-10">
           <div className="mb-20">
-            <h2 className="text-7xl md:text-[10rem] text-sky-blue font-black mb-8 scrub-heading whitespace-nowrap inline-block tracking-tighter uppercase">
+            <h2 className="text-4xl md:text-[10rem] text-sky-blue font-black mb-8 scrub-heading md:whitespace-nowrap inline-block tracking-tighter uppercase">
               Per-Folder Context
             </h2>
             <div className="flex justify-center">
@@ -570,7 +570,7 @@ export default function LandingPage() {
             <span className="text-sky-blue font-black tracking-widest uppercase text-sm mb-4 block px-2 py-1 bg-sky-blue/10 border-l-2 border-sky-blue inline-block">
               02. THE OUTPUT
             </span>
-            <h2 className="text-6xl md:text-7xl font-black text-white uppercase mt-4 mb-8">
+            <h2 className="text-4xl md:text-7xl font-black text-white uppercase mt-4 mb-8">
               See it in <span className="text-sky-blue underline decoration-sky-blue decoration-4 underline-offset-8">action.</span>
             </h2>
             <p className="text-xl text-gray-400 max-w-2xl">
@@ -628,7 +628,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto z-10 relative fade-up">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-16 lg:gap-24">
             <div className="text-left">
-              <h2 className="text-5xl font-black text-white mb-10 border-b-4 border-white pb-4 uppercase">
+              <h2 className="text-3xl md:text-5xl font-black text-white mb-10 border-b-4 border-white pb-4 uppercase">
                 WHAT GETS GENERATED
               </h2>
               <div className="flex flex-col gap-6 text-xl">
@@ -659,7 +659,7 @@ export default function LandingPage() {
             </div>
 
             <div className="flex flex-col justify-center">
-              <h2 className="text-5xl font-black text-white mb-10 border-b-4 border-white pb-4 text-right uppercase">
+              <h2 className="text-3xl md:text-5xl font-black text-white mb-10 border-b-4 border-white pb-4 text-right uppercase">
                 BY THE NUMBERS
               </h2>
               <div className="flex flex-col gap-6 font-mono text-right">
@@ -690,7 +690,7 @@ export default function LandingPage() {
       {/* Final CTA */}
       <section className="py-32 md:py-40 px-4 bg-deep-space-blue border-y-[8px] border-neon text-center overflow-hidden">
         <div className="max-w-7xl mx-auto fade-up">
-          <h2 className="text-6xl md:text-[8rem] leading-none font-black text-white mb-20 md:mb-24 uppercase">
+          <h2 className="text-4xl md:text-[8rem] leading-none font-black text-white mb-20 md:mb-24 uppercase">
             Analyze once.<br /><span className="text-neon inline-block mt-4 border-b-8 border-neon pb-2">Stay current.</span>
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 lg:gap-12 mb-24 md:mb-32 text-left font-mono">
@@ -723,7 +723,7 @@ export default function LandingPage() {
               href="https://github.com/BitRaptors/Archie"
               onMouseEnter={() => setIsCtaHovered(true)}
               onMouseLeave={() => setIsCtaHovered(false)}
-              className="inline-flex items-center gap-4 px-16 py-8 bg-neon text-black font-black text-3xl uppercase tracking-widest hover:bg-white transition-colors brutalist-border"
+              className="inline-flex items-center gap-4 px-8 py-4 md:px-16 md:py-8 bg-neon text-black font-black text-xl md:text-3xl uppercase tracking-widest hover:bg-white transition-colors brutalist-border"
               style={{ borderColor: "#023047" }}
             >
               <Github size={40} />
