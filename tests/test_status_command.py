@@ -39,14 +39,23 @@ def test_status_with_blueprint() -> None:
             },
         })
 
-        # Scan with one new file and one modified
+        # Scan with one new file and one modified, plus token counts
         _write_json(archie_dir / "scan.json", {
             "file_tree": {
                 "src/main.py": {"hash": "aaa"},
                 "src/utils.py": {"hash": "ccc"},  # modified
                 "src/new.py": {"hash": "ddd"},     # new
             },
+            "token_counts": {
+                "src/main.py": 500_000,
+                "src/utils.py": 300_000,
+                "src/new.py": 200_000,
+            },
         })
+
+        # Create subagent prompt files
+        (archie_dir / "subagent_0_prompt.md").write_text("prompt0")
+        (archie_dir / "subagent_1_prompt.md").write_text("prompt1")
 
         # Rules
         _write_json(archie_dir / "rules.json", {
@@ -68,6 +77,12 @@ def test_status_with_blueprint() -> None:
         assert "Total:    3" in result.output
         assert "Warn:     2" in result.output
         assert "Error:    1" in result.output
+
+        # Token tracking
+        assert "Tokens" in result.output
+        assert "Total scanned:     1,000,000" in result.output
+        assert "Subagent groups:   2" in result.output
+        assert "Avg per group:     500,000" in result.output
 
 
 def test_status_with_stats() -> None:

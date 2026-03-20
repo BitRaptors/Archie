@@ -89,7 +89,21 @@ def run_status(project_root: Path) -> None:
         except (json.JSONDecodeError, OSError):
             stats_available = False
 
-    # 6. Print dashboard
+    # 6. Token tracking from scan.json
+    token_total = 0
+    token_counts: dict[str, int] = {}
+    if scan is not None:
+        token_counts = scan.get("token_counts", {})
+        if isinstance(token_counts, dict):
+            token_total = sum(token_counts.values())
+        else:
+            token_counts = {}
+
+    # Count subagent prompt files
+    subagent_prompts = list(archie_dir.glob("subagent_*_prompt.md"))
+    subagent_group_count = len(subagent_prompts)
+
+    # 7. Print dashboard
     click.echo("")
     click.echo("Archie Blueprint Status")
     click.echo("\u2550" * 47)
@@ -135,6 +149,16 @@ def run_status(project_root: Path) -> None:
         click.echo("\u2500" * 41)
         click.echo("  N/A")
     click.echo("")
+
+    if token_total > 0:
+        click.echo("Tokens")
+        click.echo("\u2500" * 41)
+        click.echo(f"  Total scanned:     {token_total:,}")
+        click.echo(f"  Subagent groups:   {subagent_group_count}")
+        if subagent_group_count > 0:
+            avg = token_total // subagent_group_count
+            click.echo(f"  Avg per group:     {avg:,}")
+        click.echo("")
 
 
 def _load_json(path: Path) -> dict | None:
