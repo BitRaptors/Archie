@@ -1,94 +1,344 @@
 # Archie Init — Full Architecture Analysis
 
-Analyze this repository's architecture and generate enforcement outputs.
+Analyze this repository's architecture. Zero dependencies — works with any language.
 
-## Prerequisites
-
-Run `archie init . --local-only` first if `.archie/scan.json` doesn't exist. This produces the local scan and subagent prompts.
-
-## Process
-
-### Step 1: Read the local scan
-
-Read `.archie/scan.json` to understand the repository structure, frameworks, dependencies, and token counts.
-
-### Step 2: Read subagent prompts
-
-Read all `.archie/subagent_*_prompt.md` files. Each contains instructions for analyzing a specific group of files and filling specific blueprint sections.
-
-### Step 3: Spawn subagents
-
-For each subagent prompt file, spawn a Sonnet subagent using the Agent tool with `subagent_type: "Explore"` and `model: "sonnet"`. Pass the full prompt content. Each subagent should:
-
-1. Read all assigned files listed in the prompt
-2. Analyze architecture patterns, decisions, conventions
-3. Search the web for any unfamiliar libraries to understand their purpose
-4. Return a JSON object with the blueprint sections filled in
-
-Spawn all subagents in parallel (single message with multiple Agent calls).
-
-### Step 4: Merge results
-
-After all subagents complete, run this Python script to merge their outputs:
+## Step 1: Download and run the scanner
 
 ```bash
-source .venv/bin/activate && python3 -c "
-import json, sys
-sys.path.insert(0, '.')
-from archie.coordinator.merger import merge_subagent_outputs, save_blueprint
-from archie.engine.models import RawScan
+# Download the standalone scanner (zero dependencies, Python 3.11+ stdlib only)
+curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/scanner.py -o /tmp/archie_scanner.py
 
-scan = RawScan.model_validate_json(open('.archie/scan.json').read())
-outputs = []  # Collect subagent JSON outputs here
-# Parse each subagent's JSON output and append to outputs list
+# Run it on the current repo
+python3 /tmp/archie_scanner.py "$PWD"
+```
 
-merged = merge_subagent_outputs(outputs, scan, repo_name='$ARGUMENTS')
-save_blueprint('.', merged)
-print(f'Blueprint saved with {len(merged.get(\"components\", {}).get(\"components\", []))} components')
+If curl fails (no internet or private repo), create the scanner inline — read `archie/standalone/scanner.py` from the Archie repo and save it to `/tmp/archie_scanner.py`, then run it.
+
+If python3 is not available, tell the user to install Python 3.11+.
+
+After running, `.archie/scan.json` will exist with the full local scan.
+
+## Step 2: Read the scan results
+
+Read `.archie/scan.json`. Note:
+- Total files and token count
+- Detected frameworks
+- Number of dependencies
+- Top-level directories (these become subagent groups)
+
+## Step 3: Plan subagent groups
+
+Group files by top-level directory. Each group should be under ~150,000 estimated tokens. For small repos (under 150k total), use a single group.
+
+## Step 4: Spawn subagents
+
+For each file group, spawn a Sonnet subagent using the Agent tool:
+- `subagent_type: "Explore"`
+- `model: "sonnet"`
+
+Each subagent prompt should include:
+1. The list of files to read (from the group)
+2. Detected frameworks and dependencies (from scan.json)
+3. Instructions to return a JSON object with these blueprint sections:
+
+```
+components, architecture_rules, decisions, communication, technology,
+frontend, deployment, implementation_guidelines, developer_recipes,
+development_rules, pitfalls, quick_reference, architecture_diagram
+```
+
+For each section, the subagent should:
+- Read all assigned files
+- Focus on what AI CANNOT infer from individual files: cross-file relationships, implicit contracts, architecture decisions, integration patterns
+- Return valid JSON
+
+**Spawn ALL subagents in parallel** (single message with multiple Agent calls).
+
+## Step 5: Merge results
+
+After all subagents complete, merge their JSON outputs into a single blueprint:
+- Combine component lists (deduplicate by name)
+- Merge architecture rules (concatenate)
+- Merge technology stacks (deduplicate by name)
+- For overlapping sections, prefer the subagent with more detail
+- Add metadata: `{ "meta": { "repository": "<repo name>", "analyzed_at": "<ISO timestamp>", "schema_version": "2.0.0" } }`
+
+Save the merged blueprint to `.archie/blueprint.json`.
+
+## Step 6: Generate outputs
+
+Run this Python script to generate all output files:
+
+```bash
+python3 -c "
+import json, os
+
+bp = json.loads(open('.archie/blueprint.json').read())
+
+# Extract key info for CLAUDE.md
+repo = bp.get('meta', {}).get('repository', os.path.basename(os.getcwd()))
+rules = bp.get('architecture_rules', {})
+components = bp.get('components', {}).get('components', [])
+decisions = bp.get('decisions', {})
+tech = bp.get('technology', {})
+deployment = bp.get('deployment', {})
+recipes = bp.get('developer_recipes', [])
+dev_rules = bp.get('development_rules', [])
+pitfalls = bp.get('pitfalls', [])
+comm = bp.get('communication', {})
+
+lines = [f'# CLAUDE.md — {repo}', '', '> Architecture guidance auto-generated by Archie', '']
+
+# Architecture style
+style = decisions.get('architectural_style', {})
+if style:
+    lines += [f'## Architecture: {style.get(\"title\", \"\")}', style.get('decision', ''), '']
+
+# Components
+if components:
+    lines += ['## Components', '']
+    for c in components:
+        lines.append(f'- **{c.get(\"name\", \"\")}** ({c.get(\"path\", \"\")}) — {c.get(\"purpose\", \"\")}')
+    lines.append('')
+
+# File placement rules
+placement = rules.get('file_placement_rules', [])
+if placement:
+    lines += ['## Where to Put Code', '']
+    for r in placement:
+        lines.append(f'- {r.get(\"description\", r.get(\"pattern\", \"\"))} → \`{r.get(\"location\", \"\")}\`')
+    lines.append('')
+
+# Naming conventions
+naming = rules.get('naming_conventions', [])
+if naming:
+    lines += ['## Naming Conventions', '']
+    for n in naming:
+        lines.append(f'- {n.get(\"target\", \"\")}: {n.get(\"convention\", \"\")} (e.g. \`{n.get(\"example\", \"\")}\`)')
+    lines.append('')
+
+# Key decisions
+key_dec = decisions.get('key_decisions', [])
+if key_dec:
+    lines += ['## Key Decisions', '']
+    for d in key_dec[:5]:
+        lines.append(f'- **{d.get(\"title\", \"\")}**: {d.get(\"decision\", \"\")}')
+    lines.append('')
+
+# Commands
+cmds = tech.get('run_commands', {})
+if cmds:
+    lines += ['## Commands', '', '\`\`\`bash']
+    for name, cmd in cmds.items():
+        lines.append(f'# {name}')
+        lines.append(cmd)
+    lines += ['\`\`\`', '']
+
+# Development rules
+if dev_rules:
+    lines += ['## Rules', '']
+    for r in dev_rules[:10]:
+        lines.append(f'- {r.get(\"rule\", \"\")}')
+    lines.append('')
+
+# Pitfalls
+if pitfalls:
+    lines += ['## Pitfalls', '']
+    for p in pitfalls[:5]:
+        lines.append(f'- **{p.get(\"area\", \"\")}**: {p.get(\"description\", \"\")}')
+    lines.append('')
+
+# Write CLAUDE.md
+with open('CLAUDE.md', 'w') as f:
+    f.write(chr(10).join(lines))
+print(f'Generated CLAUDE.md ({len(lines)} lines)')
+
+# Write AGENTS.md
+agents_lines = [f'# AGENTS.md — {repo}', '', '> Agent guidance auto-generated by Archie', '']
+stack = tech.get('stack', [])
+if stack:
+    agents_lines += ['## Tech Stack', '']
+    for s in stack:
+        agents_lines.append(f'- {s.get(\"name\", \"\")} {s.get(\"version\", \"\")} ({s.get(\"category\", \"\")})')
+    agents_lines.append('')
+if components:
+    agents_lines += ['## Components', '']
+    for c in components:
+        agents_lines.append(f'### {c.get(\"name\", \"\")}')
+        agents_lines.append(f'Path: \`{c.get(\"path\", \"\")}\`')
+        agents_lines.append(f'Purpose: {c.get(\"purpose\", \"\")}')
+        agents_lines.append('')
+if placement:
+    agents_lines += ['## File Placement', '']
+    for r in placement:
+        agents_lines.append(f'- \`{r.get(\"location\", \"\")}\` — {r.get(\"description\", \"\")}')
+    agents_lines.append('')
+if recipes:
+    agents_lines += ['## Common Tasks', '']
+    for rec in recipes[:5]:
+        agents_lines.append(f'### {rec.get(\"title\", \"\")}')
+        for step in rec.get('steps', []):
+            agents_lines.append(f'1. {step}')
+        agents_lines.append('')
+
+with open('AGENTS.md', 'w') as f:
+    f.write(chr(10).join(agents_lines))
+print(f'Generated AGENTS.md ({len(agents_lines)} lines)')
+print('Done!')
 "
 ```
 
-Alternatively, merge the subagent outputs manually by combining their JSON sections into a single blueprint dict, then save it to `.archie/blueprint.json`.
-
-### Step 5: Render outputs
+## Step 7: Generate enforcement rules
 
 ```bash
-source .venv/bin/activate && python3 -c "
-import json, sys
-sys.path.insert(0, '.')
-from archie.renderer.render import render_outputs
-bp = json.loads(open('.archie/blueprint.json').read())
-files = render_outputs(bp, '.')
-print(f'Generated {len(files)} output files:')
-for f in sorted(files): print(f'  {f}')
-"
-```
+python3 -c "
+import json, re, os
 
-### Step 6: Extract rules and update hooks
-
-```bash
-source .venv/bin/activate && python3 -c "
-import json, sys
-sys.path.insert(0, '.')
-from archie.rules.extractor import extract_rules, save_rules
 bp = json.loads(open('.archie/blueprint.json').read())
-rules = extract_rules(bp)
-save_rules('.', rules)
+rules = []
+
+# File placement rules
+for i, r in enumerate(bp.get('architecture_rules', {}).get('file_placement_rules', [])):
+    rules.append({
+        'id': f'placement-{i}',
+        'check': 'file_placement',
+        'description': r.get('description', ''),
+        'allowed_dirs': [r.get('location', '')] if r.get('location') else [],
+        'severity': 'warn',
+        'keywords': [w for w in re.findall(r'[a-zA-Z]{3,}', r.get('description', '').lower()) if w not in {'the','and','for','are','this','that','with','from','use','must'}],
+    })
+
+# Naming conventions
+for i, n in enumerate(bp.get('architecture_rules', {}).get('naming_conventions', [])):
+    rules.append({
+        'id': f'naming-{i}',
+        'check': 'naming',
+        'description': f'{n.get(\"target\", \"\")}: {n.get(\"convention\", \"\")}',
+        'severity': 'warn',
+        'keywords': [n.get('target', ''), n.get('convention', '')],
+    })
+
+os.makedirs('.archie', exist_ok=True)
+with open('.archie/rules.json', 'w') as f:
+    json.dump({'rules': rules}, f, indent=2)
 print(f'Extracted {len(rules)} enforcement rules')
 "
 ```
 
-### Step 7: Verify
+## Step 8: Install enforcement hooks
 
-Run `archie status` to see the blueprint status and enforcement summary.
+```bash
+mkdir -p .claude/hooks
 
-## Output
+# inject-context.sh — injects architecture rules into every prompt
+cat > .claude/hooks/inject-context.sh << 'HOOKEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+RULES_FILE="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")/.archie/rules.json"
+[ ! -f "$RULES_FILE" ] && exit 0
+USER_INPUT=$(cat)
+PROMPT=$(echo "$USER_INPUT" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('user_prompt', ''))
+except: print('')
+" 2>/dev/null || echo "")
+[ -z "$PROMPT" ] && exit 0
+python3 << PYEOF
+import json
+prompt = '''$PROMPT'''.lower()
+try:
+    rules = json.load(open('$RULES_FILE')).get('rules', [])
+except: exit(0)
+matched = [r for r in rules if any(k.lower() in prompt for k in r.get('keywords', []))]
+matched += [r for r in rules if r.get('severity') == 'error' and r not in matched]
+if matched:
+    print('[Archie] Architecture rules:')
+    for r in matched[:10]:
+        print(f'  - {r.get("description", r.get("id", ""))}')
+PYEOF
+HOOKEOF
+chmod +x .claude/hooks/inject-context.sh
 
-After completion, the following files will exist:
-- `.archie/blueprint.json` — structured architecture blueprint
+# pre-validate.sh — checks code changes against rules
+cat > .claude/hooks/pre-validate.sh << 'HOOKEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+RULES_FILE="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")/.archie/rules.json"
+[ ! -f "$RULES_FILE" ] && exit 0
+TOOL_INPUT=$(cat)
+FILE_PATH=$(echo "$TOOL_INPUT" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('tool_input',{}).get('file_path', d.get('tool_input',{}).get('path','')))
+except: print('')
+" 2>/dev/null || echo "")
+TOOL_NAME=$(echo "$TOOL_INPUT" | python3 -c "
+import sys, json
+try: print(json.load(sys.stdin).get('tool_name',''))
+except: print('')
+" 2>/dev/null || echo "")
+case "$TOOL_NAME" in Write|Edit|MultiEdit) ;; *) exit 0 ;; esac
+[ -z "$FILE_PATH" ] && exit 0
+python3 -c "
+import json, sys, os, re
+fp = '$FILE_PATH'
+try: rules = json.load(open('$RULES_FILE')).get('rules', [])
+except: sys.exit(0)
+errors = []
+for r in rules:
+    if r.get('check') == 'file_placement':
+        dirs = r.get('allowed_dirs', [])
+        if dirs and not any(fp.startswith(d) for d in dirs):
+            if r.get('severity') == 'error': errors.append(r)
+            else: print(f'[Archie] Warning: {r.get(\"description\",\"\")}')
+    elif r.get('check') == 'naming':
+        pat = r.get('pattern', '')
+        if pat and not re.match(pat, os.path.basename(fp)):
+            if r.get('severity') == 'error': errors.append(r)
+            else: print(f'[Archie] Warning: {r.get(\"description\",\"\")}')
+for e in errors:
+    print(f'[Archie] BLOCKED: {e.get(\"description\",\"\")}')
+    print('  Ask the user to approve this override.')
+if errors: sys.exit(2)
+" 2>/dev/null || exit 0
+HOOKEOF
+chmod +x .claude/hooks/pre-validate.sh
+
+echo "Hooks installed"
+```
+
+Then register them in `.claude/settings.local.json`:
+
+```bash
+python3 -c "
+import json, os
+path = '.claude/settings.local.json'
+settings = {}
+if os.path.exists(path):
+    try: settings = json.loads(open(path).read())
+    except: pass
+settings['hooks'] = {
+    'UserPromptSubmit': [{'matcher': '', 'command': '.claude/hooks/inject-context.sh'}],
+    'PreToolUse': [{'matcher': 'Write|Edit|MultiEdit', 'command': '.claude/hooks/pre-validate.sh'}],
+}
+with open(path, 'w') as f:
+    json.dump(settings, f, indent=2)
+print('Hooks registered in .claude/settings.local.json')
+"
+```
+
+## Step 9: Summary
+
+Print a summary of everything that was generated:
+- `.archie/scan.json` — local scan results
+- `.archie/blueprint.json` — architecture blueprint
 - `.archie/rules.json` — enforcement rules
 - `CLAUDE.md` — root architecture context
-- `AGENTS.md` — multi-agent guidance
-- `.claude/rules/` — Claude Code rule files
-- `.cursor/rules/` — Cursor rule files
-- `.claude/hooks/` — enforcement hooks (from init --local-only)
+- `AGENTS.md` — agent guidance
+- `.claude/hooks/` — enforcement hooks
+- `.claude/settings.local.json` — hook registration
+
+Tell the user: "Archie is now active. Architecture rules will be enforced on every code change in this Claude Code session."
