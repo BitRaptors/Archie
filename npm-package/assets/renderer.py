@@ -9,7 +9,6 @@ Zero dependencies beyond Python 3.11+ stdlib.
 """
 import ast
 import json
-import os
 import re
 import sys
 from collections import defaultdict
@@ -52,6 +51,24 @@ def _get(obj, *keys, default=None):
         if current is None:
             return default
     return current
+
+
+def _as_dict(val, default=None):
+    """Ensure a value is a dict. If it's a string, wrap it."""
+    if isinstance(val, dict):
+        return val
+    if default is not None:
+        return default
+    return {}
+
+
+def _as_list(val):
+    """Ensure a value is a list."""
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str) and val:
+        return [val]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +232,7 @@ def _build_patterns_rule(bp: dict):
 
 def _build_frontend_rule(bp: dict):
     """Frontend architecture rules."""
-    fe = bp.get("frontend") or {}
+    fe = _as_dict(bp.get("frontend"))
     has_frontend = fe.get("framework") or fe.get("ui_components") or fe.get("routing") or fe.get("data_fetching")
     if not has_frontend:
         return None
@@ -235,7 +252,10 @@ def _build_frontend_rule(bp: dict):
         lines.append("")
 
     sm = fe.get("state_management") or {}
-    if sm.get("approach"):
+    if isinstance(sm, str):
+        lines.append(f"**State management:** {sm}")
+        lines.append("")
+    elif isinstance(sm, dict) and sm.get("approach"):
         lines.append(f"**State management:** {sm['approach']}")
         if sm.get("server_state"):
             lines.append(f"  - Server state: {sm['server_state']}")
@@ -507,11 +527,11 @@ def generate_claude_md(bp: dict) -> str:
         lines.append("")
 
     # Deployment
-    dep = bp.get("deployment") or {}
+    dep = _as_dict(bp.get("deployment"))
     if dep.get("runtime_environment"):
         lines.append(f"**Runs on:** {dep['runtime_environment']}")
         if dep.get("compute_services"):
-            lines.append(f"**Compute:** {', '.join(dep['compute_services'])}")
+            lines.append(f"**Compute:** {', '.join(_as_list(dep['compute_services']))}")
         if dep.get("ci_cd"):
             cleaned = [_clean_str_item(x) for x in dep["ci_cd"]]
             lines.append(f"**CI/CD:** {', '.join(cleaned)}")
@@ -599,7 +619,7 @@ def generate_agents_md(bp: dict) -> str:
         lines.append("")
 
     # 2. Deployment
-    dep = bp.get("deployment") or {}
+    dep = _as_dict(bp.get("deployment"))
     has_deployment = dep.get("runtime_environment") or dep.get("compute_services") or dep.get("ci_cd")
     if has_deployment:
         lines.append("## Deployment")
@@ -607,7 +627,7 @@ def generate_agents_md(bp: dict) -> str:
         if dep.get("runtime_environment"):
             lines.append(f"**Runs on:** {dep['runtime_environment']}")
         if dep.get("compute_services"):
-            lines.append(f"**Compute:** {', '.join(dep['compute_services'])}")
+            lines.append(f"**Compute:** {', '.join(_as_list(dep['compute_services']))}")
         if dep.get("container_runtime"):
             container = dep["container_runtime"]
             if dep.get("orchestration"):
@@ -615,11 +635,11 @@ def generate_agents_md(bp: dict) -> str:
             lines.append(f"**Container:** {container}")
         if dep.get("ci_cd"):
             lines.append("**CI/CD:**")
-            for item in dep["ci_cd"]:
+            for item in _as_list(dep["ci_cd"]):
                 lines.append(f"- {_clean_str_item(item)}")
         if dep.get("distribution"):
             lines.append("**Distribution:**")
-            for item in dep["distribution"]:
+            for item in _as_list(dep["distribution"]):
                 lines.append(f"- {_clean_str_item(item)}")
         lines.append("")
 
