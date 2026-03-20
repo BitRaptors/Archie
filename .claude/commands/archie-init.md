@@ -32,14 +32,21 @@ Tell each subagent to focus on what AI CANNOT infer from individual files: cross
 
 ## Step 5: Merge results
 
-Merge all subagent JSON outputs into a single blueprint:
-- Combine component lists (deduplicate by name)
-- Merge architecture rules (concatenate)
-- Merge technology stacks (deduplicate by name)
-- For overlapping sections, prefer the subagent with more detail
-- Add metadata: `{ "meta": { "repository": "<repo name>", "analyzed_at": "<ISO timestamp>", "schema_version": "2.0.0" } }`
+Save each subagent's JSON output to a temporary file (e.g. `/tmp/archie_sub1.json`, `/tmp/archie_sub2.json`). If the output contains markdown or extra text, save the raw text — the merger handles extraction.
 
-Save the merged blueprint to `.archie/blueprint.json`.
+Then merge:
+
+```bash
+python3 .archie/merge.py "$PWD" /tmp/archie_sub1.json /tmp/archie_sub2.json
+```
+
+For a single subagent, you can also pipe directly:
+
+```bash
+echo '<subagent output text>' | python3 .archie/merge.py "$PWD" -
+```
+
+This produces `.archie/blueprint.json`.
 
 ## Step 6: Render outputs
 

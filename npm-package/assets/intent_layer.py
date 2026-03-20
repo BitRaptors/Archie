@@ -7,7 +7,6 @@ Output: Creates CLAUDE.md files in significant directories
 Zero dependencies beyond Python 3.11+ stdlib.
 """
 import json
-import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -164,7 +163,13 @@ def generate_all(root: Path) -> dict[str, str]:
 
     files = scan.get("file_tree", [])
     import_graph = scan.get("import_graph", {})
-    components = blueprint.get("components", {}).get("components", [])
+    raw_components = blueprint.get("components", {})
+    if isinstance(raw_components, list):
+        components = raw_components
+    elif isinstance(raw_components, dict):
+        components = raw_components.get("components", [])
+    else:
+        components = []
 
     dir_files = group_files_by_dir(files)
     result: dict[str, str] = {}

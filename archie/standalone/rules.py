@@ -54,9 +54,15 @@ def extract_rules(blueprint: dict) -> list[dict]:
         })
 
     # Component layer rules
-    components = blueprint.get("components", {})
-    if isinstance(components, dict):
-        for i, comp in enumerate(components.get("components", [])):
+    raw_components = blueprint.get("components", {})
+    if isinstance(raw_components, list):
+        comp_list = raw_components
+    elif isinstance(raw_components, dict):
+        comp_list = raw_components.get("components", [])
+    else:
+        comp_list = []
+    if comp_list:
+        for i, comp in enumerate(comp_list):
             if not isinstance(comp, dict):
                 continue
             path = comp.get("location", comp.get("path", ""))
