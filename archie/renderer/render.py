@@ -39,6 +39,14 @@ def render_outputs(blueprint_dict: dict, project_root: Path) -> dict[str, str]:
         files[rule_file.claude_path] = rule_file.render_claude()
         files[rule_file.cursor_path] = rule_file.render_cursor()
 
+    # 3. Per-folder CLAUDE.md files
+    from archie.renderer.intent_layer import generate_folder_context
+
+    scan_path = project_root / ".archie" / "scan.json"
+    if scan_path.exists():
+        folder_files = generate_folder_context(blueprint_dict, scan_path)
+        files.update(folder_files)
+
     # Write all files to disk
     for rel_path, content in files.items():
         full_path = project_root / rel_path
