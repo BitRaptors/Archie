@@ -2,6 +2,8 @@ import click
 from pathlib import Path
 
 from archie.cli.init_command import run_init
+from archie.cli.refresh_command import run_refresh
+from archie.cli.status_command import run_status
 from archie.rules.extractor import load_rules, promote_rule, demote_rule
 
 @click.group()
@@ -18,9 +20,17 @@ def init(path, local_only):
     run_init(Path(path), local_only=local_only)
 
 @cli.command()
-def status():
+@click.argument("path", default=".", type=click.Path(exists=True))
+@click.option("--deep", is_flag=True, default=False, help="Generate a targeted refresh prompt for changed files.")
+def refresh(path, deep):
+    """Rescan the repository and report changes since last scan."""
+    run_refresh(Path(path), deep=deep)
+
+@cli.command()
+@click.option("--path", default=".", type=click.Path(exists=True), help="Project root directory.")
+def status(path):
     """Show blueprint freshness and enforcement stats."""
-    click.echo("archie status — not yet implemented")
+    run_status(Path(path))
 
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True))
