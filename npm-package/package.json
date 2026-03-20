@@ -1,0 +1,33 @@
+{
+  "name": "archie-lite",
+  "version": "2.0.0-alpha.1",
+  "description": "Install Archie architecture enforcement for Claude Code. Zero dependencies.",
+  "bin": {
+    "archie-lite": "./bin/archie-lite.mjs"
+  },
+  "keywords": [
+    "archie",
+    "architecture",
+    "claude-code",
+    "claude",
+    "ai",
+    "linter",
+    "enforcement",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "mcp"
+  ],
+  "author": "BitRaptors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BitRaptors/Archie"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "assets/"
+  ]
+}
