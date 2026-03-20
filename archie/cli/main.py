@@ -68,3 +68,11 @@ def demote(rule_id, path):
         click.echo(f"Rule {rule_id} demoted to warn.")
     else:
         click.echo(f"Rule {rule_id} not found.")
+
+@cli.command()
+@click.option("--port", default=8000, help="Port to serve on.")
+@click.option("--path", default=".", type=click.Path(exists=True), help="Project root with .archie/ directory.")
+def serve(port, path):
+    """Start lightweight viewer server for the frontend dashboard."""
+    from archie.cli.serve_command import run_serve
+    run_serve(Path(path), port)
