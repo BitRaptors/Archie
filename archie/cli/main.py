@@ -76,3 +76,10 @@ def serve(port, path):
     """Start lightweight viewer server for the frontend dashboard."""
     from archie.cli.serve_command import run_serve
     run_serve(Path(path), port)
+
+@cli.command()
+@click.option("--path", default=".", type=click.Path(exists=True), help="Project root with .archie/ directory.")
+def mcp(path):
+    """Start MCP server reading from .archie/blueprint.json."""
+    from archie.mcp.server import run_mcp_server
+    run_mcp_server(Path(path))
