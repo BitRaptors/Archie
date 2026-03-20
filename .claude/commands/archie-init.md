@@ -321,8 +321,8 @@ if os.path.exists(path):
     try: settings = json.loads(open(path).read())
     except: pass
 settings['hooks'] = {
-    'UserPromptSubmit': [{'matcher': '', 'command': '.claude/hooks/inject-context.sh'}],
-    'PreToolUse': [{'matcher': 'Write|Edit|MultiEdit', 'command': '.claude/hooks/pre-validate.sh'}],
+    'UserPromptSubmit': [{'matcher': '', 'hooks': [{'type': 'command', 'command': '.claude/hooks/inject-context.sh'}]}],
+    'PreToolUse': [{'matcher': 'Write|Edit|MultiEdit', 'hooks': [{'type': 'command', 'command': '.claude/hooks/pre-validate.sh'}]}],
 }
 with open(path, 'w') as f:
     json.dump(settings, f, indent=2)

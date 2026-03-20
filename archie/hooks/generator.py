@@ -80,14 +80,14 @@ def install_hooks(project_root: Path) -> None:
     settings["hooks"] = {
         "UserPromptSubmit": [
             {
-                "type": "command",
-                "command": ".claude/hooks/inject-context.sh",
+                "matcher": "",
+                "hooks": [{"type": "command", "command": ".claude/hooks/inject-context.sh"}],
             }
         ],
         "PreToolUse": [
             {
-                "type": "command",
-                "command": ".claude/hooks/pre-validate.sh",
+                "matcher": "Write|Edit|MultiEdit",
+                "hooks": [{"type": "command", "command": ".claude/hooks/pre-validate.sh"}],
             }
         ],
     }
