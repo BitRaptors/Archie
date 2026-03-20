@@ -111,3 +111,72 @@ def test_parse_nested_manifests():
         assert django.source == "backend/requirements.txt"
         vue = next(d for d in deps if d.name == "vue")
         assert vue.source == "frontend/package.json"
+
+
+def test_parse_pyproject_toml_pep621():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "pyproject.toml").write_text(
+            '[project]\n'
+            'name = "myapp"\n'
+            'dependencies = [\n'
+            '    "fastapi>=0.104.0",\n'
+            '    "pydantic>=2.5.0",\n'
+            '    "requests[security]>=2.28",\n'
+            '    "click",\n'
+            ']\n'
+        )
+        deps = collect_dependencies(root)
+        names = {d.name for d in deps}
+        assert names == {"fastapi", "pydantic", "requests", "click"}
+        fastapi = next(d for d in deps if d.name == "fastapi")
+        assert "0.104.0" in fastapi.version
+        click = next(d for d in deps if d.name == "click")
+        assert click.version == ""
+        assert fastapi.source == "pyproject.toml"
+
+
+def test_parse_pyproject_toml_poetry():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "pyproject.toml").write_text(
+            '[tool.poetry.dependencies]\n'
+            'python = "^3.11"\n'
+            'django = "^4.2"\n'
+            'celery = {version = "^5.3", extras = ["redis"]}\n'
+            '\n'
+            '[tool.poetry.dev-dependencies]\n'
+            'pytest = "^7.4"\n'
+        )
+        deps = collect_dependencies(root)
+        names = {d.name for d in deps}
+        # python should be excluded
+        assert "python" not in names
+        assert names == {"django", "celery", "pytest"}
+        django = next(d for d in deps if d.name == "django")
+        assert django.version == "^4.2"
+        celery = next(d for d in deps if d.name == "celery")
+        assert celery.version == "^5.3"
+        pytest_dep = next(d for d in deps if d.name == "pytest")
+        assert pytest_dep.version == "^7.4"
+        assert pytest_dep.source == "pyproject.toml"
+
+
+def test_parse_pyproject_toml_optional_deps():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "pyproject.toml").write_text(
+            '[project]\n'
+            'name = "mylib"\n'
+            'dependencies = ["httpx>=0.24"]\n'
+            '\n'
+            '[project.optional-dependencies]\n'
+            'dev = ["pytest>=7.0", "ruff>=0.1.0"]\n'
+            'docs = ["sphinx>=6.0"]\n'
+        )
+        deps = collect_dependencies(root)
+        names = {d.name for d in deps}
+        assert names == {"httpx", "pytest", "ruff", "sphinx"}
+        sphinx = next(d for d in deps if d.name == "sphinx")
+        assert "6.0" in sphinx.version
+        assert sphinx.source == "pyproject.toml"

@@ -4,13 +4,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import tomllib
 from pathlib import Path
 
 from archie.engine.models import DependencyEntry
 
 SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build"}
 
-MANIFEST_NAMES = {"requirements.txt", "package.json", "go.mod", "Cargo.toml"}
+MANIFEST_NAMES = {"requirements.txt", "package.json", "go.mod", "Cargo.toml", "pyproject.toml"}
 
 MAX_DEPTH = 3
 
@@ -107,11 +108,65 @@ def _parse_cargo_toml(path: Path, rel_source: str) -> list[DependencyEntry]:
     return entries
 
 
+def _parse_pep621_dep(spec: str) -> tuple[str, str]:
+    """Extract (name, version) from a PEP 621 dependency string like 'fastapi>=0.104.0'."""
+    m = re.match(r"([A-Za-z0-9_][A-Za-z0-9_.+-]*)(?:\[.*?\])?\s*([><=!~]=?\s*\S+)?", spec)
+    if m:
+        return m.group(1), (m.group(2) or "").strip()
+    return spec.strip(), ""
+
+
+def _parse_pyproject_toml(path: Path, rel_source: str) -> list[DependencyEntry]:
+    entries: list[DependencyEntry] = []
+    try:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return entries
+
+    # PEP 621: [project.dependencies]
+    project = data.get("project", {})
+    for spec in project.get("dependencies", []):
+        if isinstance(spec, str):
+            name, version = _parse_pep621_dep(spec)
+            entries.append(DependencyEntry(name=name, version=version, source=rel_source))
+
+    # PEP 621: [project.optional-dependencies]
+    optional = project.get("optional-dependencies", {})
+    if isinstance(optional, dict):
+        for specs in optional.values():
+            if isinstance(specs, list):
+                for spec in specs:
+                    if isinstance(spec, str):
+                        name, version = _parse_pep621_dep(spec)
+                        entries.append(DependencyEntry(name=name, version=version, source=rel_source))
+
+    # Legacy Poetry: [tool.poetry.dependencies]
+    tool = data.get("tool", {})
+    poetry = tool.get("poetry", {})
+    for section_key in ("dependencies", "dev-dependencies"):
+        deps = poetry.get(section_key, {})
+        if isinstance(deps, dict):
+            for name, value in deps.items():
+                if name == "python":
+                    continue
+                if isinstance(value, str):
+                    version = value
+                elif isinstance(value, dict):
+                    version = value.get("version", "")
+                else:
+                    version = ""
+                entries.append(DependencyEntry(name=name, version=version, source=rel_source))
+
+    return entries
+
+
 _PARSERS = {
     "requirements.txt": _parse_requirements_txt,
     "package.json": _parse_package_json,
     "go.mod": _parse_go_mod,
     "Cargo.toml": _parse_cargo_toml,
+    "pyproject.toml": _parse_pyproject_toml,
 }
 
 
