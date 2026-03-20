@@ -12,65 +12,92 @@ from collections import defaultdict
 from pathlib import Path
 
 
-def load_scan(root: Path) -> dict:
-    scan_path = root / ".archie" / "scan.json"
-    if scan_path.exists():
+def load_json(path: Path) -> dict:
+    if path.exists():
         try:
-            return json.loads(scan_path.read_text())
+            return json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):
             pass
     return {}
 
 
-def load_blueprint(root: Path) -> dict:
-    bp_path = root / ".archie" / "blueprint.json"
-    if bp_path.exists():
-        try:
-            return json.loads(bp_path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
-
-
-def group_files_by_dir(files: list[dict]) -> dict[str, list[str]]:
-    """Group file paths by their parent directory."""
-    groups: dict[str, list[str]] = defaultdict(list)
+def group_files_by_dir(files: list[dict]) -> dict[str, list[dict]]:
+    """Group files by their parent directory, keeping full file info."""
+    groups: dict[str, list[dict]] = defaultdict(list)
     for f in files:
-        path = f["path"]
-        parent = str(Path(path).parent)
+        parent = str(Path(f["path"]).parent)
         if parent == ".":
-            continue  # Skip root-level files
-        groups[parent].append(path)
+            parent = "__root__"
+        groups[parent].append(f)
     return dict(groups)
 
 
-def find_component(directory: str, components: list[dict]) -> dict | None:
-    """Find the blueprint component that matches this directory."""
-    best = None
-    best_len = 0
+def find_matching_components(directory: str, components: list[dict]) -> list[dict]:
+    """Find all blueprint components whose location matches this directory."""
+    matched = []
     for comp in components:
-        comp_path = comp.get("path", "").rstrip("/")
-        if not comp_path:
+        loc = (comp.get("location") or comp.get("path") or "").rstrip("/")
+        if not loc:
             continue
-        if directory.startswith(comp_path) or comp_path.startswith(directory):
-            if len(comp_path) > best_len:
-                best = comp
-                best_len = len(comp_path)
-    return best
+        # Match if directory is the component location or a child of it
+        if directory == loc or directory.startswith(loc + "/") or loc.startswith(directory):
+            matched.append(comp)
+    return matched
+
+
+def get_file_descriptions(directory: str, components: list[dict]) -> dict[str, str]:
+    """Build filename → description map from component key_files."""
+    descriptions: dict[str, str] = {}
+    for comp in components:
+        for kf in comp.get("key_files", []):
+            if isinstance(kf, dict):
+                path = kf.get("path", "")
+                purpose = kf.get("purpose", "")
+            elif isinstance(kf, str):
+                path = kf
+                purpose = ""
+            else:
+                continue
+            if path and (path.startswith(directory) or directory in path):
+                fname = path.rsplit("/", 1)[-1] if "/" in path else path
+                if purpose:
+                    descriptions[fname] = purpose
+    return descriptions
 
 
 def get_relevant_rules(directory: str, blueprint: dict) -> list[str]:
     """Get architecture rules relevant to this directory."""
     rules = []
-    arch_rules = blueprint.get("architecture_rules", {})
+    arch = blueprint.get("architecture_rules", {})
+    if not isinstance(arch, dict):
+        return rules
 
-    for r in arch_rules.get("file_placement_rules", []):
-        loc = r.get("location", "")
-        if loc and (directory.startswith(loc.rstrip("/")) or loc.rstrip("/").startswith(directory)):
-            rules.append(r.get("description", r.get("pattern", "")))
+    for r in arch.get("file_placement_rules", []):
+        if not isinstance(r, dict):
+            continue
+        loc = (r.get("location") or "").rstrip("/")
+        desc = r.get("description", r.get("pattern", ""))
+        if loc and (directory.startswith(loc) or loc.startswith(directory)):
+            if desc:
+                rules.append(desc)
 
-    for n in arch_rules.get("naming_conventions", []):
-        rules.append(f"{n.get('target', '')}: {n.get('convention', '')} (e.g. `{n.get('example', '')}`)")
+    for n in arch.get("naming_conventions", []):
+        if not isinstance(n, dict):
+            continue
+        scope = n.get("scope") or n.get("target") or ""
+        pattern = n.get("pattern") or n.get("convention") or ""
+        examples = n.get("examples", [])
+        if isinstance(examples, str):
+            examples = [examples]
+        example = n.get("example") or (examples[0] if examples else "")
+        desc = n.get("description", "")
+        if desc:
+            rules.append(desc)
+        elif scope and pattern:
+            entry = f"{scope}: use {pattern}"
+            if example:
+                entry += f" (e.g. `{example}`)"
+            rules.append(entry)
 
     return rules
 
@@ -82,63 +109,104 @@ def get_imports_for_dir(directory: str, import_graph: dict) -> tuple[set[str], s
 
     for file_path, imports in import_graph.items():
         file_dir = str(Path(file_path).parent)
+        if file_dir == "__root__" or file_dir == ".":
+            file_dir = "__root__"
 
-        if file_dir == directory or file_dir.startswith(directory + "/"):
-            # This file is in our directory — where does it import from?
+        is_in_dir = (file_dir == directory or file_dir.startswith(directory + "/"))
+
+        if is_in_dir:
             for imp in imports:
-                # Try to resolve import to a directory
                 if "/" in imp or "." in imp:
-                    imp_parts = imp.replace(".", "/").split("/")
-                    if len(imp_parts) >= 2:
-                        imp_dir = "/".join(imp_parts[:2])
-                        if imp_dir != directory and not imp_dir.startswith(directory + "/"):
+                    parts = imp.replace(".", "/").split("/")
+                    if len(parts) >= 2:
+                        imp_dir = "/".join(parts[:2])
+                        if not imp_dir.startswith(directory):
                             imports_from.add(imp_dir)
         else:
-            # This file is outside our directory — does it import from us?
             for imp in imports:
                 imp_norm = imp.replace(".", "/")
-                if imp_norm.startswith(directory) or directory.startswith(imp_norm.split("/")[0] if "/" in imp_norm else ""):
-                    if file_dir:
-                        top = file_dir.split("/")[0]
-                        dir_top = directory.split("/")[0]
-                        if top != dir_top:
-                            imported_by.add(file_dir)
+                if directory in imp_norm:
+                    imported_by.add(file_dir)
 
     return imports_from, imported_by
 
 
 def generate_folder_claude_md(
     directory: str,
-    files: list[str],
-    component: dict | None,
+    files: list[dict],
+    components: list[dict],
+    file_descriptions: dict[str, str],
     rules: list[str],
     imports_from: set[str],
     imported_by: set[str],
 ) -> str:
-    """Generate a concise CLAUDE.md for a single directory."""
+    """Generate a rich CLAUDE.md for a single directory."""
     dir_name = directory.rsplit("/", 1)[-1] if "/" in directory else directory
     lines = [f"# {dir_name}", ""]
 
-    # Component info
-    if component:
-        lines.append(f"> Part of **{component.get('name', '')}** — {component.get('purpose', '')}")
-        lines.append("")
+    # Component descriptions
+    for comp in components:
+        name = comp.get("name", "")
+        resp = comp.get("responsibility") or comp.get("purpose") or ""
+        if name and resp:
+            lines.append(f"> **{name}** — {resp}")
+            lines.append("")
+            # Show dependencies
+            deps = comp.get("depends_on", [])
+            if deps:
+                lines.append(f"Depends on: {', '.join(deps)}")
+                lines.append("")
+            exposes = comp.get("exposes_to", [])
+            if exposes:
+                lines.append(f"Exposes to: {', '.join(exposes)}")
+                lines.append("")
+            break  # Show primary component only
 
-    # Files
+    # Files with descriptions
     lines.append("## Files")
     lines.append("")
-    for f in sorted(files):
-        fname = f.rsplit("/", 1)[-1] if "/" in f else f
-        lines.append(f"- `{fname}`")
+    for f in sorted(files, key=lambda x: x["path"]):
+        fname = f["path"].rsplit("/", 1)[-1] if "/" in f["path"] else f["path"]
+        desc = file_descriptions.get(fname, "")
+        if desc:
+            lines.append(f"- `{fname}` — {desc}")
+        else:
+            lines.append(f"- `{fname}`")
     lines.append("")
 
-    # Architecture rules
-    if rules:
+    # Architecture rules (only non-empty, deduplicated)
+    seen_rules = set()
+    clean_rules = []
+    for r in rules:
+        r = r.strip()
+        if r and r not in seen_rules:
+            seen_rules.add(r)
+            clean_rules.append(r)
+
+    if clean_rules:
         lines.append("## Architecture Rules")
         lines.append("")
-        for r in rules[:5]:
+        for r in clean_rules[:8]:
             lines.append(f"- {r}")
         lines.append("")
+
+    # Key interfaces from components
+    for comp in components:
+        interfaces = comp.get("key_interfaces", [])
+        if interfaces:
+            lines.append("## Key Interfaces")
+            lines.append("")
+            for iface in interfaces:
+                if isinstance(iface, dict):
+                    name = iface.get("name", "")
+                    methods = iface.get("methods", [])
+                    desc = iface.get("description", "")
+                    if name:
+                        lines.append(f"- **{name}**: {desc}")
+                        if methods:
+                            lines.append(f"  Methods: {', '.join(methods)}")
+            lines.append("")
+            break
 
     # Dependencies
     if imports_from or imported_by:
@@ -151,18 +219,19 @@ def generate_folder_claude_md(
         lines.append("")
 
     lines.append("---")
-    lines.append("*Auto-generated by Archie. Updates on `archie refresh`.*")
+    lines.append("*Auto-generated by Archie.*")
 
     return "\n".join(lines)
 
 
 def generate_all(root: Path) -> dict[str, str]:
     """Generate per-folder CLAUDE.md files. Returns {path: content}."""
-    scan = load_scan(root)
-    blueprint = load_blueprint(root)
+    scan = load_json(root / ".archie" / "scan.json")
+    blueprint = load_json(root / ".archie" / "blueprint.json")
 
     files = scan.get("file_tree", [])
     import_graph = scan.get("import_graph", {})
+
     raw_components = blueprint.get("components", {})
     if isinstance(raw_components, list):
         components = raw_components
@@ -175,25 +244,30 @@ def generate_all(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
 
     for directory, file_list in sorted(dir_files.items()):
-        # Skip small directories
-        if len(file_list) < 2:
+        if directory == "__root__":
             continue
 
-        # Skip deep nested dirs (3+ levels) unless they have many files
+        # Generate for directories with 1+ source files
+        # (API routes often have single route.ts files)
+        if not file_list:
+            continue
+
+        # Skip deep nested dirs unless they have enough files
         depth = directory.count("/")
-        if depth > 3 and len(file_list) < 5:
+        if depth > 4 and len(file_list) < 3:
             continue
 
-        component = find_component(directory, components)
+        matched_comps = find_matching_components(directory, components)
+        file_descs = get_file_descriptions(directory, components)
         rules = get_relevant_rules(directory, blueprint)
         imports_from, imported_by = get_imports_for_dir(directory, import_graph)
 
         content = generate_folder_claude_md(
-            directory, file_list, component, rules, imports_from, imported_by,
+            directory, file_list, matched_comps, file_descs,
+            rules, imports_from, imported_by,
         )
 
-        output_path = f"{directory}/CLAUDE.md"
-        result[output_path] = content
+        result[f"{directory}/CLAUDE.md"] = content
 
     return result
 
@@ -203,24 +277,20 @@ if __name__ == "__main__":
         print("Usage: python3 intent_layer.py /path/to/repo", file=sys.stderr)
         sys.exit(1)
 
-    repo = sys.argv[1]
-    root = Path(repo).resolve()
-
+    root = Path(sys.argv[1]).resolve()
     if not root.is_dir():
-        print(f"Error: {repo} is not a directory", file=sys.stderr)
+        print(f"Error: {sys.argv[1]} is not a directory", file=sys.stderr)
         sys.exit(1)
 
-    files = generate_all(root)
+    result = generate_all(root)
 
-    # Write files to disk
-    for rel_path, content in files.items():
+    for rel_path, content in result.items():
         full = root / rel_path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(content)
 
-    print(f"Generated {len(files)} per-folder CLAUDE.md files", file=sys.stderr)
-    for path in sorted(files.keys()):
-        print(f"  {path}", file=sys.stderr)
+    print(f"Generated {len(result)} per-folder CLAUDE.md files", file=sys.stderr)
+    for p in sorted(result.keys()):
+        print(f"  {p}", file=sys.stderr)
 
-    # Also output JSON summary
-    json.dump({"files_generated": len(files), "paths": sorted(files.keys())}, sys.stdout, indent=2)
+    json.dump({"files_generated": len(result), "paths": sorted(result.keys())}, sys.stdout, indent=2)
