@@ -5,7 +5,7 @@ import json
 import stat
 
 
-from archie.hooks.generator import generate_hooks, install_hooks
+from archie.hooks.generator import generate_hooks, install_git_hook, install_hooks
 
 
 # -------------------------------------------------------------------
@@ -84,3 +84,56 @@ def test_install_hooks_preserves_existing_settings(tmp_path):
     assert "permissions" in settings, "Existing 'permissions' key was lost"
     assert settings["permissions"] == {"allow": ["Read"]}
     assert "hooks" in settings
+
+
+# -------------------------------------------------------------------
+# 7. install_git_hook creates post-commit
+# -------------------------------------------------------------------
+def test_install_git_hook_creates_post_commit(tmp_path):
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    result = install_git_hook(tmp_path)
+
+    assert result is True
+    post_commit = tmp_path / ".git" / "hooks" / "post-commit"
+    assert post_commit.exists()
+    assert post_commit.stat().st_mode & stat.S_IXUSR
+    content = post_commit.read_text()
+    assert "archie refresh" in content
+    assert content.startswith("#!/bin/sh\n")
+
+
+# -------------------------------------------------------------------
+# 8. install_git_hook is idempotent
+# -------------------------------------------------------------------
+def test_install_git_hook_idempotent(tmp_path):
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    install_git_hook(tmp_path)
+    install_git_hook(tmp_path)
+
+    content = (tmp_path / ".git" / "hooks" / "post-commit").read_text()
+    assert content.count("archie refresh") == 1
+
+
+# -------------------------------------------------------------------
+# 9. install_git_hook preserves existing post-commit content
+# -------------------------------------------------------------------
+def test_install_git_hook_preserves_existing(tmp_path):
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True)
+    existing = "#!/bin/sh\necho 'hello from existing hook'\n"
+    (hooks_dir / "post-commit").write_text(existing)
+
+    result = install_git_hook(tmp_path)
+
+    assert result is True
+    content = (hooks_dir / "post-commit").read_text()
+    assert "echo 'hello from existing hook'" in content
+    assert "archie refresh" in content
+
+
+# -------------------------------------------------------------------
+# 10. install_git_hook returns False when no .git dir
+# -------------------------------------------------------------------
+def test_install_git_hook_no_git_dir(tmp_path):
+    result = install_git_hook(tmp_path)
+    assert result is False

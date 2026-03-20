@@ -14,6 +14,51 @@ def generate_hooks() -> dict[str, str]:
     }
 
 
+_POST_COMMIT_BLOCK = """\
+# Archie: auto-refresh local scan after commit
+# Runs in background to avoid slowing down commits
+
+if command -v archie >/dev/null 2>&1; then
+    archie refresh >/dev/null 2>&1 &
+fi
+"""
+
+
+def install_git_hook(project_root: Path) -> bool:
+    """Install a git post-commit hook that runs ``archie refresh``.
+
+    Returns True on success, False if *project_root* is not a git repository.
+    The function is idempotent — calling it multiple times will not duplicate
+    the archie block.
+    """
+    git_dir = project_root / ".git"
+    if not git_dir.is_dir():
+        return False
+
+    hooks_dir = git_dir / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    post_commit = hooks_dir / "post-commit"
+
+    if post_commit.exists():
+        existing = post_commit.read_text()
+        # Already installed — skip.
+        if "archie refresh" in existing:
+            return True
+        # Append to existing hook.
+        if not existing.endswith("\n"):
+            existing += "\n"
+        post_commit.write_text(existing + "\n" + _POST_COMMIT_BLOCK)
+    else:
+        post_commit.write_text("#!/bin/sh\n" + _POST_COMMIT_BLOCK)
+
+    # Make executable.
+    post_commit.chmod(
+        post_commit.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    )
+    return True
+
+
 def install_hooks(project_root: Path) -> None:
     """Write hook scripts and register them in .claude/settings.local.json."""
     hooks_dir = project_root / ".claude" / "hooks"
@@ -190,7 +235,7 @@ filename = os.path.basename(file_path)
 violations = []
 
 for rule in rules:
-    rule_type = rule.get('type', '')
+    rule_type = rule.get('check') or rule.get('type', '')
     severity = rule.get('severity', 'warning')
     rid = rule.get('id', 'unknown')
     desc = rule.get('description', '')

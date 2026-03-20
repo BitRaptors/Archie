@@ -11,7 +11,7 @@ from archie.coordinator.planner import plan_subagent_groups
 from archie.coordinator.prompts import build_coordinator_prompt, build_subagent_prompt
 from archie.coordinator.runner import check_claude_cli, run_subagents
 from archie.engine.scan import run_scan
-from archie.hooks.generator import install_hooks
+from archie.hooks.generator import install_git_hook, install_hooks
 from archie.renderer.render import render_outputs
 from archie.rules.extractor import extract_rules, save_rules
 
@@ -63,6 +63,10 @@ def run_init(repo_path: Path, local_only: bool = False) -> None:
     # 5. Install hooks
     click.echo("Installing hooks...")
     install_hooks(root)
+
+    # 5b. Install git post-commit hook for auto-refresh
+    if install_git_hook(root):
+        click.echo("  Installed git post-commit hook for auto-refresh")
 
     if not local_only:
         # --- Full pipeline: spawn subagents, merge, render ---
