@@ -2,18 +2,22 @@
 
 Analyze this repository's architecture. Zero dependencies — works with any language.
 
-## Step 1: Download and run the scanner
+## Step 1: Run the scanner
+
+The standalone scripts should already be in `.archie/` (installed by `npx archie-lite`). Run the scanner:
 
 ```bash
-# Download the standalone scripts (zero dependencies, Python 3.11+ stdlib only)
-curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/scanner.py -o /tmp/archie_scanner.py
-curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/renderer.py -o .archie/renderer.py
-
-# Run the scanner on the current repo
-python3 /tmp/archie_scanner.py "$PWD"
+python3 .archie/scanner.py "$PWD"
 ```
 
-If curl fails (no internet or private repo), create the scripts inline — read `archie/standalone/scanner.py` and `archie/standalone/renderer.py` from the Archie repo and save them to `/tmp/archie_scanner.py` and `.archie/renderer.py`, then run the scanner.
+If `.archie/scanner.py` doesn't exist, download it:
+```bash
+curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/scanner.py -o .archie/scanner.py
+curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/renderer.py -o .archie/renderer.py
+curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/intent_layer.py -o .archie/intent_layer.py
+```
+
+If curl also fails, tell the user to run `npx archie-lite` first to install the scripts.
 
 If python3 is not available, tell the user to install Python 3.11+.
 
