@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "archie"
+version = "2.0.0-alpha.1"
+description = "Your AI writes code. Archie makes sure it follows your architecture."
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1.0",
+    "tiktoken>=0.7.0",
+    "pydantic>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+archie = "archie.cli.main:cli"
+
+[tool.setuptools.packages.find]
+include = ["archie*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
