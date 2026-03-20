@@ -6,24 +6,24 @@ from pathlib import Path
 
 import click
 
+from archie.coordinator.merger import merge_subagent_outputs, save_blueprint
 from archie.coordinator.planner import plan_subagent_groups
 from archie.coordinator.prompts import build_coordinator_prompt, build_subagent_prompt
+from archie.coordinator.runner import check_claude_cli, run_subagents
 from archie.engine.scan import run_scan
 from archie.hooks.generator import install_hooks
+from archie.renderer.render import render_outputs
 from archie.rules.extractor import extract_rules, save_rules
 
 
 def run_init(repo_path: Path, local_only: bool = False) -> None:
-    """Run the full local Archie pipeline on *repo_path*.
+    """Run the full Archie pipeline on *repo_path*.
 
-    Steps:
-    1. Scan the repository and save scan.json
-    2. Print scan stats
-    3. Plan subagent groups
-    4. Generate and save coordinator + subagent prompts
-    5. Install Claude Code hooks
-    6. Extract rules from blueprint (if present) or save empty rules
-    7. Print summary
+    When *local_only* is False (the default), spawns Claude Code subagents
+    to analyse the codebase and produces a full blueprint + rendered outputs.
+
+    When *local_only* is True, only scans the repo and saves prompts for
+    manual subagent execution.
     """
     root = Path(repo_path).resolve()
     archie_dir = root / ".archie"
@@ -64,17 +64,56 @@ def run_init(repo_path: Path, local_only: bool = False) -> None:
     click.echo("Installing hooks...")
     install_hooks(root)
 
-    # 6. Rules
-    blueprint_path = archie_dir / "blueprint.json"
-    if blueprint_path.exists():
+    if not local_only:
+        # --- Full pipeline: spawn subagents, merge, render ---
+        if not check_claude_cli():
+            click.echo(
+                "Error: claude CLI not found in PATH. "
+                "Install it or use --local-only to skip subagent execution."
+            )
+            save_rules(root, [])
+            return
+
+        # 6a. Run subagents
+        click.echo("")
+        click.echo("Running analysis subagents...")
+        outputs = run_subagents(root, scan, groups)
+
+        if not outputs:
+            click.echo("Warning: no subagent produced output. Saving empty rules.")
+            save_rules(root, [])
+            return
+
+        # 6b. Merge subagent outputs
+        click.echo("Merging subagent outputs...")
+        repo_name = root.name
+        blueprint = merge_subagent_outputs(outputs, scan, repo_name=repo_name)
+        save_blueprint(root, blueprint)
+        click.echo("  Blueprint saved to .archie/blueprint.json")
+
+        # 6c. Render outputs
+        click.echo("Rendering outputs...")
+        rendered_files = render_outputs(blueprint, root)
+        for rel_path in sorted(rendered_files.keys()):
+            click.echo(f"  {rel_path}")
+
+        # 6d. Extract and save rules
         click.echo("Extracting rules from blueprint...")
-        blueprint = json.loads(blueprint_path.read_text(encoding="utf-8"))
         rules = extract_rules(blueprint)
         save_rules(root, rules)
         click.echo(f"  Rules extracted: {len(rules)}")
     else:
-        click.echo("No blueprint found, saving empty rules...")
-        save_rules(root, [])
+        # --- Local-only: just extract rules from existing blueprint ---
+        blueprint_path = archie_dir / "blueprint.json"
+        if blueprint_path.exists():
+            click.echo("Extracting rules from blueprint...")
+            blueprint = json.loads(blueprint_path.read_text(encoding="utf-8"))
+            rules = extract_rules(blueprint)
+            save_rules(root, rules)
+            click.echo(f"  Rules extracted: {len(rules)}")
+        else:
+            click.echo("No blueprint found, saving empty rules...")
+            save_rules(root, [])
 
     # 7. Summary
     click.echo("")
