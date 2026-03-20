@@ -9,7 +9,6 @@ Zero dependencies beyond Python 3.11+ stdlib.
 """
 import ast
 import json
-import os
 import re
 import sys
 from collections import defaultdict

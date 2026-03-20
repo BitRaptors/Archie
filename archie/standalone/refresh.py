@@ -188,7 +188,7 @@ if __name__ == "__main__":
         prompt = generate_refresh_prompt(changes, root)
         prompt_path = root / ".archie" / "refresh_prompt.md"
         prompt_path.write_text(prompt)
-        print(f"Saved refresh prompt to .archie/refresh_prompt.md", file=sys.stderr)
+        print("Saved refresh prompt to .archie/refresh_prompt.md", file=sys.stderr)
 
     # Output JSON
     json.dump(changes, sys.stdout, indent=2)

@@ -7,7 +7,6 @@ Output: Creates CLAUDE.md files in significant directories
 Zero dependencies beyond Python 3.11+ stdlib.
 """
 import json
-import os
 import sys
 from collections import defaultdict
 from pathlib import Path
