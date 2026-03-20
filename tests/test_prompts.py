@@ -61,6 +61,49 @@ def test_subagent_prompt_includes_files_and_sections() -> None:
     assert "architecture_rules" in prompt
 
 
+def test_subagent_prompt_includes_module_dependencies() -> None:
+    scan = RawScan(
+        file_tree=[
+            FileEntry(path="api/routes.py", size=200),
+            FileEntry(path="api/auth.py", size=150),
+            FileEntry(path="core/models.py", size=300),
+            FileEntry(path="workers/tasks.py", size=250),
+        ],
+        token_counts={
+            "api/routes.py": 500,
+            "api/auth.py": 300,
+            "core/models.py": 600,
+            "workers/tasks.py": 400,
+        },
+        import_graph={
+            # api/routes.py imports from core/models.py
+            "api/routes.py": ["core/models.py"],
+            # api/auth.py imports from core/models.py
+            "api/auth.py": ["core/models.py"],
+            # workers/tasks.py imports from api/routes.py
+            "workers/tasks.py": ["api/routes.py"],
+        },
+        entry_points=["api/routes.py"],
+    )
+    assignment = SubagentAssignment(
+        files=["api/routes.py", "api/auth.py"],
+        token_total=800,
+        sections=["components"],
+        module_hint="api",
+    )
+
+    prompt = build_subagent_prompt(assignment, scan)
+
+    # Should have Module Dependencies section
+    assert "## Module Dependencies" in prompt
+    # api imports from core
+    assert "Imports from modules: core" in prompt
+    # workers imports from api
+    assert "Imported by modules: workers" in prompt
+    # entry point
+    assert "Entry points: api/routes.py" in prompt
+
+
 def test_subagent_prompt_includes_schema_guidance() -> None:
     scan = _make_scan()
     assignment = _make_assignment()
