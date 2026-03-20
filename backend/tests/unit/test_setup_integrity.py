@@ -1,14 +1,12 @@
-"""Tests that validate the project setup scripts and configuration are correct.
+"""Tests that validate the project setup and configuration are correct.
 
-These tests ensure that a fresh clone + ./setup.sh + ./start-dev.sh will work
+These tests ensure that a fresh clone + ./run will work
 out of the box for new developers. They validate:
 - Required files exist
 - Docker compose config is correct
 - Migration SQL creates all tables (prompts seeded separately via seed_prompts.py)
 - Env examples contain all necessary keys
-- setup.sh and start-dev.sh are valid and complete
 - prompts.json has version field and all required phases
-- start-dev scripts warn when prompts version is stale
 """
 import json
 import re
@@ -42,9 +40,7 @@ class TestRequiredFilesExist:
     @pytest.mark.parametrize(
         "rel_path",
         [
-            "setup.sh",
-            "start-dev.sh",
-            "start-dev.py",
+            "run",
             "docker-compose.yml",
             "backend/.env.example",
             "frontend/.env.example",
@@ -61,17 +57,11 @@ class TestRequiredFilesExist:
         path = PROJECT_ROOT / rel_path
         assert path.exists(), f"Required file missing: {rel_path}"
 
-    def test_setup_sh_is_executable(self):
-        setup = PROJECT_ROOT / "setup.sh"
-        assert setup.exists()
-        mode = setup.stat().st_mode
-        assert mode & stat.S_IXUSR, "setup.sh must be executable (chmod +x)"
-
-    def test_start_dev_sh_is_executable(self):
-        start = PROJECT_ROOT / "start-dev.sh"
-        assert start.exists()
-        mode = start.stat().st_mode
-        assert mode & stat.S_IXUSR, "start-dev.sh must be executable (chmod +x)"
+    def test_run_is_executable(self):
+        run = PROJECT_ROOT / "run"
+        assert run.exists()
+        mode = run.stat().st_mode
+        assert mode & stat.S_IXUSR, "run must be executable (chmod +x)"
 
 
 # ===========================================================================
@@ -198,7 +188,6 @@ class TestEnvExamples:
         "key",
         [
             "REDIS_URL",
-            "STORAGE_TYPE",
             "DEFAULT_AI_MODEL",
         ],
     )
@@ -217,158 +206,7 @@ class TestEnvExamples:
 
 
 # ===========================================================================
-# 5. setup.sh script validation
-# ===========================================================================
-
-
-class TestSetupScript:
-    """setup.sh must handle both database backends and all prerequisites."""
-
-    @pytest.fixture
-    def setup_content(self):
-        return _read(PROJECT_ROOT / "setup.sh")
-
-    def test_has_shebang(self, setup_content):
-        assert setup_content.startswith("#!/")
-
-    def test_offers_postgres_option(self, setup_content):
-        assert "postgres" in setup_content
-
-    def test_offers_supabase_option(self, setup_content):
-        assert "supabase" in setup_content
-
-    def test_installs_python_if_missing(self, setup_content):
-        assert "python" in setup_content.lower()
-
-    def test_installs_node_if_missing(self, setup_content):
-        assert "node" in setup_content.lower() or "nodejs" in setup_content.lower()
-
-    def test_creates_venv(self, setup_content):
-        assert "venv" in setup_content
-
-    def test_installs_pip_requirements(self, setup_content):
-        assert "requirements.txt" in setup_content
-
-    def test_installs_npm_dependencies(self, setup_content):
-        assert "npm install" in setup_content
-
-    def test_creates_backend_env(self, setup_content):
-        assert ".env.local" in setup_content
-
-    def test_prompts_for_anthropic_key(self, setup_content):
-        assert "ANTHROPIC_API_KEY" in setup_content
-
-    def test_runs_docker_compose(self, setup_content):
-        assert "docker" in setup_content.lower()
-        assert "compose" in setup_content.lower() or "docker-compose" in setup_content.lower()
-
-    def test_verifies_migration_ran(self, setup_content):
-        # setup.sh checks if analysis_prompts table exists after Docker starts
-        assert "analysis_prompts" in setup_content
-
-    def test_runs_seed_prompts(self, setup_content):
-        assert "seed_prompts" in setup_content, (
-            "setup.sh must run seed_prompts.py to sync prompts to database"
-        )
-
-    def test_reapplies_migration(self, setup_content):
-        assert "001_initial_setup.sql" in setup_content, (
-            "setup.sh must re-apply the migration SQL (idempotent)"
-        )
-
-    def test_handles_macos(self, setup_content):
-        assert "Darwin" in setup_content
-
-    def test_handles_linux(self, setup_content):
-        assert "Linux" in setup_content
-
-    def test_rejects_git_bash(self, setup_content):
-        assert "MINGW" in setup_content or "MSYS" in setup_content
-
-
-# ===========================================================================
-# 6. start-dev.sh script validation
-# ===========================================================================
-
-
-class TestStartDevScript:
-    """start-dev.sh must check preconditions and start all services."""
-
-    @pytest.fixture
-    def start_content(self):
-        return _read(PROJECT_ROOT / "start-dev.sh")
-
-    def test_has_shebang(self, start_content):
-        assert start_content.startswith("#!/")
-
-    def test_checks_env_files_exist(self, start_content):
-        assert ".env.local" in start_content
-
-    def test_references_setup_sh_on_missing_env(self, start_content):
-        assert "setup.sh" in start_content, (
-            "start-dev.sh should tell users to run setup.sh if env files are missing"
-        )
-
-    def test_starts_docker_for_postgres(self, start_content):
-        assert "compose" in start_content.lower() or "docker-compose" in start_content.lower()
-
-    def test_starts_backend(self, start_content):
-        assert "main.py" in start_content or "uvicorn" in start_content
-
-    def test_starts_frontend(self, start_content):
-        assert "npm run dev" in start_content
-
-    def test_checks_redis_for_worker(self, start_content):
-        assert "redis" in start_content.lower()
-
-    def test_handles_ctrl_c_gracefully(self, start_content):
-        assert "trap" in start_content or "SIGINT" in start_content
-
-    def test_shows_urls_on_success(self, start_content):
-        assert "BACKEND_PORT" in start_content, "Backend URL should use BACKEND_PORT variable"
-        assert "FRONTEND_PORT" in start_content, "Frontend URL should use FRONTEND_PORT variable"
-
-    def test_supports_both_db_backends(self, start_content):
-        assert "DB_BACKEND" in start_content
-
-    def test_checks_prompts_version(self, start_content):
-        assert "prompts-version" in start_content, (
-            "start-dev.sh must check .prompts-version to warn about stale setup"
-        )
-
-
-# ===========================================================================
-# 7. start-dev.py cross-platform script
-# ===========================================================================
-
-
-class TestStartDevPy:
-    """start-dev.py must mirror start-dev.sh functionality."""
-
-    @pytest.fixture
-    def start_py_content(self):
-        return _read(PROJECT_ROOT / "start-dev.py")
-
-    def test_checks_env_files(self, start_py_content):
-        assert ".env.local" in start_py_content
-
-    def test_starts_backend(self, start_py_content):
-        assert "main.py" in start_py_content or "uvicorn" in start_py_content
-
-    def test_starts_frontend(self, start_py_content):
-        assert "npm" in start_py_content
-
-    def test_creates_venv_if_missing(self, start_py_content):
-        assert "venv" in start_py_content
-
-    def test_checks_prompts_version(self, start_py_content):
-        assert "prompts-version" in start_py_content or ".prompts-version" in start_py_content, (
-            "start-dev.py must check .prompts-version to warn about stale setup"
-        )
-
-
-# ===========================================================================
-# 8. README references correct scripts and flow
+# 5. README references correct setup flow
 # ===========================================================================
 
 
@@ -379,14 +217,11 @@ class TestReadmeAccuracy:
     def readme(self):
         return _read(PROJECT_ROOT / "README.md")
 
-    def test_mentions_setup_sh(self, readme):
-        assert "setup.sh" in readme
+    def test_mentions_run_script(self, readme):
+        assert "./run" in readme
 
-    def test_mentions_start_dev_sh(self, readme):
-        assert "start-dev.sh" in readme
-
-    def test_mentions_docker_compose(self, readme):
-        assert "docker compose" in readme.lower() or "docker-compose" in readme.lower()
+    def test_mentions_docker(self, readme):
+        assert "docker" in readme.lower()
 
     def test_mentions_anthropic_key_required(self, readme):
         assert "Anthropic" in readme or "ANTHROPIC_API_KEY" in readme
@@ -408,7 +243,7 @@ class TestReadmeAccuracy:
 
 
 # ===========================================================================
-# 9. Frontend port consistency
+# 6. Frontend port consistency
 # ===========================================================================
 
 
@@ -430,7 +265,7 @@ class TestPortConsistency:
 
 
 # ===========================================================================
-# 10. prompts.json is valid JSON with all required phases
+# 7. prompts.json is valid JSON with all required phases
 # ===========================================================================
 
 

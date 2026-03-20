@@ -4,7 +4,6 @@ import { workspaceService } from '@/services/workspace'
 const KEYS = {
   repositories: ['workspace', 'repositories'] as const,
   active: ['workspace', 'active'] as const,
-  agentFiles: (repoId: string) => ['workspace', 'agent-files', repoId] as const,
 }
 
 /** Fetch all analyzed repositories. */
@@ -34,28 +33,6 @@ export function useSetActiveRepository() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEYS.active })
     },
-  })
-}
-
-/** Clear the active repository. */
-export function useClearActiveRepository() {
-  const qc = useQueryClient()
-
-  return useMutation({
-    mutationFn: () => workspaceService.clearActive(),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEYS.active })
-    },
-  })
-}
-
-/** Fetch agent files for a specific repo (only when requested). */
-export function useAgentFiles(repoId: string | null) {
-  return useQuery({
-    queryKey: KEYS.agentFiles(repoId ?? ''),
-    queryFn: () => workspaceService.getAgentFiles(repoId!),
-    enabled: !!repoId,
-    staleTime: 60_000, // 1 min
   })
 }
 

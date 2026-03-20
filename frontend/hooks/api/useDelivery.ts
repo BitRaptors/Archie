@@ -9,16 +9,3 @@ export function useDeliveryApply() {
       deliveryService.apply(req, token),
   })
 }
-
-/** Mutation for preview (on-demand, not cached). */
-export function useDeliveryPreview() {
-  return useMutation({
-    mutationFn: ({
-      sourceRepoId,
-      outputs,
-    }: {
-      sourceRepoId: string
-      outputs: string[]
-    }) => deliveryService.preview(sourceRepoId, outputs),
-  })
-}

@@ -38,21 +38,12 @@ torch>=2.0.0
 # qdrant-client>=1.7.0
 # pinecone-client>=2.2.0
 
-# Storage
-google-cloud-storage>=2.10.0
-boto3>=1.29.0
-
 # HTTP Client
 httpx>=0.25.0
-requests>=2.31.0
 
 # Token counting
 tiktoken>=0.7.0
 
-# Utilities
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
-cryptography>=41.0.0
 
 # Dependency Injection
 dependency-injector>=4.41.0

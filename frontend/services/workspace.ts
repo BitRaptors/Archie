@@ -19,13 +19,6 @@ export interface ActiveRepository {
   } | null
 }
 
-export interface AgentFiles {
-  claude_md: string
-  cursor_rules: string
-  agents_md: string
-  files?: Record<string, string>
-}
-
 export const workspaceService = {
   /** List all analyzed repositories with metadata. */
   async listRepositories(): Promise<WorkspaceRepository[]> {
@@ -44,20 +37,6 @@ export const workspaceService = {
     const response = await axios.put(`${API_URL}/api/v1/workspace/active`, {
       repo_id: repoId,
     })
-    return response.data
-  },
-
-  /** Clear the active repository. */
-  async clearActive(): Promise<{ active_repo_id: null }> {
-    const response = await axios.delete(`${API_URL}/api/v1/workspace/active`)
-    return response.data
-  },
-
-  /** Get generated agent files for a repository. */
-  async getAgentFiles(repoId: string): Promise<AgentFiles> {
-    const response = await axios.get(
-      `${API_URL}/api/v1/workspace/repositories/${repoId}/agent-files`
-    )
     return response.data
   },
 

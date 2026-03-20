@@ -21,18 +21,6 @@ export interface DeliveryResult {
 }
 
 export const deliveryService = {
-  /** Preview generated outputs without pushing. */
-  async preview(
-    sourceRepoId: string,
-    outputs: string[]
-  ): Promise<Record<string, string>> {
-    const response = await axios.post(`${API_URL}/api/v1/delivery/preview`, {
-      source_repo_id: sourceRepoId,
-      outputs,
-    })
-    return response.data
-  },
-
   /** Push architecture outputs to a target GitHub repository. */
   async apply(req: DeliveryRequest, token?: string): Promise<DeliveryResult> {
     const headers: Record<string, string> = {}
