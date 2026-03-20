@@ -1,7 +1,6 @@
 """Prompt builders for the coordinator (Opus) and subagents (Sonnet)."""
 from __future__ import annotations
 
-from collections import defaultdict
 
 from archie.coordinator.planner import SubagentAssignment
 from archie.engine.models import RawScan
