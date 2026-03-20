@@ -6,7 +6,6 @@ from pathlib import Path
 
 import click
 
-from archie.coordinator.planner import plan_subagent_groups
 from archie.coordinator.prompts import build_subagent_prompt
 from archie.engine.scan import run_scan
 
@@ -142,5 +141,5 @@ def run_refresh(project_root: Path, deep: bool = False) -> None:
         prompt_path = archie_dir / "refresh_prompt.md"
         prompt_path.write_text(full_prompt, encoding="utf-8")
 
-        click.echo(f"  Saved: .archie/refresh_prompt.md")
+        click.echo("  Saved: .archie/refresh_prompt.md")
         click.echo('\nRun /archie-refresh in Claude Code to complete deep analysis')
