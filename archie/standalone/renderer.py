@@ -492,7 +492,9 @@ def generate_claude_md(bp: dict) -> str:
     """Generate lean root CLAUDE.md (<120 lines)."""
     timestamp = datetime.now(timezone.utc).isoformat()
     repo = _get(bp, "meta", "repository", default="Unknown Repository") or "Unknown Repository"
-    style = _get(bp, "meta", "architecture_style", default="Not determined") or "Not determined"
+    style = (_get(bp, "meta", "architecture_style")
+             or _get(bp, "decisions", "architectural_style", "title")
+             or "Not determined")
 
     lines = []
 
