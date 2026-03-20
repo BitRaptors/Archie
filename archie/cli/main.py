@@ -1,4 +1,8 @@
 import click
+from pathlib import Path
+
+from archie.cli.init_command import run_init
+from archie.rules.extractor import load_rules, promote_rule, demote_rule
 
 @click.group()
 @click.version_option()
@@ -8,11 +12,49 @@ def cli():
 
 @cli.command()
 @click.argument("path", default=".", type=click.Path(exists=True))
-def init(path):
+@click.option("--local-only", is_flag=True, default=False, help="Run in local-only mode (no remote calls).")
+def init(path, local_only):
     """Analyze a repository and generate architecture blueprint + enforcement."""
-    click.echo(f"archie init {path} — not yet implemented")
+    run_init(Path(path), local_only=local_only)
 
 @cli.command()
 def status():
     """Show blueprint freshness and enforcement stats."""
     click.echo("archie status — not yet implemented")
+
+@cli.command()
+@click.argument("path", default=".", type=click.Path(exists=True))
+def rules(path):
+    """List all architecture rules."""
+    project_root = Path(path).resolve()
+    rule_list = load_rules(project_root)
+    if not rule_list:
+        click.echo("No rules found. Run `archie init` first.")
+        return
+    for r in rule_list:
+        sev = r.get("severity", "warn")
+        rid = r.get("id", "unknown")
+        desc = r.get("description", "")
+        click.echo(f"  [{sev}] {rid}: {desc}")
+
+@cli.command()
+@click.argument("rule_id")
+@click.argument("path", default=".", type=click.Path(exists=True))
+def promote(rule_id, path):
+    """Promote a rule to error severity (blocks code changes)."""
+    project_root = Path(path).resolve()
+    if promote_rule(project_root, rule_id):
+        click.echo(f"Rule {rule_id} promoted to error.")
+    else:
+        click.echo(f"Rule {rule_id} not found.")
+
+@cli.command()
+@click.argument("rule_id")
+@click.argument("path", default=".", type=click.Path(exists=True))
+def demote(rule_id, path):
+    """Demote a rule to warn severity (advisory only)."""
+    project_root = Path(path).resolve()
+    if demote_rule(project_root, rule_id):
+        click.echo(f"Rule {rule_id} demoted to warn.")
+    else:
+        click.echo(f"Rule {rule_id} not found.")
