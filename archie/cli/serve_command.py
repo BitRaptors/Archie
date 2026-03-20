@@ -1,7 +1,8 @@
 """Lightweight viewer server — reads from .archie/ files, no database needed."""
-from __future__ import annotations
 
+import asyncio
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -309,5 +310,110 @@ def _build_app(project_root: Path) -> Any:
     @app.get("/api/v1/repositories/")
     async def list_repositories():
         return []
+
+    # ── Local analysis trigger ────────────────────────────────────────────────
+
+    @app.post("/api/v1/repositories/local/validate")
+    async def validate_local(request: Request):
+        """Validate a local folder path."""
+        body = await request.json()
+        path = body.get("path", "")
+        p = Path(path)
+        return {
+            "valid": p.is_dir(),
+            "name": p.name if p.is_dir() else None,
+            "is_git_repo": (p / ".git").is_dir() if p.is_dir() else False,
+            "error": None if p.is_dir() else "Directory not found",
+        }
+
+    @app.post("/api/v1/repositories/local/analyze")
+    async def analyze_local(request: Request):
+        """Trigger archie init on a local path."""
+        body = await request.json()
+        local_path = body.get("local_path", str(project_root))
+        p = Path(local_path).resolve()
+        if not p.is_dir():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Directory not found")
+
+        # Run archie init <path> --local-only in background via subprocess
+        archie_bin = sys.executable
+        asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                [archie_bin, "-m", "archie", "init", str(p), "--local-only"],
+                capture_output=True,
+                text=True,
+            ),
+        )
+        return {"id": "local-analysis", "status": "running"}
+
+    # ── Analysis status SSE stream ────────────────────────────────────────────
+
+    @app.get("/api/v1/analyses/{analysis_id}/stream")
+    async def analysis_stream(analysis_id: str):
+        """SSE stream for analysis progress.
+
+        For the lightweight server, just send complete events immediately.
+        """
+        from starlette.responses import StreamingResponse
+
+        async def event_generator():
+            data_phase = json.dumps({"phase": "local_scan", "status": "complete"})
+            yield f"event: phase_complete\ndata: {data_phase}\n\n"
+            data_done = json.dumps({"status": "complete"})
+            yield f"event: analysis_complete\ndata: {data_done}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+
+    # ── Delivery (local strategy) ─────────────────────────────────────────────
+
+    @app.post("/api/v1/delivery/apply")
+    async def delivery_apply(request: Request):
+        """Apply delivery — render outputs to a target local path."""
+        body = await request.json()
+        target = Path(body.get("target_local_path", str(project_root))).resolve()
+
+        bp = _load_blueprint_json(project_root)
+        if not bp:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="No blueprint found to deliver")
+
+        target.mkdir(parents=True, exist_ok=True)
+
+        try:
+            from archie.renderer.render import render_outputs
+            rendered = render_outputs(bp, target)
+            files_delivered = sorted(rendered.keys())
+        except Exception as exc:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=500, detail=f"Render failed: {exc}")
+
+        return {
+            "status": "delivered",
+            "strategy": "local",
+            "pr_url": None,
+            "commit_sha": None,
+            "branch": None,
+            "files_delivered": files_delivered,
+        }
+
+    # ── Settings stubs (frontend calls these on load) ─────────────────────────
+
+    @app.get("/api/v1/settings/ignored-dirs")
+    async def ignored_dirs():
+        return []
+
+    @app.get("/api/v1/prompts/")
+    async def list_prompts():
+        return []
+
+    @app.delete("/api/v1/workspace/repositories/{repo_id}")
+    async def delete_repo(repo_id: str):
+        return {"deleted": True}
 
     return app
