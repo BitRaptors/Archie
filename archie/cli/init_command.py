@@ -79,11 +79,11 @@ def run_init(repo_path: Path, local_only: bool = False) -> None:
     # 7. Summary
     click.echo("")
     click.echo("Archie initialized successfully!")
-    click.echo(f"  .archie/scan.json")
-    click.echo(f"  .archie/coordinator_prompt.md")
+    click.echo("  .archie/scan.json")
+    click.echo("  .archie/coordinator_prompt.md")
     for i in range(1, len(groups) + 1):
         click.echo(f"  .archie/subagent_{i}_prompt.md")
-    click.echo(f"  .archie/rules.json")
-    click.echo(f"  .claude/hooks/inject-context.sh")
-    click.echo(f"  .claude/hooks/pre-validate.sh")
-    click.echo(f"  .claude/settings.local.json")
+    click.echo("  .archie/rules.json")
+    click.echo("  .claude/hooks/inject-context.sh")
+    click.echo("  .claude/hooks/pre-validate.sh")
+    click.echo("  .claude/settings.local.json")

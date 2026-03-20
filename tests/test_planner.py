@@ -1,7 +1,6 @@
 """Tests for archie.coordinator.planner."""
 from archie.coordinator.planner import (
     ALL_SECTIONS,
-    SubagentAssignment,
     plan_subagent_groups,
 )
 from archie.engine.models import FileEntry, RawScan

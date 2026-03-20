@@ -2,7 +2,6 @@
 from __future__ import annotations
 from pathlib import Path
 
-import pytest
 
 from archie.engine.hasher import count_tokens, hash_files
 from archie.engine.models import FileEntry
