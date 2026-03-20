@@ -78,6 +78,16 @@ def serve(port, path):
     run_serve(Path(path), port)
 
 @cli.command()
+@click.option("--files", "-f", multiple=True, help="Specific files to check (default: git diff)")
+@click.option("--path", default=".", type=click.Path(exists=True))
+def check(files, path):
+    """Check files against architecture rules (for CI)."""
+    from archie.cli.check_command import run_check
+    file_list = list(files) if files else None
+    exit_code = run_check(Path(path), file_list)
+    raise SystemExit(exit_code)
+
+@cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True), help="Project root with .archie/ directory.")
 def mcp(path):
     """Start MCP server reading from .archie/blueprint.json."""
