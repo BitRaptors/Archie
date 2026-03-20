@@ -1,82 +1,212 @@
-# Archie Refresh — Update Architecture Analysis
+# Archie Refresh — Update Architecture After Code Changes
 
-Refresh the architecture blueprint after code changes.
+Update the blueprint and per-folder CLAUDE.md files after code changes. No pip install needed.
 
-## Prerequisites
-
-`.archie/blueprint.json` must exist (run `/archie-init` first).
-
-## Process
-
-### Step 1: Run local refresh
+## Step 1: Run the refresh scanner
 
 ```bash
-archie refresh
+# Download if not present
+[ ! -f .archie/scanner.py ] && curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/scanner.py -o .archie/scanner.py
+[ ! -f .archie/refresh.py ] && curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/refresh.py -o .archie/refresh.py
+[ ! -f .archie/intent_layer.py ] && curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/intent_layer.py -o .archie/intent_layer.py
+
+# Run refresh (detects changes, re-scans)
+python3 .archie/refresh.py "$PWD"
 ```
 
-This rescans the file tree, updates hashes, and reports what changed since the last analysis.
+Read the output. If "No changes since last scan" — done. Tell the user nothing changed.
 
-### Step 2: Check if deep refresh is needed
+If changes were detected, continue to Step 2.
 
-If the refresh output shows new files, deleted files, or modified files that could affect architecture (new modules, changed entry points, new dependencies), proceed to Step 3.
+## Step 2: Determine if deep refresh is needed
 
-If only minor changes (typo fixes, content changes within existing patterns), no deep refresh needed.
+Changes fall into two categories:
 
-### Step 3: Deep refresh (if needed)
+**Minor changes (no deep refresh needed):**
+- Content changes within existing files (bug fixes, feature additions within existing patterns)
+- Files deleted (blueprint entries become stale but harmless)
+
+**Major changes (deep refresh recommended):**
+- New directories or modules added
+- New dependencies or frameworks
+- New entry points
+- Files moved between directories (architecture shift)
+
+If major changes: run deep refresh (Step 3). If minor: skip to Step 4.
+
+## Step 3: Deep refresh — re-analyze changed areas
 
 ```bash
-archie refresh --deep
+python3 .archie/refresh.py "$PWD" --deep
 ```
 
-This generates `.archie/refresh_prompt.md` targeting only the changed files.
+This generates `.archie/refresh_prompt.md` targeting the changed files.
 
-Read `.archie/refresh_prompt.md` and spawn a single Sonnet subagent to analyze the changes:
+Read `.archie/refresh_prompt.md` and spawn a Sonnet subagent:
 
-```
-Use the Agent tool with subagent_type: "Explore" and model: "sonnet".
-Pass the content of .archie/refresh_prompt.md as the prompt.
-```
+- `subagent_type: "Explore"`
+- `model: "sonnet"`
+- Give it the refresh prompt content
+- It should read the changed files and return updated blueprint sections as JSON
 
-### Step 4: Merge updates
-
-Take the subagent's JSON output and merge it into the existing blueprint:
+After the subagent returns, merge its output into the existing blueprint:
 
 ```bash
-source .venv/bin/activate && python3 -c "
-import json, sys
-sys.path.insert(0, '.')
-from archie.coordinator.merger import merge_subagent_outputs, save_blueprint, load_blueprint
-from archie.engine.models import RawScan
+python3 -c "
+import json
 
-scan = RawScan.model_validate_json(open('.archie/scan.json').read())
-existing = load_blueprint('.')
-new_output = {}  # Paste subagent JSON here
+# Load existing blueprint
+bp = json.loads(open('.archie/blueprint.json').read())
 
-merged = merge_subagent_outputs([existing, new_output], scan)
-save_blueprint('.', merged)
+# The subagent output (paste the JSON here or read from a file)
+updates = {}  # <-- Replace with actual subagent JSON output
+
+# Merge: for dict fields, update existing; for list fields, extend
+for key, value in updates.items():
+    if key in bp:
+        if isinstance(bp[key], dict) and isinstance(value, dict):
+            bp[key].update(value)
+        elif isinstance(bp[key], list) and isinstance(value, list):
+            existing_names = {item.get('name', '') for item in bp[key] if isinstance(item, dict)}
+            for item in value:
+                if isinstance(item, dict) and item.get('name', '') not in existing_names:
+                    bp[key].append(item)
+        else:
+            bp[key] = value
+    else:
+        bp[key] = value
+
+# Update timestamp
+from datetime import datetime, timezone
+bp.setdefault('meta', {})['analyzed_at'] = datetime.now(timezone.utc).isoformat()
+
+with open('.archie/blueprint.json', 'w') as f:
+    json.dump(bp, f, indent=2)
 print('Blueprint updated')
 "
 ```
 
-### Step 5: Re-render and update rules
+## Step 4: Regenerate outputs
+
+Regenerate CLAUDE.md and AGENTS.md from the updated blueprint:
 
 ```bash
-source .venv/bin/activate && python3 -c "
-import json, sys
-sys.path.insert(0, '.')
-from archie.renderer.render import render_outputs
-from archie.rules.extractor import extract_rules, save_rules
+python3 -c "
+import json, os
 
 bp = json.loads(open('.archie/blueprint.json').read())
-render_outputs(bp, '.')
-rules = extract_rules(bp)
-save_rules('.', rules)
-print('Outputs re-rendered, rules updated')
+repo = bp.get('meta', {}).get('repository', os.path.basename(os.getcwd()))
+rules = bp.get('architecture_rules', {})
+components = bp.get('components', {}).get('components', [])
+decisions = bp.get('decisions', {})
+tech = bp.get('technology', {})
+dev_rules = bp.get('development_rules', [])
+pitfalls = bp.get('pitfalls', [])
+
+lines = [f'# CLAUDE.md — {repo}', '', '> Architecture guidance auto-generated by Archie', '']
+
+style = decisions.get('architectural_style', {})
+if style:
+    lines += [f'## Architecture: {style.get(\"title\", \"\")}', style.get('decision', ''), '']
+
+if components:
+    lines += ['## Components', '']
+    for c in components:
+        lines.append(f'- **{c.get(\"name\", \"\")}** (\`{c.get(\"path\", \"\")}\`) — {c.get(\"purpose\", \"\")}')
+    lines.append('')
+
+placement = rules.get('file_placement_rules', [])
+if placement:
+    lines += ['## Where to Put Code', '']
+    for r in placement:
+        lines.append(f'- {r.get(\"description\", \"\")} → \`{r.get(\"location\", \"\")}\`')
+    lines.append('')
+
+naming = rules.get('naming_conventions', [])
+if naming:
+    lines += ['## Naming', '']
+    for n in naming:
+        lines.append(f'- {n.get(\"target\", \"\")}: {n.get(\"convention\", \"\")} (e.g. \`{n.get(\"example\", \"\")}\`)')
+    lines.append('')
+
+cmds = tech.get('run_commands', {})
+if cmds:
+    lines += ['## Commands', '', '\`\`\`bash']
+    for name, cmd in cmds.items():
+        lines.append(f'# {name}')
+        lines.append(cmd)
+    lines += ['\`\`\`', '']
+
+if dev_rules:
+    lines += ['## Rules', '']
+    for r in dev_rules[:10]:
+        lines.append(f'- {r.get(\"rule\", \"\")}')
+    lines.append('')
+
+with open('CLAUDE.md', 'w') as f:
+    f.write(chr(10).join(lines))
+print(f'Updated CLAUDE.md ({len(lines)} lines)')
 "
 ```
 
-### Step 6: Verify
+## Step 5: Regenerate per-folder CLAUDE.md files
 
 ```bash
-archie status
+python3 .archie/intent_layer.py "$PWD"
 ```
+
+## Step 6: Update enforcement rules
+
+```bash
+python3 -c "
+import json, re, os
+
+bp = json.loads(open('.archie/blueprint.json').read())
+rules = []
+
+for i, r in enumerate(bp.get('architecture_rules', {}).get('file_placement_rules', [])):
+    rules.append({
+        'id': f'placement-{i}', 'check': 'file_placement',
+        'description': r.get('description', ''),
+        'allowed_dirs': [r.get('location', '')] if r.get('location') else [],
+        'severity': 'warn',
+        'keywords': [w for w in re.findall(r'[a-zA-Z]{3,}', r.get('description', '').lower()) if w not in {'the','and','for','are','this','that','with','from','use','must'}],
+    })
+
+for i, n in enumerate(bp.get('architecture_rules', {}).get('naming_conventions', [])):
+    rules.append({
+        'id': f'naming-{i}', 'check': 'naming',
+        'description': f'{n.get(\"target\", \"\")}: {n.get(\"convention\", \"\")}',
+        'severity': 'warn',
+        'keywords': [n.get('target', ''), n.get('convention', '')],
+    })
+
+# Preserve promoted rules
+old_rules_path = '.archie/rules.json'
+old_severities = {}
+if os.path.exists(old_rules_path):
+    try:
+        old = json.loads(open(old_rules_path).read())
+        for r in old.get('rules', []):
+            if r.get('severity') == 'error':
+                old_severities[r['id']] = 'error'
+    except: pass
+
+for r in rules:
+    if r['id'] in old_severities:
+        r['severity'] = old_severities[r['id']]
+
+with open('.archie/rules.json', 'w') as f:
+    json.dump({'rules': rules}, f, indent=2)
+print(f'Updated {len(rules)} rules (preserved {len(old_severities)} promoted rules)')
+"
+```
+
+## Summary
+
+Tell the user what was updated:
+- Scan refreshed (new/changed/deleted files detected)
+- Blueprint updated (if deep refresh was done)
+- CLAUDE.md regenerated
+- Per-folder CLAUDE.md files regenerated
+- Enforcement rules updated
