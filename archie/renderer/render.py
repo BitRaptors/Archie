@@ -19,6 +19,9 @@ def render_outputs(blueprint_dict: dict, project_root: Path) -> dict[str, str]:
     from application.services.blueprint_renderer import render_blueprint_markdown
     from application.services.agent_file_generator import generate_all
 
+    # Normalize subagent output to match StructuredBlueprint schema
+    _normalize_blueprint_dict(blueprint_dict)
+
     # Parse the dict into a StructuredBlueprint (Pydantic validates/coerces)
     bp = StructuredBlueprint.model_validate(blueprint_dict)
 
@@ -43,3 +46,21 @@ def render_outputs(blueprint_dict: dict, project_root: Path) -> dict[str, str]:
         full_path.write_text(content)
 
     return files
+
+
+def _normalize_blueprint_dict(bp: dict) -> None:
+    """Normalize subagent output to match StructuredBlueprint schema in-place."""
+    # key_files: list[str] -> list[dict[str, str]]
+    for comp in bp.get("components", {}).get("components", []):
+        if "key_files" in comp and comp["key_files"]:
+            comp["key_files"] = [
+                {"path": f, "purpose": ""} if isinstance(f, str) else f
+                for f in comp["key_files"]
+            ]
+    # contracts implementing_files: same normalization
+    for contract in bp.get("components", {}).get("contracts", []):
+        if "implementing_files" in contract and contract["implementing_files"]:
+            if isinstance(contract["implementing_files"][0], str):
+                contract["implementing_files"] = [
+                    {"path": f} for f in contract["implementing_files"]
+                ]
