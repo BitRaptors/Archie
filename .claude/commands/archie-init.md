@@ -4,84 +4,68 @@ Analyze this repository's architecture. Zero dependencies — works with any lan
 
 **Prerequisites:** Run `npx archie-lite` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie-lite` and try again.
 
+**IMPORTANT: Do NOT write inline Python scripts. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown. Do NOT generate code to parse JSON, extract data, or create files. The scripts handle everything.**
+
 ## Step 1: Run the scanner
 
 ```bash
 python3 .archie/scanner.py "$PWD"
 ```
 
-This produces `.archie/scan.json` with the full local analysis (file tree, dependencies, frameworks, import graph, token counts).
+## Step 2: Read scan results
 
-## Step 2: Read the scan results
+Read `.archie/scan.json`. Note total files, detected frameworks, and top-level directories. If total estimated tokens < 150,000, use 1 subagent. Otherwise split by top-level directory.
 
-Read `.archie/scan.json`. Note the total files, detected frameworks, dependencies, and top-level directories. These determine how many subagents to spawn.
+## Step 3: Spawn subagents
 
-## Step 3: Plan subagent groups
+For each group, spawn a Sonnet subagent (Agent tool, `subagent_type: "Explore"`, `model: "sonnet"`).
 
-Group files by top-level directory. Each group should be under ~150,000 estimated tokens. For small repos (under 150k total), use a single group.
+Each subagent must read all assigned files and return a JSON object with these sections: `meta`, `architecture_rules`, `decisions`, `components`, `communication`, `quick_reference`, `technology`, `frontend`, `developer_recipes`, `architecture_diagram`, `pitfalls`, `implementation_guidelines`, `development_rules`, `deployment`.
 
-## Step 4: Spawn subagents
+Tell each subagent: "Focus on what AI CANNOT infer from individual files: cross-file relationships, architecture decisions, conventions, integration patterns. Return ONLY valid JSON."
 
-For each file group, spawn a Sonnet subagent using the Agent tool with `subagent_type: "Explore"` and `model: "sonnet"`.
+**Spawn ALL subagents in parallel.**
 
-Each subagent should read all assigned files and return a JSON object matching the StructuredBlueprint schema. Include these sections: `meta`, `architecture_rules`, `decisions`, `components`, `communication`, `quick_reference`, `technology`, `frontend`, `developer_recipes`, `architecture_diagram`, `pitfalls`, `implementation_guidelines`, `development_rules`, `deployment`.
+## Step 4: Save subagent output and merge
 
-Tell each subagent to focus on what AI CANNOT infer from individual files: cross-file relationships, implicit contracts, architecture decisions, integration patterns, and conventions that span multiple files.
+After each subagent completes, use the Write tool to save its JSON output to a temporary file. Save the COMPLETE output text — the merge script handles JSON extraction.
 
-**Spawn ALL subagents in parallel** (single message with multiple Agent calls).
+```
+Write /tmp/archie_sub1.json with the first subagent's output
+Write /tmp/archie_sub2.json with the second subagent's output (if applicable)
+```
 
-## Step 5: Merge results
-
-Save each subagent's JSON output to a temporary file (e.g. `/tmp/archie_sub1.json`, `/tmp/archie_sub2.json`). If the output contains markdown or extra text, save the raw text — the merger handles extraction.
-
-Then merge:
+Then merge. The merge script normalizes the data to the correct schema automatically:
 
 ```bash
 python3 .archie/merge.py "$PWD" /tmp/archie_sub1.json /tmp/archie_sub2.json
 ```
 
-For a single subagent, you can also pipe directly:
-
-```bash
-echo '<subagent output text>' | python3 .archie/merge.py "$PWD" -
-```
-
-This produces `.archie/blueprint.json`.
-
-## Step 6: Render outputs
+## Step 5: Render all outputs
 
 ```bash
 python3 .archie/renderer.py "$PWD"
-```
-
-## Step 7: Generate per-folder CLAUDE.md files
-
-```bash
 python3 .archie/intent_layer.py "$PWD"
-```
-
-## Step 8: Extract enforcement rules
-
-```bash
 python3 .archie/rules.py "$PWD"
-```
-
-## Step 9: Install enforcement hooks
-
-```bash
 python3 .archie/install_hooks.py "$PWD"
 ```
 
-## Step 10: Summary
+Run all four commands. They read `.archie/blueprint.json` and generate everything.
+
+## Step 6: Clean up and summarize
+
+```bash
+rm -f /tmp/archie_sub*.json
+```
 
 Print what was generated:
 - `.archie/blueprint.json` — architecture blueprint
-- `.archie/rules.json` — enforcement rules
 - `CLAUDE.md` — root architecture context
 - `AGENTS.md` — comprehensive agent guidance
-- `.claude/rules/` — topic-split rule files
+- `.claude/rules/` — 7 topic-split rule files
 - `.cursor/rules/` — Cursor rule files
 - Per-folder `CLAUDE.md` — directory-level context
 - `.claude/hooks/` — real-time enforcement hooks
+- `.archie/rules.json` — enforcement rules
 
 Tell the user: "Archie is now active. Architecture rules will be enforced on every code change."
