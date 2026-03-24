@@ -58,7 +58,9 @@ def get_file_descriptions(directory: str, components: list[dict]) -> dict[str, s
                 purpose = ""
             else:
                 continue
-            if path and (path.startswith(directory) or directory in path):
+            # Match only files directly in this directory (not children)
+            file_dir = str(Path(path).parent) if "/" in path else ""
+            if path and file_dir == directory:
                 fname = path.rsplit("/", 1)[-1] if "/" in path else path
                 if purpose:
                     descriptions[fname] = purpose
