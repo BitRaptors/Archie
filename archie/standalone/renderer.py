@@ -233,6 +233,12 @@ def _build_patterns_rule(bp: dict):
             alternatives = dec.get("alternatives_rejected") or []
             if alternatives:
                 lines.append(f"**Rejected:** {', '.join(alternatives)}")
+            forced_by = dec.get("forced_by", "")
+            if forced_by:
+                lines.append(f"**Forced by:** {forced_by}")
+            enables = dec.get("enables", "")
+            if enables:
+                lines.append(f"**Enables:** {enables}")
             lines.append("")
 
     # Trade-offs
@@ -240,12 +246,13 @@ def _build_patterns_rule(bp: dict):
     if trade_offs:
         lines.append("## Trade-offs Accepted")
         lines.append("")
-        lines.append("| Accepted | Benefit |")
-        lines.append("|----------|---------|")
+        lines.append("| Accepted | Benefit | Caused by |")
+        lines.append("|----------|---------|-----------|")
         for to in trade_offs:
             accept = to.get("accept", "") or to.get("accepted", "")
             benefit = to.get("benefit", "") or to.get("gained", "")
-            lines.append(f"| {accept} | {benefit} |")
+            caused_by = to.get("caused_by", "")
+            lines.append(f"| {accept} | {benefit} | {caused_by} |")
         lines.append("")
 
     # Out of Scope
@@ -411,6 +418,8 @@ def _build_pitfalls_rule(bp: dict):
                 continue
             area_label = f"**{pitfall['area']}:** " if pitfall.get("area") else ""
             lines.append(f"- {area_label}{pitfall.get('description', '')}")
+            if pitfall.get("stems_from"):
+                lines.append(f"  - *stems from: {pitfall['stems_from']}*")
             if pitfall.get("recommendation"):
                 lines.append(f"  - *{pitfall['recommendation']}*")
         lines.append("")
@@ -548,6 +557,14 @@ def generate_claude_md(bp: dict) -> str:
             lines.append(ad["rationale"])
         lines.append("")
 
+    # Decision chain (compact — root + top-level forces)
+    dc = _get(bp, "decisions", "decision_chain", default={}) or {}
+    if dc.get("root"):
+        lines.append(f"**Root constraint:** {dc['root']}")
+        for f in (dc.get("forces") or [])[:5]:
+            lines.append(f"- → {f.get('decision', '')}")
+        lines.append("")
+
     # Trade-offs summary (top 3)
     trade_offs = _get(bp, "decisions", "trade_offs", default=[]) or []
     if trade_offs:
@@ -681,6 +698,10 @@ def generate_agents_md(bp: dict) -> str:
             alternatives = dec.get("alternatives_rejected") or []
             if alternatives:
                 lines.append(f"  - Rejected: {', '.join(alternatives)}")
+            if dec.get("forced_by"):
+                lines.append(f"  - Forced by: {dec['forced_by']}")
+            if dec.get("enables"):
+                lines.append(f"  - Enables: {dec['enables']}")
         if key_decs:
             lines.append("")
         if trade_offs:
@@ -698,6 +719,21 @@ def generate_agents_md(bp: dict) -> str:
             for item in out_of_scope:
                 lines.append(f"- {item}")
             lines.append("")
+
+    # Decision Chain
+    decision_chain = _get(bp, "decisions", "decision_chain", default={}) or {}
+    if decision_chain.get("root"):
+        lines.append("## Decision Chain")
+        lines.append("")
+        lines.append(f"**Root constraint:** {decision_chain['root']}")
+        lines.append("")
+        def _render_chain(forces, indent=0):
+            for f in (forces or []):
+                prefix = "  " * indent + "- "
+                lines.append(f"{prefix}**{f.get('decision', '')}**: {f.get('rationale', '')}")
+                _render_chain(f.get("forces", []), indent + 1)
+        _render_chain(decision_chain.get("forces", []))
+        lines.append("")
 
     # 2. Deployment
     dep = _as_dict(bp.get("deployment"))
@@ -870,6 +906,8 @@ def generate_agents_md(bp: dict) -> str:
                 continue
             area_label = f"**{pitfall['area']}:** " if pitfall.get("area") else ""
             lines.append(f"- {area_label}{pitfall.get('description', '')}")
+            if pitfall.get("stems_from"):
+                lines.append(f"  - *stems from: {pitfall['stems_from']}*")
             if pitfall.get("recommendation"):
                 lines.append(f"  - *{pitfall['recommendation']}*")
         lines.append("")
