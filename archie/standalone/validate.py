@@ -82,8 +82,8 @@ def check_paths(root: Path) -> list[dict]:
         # Format: "**label** → `path`"
         for match in re.finditer(r"→\s*`([^`]+)`", content):
             rel_path = match.group(1)
-            # Skip template patterns like [resource], [name], [session_id]
-            if "[" in rel_path:
+            # Skip template patterns like [resource], [name], {resource}, {timestamp}
+            if "[" in rel_path or "{" in rel_path:
                 continue
             full = root / rel_path
             if not full.exists() and not full.parent.exists():
@@ -96,14 +96,19 @@ def check_paths(root: Path) -> list[dict]:
                 })
 
         # Check all directory-like paths referenced in AGENTS.md
+        # Strip code blocks first — they contain tree diagrams, code samples, etc.
+        content_no_code = re.sub(r'```[\s\S]*?```', '', content)
         # Match paths like src/something/, public/output/, lib/utils, etc.
-        for match in re.finditer(r'(?:^|\s|`)((?:src|lib|app|public|test|tests|spec|internal|pkg|cmd|data|output|dist|build|assets)/[\w\[\]\.{}/\-]+)', content):
+        for match in re.finditer(r'(?:^|\s|`)((?:src|lib|app|public|test|tests|spec|internal|pkg|cmd|data|output|dist|build|assets)/[\w\[\]\.{}/\-]+)', content_no_code):
             ref_path = match.group(1).rstrip("/")
-            # Skip template patterns like [resource], [name]
-            if "[" in ref_path and "]" in ref_path:
+            # Skip template patterns like [resource], [name], {resource}, {timestamp}
+            if ("[" in ref_path and "]" in ref_path) or ("{" in ref_path and "}" in ref_path):
                 continue
             # Skip glob patterns
             if "*" in ref_path:
+                continue
+            # Skip truncated template paths (e.g. output/site- from output/site-<timestamp>)
+            if ref_path.endswith("-") or "<" in ref_path:
                 continue
             # Strip trailing filename to check directory
             if "." in ref_path.rsplit("/", 1)[-1]:
@@ -384,7 +389,7 @@ def check_pitfalls(root: Path) -> list[dict]:
             else:
                 ref_dir = ref
             # Skip template patterns
-            if "[" in ref_dir and "]" in ref_dir:
+            if ("[" in ref_dir and "]" in ref_dir) or ("{" in ref_dir and "}" in ref_dir):
                 continue
             if ref_dir and ref_dir not in seen_refs:
                 seen_refs.add(ref_dir)

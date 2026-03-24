@@ -29,7 +29,7 @@ mkdirSync(claudeCommands, { recursive: true });
 mkdirSync(archieDir, { recursive: true });
 
 // 2. Copy Claude Code commands
-for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-enrich.md"]) {
+for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-enrich.md", "archie-viewer.md"]) {
   const src = join(ASSETS, cmd);
   const dest = join(claudeCommands, cmd);
   if (existsSync(src)) {
@@ -39,7 +39,7 @@ for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-enrich.md"]) {
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "enrich.py", "enrich_test.py", "validate.py"]) {
+for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "enrich.py", "enrich_test.py", "validate.py", "viewer.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {

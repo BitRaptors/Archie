@@ -124,6 +124,20 @@ def _build_architecture_rule(bp: dict):
             deps = comp.get("depends_on") or []
             if deps:
                 lines.append(f"- **Depends on:** {', '.join(deps)}")
+            key_ifaces = comp.get("key_interfaces") or []
+            if key_ifaces:
+                if isinstance(key_ifaces[0], dict):
+                    iface_strs = []
+                    for iface in key_ifaces:
+                        name = iface.get("name", "")
+                        methods = iface.get("methods") or []
+                        if methods:
+                            iface_strs.append(f"`{name}` ({', '.join(methods)})")
+                        else:
+                            iface_strs.append(f"`{name}`")
+                    lines.append(f"- **Key interfaces:** {', '.join(iface_strs)}")
+                elif isinstance(key_ifaces[0], str):
+                    lines.append(f"- **Key interfaces:** {', '.join(f'`{i}`' for i in key_ifaces)}")
             lines.append("")
 
     # File Placement
@@ -216,7 +230,32 @@ def _build_patterns_rule(bp: dict):
             rationale = dec.get("rationale", "")
             if rationale:
                 lines.append(f"**Rationale:** {rationale}")
+            alternatives = dec.get("alternatives_rejected") or []
+            if alternatives:
+                lines.append(f"**Rejected:** {', '.join(alternatives)}")
             lines.append("")
+
+    # Trade-offs
+    trade_offs = _get(bp, "decisions", "trade_offs", default=[]) or []
+    if trade_offs:
+        lines.append("## Trade-offs Accepted")
+        lines.append("")
+        lines.append("| Accepted | Benefit |")
+        lines.append("|----------|---------|")
+        for to in trade_offs:
+            accept = to.get("accept", "") or to.get("accepted", "")
+            benefit = to.get("benefit", "") or to.get("gained", "")
+            lines.append(f"| {accept} | {benefit} |")
+        lines.append("")
+
+    # Out of Scope
+    out_of_scope = _get(bp, "decisions", "out_of_scope", default=[]) or []
+    if out_of_scope:
+        lines.append("## Out of Scope")
+        lines.append("")
+        for item in out_of_scope:
+            lines.append(f"- {item}")
+        lines.append("")
 
     if not lines:
         return None
@@ -318,29 +357,10 @@ You MUST call its tools for every architecture decision — no exceptions.
     }
 
 
-def _build_recipes_rule(bp: dict):
-    """Developer recipes + implementation guidelines."""
+def _build_guidelines_rule(bp: dict):
+    """Implementation guidelines."""
     lines = []
 
-    # Developer Recipes
-    recipes = bp.get("developer_recipes") or []
-    if recipes:
-        lines.append("## Developer Recipes")
-        lines.append("")
-        for recipe in recipes:
-            if not recipe.get("task"):
-                continue
-            lines.append(f"### {recipe['task']}")
-            files = recipe.get("files") or []
-            if files:
-                lines.append(f"Files: {', '.join(f'`{f}`' for f in files)}")
-            steps = recipe.get("steps") or []
-            if steps:
-                for i, step in enumerate(steps, 1):
-                    lines.append(f"{i}. {step}")
-            lines.append("")
-
-    # Implementation Guidelines
     guidelines = bp.get("implementation_guidelines") or []
     if guidelines:
         lines.append("## Implementation Guidelines")
@@ -370,9 +390,9 @@ def _build_recipes_rule(bp: dict):
         return None
 
     return {
-        "topic": "recipes",
+        "topic": "guidelines",
         "body": "\n".join(lines).rstrip(),
-        "description": "Developer recipes and implementation guidelines",
+        "description": "Implementation guidelines for existing capabilities",
         "always_apply": True,
         "globs": [],
     }
@@ -528,6 +548,16 @@ def generate_claude_md(bp: dict) -> str:
             lines.append(ad["rationale"])
         lines.append("")
 
+    # Trade-offs summary (top 3)
+    trade_offs = _get(bp, "decisions", "trade_offs", default=[]) or []
+    if trade_offs:
+        lines.append("**Key trade-offs:**")
+        for to in trade_offs[:3]:
+            accept = to.get("accept", "") or to.get("accepted", "")
+            benefit = to.get("benefit", "") or to.get("gained", "")
+            lines.append(f"- {accept} → {benefit}")
+        lines.append("")
+
     # Deployment
     dep = _as_dict(bp.get("deployment"))
     if dep.get("runtime_environment"):
@@ -537,6 +567,16 @@ def generate_claude_md(bp: dict) -> str:
         if dep.get("ci_cd"):
             cleaned = [_clean_str_item(x) for x in dep["ci_cd"]]
             lines.append(f"**CI/CD:** {', '.join(cleaned)}")
+        lines.append("")
+
+    # Architecture Diagram
+    diagram = bp.get("architecture_diagram") or ""
+    if diagram:
+        lines.append("## Architecture Diagram")
+        lines.append("")
+        lines.append("```mermaid")
+        lines.append(diagram.strip())
+        lines.append("```")
         lines.append("")
 
     # Commands
@@ -558,7 +598,7 @@ def generate_claude_md(bp: dict) -> str:
     lines.append("")
     lines.append("- `architecture.md` — Components, file placement, naming conventions")
     lines.append("- `patterns.md` — Communication patterns, key decisions")
-    lines.append("- `recipes.md` — Developer recipes, implementation guidelines")
+    lines.append("- `guidelines.md` — Implementation guidelines")
     lines.append("- `pitfalls.md` — Common pitfalls, error mapping")
     lines.append("- `dev-rules.md` — Development rules (always/never imperatives)")
     lines.append("- `mcp-tools.md` — MCP server tool reference")
@@ -619,6 +659,45 @@ def generate_agents_md(bp: dict) -> str:
             techs = ", ".join(by_cat[cat])
             lines.append(f"- **{cat}:** {techs}")
         lines.append("")
+
+    # Key Decisions
+    ad = _get(bp, "decisions", "architectural_style", default={}) or {}
+    key_decs = _get(bp, "decisions", "key_decisions", default=[]) or []
+    trade_offs = _get(bp, "decisions", "trade_offs", default=[]) or []
+    out_of_scope = _get(bp, "decisions", "out_of_scope", default=[]) or []
+    has_decisions = ad.get("chosen") or key_decs or trade_offs or out_of_scope
+    if has_decisions:
+        lines.append("## Key Decisions")
+        lines.append("")
+        if ad.get("chosen"):
+            lines.append(f"**Architecture:** {ad['chosen']}")
+            if ad.get("rationale"):
+                lines.append(f"  - *{ad['rationale']}*")
+            lines.append("")
+        for dec in key_decs:
+            lines.append(f"- **{dec.get('title', '')}:** {dec.get('chosen', '')}")
+            if dec.get("rationale"):
+                lines.append(f"  - *{dec['rationale']}*")
+            alternatives = dec.get("alternatives_rejected") or []
+            if alternatives:
+                lines.append(f"  - Rejected: {', '.join(alternatives)}")
+        if key_decs:
+            lines.append("")
+        if trade_offs:
+            lines.append("**Trade-offs:**")
+            lines.append("")
+            lines.append("| Accepted | Benefit |")
+            lines.append("|----------|---------|")
+            for to in trade_offs:
+                accept = to.get("accept", "") or to.get("accepted", "")
+                benefit = to.get("benefit", "") or to.get("gained", "")
+                lines.append(f"| {accept} | {benefit} |")
+            lines.append("")
+        if out_of_scope:
+            lines.append("**Out of scope:**")
+            for item in out_of_scope:
+                lines.append(f"- {item}")
+            lines.append("")
 
     # 2. Deployment
     dep = _as_dict(bp.get("deployment"))
@@ -753,6 +832,10 @@ def generate_agents_md(bp: dict) -> str:
         rec = pitfall.get("recommendation") or ""
         if rec and "never" in rec.lower():
             never_items.append(rec)
+    # Add out-of-scope items as nevers
+    oos = _get(bp, "decisions", "out_of_scope", default=[]) or []
+    for item in oos[:5]:
+        never_items.append(item)
     for item in never_items:
         lines.append(f"- {item}")
     lines.append("")
@@ -778,26 +861,7 @@ def generate_agents_md(bp: dict) -> str:
             lines.append("```")
             lines.append("")
 
-    # 9. Common Workflows
-    recipes = bp.get("developer_recipes") or []
-    if recipes:
-        lines.append("## Common Workflows")
-        lines.append("")
-        for recipe in recipes:
-            if not recipe.get("task"):
-                continue
-            lines.append(f"### {recipe['task']}")
-            files = recipe.get("files") or []
-            if files:
-                lines.append(f"Files: {', '.join(f'`{f}`' for f in files)}")
-            steps = recipe.get("steps") or []
-            if steps:
-                for i, step in enumerate(steps, 1):
-                    step = re.sub(r'^\d+[\.\)]\s*', '', step)
-                    lines.append(f"{i}. {step}")
-            lines.append("")
-
-    # 10. Pitfalls & Gotchas
+    # 9. Pitfalls & Gotchas
     if pitfalls:
         lines.append("## Pitfalls & Gotchas")
         lines.append("")
@@ -857,7 +921,7 @@ def generate_all(bp: dict) -> dict:
         _build_patterns_rule,
         _build_frontend_rule,
         _build_mcp_tools_rule,
-        _build_recipes_rule,
+        _build_guidelines_rule,
         _build_pitfalls_rule,
         _build_dev_rules_rule,
     ]

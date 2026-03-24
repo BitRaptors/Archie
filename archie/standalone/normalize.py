@@ -72,8 +72,6 @@ Every field name below is EXACT. Map the raw data to these fields. Do NOT invent
 - styling: string
 - key_conventions: string[]
 
-### developer_recipes: array of {task, files: string[], steps: string[]}
-
 ### architecture_diagram: string — Mermaid graph TD syntax
 
 ### pitfalls: array of {area, description, recommendation}
@@ -157,7 +155,7 @@ def cmd_apply(root: Path):
             if not isinstance(bp[key], dict):
                 bp[key] = {}
 
-    for key in ("developer_recipes", "pitfalls", "implementation_guidelines",
+    for key in ("pitfalls", "implementation_guidelines",
                 "development_rules"):
         if key not in bp or not isinstance(bp.get(key), list):
             bp[key] = bp.get(key, [])
@@ -175,7 +173,6 @@ def cmd_apply(root: Path):
     pattern_count = len(bp.get("communication", {}).get("patterns", []))
     decision_count = len(bp.get("decisions", {}).get("key_decisions", []))
     pitfall_count = len(bp.get("pitfalls", []))
-    recipe_count = len(bp.get("developer_recipes", []))
     guideline_count = len(bp.get("implementation_guidelines", []))
     rule_count = len(bp.get("development_rules", []))
     style = bp.get("meta", {}).get("architecture_style", "")
@@ -183,7 +180,7 @@ def cmd_apply(root: Path):
     print(f"Normalized blueprint saved: {bp_path}", file=sys.stderr)
     print(f"  Style: {style}", file=sys.stderr)
     print(f"  {comp_count} components, {pattern_count} patterns, {decision_count} decisions", file=sys.stderr)
-    print(f"  {pitfall_count} pitfalls, {recipe_count} recipes, {guideline_count} guidelines, {rule_count} rules", file=sys.stderr)
+    print(f"  {pitfall_count} pitfalls, {guideline_count} guidelines, {rule_count} rules", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

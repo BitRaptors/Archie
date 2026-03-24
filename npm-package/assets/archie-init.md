@@ -4,7 +4,7 @@ Analyze this repository's architecture. Zero dependencies — works with any lan
 
 **Prerequisites:** Run `npx archie-lite` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie-lite` and try again.
 
-**IMPORTANT: Do NOT write inline Python scripts. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown. Do NOT generate code to parse JSON, extract data, or create files. The scripts handle everything.**
+**IMPORTANT: Do NOT write inline Python scripts or bash one-liners. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown. Do NOT generate code to parse JSON, extract data, or create files. The scripts handle everything. If a step produces an error, follow the instructions for that step exactly — do not improvise workarounds.**
 
 ## Step 1: Run the scanner
 
@@ -14,15 +14,421 @@ python3 .archie/scanner.py "$PWD"
 
 ## Step 2: Read scan results
 
-Read `.archie/scan.json`. Note total files, detected frameworks, and top-level directories. If total estimated tokens < 150,000, use 1 subagent. Otherwise split by top-level directory.
+Read `.archie/scan.json`. Note total files, detected frameworks, and top-level directories. Check if frontend code is detected (look for React, Vue, Angular, Svelte, Next.js, Nuxt, Flutter, SwiftUI, Jetpack Compose, React Native, etc. in frameworks or file extensions like .tsx, .jsx, .vue, .svelte, .dart, .swift, .kt).
 
-## Step 3: Spawn analysis subagents
+## Step 3: Spawn parallel analytical agents
 
-For each group, spawn an Opus subagent (Agent tool, `subagent_type: "Explore"`, `model: "opus"`).
+Spawn 4–5 Opus subagents in parallel (Agent tool, `model: "opus"`), each focused on a different analytical concern. ALL agents read ALL source files — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
 
-Each subagent must read all assigned files and return a JSON object with these sections: `meta`, `architecture_rules`, `decisions`, `components`, `communication`, `quick_reference`, `technology`, `frontend`, `developer_recipes`, `architecture_diagram`, `pitfalls`, `implementation_guidelines`, `development_rules`, `deployment`.
+**If frontend code was detected in Step 2, spawn all 5 agents (A–E). Otherwise spawn only agents A–D.**
 
-Tell each subagent:
+---
+
+### Agent A: "Structure & Components"
+
+> **CRITICAL INSTRUCTIONS:**
+> You are analyzing a codebase to understand its architecture. Your goal is to OBSERVE and DESCRIBE what exists, NOT to categorize it into known patterns.
+>
+> **DO NOT:**
+> - Assume this is a "layered architecture", "MVC", "Clean Architecture", or any specific pattern
+> - Look for patterns that match your training data
+> - Force observations into predefined categories
+>
+> **DO:**
+> - Describe the ACTUAL file organization you see
+> - Identify how files relate to each other based on naming and imports
+> - Note any conventions unique to this codebase
+>
+> Read all source files. Analyze the actual structure of this codebase:
+>
+> ### 1. Project Type & Platforms
+> - Identify if this is a monorepo, single app, microservice, serverless, full-stack, library, etc.
+> - List ALL platforms found: backend, web-frontend, mobile-ios, mobile-android, desktop, CLI, shared/common
+> - List main entry point files for EACH platform (main.py, index.ts, App.tsx, AppDelegate.swift, MainActivity.kt, main.dart, etc.)
+> - Document module/package organization approach
+>
+> ### 2. Components
+> Identify main components from actual code — class names, imports, file organization. For each component:
+> - **name**: Component name
+> - **location**: Directory path (MUST exist in file_tree)
+> - **platform**: backend | frontend | shared | ios | android
+> - **responsibility**: Describe what the code DOES, not what names suggest. BAD: "Handles business logic". GOOD: "Orchestrates weather data fetching via WeatherProvider, manages profile state, coordinates push notification scheduling". Reference actual class names and services.
+> - **depends_on**: From actual import statements
+> - **exposes_to**: What other components consume from it
+> - **key_interfaces**: Actual method/function names with brief description. For API routes, list ONLY methods actually implemented — do NOT assume CRUD.
+> - **key_files**: With descriptions of what each file does (paths MUST exist in file_tree)
+>
+> ### 3. Layers
+> Analyze ALL platforms (backend AND frontend). Only document layers you can clearly identify from:
+> 1. Import patterns between directories
+> 2. Directory structure and naming
+> 3. Actual code organization
+>
+> **If no clear layers exist**, set structure_type to flat, modular, or feature-based and document the actual structure.
+>
+> For each layer found, document: name, platform (backend|frontend|shared), location, responsibility (SPECIFIC — reference actual classes), contains (component types), depends_on (from imports), exposes_to, key_files.
+>
+> Common backend patterns (only if they ACTUALLY exist): Presentation/API (routes, controllers, DTOs), Application/Service (orchestration, use cases), Domain (entities, interfaces), Infrastructure (database, external APIs, caching).
+> Common frontend patterns (only if they ACTUALLY exist): Pages/Views, Features/Containers, Components/UI, Hooks/Services, State/Store.
+>
+> ### 4. Architecture Style
+> Describe in plain language. Examples: "Actor-based with message passing", "Event-sourced with CQRS separation", "Feature-sliced with co-located concerns", "Traditional layered with services and repositories", "Functional core with imperative shell" — or describe something completely unique.
+>
+> ### 5. File Placement & Naming
+> - Where do tests, configs, components, services actually live? With naming patterns observed.
+> - Search the file_tree for where test files, config files, build output, and generated code actually live. Do NOT assume conventional locations.
+> - Document actual naming conventions: PascalCase components, snake_case utils, kebab-case files, etc. With 2-4 examples each.
+>
+> ### 6. Framework Usage
+> Catalog external frameworks/libraries from import statements. For each, note the framework name and usage scope.
+>
+> Return JSON:
+> ```json
+> {
+>   "meta": {
+>     "architecture_style": "plain language description",
+>     "platforms": ["backend", "web-frontend"],
+>     "executive_summary": "3-5 factual sentences: what this does, primary tech, architecture style. No filler."
+>   },
+>   "components": {
+>     "structure_type": "layered | flat | modular | feature-based",
+>     "components": [
+>       {"name": "", "location": "", "platform": "", "responsibility": "", "depends_on": [], "exposes_to": [], "key_interfaces": [{"name": "", "methods": [], "description": ""}], "key_files": [{"file": "", "description": ""}]}
+>     ]
+>   },
+>   "architecture_rules": {
+>     "file_placement_rules": [
+>       {"component_type": "", "naming_pattern": "", "location": "", "example": "", "description": ""}
+>     ],
+>     "naming_conventions": [
+>       {"scope": "", "pattern": "", "examples": [], "description": ""}
+>     ]
+>   }
+> }
+> ```
+
+### Agent B: "Patterns & Communication"
+
+> Read all source files. Analyze design patterns and communication across ALL platforms (backend AND frontend).
+>
+> ### 1. Structural Patterns (identify with concrete examples)
+> **Backend:**
+> - **Dependency Injection**: How are dependencies wired? Container? Manual? Framework? (@inject, providers, etc.)
+> - **Repository**: How is data access abstracted? Interface + implementation? Active Record?
+> - **Factory**: How are complex objects created?
+> - **Registry/Plugin**: How are multiple implementations managed?
+>
+> **Frontend:**
+> - **Component Composition**: How are UI components composed? HOC? Render props? Hooks? Slots?
+> - **Data Fetching**: How is server state managed? React Query? SWR? Apollo? Combine? Coroutines?
+> - **State Management**: Global state approach? Context? Redux? Zustand? @Observable? ViewModel+StateFlow? Bloc?
+> - **Routing**: File-based? Config-based? NavigationStack? NavGraph?
+>
+> For each pattern found: pattern name, platform (backend|frontend|shared), implementation description, example file paths.
+>
+> ### 2. Behavioral Patterns
+> - **Service Orchestration**: How are multi-step workflows coordinated?
+> - **Streaming**: How are long-running responses handled? SSE? WebSockets? gRPC streams?
+> - **Event-Driven**: Are there publish/subscribe patterns? Event buses?
+> - **Optimistic Updates**: How are UI updates handled before server confirmation?
+> - **State Machines**: Any explicit state machine patterns?
+>
+> ### 3. Cross-Cutting Patterns
+> - **Error Handling**: Custom exceptions? Error boundaries? Global handler? Error mapping? What errors map to what status codes?
+> - **Validation**: Where? How? What library? Client-side vs server-side?
+> - **Authentication**: JWT? Session? OAuth? Where validated? How propagated to frontend?
+> - **Logging**: Structured? What logger? What's logged?
+> - **Caching**: What's cached? TTL strategy? Browser cache? Server cache?
+>
+> For each: concern, approach, location (actual file paths).
+>
+> ### 4. Internal Communication
+> - **Backend**: Direct method calls between layers, in-process events, message buses
+> - **Frontend**: Props, Context, event emitters, pub/sub, state management stores
+> - **Cross-Platform**: API calls from frontend to backend, shared types/contracts
+>
+> ### 5. External Communication
+> - **HTTP/REST**: External API calls (both backend-to-external and frontend-to-backend)
+> - **Message Queue**: Async job processing (Redis, RabbitMQ, etc.)
+> - **Streaming**: SSE, WebSockets, gRPC streams
+> - **Database**: Query patterns, transactions, ORM usage
+> - **Real-time**: Push notifications, live updates
+>
+> ### 6. Third-Party Integrations
+> List ALL external services with: service name, purpose, integration point (file path).
+> Categories: AI/LLM providers, payment processors, auth providers, storage services, analytics/monitoring, CDN/asset hosting.
+>
+> ### 7. Frontend-Backend Contract
+> - How do frontend and backend communicate? (REST, GraphQL, tRPC, WebSocket, etc.)
+> - Are types shared between frontend and backend?
+> - How are API errors propagated to the UI?
+>
+> ### 8. Pattern Selection Guide
+> For common scenarios in this codebase, which pattern should be used and why?
+>
+> Return JSON:
+> ```json
+> {
+>   "communication": {
+>     "patterns": [
+>       {"name": "", "when_to_use": "", "how_it_works": "", "examples": []}
+>     ],
+>     "integrations": [
+>       {"service": "", "purpose": "", "integration_point": ""}
+>     ],
+>     "pattern_selection_guide": [
+>       {"scenario": "", "pattern": "", "rationale": ""}
+>     ]
+>   },
+>   "quick_reference": {
+>     "pattern_selection": {"scenario": "pattern"},
+>     "error_mapping": [{"error": "", "status_code": 0, "description": ""}]
+>   }
+> }
+> ```
+
+### Agent C: "Technology, Deployment & Rules"
+
+> Read config files, package.json/requirements.txt/Gemfile/build.gradle/pubspec.yaml/Package.swift, CI/CD configs, Dockerfiles, cloud platform files. Create a complete technology inventory.
+>
+> ### 1. Full Stack Inventory (by category)
+> For each technology include: category, name, version, purpose, platform (backend|frontend|shared).
+>
+> Categories to check:
+> 1. **Runtime**: Language, version, runtime environment (for each platform)
+> 2. **Backend Framework**: Web framework, version, key features used
+> 3. **Frontend Framework**: UI framework/library, version, rendering strategy
+> 4. **Database**: Type, ORM/query builder, version
+> 5. **Cache**: Redis, Memcached, in-memory, browser cache, etc.
+> 6. **Queue**: Celery, RabbitMQ, ARQ, Redis Queue, etc.
+> 7. **AI/ML**: Providers (OpenAI, Anthropic, etc.), SDKs, models
+> 8. **Auth**: Library, provider, JWT/session handling
+> 9. **State Management**: Frontend state (Redux, Zustand, React Query, etc.)
+> 10. **Styling**: CSS framework, component library
+> 11. **Validation**: Library, approach
+> 12. **Testing**: Framework, tools, coverage approach (for each platform)
+> 13. **Linting/Formatting**: Tools, configuration
+> 14. **Monitoring**: Logging, metrics, error tracking
+>
+> ### 2. Run Commands
+> From package.json scripts, Makefile, Rakefile, etc. Map command name to command string.
+>
+> ### 3. Project Structure
+> ASCII directory tree from scan.json showing top-level organization.
+>
+> ### 4. Templates
+> Common file patterns — how to create a new component/route/service/test in this codebase. Include file_path_template, component_type, description, and a brief code skeleton (max 3 lines).
+>
+> ### 5. Deployment Detection (CRITICAL — check for ALL of these)
+> - **Cloud provider**: GCP (app.yaml, cloudbuild.yaml, google-cloud-* deps, firebase.json), AWS (boto3, aws-cdk, serverless.yml, buildspec.yml, template.yaml), Azure (azure-* SDKs, azure-pipelines.yml, host.json), Vercel (vercel.json), Netlify (netlify.toml), Fly.io (fly.toml), Railway (railway.json), Render (render.yaml)
+> - **Compute**: Cloud Run, App Engine, Lambda, EC2, Fargate, Azure Functions, Vercel Edge, Heroku dynos
+> - **Container**: Docker (Dockerfile, .dockerignore), Podman; orchestration (Kubernetes, Docker Compose, ECS, Helm, skaffold)
+> - **Serverless**: Cloud Functions, Lambda, Edge Functions, Vercel Serverless
+> - **CI/CD**: GitHub Actions (.github/workflows/), Cloud Build (cloudbuild.yaml), GitLab CI (.gitlab-ci.yml), CircleCI, Jenkins, Fastlane (Fastfile), Bitrise
+> - **Distribution**: App Store, Google Play, npm registry, PyPI, Docker Hub, Maven Central, CocoaPods, pub.dev, Homebrew, APK sideload
+> - **IaC**: Terraform (*.tf), CloudFormation/SAM (template.yaml), Pulumi, Helm charts
+> - **Supporting services**: Firebase, Supabase, Redis Cloud, managed databases, CDNs, object storage (GCS, S3)
+> - **Environment config**: .env files, Secret Manager, SSM Parameter Store, Vault, config maps
+> - **Mobile-specific**: Backend services (BaaS), push notification providers, analytics, OTA updates, app signing
+> - **Library-specific**: Package registry, build/publish pipeline, versioning strategy
+> - List all deployment-related KEY FILES found in the repository
+>
+> ### 6. Development Rules
+> Imperative rules inferred from tooling config. Each MUST cite a source file.
+>
+> Sources to check:
+> - Package manager lockfiles (poetry.lock, yarn.lock, pnpm-lock.yaml)
+> - Pre-commit/quality checks (.pre-commit-config.yaml, husky, lint-staged)
+> - CI enforcement (.github/workflows/, Makefile, tox.ini)
+> - Linting/formatting mandates (ruff.toml, .eslintrc, prettier, editorconfig)
+> - Environment setup (setup.sh, Makefile, docker-compose.yml, .env.example)
+> - Testing requirements (CI configs, pytest.ini, jest.config)
+> - Git conventions (.gitignore, commit hooks, branch protection)
+>
+> State each as: "Always X" or "Never Y", cite the source file.
+>
+> **CRITICAL**: Every rule MUST be specific to THIS project. Generic rules are WORTHLESS.
+> GOOD: "Always register new routes in api/app.py — uses explicit include_router()" (source: api/app.py)
+> GOOD: "Never import from infrastructure/ in domain/ — dependency rule enforced by layer structure" (source: directory layout)
+> BAD: "Use descriptive variable names", "Follow SOLID principles", "Write unit tests"
+>
+> Return JSON:
+> ```json
+> {
+>   "technology": {
+>     "stack": [{"category": "", "name": "", "version": "", "purpose": ""}],
+>     "run_commands": {"command_name": "command_string"},
+>     "project_structure": "ASCII tree",
+>     "templates": [{"component_type": "", "description": "", "file_path_template": "", "code": ""}]
+>   },
+>   "deployment": {
+>     "runtime_environment": "GCP|AWS|Azure|Vercel|on-device|browser|self-hosted",
+>     "compute_services": [],
+>     "container_runtime": "Docker|Podman|none",
+>     "orchestration": "Kubernetes|Docker Compose|ECS|none",
+>     "serverless_functions": "Cloud Functions|Lambda|Edge Functions|none",
+>     "ci_cd": [],
+>     "distribution": [],
+>     "infrastructure_as_code": "Terraform|CloudFormation|Pulumi|none",
+>     "supporting_services": [],
+>     "environment_config": "",
+>     "key_files": []
+>   },
+>   "development_rules": [
+>     {"category": "dependency_management|testing|code_style|ci_cd|environment|git", "rule": "Always/Never ...", "source": "file_that_proves_it"}
+>   ]
+> }
+> ```
+
+### Agent D: "Decisions & Pitfalls"
+
+> Read key architectural files — entry points, main configs, core abstractions, DI containers, route registrations.
+>
+> ### 1. Architectural Style Decision
+> THE top-level architecture choice:
+> - **title**: e.g., "Clean Architecture with DDD layers"
+> - **chosen**: What was chosen and how it manifests
+> - **rationale**: WHY this approach (infer from code structure, comments, config)
+> - **alternatives_rejected**: What alternatives were NOT chosen (infer from what's absent)
+>
+> ### 2. Key Decisions (3-5)
+> Major architectural choices visible in the code. Each with:
+> - **title**: Decision name
+> - **chosen**: What was chosen
+> - **rationale**: Why (from code evidence)
+> - **alternatives_rejected**: What wasn't chosen
+>
+> Examples of decisions to look for: database choice, state management approach, API style, authentication method, deployment strategy, monorepo vs polyrepo, rendering strategy, dependency injection approach.
+>
+> ### 3. Trade-offs (3-5)
+> What was deliberately accepted and what benefit was gained.
+> Format: {"accept": "what was given up", "benefit": "what was gained"}
+> Example: {"accept": "No database migrations", "benefit": "Zero-setup SQLite for development"}
+>
+> ### 4. Out-of-Scope
+> What this codebase explicitly does NOT do. Look for: missing features that would be expected, explicit boundaries in code/config, things delegated to external services.
+>
+> ### 5. Pitfalls (3-5)
+> Non-obvious gotchas SPECIFIC to this codebase. Each with:
+> - **area**: What part of the code
+> - **description**: What the code DOES and the risk of that pattern
+> - **recommendation**: How to avoid the problem
+>
+> Only describe problems grounded in actual code patterns you observed. Do NOT recommend alternatives the code doesn't use.
+>
+> ### 6. Architecture Diagram
+> Mermaid `graph TD` diagram with 8-12 nodes showing main components and their relationships. Use short node labels. Show data flow direction.
+>
+> ### 7. Implementation Guidelines (5-8)
+> Capabilities already implemented using third-party libraries or non-trivial patterns. For each:
+> - **capability**: Human-readable name (e.g., "Push Notifications", "Map Display", "Authentication")
+> - **category**: auth | notifications | media | storage | networking | analytics | persistence | ui | payments | location | state_management | navigation | testing
+> - **libraries**: Libraries used with versions
+> - **pattern_description**: 1-3 sentences: the architecture pattern, main service/class, how data flows
+> - **key_files**: Actual file paths (MUST exist in file_tree)
+> - **usage_example**: Brief code snippet or invocation pattern (max 1 line)
+> - **tips**: Gotchas, caveats, or best practices specific to this implementation
+>
+> Focus on capabilities using third-party libraries, cross-cutting concerns, and non-trivial patterns. Do NOT include trivial standard library usage.
+>
+> Return JSON:
+> ```json
+> {
+>   "decisions": {
+>     "architectural_style": {"title": "", "chosen": "", "rationale": "", "alternatives_rejected": []},
+>     "key_decisions": [{"title": "", "chosen": "", "rationale": "", "alternatives_rejected": []}],
+>     "trade_offs": [{"accept": "", "benefit": ""}],
+>     "out_of_scope": []
+>   },
+>   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
+>   "pitfalls": [{"area": "", "description": "", "recommendation": ""}],
+>   "implementation_guidelines": [
+>     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
+>   ]
+> }
+> ```
+
+### Agent E: "Frontend Architecture" (only if frontend detected)
+
+> Read all frontend/UI source files. This analysis covers web frontends, iOS apps, Android apps, cross-platform mobile, and any client-side code. Adapt each section to the platform detected.
+>
+> ### 1. Framework & Rendering
+> - **Web**: What UI framework? (React, Vue, Angular, Svelte, etc.) Rendering strategy? (SSR, SSG, CSR, ISR, hybrid) Meta-framework? (Next.js, Nuxt, Remix, etc.)
+> - **iOS**: Declarative (SwiftUI) vs imperative (UIKit)? App architecture? (MVVM, VIPER, Clean Swift, etc.)
+> - **Android**: Jetpack Compose vs XML layouts? Architecture? (MVVM, MVI, Clean Architecture?)
+> - **Cross-platform**: Framework? (Flutter, React Native, KMP, etc.) Platform-specific bridging?
+>
+> ### 2. UI Components
+> For each major component/screen/view:
+> - **name** and **location** (must exist in file_tree)
+> - **component_type**: screen | page | layout | feature | shared | primitive | widget
+> - **description**: What it renders and its purpose
+> - **props**/inputs/parameters
+> - **children**: Child components it renders or embeds
+>
+> ### 3. State Management
+> - **Web**: Global state (Context, Redux, Zustand, Recoil), server state (React Query, SWR, Apollo), local state, form state
+> - **iOS**: @State, @Observable, @EnvironmentObject, Combine, MVVM with ObservableObject, @Published
+> - **Android**: ViewModel + StateFlow/LiveData, Compose state (remember/mutableStateOf), MVI pattern, SavedStateHandle
+> - **Cross-platform**: Platform-specific (Bloc, Riverpod, Provider for Flutter; Redux/MobX for RN)
+>
+> Document: approach, global_state stores with purposes, server_state mechanism, local_state approach, and rationale for the choices.
+>
+> ### 4. Routing / Navigation
+> - **Web**: File-based or config-based? List routes with paths, components, descriptions, auth requirements, dynamic segments.
+> - **iOS**: NavigationStack, UINavigationController, Coordinator pattern, TabBar, deep links
+> - **Android**: Navigation Component (NavHost/NavGraph), bottom navigation, deep links, Intent-based
+> - **Cross-platform**: Navigator/Router, tab/stack/drawer navigation
+>
+> ### 5. Data Fetching / Networking
+> - **Web**: Data fetching hooks/patterns, loading/error states, caching strategy
+> - **iOS**: URLSession, Alamofire, Moya; Combine/async-await patterns; offline support
+> - **Android**: Retrofit, Ktor, OkHttp; Coroutine/Flow patterns; offline support (Room + network)
+> - **Cross-platform**: Dio/http for Flutter; fetch/axios for RN; Ktor for KMP
+>
+> ### 6. Styling / Theming
+> - **Web**: Tailwind, CSS Modules, Styled Components, component library, design tokens
+> - **iOS**: SwiftUI modifiers, UIKit programmatic styling, Interface Builder, custom themes
+> - **Android**: Compose theming/Material3, XML themes, Material Components, custom design system
+> - **Cross-platform**: Flutter ThemeData, RN StyleSheet, shared design tokens
+>
+> ### 7. Key Conventions
+> - File naming conventions for components/screens/views
+> - Component organization (co-located, feature-based, atomic, module-based)
+> - Custom hooks/extensions/utilities naming and organization
+> - Test file placement
+>
+> Return JSON:
+> ```json
+> {
+>   "frontend": {
+>     "framework": "",
+>     "rendering_strategy": "SSR | SSG | CSR | ISR | hybrid | declarative | imperative",
+>     "ui_components": [
+>       {"name": "", "location": "", "component_type": "", "description": "", "props": [], "children": []}
+>     ],
+>     "state_management": {
+>       "approach": "",
+>       "global_state": [{"store": "", "purpose": ""}],
+>       "server_state": "",
+>       "local_state": "",
+>       "rationale": ""
+>     },
+>     "routing": [
+>       {"path": "", "component": "", "description": "", "auth_required": false}
+>     ],
+>     "data_fetching": [
+>       {"name": "", "mechanism": "", "when_to_use": "", "examples": []}
+>     ],
+>     "styling": "",
+>     "key_conventions": []
+>   }
+> }
+> ```
+
+---
+
+**Every agent also gets these GROUNDING RULES:**
 
 > **GROUNDING RULES — every claim must come from code you READ, never from names or conventions.**
 > This applies to ANY codebase — web, mobile, desktop, backend, CLI, library, any language.
@@ -36,21 +442,24 @@ Tell each subagent:
 >
 > **The rule is simple: if you didn't read it in a file, don't claim it.** Focus on cross-file relationships, architecture decisions, conventions, and integration patterns. Return ONLY valid JSON.
 
-**Spawn ALL subagents in parallel.**
+**Spawn ALL agents in parallel.**
 
 ## Step 4: Save subagent output and merge
 
 After each subagent completes, use the Write tool to save its JSON output to a temporary file. Save the COMPLETE output text — the merge script handles JSON extraction.
 
 ```
-Write /tmp/archie_sub1.json with the first subagent's output
-Write /tmp/archie_sub2.json with the second subagent's output (if applicable)
+Write /tmp/archie_sub1.json with Agent A's output
+Write /tmp/archie_sub2.json with Agent B's output
+Write /tmp/archie_sub3.json with Agent C's output
+Write /tmp/archie_sub4.json with Agent D's output
+Write /tmp/archie_sub5.json with Agent E's output (if spawned)
 ```
 
 Then merge:
 
 ```bash
-python3 .archie/merge.py "$PWD" /tmp/archie_sub1.json /tmp/archie_sub2.json
+python3 .archie/merge.py "$PWD" /tmp/archie_sub1.json /tmp/archie_sub2.json /tmp/archie_sub3.json /tmp/archie_sub4.json /tmp/archie_sub5.json
 ```
 
 This saves `.archie/blueprint_raw.json` (raw merged data).
@@ -66,16 +475,15 @@ python3 .archie/normalize.py prompt "$PWD" > /tmp/archie_normalize_prompt.txt
 
 2. Read `/tmp/archie_normalize_prompt.txt`
 
-3. Spawn a single Opus subagent (`model: "opus"`) with the prompt content. The subagent must return ONLY valid JSON matching the canonical StructuredBlueprint schema.
+3. Spawn a single Opus subagent (`model: "opus"`). Tell it:
 
-   **IMPORTANT:** Tell the normalizer subagent: "Preserve all data exactly as provided. Do NOT infer, add, or change file paths, HTTP methods, or component descriptions. Your job is to reshape the structure, not to add content."
+   > Read `/tmp/archie_normalize_prompt.txt`. It contains raw blueprint data and the canonical schema. Reshape the data to match the schema and write the result as valid JSON to `.archie/blueprint_normalized.json` using the Write tool.
+   >
+   > **Rules:** Preserve all data exactly as provided. Do NOT infer, add, or change file paths, HTTP methods, or component descriptions. Your job is to reshape the structure, not to add content. Output ONLY valid JSON to the file — no markdown fences, no commentary.
 
-4. Save the subagent's JSON output:
-```
-Write .archie/blueprint_normalized.json with the subagent's JSON output
-```
+   **IMPORTANT:** The subagent must write `.archie/blueprint_normalized.json` itself using the Write tool. Do NOT try to extract JSON from the subagent's response.
 
-5. Apply the normalized blueprint:
+4. Apply the normalized blueprint:
 ```bash
 python3 .archie/normalize.py apply "$PWD"
 ```
@@ -105,6 +513,8 @@ python3 .archie/validate.py all "$PWD"
 - **component_verb warnings** — update the component `responsibility` field in the blueprint to match what the code actually does.
 
 After fixes, re-run `python3 .archie/validate.py all "$PWD"` to confirm 0 failures.
+
+**IMPORTANT:** Do ONE fix pass at most. If failures remain after one fix pass, proceed to Step 7 — do not loop. Do NOT write inline Python scripts to patch the blueprint. Template patterns like `{resource}` or `{timestamp}` in descriptive fields are expected and not real failures.
 
 ## Step 7: AI-enrich per-folder CLAUDE.md
 

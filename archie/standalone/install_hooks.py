@@ -14,10 +14,10 @@ from pathlib import Path
 
 
 INJECT_CONTEXT_HOOK = r'''#!/usr/bin/env bash
-set -euo pipefail
 RULES_FILE="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")/.archie/rules.json"
 [ ! -f "$RULES_FILE" ] && exit 0
-USER_INPUT=$(cat)
+USER_INPUT=$(cat || true)
+[ -z "$USER_INPUT" ] && exit 0
 PROMPT=$(echo "$USER_INPUT" | python3 -c "
 import sys, json
 try:
@@ -42,10 +42,11 @@ PYEOF
 '''
 
 PRE_VALIDATE_HOOK = r'''#!/usr/bin/env bash
-set -euo pipefail
-RULES_FILE="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")/.archie/rules.json"
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+RULES_FILE="$PROJECT_ROOT/.archie/rules.json"
 [ ! -f "$RULES_FILE" ] && exit 0
-TOOL_INPUT=$(cat)
+TOOL_INPUT=$(cat || true)
+[ -z "$TOOL_INPUT" ] && exit 0
 FILE_PATH=$(echo "$TOOL_INPUT" | python3 -c "
 import sys, json
 try:
@@ -60,6 +61,8 @@ except: print('')
 " 2>/dev/null || echo "")
 case "$TOOL_NAME" in Write|Edit|MultiEdit) ;; *) exit 0 ;; esac
 [ -z "$FILE_PATH" ] && exit 0
+# Skip files outside project root (e.g. /tmp/)
+case "$FILE_PATH" in "$PROJECT_ROOT"*) ;; /*) exit 0 ;; esac
 python3 -c "
 import json, sys, os, re
 fp = '$FILE_PATH'
