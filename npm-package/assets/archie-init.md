@@ -411,6 +411,7 @@ Tell Agent X:
 > - What does it FORCE? (each forced decision)
 > - What does EACH forced decision FORCE in turn?
 > - Continue until you reach leaf decisions
+> - For EACH node, include `violation_keywords`: specific code patterns or package names that would violate this decision (e.g., for "SQLite only" → `["pg", "mongoose", "prisma", "typeorm", "postgres"]`)
 >
 > Every decision in the chain must be grounded in code you can see in the blueprint or source files. Do NOT invent theoretical constraints.
 >
@@ -428,13 +429,16 @@ Tell Agent X:
 > - **enables**: What this decision makes possible downstream
 >
 > ### 4. Trade-offs (3-5)
-> Each with: accept, benefit, caused_by (which decision created this trade-off)
+> Each with: accept, benefit, caused_by (which decision created this trade-off), violation_signals (code patterns that would indicate someone is undoing this trade-off, e.g., removing Puppeteer → `["uninstall puppeteer", "remove puppeteer", "playwright"]`)
 >
 > ### 5. Out-of-Scope
 > What this codebase does NOT do. For each item, optionally note which decision makes it out of scope.
 >
 > ### 6. Pitfalls (3-5)
-> Each with: area, description, recommendation, stems_from (which decision or pattern creates this risk). Trace the causal chain — a pitfall should link back to a specific architectural choice.
+> Each with:
+> - **area**, **description**, **recommendation**
+> - **stems_from**: NOT just a label — the FULL causal chain as an array. Example: `["local-first constraint", "chose SQLite for zero-config", "singleton pattern in db.ts", "no connection recovery on corruption"]`. Each element is a step in the chain from root decision to pitfall.
+> - **applies_to**: file paths where this pitfall is relevant
 >
 > Only describe problems grounded in actual code. Do NOT recommend alternatives the code doesn't use.
 >
@@ -457,11 +461,11 @@ Tell Agent X:
 >   "decisions": {
 >     "architectural_style": {"title": "", "chosen": "", "rationale": "", "alternatives_rejected": []},
 >     "key_decisions": [{"title": "", "chosen": "", "rationale": "", "alternatives_rejected": [], "forced_by": "", "enables": ""}],
->     "trade_offs": [{"accept": "", "benefit": "", "caused_by": ""}],
+>     "trade_offs": [{"accept": "", "benefit": "", "caused_by": "", "violation_signals": []}],
 >     "out_of_scope": [],
->     "decision_chain": {"root": "", "forces": [{"decision": "", "rationale": "", "forces": []}]}
+>     "decision_chain": {"root": "", "forces": [{"decision": "", "rationale": "", "violation_keywords": [], "forces": []}]}
 >   },
->   "pitfalls": [{"area": "", "description": "", "recommendation": "", "stems_from": ""}],
+>   "pitfalls": [{"area": "", "description": "", "recommendation": "", "stems_from": ["causal", "chain", "steps"], "applies_to": []}],
 >   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
 >   "implementation_guidelines": [
 >     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}

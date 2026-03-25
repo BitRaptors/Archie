@@ -79,7 +79,6 @@ def extract_rules(blueprint: dict) -> list[dict]:
 
     # --- Basic architectural rules (types 1-6) ---
     rules.extend(_extract_dependency_direction_rules(blueprint))
-    rules.extend(_extract_forbidden_dep_rules(blueprint))
     rules.extend(_extract_out_of_scope_rules(blueprint))
     rules.extend(_extract_dev_rules(blueprint))
     rules.extend(_extract_pattern_rules(blueprint))
@@ -89,7 +88,7 @@ def extract_rules(blueprint: dict) -> list[dict]:
     rules.extend(_extract_chain_rules(blueprint))
     rules.extend(_extract_tradeoff_rules(blueprint))
     rules.extend(_extract_impact_rules(blueprint))
-    rules.extend(_extract_scope_creep_rules(blueprint))
+    # scope_creep removed — was hardcoded indicator patterns, not inferred
     rules.extend(_extract_pattern_extension_rules(blueprint))
     rules.extend(_extract_pitfall_trace_rules(blueprint))
 
@@ -134,70 +133,6 @@ def _extract_dependency_direction_rules(bp: dict) -> list[dict]:
                     "severity": "warn",
                     "keywords": _extract_keywords(f"{name} {dep_name} import dependency"),
                 })
-    return rules
-
-
-def _extract_forbidden_dep_rules(bp: dict) -> list[dict]:
-    """From decisions + out_of_scope — infer forbidden packages."""
-    rules = []
-    decisions = bp.get("decisions", {})
-
-    # Common out-of-scope → forbidden package mapping
-    scope_to_packages = {
-        "authentication": ["passport", "next-auth", "jsonwebtoken", "express-jwt", "auth0"],
-        "auth": ["passport", "next-auth", "jsonwebtoken", "express-jwt", "auth0"],
-        "deployment": ["serverless", "aws-cdk", "pulumi"],
-        "graphql": ["graphql", "apollo-server", "@apollo/server"],
-        "websocket": ["socket.io", "ws"],
-    }
-
-    for item in decisions.get("out_of_scope", []):
-        item_lower = item.lower() if isinstance(item, str) else ""
-        for scope_key, packages in scope_to_packages.items():
-            if scope_key in item_lower:
-                rules.append({
-                    "id": f"forbidden-{scope_key}",
-                    "check": "forbidden_dependency",
-                    "description": f"Out of scope: {item}. Forbidden packages: {', '.join(packages)}",
-                    "forbidden_packages": packages,
-                    "severity": "warn",
-                    "keywords": _extract_keywords(item) + [scope_key],
-                })
-                break
-
-    # From key decisions — detect "X only" patterns
-    for dec in decisions.get("key_decisions", []):
-        if not isinstance(dec, dict):
-            continue
-        chosen = (dec.get("chosen", "") or "").lower()
-        alternatives = dec.get("alternatives_rejected", [])
-        # Map rejected alternatives to package names
-        alt_packages = []
-        alt_map = {
-            "prisma": ["prisma", "@prisma/client"],
-            "typeorm": ["typeorm"],
-            "sequelize": ["sequelize"],
-            "postgres": ["pg", "postgres"],
-            "mongodb": ["mongoose", "mongodb"],
-            "redis": ["redis", "ioredis"],
-            "redux": ["redux", "@reduxjs/toolkit"],
-            "zustand": ["zustand"],
-            "mobx": ["mobx"],
-        }
-        for alt in alternatives:
-            alt_lower = alt.lower() if isinstance(alt, str) else ""
-            for key, pkgs in alt_map.items():
-                if key in alt_lower:
-                    alt_packages.extend(pkgs)
-        if alt_packages:
-            rules.append({
-                "id": f"forbidden-alt-{dec.get('title', '')[:30]}",
-                "check": "forbidden_dependency",
-                "description": f"Decision '{dec.get('title', '')}': rejected alternatives → forbidden: {', '.join(alt_packages)}",
-                "forbidden_packages": alt_packages,
-                "severity": "warn",
-                "keywords": _extract_keywords(dec.get("title", "")),
-            })
     return rules
 
 
@@ -295,40 +230,75 @@ def _extract_pitfall_rules(bp: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _extract_chain_rules(bp: dict) -> list[dict]:
-    """From decisions.decision_chain — cascade violation warnings."""
+    """From decisions.decision_chain — per-node violation rules with cascade context."""
     rules = []
     chain = bp.get("decisions", {}).get("decision_chain", {})
     if not isinstance(chain, dict) or not chain.get("root"):
         return rules
 
-    # Flatten the chain into a list of decisions
-    def _flatten(node, acc=None):
-        if acc is None:
-            acc = []
+    # Walk the tree, emit a rule per node that has violation_keywords
+    def _walk(node, path=None):
+        if path is None:
+            path = [chain.get("root", "")]
         for f in (node.get("forces") or []):
-            acc.append(f.get("decision", ""))
-            _flatten(f, acc)
-        return acc
+            decision = f.get("decision", "")
+            rationale = f.get("rationale", "")
+            violation_kw = f.get("violation_keywords") or []
+            current_path = path + [decision]
 
-    all_decisions = _flatten(chain)
-    if all_decisions:
-        all_kw = []
-        for d in all_decisions:
-            all_kw.extend(_extract_keywords(d))
-        rules.append({
-            "id": "chain-root",
-            "check": "chain_violation",
-            "description": f"Root constraint: {chain['root']}. Downstream: {', '.join(all_decisions[:6])}",
-            "root": chain["root"],
-            "chain": all_decisions,
-            "severity": "error",
-            "keywords": _extract_keywords(chain["root"]) + all_kw[:20],
-        })
+            # Collect all downstream decisions for cascade description
+            downstream = []
+            def _collect(n):
+                for c in (n.get("forces") or []):
+                    downstream.append(c.get("decision", ""))
+                    _collect(c)
+            _collect(f)
+
+            if violation_kw:
+                cascade_desc = f" Breaks downstream: {', '.join(downstream[:4])}" if downstream else ""
+                rules.append({
+                    "id": f"chain-{len(rules)}",
+                    "check": "chain_violation",
+                    "description": f"Decision: {decision}. {rationale}{cascade_desc}",
+                    "decision": decision,
+                    "chain_path": current_path,
+                    "downstream": downstream,
+                    "violation_keywords": violation_kw,
+                    "severity": "error",
+                    "keywords": violation_kw + _extract_keywords(decision),
+                })
+
+            _walk(f, current_path)
+
+    _walk(chain)
+
+    # If no nodes had violation_keywords, emit a single root rule as fallback
+    if not rules:
+        def _flatten(node, acc=None):
+            if acc is None:
+                acc = []
+            for f in (node.get("forces") or []):
+                acc.append(f.get("decision", ""))
+                _flatten(f, acc)
+            return acc
+        all_decisions = _flatten(chain)
+        if all_decisions:
+            rules.append({
+                "id": "chain-root",
+                "check": "chain_violation",
+                "description": f"Root constraint: {chain['root']}. Downstream: {', '.join(all_decisions[:6])}",
+                "decision": chain["root"],
+                "chain_path": [chain["root"]],
+                "downstream": all_decisions,
+                "violation_keywords": [],
+                "severity": "error",
+                "keywords": _extract_keywords(chain["root"]),
+            })
     return rules
 
 
 def _extract_tradeoff_rules(bp: dict) -> list[dict]:
-    """From trade_offs[].caused_by — trade-off consistency."""
+    """From trade_offs[] — trade-off consistency with violation signals."""
     rules = []
     for i, to in enumerate(bp.get("decisions", {}).get("trade_offs", [])):
         if not isinstance(to, dict):
@@ -336,6 +306,7 @@ def _extract_tradeoff_rules(bp: dict) -> list[dict]:
         accept = to.get("accept", "") or to.get("accepted", "")
         benefit = to.get("benefit", "") or to.get("gained", "")
         caused_by = to.get("caused_by", "")
+        signals = to.get("violation_signals") or []
         if not accept:
             continue
         rules.append({
@@ -345,8 +316,9 @@ def _extract_tradeoff_rules(bp: dict) -> list[dict]:
             "accept": accept,
             "benefit": benefit,
             "caused_by": caused_by,
+            "violation_signals": signals,
             "severity": "warn",
-            "keywords": _extract_keywords(f"{accept} {benefit}"),
+            "keywords": signals + _extract_keywords(f"{accept} {benefit}"),
         })
     return rules
 
@@ -389,37 +361,6 @@ def _extract_impact_rules(bp: dict) -> list[dict]:
     return rules
 
 
-def _extract_scope_creep_rules(bp: dict) -> list[dict]:
-    """From out_of_scope — detect multi-signal scope creep."""
-    rules = []
-    # Map scope boundaries to indicator patterns
-    scope_indicators = {
-        "authentication": ["userId", "user_id", "currentUser", "login", "signup", "password", "jwt", "token", "session"],
-        "auth": ["userId", "user_id", "currentUser", "login", "signup", "password", "jwt", "token"],
-        "multi-user": ["userId", "user_id", "currentUser", "tenant", "workspace", "organization"],
-        "deployment": ["deploy", "vercel", "netlify", "docker", "kubernetes", "aws", "gcp"],
-        "hosting": ["deploy", "ssl", "domain", "cdn", "certificate"],
-    }
-    for item in bp.get("decisions", {}).get("out_of_scope", []):
-        if not isinstance(item, str):
-            continue
-        item_lower = item.lower()
-        for scope_key, indicators in scope_indicators.items():
-            if scope_key in item_lower:
-                rules.append({
-                    "id": f"creep-{scope_key}",
-                    "check": "scope_creep",
-                    "description": f"Scope creep detection: '{item}'. Watch for: {', '.join(indicators[:5])}",
-                    "boundary": item,
-                    "indicator_patterns": indicators,
-                    "threshold": 2,
-                    "severity": "warn",
-                    "keywords": _extract_keywords(item) + indicators[:5],
-                })
-                break
-    return rules
-
-
 def _extract_pattern_extension_rules(bp: dict) -> list[dict]:
     """From patterns + implementation_guidelines — extension touch points."""
     rules = []
@@ -444,40 +385,43 @@ def _extract_pattern_extension_rules(bp: dict) -> list[dict]:
 
 
 def _extract_pitfall_trace_rules(bp: dict) -> list[dict]:
-    """From pitfalls[].stems_from — link pitfalls to decision chain."""
+    """From pitfalls[].stems_from — link pitfalls to full causal chain."""
     rules = []
-    chain = bp.get("decisions", {}).get("decision_chain", {})
-    # Flatten chain for lookup
-    chain_decisions = []
-    def _flatten(node):
-        for f in (node.get("forces") or []):
-            chain_decisions.append(f.get("decision", ""))
-            _flatten(f)
-    if isinstance(chain, dict):
-        _flatten(chain)
-
     for i, pit in enumerate(bp.get("pitfalls", [])):
         if not isinstance(pit, dict):
             continue
-        stems_from = pit.get("stems_from", "")
+        stems_from = pit.get("stems_from")
         if not stems_from:
             continue
         area = pit.get("area", "")
         desc = pit.get("description", "")
         rec = pit.get("recommendation", "")
-        # Find the chain path to this pitfall's source
-        related_chain = [d for d in chain_decisions if stems_from.lower() in d.lower() or d.lower() in stems_from.lower()]
+        applies_to = pit.get("applies_to") or []
+
+        # stems_from can be a string (old format) or array (new format: causal chain)
+        if isinstance(stems_from, list):
+            causal_chain = stems_from
+            stems_label = " → ".join(stems_from)
+        else:
+            causal_chain = [stems_from]
+            stems_label = stems_from
+
+        # Build keywords from chain + area
+        chain_kw = []
+        for step in causal_chain:
+            chain_kw.extend(_extract_keywords(step))
+
         rules.append({
             "id": f"pitfall-trace-{i}",
             "check": "pitfall_trace",
-            "description": f"Pitfall ({area}): {desc} — stems from: {stems_from}",
+            "description": f"Pitfall ({area}): {desc} — causal chain: {stems_label}",
             "area": area,
             "pitfall": desc,
-            "stems_from": stems_from,
-            "decision_chain": [chain.get("root", "")] + related_chain if chain.get("root") else [],
+            "causal_chain": causal_chain,
+            "applies_to": applies_to,
             "recommendation": rec,
             "severity": "warn",
-            "keywords": _extract_keywords(f"{area} {desc} {stems_from}"),
+            "keywords": _extract_keywords(f"{area} {desc}") + chain_kw,
         })
     return rules
 

@@ -418,8 +418,12 @@ def _build_pitfalls_rule(bp: dict):
                 continue
             area_label = f"**{pitfall['area']}:** " if pitfall.get("area") else ""
             lines.append(f"- {area_label}{pitfall.get('description', '')}")
-            if pitfall.get("stems_from"):
-                lines.append(f"  - *stems from: {pitfall['stems_from']}*")
+            stems = pitfall.get("stems_from")
+            if stems:
+                if isinstance(stems, list):
+                    lines.append(f"  - *causal chain: {" → ".join(stems)}*")
+                else:
+                    lines.append(f"  - *stems from: {stems}*")
             if pitfall.get("recommendation"):
                 lines.append(f"  - *{pitfall['recommendation']}*")
         lines.append("")
@@ -906,8 +910,12 @@ def generate_agents_md(bp: dict) -> str:
                 continue
             area_label = f"**{pitfall['area']}:** " if pitfall.get("area") else ""
             lines.append(f"- {area_label}{pitfall.get('description', '')}")
-            if pitfall.get("stems_from"):
-                lines.append(f"  - *stems from: {pitfall['stems_from']}*")
+            stems = pitfall.get("stems_from")
+            if stems:
+                if isinstance(stems, list):
+                    lines.append(f"  - *causal chain: {" → ".join(stems)}*")
+                else:
+                    lines.append(f"  - *stems from: {stems}*")
             if pitfall.get("recommendation"):
                 lines.append(f"  - *{pitfall['recommendation']}*")
         lines.append("")

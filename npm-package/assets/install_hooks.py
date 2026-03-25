@@ -88,10 +88,19 @@ for r in rules:
         pat = r.get('pattern', '')
         if pat and not re.match(pat, os.path.basename(fp)):
             (errors if sev == 'error' else warns).append(desc)
-    elif check == 'forbidden_dependency' and content:
-        for pkg in r.get('forbidden_packages', []):
-            if re.search(r'(?:import|require).*[\"\\x27]' + re.escape(pkg), content):
-                (errors if sev == 'error' else warns).append(f'{desc} (importing {pkg})')
+    elif check == 'chain_violation' and content:
+        for kw in r.get('violation_keywords', []):
+            if kw.lower() in content.lower():
+                chain_path = ' -> '.join(r.get('chain_path', [])[:4])
+                downstream = r.get('downstream', [])[:3]
+                msg = f'[Chain] {desc}'
+                if downstream: msg += f' Breaks: {chr(44).join(downstream)}'
+                (errors if sev == 'error' else warns).append(msg)
+                break
+    elif check == 'tradeoff_violation' and content:
+        for sig in r.get('violation_signals', []):
+            if sig.lower() in content.lower():
+                (errors if sev == 'error' else warns).append(f'[Trade-off] {desc}')
                 break
     elif check == 'dependency_direction' and content:
         applies = r.get('applies_to', '')

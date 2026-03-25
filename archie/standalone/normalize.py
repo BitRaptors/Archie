@@ -38,9 +38,9 @@ Every field name below is EXACT. Map the raw data to these fields. Do NOT invent
 ### decisions (object)
 - architectural_style: {title, chosen, rationale, alternatives_rejected: string[]} — THE top-level architecture decision
 - key_decisions: array of {title, chosen, rationale, alternatives_rejected: string[], forced_by: string (optional), enables: string (optional)}
-- trade_offs: array of {accept, benefit, caused_by: string (optional)}
+- trade_offs: array of {accept, benefit, caused_by: string (optional), violation_signals: string[] (optional)}
 - out_of_scope: string[]
-- decision_chain: object (optional) — {root: string, forces: [{decision, rationale, forces: [...]}]}
+- decision_chain: object (optional) — {root: string, forces: [{decision, rationale, violation_keywords: string[], forces: [...]}]}
 
 ### components (object)
 - structure_type: string — "layered" | "modular" | "feature-based" | "flat"
@@ -75,7 +75,7 @@ Every field name below is EXACT. Map the raw data to these fields. Do NOT invent
 
 ### architecture_diagram: string — Mermaid graph TD syntax
 
-### pitfalls: array of {area, description, recommendation, stems_from: string (optional)}
+### pitfalls: array of {area, description, recommendation, stems_from: string[] (optional, causal chain), applies_to: string[] (optional, file paths)}
 
 ### implementation_guidelines: array of {capability, category, libraries: string[], pattern_description, key_files: string[], usage_example, tips: string[]}
 
