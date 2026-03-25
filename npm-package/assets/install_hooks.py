@@ -68,20 +68,42 @@ import json, sys, os, re
 fp = '$FILE_PATH'
 try: rules = json.load(open('$RULES_FILE')).get('rules', [])
 except: sys.exit(0)
+# Read file content for content-based checks
+content = ''
+try:
+    tool_data = json.loads('$TOOL_INPUT'.replace(chr(10), ' ') if '$TOOL_INPUT' else '{}')
+    content = tool_data.get('tool_input', {}).get('content', '') or tool_data.get('tool_input', {}).get('new_string', '')
+except: pass
 errors = []
+warns = []
 for r in rules:
-    if r.get('check') == 'file_placement':
+    check = r.get('check', '')
+    desc = r.get('description', '')
+    sev = r.get('severity', 'warn')
+    if check == 'file_placement':
         dirs = r.get('allowed_dirs', [])
         if dirs and not any(fp.startswith(d) for d in dirs):
-            if r.get('severity') == 'error': errors.append(r)
-            else: print(f'[Archie] Warning: {r.get(\"description\",\"\")}')
-    elif r.get('check') == 'naming':
+            (errors if sev == 'error' else warns).append(desc)
+    elif check == 'naming':
         pat = r.get('pattern', '')
         if pat and not re.match(pat, os.path.basename(fp)):
-            if r.get('severity') == 'error': errors.append(r)
-            else: print(f'[Archie] Warning: {r.get(\"description\",\"\")}')
+            (errors if sev == 'error' else warns).append(desc)
+    elif check == 'forbidden_dependency' and content:
+        for pkg in r.get('forbidden_packages', []):
+            if re.search(r'(?:import|require).*[\"\\x27]' + re.escape(pkg), content):
+                (errors if sev == 'error' else warns).append(f'{desc} (importing {pkg})')
+                break
+    elif check == 'dependency_direction' and content:
+        applies = r.get('applies_to', '')
+        if applies and fp.startswith(applies):
+            for forbidden in r.get('forbidden_imports', []):
+                if re.search(r'(?:import|from).*[\"\\x27].*' + re.escape(forbidden), content):
+                    (errors if sev == 'error' else warns).append(desc)
+                    break
+for w in warns[:3]:
+    print(f'[Archie] Warning: {w}')
 for e in errors:
-    print(f'[Archie] BLOCKED: {e.get(\"description\",\"\")}')
+    print(f'[Archie] BLOCKED: {e}')
     print('  Ask the user to approve this override.')
 if errors: sys.exit(2)
 " 2>/dev/null || exit 0
