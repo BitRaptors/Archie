@@ -1,0 +1,864 @@
+```json
+{
+  "platforms": ["web", "mobile"],
+  "web_frontend": {
+    "framework": "React 18.x with TypeScript",
+    "meta_framework": "Vite (SPA bundler, not Next.js)",
+    "rendering_strategy": "CSR (Client-Side Rendering)",
+    "spa_mode": true,
+    "description": "Single-page application with client-side routing, no server-side rendering or static generation",
+    "entry_point": "tuck-in-tales-frontend/src/main.tsx",
+    "app_root": "tuck-in-tales-frontend/src/App.tsx",
+    "ui_framework": "Custom UI library (shadcn/ui component primitives) + Tailwind CSS",
+    "build_tool": "Vite",
+    "vite_config": "tuck-in-tales-frontend/vite.config.ts",
+    "post_css": "tuck-in-tales-frontend/postcss.config.js",
+    "tailwind_config": "tuck-in-tales-frontend/tailwind.config.js"
+  },
+  "mobile_frontend": {
+    "framework": "React Native with Expo",
+    "app_type": "Cross-platform mobile (iOS + Android)",
+    "architecture": "Expo Go / Bare workflow",
+    "entry_point": "tuck-in-tales-mobile/App.tsx",
+    "routing_paradigm": "Expo Router (file-based routing, similar to Next.js but for mobile)",
+    "navigation_structure": "Tab-based navigation with stack navigation per tab",
+    "navigation_library": "expo-router (built on React Navigation)"
+  },
+  "web_ui_components": [
+    {
+      "name": "App",
+      "location": "tuck-in-tales-frontend/src/App.tsx",
+      "component_type": "layout",
+      "description": "Root component: React Router setup with public/protected routes, AuthProvider wrapper, Toast notification system",
+      "props": [],
+      "children": [
+        "Router",
+        "AuthProvider",
+        "LoginPage",
+        "HomePage",
+        "AppLayout (wrapping protected routes)",
+        "Toaster (sonner notification)"
+      ],
+      "router_framework": "React Router v6"
+    },
+    {
+      "name": "AppLayout",
+      "location": "tuck-in-tales-frontend/src/components/Layout/AppLayout.tsx",
+      "component_type": "layout",
+      "description": "Main application layout wrapper for authenticated routes. Provides sidebar navigation and consistent page structure",
+      "props": ["children: React.ReactNode"],
+      "children": ["Sidebar", "main content area"],
+      "routing_context": "Used to wrap all protected routes in App.tsx"
+    },
+    {
+      "name": "Sidebar",
+      "location": "tuck-in-tales-frontend/src/components/Layout/Sidebar.tsx",
+      "component_type": "shared",
+      "description": "Main navigation sidebar. Contains links to key app sections (characters, stories, memories, family, account)",
+      "props": [],
+      "children": ["Link (react-router), navigation buttons"],
+      "navigation_items": [
+        "Characters (/characters)",
+        "Create Character (/characters/create)",
+        "Stories (/stories/list)",
+        "Generate Story (/stories/generate)",
+        "Memories (/memories)",
+        "Family (/family)",
+        "Account (/account)",
+        "Prompts (/prompts)"
+      ]
+    },
+    {
+      "name": "ProtectedRoute",
+      "location": "tuck-in-tales-frontend/src/components/Auth/ProtectedRoute.tsx",
+      "component_type": "shared",
+      "description": "Higher-order component that enforces authentication. Redirects unauthenticated users to login",
+      "props": ["children: React.ReactNode"],
+      "children": ["AuthContext consumer, wrapped component"],
+      "auth_check": "Uses AuthContext.user to determine access"
+    },
+    {
+      "name": "LoginPage",
+      "location": "tuck-in-tales-frontend/src/pages/LoginPage.tsx",
+      "component_type": "page",
+      "description": "Public login/authentication page",
+      "props": [],
+      "children": ["LoginForm"],
+      "route": "/login"
+    },
+    {
+      "name": "LoginForm",
+      "location": "tuck-in-tales-frontend/src/components/Auth/LoginForm.tsx",
+      "component_type": "feature",
+      "description": "Login form component. Handles user authentication (likely Firebase-based)",
+      "props": [],
+      "children": ["input fields, submit button"],
+      "auth_method": "Firebase (from firebaseConfig.ts import)"
+    },
+    {
+      "name": "HomePage",
+      "location": "tuck-in-tales-frontend/src/App.tsx (inline)",
+      "component_type": "page",
+      "description": "Public home/landing page with link to login",
+      "props": [],
+      "children": ["Button linking to /login"],
+      "route": "/"
+    },
+    {
+      "name": "AccountPage",
+      "location": "tuck-in-tales-frontend/src/pages/AccountPage.tsx",
+      "component_type": "page",
+      "description": "User account management and authentication settings",
+      "props": [],
+      "children": ["TBD: account settings components"],
+      "route": "/account",
+      "auth_required": true
+    },
+    {
+      "name": "ProfilePage",
+      "location": "tuck-in-tales-frontend/src/pages/ProfilePage.tsx",
+      "component_type": "page",
+      "description": "User profile viewing/editing and application settings (placeholder)",
+      "props": [],
+      "children": [],
+      "route": "/profile",
+      "auth_required": true,
+      "status": "TODO: Implement"
+    },
+    {
+      "name": "CharactersPage",
+      "location": "tuck-in-tales-frontend/src/pages/CharactersPage.tsx",
+      "component_type": "page",
+      "description": "List/browse all characters for current user/family",
+      "props": [],
+      "children": ["CharacterList"],
+      "route": "/characters",
+      "auth_required": true
+    },
+    {
+      "name": "CharacterList",
+      "location": "tuck-in-tales-frontend/src/components/CharacterList.tsx",
+      "component_type": "feature",
+      "description": "Displays grid/list of character cards with avatar, name, actions (view/edit/delete)",
+      "props": ["characters: Character[], onCharacterSelect?: (id: string) => void"],
+      "children": ["character cards with links to CharacterDetailPage"],
+      "data_source": "Fetched from backend /characters endpoint"
+    },
+    {
+      "name": "CharacterCreationPage",
+      "location": "tuck-in-tales-frontend/src/pages/CharacterCreationPage.tsx",
+      "component_type": "page",
+      "description": "Form to create new character. Handles image upload, character details, avatar generation",
+      "props": [],
+      "children": ["form fields, image upload, avatar generator component"],
+      "route": "/characters/create",
+      "auth_required": true,
+      "features": ["image upload", "avatar generation with streaming"]
+    },
+    {
+      "name": "CharacterDetailPage",
+      "location": "tuck-in-tales-frontend/src/pages/CharacterDetailPage.tsx",
+      "component_type": "page",
+      "description": "View/edit individual character details, avatar, stories featuring character",
+      "props": [],
+      "children": ["character info, avatar display, character stories list"],
+      "route": "/characters/:characterId",
+      "auth_required": true,
+      "params": ["characterId: string (UUID)"]
+    },
+    {
+      "name": "StoryGenerationPage",
+      "location": "tuck-in-tales-frontend/src/pages/StoryGenerationPage.tsx",
+      "component_type": "page",
+      "description": "Form to generate new story. Input topic, select characters, set age/moral/language, configure pages",
+      "props": [],
+      "children": ["form inputs, character selector, generation controls"],
+      "route": "/stories/generate",
+      "auth_required": true,
+      "features": ["character multi-select", "prompt customization", "streaming story generation via SSE"]
+    },
+    {
+      "name": "StoryProgressPage",
+      "location": "tuck-in-tales-frontend/src/pages/StoryProgressPage.tsx",
+      "component_type": "page",
+      "description": "Real-time story generation progress viewer. Shows current page, streaming text/images, progress bar",
+      "props": [],
+      "children": ["progress indicator, current page display, streaming content viewer"],
+      "route": "/stories/:storyId",
+      "auth_required": true,
+      "params": ["storyId: string (UUID)"],
+      "features": ["SSE streaming from backend", "real-time page rendering"]
+    },
+    {
+      "name": "StoryViewerPage",
+      "location": "tuck-in-tales-frontend/src/pages/StoryViewerPage.tsx",
+      "component_type": "page",
+      "description": "Read-only story viewer for completed stories. Displays all pages with images, navigation",
+      "props": [],
+      "children": ["story page carousel/navigation, text, images"],
+      "route": "/stories/:storyId/view",
+      "auth_required": true,
+      "params": ["storyId: string (UUID)"]
+    },
+    {
+      "name": "StoryListPage",
+      "location": "tuck-in-tales-frontend/src/pages/StoryListPage.tsx",
+      "component_type": "page",
+      "description": "List all stories for current user/family with title, status, creation date, actions",
+      "props": [],
+      "children": ["story list/grid, story cards with links"],
+      "route": "/stories/list",
+      "auth_required": true,
+      "data_source": "Fetched from backend /stories endpoint"
+    },
+    {
+      "name": "MemoryLoggingPage",
+      "location": "tuck-in-tales-frontend/src/pages/MemoryLoggingPage.tsx",
+      "component_type": "page",
+      "description": "Form to create memory entries. Captures moment details, associates with character/story, AI analysis",
+      "props": [],
+      "children": ["memory form, image upload, character association, submit"],
+      "route": "/memories",
+      "auth_required": true,
+      "features": ["memory creation with streaming AI analysis"]
+    },
+    {
+      "name": "MemoriesListPage",
+      "location": "tuck-in-tales-frontend/src/pages/MemoriesListPage.tsx",
+      "component_type": "page",
+      "description": "List all memory entries with filters/search, view/edit/delete actions",
+      "props": [],
+      "children": ["memory list/timeline, memory cards with links"],
+      "route": "/memories",
+      "auth_required": true,
+      "data_source": "Fetched from backend /memories endpoint"
+    },
+    {
+      "name": "FamilyPage",
+      "location": "tuck-in-tales-frontend/src/pages/FamilyPage.tsx",
+      "component_type": "page",
+      "description": "Family management: view family members, invite members, manage family settings",
+      "props": [],
+      "children": ["family member list, invite form, settings"],
+      "route": "/family",
+      "auth_required": true
+    },
+    {
+      "name": "PromptsPage",
+      "location": "tuck-in-tales-frontend/src/pages/PromptsPage.tsx",
+      "component_type": "page",
+      "description": "Admin/advanced prompt management: view, edit, test custom prompts used in story generation",
+      "props": [],
+      "children": ["PromptEditor, PromptPlayground"],
+      "route": "/prompts",
+      "auth_required": true
+    },
+    {
+      "name": "PromptEditor",
+      "location": "tuck-in-tales-frontend/src/components/prompts/PromptEditor.tsx",
+      "component_type": "feature",
+      "description": "Editor for system/user prompts with variable substitution support",
+      "props": ["prompt: Prompt, onSave: (updatedPrompt: Prompt) => void"],
+      "children": ["textarea for system prompt, textarea for user prompt, variable references"]
+    },
+    {
+      "name": "PromptPlayground",
+      "location": "tuck-in-tales-frontend/src/components/prompts/PromptPlayground.tsx",
+      "component_type": "feature",
+      "description": "Test/preview prompts with sample inputs and variable substitution",
+      "props": ["prompt: Prompt"],
+      "children": ["input fields for variables, preview section, test button"]
+    },
+    {
+      "name": "MentionInput",
+      "location": "tuck-in-tales-frontend/src/components/MentionInput.tsx",
+      "component_type": "primitive",
+      "description": "Text input with @-mention autocomplete for character/person references",
+      "props": ["value: string, onChange: (value: string) => void, onMentions?: (mentions: string[]) => void"],
+      "children": ["input field, autocomplete dropdown"]
+    },
+    {
+      "name": "ConfirmationDialog",
+      "location": "tuck-in-tales-frontend/src/components/ConfirmationDialog.tsx",
+      "component_type": "primitive",
+      "description": "Reusable confirmation modal dialog for delete/destructive actions",
+      "props": ["title: string, message: string, onConfirm: () => void, onCancel: () => void"],
+      "children": ["dialog box with confirm/cancel buttons"]
+    },
+    {
+      "name": "UI Component Library (shadcn/ui)",
+      "location": "tuck-in-tales-frontend/src/components/ui/",
+      "component_type": "primitive",
+      "description": "Collection of headless, unstyled component primitives from shadcn/ui",
+      "components": [
+        "button.tsx",
+        "input.tsx",
+        "label.tsx",
+        "textarea.tsx",
+        "select.tsx",
+        "card.tsx",
+        "dialog.tsx",
+        "alert.tsx",
+        "alert-dialog.tsx",
+        "dropdown-menu.tsx",
+        "popover.tsx",
+        "checkbox.tsx",
+        "badge.tsx",
+        "avatar.tsx",
+        "table.tsx",
+        "skeleton.tsx",
+        "progress.tsx",
+        "calendar.tsx",
+        "command.tsx",
+        "scroll-area.tsx",
+        "separator.tsx"
+      ],
+      "styling": "Tailwind CSS classes, fully customizable"
+    }
+  ],
+  "mobile_ui_screens": [
+    {
+      "name": "App Root",
+      "location": "tuck-in-tales-mobile/App.tsx",
+      "component_type": "layout",
+      "description": "Root mobile app component with authentication context provider",
+      "children": ["RootLayout (Expo Router)"],
+      "framework": "React Native with Expo Router"
+    },
+    {
+      "name": "RootLayout",
+      "location": "tuck-in-tales-mobile/app/_layout.tsx",
+      "component_type": "layout",
+      "description": "Global layout configuration, auth state checking, route protection setup",
+      "children": ["AuthContext provider", "conditional rendering of auth/app stacks"],
+      "navigation_structure": "Conditional rendering: auth stack vs app stack"
+    },
+    {
+      "name": "AuthLayout",
+      "location": "tuck-in-tales-mobile/app/(auth)/_layout.tsx",
+      "component_type": "layout",
+      "description": "Authentication stack layout for login flow",
+      "children": ["LoginScreen"],
+      "route_group": "(auth)"
+    },
+    {
+      "name": "LoginScreen",
+      "location": "tuck-in-tales-mobile/app/(auth)/login.tsx",
+      "component_type": "page",
+      "description": "Mobile login screen with Firebase authentication",
+      "children": ["login form, Google Sign-In button"],
+      "auth_method": "Firebase + useGoogleSignIn hook"
+    },
+    {
+      "name": "TabLayout",
+      "location": "tuck-in-tales-mobile/app/(tabs)/_layout.tsx",
+      "component_type": "layout",
+      "description": "Bottom tab navigation for main app. Three tabs: Home, Characters, Memories",
+      "children": ["BottomTabNavigator with three tabs"],
+      "tabs": [
+        "index (Home/Stories)",
+        "characters (Character List)",
+        "memories (Memories)"
+      ],
+      "route_group": "(tabs)"
+    },
+    {
+      "name": "HomeTab",
+      "location": "tuck-in-tales-mobile/app/(tabs)/index.tsx",
+      "component_type": "page",
+      "description": "Home tab: stories list, quick story generation access",
+      "props": [],
+      "children": ["stories list, create story button"],
+      "route": "/(tabs)/"
+    },
+    {
+      "name": "CharactersTab",
+      "location": "tuck-in-tales-mobile/app/(tabs)/characters.tsx",
+      "component_type": "page",
+      "description": "Characters tab: character list with avatars, create/view character actions",
+      "props": [],
+      "children": ["character list grid, create character button"],
+      "route": "/(tabs)/characters",
+      "data_fetching": "useCharacters hook"
+    },
+    {
+      "name": "MemoriesTab",
+      "location": "tuck-in-tales-mobile/app/(tabs)/memories.tsx",
+      "component_type": "page",
+      "description": "Memories tab: memory timeline/list, create memory action",
+      "props": [],
+      "children": ["memories list, create memory button"],
+      "route": "/(tabs)/memories"
+    },
+    {
+      "name": "StoryDetailScreen",
+      "location": "tuck-in-tales-mobile/app/story/[id].tsx",
+      "component_type": "page",
+      "description": "Story detail/viewer screen with dynamic id routing",
+      "props": [],
+      "children": ["story pages carousel, navigation controls"],
+      "route": "/story/[id]",
+      "params": ["id: string (dynamic)"],
+      "data_fetching": "useStory(id) hook"
+    },
+    {
+      "name": "NotFoundScreen",
+      "location": "tuck-in-tales-mobile/app/+not-found.tsx",
+      "component_type": "page",
+      "description": "404 not found fallback screen for undefined routes",
+      "children": ["error message, home link"]
+    }
+  ],
+  "state_management": {
+    "web": {
+      "approach": "Hybrid: React Context + local component state + React Query (implied via useSSEStream hooks)",
+      "global_state": [
+        {
+          "store": "AuthContext",
+          "location": "tuck-in-tales-frontend/src/context/AuthContext.tsx",
+          "purpose": "Authentication state (user, login, logout, isAuthenticated)",
+          "implementation": "React Context API with custom hook useAuth()",
+          "provider_location": "App.tsx (wraps entire Router)"
+        }
+      ],
+      "server_state": {
+        "mechanism": "Custom SSE (Server-Sent Events) hooks + manual fetch calls",
+        "hooks": [
+          {
+            "name": "useStoryStream",
+            "location": "tuck-in-tales-frontend/src/hooks/useStoryStream.ts",
+            "purpose": "Stream real-time story generation progress from backend",
+            "when_to_use": "Story generation on StoryGenerationPage and StoryProgressPage"
+          },
+          {
+            "name": "useAvatarStream",
+            "location": "tuck-in-tales-frontend/src/hooks/useAvatarStream.ts",
+            "purpose": "Stream avatar generation progress from backend",
+            "when_to_use": "Character creation with AI avatar generation"
+          },
+          {
+            "name": "useMemoryStream",
+            "location": "tuck-in-tales-frontend/src/hooks/useMemoryStream.ts",
+            "purpose": "Stream memory analysis results from backend",
+            "when_to_use": "Memory logging with AI analysis"
+          },
+          {
+            "name": "useSSEStream",
+            "location": "tuck-in-tales-frontend/src/hooks/useSSEStream.ts",
+            "purpose": "Generic SSE hook for any backend streaming endpoint",
+            "when_to_use": "Generic streaming from Server-Sent Events endpoints"
+          }
+        ],
+        "note": "No React Query/SWR integration detected; manual streaming + fetch-based data loading"
+      },
+      "local_state": "useState in individual page/component components for form data, UI state, modal visibility",
+      "form_state": "Controlled components with useState, no form library (react-hook-form/Formik) detected",
+      "rationale": "Simple auth-centric global state via Context, streaming-first data fetching for real-time features (story/avatar/memory generation), lightweight approach suitable for small-to-medium app"
+    },
+    "mobile": {
+      "approach": "React Context for auth + custom hooks for data fetching",
+      "global_state": [
+        {
+          "store": "AuthContext",
+          "location": "tuck-in-tales-mobile/src/context/AuthContext.tsx",
+          "purpose": "Authentication state and Firebase user management",
+          "implementation": "React Context API"
+        }
+      ],
+      "server_state": {
+        "mechanism": "Custom data-fetching hooks using async/await",
+        "hooks": [
+          {
+            "name": "useCharacters",
+            "location": "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts",
+            "purpose": "Fetch and cache user/family characters"
+          },
+          {
+            "name": "useStories",
+            "location": "tuck-in-tales-mobile/src/hooks/queries/useStories.ts",
+            "purpose": "Fetch and cache user/family stories"
+          },
+          {
+            "name": "useStory",
+            "location": "tuck-in-tales-mobile/src/hooks/queries/useStory.ts",
+            "purpose": "Fetch individual story details by ID"
+          },
+          {
+            "name": "useFamilyDetails",
+            "location": "tuck-in-tales-mobile/src/hooks/queries/useFamilyDetails.ts",
+            "purpose": "Fetch family information and members"
+          }
+        ],
+        "caching": "Manual caching via useState, no cache library detected"
+      },
+      "local_state": "useState for form inputs, UI toggles, screen state",
+      "rationale": "Minimal state management overhead, context for auth, custom hooks for data queries, suitable for tab-based mobile navigation"
+    }
+  },
+  "routing": {
+    "web": {
+      "framework": "React Router v6",
+      "routing_approach": "Config-based routes in App.tsx component",
+      "auth_protection": "ProtectedRoute wrapper component",
+      "routes": [
+        {
+          "path": "/",
+          "component": "HomePage",
+          "description": "Public landing page with login link",
+          "auth_required": false,
+          "params": []
+        },
+        {
+          "path": "/login",
+          "component": "LoginPage",
+          "description": "Public authentication page",
+          "auth_required": false,
+          "params": []
+        },
+        {
+          "path": "/account",
+          "component": "AccountPage",
+          "description": "User account and auth settings",
+          "auth_required": true,
+          "params": []
+        },
+        {
+          "path": "/characters",
+          "component": "CharactersPage",
+          "description": "List all user/family characters",
+          "auth_required": true,
+          "params": []
+        },
+        {
+          "path": "/characters/create",
+          "component": "CharacterCreationPage",
+          "description": "Create new character form",
+          "auth_required": true,
+          "params": []
+        },
+        {
+          "path": "/characters/:characterId",
+          "component": "CharacterDetailPage",
+          "description": "View and edit individual character",
+          "auth_required": true,
+          "params": ["characterId: UUID"]
+        },
+        {
+          "path": "/stories/generate",
+          "component": "StoryGenerationPage",
+          "description": "Generate new story form",
+          "auth_required": true,
+          "params": []
+        },
+        {
+          "path": "/stories/list",
+          "component": "StoryListPage",
+          "description": "List all user/family stories",
+          "auth_required": true,
+          "params": []
+        },
+        {
+          "path": "/stories/:storyId",
+          "component": "StoryProgressPage",
+          "description": "View real-time story generation progress",
+          "auth_required": true,
+          "params": ["storyId: UUID"]
+        },
+        {
+          "path": "/stories/:storyId/view",
+          "component": "StoryViewerPage",
+          "description": "Read completed story (all pages)",
+          "auth_required": true,
+          "params": ["storyId: UUID"]
+        },
+        {
+          "path": "/memories",
+          "component": "MemoryLoggingPage or MemoriesListPage",
+          "description": "Memory creation and listing",
+          "auth_required": true,
+          "params": []
+        },
+        {
+          "path": "/family",
+          "component": "FamilyPage",
+          "description": "Family management and member invites",
+          "auth_required": true,
+          "params": []
+        },
+        {
+          "path": "/profile",
+          "component": "ProfilePage",
+          "description": "User profile and application settings",
+          "auth_required": true,
+          "params": []
+        },
+        {
+          "path": "/prompts",
+          "component": "PromptsPage",
+          "description": "Manage and test custom prompts",
+          "auth_required": true,
+          "params": []
+        }
+      ]
+    },
+    "mobile": {
+      "framework": "Expo Router (file-based routing, similar to Next.js)",
+      "routing_approach": "File-based route groups and dynamic segments",
+      "auth_protection": "Conditional rendering in RootLayout based on AuthContext",
+      "route_structure": [
+        {
+          "route_group": "(auth)",
+          "description": "Authentication screens (shown when not logged in)",
+          "routes": [
+            {
+              "path": "/login",
+              "file": "app/(auth)/login.tsx",
+              "description": "Firebase login with Google Sign-In"
+            }
+          ]
+        },
+        {
+          "route_group": "(tabs)",
+          "description": "Main app with bottom tab navigation (shown when logged in)",
+          "layout": "app/(tabs)/_layout.tsx (BottomTabNavigator)",
+          "routes": [
+            {
+              "path": "/(tabs)/",
+              "file": "app/(tabs)/index.tsx",
+              "description": "Home tab: stories list"
+            },
+            {
+              "path": "/(tabs)/characters",
+              "file": "app/(tabs)/characters.tsx",
+              "description": "Characters tab: character list"
+            },
+            {
+              "path": "/(tabs)/memories",
+              "file": "app/(tabs)/memories.tsx",
+              "description": "Memories tab: memory timeline"
+            }
+          ]
+        },
+        {
+          "route_group": "root",
+          "description": "App-wide screens (outside tabs)",
+          "routes": [
+            {
+              "path": "/story/[id]",
+              "file": "app/story/[id].tsx",
+              "description": "Story detail viewer with dynamic route parameter"
+            },
+            {
+              "path": "/+not-found",
+              "file": "app/+not-found.tsx",
+              "description": "404 fallback for undefined routes"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "data_fetching": {
+    "web": [
+      {
+        "name": "useStoryStream",
+        "mechanism": "Server-Sent Events (SSE) + EventSource API",
+        "when_to_use": "Real-time streaming of story generation progress (pages, text, images)",
+        "examples": [
+          "GET /stories/{storyId}/stream - Story generation progress with multipart updates"
+        ],
+        "error_handling": "Try-catch, error callback prop",
+        "loading_state": "isLoading, progress, currentPage",
+        "implementation": "EventSource listener, manual state updates on message events"
+      },
+      {
+        "name": "useAvatarStream",
+        "mechanism": "Server-Sent Events (SSE) + EventSource API",
+        "when_to_use": "Real-time streaming of avatar generation (description → image generation)",
+        "examples": [
+          "POST /characters/{characterId}/avatar/stream - Avatar generation progress"
+        ],
+        "error_handling": "Try-catch, error callback prop",
+        "loading_state": "isLoading, progress, avatarUrl"
+      },
+      {
+        "name": "useMemoryStream",
+        "mechanism": "Server-Sent Events (SSE) + EventSource API",
+        "when_to_use": "Real-time streaming of memory AI analysis results",
+        "examples": [
+          "POST /memories/stream - Memory analysis with streaming insights"
+        ],
+        "error_handling": "Try-catch, error callback prop",
+        "loading_state": "isLoading, analysis results"
+      },
+      {
+        "name": "useSSEStream",
+        "mechanism": "Server-Sent Events (SSE) + generic EventSource wrapper",
+        "when_to_use": "Generic streaming for any SSE endpoint",
+        "examples": [
+          "Any backend endpoint returning text/event-stream MIME type"
+        ],
+        "error_handling": "Try-catch, error callback prop",
+        "location": "tuck-in-tales-frontend/src/hooks/useSSEStream.ts"
+      },
+      {
+        "name": "Fetch API (via axios wrapper)",
+        "mechanism": "Fetch / axios client",
+        "when_to_use": "Non-streaming REST endpoints (characters, families, memories listing, etc)",
+        "client_location": "tuck-in-tales-frontend/src/api/client.ts",
+        "examples": [
+          "GET /characters - Fetch characters list",
+          "GET /stories - Fetch stories list",
+          "POST /characters - Create character",
+          "POST /stories - Generate story",
+          "GET /memories - Fetch memories list"
+        ],
+        "error_handling": "Axios interceptors for error handling, toast notifications (sonner)"
+      }
+    ],
+    "mobile": [
+      {
+        "name": "useCharacters",
+        "mechanism": "Async fetch hook with manual caching",
+        "when_to_use": "Fetch list of characters for current user/family",
+        "examples": [
+          "GET /characters - Character list with avatars"
+        ],
+        "caching": "useState-based cache with optional refresh",
+        "loading_state": "loading, error, data"
+      },
+      {
+        "name": "useStories",
+        "mechanism": "Async fetch hook with manual caching",
+        "when_to_use": "Fetch list of stories for current user/family",
+        "examples": [
+          "GET /stories - Stories list with status"
+        ],
+        "caching": "useState-based cache"
+      },
+      {
+        "name": "useStory",
+        "mechanism": "Async fetch hook with manual caching",
+        "when_to_use": "Fetch individual story details by ID",
+        "examples": [
+          "GET /stories/{id} - Single story with all pages"
+        ],
+        "caching": "useState-based cache per story ID"
+      },
+      {
+        "name": "useFamilyDetails",
+        "mechanism": "Async fetch hook with manual caching",
+        "when_to_use": "Fetch family info and members",
+        "examples": [
+          "GET /family - Family data and member list"
+        ],
+        "caching": "useState-based cache"
+      },
+      {
+        "name": "API Client",
+        "mechanism": "Fetch / axios wrapper",
+        "when_to_use": "Generic HTTP requests from custom hooks",
+        "client_location": "tuck-in-tales-mobile/src/api/client.ts",
+        "baseURL": "Backend API URL (from config/environment)"
+      },
+      {
+        "name": "useGoogleSignIn",
+        "mechanism": "Firebase Authentication + expo-google-signin library",
+        "when_to_use": "Authenticate user with Google Sign-In on mobile",
+        "hook_location": "tuck-in-tales-mobile/src/hooks/useGoogleSignIn.ts",
+        "firebase_config": "tuck-in-tales-mobile/src/config/firebase.ts"
+      }
+    ]
+  },
+  "styling": {
+    "web": {
+      "primary_framework": "Tailwind CSS v3.x",
+      "approach": "Utility-first CSS with Tailwind classes",
+      "component_library": "shadcn/ui (headless components with Tailwind styling)",
+      "design_tokens": "Tailwind config (tuck-in-tales-frontend/tailwind.config.js) - colors, spacing, fonts",
+      "css_processing": "PostCSS with Tailwind CSS plugin (postcss.config.js)",
+      "component_styling": "Inline Tailwind classes in JSX (no CSS Modules or CSS-in-JS)",
+      "theming": "Tailwind default theme + customization in tailwind.config.js",
+      "dark_mode": "Not explicitly configured (likely light-only or CSS vars for theming)",
+      "ui_library_conventions": "shadcn/ui components accept className prop for Tailwind customization"
+    },
+    "mobile": {
+      "primary_framework": "React Native StyleSheet",
+      "approach": "React Native built-in styles (no Tailwind equivalent)",
+      "styling_mechanism": "StyleSheet.create() for style objects",
+      "design_tokens": "Likely defined in utility files or theme constants",
+      "theming": "Manual theme switching via context or style objects",
+      "note": "Expo Router provides default styling, custom styles via React Native style props"
+    }
+  },
+  "key_conventions": {
+    "web": [
+      "File naming: PascalCase for components (e.g., CharacterCreationPage.tsx, LoginForm.tsx)",
+      "Directory structure: Feature-based organization with /pages, /components, /hooks, /context, /models, /api, /utils folders",
+      "Pages in /pages folder correspond 1:1 to routes defined in App.tsx",
+      "Shared reusable components in /components with feature-specific subdirectories (Auth/, Layout/, prompts/)",
+      "Custom hooks in /hooks with descriptive names (useStoryStream, useAvatarStream, etc.)",
+      "Context providers in /context with custom useContext hooks exported (e.g., useAuth from AuthContext.tsx)",
+      "API calls centralized in /api/client.ts with fetch/axios wrapper",
+      "TypeScript models/interfaces in /models matching backend Pydantic models (Story, Character, Memory, etc.)",
+      "Tailwind classes used directly in JSX without CSS Modules or styled-components",
+      "Protected routes wrapped with ProtectedRoute component checking AuthContext.user",
+      "Utility functions in /lib (promptVariables.ts, utils.ts for shared helpers)",
+      "No tests directory visible, likely not set up or in separate location"
+    ],
+    "mobile": [
+      "File naming: camelCase for screens/components with .tsx extension",
+      "Directory structure: Expo Router file-based routing with (route-groups) for conditional display",
+      "Routes defined by file paths in app/ directory (app/(tabs)/index.tsx = /(tabs)/ route)",
+      "Auth check in RootLayout (_layout.tsx) conditionally renders auth or app stacks",
+      "Bottom tab navigation in app/(tabs)/_layout.tsx using Expo Router Tab Navigator",
+      "Custom hooks for data fetching in src/hooks/queries/ with useX naming convention",
+      "Context providers in src/context/ (AuthContext.tsx for auth state)",
+      "API client in src/api/client.ts shared with web frontend",
+      "Firebase config in src/config/firebase.ts for authentication",
+      "Supabase utilities in src/utils/supabaseUtils.ts for data access",
+      "Models/types in src/models matching web frontend (story.ts, character.ts, etc.)",
+      "No explicit CSS/styling files; styles likely in React Native StyleSheet within components"
+    ],
+    "shared_patterns": [
+      "Auth pattern: Firebase authentication in both web and mobile with AuthContext provider",
+      "Model consistency: TypeScript interfaces in /models mirror backend Pydantic models for type safety",
+      "API client pattern: Centralized API client (src/api/client.ts) used by both hooks and pages",
+      "Streaming pattern: SSE hooks (useStoryStream, useAvatarStream, useMemoryStream) for real-time features",
+      "Error handling: Toast notifications (sonner on web) for user feedback",
+      "Loading states: isLoading, error, data pattern in custom hooks"
+    ]
+  },
+  "architecture_observations": {
+    "strengths": [
+      "Clear separation of concerns: pages, components, hooks, context, models, API client",
+      "Reusable custom hooks for streaming (SSE) and data fetching across pages",
+      "TypeScript throughout for type safety across web and mobile",
+      "Shared models/interfaces between frontend and backend ensure data consistency",
+      "Protected routes via ProtectedRoute component with AuthContext integration",
+      "Tailwind CSS + shadcn/ui provides consistent, accessible UI on web",
+      "Expo Router enables file-based routing familiar to Next.js developers",
+      "Parallel web and mobile codebases share API client and models"
+    ],
+    "potential_improvements": [
+      "No visible caching strategy for expensive queries (useQuery/React Query or similar recommended)",
+      "Manual SSE error handling could be standardized with retry logic",
+      "Form state management (react-hook-form/Formik) would reduce boilerplate in creation pages",
+      "Mobile caching could benefit from persistence (AsyncStorage for offline support)",
+      "No visible test structure (unit, integration, E2E tests)",
+      "Authentication token refresh/expiration handling not explicitly shown",
+      "Loading state management could use a centralized store (Redux/Zustand) for complex UIs"
+    ],
+    "data_flow": "User → Page Component → Custom Hook (useStoryStream/useSSEStream/useCharacters) → API Client → Backend (SSE or REST) → State Update → Re-render",
+    "mobile_vs_web": "Both use React but web is SPA (CSR) with Vite, mobile is Expo Router with tab navigation. Shared API client, auth context, and models. Mobile lacks CSS but uses React Native StyleSheet."
+  }
+}
+```
+
+---
+
+## Summary
+
+**BedtimeApp** is a **monorepo** with parallel web and mobile frontends sharing backend services:
+
+### **Web Frontend** (`tuck-in-tales-

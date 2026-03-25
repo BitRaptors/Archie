@@ -1,0 +1,72 @@
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+gunicorn>=21.2.0
+
+# Configuration
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# Database
+supabase>=2.0.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+pgvector>=0.2.0
+
+# Cache & Task Queue
+redis>=5.0.0
+arq>=0.23.0
+
+# AI Providers
+anthropic>=0.7.0
+
+# GitHub API
+PyGithub>=2.1.0
+
+# Code Analysis
+tree-sitter>=0.20.0
+tree-sitter-python>=0.20.0
+tree-sitter-javascript>=0.20.0
+tree-sitter-typescript>=0.20.0
+
+# Embeddings
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# Vector Databases (optional)
+# qdrant-client>=1.7.0
+# pinecone-client>=2.2.0
+
+# Storage
+google-cloud-storage>=2.10.0
+boto3>=1.29.0
+
+# HTTP Client
+httpx>=0.25.0
+requests>=2.31.0
+
+# Token counting
+tiktoken>=0.7.0
+
+# Utilities
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+cryptography>=41.0.0
+
+# Dependency Injection
+dependency-injector>=4.41.0
+
+# SSE
+sse-starlette>=1.8.0
+
+# MCP
+mcp>=1.0.0
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+ruff>=0.1.0
+mypy>=1.7.0
+
+

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@radix-ui/react-avatar": "^1.1.6",
+    "@supabase/supabase-js": "^2.49.4"
+  }
+}

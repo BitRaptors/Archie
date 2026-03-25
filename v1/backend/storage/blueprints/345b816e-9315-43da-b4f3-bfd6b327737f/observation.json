@@ -1,0 +1,403 @@
+```json
+{
+  "organization_style": "Feature and layer-based hybrid organization. iOS codebase organized into functional domains (ViewModel, Views, Domain, AudioEngine, etc.) with clear separation between presentation (ViewControllers, Views), business logic (ViewModel, Domain/Provider/Repository), and infrastructure (Networking, Analytics, ErrorHandling). Files are co-located by concern type rather than by feature, creating a vertically-sliced architectural structure within a horizontally-layered organization.",
+  
+  "detected_components": [
+    {
+      "type": "ViewController (Presentation Layer)",
+      "naming_pattern": "*ViewController.swift",
+      "examples": [
+        "RootViewController.swift",
+        "MainViewController.swift",
+        "AlbumsViewController.swift",
+        "AlbumDetailsViewController.swift",
+        "CommentsViewController.swift",
+        "SoundsViewController.swift",
+        "ProfileViewController.swift"
+      ]
+    },
+    {
+      "type": "ViewModel (Presentation Logic)",
+      "naming_pattern": "*ViewModel.swift",
+      "examples": [
+        "MainViewModel.swift",
+        "AlbumsViewModel.swift",
+        "AlbumDetailsViewModel.swift",
+        "CommentsViewModel.swift",
+        "RecordingsViewModel.swift",
+        "SharingViewModel.swift",
+        "SettingsViewModel.swift"
+      ]
+    },
+    {
+      "type": "Model/Data Structure",
+      "naming_pattern": "*.swift (domain models, DTOs)",
+      "examples": [
+        "Recording.swift",
+        "Album.swift",
+        "SharedAlbum.swift",
+        "Comment.swift",
+        "SharedLink.swift",
+        "RecordingDto.swift",
+        "AlbumDto.swift"
+      ]
+    },
+    {
+      "type": "Repository (Data Access)",
+      "naming_pattern": "*Repository.swift",
+      "examples": [
+        "RecordingsRepository.swift",
+        "AlbumRepository.swift",
+        "SharedLinksRepository.swift",
+        "ConfigurationRepository.swift",
+        "RemoteConfigRepository.swift"
+      ]
+    },
+    {
+      "type": "Provider (Domain Service)",
+      "naming_pattern": "*Provider.swift",
+      "examples": [
+        "FirebaseProvider.swift",
+        "CommentProvider.swift",
+        "AlbumProvider.swift",
+        "SharedAlbumProvider.swift"
+      ]
+    },
+    {
+      "type": "View Component (UI)",
+      "naming_pattern": "*View.swift or *Cell.swift",
+      "examples": [
+        "RecorderView.swift",
+        "PlayerView.swift",
+        "MiniPlayer.swift",
+        "RecordingCell.swift",
+        "AlbumTableViewCell.swift",
+        "SmartAlbumCell.swift"
+      ]
+    },
+    {
+      "type": "Converter/Mapper (Data Transformation)",
+      "naming_pattern": "*Converter.swift",
+      "examples": [
+        "RecordingConverter.swift",
+        "AlbumConverter.swift",
+        "CommentConverter.swift",
+        "SharedAlbumConverter.swift"
+      ]
+    },
+    {
+      "type": "Error Handler",
+      "naming_pattern": "*Error.swift (error types and handlers)",
+      "examples": [
+        "ASError.swift",
+        "ASErrorFactory.swift",
+        "RecordingError.swift",
+        "FirebaseError.swift",
+        "GeneralError.swift"
+      ]
+    },
+    {
+      "type": "Utility/Helper",
+      "naming_pattern": "*Util.swift or *Utils.swift or *Helper.swift",
+      "examples": [
+        "DateUtil.swift",
+        "UIUtils.swift",
+        "AudioUtil.swift",
+        "FirebaseUtil.swift",
+        "ShareHelper.swift"
+      ]
+    },
+    {
+      "type": "Animator (Transition Logic)",
+      "naming_pattern": "*Animator.swift",
+      "examples": [
+        "PopupAnimator.swift",
+        "CommentsAnimator.swift",
+        "NavigationEventAnimator.swift"
+      ]
+    },
+    {
+      "type": "Manager/Service (Singleton-like services)",
+      "naming_pattern": "*Manager.swift or *Service.swift",
+      "examples": [
+        "SettingsManager.swift",
+        "FirebaseSyncManager.swift",
+        "ASAnalyticsManager.swift",
+        "LocationManager.swift",
+        "KeyboardManager.swift"
+      ]
+    }
+  ],
+
+  "dependency_flow": "Bottom-up dependency chain: ViewControllers depend on ViewModels, which depend on Repositories/Providers, which depend on Converters and Firebase/networking layers. Firebase-based data persistence with Rx streams for reactive data binding. Errors bubble up through ASError abstraction. Analytics and tracking injected into ViewModels and Providers. Utilities are stateless helpers consumed across all layers.",
+
+  "architecture_style": "Reactive MVVM with Repository Pattern and Dependency Injection. This is a modular iOS application built around RxSwift/RxCocoa for reactive data binding between ViewModels and Views. The architecture separates concerns into: (1) Presentation Layer (ViewControllers + ViewModels), (2) Domain Layer (Repositories, Providers, Models, Converters), and (3) Infrastructure Layer (Firebase, Networking, Analytics, ErrorHandling, Utils). Dependency injection via Swinject container. Data flows reactively through Observables and Drivers. Firebase acts as the backend with Firestore for metadata and Cloud Storage for audio binaries. Error handling is centralized through ASError protocol with specialized error types per domain. The app appears to be a collaborative audio recording and sharing platform with real-time comments, albums, and social features.",
+
+  "unique_patterns": [
+    "Reactive ViewModel binding pattern: ViewModels expose bind*() functions that subscribe to UI event Observables and emit state changes back to Views via RxSwift/RxCocoa Drivers/Observables",
+    "Converter-based DTO layer: Every domain model has a corresponding DTO and bidirectional Converter (toDto/toModel) for Firebase serialization/deserialization",
+    "Provider abstraction over Firebase: FirebaseProvider and specialized Providers (CommentProvider, AlbumProvider) abstract Firebase Firestore/Storage access, allowing repository isolation",
+    "Error type hierarchy: Structured error handling with ErrorKind enums per domain (RecordingError.ErrorKind, FirebaseError.ErrorKind, etc.) mapped to concrete ASError implementations",
+    "Smart Album pattern: SmartAlbumItem abstraction with concrete subclasses (SmartAlbumRecordingFromSharedAlbum, SmartAlbumRecordingFromSharedLink) for polymorphic recording sources",
+    "View model composition: Complex ViewModels like AlbumDetailsViewModel compose multiple smaller transformations (transformRecordingsToAlbumDetailSections, transformSharedAlbumToDetailSections)",
+    "RxDataSources for UITableView: Uses RxDataSources library for declarative UITableView binding with animated updates",
+    "Deeplink handling: Centralized deeplink resolution in RootViewController and AppDelegate with specific handlers for SharedAlbumDeeplinkInfo and DeeplinkInfo",
+    "Video-like audio playback: Separate player wrappers (AVAudioPlayerWrapper, AvPlayerWrapper) for different playback strategies, with unified GeneralPlayer interface"
+  ],
+
+  "standard_patterns_if_any": [
+    "MVVM: ViewModel separates presentation logic from UI layer",
+    "Repository Pattern: Repositories abstract data source complexity",
+    "Singleton Services: SettingsManager, LocationManager follow singleton/service locator pattern",
+    "Factory Pattern: ASErrorFactory creates error objects based on kind enum",
+    "Adapter/Converter Pattern: Bidirectional Converters adapt DTOs to domain models",
+    "Dependency Injection: Swinject container manages dependencies",
+    "Delegate Pattern: UIViewController and custom view delegates for callbacks",
+    "Observer Pattern: RxSwift Observables/Subjects for event propagation"
+  ],
+
+  "framework_usage": {
+    "RxSwift": "Heavy usage (50+ files importing RxSwift, RxCocoa, RxDataSources). Core reactive framework for data binding and event handling.",
+    "Firebase": "Heavy usage (30+ files). Firestore for metadata, Authentication for user management, Cloud Storage for audio binaries, Remote Config, Dynamic Links, Analytics, Crashlytics.",
+    "UIKit": "Heavy usage (90+ files). Traditional iOS UI framework for ViewControllers, Views, Cells.",
+    "RxDataSources": "Moderate usage (10+ files). Reactive table/collection view updates with sections and animations.",
+    "Swinject": "Moderate usage (3+ files, DI container). Dependency injection container for managing service lifecycle.",
+    "CodableFirebase": "Moderate usage (5+ files). Encoding/decoding between Codable models and Firestore documents.",
+    "Nuke": "Moderate usage (15+ files importing). Image loading and caching library for remote image URLs.",
+    "AVFoundation": "Heavy usage (15+ files). Audio recording and playback (AVAudioRecorder, AVAudioPlayer, AVPlayer).",
+    "CoreLocation": "Moderate usage (5+ files). Location services for recording metadata.",
+    "Disk": "Moderate usage (5+ files). Local file persistence for app state and recorded audio files.",
+    "SnapKit": "Light usage (5+ files). Auto-layout DSL for programmatic constraint definition.",
+    "MessageUI": "Light usage (1+ files). Email composition (MFMailComposeViewController).",
+    "GoogleSignIn": "Light usage (3+ files). Google authentication integration.",
+    "FBSDKLoginKit & FBSDKCoreKit": "Light usage (2+ files). Facebook authentication.",
+    "AppCenter": "Light usage (2+ files). Analytics and crash reporting.",
+    "Crashlytics": "Light usage (2+ files). Firebase Crashlytics for error reporting."
+  },
+
+  "key_search_terms": [
+    "RxSwift binding pattern",
+    "ViewModel.bind* functions",
+    "Repository pattern",
+    "Firebase Firestore queries",
+    "Converter toDto toModel",
+    "ASError ErrorKind",
+    "SmartAlbum",
+    "SharedAlbum collaboration",
+    "Audio recording/playback",
+    "Deeplink resolution",
+    "Observable state management",
+    "Swinject dependency resolution",
+    "RxDataSources table updates",
+    "AVAudioRecorder/AVAudioPlayer",
+    "Comment threading",
+    "Album sharing mechanics"
+  ],
+
+  "priority_files_by_phase": {
+    "discovery": [
+      "iOS/AroundSound/App/Appdelegate/AppDelegate.swift",
+      "iOS/AroundSound/App/ViewControllers/RootViewController.swift",
+      "iOS/AroundSound/App/ViewControllers/MainViewController.swift",
+      "iOS/AroundSound/App/ViewControllers/OnboardingViewController.swift",
+      "iOS/AroundSound/App/DI/Dependencies.swift",
+      "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+      "iOS/AroundSound/App/Models/AppState.swift"
+    ],
+    "layers": [
+      "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+      "iOS/AroundSound/App/DI/Resolver.swift",
+      "iOS/AroundSound/App/Domain/Repository/Recordings/RecordingsRepository.swift",
+      "iOS/AroundSound/App/Domain/Repository/Albums/AlbumRepository.swift",
+      "iOS/AroundSound/App/Domain/Provider/FirebaseProvider.swift",
+      "iOS/AroundSound/App/Domain/Provider/CommentProvider.swift",
+      "iOS/AroundSound/App/Networking/Converters/RecordingConverter.swift",
+      "iOS/AroundSound/App/ErrorHandling/ASError.swift",
+      "iOS/AroundSound/App/ErrorHandling/ASErrorFactory.swift"
+    ],
+    "patterns": [
+      "iOS/AroundSound/App/ViewModel/MainViewModel.swift",
+      "iOS/AroundSound/App/ViewModel/AlbumsViewModel.swift",
+      "iOS/AroundSound/App/ViewModel/RecordingsViewModel.swift",
+      "iOS/AroundSound/App/ViewModel/CommentsViewModel.swift",
+      "iOS/AroundSound/App/Networking/Converters/AlbumConverter.swift",
+      "iOS/AroundSound/App/ErrorHandling/RecordingError/RecordingError.swift",
+      "iOS/AroundSound/App/ViewControllers/Popup/PopupViewController.swift",
+      "iOS/AroundSound/App/Views/Player/PlayerView.swift"
+    ],
+    "communication": [
+      "iOS/AroundSound/App/Domain/Provider/FirebaseProvider.swift",
+      "iOS/AroundSound/App/Domain/Provider/CommentProvider.swift",
+      "iOS/AroundSound/App/Domain/Provider/AlbumProvider.swift",
+      "iOS/AroundSound/App/Domain/Provider/SharedAlbumPreviewProvider.swift",
+      "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+      "iOS/AroundSound/App/Deeplinking/ShareHelper.swift",
+      "iOS/AroundSound/App/Analytics/ASAnalyticsManager.swift",
+      "iOS/AroundSound/App/Analytics/FirebaseAnalyticsService.swift"
+    ],
+    "technology": [
+      "iOS/AroundSound/App/AudioEngine/Recording/GeneralRecorder.swift",
+      "iOS/AroundSound/App/AudioEngine/Playback/GeneralPlayer.swift",
+      "iOS/AroundSound/App/AudioEngine/Recording/Wrapper/AVAudioRecorderWrapper.swift",
+      "iOS/AroundSound/App/AudioEngine/Playback/Wrappers/AVPlayerWrapper.swift",
+      "iOS/AroundSound/App/Location/LocationManager.swift",
+      "iOS/AroundSound/App/Utils/Reachability/ASReachabilityService.swift",
+      "iOS/AroundSound/App/SettingsManager/SettingsManager.swift"
+    ],
+    "deployment": [
+      "Note: No Dockerfile, CI/CD configs, or deployment scripts visible in provided file signatures. This is a native iOS app. Look for: Fastfile (Fastlane), google-services.json (Firebase config), and Info.plist for iOS-specific deployment configuration not included in this analysis."
+    ],
+    "frontend": [
+      "iOS/AroundSound/App/Appdelegate/AppDelegate.swift",
+      "iOS/AroundSound/App/ViewControllers/RootViewController.swift",
+      "iOS/AroundSound/App/ViewControllers/MainViewController.swift",
+      "iOS/AroundSound/App/ViewControllers/OnboardingViewController.swift",
+      "iOS/AroundSound/App/Views/Player/PlayerView.swift",
+      "iOS/AroundSound/App/Views/Recorder/RecorderView.swift",
+      "iOS/AroundSound/App/Views/Header/ScrollableHeader.swift",
+      "iOS/AroundSound/App/ViewControllers/ScrollableHeaderViewController.swift"
+    ]
+  },
+
+  "concerns": [
+    "Heavy Firebase coupling: Multiple layers directly import Firebase. While FirebaseProvider abstracts some concerns, Domain layer still imports Firebase (see Recording.swift, Album.swift, AlbumProvider imports Firebase). Could benefit from further abstraction to enable alternate data source implementations.",
+    "ViewModel clarity: Some ViewModels (e.g., MainViewModel, AlbumsViewModel) have many bind*() functions and private transformation methods, making them potentially large and hard to test. Consider breaking into smaller, more focused ViewModels.",
+    "Repository composition: RecordingsRepository and AlbumRepository likely orchestrate multiple provider calls. The provider/repository distinction could be clearer—some methods appear duplicated or redundant across layers.",
+    "Error handling granularity: ASError hierarchy is extensive but scattered across multiple files. A centralized ErrorKind registry would improve maintainability.",
+    "Reactive state management: Heavy use of PublishSubject and manual binding in ViewModels. Consider consolidating state management into a single state container (Redux-like) to reduce subscriptions and dispose bag management.",
+    "Navigation complexity: Deeplink handling split between AppDelegate, RootViewController, and individual ViewControllers. Centralized routing would reduce cognitive load.",
+    "Audio playback state: Separate wrappers for AVAudioPlayer and AVPlayer with different initialization paths may lead to subtle bugs. Consider unifying or documenting the selection criteria.",
+    "Memory management: Multiple ViewModels clear disposeBags in viewWillDisappear/viewDidDisappear. Ensure all subscriptions are properly unsubscribed to prevent memory leaks, especially in long-lived services.",
+    "Testing surface: Extensive use of Rx and async operations makes unit testing ViewModels non-trivial. Limited visibility into test coverage.",
+    "Configuration management: Multiple config sources (Configurations, ConfigBuilder, TweakRepository, RemoteConfigRepository) suggest evolving feature flag/config strategy. Consolidation recommended."
+  ]
+}
+```
+
+---
+
+## Detailed Per-File Analysis (Key Architecturally Significant Files)
+
+### **iOS/AroundSound/App/Appdelegate/AppDelegate.swift**
+- **Purpose**: Application entry point. Initializes Firebase, analytics, third-party SDKs (Google Sign-In, Facebook SDK, AppCenter). Handles deeplink routing and app lifecycle events.
+- **Exports**: `AppDelegate` class conforming to `UIApplicationDelegate` and `GIDSignInDelegate`.
+- **Imports**: Firebase, GoogleSignIn, FBSDKLoginKit, AppCenter, UIKit. Heavy cross-cutting concern initialization.
+- **Patterns**: Service locator pattern (initializes multiple SDKs inline). Deeplink delegation to RootViewController. Single responsibility violated (too many concerns).
+- **Surprises**: Direct AppCenter, Google/Facebook SDK initialization suggests these are critical paths. No abstraction layer for social auth providers.
+
+### **iOS/AroundSound/App/DI/DepedencyContainer.swift**
+- **Purpose**: Central dependency injection container using Swinject. Provides protocol-based dependency resolution.
+- **Exports**: `DepedencyContainer` class with `register()` and `resolve()` generic methods. Protocols for `ResolvingProtocol`, `RegistrableProtocol`, `ResolvableProtocol`.
+- **Imports**: Swinject, Foundation.
+- **Patterns**: Generic type erasure for dependency registration. Protocol-oriented container design. Singleton and transient scopes supported.
+- **Surprises**: Typo in class name "DepedencyContainer" (missing 'n'). Swinject wrapping suggests possibility of swapping DI implementations later.
+
+### **iOS/AroundSound/App/ViewModel/MainViewModel.swift**
+- **Purpose**: Root view model orchestrating app-wide state: recordings, albums, sharing, location, permissions. Bridges multiple domain repositories and providers.
+- **Exports**: `MainViewModel` struct (note: struct instead of class) with bind*() methods emitting state changes.
+- **Imports**: RxSwift, RxCocoa, Firebase, CoreLocation, GoogleSignIn. Heavy dependency footprint.
+- **Patterns**: Reactive binding (bind*() functions). Composition of multiple repository subscriptions. Separate concerns for album, recording, sharing, location state.
+- **Surprises**: Named `struct` instead of `class` unusual for ViewModel (struct makes defensive copies on mutation, but with reference-type subjects inside, may not behave as intended). Comments suggest private methods: "necessaryShareLinkSubscriptionToKickstartTheRepo" and "replicateDeletionInSharedRepositoryBind" hint at subtle sync logic.
+
+### **iOS/AroundSound/App/Domain/Repository/Recordings/RecordingsRepository.swift**
+- **Purpose**: Abstracts recording data access. Likely composes FirebaseProvider, CommentProvider, AlbumProvider for CRUD and filtering.
+- **Exports**: `RecordingsRepositoryProtocol` and `RecordingsRepository` class.
+- **Imports**: RxSwift, RxCocoa, Disk, CodableFirebase, Foundation.
+- **Patterns**: Private enum `InputType` suggests internal event routing. Reactive output (likely Driver<[Recording]>).
+- **Surprises**: No method signatures visible, but presence of `InputType` enum suggests event-based orchestration or subject-driven architecture.
+
+### **iOS/AroundSound/App/Domain/Provider/FirebaseProvider.swift**
+- **Purpose**: Low-level Firebase abstraction. Handles Firestore document operations and Cloud Storage binary uploads/downloads.
+- **Exports**: `FirebaseProviderProtocol` and `FirebaseProvider` class with methods like `uploadRecordingBinaryToFirebaseStorage()`, `getRecordings()`, `isRecordingExistInFirestore()`.
+- **Imports**: Firebase, FirebaseFirestore, CodableFirebase, GoogleSignIn.
+- **Patterns**: Dual-signature methods (Observable-based and completion-based) for async operations. Single responsibility: Firebase I/O only.
+- **Surprises**: Both reactive (Observable) and callback-based signatures exist, suggesting transition from callback hell to Rx or legacy support. Suggests possible refactoring debt.
+
+### **iOS/AroundSound/App/ErrorHandling/ASError.swift**
+- **Purpose**: Abstract error protocol and base class. All errors conform to this, enabling unified error handling and localization.
+- **Exports**: `ASErrorProtocol` (conforms to LocalizedError) and `ASError` class with `getErrorMessage()` method.
+- **Imports**: Foundation.
+- **Patterns**: Protocol-based abstraction. LocalizedError conformance enables native iOS error recovery. Centralized error messaging.
+- **Surprises**: Simple, minimal abstraction—clean design. `getErrorMessage()` duplicated (override in some subclasses).
+
+### **iOS/AroundSound/App/ErrorHandling/RecordingError/RecordingError.swift**
+- **Purpose**: Recording domain error types. Enumerates recording-specific failure modes (CantPrepareError, CantRecordError, CantFinishError).
+- **Exports**: `RecordingError` struct with `ErrorKind` enum. Factory method `getActualError(externalError:)` returns concrete ASError instances.
+- **Imports**: Foundation.
+- **Patterns**: Enum-based error kinds with factory method. Separation of error types from error instances. Composition of external errors.
+- **Surprises**: Factory method pattern isolates error creation, enabling future localization or analytics injection.
+
+### **iOS/AroundSound/App/Networking/Converters/RecordingConverter.swift**
+- **Purpose**: Bidirectional conversion between domain `Recording` model and Firebase DTO `RecordingDto`.
+- **Exports**: `RecordingConverterProtocol` and `RecordingConverter` class with `toDto(model:)` and `toModel(dto:)` methods.
+- **Imports**: Firebase, Foundation.
+- **Patterns**: Converter pattern (toDto, toModel). Separates serialization concern from domain model.
+- **Surprises**: Protocol-based design enables mockability in tests. Firebase import in converter suggests metadata (e.g., Timestamp) compatibility.
+
+### **iOS/AroundSound/App/ViewModel/CommentsViewModel.swift**
+- **Purpose**: Manages comment stream for a shared album. Binds user comment input to Firebase writes. Displays comment history with reactive updates.
+- **Exports**: `CommentsViewModel` class with `bindSendComment()`, `bindLastSeenComment()`, `createComment()`.
+- **Imports**: RxSwift, RxCocoa, Firebase, FirebaseAuth.
+- **Patterns**: Comment creation with metadata (timestamp, user). Disposable binding cleanup. Reactive text input binding.
+- **Surprises**: `clearDisposeBag()` suggests manual dispose management (unusual for RxSwift, typically auto-cleanup via deinit or view lifecycle).
+
+### **iOS/AroundSound/App/Views/Player/PlayerView.swift**
+- **Purpose**: Full-screen audio player view. Shows waveform, playback progress, metadata, sharing/trimming actions.
+- **Exports**: `PlayerView` (UIView) and `PlayerViewDelegate` protocol.
+- **Imports**: AVFoundation, RxSwift, SnapKit, UIKit.
+- **Patterns**: Delegate callbacks for actions (onPlayerViewAppeared, onPlayerNeedsShare, onPlayerNeedsTrim). SnapKit for auto-layout. Sub-view composition.
+- **Surprises**: Separate mini and fullscreen player views (MiniPlayer, FullscreenPlayer) suggests view complexity and potential duplication.
+
+### **iOS/AroundSound/App/ViewControllers/RootViewController.swift**
+- **Purpose**: App root. Routes between onboarding, main app, and deeplink destinations. Initializes RootViewController as window's rootViewController.
+- **Exports**: `RootViewController` (UIViewController) with `startApp()`, `handleSharedAlbumLink()`, `handleDeeplink()`.
+- **Imports**: Firebase, RxSwift, UIKit.
+- **Patterns**: Deeplink resolution. Dynamic view controller switching (setRootViewController). State machine-like (onboarding → authenticated → main app).
+- **Surprises**: Orchestrates navigation policy—should possibly be extracted to a Router service.
+
+### **iOS/AroundSound/App/Domain/Provider/CommentProvider.swift**
+- **Purpose**: Comment-specific Firebase operations. Fetches comment stream, pushes new comments, subscribes to live updates.
+- **Exports**: `CommentProviderProtocol` and `CommentProvider` class.
+- **Imports**: RxSwift, RxCocoa, Foundation.
+- **Patterns**: Streams comments as Observable<[Comment]>. Private `CommentInputType` enum suggests event-based internal logic.
+- **Surprises**: Dual-signature methods (Observable and completion) again suggest incremental Rx migration.
+
+### **iOS/AroundSound/App/Models/Recording.swift**
+- **Purpose**: Core domain model for audio recordings. Contains metadata (title, location, duration, sync state). Immutable with copy-on-write updaters.
+- **Exports**: `Recording` struct conforming to Codable, Hashable, RecordingProtocol.
+- **Imports**: Foundation, RxDataSources.
+- **Patterns**: Value semantics (struct). Immutable updates (updatePlaybackState, updateTitle, etc. return new Recording). Protocol conformance enables polymorphism.
+- **Surprises**: RxDataSources import suggests use in table/collection views with diff-based updates. Hashable conformance allows Set<Recording>.
+
+### **iOS/AroundSound/App/ViewModel/AlbumsViewModel.swift**
+- **Purpose**: Manages album collection view state. Binds album selections to detail view navigation. Handles sharing, deletion, and deeplink inputs.
+- **Exports**: `AlbumsViewModel` struct with bind*() and collection*Popup() methods.
+- **Imports**: RxSwift, RxCocoa, RxDataSources, Firebase, Foundation.
+- **Patterns**: Popup model generation (collectionPopupForAlbum, collectionPopupForOwnSharedAlbum, collectionPopupForSharedAlbum) suggests action menus for different album types. Private bind*() methods for internal orchestration.
+- **Surprises**: Three different popup generators for album types (own, shared, shared-owned) indicates polymorphic behavior. Deeplink input binding suggests albums can be navigated via URL.
+
+---
+
+## Summary
+
+**AroundSound** is a collaborative audio recording and sharing iOS application built with **reactive MVVM architecture**. The codebase demonstrates mature patterns:
+
+1. **Reactive Data Binding**: RxSwift/RxCocoa throughout for event-driven state management.
+2. **Layered Abstraction**: Clear separation between Presentation (ViewController/ViewModel), Domain (Repository/Provider), and Infrastructure (Firebase, Networking).
+3. **Converter Pattern**: DTO↔Domain model transformations isolate serialization.
+4. **Error Hierarchy**: Structured error types with factory pattern for centralized error creation.
+5. **Dependency Injection**: Swinject for loosely-coupled service management.
+
+**Key Architectural Characteristics**:
+- Firebase-first backend (Firestore + Cloud Storage + Auth).
+- Audio I/O via AVFoundation abstractions.
+- Real-time collaboration (comments, shared albums, presence).
+- Reactive state flows with RxDataSources for animated table updates.
+- Extensible error handling with domain-specific error kinds.
+
+**Areas for Improvement**:
+- Reduce Firebase coupling in domain layer.
+- Consolidate ViewModel bind*() methods or extract to state container.
+- Centralize navigation/routing logic.
+- Unify async patterns (Observable vs. completion callbacks).
+- Strengthen test coverage for reactive logic.

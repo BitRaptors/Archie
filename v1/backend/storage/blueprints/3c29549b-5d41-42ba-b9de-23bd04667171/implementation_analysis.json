@@ -1,0 +1,187 @@
+```json
+{
+  "implementation_guidelines": [
+    {
+      "capability": "AI-Powered Landing Page Generation with Streaming",
+      "category": "state_management",
+      "libraries": [
+        "@anthropic-ai/claude-code ^2.1.76",
+        "@google/generative-ai ^0.24.1"
+      ],
+      "pattern_description": "Implements a dual-provider AI generation system using Server-Sent Events (SSE) streaming. The backend factory function `streamClaudeGeneration()` collects repository metadata, user pins, and active presets, constructs a multi-turn prompt via `buildClaudePrompt()`, and streams Claude's tool-use responses (file writes, directory creation) as JSON events. The frontend `ClaudeTerminal` component consumes the ReadableStream, parses events, and updates UI state in real-time. A fallback Gemini implementation via `streamClaudeRefinement()` handles post-generation refinement.",
+      "key_files": [
+        "src/lib/generate.ts",
+        "src/app/api/generate/stream/route.ts",
+        "src/app/api/generate/refine/route.ts",
+        "src/components/ClaudeTerminal.tsx"
+      ],
+      "usage_example": "```typescript\n// In ClaudeTerminal.tsx (frontend)\nconst response = await fetch('/api/generate/stream', {\n  method: 'POST',\n  body: JSON.stringify({ userPrompt, repoUrl, pinIds })\n});\nconst reader = response.body.getReader();\nconst decoder = new TextDecoder();\nlet buffer = '';\nwhile (true) {\n  const { done, value } = await reader.read();\n  if (done) break;\n  buffer += decoder.decode(value);\n  const lines = buffer.split('\\n');\n  buffer = lines.pop() || '';\n  lines.forEach(line => {\n    if (line.startsWith('data: ')) {\n      const event = JSON.parse(line.slice(6));\n      handleEvent(event); // Dispatch to UI handlers\n    }\n  });\n}\n```",
+      "tips": [
+        "Claude tool use requires explicit tool definitions in the prompt; missing tools will cause the model to output tool names that won't execute. Always validate the prompt structure via `buildClaudePrompt()` tests.",
+        "SSE streams are buffered at the TCP level; ensure event payloads are under ~64KB to avoid fragmentation across multiple read() calls. The frontend buffer handling in ClaudeTerminal handles partial JSON lines.",
+        "Gemini API uses a different response format (no tool_use events); the refine endpoint checks settings.ai_provider to route between Claude (streaming) and Gemini (blocking). Test both paths independently.",
+        "Stream parsing is mirrored in src/lib/stream-parsing.test.ts for unit testing; keep this test file in sync with ClaudeTerminal.tsx's handleEvent() logic when adding new event types."
+      ]
+    },
+    {
+      "capability": "Database Persistence with SQLite & WAL",
+      "category": "persistence",
+      "libraries": [
+        "better-sqlite3 ^12.8.0"
+      ],
+      "pattern_description": "Implements a Repository pattern via `src/lib/db.ts` exporting a singleton `getDb()` function that lazily initializes a SQLite database with Write-Ahead Logging (WAL pragma). Auto-creates schema on first connection (pins, settings, presets tables) and seeds default presets. All API routes use this single accessor point rather than direct database imports, centralizing connection management and schema versioning.",
+      "key_files": [
+        "src/lib/db.ts",
+        "src/app/api/pins/route.ts",
+        "src/app/api/pins/[id]/route.ts",
+        "src/app/api/settings/route.ts",
+        "src/app/api/presets/route.ts"
+      ],
+      "usage_example": "```typescript\n// In src/app/api/pins/route.ts\nimport { getDb } from '@/lib/db';\n\nexport async function GET() {\n  const db = getDb();\n  const pins = db.prepare('SELECT * FROM pins ORDER BY created_at DESC').all();\n  return Response.json(pins);\n}\n\nexport async function POST(req: Request) {\n  const { url, title, description, thumbnail } = await req.json();\n  const db = getDb();\n  const stmt = db.prepare(\n    'INSERT INTO pins (url, title, description, thumbnail) VALUES (?, ?, ?, ?)'\n  );\n  const result = stmt.run(url, title, description, thumbnail);\n  return Response.json({ id: result.lastInsertRowid });\n}\n```",
+      "tips": [
+        "better-sqlite3 is synchronous; use it only in Next.js API routes (which support blocking I/O). Do NOT call getDb() in client components; fetch via API endpoints instead.",
+        "WAL mode improves concurrency for read-heavy workloads by allowing readers to not block writers. However, WAL files (builder.db-wal, builder.db-shm) must be on the same filesystem as the main database; avoid across network mounts.",
+        "The seedPresets() function runs once on first connection (checked via SELECT COUNT). If presets are manually updated, you must manually edit the database or extend the schema version logic.",
+        "Data directory (data/builder.db) is created at process.cwd(); ensure write permissions. In production (Vercel), this is ephemeral and resets on redeploy—consider external database migration."
+      ]
+    },
+    {
+      "capability": "GitHub Repository Metadata Extraction",
+      "category": "networking",
+      "libraries": [
+        "@octokit/rest ^22.0.1"
+      ],
+      "pattern_description": "Uses the Octokit REST client to fetch repository metadata without OAuth. The `getRepoContent()` function in `src/lib/github.ts` parses a GitHub URL (owner/repo), fetches README, package.json, file tree, and metadata (stars, topics, language) via sequential API calls. Results are passed to the generation prompt builder. No authentication is required—requests use the public GitHub API (rate-limited to 60 req/hr).",
+      "key_files": [
+        "src/lib/github.ts",
+        "src/app/api/github/route.ts"
+      ],
+      "usage_example": "```typescript\n// In src/lib/github.ts\nimport { Octokit } from '@octokit/rest';\n\nexport async function getRepoContent(repoUrl: string) {\n  const [owner, repo] = parseGitHubUrl(repoUrl);\n  const octokit = new Octokit();\n  \n  const [repoData, readmeData, packageJsonData, treeData] = await Promise.all([\n    octokit.repos.get({ owner, repo }),\n    octokit.repos.getReadme({ owner, repo })\n      .then(r => atob(r.data.content))\n      .catch(() => ''),\n    octokit.repos.getContent({ owner, repo, path: 'package.json' })\n      .then(r => atob(r.data.content))\n      .catch(() => ''),\n    octokit.repos.getTree({ owner, repo, tree_sha: 'HEAD', recursive: '1' })\n      .then(r => r.data.tree.map(f => f.path))\n  ]);\n  \n  return {\n    name: repoData.data.name,\n    stars: repoData.data.stargazers_count,\n    readme: readmeData,\n    packageJson: packageJsonData,\n    fileTree: treeData\n  };\n}\n```",
+      "tips": [
+        "The public GitHub API rate limit is 60 requests/hour without authentication. For production with high traffic, provide a GITHUB_TOKEN via settings to increase to 5000 req/hr.",
+        "README and package.json are returned as base64-encoded strings; decode via atob() before using. Large files (>1MB) may fail to fetch—wrap in try/catch.",
+        "Recursive tree listing (recursive: '1') returns all files, including node_modules and build artifacts. Consider filtering by `.gitignore` or file count limits to avoid prompt bloat.",
+        "The function assumes standard GitHub.com URLs; GitHub Enterprise (github.company.com) requires `octokit.repos.getBaseUrl()` customization. Test URL parsing robustness."
+      ]
+    },
+    {
+      "capability": "Server-Sent Events (SSE) Streaming Response",
+      "category": "networking",
+      "libraries": [
+        "Node.js built-in (Response, ReadableStream)"
+      ],
+      "pattern_description": "The `/api/generate/stream` endpoint returns a custom ReadableStream wrapped in a Response with `text/event-stream` MIME type. Events are emitted as `data: {JSON}\\n\\n` lines, parsed by the frontend using a TextDecoder and line-buffering strategy. The backend pushes events for Claude tool calls, tool results, and generation completion. This pattern avoids long polling and enables real-time progress feedback to the UI.",
+      "key_files": [
+        "src/app/api/generate/stream/route.ts",
+        "src/components/ClaudeTerminal.tsx",
+        "src/lib/stream-parsing.test.ts"
+      ],
+      "usage_example": "```typescript\n// In src/app/api/generate/stream/route.ts\nexport async function POST(req: Request) {\n  const { userPrompt, repoUrl, pinIds } = await req.json();\n  \n  const stream = streamClaudeGeneration(pins, repoContent, userPrompt, presets);\n  \n  return new Response(stream, {\n    headers: {\n      'Content-Type': 'text/event-stream',\n      'Cache-Control': 'no-cache',\n      'Connection': 'keep-alive',\n    },\n  });\n}\n\n// streamClaudeGeneration yields events:\n// { type: 'system', message: '...' }\n// { type: 'assistant', text: '...' }\n// { type: 'tool_use', id: '...', name: 'write_file', input: {...} }\n// { type: 'tool-result', tool_use_id: '...', content: '...' }\n// { type: 'done', previewUrl: '...', fileCount: 5 }\n\n// Frontend consumes via:\nconst response = await fetch('/api/generate/stream', { method: 'POST', body: JSON.stringify(...) });\nconst reader = response.body.getReader();\nconst decoder = new TextDecoder();\nlet buffer = '';\nwhile (true) {\n  const { done, value } = await reader.read();\n  if (done) break;\n  buffer += decoder.decode(value);\n  const lines = buffer.split('\\n');\n  buffer = lines.pop() || '';\n  lines.forEach(line => {\n    if (line.startsWith('data: ')) {\n      const event = JSON.parse(line.slice(6));\n      handleEvent(event);\n    }\n  });\n}\n```",
+      "tips": [
+        "SSE requires proper headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`. Missing headers will cause browsers to buffer the response.",
+        "Events must be newline-delimited and follow the format `data: {json}\\n\\n`. A single malformed JSON event will break the entire stream if the frontend doesn't have error handling.",
+        "The frontend's line-buffer strategy (splitting by \\n and popping remainder) handles TCP packet fragmentation correctly, but watch for events that contain newlines in JSON—escape them or use a chunked encoding.",
+        "Vercel serverless functions have a 30-second timeout for streaming responses; if generation takes longer, break into multiple requests or use polling. Test with realistic generation times."
+      ]
+    },
+    {
+      "capability": "Headless Browser Screenshot Generation",
+      "category": "media",
+      "libraries": [
+        "puppeteer ^24.39.1"
+      ],
+      "pattern_description": "The `/api/screenshot` endpoint uses Puppeteer to launch a headless Chrome browser, navigate to a generated landing page preview URL, and capture a full-page screenshot. The screenshot is saved as a PNG file in the output directory and returned to the frontend for display. This pattern isolates browser automation in a dedicated API route, allowing the frontend to request screenshots on-demand without blocking generation.",
+      "key_files": [
+        "src/app/api/screenshot/route.ts"
+      ],
+      "usage_example": "```typescript\n// In src/app/api/screenshot/route.ts\nimport puppeteer from 'puppeteer';\n\nexport async function POST(req: Request) {\n  const { url, outputDir } = await req.json();\n  \n  const browser = await puppeteer.launch({\n    headless: 'new',\n    args: ['--no-sandbox', '--disable-setuid-sandbox']\n  });\n  \n  try {\n    const page = await browser.newPage();\n    await page.goto(url, { waitUntil: 'networkidle2' });\n    const screenshotPath = path.join(outputDir, 'screenshot.png');\n    await page.screenshot({ path: screenshotPath, fullPage: true });\n    return Response.json({ screenshotUrl: `/api/preview/screenshot.png` });\n  } finally {\n    await browser.close();\n  }\n}\n```",
+      "tips": [
+        "Puppeteer downloads a full Chromium binary (~200MB) on first run; ensure adequate disk space and bandwidth. In CI/CD, cache the .cache/puppeteer directory or use a pre-built Docker image.",
+        "Headless Chrome requires `--no-sandbox --disable-setuid-sandbox` flags on Linux servers (Vercel, Docker). On local dev (macOS), these may cause warnings but are harmless.",
+        "Screenshots block the request; for large pages or slow networks, set a timeout (e.g., `setTimeout(() => browser.close(), 30000)`) to avoid request timeouts. Consider moving to a background job queue.",
+        "`waitUntil: 'networkidle2'` waits for all network activity to settle; adjust to `'load'` or `'domcontentloaded'` for faster captures if images aren't critical. Test with real generated pages."
+      ]
+    },
+    {
+      "capability": "React Component State Management with Hooks",
+      "category": "state_management",
+      "libraries": [
+        "react ^19.0.0",
+        "react-dom ^19.0.0"
+      ],
+      "pattern_description": "The main page (`src/app/page.tsx`) uses React hooks (useState, useEffect, useContext) to manage global UI state: current pins, repository metadata, active presets, generation output, and refinement chat history. State is lifted to the root component and passed down via props to child components (GeneratePanel, PinBoard, RefinementChat, PreviewFrame). Callbacks propagate user actions back up (e.g., onAddPin, onGenerateComplete). This avoids external state management libraries and keeps logic co-located with components.",
+      "key_files": [
+        "src/app/page.tsx",
+        "src/components/GeneratePanel.tsx",
+        "src/components/PinBoard.tsx",
+        "src/components/ClaudeTerminal.tsx",
+        "src/components/RefinementChat.tsx"
+      ],
+      "usage_example": "```typescript\n// In src/app/page.tsx (root component)\nconst [pins, setPins] = useState<Pin[]>([]);\nconst [previewUrl, setPreviewUrl] = useState<string>('');\nconst [refinementChat, setRefinementChat] = useState<ChatMessage[]>([]);\n\nconst handleGenerateComplete = (output: GenerateOutput) => {\n  setPreviewUrl(output.previewUrl);\n  setRefinementChat([]); // Reset chat on new generation\n};\n\nconst handleRefinement = (sessionId: string, message: string) => {\n  setRefinementChat(prev => [...prev, { role: 'user', content: message }]);\n  // Fetch /api/generate/refine and append assistant response\n};\n\nreturn (\n  <div className=\"flex gap-4\">\n    <GeneratePanel pins={pins} onGenerateComplete={handleGenerateComplete} />\n    <PinBoard pins={pins} onAddPin={setPins} />\n    {previewUrl && (\n      <>\n        <PreviewFrame url={previewUrl} />\n        <RefinementChat chat={refinementChat} onMessage={handleRefinement} />\n      </>\n    )}\n  </div>\n);\n```",
+      "tips": [
+        "Props drilling through 3+ levels (page → GeneratePanel → ClaudeTerminal → inner components) becomes hard to maintain. Consider extracting a context (e.g., GenerationContext) if the component tree deepens.",
+        "useEffect cleanup functions are critical: ClaudeTerminal starts SSE streams that must be cancelled if the component unmounts. Ensure all fetch/stream readers call abort() in the cleanup function.",
+        "React 19's use() hook for Promises is not yet stable; avoid relying on it for data fetching. Stick with useEffect + useState for now.",
+        "State updates from async callbacks (e.g., onGenerateComplete fires after a 30-second generation) should include error boundaries to catch and display failures gracefully."
+      ]
+    },
+    {
+      "capability": "Masonry Grid Layout",
+      "category": "ui",
+      "libraries": [
+        "react-masonry-css ^1.0.16"
+      ],
+      "pattern_description": "The PinBoard component uses `react-masonry-css` to render a responsive masonry grid of PinCard components. The library wraps pin items in a CSS-based multi-column layout, automatically distributing items across columns and maintaining visual balance. Configuration specifies column count based on breakpoints (1 column on mobile, 3+ on desktop). This pattern provides Pinterest-like pin layouts without custom CSS grid logic.",
+      "key_files": [
+        "src/components/PinBoard.tsx",
+        "src/components/PinCard.tsx"
+      ],
+      "usage_example": "```typescript\n// In src/components/PinBoard.tsx\nimport Masonry from 'react-masonry-css';\nimport { PinCard } from './PinCard';\n\nexport function PinBoard({ pins, onAddPin, onDeletePin }: PinBoardProps) {\n  const breakpointColumns = {\n    default: 3,\n    1024: 2,\n    640: 1,\n  };\n\n  return (\n    <Masonry\n      breakpointCols={breakpointColumns}\n      className=\"masonry-grid\"\n      columnClassName=\"masonry-grid-column\"\n    >\n      {pins.map(pin => (\n        <PinCard\n          key={pin.id}\n          pin={pin}\n          onDelete={() => onDeletePin(pin.id)}\n        />\n      ))}\n    </Masonry>\n  );\n}\n\n// CSS (via Tailwind):\n// .masonry-grid { display: -webkit-box; display: -moz-box; display: -ms-flexbox; }\n// .masonry-grid-column { padding-left: 1rem; background-clip: padding-box; }\n```",
+      "tips": [
+        "react-masonry-css uses CSS multi-column layout (column-count), which distributes items top-to-bottom in columns. This differs from CSS Grid (left-to-right). If you need true left-to-right ordering, use a custom Grid layout instead.",
+        "The library calculates column count client-side; if breakpoints are very tight, items may reflow on window resize. Test responsiveness on mobile viewports.",
+        "Pin cards should have uniform widths (enforced by the column layout) but variable heights; ensure images maintain aspect ratio to avoid layout shift. Use `object-fit: cover` on images.",
+        "Performance: if you have 500+ pins, masonry reflow can be slow. Consider virtual scrolling (react-window) or lazy-loading for large lists."
+      ]
+    },
+    {
+      "capability": "Unit & Integration Testing with Vitest",
+      "category": "testing",
+      "libraries": [
+        "vitest ^1.0.0"
+      ],
+      "pattern_description": "The codebase uses Vitest (Vite-based test runner) to unit-test utility functions in `src/lib/*.test.ts` files. Tests cover markdown parsing (`parseReadmeSections`), dependency extraction, project type inference, and prompt generation logic. A separate integration test file (`generate.integration.test.ts`) validates end-to-end prompt building. Tests are configured via `vitest.config.ts` with path alias support (`@` = `src`). The suite includes both synchronous tests and async tests for external API calls (mocked).",
+      "key_files": [
+        "vitest.config.ts",
+        "src/lib/generate.test.ts",
+        "src/lib/generate.integration.test.ts",
+        "src/lib/stream-parsing.test.ts"
+      ],
+      "usage_example": "```typescript\n// In src/lib/generate.test.ts\nimport { describe, it, expect } from 'vitest';\nimport { parseReadmeSections, extractDependencies, inferProjectType } from './generate';\n\ndescribe('parseReadmeSections', () => {\n  it('splits by markdown headings', () => {\n    const readme = `# Intro\\nHello world\\n## Features\\n- Fast\\n- Simple`;\n    const result = parseReadmeSections(readme);\n    expect(result).toHaveProperty('intro');\n    expect(result['intro']).toBe('Hello world');\n    expect(result).toHaveProperty('features');\n    expect(result['features']).toContain('Fast');\n  });\n\n  it('handles empty string', () => {\n    expect(parseReadmeSections('')).toEqual({ overview: '' });\n  });\n});\n\ndescribe('inferProjectType', () => {\n  it('detects React from dependencies', () => {\n    const result = inferProjectType(['react', 'react-dom'], []);\n    expect(result).toContain('React');\n  });\n});\n\n// Run: vitest src/lib/generate.test.ts\n// or: vitest --run (single run)\n// or: vitest (watch mode)\n```",
+      "tips": [
+        "Vitest is ESM-first and uses esbuild for transpilation; it's faster than Jest but may have compatibility issues with CommonJS-only dependencies. Ensure all imports use ES modules.",
+        "The config uses path alias (`@` → `src`), matching Next.js; ensure imports in test files use `@/lib/...` to match production code paths.",
+        "Async tests (e.g., `getRepoContent()` calls to GitHub API) should be mocked using `vi.mock()` or `fetch` mocks to avoid hitting real APIs during test runs. Currently, some integration tests may be hitting real APIs—consider using `msw` (Mock Service Worker).",
+        "Test discovery: Vitest scans `src/**/*.test.ts` by default (configured in vitest.config.ts). Keep test files co-located with source files for easy discovery."
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## Summary
+
+This codebase implements **8 substantive capabilities** leveraging third-party libraries and non-trivial patterns:
+
+1. **AI Streaming Generation** (Claude + Gemini) with SSE and tool-use handling
+2. **SQLite Persistence** with WAL and Repository pattern
+3. **GitHub API Integration** (unauthenticated metadata extraction)
+4. **Server-Sent Events (SSE)** for real-time streaming responses
+5. **Headless Browser Automation** (Puppeteer screenshots)
+6. **React Hooks State Management** (props drilling, lifting state)
+7. **Masonry Grid Layout** (responsive Pinterest-style pins)
+8. **Vitest Unit & Integration Testing** (utilities, prompts, parsing)
+
+Each capability is anchored to **actual file paths** from the codebase and includes gotchas specific to this implementation (e.g., Claude tool definitions, SQLite WAL filesystem constraints, SSE newline parsing, Puppeteer sandbox flags).

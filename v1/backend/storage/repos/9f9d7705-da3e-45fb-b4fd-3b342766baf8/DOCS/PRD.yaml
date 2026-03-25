@@ -1,0 +1,58 @@
+Please help me defining a prd for my mobile app, called Tuck-In Tales. I can provide you the backend specification, and im writing you the app structure with different pages/ features. 
+First we sholud discuss the technology to use. Im thinking in react native, but up for any other tech as well. But i want native experience, with a cross platform solution. 
+
+The app structure will be this: 
+- Main app architecture:
+  - A main page, with 3 different pages. 
+  - Main page ( story list) 
+  - Left is Characters / settings
+  - Right is Memories
+  Dont use tabbed layout, just 3 floating buttons, and when i tap on one of them it is animating to the top and disappears at the bottom. 
+- Story list
+ - List of stories: a scrollable list with different type of cells:
+     - story cell ,cover photo title, and sneak peak
+     - onboarding cell: if you didnt created any stories yet , cta to create one
+     - onboarding cell 2 : if you didnt added any characters , cta to add one
+     - onboarding cell 3: if yo didnt added any family, cta to add one
+    - character cell: if you lately used a character cta to start a story with it 
+   -Purpose: 
+       - we can add new stories, and check out the older ones. 
+       - other cta's to add missing infos, family, characters, stories. 
+- Story detail:
+  - A nice minimal version of a story, Image - text -image -text like the pages. The images can be loaded in fullscreen on tap, and pan to dismiss. 
+- Add new story:
+  - Ability to set the story's main ingredients, like theme, characters, description. And the users can start to create the story here. When the backend is streaming the content. Outline, images, pages, etc... When generating, the user can stop thegeneration or hit regenerate for an image or a page. Where we should show the current prompts used, what the user can edit.
+- Characters:
+    - List of characters, with character cells, like small pokemon cards. We have the character, name avatar, on tap navigating to the character page. 
+    - Ability to add new characters -> What is opening the new/ edit character page.
+    - Ability to remove characters. 
+    - Settings:
+      - Language
+      - Family
+      - Logout
+ - Character detail:
+   - Main page of a character, where we can see the details of it. we can edit / remove the caracter, regenerate the avatar, and a list of the stories it is appearing. 
+   - This page is also the new / edit character page. If the character is a new one, we have a tmp image, and we can add the name, description and birthday to it, and we can hit generate. What will generate the visuals for it, and also the prompt what we need to include at adding. 
+
+  - Memories:
+    - List of memories, with memory cells, like small pokemon cards. We have the memory, date, and the text. On tap navigating to the memory page.
+    - Ability to add new memories -> What is opening the new/ edit memory page.
+    - Ability to remove memories.
+  - Memory detail:
+    - Main page of a memory, where we can see the details of it. we can edit / remove the memory.
+    - memory include list of characters who were there, and a description.
+    - cta to add new characters. 
+
+- Login page:
+ - If you are not logged in , we should show the login modal (apple login)
+
+The ideal onboarding flow would be:
+- User downloads the app
+- App starts, asking what is your name, birthday, and type ( parent, child, sibling, granddad, etc...) 
+- Then generating the avatar. Then adding one more character. After accepting that you can generate a short story for yourself. To see how the app looks like. 
+- Then after opened the story we should show the main list, with the cards to add characters, stories, invite family etc... 
+
+- We should have a payment system. Where you have credits, the credit system should be modular, but with a subscription you get x per week. And one new character is y credits, and a story generation is z credits. And you can run the story as many times as you want. but generation needs active credits after the first.
+- We need a centralized analyitcs system to track the usage of the app, it is just a singleton what has a log event method, where the events are an instance of an event class, what has a name, and a data property what is a dictionary of the event data. And we can add different places to log these events.
+
+- The basics of the backend is ready, you can use it as a reference, and we can dicuss what is missing, what needst to changed. 

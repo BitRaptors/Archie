@@ -1,0 +1,181 @@
+{
+  "blueprint_hash": "4bd44eda17159575b2901fe8dd76bdaa4c7b97cf3e607f3a07b282dd4108c18a",
+  "entries": [
+    {
+      "path": "CLAUDE.md",
+      "content_hash": "e72057da0e2ac94d1ac620cbfb108482559abf9b8164b660efd168b6daba02d9"
+    },
+    {
+      "path": "backend/CLAUDE.md",
+      "content_hash": "d4630d9c11af6fa614cb6dee9c048c9bff61666d3ad0dc0072f5a3089b671863"
+    },
+    {
+      "path": "backend/scripts/CLAUDE.md",
+      "content_hash": "bf44ef1eafb043b00bfa1eae04d19d3c1a4951dac2718b29d08d7d1c89d133e3"
+    },
+    {
+      "path": "backend/src/CLAUDE.md",
+      "content_hash": "d554669caa2326f3ab2b7dda500fcda79080c08b73faa73d3cb74ccca03b4657"
+    },
+    {
+      "path": "backend/src/api/CLAUDE.md",
+      "content_hash": "d23e3d744b1dbc671f5ec859a29b6cc4a308f19c333745bbfca734e05e55adf0"
+    },
+    {
+      "path": "backend/src/api/dto/CLAUDE.md",
+      "content_hash": "14ab2980bd4765dae96a3c42f423369317abb728bce9b0e298043499c5152ea8"
+    },
+    {
+      "path": "backend/src/api/middleware/CLAUDE.md",
+      "content_hash": "d060bd43766f4089c4fea543542eaab5be8df2d3f70de7edf887dc82fc573bfd"
+    },
+    {
+      "path": "backend/src/api/routes/CLAUDE.md",
+      "content_hash": "7cdac4b9688177035034ab1e8d11dd548a7e0b62ff22988d3b01190aaa313bc6"
+    },
+    {
+      "path": "backend/src/application/CLAUDE.md",
+      "content_hash": "940d2687e1d3f0c5c57fd5f7b9c50bbe2900d6f6d2f2fa6231ae2ce1343831cf"
+    },
+    {
+      "path": "backend/src/application/services/CLAUDE.md",
+      "content_hash": "115641155607952134f1b881164fb8ffc9dd8cde2b51f3e5ce6361d4bbe1e5e4"
+    },
+    {
+      "path": "backend/src/config/CLAUDE.md",
+      "content_hash": "3365bfef839b92870c9e48aa874ae7abcf1460510b29affb86e561873468915e"
+    },
+    {
+      "path": "backend/src/domain/CLAUDE.md",
+      "content_hash": "9624ebf488084486ba4af104379b46ea3af20a3c751187aa7af4dd8133046df1"
+    },
+    {
+      "path": "backend/src/domain/entities/CLAUDE.md",
+      "content_hash": "a4e149b9b27d2a3577a887b7940f3e479c15f080052d6d89afdc27237adb1fcf"
+    },
+    {
+      "path": "backend/src/domain/interfaces/CLAUDE.md",
+      "content_hash": "e6c13bc8dba12bb18cf4c83c7a8cbf71faf8747daf8e7cc2cd76aeb0f11b06a6"
+    },
+    {
+      "path": "backend/src/infrastructure/CLAUDE.md",
+      "content_hash": "8a8ffee2dadeb0fc7cc12578296f77b6f2c6dc6c3d6e19abd6046ceb5085ca1a"
+    },
+    {
+      "path": "backend/src/infrastructure/analysis/CLAUDE.md",
+      "content_hash": "40dc76768d0bcd00afc84fe35c9a0021e8d2d8319b36eb8052552e5a72683b41"
+    },
+    {
+      "path": "backend/src/infrastructure/events/CLAUDE.md",
+      "content_hash": "f2257edc3ad378885bb2fad9418bf62f67836074a7044da806e8fb2979b73285"
+    },
+    {
+      "path": "backend/src/infrastructure/external/CLAUDE.md",
+      "content_hash": "3467c3b8ba11523ac42a19436f257aa7bf514f19cba977ec38267899de113fa9"
+    },
+    {
+      "path": "backend/src/infrastructure/mcp/CLAUDE.md",
+      "content_hash": "d525a56fdf32175ddd8544d43d038098ca279e5749653400b909b287af75df59"
+    },
+    {
+      "path": "backend/src/infrastructure/persistence/CLAUDE.md",
+      "content_hash": "be051f88d5775ef9cb3821020b8b58576059f2d1acfda72dd99a2a8b4bc7f4b5"
+    },
+    {
+      "path": "backend/src/infrastructure/prompts/CLAUDE.md",
+      "content_hash": "e6bf0f933c64b6e9f3f807c95ef545bb635266c8d02732cef3db6dce4148cfef"
+    },
+    {
+      "path": "backend/src/infrastructure/storage/CLAUDE.md",
+      "content_hash": "07e0ba59267d49e75c25986e3b0e2e49c120a73c4da123ef116659ae4d2bf48d"
+    },
+    {
+      "path": "backend/src/workers/CLAUDE.md",
+      "content_hash": "f8bebc55a82e52bb895004c9ab48c836ecd273e6543803b7093f84b996f2bae0"
+    },
+    {
+      "path": "backend/tests/CLAUDE.md",
+      "content_hash": "8f5e99009f5852b13870b1f09f18d8cf27848b577fc0f6a2696a552a3182803c"
+    },
+    {
+      "path": "backend/tests/integration/CLAUDE.md",
+      "content_hash": "c63455b75b220c878c2526223ea6aba585a371091c6c31d31f7f90c2a2fce11e"
+    },
+    {
+      "path": "backend/tests/unit/CLAUDE.md",
+      "content_hash": "852c4ce30db9f5e21d523354d8a045ffa0e324975e9738ef4176bcb7ed88e192"
+    },
+    {
+      "path": "backend/tests/unit/api/CLAUDE.md",
+      "content_hash": "4cee10c20286a53088e1d4e846114a6c565644787a10afe8fc1ebac742cf1803"
+    },
+    {
+      "path": "backend/tests/unit/domain/CLAUDE.md",
+      "content_hash": "a49ea0e85ef89a004e6528b974eb26bf58a6b9c83203b4055d962b60f8357680"
+    },
+    {
+      "path": "backend/tests/unit/infrastructure/CLAUDE.md",
+      "content_hash": "c62cb81f3adad3c4d23f7e44da30a3753f7b32b0208f21476a6b925ab38ebdd9"
+    },
+    {
+      "path": "backend/tests/unit/services/CLAUDE.md",
+      "content_hash": "89c94a091e95fd6cc527b5933b0e43341bd23ca10b98bd1cfcc9612035dd0011"
+    },
+    {
+      "path": "backend/tests/unit/workers/CLAUDE.md",
+      "content_hash": "fdf7e4e6d0685a0e98bb1aea23db576030be703148b48d3fcca64df11a725b71"
+    },
+    {
+      "path": "frontend/CLAUDE.md",
+      "content_hash": "57de412b3bfc5f74811bbd488b65dd6527bc625a4366a8b434d3a05671540ee6"
+    },
+    {
+      "path": "frontend/components/CLAUDE.md",
+      "content_hash": "76637ac41cc490154c30f51badde4fd66f04551c5156e7c033d97f7c37789745"
+    },
+    {
+      "path": "frontend/components/layout/CLAUDE.md",
+      "content_hash": "3895dbd03393cfd10b2a0532fcf97447cee4ce5149f6634fccf5ddbbccd72978"
+    },
+    {
+      "path": "frontend/components/ui/CLAUDE.md",
+      "content_hash": "c0cea38b9d18f5c3f46f787a59f438f7373c1ac42583376bf8e585ecdcc6c6ae"
+    },
+    {
+      "path": "frontend/components/views/CLAUDE.md",
+      "content_hash": "3176a2c278cef3779c4685a43fe8e771c48a5277b3c715ce0978e014443acb8c"
+    },
+    {
+      "path": "frontend/hooks/CLAUDE.md",
+      "content_hash": "7912dbe284075030deb6dda24beea09da9001343c48694a14b5c996c0a1c151e"
+    },
+    {
+      "path": "frontend/hooks/api/CLAUDE.md",
+      "content_hash": "34028e72e1c1a937b1fb2494e50ed1add83a06298fbb5c5c460c9ed04c0c390b"
+    },
+    {
+      "path": "frontend/lib/CLAUDE.md",
+      "content_hash": "88d9e4360b7cf9852c80a8d04a7b781dfd92d9fd795692a0f1779f4b62e43e05"
+    },
+    {
+      "path": "frontend/pages/CLAUDE.md",
+      "content_hash": "9230f46bde0eaa45efecbdee7d7c1b43292e1699ec4bb16616fb3c7b5002541d"
+    },
+    {
+      "path": "frontend/services/CLAUDE.md",
+      "content_hash": "272ee94bfcf244aaf34b6c1c27300df6930b57ffb4c064d3dab57cc88a8ad974"
+    },
+    {
+      "path": "landing/CLAUDE.md",
+      "content_hash": "cb2b3b7a41b24ffd3887a78bec8ee3fb5c5f7f70b968691ce54cd13e334b8d65"
+    },
+    {
+      "path": "landing/app/CLAUDE.md",
+      "content_hash": "d579c19a5339cc12409df73cd63ba723adcd7d25100903b73c4a6f2544ccd741"
+    },
+    {
+      "path": "landing/components/CLAUDE.md",
+      "content_hash": "d50f1a9d217219a0ea042b479b6cc48c16b20b4bd7609b8b8c3e7761d078bff5"
+    }
+  ]
+}

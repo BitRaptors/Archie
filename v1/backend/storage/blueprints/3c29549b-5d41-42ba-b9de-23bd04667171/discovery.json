@@ -1,0 +1,168 @@
+```json
+{
+  "project_type": "Full-Stack Web Application (Monolith)",
+  "description": "Single Next.js application serving as both backend API and frontend UI. No microservices, no monorepo structure, no mobile apps detected.",
+  "platforms": [
+    "web-frontend (React/Next.js)",
+    "backend-api (Next.js API Routes)"
+  ],
+  "entry_points": [
+    {
+      "file": "src/app/page.tsx",
+      "purpose": "Main landing page and application UI root",
+      "platform": "web-frontend",
+      "type": "Next.js Page Component"
+    },
+    {
+      "file": "src/app/layout.tsx",
+      "purpose": "Root layout wrapper for all pages and metadata",
+      "platform": "web-frontend",
+      "type": "Next.js Layout"
+    },
+    {
+      "file": "src/app/api/health/route.ts",
+      "purpose": "Health check endpoint for backend availability",
+      "platform": "backend-api",
+      "type": "API Route Handler"
+    },
+    {
+      "file": "next.config.ts",
+      "purpose": "Next.js build and runtime configuration",
+      "platform": "both",
+      "type": "Build Configuration"
+    }
+  ],
+  "module_organization": {
+    "structure": "Standard Next.js App Router structure with clear separation of concerns",
+    "directories": {
+      "src/app": {
+        "purpose": "Next.js App Router - pages, layouts, and API routes",
+        "subdirs": {
+          "src/app/api": "Backend API route handlers organized by feature (pins, generate, github, settings, screenshot, preview, presets, health)",
+          "src/app/page.tsx": "Main application page",
+          "src/app/layout.tsx": "Root layout with metadata and global styles"
+        }
+      },
+      "src/components": {
+        "purpose": "React UI components (all client-side)",
+        "pattern": "Feature-named components: PinBoard, GeneratePanel, RefinementChat, ClaudeTerminal, SettingsPanel, GitHubPanel, PresetsPanel, PreviewFrame, AddPinModal, Header, PinCard"
+      },
+      "src/lib": {
+        "purpose": "Shared business logic, utilities, and data access",
+        "modules": {
+          "generate.ts": "Core generation logic (README parsing, dependency extraction, project type inference, prompt building)",
+          "github.ts": "GitHub API integration (OCtokit wrapper)",
+          "db.ts": "SQLite database access layer (better-sqlite3)",
+          "prompts.json": "Prompt templates for AI generation",
+          "tests": "Unit and integration tests (generate.test.ts, generate.integration.test.ts, stream-parsing.test.ts)"
+        }
+      },
+      "root": {
+        "purpose": "Build and tool configuration",
+        "files": ["next.config.ts", "tailwind.config.ts", "vitest.config.ts", "tsconfig.json", "postcss.config.mjs", "package.json"]
+      }
+    }
+  },
+  "api_structure": {
+    "pattern": "Nested route handlers under src/app/api/[feature]/route.ts",
+    "endpoints_detected": [
+      "src/app/api/pins/route.ts (GET/POST pins)",
+      "src/app/api/pins/[id]/route.ts (GET/PUT/DELETE specific pin)",
+      "src/app/api/generate/route.ts (POST generate landing page)",
+      "src/app/api/generate/stream/route.ts (Streaming generation responses)",
+      "src/app/api/generate/refine/route.ts (POST refine existing generation)",
+      "src/app/api/github/route.ts (GitHub integration - fetch repo data)",
+      "src/app/api/screenshot/route.ts (Screenshot capture via Puppeteer)",
+      "src/app/api/preview/[...path]/route.ts (Dynamic preview routing)",
+      "src/app/api/settings/route.ts (GET/POST user settings)",
+      "src/app/api/presets/route.ts (GET/POST generation presets)",
+      "src/app/api/health/route.ts (Health check)"
+    ]
+  },
+  "config_approach": {
+    "environment_patterns": "Not explicitly shown in provided files, but inferred from code:",
+    "detected_config_sources": [
+      "Settings database table (src/lib/db.ts) - stores ai_provider, gemini_api_key, and other settings",
+      "Runtime environment variables (via process.env in route handlers)",
+      "API keys: gemini_api_key, potentially ANTHROPIC and GITHUB tokens (from dependencies)"
+    ],
+    "configuration_files": {
+      "next.config.ts": "Next.js build and runtime settings",
+      "tailwind.config.ts": "Tailwind CSS styling framework configuration",
+      "vitest.config.ts": "Unit test runner configuration",
+      "tsconfig.json": "TypeScript compiler options",
+      "postcss.config.mjs": "PostCSS/Tailwind processing pipeline",
+      "package.json": "Dependencies and npm scripts (dev, build, start, lint, test)"
+    }
+  },
+  "dependency_topology": {
+    "backend_providers": [
+      "Google Generative AI (Gemini) - src/lib/generate.ts, src/app/api/generate/refine/route.ts",
+      "Anthropic Claude Code - @anthropic-ai/claude-code package",
+      "GitHub API - @octokit/rest via src/lib/github.ts",
+      "Puppeteer - Web screenshot/rendering"
+    ],
+    "database": "SQLite (better-sqlite3) accessed via src/lib/db.ts",
+    "ui_framework": "React 19 with Tailwind CSS v4, react-masonry-css for layouts",
+    "runtime": "Next.js 15.2 on Node.js"
+  },
+  "data_flow": {
+    "primary_flow": "Client -> API Routes -> Library Functions -> Database/External APIs",
+    "example_flow_generate": [
+      "GeneratePanel (client) -> POST /api/generate (route) -> generate.ts (business logic) -> Gemini/Claude APIs + GitHub API -> Streaming response back to ClaudeTerminal (client)"
+    ],
+    "example_flow_refine": [
+      "RefinementChat (client) -> POST /api/generate/refine (route) -> Gemini API or Claude Session -> Updated files -> File writing to output directory"
+    ],
+    "example_flow_pins": [
+      "PinBoard (client) -> POST/GET /api/pins (route) -> db.ts (SQLite queries) -> PinCard (client)"
+    ]
+  },
+  "key_observations": [
+    "Single unified Next.js monolith - no separate backend or microservices",
+    "No mobile platforms detected (no React Native, Flutter, Swift, Kotlin files)",
+    "No desktop apps detected (no Electron, Tauri, PyQt files)",
+    "No CLI tools detected as separate entry points",
+    "Clear server/client boundary: API routes (server-only) vs Components (client-side)",
+    "Streaming API support for long-running generation tasks (generate/stream endpoint)",
+    "Multiple AI provider support (Gemini, Claude) with provider selection in settings",
+    "File system operations in output directory (generation artifacts stored locally)",
+    "SQLite database used for pins, settings, presets (see src/lib/db.ts)",
+    "Test coverage via Vitest for critical library functions (generate.ts, stream-parsing)",
+    "Session-based architecture for Claude refinement (sessionId tracking)",
+    "GitHub integration to fetch repository metadata for landing page generation",
+    "Screenshot capability via Puppeteer (dynamic preview generation)",
+    "Preset system for saving generation templates",
+    "Real-time streaming responses via Server-Sent Events (SSE) for terminal-like UI"
+  ],
+  "missing_platforms": [
+    "No mobile apps (iOS/Android)",
+    "No desktop apps (Electron/Tauri)",
+    "No CLI tools (as separate entry points)",
+    "No serverless functions (AWS Lambda, Cloudflare Workers, etc.)",
+    "No GraphQL layer detected"
+  ],
+  "architectural_style": "Full-stack monolith with clear MVC-like separation: View (React components in src/components), Controller (API routes in src/app/api), Model (database + business logic in src/lib). Follows Next.js 13+ App Router conventions."
+}
+```
+
+---
+
+## **Summary**
+
+**PinLaunch** is a **single Next.js full-stack web application** with:
+
+- **One platform**: Web (React frontend + Node.js/Next.js backend)
+- **One entry point**: `src/app/page.tsx` (main UI) + API routes
+- **Organization**: Standard Next.js structure (App Router)
+- **No monorepo, no microservices, no distributed architecture**
+
+**Core capabilities:**
+1. Landing page generation from GitHub repos using AI (Gemini/Claude)
+2. Pin/bookmark management (SQLite backend)
+3. Interactive refinement chat for generated pages
+4. GitHub repository metadata fetching
+5. Screenshot/preview rendering via Puppeteer
+6. Settings management with provider selection
+
+All files, routes, and components are located within the single `src/` directory following Next.js conventions.

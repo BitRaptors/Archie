@@ -1,0 +1,329 @@
+```json
+{
+  "structural_patterns": [
+    {
+      "pattern": "Dependency Injection (Koin)",
+      "platform": "frontend",
+      "implementation": "Koin is used as the DI container for Android. Dependencies are defined in modules and composed at application startup. The container is initialized in BabyWeatherApplication and provides singleton dependencies across the application lifecycle.",
+      "examples": [
+        "BabyWeatherApplication.kt initializes Koin DI container at process startup",
+        "MainController receives RaptorAnalytics and InAppReviewManager through constructor injection",
+        "LoginController receives RaptorLoginManager, RaptorAnalytics, AppStartService, Context, and SharedPreferences through constructor injection"
+      ],
+      "evidence": {
+        "file": "app/src/main/java/com/bitraptors/babyweather/BabyWeatherApplication.kt",
+        "pattern": "Koin DI container initialization"
+      }
+    },
+    {
+      "pattern": "Controller/Orchestrator Pattern",
+      "platform": "frontend",
+      "implementation": "Controller classes manage application state and coordinate interactions between UI and business logic. MainController and LoginController act as orchestrators that expose reactive state flows and handle user interactions.",
+      "examples": [
+        "MainController manages navigation state via MutableStateFlow<Int> currentPage and exposes navigation events through MutableSharedFlow<UiEvent>",
+        "LoginController orchestrates login flow with LoginSheetState sealed interface managing state transitions (Init -> Visible -> Expanded -> Hidden)",
+        "MainController exposes loading state, subscription errors, main actions, and review requests through separate SharedFlows"
+      ],
+      "evidence": {
+        "files": [
+          "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+          "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt"
+        ],
+        "pattern": "Centralized state and event coordination"
+      }
+    },
+    {
+      "pattern": "Sealed Type Hierarchy (State Machines)",
+      "platform": "frontend",
+      "implementation": "Sealed interfaces/classes define state hierarchies for type-safe state management. This pattern is used for authentication states, navigation states, and login sheet visibility states.",
+      "examples": [
+        "LoginSheetState sealed interface with implementations: Init, Visible, Hidden, Expanded, Collapsed",
+        "LoginState sealed interface with AnonymousUser and LoggedInUser states",
+        "PageDto sealed class with id and widgets properties for polymorphic page data"
+      ],
+      "evidence": {
+        "files": [
+          "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt",
+          "app/src/main/java/com/bitraptors/babyweather/common/domain/api/dto/PageDto.kt"
+        ],
+        "pattern": "Type-safe state representation"
+      }
+    },
+    {
+      "pattern": "Widget/Cell Adapter Pattern",
+      "platform": "frontend",
+      "implementation": "UI components are abstracted as Widget<T> interfaces that map domain data to UI cells. Adapter delegates pattern is used with hannesdorfmann/adapterdelegates4 library for composable RecyclerView adapters.",
+      "examples": [
+        "Widget<T: GenericListItem> interface with mapToCells() method converting domain widgets to UI cells based on theme and login state",
+        "NotFoundCell uses adapterDelegateViewBinding DSL to define ViewBinding-based delegate",
+        "TipsEmptyCell follows same pattern with TipsEmptyCell implementing GenericListItem interface"
+      ],
+      "evidence": {
+        "files": [
+          "app/src/main/java/com/bitraptors/babyweather/page_dashboard/Widget.kt",
+          "app/src/main/java/com/bitraptors/babyweather/common/presentation/cell/NotFoundCell.kt",
+          "app/src/main/java/com/bitraptors/babyweather/page_tips/cells/TipsEmptyCell.kt"
+        ],
+        "pattern": "Composable cell/delegate pattern for RecyclerView"
+      }
+    },
+    {
+      "pattern": "Builder Pattern (Dialog Construction)",
+      "platform": "frontend",
+      "implementation": "RaptorDialogBuilder provides abstract builder for constructing themed dialogs with customizable options, buttons, and styles. Sealed interface AlertButtonStyle defines button styling variations.",
+      "examples": [
+        "AlertButtonStyle sealed interface with Simple, Danger, and Colored(strokeTint, backgroundTint, textTint) variants",
+        "DoubleOptionModel data class with optional title, body, buttons with configurable styles",
+        "ErrorModel data class for error dialogs with title, body, and button text"
+      ],
+      "evidence": {
+        "file": "app/src/main/java/com/bitraptors/babyweather/sdk/RaptorDialogBuilder.kt",
+        "pattern": "Abstract builder with sealed interface variants"
+      }
+    },
+    {
+      "pattern": "Adapter/Wrapper Pattern",
+      "platform": "frontend",
+      "implementation": "External login system (RaptorLoginManager) is wrapped by LoginController which adapts it to the application's state model (LoginState) and event model (UiEvent).",
+      "examples": [
+        "LoginController wraps RaptorLoginManager.userState and transforms UserState to LoginState",
+        "LoginController listens to RaptorLoginManager.loginState (LoginEvent) and transforms to application events via analytics tracking and state mutations"
+      ],
+      "evidence": {
+        "file": "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt",
+        "pattern": "External API wrapper and state transformation"
+      }
+    }
+  ],
+  "behavioral_patterns": [
+    {
+      "pattern": "Event-Driven Architecture (Reactive Streams)",
+      "platform": "frontend",
+      "implementation": "Controllers expose MutableSharedFlow and MutableStateFlow for reactive communication. Events are emitted via tryEmit() and collected by UI layers. Separate flows for different event categories (navigation, errors, actions).",
+      "examples": [
+        "MainController exposes: redirectedEvent (MutableSharedFlow<UiEvent>), subscriptionErrors (MutableSharedFlow<SubscriptionError>), mainActionEvent (MutableSharedFlow<MainAction>)",
+        "LoginController emits LoginSheetState transitions via loginSheetState.tryEmit()",
+        "RefreshFragmentRequest, NavigateBackToDashboardRequest, NavigationRequest are UiViewModelEvent implementations passed through redirectedEvent"
+      ],
+      "evidence": {
+        "files": [
+          "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+          "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt",
+          "app/src/main/java/com/bitraptors/babyweather/baseclasses/events/UIEvent.kt"
+        ],
+        "pattern": "Coroutine Flow-based pub/sub"
+      }
+    },
+    {
+      "pattern": "Multi-Step Workflow Orchestration",
+      "platform": "frontend",
+      "implementation": "LoginController orchestrates multi-step authentication workflows. It manages state transitions, coordinates with external LoginManager, persists state via SharedPreferences, and triggers side effects (analytics, app refresh).",
+      "examples": [
+        "Google login flow: handleGoogleLogin() -> onGoogleLoginResult() with internet check -> analytics.track(GoogleLogin()) -> appStartService.refreshAfterLogin()",
+        "Magic link flow: handleMagicLinkLogin(email) -> LoginEvent.Started -> LoginEvent.MagicLinkSent -> analytics tracking -> LoginEvent.TokenReceived -> appStartService.refreshAfterLogin() -> state update",
+        "Terms acceptance: acceptTerms() updates SharedPreferences and MutableStateFlow simultaneously for persistence and reactive updates"
+      ],
+      "evidence": {
+        "file": "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt",
+        "pattern": "State machine with side effects coordination"
+      }
+    },
+    {
+      "pattern": "Optimistic State Updates",
+      "platform": "frontend",
+      "implementation": "UI state is updated immediately via MutableStateFlow/SharedFlow without waiting for server confirmation. Error handling is centralized through error flows.",
+      "examples": [
+        "MainController.setCurrentPage(pageId) immediately emits to _currentPage without waiting for navigation completion",
+        "LoginController.acceptTerms() updates both SharedPreferences and isNewTermsAndPrivacyAccepted flow synchronously",
+        "Navigation requests emit immediately: navigateToTips(), navigateToNewBaby() call redirectedEvent.tryEmit() without waiting for navigation result"
+      ],
+      "evidence": {
+        "file": "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+        "pattern": "Immediate state emission with error handling via separate flows"
+      }
+    },
+    {
+      "pattern": "Service Orchestration with Lifecycle Management",
+      "platform": "frontend",
+      "implementation": "LoginController extends CoroutineScope and uses launch {} to manage asynchronous workflows. It waits for AppStartService readiness before initializing login state.",
+      "examples": [
+        "LoginController.init block launches: appStartService.waitForAppReady() -> setLoginSheetState(Init) with synchronization",
+        "LoginManager.loginState.onEach{} is collected in launch{} block scoped to LoginController",
+        "appStartService.refreshAfterLogin() is called on successful token receipt, coordinating app-wide data refresh"
+      ],
+      "evidence": {
+        "file": "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt",
+        "pattern": "Coroutine-scoped service orchestration with sequential operations"
+      }
+    },
+    {
+      "pattern": "Navigation Event Pattern",
+      "platform": "frontend",
+      "implementation": "Navigation is abstracted as sealed interface NavigationRequest and NavigationIconSelection. Navigation events are emitted through redirectedEvent flow and consumed by MainActivity/Navigation controller.",
+      "examples": [
+        "NavigateBackToDashboardRequest is emitted by MainController.navigateBackToDashboard()",
+        "NavigationRequest(NavigationIconSelection.Tips()) is emitted by MainController.navigateToTips()",
+        "NavigationRequest(NavigationIconSelection.BabySettings()) is emitted by MainController.navigateToNewBaby(page)"
+      ],
+      "evidence": {
+        "file": "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+        "pattern": "Type-safe navigation events via sealed interfaces"
+      }
+    }
+  ],
+  "cross_cutting_patterns": [
+    {
+      "concern": "Analytics Tracking",
+      "approach": "Centralized RaptorAnalytics service is injected into controllers. All user actions and system events trigger analytics.track(AnalyticsEvent) calls. Custom AnalyticsEvent sealed types (GoogleLogin, MagicLinkLogin, ShowMoreTipsClicked, AddNewBaby, etc.) provide type-safe event tracking.",
+      "location": "MainController and LoginController coordinate analytics tracking. RaptorAnalytics is provided by Koin DI. Events are emitted at critical points: login attempts, navigation, terms acceptance, review requests.",
+      "examples": [
+        "analytics.track(AnalyticsEvent.GoogleLogin()) on token receipt from Google",
+        "analytics.track(AnalyticsEvent.MagicLinkRequested()) on magic link initiation",
+        "analytics.track(AnalyticsEvent.ShowMoreTipsClicked()) in MainController.navigateToTips()",
+        "analytics.track(AnalyticsEvent.GoogleLoginError(it.exception.message)) on login failure"
+      ]
+    },
+    {
+      "concern": "Error Handling",
+      "approach": "Multi-level error handling strategy: (1) Subscription errors emitted through subscriptionErrors SharedFlow, (2) Login errors tracked via analytics, (3) Internet connectivity checks via hasInternetConnection() before operations, (4) Exception messages captured and tracked, (5) Error states managed via sealed interfaces.",
+      "location": "LoginController performs internet checks before all network operations. MainController exposes subscriptionErrors flow. LoginController logs exceptions from LoginEvent.Failed and tracks via analytics.",
+      "examples": [
+        "if (hasInternetConnection(context)) guard in handleGoogleLogin(), onGoogleLoginResult(), handleMagicLinkLogin()",
+        "mainActionEvent: HideBottomNavigation | ShowBottomNavigation for error-state UI updates",
+        "analytics.track(AnalyticsEvent.MagicLinkLoginError(it.exception.message.toString())) captures error details",
+        "subscriptionErrors.tryEmit(error) in MainController for subscription-related errors"
+      ]
+    },
+    {
+      "concern": "State Persistence",
+      "approach": "SharedPreferences is used for persistent state storage. LoginController manages terms acceptance state in SharedPreferences with NEW_PP_AND_TC_ACCEPTED key. Persistent state is synchronized with reactive flows using extension functions (put/get).",
+      "location": "LoginController receives SharedPreferences instance via DI. State is persisted on acceptTerms() via shredPref.put() and synced to isNewTermsAndPrivacyAccepted MutableStateFlow.",
+      "examples": [
+        "isNewTermsAndPrivacyAccepted = MutableStateFlow(shredPref.get(NEW_PP_AND_TC_ACCEPTED, false)) initializes from persistent storage",
+        "acceptTerms() calls shredPref.put(NEW_PP_AND_TC_ACCEPTED, true) and updates flow value",
+        "hu.bitraptors.presentation.put/get extension functions provide typed SharedPreferences access"
+      ]
+    },
+    {
+      "concern": "Lifecycle Management",
+      "approach": "Activities and Controllers manage lifecycle-scoped coroutines. LoginController extends CoroutineScope with Dispatchers.IO context. BabyWeatherApplication manages process-level initialization of DI container and SDK setup.",
+      "location": "LoginController init block launches coroutines scoped to its lifecycle. BabyWeatherApplication.onCreate() initializes global dependencies. MainActivity hosts NavController for fragment lifecycle management.",
+      "examples": [
+        "LoginController init: launch { appStartService.waitForAppReady() -> setLoginSheetState }",
+        "loginManager.loginState.onEach{}.launchIn(this) ties flow collection to LoginController scope",
+        "BabyWeatherApplication manages process lifecycle and global Koin container setup"
+      ]
+    },
+    {
+      "concern": "Theme/Appearance Management",
+      "approach": "Theme state (DarkMode) is passed to Widget implementations for theme-aware UI rendering. Widget.mapToCells() takes appTheme parameter. ApplicationIcon state is managed globally via MainController.currentAppIcon MutableStateFlow.",
+      "location": "MainController exposes currentAppIcon: MutableStateFlow<ApplicationIcon>. Widget interface signature includes DarkMode parameter. Theme state flows through DI and is applied at cell rendering time.",
+      "examples": [
+        "Widget<T>.mapToCells(appTheme: DarkMode, isLoggedIn: Boolean): List<T> applies theme during cell mapping",
+        "MainController.currentAppIcon updated via setCurrentIcon() for app-wide theme changes",
+        "BabyWeatherApplication manages dark mode state initialization and DI propagation"
+      ]
+    },
+    {
+      "concern": "Logging",
+      "approach": "Timber logging library is used (import timber.log.Timber). Exception messages are captured and logged. No explicit structured logging visible, but analytics events serve as application event log.",
+      "location": "LoginController imports Timber for logging. Exception details captured via it.exception.message and passed to analytics tracking.",
+      "examples": [
+        "Timber.d/e/w implied usage for debug/error/warning logging",
+        "Analytics events (AnalyticsEvent.GoogleLoginError, MagicLinkLoginError) serve as structured event log",
+        "Exception messages converted to string: it.exception.message.toString()"
+      ]
+    },
+    {
+      "concern": "Authentication & Authorization",
+      "approach": "OAuth (Google) and Magic Link authentication are abstracted by RaptorLoginManager. LoginController wraps the login manager and transforms external LoginEvent to internal LoginState. User authentication state is exposed via userState: StateFlow<LoginState>.",
+      "location": "LoginController receives RaptorLoginManager from DI. Handles Google OAuth via handleGoogleLogin(launcher). Magic link via handleMagicLinkLogin(email). State transformation occurs via map operator.",
+      "examples": [
+        "userState = loginManager.userState.map { when(it) is UserState.LoggedIn -> ... } exposes authentication state",
+        "handleGoogleLogin(launcher) initiates Google OAuth flow",
+        "handleMagicLinkLogin(email) requests magic link",
+        "onGoogleLoginResult(resultCode, data) processes OAuth callback",
+        "LoginState sealed interface: AnonymousUser vs LoggedInUser represents auth state"
+      ]
+    },
+    {
+      "concern": "Validation",
+      "approach": "Client-side validation appears to be implicit rather than explicit. Internet connectivity check serves as pre-operation validation. Input validation likely happens in underlying RaptorLoginManager (email validation for magic link). No explicit validation UI visible in provided code.",
+      "location": "hasInternetConnection(context) validation before network operations in LoginController. Email validation likely in RaptorLoginManager.handleMagicLinkLogin()",
+      "examples": [
+        "if (hasInternetConnection(context)) guard prevents network operations on offline status",
+        "Email validation required implicitly for magic link flow"
+      ]
+    },
+    {
+      "concern": "Buffering & Flow Control",
+      "approach": "SharedFlow uses explicit replay and buffer overflow configuration. redirectedEvent: MutableSharedFlow(0, 100) uses 100-item buffer with SUSPEND overflow strategy. LoginSheetState uses 10-item buffer.",
+      "location": "MainController and LoginController define SharedFlow with specific buffer parameters.",
+      "examples": [
+        "redirectedEvent = MutableSharedFlow<UiEvent>(0, 100) zero replay, 100 buffer",
+        "subscriptionErrors = MutableSharedFlow<SubscriptionError>(0, 100)",
+        "loginSheetState = MutableSharedFlow<LoginSheetState>(0, 10, BufferOverflow.SUSPEND) explicit overflow strategy"
+      ]
+    },
+    {
+      "concern": "In-App Reviews",
+      "approach": "InAppReviewManager abstraction wraps platform review functionality. MainController exposes reviewManager.reviewInfo flow and requestReview() method. Review requests are triggered based on user interactions.",
+      "location": "MainController receives InAppReviewManager from DI. reviewRequest property exposes reviewManager.reviewInfo. requestReview() method calls reviewManager.requestReviewInfo().",
+      "examples": [
+        "reviewRequest = reviewManager.reviewInfo exposes review state",
+        "MainController.requestReview() initiates review flow"
+      ]
+    }
+  ],
+  "architectural_summary": {
+    "overall_pattern": "Feature-Slice Modular Architecture with Reactive State Management",
+    "key_characteristics": [
+      "Feature-based module organization (page_dashboard, page_tips, page_login_bottomsheet, etc.) with centralized domain layer",
+      "Coroutine Flow-based reactive architecture for state and event management",
+      "Controller/Orchestrator pattern for each major feature managing state transitions and side effects",
+      "Sealed interface/class hierarchies for type-safe state and event representation",
+      "Composition over inheritance with Cell/Widget pattern for RecyclerView list items",
+      "Koin DI container for dependency wiring at application startup",
+      "Analytics-first event tracking with custom AnalyticsEvent types",
+      "Multi-layered error handling with dedicated error flows and internet connectivity checks",
+      "Activity/Navigation layer hosting fragment navigation graph",
+      "Abstraction of external dependencies (LoginManager, ReviewManager, AnalyticsSDK) through wrapper controllers"
+    ],
+    "data_flow": "User interactions -> Activity/Fragment -> Controller -> State emissions (StateFlow/SharedFlow) -> UI updates. Network operations coordinated through AppStartService. Analytics tracking at critical paths.",
+    "state_management": "Decentralized state per feature controlled by feature controllers (MainController, LoginController). Global process state managed by BabyWeatherApplication and Koin DI.",
+    "platforms": ["mobile-android"]
+  }
+}
+```
+
+---
+
+## Pattern Analysis Commentary
+
+### Structural Patterns
+
+**Dependency Injection (Koin)**: The application uses Koin as a service locator/DI container initialized in `BabyWeatherApplication`. Controllers receive dependencies through constructor injection, enabling testability and loose coupling. This is particularly evident in `MainController` and `LoginController` receiving analytics and business logic services.
+
+**Controller/Orchestrator Pattern**: Feature controllers act as orchestrators between UI and business logic. They maintain reactive state flows and expose behavior as methods that emit events. This centralizes business logic and makes the data flow explicit and testable.
+
+**Sealed Type Hierarchies**: The codebase extensively uses Kotlin sealed interfaces/classes for state representation (`LoginSheetState`, `LoginState`, `NavigationIconSelection`, `AlertButtonStyle`). This provides compile-time exhaustiveness checking and type safety, making state machines explicit and harder to misuse.
+
+**Widget/Cell Adapter Pattern**: Using hannesdorfmann/adapterdelegates4 library with ViewBinding-based delegates provides composable, type-safe RecyclerView adapters. The `Widget<T>` interface abstracts data transformation to UI cells with theme awareness.
+
+### Behavioral Patterns
+
+**Event-Driven Architecture**: Coroutine Flows (StateFlow, SharedFlow) form the reactive backbone. Controllers emit events through SharedFlows which are collected by UI layers. This decouples UI from business logic and makes event handling explicit.
+
+**Multi-Step Workflow Orchestration**: Login flows demonstrate complex orchestration. The `LoginController` manages state transitions, coordinates with external services, persists state, and triggers side effects (analytics, app refresh) in a choreographed sequence.
+
+**Optimistic Updates**: State flows are updated immediately without waiting for server confirmation. Errors are handled through separate error flows, providing immediate UI feedback.
+
+### Cross-Cutting Patterns
+
+**Analytics-First Architecture**: Analytics tracking is integrated at all critical paths. Custom `AnalyticsEvent` types provide type-safe event tracking, making analytics a first-class citizen in the architecture.
+
+**Multi-Level Error Handling**: Errors are handled at multiple levels—connectivity checks before operations, error flows for subscription errors, analytics tracking for exceptions, and error state UI updates via navigation actions.
+
+**State Persistence**: Shared state is synchronized between persistent storage (SharedPreferences) and reactive flows, ensuring consistency between memory and disk.
+
+**Lifecycle Management**: Coroutine scopes are properly managed within controller lifecycles. The application manages process-level lifecycle through `BabyWeatherApplication`.

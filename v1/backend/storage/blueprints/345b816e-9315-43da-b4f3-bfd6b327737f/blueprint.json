@@ -1,0 +1,1098 @@
+{
+  "meta": {
+    "repository": "local/AroundSound",
+    "repository_id": "aroundsound",
+    "analyzed_at": "2024-01-15T00:00:00Z",
+    "schema_version": "2.0.0",
+    "architecture_style": "Multi-platform monorepo: iOS MVVM+RxSwift, Android MVVM, Firebase serverless backend",
+    "platforms": [
+      "mobile-ios",
+      "mobile-android",
+      "backend-firebase-functions"
+    ],
+    "executive_summary": "AroundSound is a geotagged audio recording and sharing app for iOS and Android backed by Firebase. The iOS app uses MVVM with RxSwift reactive bindings, Swinject DI, and UIKit. The Android app uses MVVM with native Android patterns. The backend is Firebase Cloud Functions (TypeScript/Node.js) with Firestore, Cloud Storage, FCM, and BigQuery. Architecture separates Presentation, ViewModel, Repository, Provider, and Networking layers on iOS with protocol-based abstractions throughout.",
+    "confidence": {
+      "architecture_rules": 0.92,
+      "decisions": 0.88,
+      "components": 0.93,
+      "communication": 0.91,
+      "technology": 0.95,
+      "frontend": 0.93,
+      "deployment": 0.87
+    }
+  },
+  "architecture_rules": {
+    "file_placement_rules": [
+      {
+        "component_type": "ViewModel",
+        "naming_pattern": "*ViewModel.swift",
+        "location": "iOS/AroundSound/App/ViewModel/",
+        "example": "iOS/AroundSound/App/ViewModel/AlbumsViewModel.swift",
+        "description": "All iOS ViewModels live here; cell-specific VMs in AlbumCellTypes/"
+      },
+      {
+        "component_type": "ViewController",
+        "naming_pattern": "*ViewController.swift",
+        "location": "iOS/AroundSound/App/ViewControllers/",
+        "example": "iOS/AroundSound/App/ViewControllers/AlbumsViewController.swift",
+        "description": "All iOS screen controllers; animators in Animators/, popups in Popup/"
+      },
+      {
+        "component_type": "DomainProvider",
+        "naming_pattern": "*Provider.swift",
+        "location": "iOS/AroundSound/App/Domain/Provider/",
+        "example": "iOS/AroundSound/App/Domain/Provider/AlbumProvider.swift",
+        "description": "Computed/filtered views of repository data for specific use cases"
+      },
+      {
+        "component_type": "FirestoreConverter",
+        "naming_pattern": "*Converter.swift",
+        "location": "iOS/AroundSound/App/Networking/Converters/",
+        "example": "iOS/AroundSound/App/Networking/Converters/AlbumConverter.swift",
+        "description": "Bidirectional DTO-to-domain model transformations; one file per entity"
+      },
+      {
+        "component_type": "DomainModel",
+        "naming_pattern": "*.swift (no suffix)",
+        "location": "iOS/AroundSound/App/Models/",
+        "example": "iOS/AroundSound/App/Models/Recording.swift",
+        "description": "Domain entities in root; DTOs in Dtos/; Notification models in Notification/"
+      },
+      {
+        "component_type": "CloudFunction",
+        "naming_pattern": "<domain>.ts",
+        "location": "platform/firebase/functions/src/",
+        "example": "platform/firebase/functions/src/albums.ts",
+        "description": "One file per domain entity; index.ts exports all functions"
+      }
+    ],
+    "naming_conventions": [
+      {
+        "scope": "iOS errors",
+        "pattern": "AS<Domain>Error",
+        "examples": [
+          "ASError",
+          "FirebaseError",
+          "RecordingError",
+          "ShareError"
+        ],
+        "description": "All error types prefixed AS; domain-specific subtypes in own files"
+      },
+      {
+        "scope": "iOS DTOs",
+        "pattern": "<Entity>Dto.swift",
+        "examples": [
+          "AlbumDto.swift",
+          "RecordingDto.swift",
+          "SharedLinkDto.swift"
+        ],
+        "description": "DTOs suffixed Dto; located in Models/Dtos/"
+      },
+      {
+        "scope": "iOS Analytics",
+        "pattern": "AS<Service>",
+        "examples": [
+          "ASAnalyticsManager",
+          "ASAnalyticsService",
+          "ASAnalyticsEvent"
+        ],
+        "description": "Analytics types prefixed AS throughout"
+      },
+      {
+        "scope": "Firebase functions",
+        "pattern": "snake_case files, camelCase exports",
+        "examples": [
+          "cloud_function_utils.ts",
+          "promise_utils.ts",
+          "shared_links.ts"
+        ],
+        "description": "Backend source files use snake_case; exported function names use camelCase"
+      }
+    ]
+  },
+  "decisions": {
+    "architectural_style": {
+      "title": "MVVM + RxSwift reactive architecture on iOS",
+      "chosen": "MVVM with RxSwift Observables/Drivers, PublishRelay inputs, protocol-based DI via Swinject",
+      "rationale": "Enables testable ViewModels via protocol mocks; reactive streams unify Firebase real-time updates, local changes, and UI events into single data pipelines",
+      "alternatives_rejected": [
+        "MVC",
+        "VIPER",
+        "Redux/Flux"
+      ]
+    },
+    "key_decisions": [
+      {
+        "title": "Firebase as sole backend",
+        "chosen": "Firestore + Cloud Functions + Storage + FCM + Auth",
+        "rationale": "Single vendor covers all backend needs: real-time sync, serverless compute, file storage, push notifications, auth",
+        "alternatives_rejected": [
+          "Custom REST API",
+          "GraphQL backend"
+        ]
+      },
+      {
+        "title": "RxSwift for state management",
+        "chosen": "RxSwift PublishRelay/BehaviorRelay with Driver for UI binding",
+        "rationale": "Unidirectional data flow; Driver guarantees main-thread delivery; no accidental stream termination with Relay",
+        "alternatives_rejected": [
+          "Combine",
+          "KVO",
+          "NotificationCenter"
+        ]
+      },
+      {
+        "title": "Swinject for dependency injection",
+        "chosen": "Centralized Swinject container initialized in AppDelegate",
+        "rationale": "Explicit protocol-based registration enables mock substitution for testing; all dependencies resolved at init time",
+        "alternatives_rejected": [
+          "Manual factory methods",
+          "Property injection"
+        ]
+      },
+      {
+        "title": "Protocol-based abstractions for all services",
+        "chosen": "Every major service has a Protocol variant (FirebaseProviderProtocol, GeneralPlayerProtocol, etc.)",
+        "rationale": "Enables unit testing via mock conformance without framework coupling",
+        "alternatives_rejected": [
+          "Concrete class dependencies",
+          "Singleton access"
+        ]
+      },
+      {
+        "title": "Serverless Firebase Cloud Functions for backend logic",
+        "chosen": "TypeScript Cloud Functions triggered by HTTP and Firestore events",
+        "rationale": "No server management; scales automatically; integrates natively with Firestore triggers for cascading operations",
+        "alternatives_rejected": [
+          "Dedicated Node.js server",
+          "Go/Python backend"
+        ]
+      }
+    ],
+    "trade_offs": [
+      {
+        "accept": "Swinject container wires ~15 dependencies per ViewModel",
+        "benefit": "Full testability and loose coupling across all layers"
+      },
+      {
+        "accept": "RxSwift learning curve and DisposeBag management overhead",
+        "benefit": "Unified reactive pipeline from Firebase listeners to UI with error propagation"
+      },
+      {
+        "accept": "Python 2.7 admin tools with pinned exact versions",
+        "benefit": "Simple maintenance scripts without infrastructure; runs with ApplicationDefault credentials"
+      }
+    ],
+    "out_of_scope": [
+      "SwiftUI migration",
+      "GraphQL",
+      "Server-side rendering",
+      "Custom auth provider"
+    ]
+  },
+  "components": {
+    "structure_type": "layered",
+    "components": [
+      {
+        "name": "FirebaseProvider",
+        "location": "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+        "responsibility": "Abstracts all Firestore/Storage/Functions SDK calls into RxSwift Observables",
+        "platform": "frontend",
+        "depends_on": [
+          "Firebase SDK",
+          "CodableFirebase",
+          "Models/Dtos"
+        ],
+        "exposes_to": [
+          "Domain Providers",
+          "Repositories"
+        ],
+        "key_interfaces": [
+          {
+            "name": "FirebaseProviderProtocol",
+            "methods": [
+              "getRecordings()",
+              "createAlbum()",
+              "getRecordingUpdates()"
+            ],
+            "description": "Protocol abstracting all Firebase operations for testability"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+            "description": "Main Firebase client with Firestore CRUD and real-time listeners"
+          },
+          {
+            "file": "iOS/AroundSound/App/Networking/Sync/FirebaseSyncManager.swift",
+            "description": "Coordinates audio file upload/download operations"
+          }
+        ]
+      },
+      {
+        "name": "Domain Providers",
+        "location": "iOS/AroundSound/App/Domain/Provider/",
+        "responsibility": "Filtered/computed data views on top of FirebaseProvider; expose Input relays and Output observables",
+        "platform": "frontend",
+        "depends_on": [
+          "FirebaseProvider",
+          "ASErrorFactory"
+        ],
+        "exposes_to": [
+          "ViewModels"
+        ],
+        "key_interfaces": [
+          {
+            "name": "AlbumProvider",
+            "methods": [
+              "createAlbumInput.accept()",
+              "albumsOutput (Driver)"
+            ],
+            "description": "Input/Output port pattern for album operations"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "iOS/AroundSound/App/Domain/Provider/AlbumProvider.swift",
+            "description": "Album CRUD with Driver output"
+          },
+          {
+            "file": "iOS/AroundSound/App/Domain/Provider/SharedAlbumPreviewProvider.swift",
+            "description": "Deeplink-triggered shared album preview fetching"
+          }
+        ]
+      },
+      {
+        "name": "ViewModels",
+        "location": "iOS/AroundSound/App/ViewModel/",
+        "responsibility": "Presentation logic; transforms domain models to UI-ready formats via RxSwift; receives injected dependencies",
+        "platform": "frontend",
+        "depends_on": [
+          "Domain Providers",
+          "FirebaseProvider",
+          "ASErrorFactory",
+          "GeneralPlayer",
+          "GeneralRecorder"
+        ],
+        "exposes_to": [
+          "ViewControllers"
+        ],
+        "key_interfaces": [
+          {
+            "name": "MainViewModel",
+            "methods": [
+              "stateOfRecorderOutput (Driver)",
+              "errorOutput (Observable)",
+              "locationOutput (Driver)"
+            ],
+            "description": "Root ViewModel coordinating recording, playback, and navigation state"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "iOS/AroundSound/App/ViewModel/MainViewModel.swift",
+            "description": "Root ViewModel with ~15 injected dependencies"
+          },
+          {
+            "file": "iOS/AroundSound/App/ViewModel/AlbumsViewModel.swift",
+            "description": "Album list state and CRUD operations"
+          }
+        ]
+      },
+      {
+        "name": "AudioEngine",
+        "location": "iOS/AroundSound/App/AudioEngine/",
+        "responsibility": "Wraps AVFoundation recording and playback in protocol-based RxSwift interfaces",
+        "platform": "frontend",
+        "depends_on": [
+          "AVFoundation",
+          "RxSwift",
+          "MediaPlayer"
+        ],
+        "exposes_to": [
+          "ViewModels",
+          "ViewControllers"
+        ],
+        "key_interfaces": [
+          {
+            "name": "GeneralPlayerProtocol",
+            "methods": [
+              "play(recording:albumid:)",
+              "stopCurrentRecording()",
+              "seek(valueFromSlider:)"
+            ],
+            "description": "Abstracts dual-player (local+remote) with merged Observable streams"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "iOS/AroundSound/App/AudioEngine/Playback/GeneralPlayer.swift",
+            "description": "Merges local and remote AVPlayer observables"
+          },
+          {
+            "file": "iOS/AroundSound/App/AudioEngine/Recording/GeneralRecorder.swift",
+            "description": "AVAudioRecorder wrapper exposing recordingStatus Driver"
+          }
+        ]
+      },
+      {
+        "name": "Firebase Cloud Functions",
+        "location": "platform/firebase/functions/src/",
+        "responsibility": "Serverless HTTP and Firestore-triggered handlers for all backend business logic",
+        "platform": "backend",
+        "depends_on": [
+          "firebase-admin",
+          "google-cloud/firestore",
+          "google-cloud/bigquery"
+        ],
+        "exposes_to": [
+          "iOS client",
+          "Android client"
+        ],
+        "key_interfaces": [
+          {
+            "name": "HTTP endpoints",
+            "methods": [
+              "albums.ts exports",
+              "recordings.ts exports",
+              "shared_links.ts exports"
+            ],
+            "description": "HTTPS callable functions per domain entity"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "platform/firebase/functions/src/index.ts",
+            "description": "Entry point exporting all Cloud Functions"
+          },
+          {
+            "file": "platform/firebase/functions/src/cloud_function_utils.ts",
+            "description": "Shared validation and utility helpers"
+          }
+        ]
+      },
+      {
+        "name": "DI Container",
+        "location": "iOS/AroundSound/App/DI/",
+        "responsibility": "Swinject container registering and resolving all iOS service dependencies",
+        "platform": "frontend",
+        "depends_on": [
+          "Swinject"
+        ],
+        "exposes_to": [
+          "AppDelegate",
+          "ViewControllers",
+          "ViewModels"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+            "description": "Central Swinject container registration"
+          },
+          {
+            "file": "iOS/AroundSound/App/DI/Resolver.swift",
+            "description": "Type-safe dependency resolution helpers"
+          }
+        ]
+      },
+      {
+        "name": "Error Handling",
+        "location": "iOS/AroundSound/App/ErrorHandling/",
+        "responsibility": "Typed error hierarchy with factory, severity, and routing to UI",
+        "platform": "frontend",
+        "depends_on": [
+          "ASAnalyticsManager"
+        ],
+        "exposes_to": [
+          "ViewModels",
+          "Providers",
+          "FirebaseProvider"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "iOS/AroundSound/App/ErrorHandling/ASErrorFactory.swift",
+            "description": "Creates typed errors with analytics logging"
+          },
+          {
+            "file": "iOS/AroundSound/App/ErrorHandling/ASErrorRouter.swift",
+            "description": "Routes errors to dialogs/toasts based on severity"
+          }
+        ]
+      }
+    ],
+    "contracts": []
+  },
+  "communication": {
+    "patterns": [
+      {
+        "name": "PublishRelay Input / Driver Output",
+        "when_to_use": "All ViewModel and Provider data flow on iOS",
+        "how_it_works": "PublishRelay accepts user intent; flatMapLatest calls Firebase; result emitted as Driver to ViewController",
+        "examples": [
+          "AlbumProvider.createAlbumInput → albumsOutput Driver",
+          "SharedAlbumPreviewProvider.deeplinkInput → albumsOutput Observable"
+        ]
+      },
+      {
+        "name": "RxSwift scan() state accumulation",
+        "when_to_use": "When multiple input actions must accumulate into a state dictionary",
+        "how_it_works": "scan() operator reduces InputType enum actions (.add/.merge/.reset) into immutable state copies",
+        "examples": [
+          "AlbumVisibilityStateProvider scan with AlbumInputType",
+          "SharedLinksRepository scan with InputType enum"
+        ]
+      },
+      {
+        "name": "Firebase Firestore real-time listeners",
+        "when_to_use": "Live album/recording sync between Firestore and iOS client",
+        "how_it_works": "FirebaseProvider attaches snapshot listeners returning Observable; errors propagate to errorSubject",
+        "examples": [
+          "getRecordingUpdates() collection snapshot listener",
+          "getAlbumUpdates() document listener"
+        ]
+      },
+      {
+        "name": "Firebase Cloud Functions HTTPS calls",
+        "when_to_use": "Complex server-side operations requiring auth or cascading Firestore writes",
+        "how_it_works": "iOS calls callable HTTPS functions via Firebase SDK; TypeScript handlers validate and execute",
+        "examples": [
+          "shared_links.ts link generation",
+          "albums.ts member management",
+          "notifications.ts dispatch"
+        ]
+      },
+      {
+        "name": "Observable.merge error aggregation",
+        "when_to_use": "Surfacing errors from multiple async sources to single UI error handler",
+        "how_it_works": "errorOutput merges PublishSubjects from all providers/managers into single Observable<ASError>",
+        "examples": [
+          "MainViewModel.errorOutput merges location, share, sync, album provider errors"
+        ]
+      }
+    ],
+    "integrations": [
+      {
+        "service": "Firebase Auth",
+        "purpose": "Email/Password + Google Sign-In; JWT token for Firestore rules",
+        "integration_point": "iOS/AroundSound/App/Appdelegate/AppDelegate.swift"
+      },
+      {
+        "service": "Firebase Cloud Messaging",
+        "purpose": "Push notifications for comments, likes, album events",
+        "integration_point": "platform/firebase/functions/src/notifications.ts"
+      },
+      {
+        "service": "Firebase Analytics + AppCenter",
+        "purpose": "Event tracking and crash reporting",
+        "integration_point": "iOS/AroundSound/App/Analytics/ASAnalyticsManager.swift"
+      },
+      {
+        "service": "BigQuery",
+        "purpose": "Analytics event aggregation from Cloud Functions",
+        "integration_point": "platform/firebase/functions/src/analytics.ts"
+      },
+      {
+        "service": "Google Sign-In",
+        "purpose": "OAuth2 identity returning Firebase Auth idToken",
+        "integration_point": "iOS/AroundSound/App/Appdelegate/AppDelegate.swift"
+      }
+    ],
+    "pattern_selection_guide": [
+      {
+        "scenario": "User triggers action in ViewController",
+        "pattern": "PublishRelay.accept() → ViewModel input",
+        "rationale": "Relay never completes; safe for UI lifecycle"
+      },
+      {
+        "scenario": "Live Firestore data needed in UI",
+        "pattern": "FirebaseProvider snapshot listener → Driver",
+        "rationale": "Driver guarantees main thread; no nil emissions"
+      },
+      {
+        "scenario": "Server-side cascading write needed",
+        "pattern": "Firebase Cloud Function HTTPS call",
+        "rationale": "Bypasses client security constraints; atomic server operations"
+      }
+    ]
+  },
+  "quick_reference": {
+    "where_to_put_code": {
+      "new_screen": "iOS/AroundSound/App/ViewControllers/",
+      "new_viewmodel": "iOS/AroundSound/App/ViewModel/",
+      "new_domain_provider": "iOS/AroundSound/App/Domain/Provider/",
+      "new_firebase_operation": "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+      "new_cloud_function": "platform/firebase/functions/src/<domain>.ts + export in index.ts",
+      "new_error_type": "iOS/AroundSound/App/ErrorHandling/<Domain>Error/",
+      "new_dto": "iOS/AroundSound/App/Models/Dtos/",
+      "new_converter": "iOS/AroundSound/App/Networking/Converters/"
+    },
+    "pattern_selection": {
+      "reactive_input": "PublishRelay<T> for user actions; never use Subject for inputs",
+      "reactive_output": "Driver<T> for UI-bound outputs; Observable<T> for non-UI chains",
+      "error_handling": "ASErrorFactory.create*() → errorSubject.onNext() → errorOutput observable merge",
+      "local_persistence": "Disk library for file-based caching; SettingsManager for user preferences",
+      "di_registration": "Register in DepedencyContainer.swift; resolve via Resolver.swift"
+    },
+    "error_mapping": [
+      {
+        "error": "FirebaseError",
+        "status_code": 0,
+        "description": "Wraps Firestore/Auth SDK errors; detects -1009 no-internet"
+      },
+      {
+        "error": "RecordingError",
+        "status_code": 0,
+        "description": "AVAudioRecorder failures and permission denials"
+      },
+      {
+        "error": "ShareError",
+        "status_code": 0,
+        "description": "Share link generation and access control failures"
+      }
+    ]
+  },
+  "technology": {
+    "stack": [
+      {
+        "category": "reactive",
+        "name": "RxSwift + RxCocoa",
+        "version": "4.x",
+        "purpose": "Core reactive framework for data binding and event streams on iOS"
+      },
+      {
+        "category": "ui",
+        "name": "UIKit",
+        "version": "iOS 11+",
+        "purpose": "Native iOS UI framework; ViewControllers, Views, Cells"
+      },
+      {
+        "category": "backend",
+        "name": "Firebase Cloud Functions",
+        "version": "1.x / Node.js 8",
+        "purpose": "Serverless TypeScript handlers for all backend logic"
+      },
+      {
+        "category": "database",
+        "name": "Cloud Firestore",
+        "version": "google-cloud-firestore 0.29.0+",
+        "purpose": "NoSQL document store for recordings, albums, users, comments"
+      },
+      {
+        "category": "di",
+        "name": "Swinject",
+        "version": "2.x",
+        "purpose": "iOS dependency injection container"
+      },
+      {
+        "category": "image",
+        "name": "Nuke",
+        "version": "latest",
+        "purpose": "Remote image loading and caching"
+      },
+      {
+        "category": "layout",
+        "name": "SnapKit",
+        "version": "latest",
+        "purpose": "Auto Layout DSL for programmatic constraints"
+      },
+      {
+        "category": "reactive_datasources",
+        "name": "RxDataSources",
+        "version": "latest",
+        "purpose": "Reactive UITableView/UICollectionView section-based updates"
+      },
+      {
+        "category": "serialization",
+        "name": "CodableFirebase",
+        "version": "latest",
+        "purpose": "Encode/decode Codable models to/from Firestore documents"
+      },
+      {
+        "category": "analytics",
+        "name": "Firebase Analytics + AppCenter",
+        "version": "2.x",
+        "purpose": "Event tracking, crash reporting, performance monitoring"
+      }
+    ],
+    "templates": [
+      {
+        "component_type": "ViewModel",
+        "description": "iOS ViewModel with RxSwift Input/Output pattern",
+        "file_path_template": "iOS/AroundSound/App/ViewModel/{Name}ViewModel.swift",
+        "code": "struct {Name}ViewModel {\n  let output: Driver<[Model]>\n  init(provider: ProviderProtocol, errorFactory: ASErrorFactoryProtocol) { ... }\n}"
+      },
+      {
+        "component_type": "DomainProvider",
+        "description": "Domain provider with PublishRelay input and Driver output",
+        "file_path_template": "iOS/AroundSound/App/Domain/Provider/{Name}Provider.swift",
+        "code": "struct {Name}Provider {\n  let actionInput = PublishRelay<ActionType>()\n  let dataOutput: Driver<[Model]>\n  let errorOutput: Observable<ASError>\n}"
+      },
+      {
+        "component_type": "CloudFunction",
+        "description": "Firebase Cloud Function HTTPS handler",
+        "file_path_template": "platform/firebase/functions/src/{domain}.ts",
+        "code": "export const myFunction = functions.https.onCall(async (data, context) => {\n  validateAuth(context); validateParams(data);\n  return await db.collection('entity').add(data);\n});"
+      }
+    ],
+    "project_structure": "aroundsound/\n├── iOS/\n│   └── AroundSound/\n│       ├── App/\n│       │   ├── Analytics/\n│       │   ├── Appdelegate/\n│       │   ├── AudioEngine/\n│       │   ├── DI/\n│       │   ├── Deeplinking/\n│       │   ├── Domain/Provider/\n│       │   ├── ErrorHandling/\n│       │   ├── Location/\n│       │   ├── Models/Dtos/\n│       │   ├── Networking/Converters/\n│       │   ├── SettingsManager/\n│       │   ├── Utils/\n│       │   ├── ViewModel/AlbumCellTypes/\n│       │   ├── ViewModel/Trimming/\n│       │   ├── ViewControllers/Animators/\n│       │   └── Views/Cells/Player/Recorder/Trim/\n│       ├── AppUnitTests/\n│       └── AppUITests/\n├── android/\n│   └── app/src/main/\n├── platform/\n│   ├── firebase/\n│   │   ├── functions/src/\n│   │   ├── functions/views/\n│   │   └── bin/adhoc/\n│   └── tools/bin/adhoc/\n└── designs/",
+    "run_commands": {
+      "ios_setup": "cd iOS/AroundSound && pod install && open AroundSound.xcworkspace",
+      "firebase_dev_setup": "cd platform/firebase && bash prepare-local-development-environment.sh",
+      "firebase_functions_build": "cd platform/firebase/functions && npm run build",
+      "firebase_functions_lint": "cd platform/firebase/functions && npm run lint",
+      "firebase_deploy": "cd platform/firebase && bash deploy-to-environment.sh",
+      "firebase_functions_test": "cd platform/firebase/functions && npm test",
+      "android_build": "cd android && ./gradlew assembleDebug",
+      "android_test": "cd android && ./gradlew test"
+    }
+  },
+  "frontend": {
+    "framework": "UIKit (iOS) + Android native",
+    "rendering_strategy": "Imperative UIKit with programmatic and XIB-based layout; RxDataSources for reactive table updates",
+    "ui_components": [
+      {
+        "name": "MainViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/MainViewController.swift",
+        "component_type": "screen",
+        "description": "Root container coordinating tab navigation, RecorderView, mini/fullscreen player",
+        "props": [],
+        "children": [
+          "AlbumsViewController",
+          "SoundsViewController",
+          "ProfileViewController"
+        ]
+      },
+      {
+        "name": "AlbumDetailsViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/AlbumDetailsViewController.swift",
+        "component_type": "screen",
+        "description": "Album content with recordings, comments, editing, and sharing",
+        "props": [],
+        "children": [
+          "AlbumDetailsRecordingCell",
+          "AlbumCommentCell",
+          "AlbumDetailsAddNewSoundsCell"
+        ]
+      },
+      {
+        "name": "RecorderView",
+        "location": "iOS/AroundSound/App/Views/Recorder/RecorderView.swift",
+        "component_type": "widget",
+        "description": "Audio recording UI with waveform and location capture",
+        "props": [
+          "RecorderViewState"
+        ],
+        "children": []
+      },
+      {
+        "name": "PlayerView / MiniPlayer / FullscreenPlayer",
+        "location": "iOS/AroundSound/App/Views/Player/PlayerView.swift",
+        "component_type": "widget",
+        "description": "Playback controls with progress scrubbing; mini and fullscreen variants",
+        "props": [
+          "PlaybackUIState"
+        ],
+        "children": [
+          "MiniPlayer",
+          "FullscreenPlayer"
+        ]
+      },
+      {
+        "name": "TrimmingViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/TrimmingViewController.swift",
+        "component_type": "screen",
+        "description": "Audio crop interface with waveform visualization and knob controls",
+        "props": [],
+        "children": [
+          "SoundWaveContainerView",
+          "TrimmingFaderView",
+          "KnobView"
+        ]
+      },
+      {
+        "name": "OnboardingViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/OnboardingViewController.swift",
+        "component_type": "screen",
+        "description": "Multi-step auth and permissions onboarding flow",
+        "props": [],
+        "children": [
+          "SimpleOnboardingPage",
+          "AccountOnboardingPage",
+          "NewPermissionsOnboardingPage"
+        ]
+      },
+      {
+        "name": "PopupViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/Popup/PopupViewController.swift",
+        "component_type": "layout",
+        "description": "Reusable modal with custom dismiss animation",
+        "props": [],
+        "children": [
+          "PopupActionItemCell",
+          "PopupMemberCell"
+        ]
+      }
+    ],
+    "state_management": {
+      "approach": "RxSwift unidirectional data flow: PublishRelay inputs → flatMapLatest → Driver outputs",
+      "global_state": [
+        {
+          "description": "CurrentUser (Firebase Auth)"
+        },
+        {
+          "description": "CurrentlyPlayingRecording (GeneralPlayer)"
+        },
+        {
+          "description": "NetworkReachability (ASReachabilityService)"
+        }
+      ],
+      "server_state": "Firebase Firestore real-time listeners via FirebaseProvider snapshot subscriptions",
+      "local_state": "ViewModel-owned BehaviorSubject/PublishSubject; Disk library for persistent cache; SettingsManager for preferences",
+      "rationale": "No global store; each ViewModel owns its slice; reactive merging via Observable.merge() for multi-source outputs"
+    },
+    "routing": [
+      {
+        "path": "root",
+        "component": "RootViewController",
+        "description": "Switches between OnboardingViewController and MainViewController based on auth state",
+        "auth_required": false
+      },
+      {
+        "path": "main",
+        "component": "MainViewController",
+        "description": "Tab-based hub for albums, sounds, profile",
+        "auth_required": true
+      },
+      {
+        "path": "album-details",
+        "component": "AlbumDetailsViewController",
+        "description": "Push navigation to album content",
+        "auth_required": true
+      },
+      {
+        "path": "shared-album-preview",
+        "component": "AlbumPreviewViewController",
+        "description": "Deeplink entry point for shared album previews",
+        "auth_required": false
+      }
+    ],
+    "data_fetching": [
+      {
+        "name": "Firestore Real-time Listener",
+        "mechanism": "FirebaseProvider snapshot listener wrapped in Observable; merged into repository Driver",
+        "when_to_use": "Albums, recordings, comments needing live updates",
+        "examples": [
+          "getRecordingUpdates()",
+          "getAlbumUpdates()"
+        ]
+      },
+      {
+        "name": "Firebase Cloud Function Call",
+        "mechanism": "Firebase Functions SDK HTTPS callable; returns Single/Observable",
+        "when_to_use": "Server-side operations: sharing, link generation, member management",
+        "examples": [
+          "shared_links.ts",
+          "albums.ts member ops"
+        ]
+      },
+      {
+        "name": "Disk Local Cache",
+        "mechanism": "Disk.read() on app launch; merged with Firebase live stream",
+        "when_to_use": "Offline-first display of recordings and album visibility state",
+        "examples": [
+          "AlbumVisibilityStateProvider.loadSharedAlbum()",
+          "RecordingsRepository disk load"
+        ]
+      }
+    ],
+    "styling": "UIKit Auto Layout with SnapKit DSL; ColorUtil for centralized color constants; no SwiftUI",
+    "key_conventions": [
+      "Use Driver (not Observable) for all ViewController bindings to guarantee main thread",
+      "Use PublishRelay (not Subject) for input ports to prevent accidental stream termination",
+      "Dispose all subscriptions via DisposeBag scoped to ViewController lifecycle",
+      "Always use ASErrorFactory to create errors; never instantiate error types directly",
+      "Converters must be pure functions; no side effects in DTO-to-domain transformation"
+    ]
+  },
+  "developer_recipes": [
+    {
+      "task": "Add a new Firebase-backed feature (e.g. new entity CRUD)",
+      "files": [
+        "iOS/AroundSound/App/Models/Dtos/RecordingDto.swift",
+        "iOS/AroundSound/App/Models/Recording.swift",
+        "iOS/AroundSound/App/Networking/Converters/RecordingConverter.swift",
+        "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+        "iOS/AroundSound/App/Domain/Provider/AlbumProvider.swift",
+        "iOS/AroundSound/App/ViewModel/AlbumsViewModel.swift",
+        "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+        "platform/firebase/functions/src/index.ts"
+      ],
+      "steps": [
+        "1. Create Dto in Models/Dtos/ and domain model in Models/; write Converter in Networking/Converters/",
+        "2. Add Firestore methods to FirebaseProvider.swift (return Observable); update FirebaseProviderProtocol",
+        "3. Create Provider in Domain/Provider/ with PublishRelay inputs and Driver outputs; register in DepedencyContainer.swift",
+        "4. Inject Provider into ViewModel; expose Output Driver for ViewController binding",
+        "5. Add Cloud Function handler in platform/firebase/functions/src/<domain>.ts; export in index.ts; run npm run build"
+      ]
+    },
+    {
+      "task": "Add a new iOS screen",
+      "files": [
+        "iOS/AroundSound/App/ViewControllers/AlbumsViewController.swift",
+        "iOS/AroundSound/App/ViewModel/AlbumsViewModel.swift",
+        "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+        "iOS/AroundSound/App/DI/Resolver.swift"
+      ],
+      "steps": [
+        "1. Create <Name>ViewController.swift in ViewControllers/; create <Name>ViewModel.swift in ViewModel/",
+        "2. Define ViewModel struct with injected dependencies and expose Driver outputs + PublishRelay inputs",
+        "3. Register ViewModel in DepedencyContainer.swift; add resolve helper in Resolver.swift",
+        "4. In ViewController.viewDidLoad() bind ViewModel outputs to UI via .drive(); bind UI events to ViewModel inputs via .bind(to:); add all to disposeBag"
+      ]
+    },
+    {
+      "task": "Deploy Firebase Cloud Functions to dev",
+      "files": [
+        "platform/firebase/functions/src/index.ts",
+        "platform/firebase/deploy-to-environment.sh"
+      ],
+      "steps": [
+        "1. cd platform/firebase/functions && npm run lint && npm run build (compiles TS to lib/)",
+        "2. Trigger GitLab CI manual job 'deploy aroundsound-dev' OR run bash deploy-to-environment.sh locally",
+        "3. Verify with: firebase functions:log --project aroundsound-dev"
+      ]
+    },
+    {
+      "task": "Run a bulk data operation using admin tools",
+      "files": [
+        "platform/tools/bin/bulk-download.py",
+        "platform/tools/bin/requirements.txt"
+      ],
+      "steps": [
+        "1. pip install -r platform/tools/bin/requirements.txt (Python 2.7 required)",
+        "2. Set GOOGLE_APPLICATION_CREDENTIALS to service account JSON for target project",
+        "3. python platform/tools/bin/bulk-download.py --project-id=aroundsound-dev <user-id>"
+      ]
+    }
+  ],
+  "architecture_diagram": "graph TD\n    AppDelegate[AppDelegate / DI Init] --> RootVC[RootViewController]\n    RootVC --> OnboardVC[OnboardingViewController]\n    RootVC --> MainVC[MainViewController]\n    MainVC --> AlbumsVC[AlbumsViewController]\n    MainVC --> SoundsVC[SoundsViewController]\n    MainVC --> AudioEngine[AudioEngine\\nGeneralPlayer/Recorder]\n    AlbumsVC --> AlbumDetailsVC[AlbumDetailsViewController]\n    AlbumsVC --> AlbumsVM[AlbumsViewModel]\n    AlbumsVM --> AlbumProvider[AlbumProvider\\nDomain Provider]\n    AlbumProvider --> FirebaseProv[FirebaseProvider\\nNetworking]\n    FirebaseProv --> Firestore[(Cloud Firestore)]\n    FirebaseProv --> CloudFn[Firebase Cloud\\nFunctions]\n    CloudFn --> Firestore\n    FirebaseProv --> Storage[(Cloud Storage\\nAudio Files)]\n    AudioEngine --> AVFoundation[AVFoundation]",
+  "pitfalls": [
+    {
+      "area": "RxSwift stream termination",
+      "description": "Using PublishSubject as input relay will terminate the entire stream on onError(); downstream Providers stop emitting permanently",
+      "recommendation": "Always use PublishRelay for input ports; reserve PublishSubject only for error subjects that feed errorOutput"
+    },
+    {
+      "area": "Firebase Firestore snapshot listeners",
+      "description": "Firestore real-time listeners are long-lived and not automatically removed when a ViewController is dismissed; causes memory leaks and phantom updates",
+      "recommendation": "Store the Firestore unsubscribe function and call it in deinit or on navigation away; ensure DisposeBag is deallocated with ViewController"
+    },
+    {
+      "area": "Swinject DI resolution order",
+      "description": "DepedencyContainer.swift registers services in a specific order; circular dependencies or resolving before registration causes silent nil crashes",
+      "recommendation": "Always register leaf dependencies (ErrorFactory, Analytics) before composite services (Providers, ViewModels) in DepedencyContainer.swift"
+    },
+    {
+      "area": "Driver vs Observable threading",
+      "description": "Binding an Observable (not Driver) to UIKit elements can crash if the observable emits on a background thread from Firestore callbacks",
+      "recommendation": "Convert all ViewController-bound outputs to Driver via .asDriver(onErrorJustReturn:) before exposing from ViewModels"
+    },
+    {
+      "area": "Python 2.7 admin tools",
+      "description": "platform/tools/bin/ scripts use Python 2.7 syntax (urlparse, print statements, unicode literals); will fail silently on Python 3",
+      "recommendation": "Always run admin tools with Python 2.7 interpreter; do not port to Python 3 without full regression on Firestore query outputs"
+    }
+  ],
+  "implementation_guidelines": [
+    {
+      "capability": "Reactive Audio Recording with State Management",
+      "category": "media",
+      "libraries": [
+        "RxSwift 4.x",
+        "AVFoundation"
+      ],
+      "pattern_description": "GeneralRecorder wraps AVAudioRecorder in a protocol-based class emitting recordingStatus as Driver<RecordingStatus> and newlyCreatedRecording as Observable<RawLocalRecording>; state transitions via delegate callbacks update internal BehaviorSubject",
+      "key_files": [
+        "iOS/AroundSound/App/AudioEngine/Recording/GeneralRecorder.swift",
+        "iOS/AroundSound/App/AudioEngine/Recording/RecordingStatus.swift",
+        "iOS/AroundSound/App/AudioEngine/Recording/RecordingPermission.swift",
+        "iOS/AroundSound/App/Views/Recorder/RecorderView.swift"
+      ],
+      "usage_example": "recorder.recordingStatus.drive(onNext: { status in updateUI(status) }).disposed(by: disposeBag)",
+      "tips": [
+        "recordingStatus is Driver (main thread, no error); newlyCreatedRecording is Observable (handle threading explicitly)",
+        "Request permission via recordingPermission() before calling start(); check iOS 14.5+ privacy requirements",
+        "Recorder disables MPRemoteCommandCenter during recording to avoid control center interference"
+      ]
+    },
+    {
+      "capability": "Reactive Audio Playback with Remote Transport Controls",
+      "category": "media",
+      "libraries": [
+        "RxSwift 4.x",
+        "AVFoundation",
+        "MediaPlayer"
+      ],
+      "pattern_description": "GeneralPlayer merges two underlying players (local AVAudioPlayer + remote AVPlayer) via Observable.merge(); exposes percentage Driver and playbackStatus Driver; integrates MPRemoteCommandCenter for Control Center controls",
+      "key_files": [
+        "iOS/AroundSound/App/AudioEngine/Playback/GeneralPlayer.swift",
+        "iOS/AroundSound/App/AudioEngine/Playback/PlaybackStatus.swift",
+        "iOS/AroundSound/App/Utils/AVPlayer+Rx.swift",
+        "iOS/AroundSound/App/Utils/AVPlayerItem+Rx.swift",
+        "iOS/AroundSound/App/Views/Player/FullscreenPlayer.swift"
+      ],
+      "usage_example": "player.percentage.drive(seekSlider.rx.value).disposed(by: disposeBag)",
+      "tips": [
+        "currentRecordingInput is ReplaySubject(bufferSize:1); late subscribers receive last value immediately",
+        "Call stopCurrentRecording() before releasing player to avoid AVAudioPlayer memory leaks",
+        "seek(valueFromSlider:) takes normalized 0.0-1.0; seekTo(value:) takes absolute seconds"
+      ]
+    },
+    {
+      "capability": "Firestore Real-time Sync with Reactive Repositories",
+      "category": "networking",
+      "libraries": [
+        "Firebase Admin SDK",
+        "RxSwift 4.x",
+        "CodableFirebase"
+      ],
+      "pattern_description": "FirebaseProvider wraps Firestore CRUD in Observable.create{}; Repositories merge disk cache + Firebase live updates + runtime changes via Observable.merge(); errors propagate via .catchError(to: errorSubject)",
+      "key_files": [
+        "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+        "iOS/AroundSound/App/Domain/Provider/AlbumProvider.swift",
+        "iOS/AroundSound/App/Networking/Sync/FirebaseSyncManager.swift",
+        "platform/firebase/functions/src/albums.ts",
+        "platform/firebase/functions/src/recordings.ts"
+      ],
+      "usage_example": "albumProvider.albumsOutput.drive(tableView.rx.items(...)).disposed(by: disposeBag)",
+      "tips": [
+        "Use PublishRelay for inputs; never Subject (prevents accidental completion of album stream)",
+        "Converters (AlbumConverter, RecordingConverter) must be pure functions; no Firebase calls inside converters",
+        "Backend Cloud Functions must validate request.auth manually; firestore.rules enforces field-level access"
+      ]
+    },
+    {
+      "capability": "Swinject Dependency Injection Container",
+      "category": "state_management",
+      "libraries": [
+        "Swinject 2.x"
+      ],
+      "pattern_description": "AppDelegate initializes DepedencyContainer at launch; all services registered as singletons or transients; ViewControllers resolve dependencies via Resolver; all injectable types have Protocol variants enabling mock substitution in tests",
+      "key_files": [
+        "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+        "iOS/AroundSound/App/DI/Dependencies.swift",
+        "iOS/AroundSound/App/DI/Resolver.swift",
+        "iOS/AroundSound/App/Appdelegate/AppDelegate.swift"
+      ],
+      "usage_example": "let vm = resolver.resolve(AlbumsViewModel.self)!",
+      "tips": [
+        "Register leaf services first (ErrorFactory, Analytics) before composites (Providers, ViewModels)",
+        "All ViewModels are structs with constructor injection of ~10-15 dependencies",
+        "Never use property injection; all dependencies must be resolved at initialization time"
+      ]
+    },
+    {
+      "capability": "Typed Error Hierarchy with Analytics Integration",
+      "category": "error_handling",
+      "libraries": [
+        "RxSwift 4.x",
+        "Firebase Analytics",
+        "AppCenter"
+      ],
+      "pattern_description": "ASErrorFactory creates domain-typed errors (FirebaseError, RecordingError, ShareError, PersistenceError, GeneralError) with analytics logging; errors propagate via PublishSubject.onNext() to errorOutput observables merged in ViewModels; ASErrorRouter routes to UI",
+      "key_files": [
+        "iOS/AroundSound/App/ErrorHandling/ASErrorFactory.swift",
+        "iOS/AroundSound/App/ErrorHandling/ASError.swift",
+        "iOS/AroundSound/App/ErrorHandling/ASErrorRouter.swift",
+        "iOS/AroundSound/App/ErrorHandling/ASErrorSeverity.swift"
+      ],
+      "usage_example": "let error = errorFactory.createFirebaseError(kind: .readFailed, externalError: err); errorSubject.onNext(error)",
+      "tips": [
+        "ASErrorFactory.createFirebaseError() detects NSError code -1009 for no-internet and provides specialized handling",
+        "Never instantiate FirebaseError/RecordingError directly; always use ASErrorFactory methods",
+        "errorOutput in ViewModels must merge all provider/manager error observables to avoid silent failures"
+      ]
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "dependency_management",
+      "rule": "Always use CocoaPods for iOS dependencies; never add Swift packages manually — Podfile is the sole source of truth for Firebase, RxSwift, Swinject, Nuke, SnapKit",
+      "source": "iOS/AroundSound/App/Appdelegate/AppDelegate.swift imports confirm CocoaPods-managed frameworks"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always run npm run lint then npm run build before deploying Firebase Functions — predeploy hooks enforce this; lib/index.js is the compiled artifact loaded at runtime",
+      "source": "platform/firebase/functions/package.json scripts: lint → tslint, build → tsc, main: lib/index.js"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Never deploy to production (aroundsound-prod) from any branch other than master — GitLab CI enforces only: [master] on the prod deploy stage",
+      "source": "platform/.gitlab-ci.yml deploy aroundsound-prod stage only: [master] constraint"
+    },
+    {
+      "category": "environment",
+      "rule": "Always use environment-specific google-services.json for Android builds — debug builds use aroundsound-dev project; release builds use aroundsound-prod project",
+      "source": "android/app/src/main/AndroidManifest.xml with debug/release google-services.json variants"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use PublishRelay (never PublishSubject) for ViewModel and Provider input ports — Relay prevents accidental stream termination via onError/onCompleted propagation",
+      "source": "iOS/AroundSound/App/Domain/Provider/AlbumProvider.swift and SharedAlbumPreviewProvider.swift relay-based input pattern"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always expose ViewController-bound outputs as Driver<T> (never Observable<T>) — Driver guarantees main-thread delivery and no-error contract required by UIKit bindings",
+      "source": "iOS/AroundSound/App/ViewModel/MainViewModel.swift stateOfRecorderOutput, locationOutput, isLoadingOutput all Driver"
+    },
+    {
+      "category": "testing",
+      "rule": "Always run ./gradlew test before ./gradlew assembleDebug in Android CI — unit tests must pass before debug artifact is generated",
+      "source": "android/.gitlab-ci.yml debug_assemble stage runs gradlew test then gradlew assembleDebug sequentially"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use npm for Firebase Functions dependencies in platform/firebase/functions/package.json — never edit package-lock.json manually; lock file is committed and must match CI environment",
+      "source": "platform/firebase/functions/package.json specifies firebase-admin, @google-cloud/bigquery with pinned versions"
+    }
+  ],
+  "deployment": {
+    "runtime_environment": "On-device iOS/Android + Google Cloud Platform (Firebase)",
+    "compute_services": [
+      "Firebase Cloud Functions (Node.js 8 serverless)",
+      "Cloud Firestore (managed NoSQL)",
+      "Firebase Cloud Storage (audio binaries)",
+      "BigQuery (analytics aggregation)"
+    ],
+    "container_runtime": "None (serverless + native mobile)",
+    "orchestration": "None",
+    "serverless_functions": "Firebase Cloud Functions — platform/firebase/functions/src/*.ts compiled to lib/; deployed via firebase deploy --only functions",
+    "ci_cd": [
+      "GitLab CI: platform/.gitlab-ci.yml — manual trigger for dev/prod Firebase deploy; master-only for prod",
+      "GitLab CI: android/.gitlab-ci.yml — ./gradlew test then ./gradlew assembleDebug on push"
+    ],
+    "distribution": [
+      "Apple App Store (iOS)",
+      "Google Play Store (Android)"
+    ],
+    "infrastructure_as_code": "platform/firebase/firebase.json (Firebase project config); platform/firebase/firestore.rules (security); platform/firebase/storage.rules (storage ACL); platform/firebase/firestore.indexes.json (query indexes)",
+    "supporting_services": [
+      "Firebase Authentication (email + Google OAuth)",
+      "Firebase Cloud Messaging (push notifications)",
+      "Firebase Analytics",
+      "AppCenter (iOS crash reporting)",
+      "BigQuery (analytics pipeline)"
+    ],
+    "environment_config": "platform/firebase/functions/src/config.ts for Cloud Functions env vars; android/app/src/{debug,release}/google-services.json per build variant; platform/firebase/.firebaserc sets default project (aroundsound-dev)",
+    "key_files": [
+      "platform/firebase/firebase.json",
+      "platform/firebase/deploy-to-environment.sh",
+      "platform/firebase/prepare-local-development-environment.sh",
+      "platform/firebase/functions/src/index.ts",
+      "platform/firebase/functions/src/config.ts",
+      "android/app/build.gradle"
+    ]
+  }
+}

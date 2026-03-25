@@ -1,0 +1,594 @@
+```json
+{
+  "organization_style": "Feature-slice modular structure with page-based organization. The codebase is organized around user-facing features (pages) like `page_dashboard`, `page_settings`, `page_locations`, etc. Each feature module contains its own UI layer (fragments), ViewModels, and dependency injection. Resources (layouts, drawables, animations, colors, themes) are centralized in `res/` with support for multiple configurations (night mode, API levels). Build configuration is separated into `buildSrc/` as a convention-based build plugin library.",
+  "detected_components": [
+    {
+      "type": "Page/Feature Modules",
+      "naming_pattern": "page_*/ directories containing fragments, viewmodels, dialogs, and controllers",
+      "examples": [
+        "page_dashboard/",
+        "page_settings/",
+        "page_locations/",
+        "page_baby_settings/",
+        "page_tips/",
+        "page_feedback/",
+        "page_subscription_detail/",
+        "page_login_bottomsheet/",
+        "page_settings_detail/"
+      ]
+    },
+    {
+      "type": "ViewModels",
+      "naming_pattern": "*ViewModel.kt in each page module",
+      "examples": [
+        "MainViewModel.kt",
+        "SettingsDetailViewModel.kt",
+        "BabySettingViewModel.kt",
+        "LocationsViewModel.kt",
+        "TipsViewModel.kt"
+      ]
+    },
+    {
+      "type": "Fragments",
+      "naming_pattern": "*Fragment.kt, typically one per page module",
+      "examples": [
+        "MainActivity.kt",
+        "SettingsDetailFragment.kt",
+        "LoginBottomSheetFragment.kt",
+        "DashboardFragment.kt",
+        "LocationsFragment.kt"
+      ]
+    },
+    {
+      "type": "Dependency Injection Modules",
+      "naming_pattern": "Modules*.kt in each page",
+      "examples": [
+        "ModulesSettings.kt",
+        "ModulesDashboard.kt",
+        "ModulesLocations.kt",
+        "ModulesTips.kt",
+        "ModulesMainActivity.kt"
+      ]
+    },
+    {
+      "type": "Controllers/Handlers",
+      "naming_pattern": "*Controller.kt, mediating UI events and navigation",
+      "examples": [
+        "MainController.kt",
+        "LoginController.kt"
+      ]
+    },
+    {
+      "type": "Cell/Adapter Components",
+      "naming_pattern": "*Cell.kt in page modules, representing list items or reusable UI elements",
+      "examples": [
+        "ProfilePictureChangerCell.kt",
+        "InfoDisplayCell.kt",
+        "SettingsChooserCell.kt",
+        "ActiveSubscriptionCell.kt"
+      ]
+    },
+    {
+      "type": "UI Models/Events",
+      "naming_pattern": "Data classes and sealed classes for UI state and events",
+      "examples": [
+        "MainUiModel.kt",
+        "SettingDetailUiModel.kt",
+        "LoginUiModel.kt"
+      ]
+    },
+    {
+      "type": "Repositories & Data Sources",
+      "naming_pattern": "*Repository, *DataSource interfaces and implementations imported from common domain",
+      "examples": [
+        "SettingsRepository",
+        "LocationRepository",
+        "TipRepository"
+      ]
+    },
+    {
+      "type": "Shared Utilities",
+      "naming_pattern": "*Extensions.kt, *Formatter.kt, custom widgets",
+      "examples": [
+        "ViewExtensions.kt",
+        "DateExtensions.kt",
+        "FragmentExtensions.kt",
+        "ViewModelExtensions.kt",
+        "NetworkExtension.kt"
+      ]
+    },
+    {
+      "type": "Layout Resources",
+      "naming_pattern": "cell_*, fragment_*, dialog_*, view_*, layout_* in res/layout/",
+      "examples": [
+        "cell_dashboard_daily_tip.xml",
+        "fragment_dashboard.xml",
+        "dialog_login.xml"
+      ]
+    },
+    {
+      "type": "Theme & Style Resources",
+      "naming_pattern": "colors.xml, themes.xml, dimens.xml, styles_*.xml in res/values/",
+      "examples": [
+        "colors.xml",
+        "themes.xml",
+        "values-night/colors.xml",
+        "styles_widgets_buttons.xml"
+      ]
+    },
+    {
+      "type": "Build Configuration",
+      "naming_pattern": "Modules in buildSrc/src/main/kotlin/",
+      "examples": [
+        "Dependencies.kt",
+        "DependencyConfig.kt",
+        "Extensions.kt",
+        "Release.kt"
+      ]
+    }
+  ],
+  "dependency_flow": "Hierarchical bottom-up with Koin-based dependency injection. Individual page modules define their own Koin modules (e.g., `ModulesSettings.kt`) which inject repositories and services. The repositories are imported from a shared `common` module containing domain interfaces. ViewModels depend on repositories and controllers for navigation. Controllers emit events that fragments/activities listen to. Fragments bind to ViewModels and emit UI events. Extension functions provide horizontal cross-cutting concerns (date formatting, animation, networking error handling). Resources are referenced centrally and composed at runtime based on theme/API level.",
+  "architecture_style": "Feature-First Modular MVVM with Event-Driven Coordination. Each feature (page) is a semi-autonomous module containing its UI layer (Fragments, ViewModels, Cells), orchestrated by Controllers that handle navigation and state transitions. The presentation layer decouples from domain/data through repositories imported from a shared `common` module. Communication between fragments and ViewModels is reactive (likely Flow/LiveData-based). Navigation is managed through NavGraph and navigation directions. Controllers act as mediators between UI events and navigation intents. Koin provides dependency inversion across all layers. The architecture emphasizes feature cohesion (layout + logic + DI together) while maintaining separation from business logic (repositories/domain in separate module).",
+  "unique_patterns": [
+    "Page-scoped Koin modules: Each feature page defines its own Koin module registering ViewModels and dependencies, avoiding a single monolithic DI container.",
+    "Explicit Controller pattern: Controllers (LoginController, MainController) act as explicit orchestrators for complex navigation and state transitions, separating orchestration logic from ViewModels.",
+    "Cell-based list architecture: Uses *Cell classes with adapter delegates (hannesdorfmann/adapterdelegates4) for composable, reusable list items rather than traditional adapters.",
+    "Widget interface abstraction: Dashboard defines a `Widget<T>` interface for reusable dashboard components, suggesting a plugin-like dashboard architecture.",
+    "Event-based ViewModel communication: ViewModels emit sealed class events (UiViewModelEvent, UiFragmentEvent) that fragments collect and act upon, separating intent from execution.",
+    "Resource strategy composition: Resources organized by configuration (colors.xml + values-night/colors.xml, themes.xml + values-v31/, themes.xml), supporting multiple API levels and dark mode without code branches.",
+    "Extension function horizontal slicing: Widespread use of Kotlin extensions (ViewExtensions, DateExtensions, AnimationExtensions, CorutinesExtensions, etc.) to layer cross-cutting concerns separately from business logic.",
+    "Dialog builder abstraction: RaptorDialogBuilder provides a composable, style-aware dialog construction pattern (AlertButtonStyle sealed class with Simple, Danger, Colored variants)."
+  ],
+  "standard_patterns_if_any": [
+    "MVVM: Standard ViewModel + binding pattern with LiveData/Flow.",
+    "Repository pattern: Data access abstraction through repository interfaces.",
+    "Dependency Injection via Koin: Standard Kotlin/Android DI framework.",
+    "Fragment-based navigation: AndroidX Navigation with NavGraph and safe args (NavigationMainDirections).",
+    "Android Jetpack: AppCompatActivity, ConstraintLayout, RecyclerView, CardView, SwipeRefreshLayout, MotionLayout.",
+    "Sealed classes for type-safe state/events: Kotlin idiomatic pattern for exhaustive when expressions.",
+    "Data classes for UI models: Standard Kotlin idiom for immutable data."
+  ],
+  "framework_usage": {
+    "androidx.appcompat": "High usage across fragments, activities, and widgets (AppCompatActivity, AppCompatTextView, AppCompatImageView, LinearLayoutCompat)",
+    "androidx.constraintlayout": "Dominant layout framework (ConstraintLayout, MotionLayout in ~80+ layout files)",
+    "androidx.cardview": "CardView used in many list cells and dialogs (cell_tip.xml, dialog_location_preview.xml, cell_clothing_feedback.xml)",
+    "androidx.core": "NestedScrollView, CoordinatorLayout support in dialogs; theming utilities",
+    "androidx.recyclerview": "RecyclerView with adapter delegates (hannesdorfmann/adapterdelegates4) for list composition",
+    "androidx.swiperefreshlayout": "SwipeRefreshLayout in dashboard, locations, tips fragments",
+    "androidx.lifecycle": "LiveData, ViewModel, viewModelScope, LifecycleEventObserver",
+    "androidx.navigation": "Fragment navigation with NavGraph, safe args (NavigationMainDirections)",
+    "androidx.fragment": "FragmentContainerView, BaseBindingFragment likely from custom base classes",
+    "androidx.datastore": "Likely used for preferences alongside SharedPreferences",
+    "com.google.android.material": "Material Design components (likely imported but not visible in provided signatures)",
+    "org.koin": "Dependency injection framework (module DSL, viewModel, dsl.module)",
+    "com.hannesdorfmann.adapterdelegates4": "Composable adapter pattern for RecyclerView (referenced in cell implementations)",
+    "hu.bitraptors": "Custom internal library suite (analytics, presentation.darkmode, presentation.viewmodel, recyclerview.genericlistitem, core.model.network)",
+    "com.squareup.moshi": "JSON serialization with custom date adapter (CustomDateAdapter)",
+    "firebase": "Firebase integration (mentioned in buildSrc Dependencies.kt)",
+    "com.google.android.gms": "Google Play Services (likely for location, authentication)",
+    "kotlin.coroutines": "async/await, Flow, viewModelScope",
+    "android.animation": "ValueAnimator, ArgbEvaluator for property animations"
+  },
+  "key_search_terms": [
+    "page_* modules",
+    "ModulesSettings, ModulesDashboard, etc. (Koin setup)",
+    "ViewModel",
+    "Fragment",
+    "Controller",
+    "Cell",
+    "UiViewModelEvent, UiFragmentEvent",
+    "MainAction, LoginSheetState, UserModificationState (sealed classes)",
+    "RaptorDialogBuilder",
+    "Widget<T>",
+    "MainNavigation, NavigationMainDirections",
+    "BaseBindingFragment (likely in baseclasses/)",
+    "hu.bitraptors (custom library)",
+    "LoginState, AnonymousUser, LoginController",
+    "SettingsRepository, LocationRepository, TipRepository",
+    "DataSource interface (custom local data abstraction)",
+    "ProfilePictureChangerCell, SettingsChooserCell (cell pattern examples)",
+    "ForecastDateFormatter, DateFormatter interface",
+    "motion layout, MotionLayout (animation)",
+    "Theme variants (values/, values-night/, values-v31/, values-v32/, values-v33/)"
+  ],
+  "priority_files_by_phase": {
+    "discovery": [
+      "app/src/main/java/com/bitraptors/babyweather/BabyWeatherApplication.kt",
+      "app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt",
+      "app/src/main/res/navigation/navigation_main.xml",
+      "app/src/main/java/com/bitraptors/babyweather/activity_main/MainViewModel.kt",
+      "app/src/main/java/com/bitraptors/babyweather/Constants.kt",
+      "app/build.gradle.kts"
+    ],
+    "layers": [
+      "app/src/main/java/com/bitraptors/babyweather/activity_main/ModulesMainActivity.kt",
+      "app/src/main/java/com/bitraptors/babyweather/page_settings/ModulesSettings.kt",
+      "app/src/main/java/com/bitraptors/babyweather/page_dashboard/ModulesDashboard.kt",
+      "app/src/main/java/com/bitraptors/babyweather/page_locations/ModulesLocations.kt",
+      "buildSrc/src/main/kotlin/Dependencies.kt",
+      "buildSrc/src/main/kotlin/DependencyConfig.kt"
+    ],
+    "patterns": [
+      "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+      "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt",
+      "app/src/main/java/com/bitraptors/babyweather/page_dashboard/Widget.kt",
+      "app/src/main/java/com/bitraptors/babyweather/sdk/RaptorDialogBuilder.kt",
+      "app/src/main/java/com/bitraptors/babyweather/page_settings_detail/cells/SettingsChooserCell.kt",
+      "app/src/main/java/com/bitraptors/babyweather/page_settings_detail/cells/ProfilePictureChangerCell.kt",
+      "app/src/main/java/com/bitraptors/babyweather/util/ViewModelExtensions.kt"
+    ],
+    "communication": [
+      "app/src/main/java/com/bitraptors/babyweather/util/NetworkExtenision.kt",
+      "app/src/main/java/com/bitraptors/babyweather/util/CustumDateAdapterForJSON.kt",
+      "app/src/main/res/xml/network_security_config.xml",
+      "buildSrc/src/main/kotlin/Dependencies.kt (Firebase, Network section)"
+    ],
+    "technology": [
+      "app/build.gradle.kts",
+      "buildSrc/build.gradle.kts",
+      "buildSrc/src/main/kotlin/Dependencies.kt",
+      "buildSrc/src/main/kotlin/DependencyConfig.kt",
+      "buildSrc/src/main/kotlin/Release.kt",
+      "settings.gradle.kts"
+    ],
+    "deployment": [
+      "app/build.gradle.kts",
+      "buildSrc/src/main/kotlin/Release.kt",
+      "app/src/main/AndroidManifest.xml",
+      "app/src/debug/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "app/src/release/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "app/src/staging/res/mipmap-anydpi-v26/ic_launcher.xml"
+    ],
+    "frontend": [
+      "app/src/main/java/com/bitraptors/babyweather/BabyWeatherApplication.kt",
+      "app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt",
+      "app/src/main/java/com/bitraptors/babyweather/activity_main/MainViewModel.kt",
+      "app/src/main/res/navigation/navigation_main.xml",
+      "app/src/main/res/layout/activity_main.xml",
+      "app/src/main/res/layout/fragment_dashboard.xml",
+      "app/src/main/java/com/bitraptors/babyweather/page_dashboard/ModulesDashboard.kt",
+      "app/src/main/res/values/themes.xml"
+    ]
+  },
+  "concerns": [
+    "Heavy reliance on external `hu.bitraptors` library: Core abstractions (DarkMode, BaseViewModel, analytics, network models, recyclerview.genericlistitem) are hidden behind a proprietary library, making it difficult to understand data flow and state management without access to that library's source.",
+    "Missing domain layer visibility: Repositories and data sources are imported from `com.bitraptors.babyweather.common.domain` which is not provided in the file list. The business logic and entity models are completely opaque.",
+    "Sealed class event pattern lacks centralized registry: Each page/ViewModel defines its own UiViewModelEvent and UiFragmentEvent subclasses. No obvious central enum or event bus suggests potential for event name collisions or unclear event flow across the app.",
+    "Widget interface in Dashboard suggests partial plugin architecture: The `Widget<T: GenericListItem>` abstraction implies a pluggable dashboard design, but only the interface is visible without implementations or registration mechanism.",
+    "Multiple navigation mechanisms: Both NavGraph (AndroidX Navigation) and explicit Controller-based navigation (MainController, LoginController) are used. Unclear if they coexist harmoniously or if one is being phased out.",
+    "Koin module distributed across pages: No central Koin app initialization visible. Each page defines its own module. If there's a global setup in BabyWeatherApplication, it's not shown, risking missing module loading or circular dependencies.",
+    "Extension functions for cross-cutting concerns scatter responsibility: While idiomatic Kotlin, the heavy use of extensions (DateExtensions, ViewExtensions, AnimationExtensions, etc.) makes it hard to trace dependencies and test behavior without importing all extensions.",
+    "Build plugin conventions in buildSrc lack documentation: The custom Gradle setup (ExtensionsFunctions.kt, Release.kt, DependencyConfig.kt) is convention-based with no visible build documentation, risking onboarding friction.",
+    "No visible error handling or retry strategy: NetworkExtension.kt exists but actual HTTP client setup, timeout configuration, and retry logic are not visible. Error Result types are referenced but not defined.",
+    "SharedPreferences alongside DataStore: Both are mentioned (LoginController, SettingsRepository), suggesting a hybrid persistence strategy without clear separation of concerns."
+  ]
+}
+```
+
+---
+
+## **Detailed Per-File Analysis** (Priority Files)
+
+### **app/src/main/java/com/bitraptors/babyweather/BabyWeatherApplication.kt**
+
+**Purpose:** Application entry point; initializes lifecycle observers, Koin DI, Firebase, dark mode, and global state.
+
+**Exports:**
+- `BabyWeatherApplication : Application, LifecycleEventObserver`
+
+**Imports:**
+- Android core: `Application`, `Configuration`
+- AndroidX: `lifecycle` (LifecycleEventObserver, viewModelScope), `datastore.preferences`
+- Koin: `startKoin`, `androidContext`, `modules`
+- Firebase (implied from file pattern)
+- Custom: `hu.bitraptors.presentation.darkmode.*`, core modules
+
+**Patterns:**
+- Lifecycle observer pattern to respond to app lifecycle events
+- Koin setup integration (modules injection point)
+- Dark mode initialization
+- Likely theme switching on configuration changes
+
+**Surprises:**
+- Lifecycle observer in Application is unusual; typically used to monitor specific component lifecycles. Suggests app-level state synchronization with system theme changes.
+- No visible error reporting initialization (Crashlytics, etc.) despite Firebase being imported.
+
+---
+
+### **app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt**
+
+**Purpose:** Main activity container holding Fragment navigation; manages bottom navigation, dialog dismissal, and feature flag handling.
+
+**Exports:**
+- `MainActivity : AppCompatActivity`
+
+**Imports:**
+- Android core: `Dialog`, `ComponentName`, `PackageManager`, `Bundle`
+- AndroidX: `AppCompatActivity`, `lifecycle.asFlow`, `navigation`
+- Koin: `inject`
+- Custom: `MainViewModel`, `MainController`, internal navigation components
+
+**Patterns:**
+- Dependency injection via `by inject()` from Koin
+- Fragment container management with NavController
+- Dialog lifecycle management (likely dismissing stale dialogs on rotation)
+- ViewModel observation and action handling
+
+**Surprises:**
+- ComponentName and PackageManager imports suggest app icon alias switching (dynamic app icon based on theme/user preference).
+- No explicit permission handling visible despite the app likely needing location permissions.
+
+---
+
+### **app/src/main/java/com/bitraptors/babyweather/activity_main/MainViewModel.kt**
+
+**Purpose:** Top-level ViewModel managing app-wide state: user login state, location, baby selection, and navigation events.
+
+**Exports:**
+- `MainViewModel`
+- Data classes: `BabySelection`, `MainUiModel`
+- Sealed class: `LoginState` (AnonymousUser, etc.)
+
+**Imports:**
+- AndroidX: `lifecycle.viewModelScope`
+- Navigation: `NavDirections`, `NavigationMainDirections`
+- Repositories: `LocationRepository`, `SettingsRepository`
+- Custom: `MainController`, `hu.bitraptors.presentation.viewmodel.BaseViewModel`
+
+**Patterns:**
+- State holder for authentication (LoginState sealed class)
+- Integration with MainController for navigation requests
+- Repository dependencies for user and location data
+- Reactive state emission (likely Flow-based via BaseViewModel)
+
+**Surprises:**
+- `AnonymousUser` as a LoginState variant suggests anonymous browsing is supported, not typical for weather apps requiring personalization.
+- MainViewModel depends on MainController, creating a bidirectional relationship with the orchestrator.
+
+---
+
+### **app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt**
+
+**Purpose:** Explicit orchestrator managing navigation state (bottom nav visibility, feature flags, navigation requests), decoupling MainActivity from navigation logic.
+
+**Exports:**
+- `MainController`
+- Sealed interfaces: `MainAction` (HideBottomNavigation, ShowBottomNavigation)
+- Sealed interface: `NavigationRequest` (various navigation targets)
+
+**Imports:**
+- Android core: `Context`, `SharedPreferences`
+- Navigation: `NavController`, `NavDirections`, `NavigationMainDirections`
+- Custom: `MainViewModel`, internal navigation enums
+
+**Patterns:**
+- Command pattern: MainAction sealed interface for encapsulated navigation commands
+- State machine: Navigation visibility toggled via explicit actions
+- Separation of concerns: Navigation logic decoupled from Activity
+- SharedPreferences integration for feature flags
+
+**Surprises:**
+- MainController embeds feature flag evaluation within action handling, mixing concerns.
+- Bidirectional dependency with MainViewModel suggests potential for circular logic.
+
+---
+
+### **app/src/main/java/com/bitraptors/babyweather/page_dashboard/Widget.kt**
+
+**Purpose:** Abstract interface defining the contract for dashboard widgets, enabling plugin-like composition of dashboard cells.
+
+**Exports:**
+- `Widget<T: GenericListItem>` interface
+
+**Imports:**
+- Analytics: `hu.bitraptors.analytics.RaptorAnalytics`
+- Custom: `DarkMode`, `GenericListItem` (from hu.bitraptors library)
+
+**Patterns:**
+- Type-parameterized interface for heterogeneous list composition
+- Analytics integration at the abstraction level
+
+**Surprises:**
+- Only the interface is visible; implementations and registration mechanism are not provided, limiting understanding of dashboard extensibility.
+
+---
+
+### **app/src/main/java/com/bitraptors/babyweather/sdk/RaptorDialogBuilder.kt**
+
+**Purpose:** Composable dialog builder with style variants, abstracting Material dialog construction.
+
+**Exports:**
+- `RaptorDialogBuilder` abstract class
+- Sealed class: `AlertButtonStyle` (Simple, Danger, Colored)
+- Data class: `DoubleOptionModel` (dual-button dialog model)
+
+**Imports:**
+- Android core: `Context`, `LayoutInflater`, `ViewGroup`
+- AndroidX: `annotation.ColorRes`
+
+**Patterns:**
+- Builder pattern with sealed class style variants
+- Strategy pattern for button styling (AlertButtonStyle subclasses)
+- Template method pattern (abstract builder with overridable methods)
+
+**Surprises:**
+- Custom dialog builder alongside AndroidX-provided DialogFragment suggests legacy code or special styling requirements not met by standard Material dialogs.
+
+---
+
+### **app/src/main/java/com/bitraptors/babyweather/page_settings_detail/cells/SettingsChooserCell.kt**
+
+**Purpose:** Reusable list cell for single-choice settings selection, emitting events when selection changes.
+
+**Exports:**
+- `SettingsChooserCell` data class (GenericListItem)
+- Event: `OptionSelectedEvent(selected: SettingType) : UiViewModelEvent`
+
+**Imports:**
+- Adapter delegates: `hannesdorfmann.adapterdelegates4.dsl.adapterDelegateViewBinding`
+- Data binding: `CellSettingsChooserBinding`
+- Custom: `SettingType` enum
+
+**Patterns:**
+- Data class-based list item (model-driven UI)
+- Event emission on user interaction
+- Adapter delegate pattern for composable RecyclerView
+- Type-safe setting selection via SettingType enum
+
+**Surprises:**
+- Events are defined inline within cell classes rather than in a centralized event catalog, risking fragmentation.
+
+---
+
+### **app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/LoginBottomSheetFragment.kt**
+
+**Purpose:** Bottom sheet modal for user authentication (Google, email, etc.), with license/terms/privacy acceptance.
+
+**Exports:**
+- `LoginBottomSheetFragment : BaseBindingFragment<DialogLoginBinding>`
+
+**Imports:**
+- Android core: `Activity`, `Bundle`, `Html`, `Spanned`
+- AndroidX: `Fragment`, `result.ActivityResultContract`, `result.launch`
+- Firebase: Auth
+- Custom: `LoginBottomSheetViewModel`, `BaseBindingFragment`
+
+**Patterns:**
+- Fragment-based bottom sheet modal
+- Activity result API for auth launcher callbacks
+- HTML-formatted legal text for terms/privacy
+- ViewModel-driven state and event handling
+
+**Surprises:**
+- Firebase authentication visible only in imports, but primary auth flow is abstracted through LoginController and ViewModel.
+
+---
+
+### **app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt**
+
+**Purpose:** Orchestrates Firebase authentication flow, managing login state transitions and shared preferences persistence.
+
+**Exports:**
+- `LoginController`
+- Sealed class: `LoginSheetState` (Init, Visible, Hidden, Expanded, Collapsed)
+
+**Imports:**
+- Android: `Context`, `Intent`, `SharedPreferences`, `PendingIntent`
+- Firebase: Auth and sign-in clients
+- AndroidX: `activity.result.ActivityResultLauncher`, `activity.result.contract.ActivityResultContracts`
+- Google: Play Services Auth
+
+**Patterns:**
+- State machine: LoginSheetState sealed class managing sheet lifecycle
+- Explicit state transitions with toString() overrides for debugging
+- Integration with Firebase and Google Play Services
+- SharedPreferences for persistence
+
+**Surprises:**
+- LoginController directly manages Firebase instead of delegating to a repository, mixing presentation orchestration with auth details.
+- No retry logic or error recovery visible for auth failures.
+
+---
+
+### **buildSrc/src/main/kotlin/Dependencies.kt**
+
+**Purpose:** Centralized dependency version management and artifact declarations for Gradle builds.
+
+**Exports:**
+- Object declarations: `AndroidSdk`, `BuildPlugins`, `Versions`, `Network`, `Firebase`
+- Version constants and dependency artifact strings
+
+**Imports:**
+- Gradle Kotlin DSL: `DependencyHandler`
+
+**Patterns:**
+- Centralized version management in buildSrc
+- Semantic grouping of dependencies by domain (Network, Firebase, etc.)
+- Version constant reuse to prevent duplication
+
+**Surprises:**
+- Network and Firebase sections suggest heavy integration with backend APIs and analytics.
+- No visible Kotlin version pinning or compiler plugin configuration.
+
+---
+
+### **app/src/main/res/navigation/navigation_main.xml**
+
+**Purpose:** Navigation graph defining all fragment destinations and safe args for the app's core navigation structure.
+
+**Exports:**
+- Navigation actions and destination fragments
+- Safe args for type-safe navigation
+
+**Imports:**
+- AndroidX Navigation schema
+
+**Patterns:**
+- Fragment-based navigation with NavGraph
+- Nested navigation graphs (likely dashboard, settings, locations as separate graphs)
+
+**Surprises:**
+- No deep linking configuration visible, limiting dynamic navigation from external sources.
+
+---
+
+### **app/src/main/res/layout/activity_main.xml**
+
+**Purpose:** Root activity layout containing fragment containers for nested navigation and a custom bottom navigation bar.
+
+**Exports:**
+- Layout with FragmentContainerView and custom navigation components
+
+**Imports:**
+- AndroidX: `ConstraintLayout`, `FragmentContainerView`
+- Custom: `view_bottom_nav` (custom navigation component)
+
+**Patterns:**
+- Two-level fragment nesting (NavController in MainActivity + page-level fragments)
+- ConstraintLayout for flexible responsive design
+
+**Surprises:**
+- Custom bottom_nav view (view_bottom_nav.xml) instead of Material BottomNavigationView, suggesting custom styling or behavior.
+
+---
+
+### **app/src/main/res/values/themes.xml**
+
+**Purpose:** Light theme definition with Material Design theming, supporting API 31+ dynamic theming.
+
+**Exports:**
+- Theme resources with day mode colors, typography, and component styles
+
+**Imports:**
+- Android theming schema
+- Custom attributes from attrs.xml
+
+**Patterns:**
+- Material Design 3 with color scheme customization
+- API-level-specific theme variants (values/, values-v31/, values-v32/, values-v33/) for dynamic theming support
+- Dark mode variant (values-night/) for system-level dark mode
+
+**Surprises:**
+- Multiple theme variants by API level suggest incremental Material Design migration, not a complete overhaul.
+
+---
+
+### **app/build.gradle.kts**
+
+**Purpose:** App module Gradle build configuration defining build types, signing, dependencies, and feature toggles.
+
+**Exports:**
+- Build configuration DSL
+
+**Imports:**
+- Gradle Kotlin DSL plugins: `android`, `kotlin-android`, `kapt`, navigation safe args
+- Custom buildSrc: `Dependencies`, `DependencyConfig`
+
+**Patterns:**
+- Multiple build variants: debug, staging, release
+- Koin and annotation processing (kapt) integration
+- Navigation safe args code generation
+
+**Surprises:**
+- Release configuration likely separate from staging, suggesting staged rollout strategy.
+- No visible R8/ProGuard configuration for release builds.

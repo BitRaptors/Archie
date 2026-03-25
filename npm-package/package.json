@@ -1,9 +1,9 @@
 {
-  "name": "archie-lite",
+  "name": "archie",
   "version": "2.0.0-alpha.1",
-  "description": "Install Archie architecture enforcement for Claude Code. Zero dependencies.",
+  "description": "AI-powered architecture enforcement for Claude Code. Zero dependencies.",
   "bin": {
-    "archie-lite": "./bin/archie-lite.mjs"
+    "archie": "./bin/archie.mjs"
   },
   "keywords": [
     "archie",

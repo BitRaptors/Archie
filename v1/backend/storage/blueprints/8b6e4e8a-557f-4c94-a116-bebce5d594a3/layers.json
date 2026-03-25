@@ -1,0 +1,930 @@
+```json
+{
+  "has_layers": true,
+  "structure_type": "layered",
+  "platforms": [
+    {
+      "name": "backend",
+      "language": "Python",
+      "framework": "FastAPI"
+    },
+    {
+      "name": "frontend",
+      "language": "TypeScript/React",
+      "framework": "Next.js"
+    },
+    {
+      "name": "landing",
+      "language": "TypeScript/React",
+      "framework": "Next.js"
+    }
+  ],
+  "layers": [
+    {
+      "name": "API/Presentation Layer",
+      "platform": "backend",
+      "location": "backend/src/api",
+      "responsibility": "Exposes FastAPI REST endpoints for repository analysis, authentication, settings, workspace management, and blueprint delivery. Handles HTTP request/response handling, request validation via DTOs, error handling through middleware, and routes incoming requests to application services.",
+      "contains": [
+        "FastAPI routes (APIRouter instances)",
+        "Request/response DTOs",
+        "Error handler middleware",
+        "Health check endpoints"
+      ],
+      "depends_on": [
+        "Application/Service Layer",
+        "Domain Layer (for entity references)"
+      ],
+      "exposes_to": [
+        "Frontend applications",
+        "External clients"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/api/app.py",
+          "description": "FastAPI application initialization, route registration, middleware setup"
+        },
+        {
+          "file": "backend/src/api/routes/analyses.py",
+          "description": "Analysis lifecycle endpoints (create, list, get, stream results)"
+        },
+        {
+          "file": "backend/src/api/routes/repositories.py",
+          "description": "Repository management endpoints (list, create, sync with GitHub)"
+        },
+        {
+          "file": "backend/src/api/routes/delivery.py",
+          "description": "Blueprint delivery endpoints (get rendered blueprints, export formats)"
+        },
+        {
+          "file": "backend/src/api/routes/settings.py",
+          "description": "Analysis settings endpoints (ignored dirs, capabilities configuration)"
+        },
+        {
+          "file": "backend/src/api/routes/prompts.py",
+          "description": "Prompt management endpoints (CRUD operations on analysis prompts)"
+        },
+        {
+          "file": "backend/src/api/dto/requests.py",
+          "description": "Request payload schemas for validation"
+        },
+        {
+          "file": "backend/src/api/dto/responses.py",
+          "description": "Response payload schemas"
+        },
+        {
+          "file": "backend/src/api/middleware/error_handler.py",
+          "description": "Global error handling and exception mapping"
+        }
+      ]
+    },
+    {
+      "name": "Application/Service Layer",
+      "platform": "backend",
+      "location": "backend/src/application/services",
+      "responsibility": "Orchestrates business logic and coordinates between domain entities and infrastructure. Implements use cases: repository sync via GitHub, phased blueprint generation with LLM orchestration, intent layer synthesis, smart refresh strategies, delivery rendering, and analysis event streaming. Manages analysis workflows through AnalysisService, coordinates code analysis through phased generation, and renders multiple output formats.",
+      "contains": [
+        "Service classes",
+        "Use case orchestration",
+        "External API coordination (GitHub, Anthropic)",
+        "Analysis workflow management",
+        "Blueprint and intent layer generation/rendering"
+      ],
+      "depends_on": [
+        "Domain Layer (entities, interfaces)",
+        "Infrastructure Layer (repositories, storage, external clients)"
+      ],
+      "exposes_to": [
+        "API/Presentation Layer",
+        "Worker/Task Layer"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/application/services/analysis_service.py",
+          "description": "Orchestrates complete analysis lifecycle: structure analysis, blueprint generation, event publishing, persistence"
+        },
+        {
+          "file": "backend/src/application/services/phased_blueprint_generator.py",
+          "description": "Multi-phase LLM-based blueprint generation: discovery, planning, synthesis, refinement with streaming"
+        },
+        {
+          "file": "backend/src/application/services/repository_service.py",
+          "description": "GitHub repository syncing, cloning, metadata management"
+        },
+        {
+          "file": "backend/src/application/services/intent_layer_service.py",
+          "description": "Intent layer synthesis from analysis results and custom rules"
+        },
+        {
+          "file": "backend/src/application/services/smart_refresh_service.py",
+          "description": "Incremental analysis and smart refresh strategies"
+        },
+        {
+          "file": "backend/src/application/services/delivery_service.py",
+          "description": "Blueprint rendering and export in multiple formats"
+        },
+        {
+          "file": "backend/src/application/services/blueprint_renderer.py",
+          "description": "Converts blueprint data structures to formatted documentation"
+        },
+        {
+          "file": "backend/src/application/services/codebase_map_renderer.py",
+          "description": "Renders codebase structure and file tree visualizations"
+        },
+        {
+          "file": "backend/src/application/services/intent_layer_renderer.py",
+          "description": "Renders intent layer manifests and architecture rules"
+        },
+        {
+          "file": "backend/src/application/services/analysis_data_collector.py",
+          "description": "Collects and aggregates analysis data across phases"
+        }
+      ]
+    },
+    {
+      "name": "Domain Layer",
+      "platform": "backend",
+      "location": "backend/src/domain",
+      "responsibility": "Defines core business entities (User, Repository, Analysis, AnalysisEvent, Blueprint, IntentLayer, AnalysisSettings, ArchitectureRule) and interfaces that all other layers depend on. Establishes contracts for repositories and database access through abstract interfaces. Defines domain exceptions. Represents the immutable core business concepts independent of any framework or infrastructure choice.",
+      "contains": [
+        "Entity classes (User, Repository, Analysis, etc.)",
+        "Repository interfaces (abstract, technology-agnostic)",
+        "Database client abstraction (QueryBuilder, DatabaseClient interfaces)",
+        "Domain exceptions",
+        "Value objects"
+      ],
+      "depends_on": [],
+      "exposes_to": [
+        "Application/Service Layer",
+        "Infrastructure Layer",
+        "API/Presentation Layer"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/domain/entities/analysis.py",
+          "description": "Analysis entity with status, metadata, and versioning"
+        },
+        {
+          "file": "backend/src/domain/entities/repository.py",
+          "description": "Repository entity linking GitHub/local repos to users"
+        },
+        {
+          "file": "backend/src/domain/entities/blueprint.py",
+          "description": "Blueprint entity representing analyzed architecture documentation"
+        },
+        {
+          "file": "backend/src/domain/entities/intent_layer.py",
+          "description": "Intent layer entity for architecture rules and patterns"
+        },
+        {
+          "file": "backend/src/domain/entities/analysis_settings.py",
+          "description": "Analysis configuration (ignored directories, capabilities)"
+        },
+        {
+          "file": "backend/src/domain/entities/analysis_event.py",
+          "description": "Domain events for analysis lifecycle (started, phase completed, finished)"
+        },
+        {
+          "file": "backend/src/domain/interfaces/repositories.py",
+          "description": "Abstract repository interfaces: IRepository (generic), IUserRepository, IRepositoryRepository, IAnalysisRepository, IAnalysisEventRepository, IUserProfileRepository"
+        },
+        {
+          "file": "backend/src/domain/interfaces/database.py",
+          "description": "DB-agnostic abstractions: DatabaseClient, QueryBuilder, QueryResult, DatabaseError - repositories depend on these, not concrete DB SDKs"
+        },
+        {
+          "file": "backend/src/domain/exceptions/domain_exceptions.py",
+          "description": "Domain-specific exceptions"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/Persistence Layer",
+      "platform": "backend",
+      "location": "backend/src/infrastructure/persistence",
+      "responsibility": "Implements repository interfaces with concrete database adapters (Supabase/PostgreSQL and local asyncpg). Provides QueryBuilder and DatabaseClient implementations. Handles database connection pooling, query execution, and data mapping from database rows to domain entities. Supports dual-backend architecture through db_factory abstraction.",
+      "contains": [
+        "Repository implementations (UserRepository, RepositoryRepository, AnalysisRepository, etc.)",
+        "Database adapters (Supabase, Postgres)",
+        "QueryBuilder implementations",
+        "Database factory and connection management",
+        "Data access object pattern implementations"
+      ],
+      "depends_on": [
+        "Domain Layer (interfaces, entities)"
+      ],
+      "exposes_to": [
+        "Application/Service Layer",
+        "Dependency Injection Container"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/infrastructure/persistence/db_factory.py",
+          "description": "Factory for creating appropriate database client (Supabase or local Postgres) based on environment"
+        },
+        {
+          "file": "backend/src/infrastructure/persistence/supabase_adapter.py",
+          "description": "QueryBuilder implementation wrapping Supabase PostgREST client"
+        },
+        {
+          "file": "backend/src/infrastructure/persistence/postgres_adapter.py",
+          "description": "QueryBuilder implementation wrapping asyncpg for direct PostgreSQL connections"
+        },
+        {
+          "file": "backend/src/infrastructure/persistence/repository_repository.py",
+          "description": "Repository implementation for Repository entity with GitHub sync metadata"
+        },
+        {
+          "file": "backend/src/infrastructure/persistence/analysis_repository.py",
+          "description": "Repository implementation for Analysis entity with status tracking"
+        },
+        {
+          "file": "backend/src/infrastructure/persistence/analysis_event_repository.py",
+          "description": "Repository implementation for AnalysisEvent with filtering by analysis_id"
+        },
+        {
+          "file": "backend/src/infrastructure/persistence/analysis_settings_repository.py",
+          "description": "Repository implementation for AnalysisSettings (ignored dirs, capabilities)"
+        },
+        {
+          "file": "backend/src/infrastructure/persistence/user_profile_repository.py",
+          "description": "Repository implementation for UserProfile (single-row design)"
+        },
+        {
+          "file": "backend/src/infrastructure/persistence/prompt_repository.py",
+          "description": "Repository implementation for Prompt entity"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/Storage Layer",
+      "platform": "backend",
+      "location": "backend/src/infrastructure/storage",
+      "responsibility": "Provides persistent file storage for analysis artifacts (blueprints, intent layers, codebase maps) and cloned repositories. Abstracts storage operations through StorageInterface supporting local file system and temporary storage. Manages file paths, serialization, and retrieval of analysis outputs.",
+      "contains": [
+        "Storage interface abstraction",
+        "Local file system storage implementation",
+        "Temporary storage for ephemeral files",
+        "File I/O operations"
+      ],
+      "depends_on": [
+        "Domain Layer (for configuration)"
+      ],
+      "exposes_to": [
+        "Application/Service Layer",
+        "Infrastructure/Analysis Layer"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/infrastructure/storage/storage_interface.py",
+          "description": "Abstract storage interface for read/write/delete operations"
+        },
+        {
+          "file": "backend/src/infrastructure/storage/local_storage.py",
+          "description": "Local file system implementation with path management"
+        },
+        {
+          "file": "backend/src/infrastructure/storage/temp_storage.py",
+          "description": "Temporary storage for transient files"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/Analysis Layer",
+      "platform": "backend",
+      "location": "backend/src/infrastructure/analysis",
+      "responsibility": "Performs code structure analysis, semantic enrichment, and RAG-based retrieval. StructureAnalyzer parses and analyzes code structure, rag_retriever queries codebase for context, embedders generate vector representations, query_embedder produces embeddings for queries. Supports hybrid enrichment combining code analysis with AI-powered insights.",
+      "contains": [
+        "Structure analyzer",
+        "RAG retriever",
+        "Embedders (shared, query-specific)",
+        "Code parsing and analysis"
+      ],
+      "depends_on": [
+        "Infrastructure/Storage Layer"
+      ],
+      "exposes_to": [
+        "Application/Service Layer"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/infrastructure/analysis/structure_analyzer.py",
+          "description": "Code structure parsing and analysis"
+        },
+        {
+          "file": "backend/src/infrastructure/analysis/rag_retriever.py",
+          "description": "Vector-based retrieval of relevant code snippets"
+        },
+        {
+          "file": "backend/src/infrastructure/analysis/shared_embedder.py",
+          "description": "Embeddings generation for code and text"
+        },
+        {
+          "file": "backend/src/infrastructure/analysis/query_embedder.py",
+          "description": "Query-specific embeddings for RAG operations"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/External APIs Layer",
+      "platform": "backend",
+      "location": "backend/src/infrastructure/external",
+      "responsibility": "Integrates external services: GitHub API for repository operations (clone, metadata, push) and Anthropic API for LLM-based analysis. GitHubClient and related clients handle authentication, rate limiting, and API communication. Push clients abstract pushing results back to repositories (GitHub or local).",
+      "contains": [
+        "GitHub API client",
+        "GitHub push client",
+        "Local push client",
+        "API authentication and configuration"
+      ],
+      "depends_on": [
+        "Configuration/Settings"
+      ],
+      "exposes_to": [
+        "Application/Service Layer"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/infrastructure/external/github_client.py",
+          "description": "GitHub API integration for repository metadata and operations"
+        },
+        {
+          "file": "backend/src/infrastructure/external/github_push_client.py",
+          "description": "Pushes analysis results back to GitHub repositories"
+        },
+        {
+          "file": "backend/src/infrastructure/external/local_push_client.py",
+          "description": "Pushes analysis results to local filesystem"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/Prompts Layer",
+      "platform": "backend",
+      "location": "backend/src/infrastructure/prompts",
+      "responsibility": "Loads and manages prompts for LLM analysis. DatabasePromptLoader retrieves prompts from database and caches them. PromptLoader interface defines the contract for prompt loading strategies. Supports dynamic prompt versioning and retrieval.",
+      "contains": [
+        "Prompt loader interface",
+        "Database prompt loader implementation",
+        "Prompt caching and versioning"
+      ],
+      "depends_on": [
+        "Infrastructure/Persistence Layer"
+      ],
+      "exposes_to": [
+        "Application/Service Layer"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/infrastructure/prompts/prompt_loader.py",
+          "description": "Abstract prompt loader interface"
+        },
+        {
+          "file": "backend/src/infrastructure/prompts/database_prompt_loader.py",
+          "description": "Loads prompts from database with caching"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/MCP Layer",
+      "platform": "backend",
+      "location": "backend/src/infrastructure/mcp",
+      "responsibility": "Implements Model Context Protocol server for Claude integration. Exposes resources (analyzed code, blueprints) and tools (repository management, settings) to Claude. Enables Claude to analyze codebases directly through MCP interface.",
+      "contains": [
+        "MCP server implementation",
+        "MCP resources (code, blueprints)",
+        "MCP tools (repository operations, analysis)",
+        "Protocol handling"
+      ],
+      "depends_on": [
+        "Application/Service Layer",
+        "Domain Layer"
+      ],
+      "exposes_to": [
+        "External Claude integrations",
+        "API/Presentation Layer (via routes)"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/infrastructure/mcp/server.py",
+          "description": "MCP server initialization and lifecycle"
+        },
+        {
+          "file": "backend/src/infrastructure/mcp/resources.py",
+          "description": "MCP resources: file contents, blueprint data, analysis results"
+        },
+        {
+          "file": "backend/src/infrastructure/mcp/tools.py",
+          "description": "MCP tools: repository sync, analysis queries, settings management"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/Events Layer",
+      "platform": "backend",
+      "location": "backend/src/infrastructure/events",
+      "responsibility": "Publishes domain events (analysis lifecycle events) for real-time communication and streaming to clients. EventBus coordinates event publishing and subscription.",
+      "contains": [
+        "Event bus",
+        "Event publishing/subscription",
+        "Event streaming"
+      ],
+      "depends_on": [
+        "Domain Layer (event entities)"
+      ],
+      "exposes_to": [
+        "Application/Service Layer",
+        "API/Presentation Layer"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/infrastructure/events/event_bus.py",
+          "description": "Event bus for publishing and subscribing to domain events"
+        }
+      ]
+    },
+    {
+      "name": "Configuration/DI Container Layer",
+      "platform": "backend",
+      "location": "backend/src/config",
+      "responsibility": "Dependency injection and application configuration. Container defines and wires all services, repositories, and infrastructure components using dependency-injector library. Manages singleton instances, resource initialization/shutdown, and configuration loading.",
+      "contains": [
+        "DI container definition",
+        "Settings/configuration",
+        "Service provider definitions",
+        "Application constants"
+      ],
+      "depends_on": [
+        "All layers (for wiring)"
+      ],
+      "exposes_to": [
+        "API/Presentation Layer",
+        "Worker/Task Layer",
+        "Main application entry point"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/config/container.py",
+          "description": "Dependency-injector DeclarativeContainer defining all services, repositories, storage, and external clients"
+        },
+        {
+          "file": "backend/src/config/settings.py",
+          "description": "Pydantic settings for environment configuration"
+        },
+        {
+          "file": "backend/src/config/constants.py",
+          "description": "Application-wide constants"
+        }
+      ]
+    },
+    {
+      "name": "Worker/Task Layer",
+      "platform": "backend",
+      "location": "backend/src/workers",
+      "responsibility": "Asynchronous task execution using ARQ job queue. Executes long-running analysis jobs, blueprint generation, and data synthesis outside of HTTP request lifecycle. Supports both in-process execution and distributed Redis-backed queue.",
+      "contains": [
+        "Task definitions",
+        "Worker process",
+        "Job scheduling",
+        "Async task execution"
+      ],
+      "depends_on": [
+        "Application/Service Layer",
+        "Configuration/DI Container Layer"
+      ],
+      "exposes_to": [
+        "Application/Service Layer"
+      ],
+      "key_files": [
+        {
+          "file": "backend/src/workers/tasks.py",
+          "description": "ARQ task definitions for analysis and synthesis"
+        },
+        {
+          "file": "backend/src/workers/worker.py",
+          "description": "Worker process configuration and job handling"
+        }
+      ]
+    },
+    {
+      "name": "Application Entry Point",
+      "platform": "backend",
+      "location": "backend/src",
+      "responsibility": "Application bootstrap and startup. Initializes FastAPI app, configures routing, middleware, and container. Starts Uvicorn server.",
+      "contains": [
+        "FastAPI app factory",
+        "Server startup"
+      ],
+      "depends_on": [
+        "Configuration/DI Container Layer",
+        "API/Presentation Layer"
+      ],
+      "exposes_to": [],
+      "key_files": [
+        {
+          "file": "backend/src/main.py",
+          "description": "Application entry point: FastAPI initialization, Uvicorn startup"
+        }
+      ]
+    },
+    {
+      "name": "Pages/Routes Layer",
+      "platform": "frontend",
+      "location": "frontend/pages",
+      "responsibility": "Next.js page components serving as entry points for application routes. Page components handle top-level layout, route-based rendering, and page-level data initialization. Composed of reusable view components.",
+      "contains": [
+        "Page components",
+        "Route handlers",
+        "Next.js app structure"
+      ],
+      "depends_on": [
+        "Views/Components Layer",
+        "Hooks/Services Layer"
+      ],
+      "exposes_to": [
+        "Next.js Router"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/pages/index.tsx",
+          "description": "Main dashboard page with repository list and analysis launcher"
+        },
+        {
+          "file": "frontend/pages/auth.tsx",
+          "description": "Authentication page for GitHub login"
+        },
+        {
+          "file": "frontend/pages/_app.tsx",
+          "description": "Next.js app wrapper with context providers and global setup"
+        },
+        {
+          "file": "frontend/pages/_document.tsx",
+          "description": "Next.js document shell"
+        }
+      ]
+    },
+    {
+      "name": "Views/Feature Components Layer",
+      "platform": "frontend",
+      "location": "frontend/components/views",
+      "responsibility": "Feature-specific container components for major application sections: RepositoryView (repository management), AnalysisView (analysis results with streaming), BlueprintView (blueprint documentation display), SettingsView (analysis configuration), CapabilitiesSettingsView, IgnoredDirsSettingsView. Each view manages its own state and delegates to specialized UI components.",
+      "contains": [
+        "Feature container components",
+        "View-level state management",
+        "Feature-specific logic"
+      ],
+      "depends_on": [
+        "UI Components Layer",
+        "Hooks/Services Layer"
+      ],
+      "exposes_to": [
+        "Pages/Routes Layer",
+        "Layout Components Layer"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/components/views/RepositoryView.tsx",
+          "description": "Repository management view with list, sync, and details"
+        },
+        {
+          "file": "frontend/components/views/AnalysisView.tsx",
+          "description": "Analysis results view with real-time streaming, phase display, tree visualization"
+        },
+        {
+          "file": "frontend/components/views/BlueprintView.tsx",
+          "description": "Rendered blueprint documentation with sections and details"
+        },
+        {
+          "file": "frontend/components/views/SettingsView.tsx",
+          "description": "Settings container delegating to capability and ignored dirs views"
+        },
+        {
+          "file": "frontend/components/views/CapabilitiesSettingsView.tsx",
+          "description": "Analysis capability toggles"
+        },
+        {
+          "file": "frontend/components/views/IgnoredDirsSettingsView.tsx",
+          "description": "Configuration of ignored directories for analysis"
+        }
+      ]
+    },
+    {
+      "name": "Layout Components Layer",
+      "platform": "frontend",
+      "location": "frontend/components/layout",
+      "responsibility": "Shell layout components providing consistent structure across pages: Shell (app container with sidebar), PageHeader (page title and actions), Sidebar (navigation and menu). Manages overall application layout and navigation structure.",
+      "contains": [
+        "Shell/layout wrapper",
+        "Page header component",
+        "Sidebar/navigation"
+      ],
+      "depends_on": [
+        "UI Components Layer",
+        "Hooks/Services Layer"
+      ],
+      "exposes_to": [
+        "Pages/Routes Layer",
+        "Views/Feature Components Layer"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/components/layout/Shell.tsx",
+          "description": "Main app shell with sidebar and content area"
+        },
+        {
+          "file": "frontend/components/layout/PageHeader.tsx",
+          "description": "Page title and header with breadcrumbs/actions"
+        },
+        {
+          "file": "frontend/components/layout/Sidebar.tsx",
+          "description": "Navigation sidebar with menu items and user controls"
+        }
+      ]
+    },
+    {
+      "name": "UI Components Layer",
+      "platform": "frontend",
+      "location": "frontend/components/ui",
+      "responsibility": "Reusable UI primitives and components: Button, Input, Card, Badge, Progress, Skeleton. Uses Tailwind CSS for styling. Follows component composition patterns for consistency and reusability across the application.",
+      "contains": [
+        "UI primitives",
+        "Form controls",
+        "Display components",
+        "Tailwind-based styling"
+      ],
+      "depends_on": [],
+      "exposes_to": [
+        "All component layers"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/components/ui/button.tsx",
+          "description": "Button component with variants"
+        },
+        {
+          "file": "frontend/components/ui/input.tsx",
+          "description": "Text input component"
+        },
+        {
+          "file": "frontend/components/ui/card.tsx",
+          "description": "Card container component"
+        },
+        {
+          "file": "frontend/components/ui/badge.tsx",
+          "description": "Badge/tag display component"
+        },
+        {
+          "file": "frontend/components/ui/progress.tsx",
+          "description": "Progress bar component"
+        },
+        {
+          "file": "frontend/components/ui/skeleton.tsx",
+          "description": "Loading skeleton component"
+        }
+      ]
+    },
+    {
+      "name": "Specialized Components Layer",
+      "platform": "frontend",
+      "location": "frontend/components",
+      "responsibility": "Domain-specific composite components: MermaidDiagram (architecture diagrams), ProjectTree (file tree visualization), SourceFileModal (code viewer), DeliveryPanel (blueprint delivery options), ConfirmationDialog (user confirmation), DebugView (debugging information). Bridges UI primitives with feature logic.",
+      "contains": [
+        "Composite components",
+        "Domain-specific visualizations",
+        "Specialized dialogs/modals"
+      ],
+      "depends_on": [
+        "UI Components Layer",
+        "Hooks/Services Layer"
+      ],
+      "exposes_to": [
+        "Views/Feature Components Layer",
+        "Pages/Routes Layer"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/components/MermaidDiagram.tsx",
+          "description": "Renders Mermaid diagrams from blueprint data"
+        },
+        {
+          "file": "frontend/components/ProjectTree.tsx",
+          "description": "File tree visualization with expand/collapse"
+        },
+        {
+          "file": "frontend/components/SourceFileModal.tsx",
+          "description": "Modal displaying source code with syntax highlighting"
+        },
+        {
+          "file": "frontend/components/DeliveryPanel.tsx",
+          "description": "Blueprint export and delivery options"
+        },
+        {
+          "file": "frontend/components/ConfirmationDialog.tsx",
+          "description": "Generic confirmation/warning dialog"
+        },
+        {
+          "file": "frontend/components/DebugView.tsx",
+          "description": "Development debugging panel"
+        }
+      ]
+    },
+    {
+      "name": "Hooks/API Services Layer",
+      "platform": "frontend",
+      "location": "frontend/hooks/api",
+      "responsibility": "Custom React hooks for API communication and data fetching. Wraps backend endpoints: useRepositoriesQuery (repository listing), useWorkspace (workspace state), useSettings (settings management), useDelivery (blueprint delivery), usePrompts (prompt management). Handles loading states, error handling, and caching.",
+      "contains": [
+        "Custom hooks",
+        "API client wrappers",
+        "Data fetching logic",
+        "State synchronization"
+      ],
+      "depends_on": [
+        "Services/API Clients Layer"
+      ],
+      "exposes_to": [
+        "Views/Feature Components Layer",
+        "Pages/Routes Layer"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/hooks/api/useRepositoriesQuery.tsx",
+          "description": "Hook for fetching and managing repositories list"
+        },
+        {
+          "file": "frontend/hooks/api/useWorkspace.ts",
+          "description": "Hook for workspace state and operations"
+        },
+        {
+          "file": "frontend/hooks/api/useSettings.ts",
+          "description": "Hook for analysis settings management"
+        },
+        {
+          "file": "frontend/hooks/api/useDelivery.ts",
+          "description": "Hook for blueprint delivery operations"
+        },
+        {
+          "file": "frontend/hooks/api/usePrompts.ts",
+          "description": "Hook for prompt management"
+        }
+      ]
+    },
+    {
+      "name": "Specialized Hooks Layer",
+      "platform": "frontend",
+      "location": "frontend/hooks",
+      "responsibility": "Custom hooks for authentication state management (useAuth) and authentication context. Manages GitHub OAuth flow, token storage, and user session.",
+      "contains": [
+        "Auth state hook",
+        "Context usage hooks"
+      ],
+      "depends_on": [
+        "Services/API Clients Layer",
+        "State/Context Layer"
+      ],
+      "exposes_to": [
+        "Pages/Routes Layer",
+        "Views/Feature Components Layer"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/hooks/useAuth.tsx",
+          "description": "Hook for accessing auth context and user state"
+        }
+      ]
+    },
+    {
+      "name": "Services/API Clients Layer",
+      "platform": "frontend",
+      "location": "frontend/services",
+      "responsibility": "HTTP client services for backend communication. Lower-level API wrappers: repositories (repository endpoints), workspace (analysis endpoints), settings (configuration endpoints), delivery (blueprint delivery), prompts (prompt management), auth (authentication). Handles fetch calls, error responses, and JSON serialization.",
+      "contains": [
+        "API client functions",
+        "HTTP request handling",
+        "Response parsing",
+        "Error handling"
+      ],
+      "depends_on": [],
+      "exposes_to": [
+        "Hooks/API Services Layer"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/services/repositories.ts",
+          "description": "Repository API endpoints (list, create, sync, get)"
+        },
+        {
+          "file": "frontend/services/workspace.ts",
+          "description": "Analysis/workspace endpoints (create analysis, stream results)"
+        },
+        {
+          "file": "frontend/services/settings.ts",
+          "description": "Settings endpoints (update ignored dirs, capabilities)"
+        },
+        {
+          "file": "frontend/services/delivery.ts",
+          "description": "Blueprint delivery and export endpoints"
+        },
+        {
+          "file": "frontend/services/prompts.ts",
+          "description": "Prompt management endpoints"
+        },
+        {
+          "file": "frontend/services/auth.ts",
+          "description": "Authentication endpoints (login, logout, profile)"
+        }
+      ]
+    },
+    {
+      "name": "State/Context Layer",
+      "platform": "frontend",
+      "location": "frontend/context",
+      "responsibility": "React Context for global application state: auth context managing user session and GitHub OAuth state. Provides authentication state to entire application tree.",
+      "contains": [
+        "React Context providers",
+        "State management",
+        "Global state distribution"
+      ],
+      "depends_on": [],
+      "exposes_to": [
+        "Pages/Routes Layer",
+        "Hooks/Specialized Hooks Layer",
+        "Views/Feature Components Layer"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/context/auth.tsx",
+          "description": "AuthContext provider managing user authentication state and GitHub OAuth"
+        }
+      ]
+    },
+    {
+      "name": "Utilities/Helpers Layer",
+      "platform": "frontend",
+      "location": "frontend/lib",
+      "responsibility": "Utility functions and helpers: blueprint-toc (table of contents generation from blueprints), theme configuration, general utilities. Supports component styling and data transformation.",
+      "contains": [
+        "Utility functions",
+        "Theme configuration",
+        "Data transformers"
+      ],
+      "depends_on": [],
+      "exposes_to": [
+        "All component layers"
+      ],
+      "key_files": [
+        {
+          "file": "frontend/lib/blueprint-toc.ts",
+          "description": "Generate table of contents from blueprint data structure"
+        },
+        {
+          "file": "frontend/lib/theme.ts",
+          "description": "Theme configuration and color utilities"
+        },
+        {
+          "file": "frontend/lib/utils.ts",
+          "description": "General utility functions"
+        }
+      ]
+    },
+    {
+      "name": "Landing Page Layer",
+      "platform": "landing",
+      "location": "landing",
+      "responsibility": "Marketing landing page with interactive 3D visualizations. Built with Next.js, features shader backgrounds, smooth scrolling, and Framer Motion/GSAP animations showcasing Archie features (blueprint generation, code analysis, visualizations).",
+      "contains": [
+        "Landing page components",
+        "Interactive visualizations",
+        "Marketing content",
+        "Animation components"
+      ],
+      "depends_on": [
+        "Three.js (3D rendering)",
+        "Framer Motion (animations)",
+        "GSAP (scroll animations)"
+      ],
+      "exposes_to": [
+        "Public web visitors"
+      ],
+      "key_files": [
+        {
+          "file": "landing/app/page.tsx",
+          "description": "Main landing page with hero, features, and CTAs"
+        },
+        {
+          "file": "landing/app/layout.tsx",
+          "description": "Landing page root layout"
+        },
+        {
+          "file": "landing/components/ShaderBackground.tsx",
+          "description": "Three.js shader-based animated background"
+        },
+        {
+          "file": "landing/components/SmoothScroll.tsx",
+          "description": "Smooth scroll animation wrapper"
+        }
+      ]
+    }
+  ],
+  "actual_structure": "BitRaptors/Archie follows a classic **layered architecture** across three distinct platforms:\n\n**BACKEND (Python/FastAPI)** - Strict layered pattern:\n- **Presentation/API Layer**: FastAPI routes, DTOs, middleware - translates HTTP to domain language\n- **Application/Service Layer**: Business logic orchestration - analysis workflows, blueprint generation, external API coordination\n- **Domain Layer**: Pure business entities (User, Repository, Analysis, Blueprint, IntentLayer, ArchitectureRule), repository interfaces, database abstractions - technology-agnostic\n- **Infrastructure Layer** (5 sub-layers):\n  - Persistence: Repository implementations, database adapters (Supabase/Postgres dual-backend)\n  - Storage: File system abstraction for artifacts and cloned repos\n  - Analysis: Code structure parsing, RAG retrieval, embeddings\n  - External APIs: GitHub and Anthropic integrations\n  - Events: Domain event publishing for real-time communication\n  - Prompts: Dynamic prompt loading and caching\n  - MCP: Model Context Protocol server for Claude integration\n- **Configuration/DI Container**: Dependency-injector wiring all components\n- **Worker/Task Layer**: ARQ-based async job execution (in-process or Redis-backed)\n\n**Dependency Flow**: Presentation → Service → Domain ← Infrastructure (repositories depend on domain interfaces, not inverse). All infrastructure is pulled in by container, never imported directly by domain.\n\n**FRONTEND (TypeScript/React/Next.js)** - Feature + Hooks pattern:\n- **Pages/Routes**: Next.js entry points (index, auth)\n- **Views/Feature Components**: RepositoryView, AnalysisView, BlueprintView, SettingsView - coarse-grained feature containers\n- **Layout Components**: Shell, PageHeader, Sidebar - structural layout\n- **UI Components**: Primitive components (Button, Input, Card, Badge, Progress, Skeleton) - Tailwind-based\n- **Specialized Components**: MermaidDiagram, ProjectTree, SourceFileModal, DeliveryPanel, ConfirmationDialog - composite domain-specific components\n- **Hooks/API Services**: Custom hooks wrapping API clients (useRepositoriesQuery, useWorkspace, useSettings, useDelivery, usePrompts)\n- **Services/API Clients**: Low-level HTTP wrappers for backend endpoints\n- **State/Context**: React Context for auth global state\n- **Utilities**: Theme, blueprint-toc, general helpers\n\n**Dependency Flow**: Pages → Views → Specialized Components + UI Components; Views also use Hooks; Hooks use Services; Context provides auth state to all components.\n\n**LANDING PAGE**: Standalone Next.js app with marketing focus, independent from main frontend, features Three.js/GSAP animations.\n\n**Key Architectural Decisions**:\n1. **Dual Database Support**: Domain interfaces abstract all database operations; Supabase and local Postgres implementations interchangeable\n2. **Async Job Queue Optional**: ARQ pool gracefully degrades to in-process execution if Redis unavailable\n3. **Clean Domain Layer**: Zero framework dependencies in domain; all business rules centralized\n4. **Repository Pattern**: All data access through repository interfaces, enabling testing and swapping\n5. **Frontend Hook Composition**: Lightweight hook layer over services for composable data fetching\n6. **Monorepo with Clear Boundaries**: Backend and frontend clearly separated with explicit API contracts via DTOs"
+}
+```

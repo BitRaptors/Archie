@@ -1,0 +1,23 @@
+# To-Do List for Family Management Feature
+
+- [x] Design family data model (family_id, name, join_code, members). (Done in backend)
+- [x] Design user data model extension (link user to family_id). (Done in backend)
+- [x] Implement backend logic for:
+  - [x] Creating a new family (generate join_code).
+  - [x] Joining an existing family using join_code.
+  - [x] Fetching family details (members, join_code) for the current user.
+  - [ ] Associating characters/stories/memories with a family. (Separate feature)
+- [x] Set up frontend API Client (`src/api/client.ts`). (Basic setup done)
+- [x] Create `FamilyPage.tsx` component in `src/pages/`.
+- [x] Add route for `/family` in `App.tsx` (protected, use AppLayout).
+- [x] Add Shadcn components needed (Input, Button, Card). (Mock UI uses these)
+- [x] Implement UI in `FamilyPage.tsx`:
+  - [x] Conditional rendering: Show Create/Join options if user has no family.
+  - [x] Conditional rendering: Show family details (members, join code) if user has a family.
+  - [x] Input field for join code.
+  - [x] Buttons for Create and Join actions.
+- [x] Add state management for join code input and loading/error states.
+- [x] Implement frontend logic to call backend API for create/join/fetch family.
+- [x] Update `Sidebar.tsx` with a link to `/family`.
+- [x] Test family creation and joining flow. (Needs actual testing)
+- [ ] Update main `DOCS/Todo.md`. 

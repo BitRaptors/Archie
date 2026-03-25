@@ -1,0 +1,782 @@
+```json
+{
+  "platform": "mobile-android",
+  "framework": "Android Native (Kotlin + Jetpack)",
+  "ui_paradigm": "Imperative (XML layouts) + Declarative (Jetpack Compose hybrid approach)",
+  "app_architecture": "MVVM + Clean Architecture (feature-sliced modular)",
+  
+  "framework_details": {
+    "primary_toolkit": "Android Jetpack (Fragment, Navigation Component, ViewModel, LiveData/StateFlow)",
+    "ui_rendering": "XML-based imperative layouts (primary) with Compose adoption path",
+    "composition_pattern": "Fragment-based screens with RecyclerView-based lists and custom views",
+    "architecture_style": "Feature-sliced MVVM with clean domain/data/presentation separation",
+    "notable_libraries": [
+      "Androidx Navigation Component (navigation_main.xml graph)",
+      "Koin (dependency injection via modules)",
+      "Material Design 3 (themes, colors, typography)",
+      "Jetpack Compose (partial adoption for complex UI)",
+      "Retrofit + Moshi (networking and serialization)",
+      "Coroutines + Flow (async and reactive programming)"
+    ]
+  },
+
+  "ui_components": [
+    {
+      "name": "MainActivity",
+      "location": "app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt",
+      "component_type": "screen",
+      "description": "Root activity hosting NavHostFragment, bottom navigation controller, splash screen, and process-level event handling (dialogs, theme changes, error states)",
+      "key_responsibilities": [
+        "NavController management via findNavController(R.id.fragment_navigator)",
+        "Bottom navigation state synchronization with NavigationItem selection",
+        "Subscribe to global error streams (subscription errors, purchase dialogs)",
+        "Dark mode theme observation and application",
+        "Loading state management during app initialization",
+        "Google Play Services availability check"
+      ],
+      "lifecycle_hooks": ["onCreate", "observeLoading", "setupBinding", "setWindowParams", "observeUiState", "setupBottomNav", "observeMainEvents", "observeTheme", "subscribeToErrors"],
+      "dependencies_injected": ["MainViewModel", "DarkModeHelper", "RaptorAnalytics"],
+      "children": [
+        "NavHostFragment (via navigation_main.xml graph)",
+        "LoadingFragment",
+        "Dashboard Fragment (page_dashboard)",
+        "Locations Fragment (page_locations)",
+        "Settings Fragment (page_settings)",
+        "Tips Fragment (page_tips)",
+        "Baby Settings Fragment (page_baby_settings)",
+        "AlertDialog dialogs (subscription errors, theme selection)"
+      ]
+    },
+    {
+      "name": "BabyWeatherApplication",
+      "location": "app/src/main/java/com/bitraptors/babyweather/BabyWeatherApplication.kt",
+      "component_type": "application",
+      "description": "Application-level lifecycle manager handling Koin DI initialization, Timber logging setup, Purchases SDK initialization, ProcessLifecycle observation, and app-wide event tracking",
+      "key_responsibilities": [
+        "startKoin() initialization with all feature modules",
+        "Timber + CrashReportingTree setup for logging and crash reporting",
+        "ProcessLifecycleOwner observation for app resume/pause/destroy events",
+        "Dark mode theme application at startup",
+        "Location tracking and analytics on app foreground/background transitions",
+        "Dashboard refresh on app resume",
+        "Purchases SDK debug mode configuration"
+      ],
+      "lifecycle_hooks": ["onCreate", "onStateChanged (ProcessLifecycleOwner)"],
+      "dependencies_injected": ["RaptorAnalytics", "AppStartService", "LocationRepository", "LocationManager", "SubscriptionRepository", "DarkModeHelper"],
+      "koin_modules_loaded": [
+        "domainModule",
+        "settingsModules",
+        "dashboardModules",
+        "tipsModules",
+        "babySettingsModules",
+        "moshiModule",
+        "networkModule",
+        "locationsModules",
+        "mainActivityModule",
+        "feedbackModule",
+        "settingsDetailModules",
+        "raptorFeatureFlagModule",
+        "raptorPresentationModule",
+        "getRaptorLoginModule(...)",
+        "analyticsModule",
+        "featureFlagDataSourceOverrideModule",
+        "reviewModule",
+        "subscriptionModule",
+        "subscriptionDetailModule"
+      ]
+    },
+    {
+      "name": "LoadingFragment",
+      "location": "app/src/main/java/com/bitraptors/babyweather/activity_main/loading/LoadingFragment.kt",
+      "component_type": "screen",
+      "description": "Splash/initialization screen displayed while AppStartService initializes app state and determines initial navigation destination",
+      "key_inputs": {
+        "startState": "StartState (startDestination: HomeType, isReady: Boolean)"
+      },
+      "behavior": [
+        "Observes startStateFlow from AppStartService",
+        "Navigates to determined destination (dashboard, settings, etc.) once isReady == true",
+        "Uses LoadingFragmentDirections for type-safe navigation"
+      ],
+      "navigation_outputs": ["LoadingFragmentDirections.actionLoadingToDestination(startState.startDestination)"]
+    },
+    {
+      "name": "DashboardFragment (page_dashboard)",
+      "location": "page_dashboard/fragment/DashboardFragment.kt",
+      "component_type": "screen",
+      "description": "Home screen displaying current weather, hourly forecast, piece-of-clothing recommendations, daily tips, and no-baby state. Primary entry point after initialization.",
+      "key_inputs": {
+        "viewModel": "DashboardViewModel",
+        "state": "UiModel<DashboardUiState> (from ViewModel StateFlow)"
+      },
+      "child_components": [
+        "cell_dashboard_weather_hourly_item (RecyclerView item for hourly forecast)",
+        "cell_dashboard_piece_of_clothing (clothing recommendation cards)",
+        "cell_dashboard_daily_tip (AI-generated tips section)",
+        "cell_dashboard_no_baby (empty state when no baby profile created)"
+      ],
+      "data_bindings": [
+        "Observes dashboardUiStateFlow for weather data, hourly forecast, recommendations",
+        "Observes temperatureTypeFlow for temperature display preference (FEEL vs ACTUAL)",
+        "Observes themeFlow for dark mode changes"
+      ]
+    },
+    {
+      "name": "SettingsFragment (page_settings)",
+      "location": "page_settings/fragment/SettingsFragment.kt",
+      "component_type": "screen",
+      "description": "Settings main page displaying user profile, active subscription status, app settings groups (theme, language, temperature unit), baby profiles list, and navigation to detail pages",
+      "key_inputs": {
+        "viewModel": "SettingsViewModel"
+      },
+      "child_components": [
+        "cell_settings_profile_picture (user avatar with edit action)",
+        "cell_settings_profile_input (name display/edit)",
+        "cell_settings_active_subscription (pro badge if subscribed)",
+        "cell_settings_chooser (theme, language, temperature unit selection)",
+        "cell_settings_baby_item (baby profile cards with edit/delete)",
+        "cell_settings_no_baby (empty state)",
+        "cell_settings_button_item (button cells for support, privacy, terms)"
+      ],
+      "navigation": [
+        "onNavigateToSettingsDetail(SettingType) -> SettingsDetailFragment",
+        "onNavigateToBabySettings() -> BabySettingsFragment",
+        "onNavigateToSubscription() -> SubscriptionDetailFragment"
+      ]
+    },
+    {
+      "name": "SettingsDetailFragment (page_settings_detail)",
+      "location": "page_settings_detail/fragment/SettingsDetailFragment.kt",
+      "component_type": "screen",
+      "description": "Detail page for modifying specific settings (temperature unit, temperature type, theme, language, app icon, notifications). Receives SettingType argument and displays relevant options.",
+      "key_inputs": {
+        "args": "SettingsDetailFragmentArgs (settingType: SettingType)",
+        "viewModel": "SettingsDetailViewModel"
+      },
+      "setting_types_handled": [
+        "TemperatureUnit (Celsius/Fahrenheit)",
+        "TemperatureType (Feel/Actual)",
+        "Theme (Light/Dark/System)",
+        "Language (localization selection)",
+        "AppIcon (dynamic icon theme selection via SelectAppIcon enum)",
+        "NotificationSettings (push notification toggles)"
+      ],
+      "child_components": [
+        "cell_single_choice_item (radio button option cells)",
+        "cell_app_icon_item (app icon preview + selection)"
+      ]
+    },
+    {
+      "name": "BabySettingsFragment (page_baby_settings)",
+      "location": "page_baby_settings/fragment/BabySettingsFragment.kt",
+      "component_type": "screen",
+      "description": "Baby profile creation/edit screen with customizable avatar (emoji-based), color palette selection, and birth date input. Supports creating and editing multiple baby profiles.",
+      "key_inputs": {
+        "args": "BabySettingsFragmentArgs (babyId: String?, isCreating: Boolean)",
+        "viewModel": "BabySettingsViewModel"
+      },
+      "child_components": [
+        "cell_baby_settings_avatar_selector (emoji avatar grid)",
+        "cell_baby_settings_palette_selector (color palette options)",
+        "cell_baby_settings_item (form input for name, birth date)",
+        "cell_button (save button with validation)"
+      ],
+      "form_fields": [
+        "babyName: String",
+        "babyBirthDate: LocalDate",
+        "avatarEmoji: String",
+        "paletteColor: String"
+      ]
+    },
+    {
+      "name": "LocationsFragment (page_locations)",
+      "location": "page_locations/fragment/LocationsFragment.kt",
+      "component_type": "screen",
+      "description": "Manage saved weather locations with search, add location capability, and location deletion. Primary location appears at top; additional locations in list.",
+      "key_inputs": {
+        "viewModel": "LocationsViewModel"
+      },
+      "child_components": [
+        "cell_location_search (search input for finding new locations)",
+        "cell_location (location card with weather summary, delete button)",
+        "cell_location_piece_of_clothing (clothing recommendation for location)",
+        "cell_location_empty (empty state when no locations saved)"
+      ],
+      "actions": [
+        "onSearchLocation(query) -> searches available locations via LocationRepository",
+        "onSelectLocation(location) -> saves to primary or secondary locations",
+        "onDeleteLocation(location) -> removes from saved locations",
+        "onPreviewLocation(location) -> shows dialog_location_preview"
+      ]
+    },
+    {
+      "name": "TipsFragment (page_tips)",
+      "location": "page_tips/fragment/TipsFragment.kt",
+      "component_type": "screen",
+      "description": "Curated weather tips and clothing recommendations filtered by selected tags (age range, weather type, activity). Provides AI-generated parenting advice.",
+      "key_inputs": {
+        "viewModel": "TipsViewModel",
+        "filters": "List<TipFilter> (age, weather condition, activity tags)"
+      },
+      "child_components": [
+        "cell_tips_filter (filter tag selection)",
+        "cell_tip (tip card with title, description, icon)",
+        "cell_tips_empty (empty state when no tips match filters)"
+      ],
+      "filter_categories": [
+        "AgeRange (0-3m, 3-6m, 6-12m, 1-2y, 2y+)",
+        "WeatherCondition (cold, hot, rainy, sunny, etc.)",
+        "Activity (indoors, outdoors, sleep, feeding, etc.)"
+      ]
+    },
+    {
+      "name": "SubscriptionDetailFragment (page_subscription_detail)",
+      "location": "page_subscription_detail/fragment/SubscriptionDetailFragment.kt",
+      "component_type": "screen",
+      "description": "In-app purchase screen displaying Pro subscription features, pricing options (monthly/annual), and purchase flow integration with RevenueCat.",
+      "key_inputs": {
+        "viewModel": "SubscriptionDetailViewModel",
+        "source": "SubscriptionScreenSource (dashboard, settings, tips_upsell)"
+      },
+      "child_components": [
+        "cell_subscription_option_card (pricing tier cards with purchase button)",
+        "cell_subscription_detail_item (feature list item with icon)",
+        "cell_subscription_promo (promotional banner for limited-time offers)",
+        "cell_subscription_detail_footer (terms/privacy links)"
+      ],
+      "purchase_handling": [
+        "Integrates with RevenueCat Purchases SDK",
+        "Displays error dialogs on PurchasesErrorCode (NetworkError, PaymentPendingError, etc.)",
+        "Tracks purchase analytics events",
+        "Updates subscription status in SubscriptionRepository"
+      ]
+    },
+    {
+      "name": "FeedbackFragment (page_feedback)",
+      "location": "page_feedback/fragment/FeedbackFragment.kt",
+      "component_type": "screen",
+      "description": "User feedback collection form (accessible via settings). Allows users to submit bug reports, feature requests, or general feedback.",
+      "key_inputs": {
+        "viewModel": "FeedbackViewModel"
+      },
+      "child_components": [
+        "dialog_feedback (modal form with text input, category selector, submit button)"
+      ]
+    },
+    {
+      "name": "LoginBottomSheet (page_login_bottomsheet)",
+      "location": "page_login_bottomsheet/LoginBottomSheetFragment.kt",
+      "component_type": "dialog",
+      "description": "Authentication bottom sheet allowing user sign-up/login via magic link email or Google sign-in. Integrated with Raptor login SDK.",
+      "key_inputs": {
+        "viewModel": "LoginBottomSheetViewModel"
+      },
+      "child_components": [
+        "dialog_login (bottom sheet with email input, Google sign-in button)"
+      ],
+      "auth_methods": [
+        "Magic link (email verification)",
+        "Google OAuth (via google_id_token config)"
+      ]
+    },
+    {
+      "name": "LocationPermissionFragment",
+      "location": "activity_main/location_permission/LocationPermissionFragment.kt",
+      "component_type": "screen",
+      "description": "Permission request screen for device location access. Shown before dashboard if location permission not granted.",
+      "key_inputs": {
+        "viewModel": "LocationPermissionViewModel"
+      },
+      "child_components": [
+        "cell_button (request permission button)"
+      ],
+      "permissions_requested": ["android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"]
+    },
+    {
+      "name": "RecyclerView Adapters (cells/)",
+      "location": "app/src/main/res/layout/cell_*.xml",
+      "component_type": "shared",
+      "description": "Reusable RecyclerView item layouts and adapters for displaying lists of weather items, locations, babies, settings options, etc.",
+      "examples": [
+        "cell_dashboard_weather_hourly_item.xml (hourly forecast cards)",
+        "cell_location.xml (location with weather preview)",
+        "cell_settings_item.xml (settings option row)",
+        "cell_baby_settings_avatar_selector.xml (emoji picker grid)",
+        "cell_subscription_option_card.xml (pricing tier card)"
+      ]
+    },
+    {
+      "name": "Dialog Components",
+      "location": "app/src/main/res/layout/dialog_*.xml",
+      "component_type": "shared",
+      "description": "Reusable dialog layouts for alerts, feedback, location preview, image cropping, login, and subscription details.",
+      "examples": [
+        "dialog_feedback.xml (feedback form modal)",
+        "dialog_login.xml (authentication sheet)",
+        "dialog_location_preview.xml (location weather preview)",
+        "dialog_image_cropper.xml (profile picture cropping UI)",
+        "dialog_subscription_detail.xml (subscription detail modal)"
+      ]
+    },
+    {
+      "name": "Custom Views",
+      "location": "app/src/main/res/layout/view_*.xml",
+      "component_type": "shared",
+      "description": "Reusable custom view components for weather widgets, navigation, form inputs, etc.",
+      "examples": [
+        "view_weather_widget_now.xml (current weather display)",
+        "view_weather_widget_hourly.xml (hourly forecast strip)",
+        "view_bottom_nav.xml (bottom navigation bar)",
+        "view_selectable_tag.xml (filterable tag component)",
+        "view_settings_selection.xml (radio button group)",
+        "view_photo_selector.xml (image picker component)"
+      ]
+    }
+  ],
+
+  "state_management": {
+    "approach": "MVVM with ViewModel + StateFlow/LiveData + Koin DI",
+    "pattern_description": "Each Fragment has an associated ViewModel holding UI state as StateFlow<UiModel<T>>. Repository layer manages domain logic. Services (AppStartService, LocationRepository, SettingsRepository, etc.) maintain shared application state.",
+    
+    "global_state": [
+      {
+        "name": "AppStartService",
+        "location": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/appstart/AppStartService.kt",
+        "purpose": "Application initialization state and readiness. Determines initial navigation destination (dashboard vs settings vs login). Manages app lifecycle events.",
+        "state_flow": "startStateFlow: StateFlow<StartState>",
+        "key_methods": ["init()", "refreshAfterLogin()", "trackAppStart()", "waitForAppReady()", "refreshDashboard()"],
+        "subscribers": ["LoadingFragment", "MainActivity", "BabyWeatherApplication"]
+      },
+      {
+        "name": "LocationRepository",
+        "location": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/home/LocationRepository.kt",
+        "purpose": "Manages saved user locations, fetches weather for each location, caches results. Provides location data to dashboard and locations screens.",
+        "state_flow": "primary and secondary location flows",
+        "key_methods": ["fetchAllLocations()", "addLocation()", "deleteLocation()", "searchLocations()"],
+        "subscribers": ["LocationsFragment", "DashboardFragment", "MainActivity"]
+      },
+      {
+        "name": "SettingsRepository",
+        "location": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/settings/SettingsRepository.kt",
+        "purpose": "User preferences (temperature unit, temperature type, theme, language, app icon, notifications). Persists to SharedPreferences or backend.",
+        "state_flow": "temperatureUnitFlow, temperatureTypeFlow, themeFlow, languageFlow, appIconFlow",
+        "key_methods": ["updateSetting()", "getSetting()", "subscribeToSettingsChanges()"],
+        "subscribers": ["SettingsFragment", "SettingsDetailFragment", "DashboardFragment", "MainActivity"]
+      },
+      {
+        "name": "SubscriptionRepository",
+        "location": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/subscription/SubscriptionRepository.kt",
+        "purpose": "Manages Pro subscription status, product catalog from RevenueCat, purchase state, and expiration tracking.",
+        "state_flow": "isProFlow: StateFlow<Boolean>, purchaseStatusFlow",
+        "key_methods": ["purchaseProduct()", "restorePurchases()", "checkSubscriptionStatus()"],
+        "subscribers": ["MainActivity", "DashboardFragment", "SettingsFragment", "SubscriptionDetailFragment"]
+      },
+      {
+        "name": "RaptorAnalytics",
+        "location": "util/services/analytics/",
+        "purpose": "Global event tracking for user actions, app lifecycle events, feature usage. Aggregates to Firebase Analytics, Mixpanel, or custom backend.",
+        "key_events": ["AnalyticsEvent.AppForeground()", "AnalyticsEvent.AppBackground()", "AnalyticsEvent.AppTerminates()", "AnalyticsEvent.PurchaseInitiated()", etc.],
+        "subscribers": ["BabyWeatherApplication", "all ViewModels"]
+      },
+      {
+        "name": "DarkModeHelper",
+        "location": "hu.bitraptors.presentation.darkmode (external library)",
+        "purpose": "Manages dark mode theme application and preference syncing. Observes theme setting changes and applies to entire application.",
+        "state_flow": "themeFlow: StateFlow<DarkMode>",
+        "key_methods": ["setApplicationDefaultTheme()", "applyTheme()"],
+        "subscribers": ["MainActivity", "BabyWeatherApplication"]
+      },
+      {
+        "name": "LocationManager",
+        "location": "app/src/main/java/com/bitraptors/babyweather/sdk/location/LocationManager.kt",
+        "purpose": "Device location tracking (GPS/network-based). Provides current user location for primary location auto-selection and location-based features.",
+        "key_methods": ["startTrack()", "stopTrack()"],
+        "subscribers": ["BabyWeatherApplication", "LocationRepository"]
+      }
+    ],
+
+    "local_state": [
+      {
+        "name": "DashboardViewModel",
+        "scope": "Fragment-scoped via viewModel { } in Koin",
+        "state_flow": "dashboardUiStateFlow: StateFlow<UiModel<DashboardUiState>>",
+        "state_shape": "{ currentWeather, hourlyForecast, clothingRecommendations, dailyTips, selectedBaby }",
+        "behavior": "Collects weather data from LocationRepository and TipsRepository, transforms into UI state, emits updates when locations or preferences change"
+      },
+      {
+        "name": "SettingsViewModel",
+        "scope": "Fragment-scoped",
+        "state_flow": "settingsUiStateFlow: StateFlow<UiModel<SettingsUiState>>",
+        "state_shape": "{ userProfile, activeSubscription, theme, language, temperatureUnit, babies, settingGroups }",
+        "behavior": "Aggregates user profile, subscription status, and preference data from SettingsRepository and SubscriptionRepository"
+      },
+      {
+        "name": "SettingsDetailViewModel",
+        "scope": "Fragment-scoped with Args parameter",
+        "state_flow": "settingDetailUiStateFlow: StateFlow<UiModel<SettingDetailUiState>>",
+        "state_shape": "{ settingType, currentValue, availableOptions }",
+        "behavior": "Receives SettingType argument, displays relevant options, persists user selection via SettingsRepository"
+      },
+      {
+        "name": "BabySettingsViewModel",
+        "scope": "Fragment-scoped with Args parameter (babyId)",
+        "state_flow": "babySettingsUiStateFlow: StateFlow<UiModel<BabySettingsUiState>>",
+        "state_shape": "{ babyName, birthDate, avatarEmoji, paletteColor, validationErrors }",
+        "behavior": "Form state for creating/editing baby profiles. Validates inputs and submits to backend on save."
+      },
+      {
+        "name": "LocationsViewModel",
+        "scope": "Fragment-scoped",
+        "state_flow": "locationsUiStateFlow: StateFlow<UiModel<LocationsUiState>>",
+        "state_shape": "{ savedLocations, searchResults, selectedLocation, isSearching }",
+        "behavior": "Displays saved locations and search functionality. Integrates with LocationRepository for CRUD operations."
+      },
+      {
+        "name": "TipsViewModel",
+        "scope": "Fragment-scoped",
+        "state_flow": "tipsUiStateFlow: StateFlow<UiModel<TipsUiState>>",
+        "state_shape": "{ tips, appliedFilters, selectedBaby, availableFilters }",
+        "behavior": "Filters tips by age range, weather type, and activity. Observes baby age and filters dynamically."
+      },
+      {
+        "name": "SubscriptionDetailViewModel",
+        "scope": "Fragment-scoped with Args (source)",
+        "state_flow": "subscriptionUiStateFlow: StateFlow<UiModel<SubscriptionDetailUiState>>",
+        "state_shape": "{ offerings, selectedProduct, purchaseInProgress, promoMessage }",
+        "behavior": "Displays product offerings from RevenueCat, handles purchase flow, emits error events on failures"
+      },
+      {
+        "name": "MainViewModel",
+        "scope": "Activity-scoped (retained across Fragment transactions)",
+        "state_flow": "navigationEventFlow: StateFlow<NavigationRequest>, loadingFlow: StateFlow<Boolean>",
+        "state_shape": "{ currentRoute, isPurchaseLoading, globalErrorMessage }",
+        "behavior": "Coordinates navigation between fragments, manages global loading state, handles cross-screen events (purchase errors, theme changes, navigation requests)"
+      }
+    ],
+
+    "form_state_handling": [
+      {
+        "form": "BabySettingsFragment",
+        "inputs": ["babyName: TextInputEditText", "birthDate: DatePicker", "avatarEmoji: GridView", "paletteColor: RadioGroup"],
+        "validation": "Triggered on value change and form submit. Validates non-empty name, valid birth date (not future), emoji/color selection.",
+        "submission": "POST to backend with baby profile data. Updates SettingsRepository on success. Shows success toast.",
+        "error_display": "Form-level error messages, inline field errors, snackbar notifications"
+      },
+      {
+        "form": "FeedbackFragment",
+        "inputs": ["category: Spinner", "message: EditText"],
+        "validation": "Non-empty message, valid category selection",
+        "submission": "POST to backend feedback endpoint. Shows success dialog.",
+        "error_display": "Dialog with error message and retry option"
+      },
+      {
+        "form": "LoginBottomSheetFragment",
+        "inputs": ["email: EditText"],
+        "validation": "Valid email format",
+        "submission": "POST magic link or initiate Google OAuth. Backend sends verification email or redirects to Google auth.",
+        "error_display": "Inline error message, dialog on auth failure"
+      }
+    ],
+
+    "event_patterns": [
+      {
+        "name": "Navigation Events",
+        "mechanism": "NavigationRequest sealed class emitted by ViewModels to MainViewModel",
+        "examples": [
+          "NavigationRequest.To(NavDirections)",
+          "NavigateBackToDashboardRequest",
+          "NavigationEventOutput (bottom nav item selection)"
+        ],
+        "subscribers": ["MainActivity observes navigationEventFlow from MainViewModel"]
+      },
+      {
+        "name": "Error Events",
+        "mechanism": "BaseController (event controller) collects errors from repositories and emits to MainActivity",
+        "examples": [
+          "ShowPurchaseErrorDialog (for subscription errors)",
+          "NetworkError, AuthError, ValidationError"
+        ],
+        "subscribers": ["MainActivity.subscribeToErrors()"]
+      },
+      {
+        "name": "Analytics Events",
+        "mechanism": "Sealed class AnalyticsEvent emitted to RaptorAnalytics.track()",
+        "examples": [
+          "AnalyticsEvent.AppForeground(), AppBackground(), AppTerminates()",
+          "AnalyticsEvent.PurchaseInitiated(sku), PurchaseCompleted(sku)"
+        ],
+        "subscribers": ["RaptorAnalytics event sink (Firebase, Mixpanel, etc.)"]
+      }
+    ],
+
+    "rationale": "MVVM + StateFlow chosen for clear separation of concerns (UI/business logic), reactive data binding with Kotlin Flow, and built-in lifecycle awareness. Repository pattern abstracts data sources. Koin enables dependency injection and modular architecture. AppStartService acts as global state orchestrator for initialization and app-wide events. Fragment-scoped ViewModels reduce boilerplate; Activity-scoped MainViewModel coordinates cross-fragment navigation and global events."
+  },
+
+  "routing": {
+    "framework": "Android Navigation Component (fragment-based with navigation graph XML)",
+    "graph_file": "app/src/main/res/navigation/navigation_main.xml",
+    "nav_host": "NavHostFragment (id=fragment_navigator, hosted in MainActivity)",
+    
+    "routes": [
+      {
+        "id": "loading_fragment",
+        "name": "LoadingFragment",
+        "description": "Splash/initialization screen. Initial start destination.",
+        "auth_required": false,
+        "transitions_to": [
+          "dashboard_fragment (if HomeType.DASHBOARD)",
+          "settings_fragment (if HomeType.SETTINGS)"
+        ]
+      },
+      {
+        "id": "dashboard_fragment",
+        "name": "DashboardFragment",
+        "description": "Home screen with current weather, hourly forecast, clothing recommendations, daily tips",
+        "auth_required": false,
+        "path": "dashboard",
+        "bottom_nav_item": "NavigationItem.Dashboard",
+        "accessible_from": [
+          "bottom_nav home button",
+          "LoadingFragment (initial route)",
+          "NavigateBackToDashboardRequest (from any screen)"
+        ]
+      },
+      {
+        "id": "locations_fragment",
+        "name": "LocationsFragment",
+        "description": "Manage saved weather locations, search, add new locations",
+        "auth_required": false,
+        "path": "locations",
+        "bottom_nav_item": "NavigationItem.Locations",
+        "accessible_from": ["bottom_nav locations button"]
+      },
+      {
+        "id": "tips_fragment",
+        "name": "TipsFragment",
+        "description": "Weather tips and clothing recommendations with filtering",
+        "auth_required": false,
+        "path": "tips",
+        "bottom_nav_item": "NavigationItem.Tips",
+        "accessible_from": ["bottom_nav tips button", "dashboard_fragment daily_tip card"]
+      },
+      {
+        "id": "settings_fragment",
+        "name": "SettingsFragment",
+        "description": "User profile, app settings (theme, language, temperature unit), baby profiles management, subscription status",
+        "auth_required": false,
+        "path": "settings",
+        "bottom_nav_item": "NavigationItem.Settings",
+        "accessible_from": ["bottom_nav settings button"]
+      },
+      {
+        "id": "settings_detail_fragment",
+        "name": "SettingsDetailFragment",
+        "description": "Detail page for modifying specific settings (temperature unit, theme, language, app icon, notifications)",
+        "auth_required": false,
+        "path": "settings/{settingType}",
+        "arguments": [
+          {
+            "name": "settingType",
+            "type": "SettingType enum",
+            "required": true
+          }
+        ],
+        "accessible_from": ["settings_fragment setting_group_item"]
+      },
+      {
+        "id": "baby_settings_fragment",
+        "name": "BabySettingsFragment",
+        "description": "Create/edit baby profile with avatar, color palette, birth date",
+        "auth_required": false,
+        "path": "baby_settings/{babyId}?isCreating={isCreating}",
+        "arguments": [
+          {
+            "name": "babyId",
+            "type": "String (optional)",
+            "default": "null"
+          },
+          {
+            "name": "isCreating",
+            "type": "Boolean",
+            "default": "true"
+          }
+        ],
+        "accessible_from": ["settings_fragment baby_item", "dashboard_fragment no_baby_state"]
+      },
+      {
+        "id": "subscription_detail_fragment",
+        "name": "SubscriptionDetailFragment",
+        "description": "In-app purchase screen with pricing tiers and feature list",
+        "auth_required": false,
+        "path": "subscription/{source}",
+        "arguments": [
+          {
+            "name": "source",
+            "type": "SubscriptionScreenSource enum (dashboard|settings|tips_upsell)",
+            "required": true
+          }
+        ],
+        "accessible_from": [
+          "dashboard_fragment pro_upsell_banner",
+          "settings_fragment subscription_status_card",
+          "tips_fragment pro_feature_upsell"
+        ]
+      },
+      {
+        "id": "feedback_fragment",
+        "name": "FeedbackFragment",
+        "description": "User feedback/bug report submission form",
+        "auth_required": false,
+        "path": "feedback",
+        "accessible_from": ["settings_fragment feedback_button"]
+      },
+      {
+        "id": "location_permission_fragment",
+        "name": "LocationPermissionFragment",
+        "description": "Prompt for device location permission access",
+        "auth_required": false,
+        "conditional_display": "Shown before dashboard if location permission not granted",
+        "accessible_from": ["loading_fragment (conditional on permission check)"]
+      },
+      {
+        "id": "login_bottom_sheet_fragment",
+        "name": "LoginBottomSheetFragment",
+        "description": "Authentication bottom sheet for email magic link or Google sign-in",
+        "auth_required": false,
+        "dialog_type": "BottomSheetDialogFragment",
+        "accessible_from": ["settings_fragment login_button (when not authenticated)"]
+      }
+    ],
+
+    "bottom_navigation": {
+      "component": "view_bottom_nav.xml",
+      "controller": "NavigationIconSelection (enum of NavigationItem)",
+      "items": [
+        {
+          "id": "Dashboard",
+          "icon": "ic_home",
+          "route": "dashboard_fragment",
+          "label": "Home"
+        },
+        {
+          "id": "Locations",
+          "icon": "ic_location_arrow",
+          "route": "locations_fragment",
+          "label": "Locations"
+        },
+        {
+          "id": "Tips",
+          "icon": "ic_light_bulb",
+          "route": "tips_fragment",
+          "label": "Tips"
+        },
+        {
+          "id": "Settings",
+          "icon": "ic_gearshape",
+          "route": "settings_fragment",
+          "label": "Settings"
+        }
+      ],
+      "behavior": "Bottom navigation items synchronized with active fragment. Tapping same item twice returns to root of that tab's stack. Managed via NavigationEventOutput and MainViewModel."
+    },
+
+    "deep_links": [
+      {
+        "uri": "babyweather://dashboard",
+        "destination": "dashboard_fragment"
+      },
+      {
+        "uri": "babyweather://locations",
+        "destination": "locations_fragment"
+      },
+      {
+        "uri": "babyweather://settings",
+        "destination": "settings_fragment"
+      },
+      {
+        "uri": "babyweather://subscription",
+        "destination": "subscription_detail_fragment?source=deeplink"
+      }
+    ],
+
+    "navigation_patterns": [
+      {
+        "pattern": "Bottom tab navigation",
+        "implementation": "NavController.navigate(NavDirections) with bottom_nav item selection",
+        "example": "NavigationItem.Dashboard -> navigate to dashboard_fragment"
+      },
+      {
+        "pattern": "Arguments passing",
+        "implementation": "Safe args (generated NavDirections classes)",
+        "example": "SettingsDetailFragmentDirections.actionSettingsToDetail(SettingType.THEME)"
+      },
+      {
+        "pattern": "Back stack management",
+        "implementation": "NavController.popBackStack(), clearBackStack",
+        "example": "NavigateBackToDashboardRequest clears back stack to dashboard root"
+      },
+      {
+        "pattern": "Global event navigation",
+        "implementation": "MainViewModel observes NavigationRequest sealed class from viewModels, delegates to NavController",
+        "example": "SubscriptionDetailViewModel emits NavigationRequest.To(NavDirections) on purchase success -> MainViewModel navigates"
+      },
+      {
+        "pattern": "Modal dialogs",
+        "implementation": "BottomSheetDialogFragment or AlertDialog",
+        "example": "LoginBottomSheetFragment shows over current screen without navigation stack entry"
+      }
+    ]
+  },
+
+  "data_fetching": {
+    "framework": "Retrofit + Okhttp + Moshi + Kotlin Coroutines + Flow",
+    "configuration": "app/src/main/java/com/bitraptors/babyweather/common/domain/api/",
+    
+    "data_fetching_mechanisms": [
+      {
+        "name": "Retrofit Network Calls",
+        "location": "common/domain/api/networkModule.kt",
+        "mechanism": "Retrofit with OkHttp client, Moshi serialization, interceptors for auth/logging",
+        "async_pattern": "suspend fun with Coroutine scope, wrapped in try-catch or Flow.catch()",
+        "examples": [
+          "LocationRepository.fetchAllLocations() -> suspend fun with Retrofit call",
+          "SettingsRepository.fetchUserSettings() -> suspend fun",
+          "SubscriptionRepository.checkSubscriptionStatus() -> calls RevenueCat SDK"
+        ],
+        "error_handling": "Catches exceptions, maps to domain error types, emits to error event stream"
+      },
+      {
+        "name": "StateFlow Observation Pattern",
+        "location": "repositories/*.kt",
+        "mechanism": "Repositories expose StateFlow<T> for UI observation. Data flows: Repository -> ViewModel -> Fragment UI",
+        "examples": [
+          "LocationRepository.primaryLocationFlow: StateFlow<Location> (observed by DashboardViewModel)",
+          "SettingsRepository.temperatureUnitFlow: StateFlow<TemperatureUnit> (observed across app)",
+          "AppStartService.startStateFlow: StateFlow<StartState> (observed by LoadingFragment)"
+        ],
+        "lazy_initialization": "init() functions called in BabyWeatherApplication.onCreate() or on first subscription"
+      },
+      {
+        "name": "Coroutine-based Async",
+        "location": "viewModels/*.kt, repositories/*.kt",
+        "mechanism": "CoroutineScope(Dispatchers.IO) for background work, Dispatchers.Main for UI updates",
+        "examples": [
+          "BabyWeatherApplication.onStateChanged() -> CoroutineScope(Dispatchers.IO).launch { locationManager.startTrack() }",
+          "ViewModel.loadData() -> viewModelScope.launch { repository.fetchData() }"
+        ],
+        "lifecycle_awareness": "ViewModel.viewModelScope automatically cancelled when fragment destroyed"
+      },
+      {
+        "name": "RevenueCat SDK Integration",
+        "location": "common/domain/repository/subscription/SubscriptionRepository.kt",
+        "mechanism": "RevenueCat Purchases SDK for in-app purchases and subscription management",
+        "async_pattern": "Callback-based (OnError, OnRevenueCatInfo) and async SDK methods",
+        "examples": [
+          "Purchases.sharedInstance.purchasePackage() -> initiates purchase, returns result/error",
+          "Purchases.sharedInstance.restorePurchases() -> restores previous purchases"
+        ],
+        "error_mapping": "Maps PurchasesErrorCode to domain errors, emits ShowPurchaseErrorDialog events"
+      },
+      {
+        "name": "SharedPreferences/Local Persistence",
+        "location": "SettingsRepository, various data stores

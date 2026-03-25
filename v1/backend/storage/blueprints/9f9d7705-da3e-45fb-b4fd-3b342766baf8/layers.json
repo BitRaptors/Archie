@@ -1,0 +1,848 @@
+```json
+{
+  "has_layers": true,
+  "structure_type": "layered",
+  "layers": [
+    {
+      "name": "API Routes & Endpoints",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/routes/",
+      "responsibility": "Defines FastAPI route handlers and HTTP endpoints. Receives requests for characters, stories, families, memories, and prompts. Delegates to service/graph layers for business logic. Returns JSON responses or SSE streams.",
+      "contains": [
+        "Route handlers",
+        "Request/response handling",
+        "HTTP method definitions"
+      ],
+      "depends_on": [
+        "Authentication Layer",
+        "Service Layer",
+        "Graph Layer",
+        "Model Layer"
+      ],
+      "exposes_to": [
+        "Frontend clients",
+        "Mobile clients"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/routes/characters.py",
+          "description": "Character CRUD endpoints and character image upload handling"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/routes/stories.py",
+          "description": "Story generation and retrieval endpoints with SSE streaming support"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/routes/family.py",
+          "description": "Family creation, joining, and management endpoints"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/routes/memories.py",
+          "description": "Memory logging and retrieval endpoints"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/routes/prompts.py",
+          "description": "Prompt CRUD and management endpoints"
+        }
+      ]
+    },
+    {
+      "name": "Authentication & Authorization",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/utils/auth.py",
+      "responsibility": "Verifies Firebase ID tokens via OAuth2PasswordBearer dependency. Extracts user identity (uid, email, name, picture). Retrieves or creates Supabase user records. Returns UserData TypedDict with verified credentials for use in protected endpoints.",
+      "contains": [
+        "Firebase token verification",
+        "OAuth2 scheme definition",
+        "User lookup and creation logic",
+        "UserData TypedDict"
+      ],
+      "depends_on": [
+        "Firebase Admin SDK",
+        "Supabase Client",
+        "Model Layer (User, UserCreate)"
+      ],
+      "exposes_to": [
+        "API Routes",
+        "Service Layer"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/utils/auth.py",
+          "description": "verify_firebase_token() dependency and get_or_create_supabase_user() for token validation and user persistence"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/utils/firebase_admin_init.py",
+          "description": "Firebase Admin SDK initialization"
+        }
+      ]
+    },
+    {
+      "name": "Service Layer",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/services/",
+      "responsibility": "Orchestrates business logic workflows. FamilyService handles family operations (creation, joining, permissions). Coordinates between database queries and graph-based AI operations. Manages state transitions and data validation.",
+      "contains": [
+        "Service classes with business logic methods",
+        "Database transaction coordination",
+        "Data validation and transformation"
+      ],
+      "depends_on": [
+        "Model Layer",
+        "Supabase Client",
+        "Graph Layer"
+      ],
+      "exposes_to": [
+        "API Routes"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/services/family_service.py",
+          "description": "FamilyService with methods for family creation, joining, and member management"
+        }
+      ]
+    },
+    {
+      "name": "Graph Layer (LLM Orchestration)",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/graphs/",
+      "responsibility": "Implements LangGraph-based AI workflows for story generation, avatar creation, and memory analysis. Manages multi-step LLM invocations, state management across nodes, and streaming responses. Integrates with Gemini, Groq, and OpenAI clients.",
+      "contains": [
+        "LangGraph computational graphs",
+        "Multi-step LLM workflows",
+        "State machines for generation processes",
+        "Streaming and SSE event emission"
+      ],
+      "depends_on": [
+        "LLM Client Layer",
+        "Model Layer",
+        "Supabase Client",
+        "Prompt Resolver"
+      ],
+      "exposes_to": [
+        "Service Layer",
+        "API Routes"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/graphs/story_generator.py",
+          "description": "Story generation graph with nodes for outlining, page generation, image prompt creation, and status tracking"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/graphs/avatar_generator.py",
+          "description": "Avatar generation graph for creating character images"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/graphs/memory_analyzer.py",
+          "description": "Memory analysis graph for processing and summarizing family memories"
+        }
+      ]
+    },
+    {
+      "name": "LLM Client Layer",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/utils/",
+      "responsibility": "Abstracts interactions with external LLM providers (Gemini, Groq, OpenAI). Handles API calls, error handling, response parsing, and model-specific configuration. Provides unified interfaces for text generation and image generation.",
+      "contains": [
+        "Provider-specific client classes",
+        "API authentication and configuration",
+        "Response handling and error management"
+      ],
+      "depends_on": [
+        "Configuration Layer",
+        "External LLM APIs"
+      ],
+      "exposes_to": [
+        "Graph Layer"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/utils/gemini_client.py",
+          "description": "Google Gemini API client for text and image generation"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/utils/groq_client.py",
+          "description": "Groq API client for fast LLM inference"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/utils/openai_client.py",
+          "description": "OpenAI API client for text generation"
+        }
+      ]
+    },
+    {
+      "name": "Data Access Layer",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/utils/supabase.py",
+      "responsibility": "Manages Supabase database client initialization and provides unified access point. Handles connection pooling and client configuration for all database operations throughout the application.",
+      "contains": [
+        "Supabase client factory",
+        "Database connection management",
+        "Client instantiation"
+      ],
+      "depends_on": [
+        "Configuration Layer",
+        "Supabase SDK"
+      ],
+      "exposes_to": [
+        "Authentication Layer",
+        "Service Layer",
+        "Graph Layer",
+        "API Routes"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/utils/supabase.py",
+          "description": "get_supabase_client() factory function for database access"
+        }
+      ]
+    },
+    {
+      "name": "Model Layer (Domain Objects)",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/models/",
+      "responsibility": "Defines Pydantic data models representing domain entities (User, Character, Story, Family, Memory, Prompt). Serves as contract between API layer and internal services. Includes validation, serialization, and type definitions for all data structures.",
+      "contains": [
+        "Pydantic BaseModel classes",
+        "TypedDicts for structured data",
+        "Field validation and constraints",
+        "Status enums"
+      ],
+      "depends_on": [
+        "Python standard library",
+        "Pydantic"
+      ],
+      "exposes_to": [
+        "All layers (routes, services, graphs)",
+        "Frontend and mobile clients"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/models/user.py",
+          "description": "User and UserCreate Pydantic models with id, email, display_name, avatar_url, family_id fields"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/models/character.py",
+          "description": "Character model with personality, age, avatar_url, and metadata fields"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/models/story.py",
+          "description": "Story and StoryPageProgress models for story generation state and page content"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/models/family.py",
+          "description": "Family model with members, settings, and group metadata"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/models/memory.py",
+          "description": "Memory model for logging and retrieving family memories"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/models/prompt.py",
+          "description": "Prompt model for template and configuration management"
+        }
+      ]
+    },
+    {
+      "name": "Utility Layer",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/utils/",
+      "responsibility": "Provides cross-cutting utilities: SSE streaming helpers for real-time updates, prompt template resolution and variable substitution, image cropping utilities, and configuration access.",
+      "contains": [
+        "SSE event emitters",
+        "Prompt template engines",
+        "Image processing functions",
+        "Helper utilities"
+      ],
+      "depends_on": [
+        "Configuration Layer",
+        "Model Layer"
+      ],
+      "exposes_to": [
+        "Graph Layer",
+        "API Routes",
+        "Service Layer"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/utils/sse.py",
+          "description": "Server-Sent Events helper for streaming generation progress to clients"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/utils/prompt_resolver.py",
+          "description": "Prompt template resolution with variable substitution for character and family context"
+        },
+        {
+          "file": "tuck-in-tales-backend/src/utils/image_crop.py",
+          "description": "Image cropping and manipulation utilities"
+        }
+      ]
+    },
+    {
+      "name": "Configuration Layer",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/config.py",
+      "responsibility": "Centralizes environment variable loading and application configuration. Manages API keys, database URLs, and feature flags. Provides single source of truth for all settings.",
+      "contains": [
+        "Environment variable parsing",
+        "Settings classes",
+        "Configuration validation"
+      ],
+      "depends_on": [
+        "Python environment"
+      ],
+      "exposes_to": [
+        "All layers"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/config.py",
+          "description": "Environment configuration and settings"
+        }
+      ]
+    },
+    {
+      "name": "Application Entry Point",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/src/main.py",
+      "responsibility": "FastAPI application initialization and route registration. Sets up CORS, middleware, mounts route modules, and configures server-wide settings. Single point where all layers are orchestrated.",
+      "contains": [
+        "FastAPI app instantiation",
+        "Route mounting",
+        "Middleware configuration",
+        "CORS setup"
+      ],
+      "depends_on": [
+        "All API route modules",
+        "Configuration Layer"
+      ],
+      "exposes_to": [
+        "External clients"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/src/main.py",
+          "description": "FastAPI application setup and route registration"
+        }
+      ]
+    },
+    {
+      "name": "Web Frontend - Pages & Views",
+      "platform": "frontend",
+      "location": "tuck-in-tales-frontend/src/pages/",
+      "responsibility": "Page-level React components representing distinct views/routes. Manage page-specific state, coordinate multiple features, and handle user navigation. Each page integrates queries, API calls, and child components to compose full screens.",
+      "contains": [
+        "Page components (tsx files)",
+        "Page-level state management",
+        "Route coordination"
+      ],
+      "depends_on": [
+        "Component Layer",
+        "Hooks & Data Fetching Layer",
+        "Context Layer",
+        "API Client Layer"
+      ],
+      "exposes_to": [
+        "Router (via React Router)"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-frontend/src/pages/StoryGenerationPage.tsx",
+          "description": "Handles story generation UI with character selection, topic input, and progress tracking"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/StoryProgressPage.tsx",
+          "description": "Displays real-time story generation progress via SSE streaming"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/StoryViewerPage.tsx",
+          "description": "Displays completed story pages with text and images"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/CharacterCreationPage.tsx",
+          "description": "Multi-step character creation form with avatar generation"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/CharactersPage.tsx",
+          "description": "Lists family characters with edit/delete functionality"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/FamilyPage.tsx",
+          "description": "Family settings and member management"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/MemoriesListPage.tsx",
+          "description": "Lists logged family memories"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/MemoryLoggingPage.tsx",
+          "description": "Form for logging new family memories with AI analysis"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/LoginPage.tsx",
+          "description": "Authentication page with email/password and OAuth options"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/pages/PromptsPage.tsx",
+          "description": "Prompt template editing and management"
+        }
+      ]
+    },
+    {
+      "name": "Web Frontend - Components & UI",
+      "platform": "frontend",
+      "location": "tuck-in-tales-frontend/src/components/",
+      "responsibility": "Reusable React components and UI primitives. Abstracts UI rendering logic (buttons, inputs, dialogs, cards, etc.) for use across pages. Components are stateless or manage only local UI state. Composed by pages and other components.",
+      "contains": [
+        "Functional React components",
+        "Shadcn/ui wrapper components",
+        "Specialized feature components (CharacterList, MentionInput, etc.)",
+        "Layout components"
+      ],
+      "depends_on": [
+        "Hooks & Data Fetching Layer",
+        "Context Layer",
+        "UI library (Shadcn)"
+      ],
+      "exposes_to": [
+        "Pages & Views Layer",
+        "Other components"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-frontend/src/components/CharacterList.tsx",
+          "description": "Renders list of characters with selection capability"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/components/MentionInput.tsx",
+          "description": "Text input with @mention support for characters"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/components/ConfirmationDialog.tsx",
+          "description": "Reusable confirmation modal component"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/components/Layout/AppLayout.tsx",
+          "description": "Main layout wrapper with sidebar navigation"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/components/Layout/Sidebar.tsx",
+          "description": "Navigation sidebar component"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/components/Auth/LoginForm.tsx",
+          "description": "Login form component"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/components/prompts/PromptEditor.tsx",
+          "description": "Prompt template editor with variable syntax support"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/components/ui/",
+          "description": "Shadcn/ui components (buttons, inputs, dialogs, tables, etc.)"
+        }
+      ]
+    },
+    {
+      "name": "Web Frontend - Hooks & Data Fetching",
+      "platform": "frontend",
+      "location": "tuck-in-tales-frontend/src/hooks/",
+      "responsibility": "Custom React hooks encapsulating data fetching, API integration, and side effects. Includes TanStack Query hooks for server state and SSE streaming hooks for real-time updates. Abstracts API communication from components.",
+      "contains": [
+        "Custom React hooks",
+        "TanStack Query hooks",
+        "SSE streaming hook implementations",
+        "Data transformation logic"
+      ],
+      "depends_on": [
+        "API Client Layer",
+        "Model Layer",
+        "TanStack Query"
+      ],
+      "exposes_to": [
+        "Pages & Views Layer",
+        "Components Layer"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-frontend/src/hooks/useSSEStream.ts",
+          "description": "Generic SSE streaming hook for real-time event subscriptions"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/hooks/useStoryStream.ts",
+          "description": "Story generation SSE streaming with page progress tracking"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/hooks/useAvatarStream.ts",
+          "description": "Avatar generation SSE streaming"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/hooks/useMemoryStream.ts",
+          "description": "Memory analysis SSE streaming"
+        }
+      ]
+    },
+    {
+      "name": "Web Frontend - Context & State",
+      "platform": "frontend",
+      "location": "tuck-in-tales-frontend/src/context/",
+      "responsibility": "React Context API providers for global application state. AuthContext manages authentication state and current user. Provides user information and session state to all pages/components.",
+      "contains": [
+        "React Context providers",
+        "Global state management",
+        "Authentication state"
+      ],
+      "depends_on": [
+        "Firebase Auth",
+        "Model Layer"
+      ],
+      "exposes_to": [
+        "All pages and components via useAuth hook"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-frontend/src/context/AuthContext.tsx",
+          "description": "AuthContext provider managing Firebase authentication state and current user"
+        }
+      ]
+    },
+    {
+      "name": "Web Frontend - API Client",
+      "platform": "frontend",
+      "location": "tuck-in-tales-frontend/src/api/",
+      "responsibility": "HTTP client for backend communication. Manages request headers (Firebase token injection), error handling, and response parsing. Provides unified interface for all API calls using Axios or Fetch.",
+      "contains": [
+        "HTTP client setup",
+        "Interceptors",
+        "Authentication header injection",
+        "Error handling"
+      ],
+      "depends_on": [
+        "Firebase Auth",
+        "Axios or Fetch API"
+      ],
+      "exposes_to": [
+        "Hooks & Data Fetching Layer",
+        "Pages & Views Layer"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-frontend/src/api/client.ts",
+          "description": "Axios HTTP client with Firebase token injection and base URL configuration"
+        }
+      ]
+    },
+    {
+      "name": "Web Frontend - Models & Types",
+      "platform": "frontend",
+      "location": "tuck-in-tales-frontend/src/models/",
+      "responsibility": "TypeScript type definitions and interfaces mirroring backend Pydantic models. Ensures type safety and provides contract for API responses. Includes Story, Character, Family, Memory, and Prompt types.",
+      "contains": [
+        "TypeScript interfaces",
+        "Type definitions",
+        "Enums and unions"
+      ],
+      "depends_on": [
+        "TypeScript"
+      ],
+      "exposes_to": [
+        "All frontend layers"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-frontend/src/models/story.ts",
+          "description": "Story, StoryBasic, StoryPageProgress, and CharacterInfo interfaces"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/models/character.ts",
+          "description": "Character and CharacterCreate interfaces"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/models/family.ts",
+          "description": "Family and member-related interfaces"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/models/memory.ts",
+          "description": "Memory type definitions"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/models/prompt.ts",
+          "description": "Prompt template type definitions"
+        }
+      ]
+    },
+    {
+      "name": "Web Frontend - Configuration & Setup",
+      "platform": "frontend",
+      "location": "tuck-in-tales-frontend/src/",
+      "responsibility": "Application initialization, Firebase configuration, routing setup, and build configuration. Establishes connection to Firebase and backend services.",
+      "contains": [
+        "Firebase config",
+        "Vite config",
+        "TailwindCSS config",
+        "ESLint config",
+        "App entry point (main.tsx)"
+      ],
+      "depends_on": [
+        "Firebase SDK",
+        "React Router",
+        "Vite"
+      ],
+      "exposes_to": [
+        "All frontend layers"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-frontend/src/firebaseConfig.ts",
+          "description": "Firebase initialization and auth setup"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/main.tsx",
+          "description": "React app entry point with Router setup"
+        },
+        {
+          "file": "tuck-in-tales-frontend/src/App.tsx",
+          "description": "Root app component with route definitions"
+        },
+        {
+          "file": "tuck-in-tales-frontend/vite.config.ts",
+          "description": "Vite build configuration"
+        }
+      ]
+    },
+    {
+      "name": "Mobile Frontend - Pages & Screens",
+      "platform": "mobile",
+      "location": "tuck-in-tales-mobile/app/",
+      "responsibility": "Expo Router pages and screens representing distinct mobile views. Uses file-based routing for tabs (home/stories, characters, memories) and auth flows. Manages screen-specific state and navigation.",
+      "contains": [
+        "Tab-based navigation screens",
+        "Auth screens (login, signup)",
+        "Dynamic route pages (story detail view)",
+        "Layout configurations"
+      ],
+      "depends_on": [
+        "Components Layer",
+        "Hooks & Data Fetching Layer",
+        "Context Layer",
+        "API Client Layer"
+      ],
+      "exposes_to": [
+        "Expo Router navigation"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-mobile/app/(tabs)/index.tsx",
+          "description": "Home/Stories tab showing family stories list with generation option"
+        },
+        {
+          "file": "tuck-in-tales-mobile/app/(tabs)/characters.tsx",
+          "description": "Characters tab displaying family characters"
+        },
+        {
+          "file": "tuck-in-tales-mobile/app/(tabs)/memories.tsx",
+          "description": "Memories tab showing logged family memories"
+        },
+        {
+          "file": "tuck-in-tales-mobile/app/(auth)/login.tsx",
+          "description": "Login screen with email/password and Google Sign-In"
+        },
+        {
+          "file": "tuck-in-tales-mobile/app/story/[id].tsx",
+          "description": "Dynamic story detail page showing full story with pages and images"
+        },
+        {
+          "file": "tuck-in-tales-mobile/app/_layout.tsx",
+          "description": "Root layout with navigation setup"
+        },
+        {
+          "file": "tuck-in-tales-mobile/app/(tabs)/_layout.tsx",
+          "description": "Tab navigation layout"
+        },
+        {
+          "file": "tuck-in-tales-mobile/app/(auth)/_layout.tsx",
+          "description": "Auth stack layout"
+        }
+      ]
+    },
+    {
+      "name": "Mobile Frontend - Components & UI",
+      "platform": "mobile",
+      "location": "tuck-in-tales-mobile/",
+      "responsibility": "React Native components for mobile UI. Inline component definitions or reusable component patterns using React Native primitives (View, Text, Pressable, FlatList, etc.). No dedicated components folder observed; components likely inline in screens.",
+      "contains": [
+        "React Native components",
+        "Mobile-specific UI patterns",
+        "Lists and forms"
+      ],
+      "depends_on": [
+        "React Native",
+        "Expo"
+      ],
+      "exposes_to": [
+        "Pages & Screens Layer"
+      ],
+      "key_files": []
+    },
+    {
+      "name": "Mobile Frontend - Hooks & Data Fetching",
+      "platform": "mobile",
+      "location": "tuck-in-tales-mobile/src/hooks/",
+      "responsibility": "Custom React hooks for data fetching and API integration. TanStack Query hooks for server state management (useStories, useCharacters, useFamilyDetails). Google Sign-In hook for OAuth integration.",
+      "contains": [
+        "TanStack Query hooks",
+        "Custom hooks for data fetching",
+        "OAuth hooks"
+      ],
+      "depends_on": [
+        "API Client Layer",
+        "TanStack Query",
+        "Firebase Auth"
+      ],
+      "exposes_to": [
+        "Pages & Screens Layer"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-mobile/src/hooks/queries/useStories.ts",
+          "description": "TanStack Query hook for fetching family stories"
+        },
+        {
+          "file": "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts",
+          "description": "TanStack Query hook for fetching family characters"
+        },
+        {
+          "file": "tuck-in-tales-mobile/src/hooks/queries/useFamilyDetails.ts",
+          "description": "TanStack Query hook for fetching family information"
+        },
+        {
+          "file": "tuck-in-tales-mobile/src/hooks/queries/useStory.ts",
+          "description": "TanStack Query hook for fetching individual story details"
+        },
+        {
+          "file": "tuck-in-tales-mobile/src/hooks/useGoogleSignIn.ts",
+          "description": "Custom hook for Google Sign-In via Expo"
+        }
+      ]
+    },
+    {
+      "name": "Mobile Frontend - Context & State",
+      "platform": "mobile",
+      "location": "tuck-in-tales-mobile/src/context/",
+      "responsibility": "React Context for global mobile app state. AuthContext manages Firebase authentication state, current user, and login/logout flows across entire app.",
+      "contains": [
+        "React Context providers",
+        "Authentication state",
+        "Global state"
+      ],
+      "depends_on": [
+        "Firebase Auth",
+        "Model Layer"
+      ],
+      "exposes_to": [
+        "All screens and components via useAuth hook"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-mobile/src/context/AuthContext.tsx",
+          "description": "AuthContext provider managing Firebase auth state for mobile"
+        }
+      ]
+    },
+    {
+      "name": "Mobile Frontend - API Client & Config",
+      "platform": "mobile",
+      "location": "tuck-in-tales-mobile/src/",
+      "responsibility": "HTTP client and configuration setup for mobile app. Manages Firebase auth token injection, Supabase client initialization, and API endpoint configuration. Platform-specific storage handlers (SecureStore for native, localStorage for web).",
+      "contains": [
+        "Axios/HTTP client",
+        "Firebase configuration",
+        "Supabase configuration",
+        "Token management functions"
+      ],
+      "depends_on": [
+        "Firebase SDK",
+        "Supabase SDK",
+        "React Native AsyncStorage and SecureStore"
+      ],
+      "exposes_to": [
+        "Hooks & Data Fetching Layer",
+        "Pages & Screens Layer"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-mobile/src/api/client.ts",
+          "description": "Axios HTTP client with Firebase token injection for mobile"
+        },
+        {
+          "file": "tuck-in-tales-mobile/src/config/firebase.ts",
+          "description": "Firebase initialization with platform-specific auth persistence (AsyncStorage/SecureStore)"
+        },
+        {
+          "file": "tuck-in-tales-mobile/src/config/supabase.ts",
+          "description": "Supabase client configuration for mobile"
+        }
+      ]
+    },
+    {
+      "name": "Mobile Frontend - Models & Types",
+      "platform": "mobile",
+      "location": "tuck-in-tales-mobile/src/models/",
+      "responsibility": "TypeScript type definitions for mobile app mirroring backend models. Ensures type safety for story, character, family, and memory data structures.",
+      "contains": [
+        "TypeScript interfaces",
+        "Type definitions"
+      ],
+      "depends_on": [
+        "TypeScript"
+      ],
+      "exposes_to": [
+        "All mobile layers"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-mobile/src/models/story.ts",
+          "description": "Story, StoryBasic, StoryPageProgress interfaces for mobile"
+        },
+        {
+          "file": "tuck-in-tales-mobile/src/models/character.ts",
+          "description": "Character type definitions"
+        },
+        {
+          "file": "tuck-in-tales-mobile/src/models/family.ts",
+          "description": "Family type definitions"
+        }
+      ]
+    },
+    {
+      "name": "Shared Testing Infrastructure",
+      "platform": "backend",
+      "location": "tuck-in-tales-backend/tests/",
+      "responsibility": "Test fixtures, configuration, and unit/integration tests. Provides pytest conftest with mocking utilities. Contains route tests validating API endpoints.",
+      "contains": [
+        "pytest configuration (conftest.py)",
+        "Test fixtures and mocks",
+        "Unit and integration tests"
+      ],
+      "depends_on": [
+        "All backend layers",
+        "pytest"
+      ],
+      "exposes_to": [
+        "CI/CD pipeline"
+      ],
+      "key_files": [
+        {
+          "file": "tuck-in-tales-backend/tests/conftest.py",
+          "description": "pytest fixtures and configuration"
+        },
+        {
+          "file": "tuck-in-tales-backend/tests/routes/test_characters.py",
+          "description": "Unit tests for character routes"
+        }
+      ]
+    }
+  ],
+  "actual_structure": "**Monorepo with Three Independent Platforms**\n\n**Backend (FastAPI + Python)**:\nLayered architecture following domain-driven design patterns. Clear separation between API routes (presentation), services (business logic), graphs (AI orchestration), LLM clients (infrastructure), data access (Supabase), and models (domain objects). Authentication layer intercepts all protected routes via FastAPI dependency injection.\n\n**Web Frontend (React + Vite + TypeScript)**:\nFeature-based page architecture with supporting layers. Pages coordinate multiple hooks and components. Custom React hooks abstract data fetching and SSE streaming. Context API provides global auth state. Shadcn/ui components provide reusable UI primitives. Strict separation between pages, components, hooks, and state management.\n\n**Mobile Frontend (React Native + Expo)**:\nFile-based routing with Expo Router for tab-based and auth navigation. Similar data fetching patterns to web using TanStack Query. Platform-specific storage handling (SecureStore for native, localStorage for web). Inline component patterns rather than separate component layer.\n\n**Key Architectural Decisions**:\n1. Backend graph layer orchestrates multi-step LLM workflows using LangGraph\n2. Real-time updates via Server-Sent Events (SSE) streaming from backend to both frontends\n3. Firebase for authentication, Supabase for data persistence\n4. Shared type definitions across all platforms (backend Pydantic models mirror frontend TypeScript interfaces)\n5. TanStack Query used for server state management in both frontends\n6. Context API used for client-only state (auth) in both frontends"
+}
+```

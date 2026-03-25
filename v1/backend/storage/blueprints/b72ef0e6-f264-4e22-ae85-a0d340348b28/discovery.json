@@ -1,0 +1,191 @@
+```json
+{
+  "project_type": "Single Platform Mobile Application (Android Native)",
+  "platforms": [
+    "mobile-android"
+  ],
+  "entry_points": [
+    {
+      "file": "app/src/main/java/com/bitraptors/babyweather/BabyWeatherApplication.kt",
+      "purpose": "Application lifecycle entry point, Koin DI container initialization, process-level lifecycle management, analytics and crash reporting setup",
+      "platform": "mobile-android"
+    },
+    {
+      "file": "app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt",
+      "purpose": "Main activity entry point, navigation graph host, bottom navigation controller",
+      "platform": "mobile-android"
+    },
+    {
+      "file": "app/src/main/AndroidManifest.xml",
+      "purpose": "Android manifest declaring application metadata, activities, permissions, and configuration",
+      "platform": "mobile-android"
+    }
+  ],
+  "module_organization": {
+    "style": "Feature-slice modular architecture with centralized domain layer",
+    "structure": {
+      "feature_modules": {
+        "pattern": "page_* directories organized by user-facing feature",
+        "examples": [
+          "page_dashboard - Home screen and weather display",
+          "page_locations - Location management UI",
+          "page_settings - App settings and preferences",
+          "page_baby_settings - Baby profile customization",
+          "page_tips - Weather tips and recommendations",
+          "page_subscription_detail - In-app purchase UI",
+          "page_feedback - User feedback collection",
+          "page_settings_detail - Detailed settings screens",
+          "page_login_bottomsheet - Authentication UI"
+        ],
+        "contents_per_module": [
+          "Fragment.kt (UI presentation)",
+          "ViewModel.kt (business logic and state)",
+          "Modules*.kt (Koin dependency injection)",
+          "cells/* (RecyclerView item layouts and adapters)",
+          "dialog/* (Dialog components)",
+          "controller/* (Navigation and event controllers)"
+        ]
+      },
+      "domain_layer": {
+        "location": "app/src/main/java/com/bitraptors/babyweather/common/domain/",
+        "contents": [
+          "repository/* (Business logic abstraction)",
+          "api/ (Network configuration and Moshi serialization)",
+          "domainModule.kt (Koin configuration for domain)"
+        ]
+      },
+      "utility_layer": {
+        "location": "app/src/main/java/com/bitraptors/babyweather/util/",
+        "contents": [
+          "services/analytics/ (Event tracking)",
+          "services/featureflag/ (Feature flag management)",
+          "services/review/ (App store review prompts)",
+          "extensions/* (Kotlin extensions)"
+        ]
+      },
+      "sdk_integration": {
+        "location": "app/src/main/java/com/bitraptors/babyweather/sdk/",
+        "contents": [
+          "location/ (LocationManager for GPS tracking)",
+          "Third-party SDK wrappers"
+        ]
+      },
+      "base_classes": {
+        "location": "app/src/main/java/com/bitraptors/babyweather/baseclasses/",
+        "contents": [
+          "events/ (Event bus and event definitions)",
+          "Custom base fragment and activity implementations from Raptor SDK"
+        ]
+      }
+    }
+  },
+  "config_approach": {
+    "build_variants": {
+      "debug": "Local development with verbose logging",
+      "staging": "QA environment with staging Google Services config",
+      "release": "Production with release signing configuration"
+    },
+    "resource_configuration": {
+      "density_variants": "mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi (application icons)",
+      "api_level_variants": "values-v31, values-v32, values-v33 for Android version-specific styling",
+      "theme_variants": "values-night for dark mode support",
+      "configuration_files": [
+        "app/src/staging/google-services.json",
+        "app/src/release/google-services.json",
+        "app/src/main/res/xml/remote_config_defaults.xml (Firebase Remote Config)",
+        "app/src/main/res/xml/network_security_config.xml"
+      ]
+    },
+    "dependency_management": {
+      "build_system": "Gradle with Kotlin DSL",
+      "plugin_sources": [
+        "buildSrc/src/main/kotlin/ (custom build configuration and version management)"
+      ],
+      "external_dependencies": {
+        "firebase_suite": [
+          "Firebase Crashlytics (crash reporting)",
+          "Firebase Analytics (user analytics)",
+          "Firebase Performance (performance monitoring)",
+          "Firebase Remote Config (A/B testing and feature flags)"
+        ],
+        "di_framework": "Koin (service locator pattern)",
+        "navigation": "Android Navigation Component with Safe Args",
+        "internal_sdks": [
+          "BitRaptors SDK Android (custom presentation layer with BaseBindingFragment, UiModel, RaptorAnalytics)",
+          "BitRaptors Login SDK (authentication with magic links and OAuth)",
+          "BitRaptors Feature Flag SDK"
+        ],
+        "monetization": "RevenueCat (in-app subscriptions)",
+        "other": "Timber (logging), Moshi (JSON serialization)"
+      }
+    },
+    "secrets_and_credentials": {
+      "pattern": "GitHub Packages credentials via gradle.properties (getGprUser(), getGprKey())",
+      "api_tokens": "BuildConfig.GOOGLE_API_TOKEN for OAuth",
+      "constants": [
+        "MAGIC_LINK_URL - Magic link authentication endpoint",
+        "IOS_BUNDLE - Cross-platform identifier",
+        "SHARED_DATA - SharedPreferences key for login/dark mode state"
+      ]
+    }
+  },
+  "key_observations": [
+    "SINGLE PLATFORM MOBILE-ONLY: This is exclusively an Android native application. No backend, web frontend, iOS, or cross-platform codebase detected.",
+    "FEATURE-SLICE MODULAR ARCHITECTURE: Features are organized as self-contained modules (page_*) with their own UI, state management, and DI, promoting scalability and team parallelization.",
+    "BITRAPTOR SDK DEPENDENCY: Heavy reliance on internal BitRaptors SDKs (presentation layer, login, feature flags, analytics), indicating this is part of a larger BitRaptors platform ecosystem.",
+    "MULTI-FLAVOR BUILD STRATEGY: Three build variants (debug, staging, release) with variant-specific Google Services and resources, enabling safe testing and staged rollouts.",
+    "KOIN DI CONTAINER: Dependency injection is centralized in BabyWeatherApplication.kt with modules from each feature registering their dependencies, enabling loose coupling and testability.",
+    "PROCESS-LEVEL LIFECYCLE MANAGEMENT: ProcessLifecycleOwner tracks app foreground/background state for analytics, location tracking, and subscription monitoring.",
+    "FIREBASEINTEGRATION: Comprehensive Firebase suite integration (Crashlytics, Analytics, Remote Config, Performance) for crash reporting, user insights, and feature experimentation.",
+    "REVENUEAT MONETIZATION: RevenueCat wrapper for cross-platform subscription management and in-app purchases, enabling Billing Library abstraction.",
+    "RESOURCE DENSITY AND API LEVEL VARIANTS: Extensive support for multiple screen densities and Android API levels (v31-v33+), ensuring broad device compatibility.",
+    "DARK MODE SUPPORT: DarkModeHelper manages application-wide dark/light theme via SharedPreferences, with variant-specific night mode resources.",
+    "SHARED ELEMENT TRANSITIONS: Use of Android shared element transitions for smooth navigation animations between screens (e.g., LocationsFragment).",
+    "MAGIC LINK AUTHENTICATION: Login flow uses magic links alongside OAuth (Google), reducing friction for user onboarding.",
+    "BOTTOM NAVIGATION PATTERN: MainActivity likely hosts a bottom navigation bar controlling navigation between core feature pages (dashboard, locations, settings, tips, feedback).",
+    "WEATHER DOMAIN-SPECIFIC UI: Extensive weather-related layouts and cells (hourly forecasts, clothing recommendations, palettes), indicating weather display and recommendations are core features.",
+    "BABY-CENTRIC PERSONALIZATION: page_baby_settings module enables per-baby customization (avatars, color palettes, profiles), supporting multi-child use case.",
+    "SEARCH AND LOCATION: Location search/management prominent (cell_location.xml, LocationsFragment), suggesting location-based weather is central to app value.",
+    "NO BACKEND CODE PRESENT: This repository contains NO server-side code—all backend communication occurs via REST APIs (Moshi + Retrofit implied by networkModule, moshiModule).",
+    "NO WEB OR CROSS-PLATFORM CODE: No Flutter, React Native, Xamarin, Electron, or web frontend code detected; this is a native Android monorepo.",
+    "ANALYTICS-FIRST ARCHITECTURE: RaptorAnalytics integrated at app lifecycle level (onCreate, onResume), with analytics events tracked for user behavior and A/B testing.",
+    "FEATURE FLAG DRIVEN: Feature flags enabled via Firebase Remote Config and BitRaptors Feature Flag SDK, allowing runtime feature toggles without app updates."
+  ],
+  "missing_platforms": {
+    "backend": "No backend/server code found in this repository",
+    "web_frontend": "No web frontend (React, Vue, Angular, etc.) found",
+    "ios": "No iOS code found (Swift, Objective-C, or cross-platform equivalent)",
+    "cross_platform": "No Flutter, React Native, or Xamarin code found",
+    "desktop": "No desktop application code found",
+    "cli": "No command-line interface found"
+  },
+  "dependency_sources": {
+    "internal": "BitRaptors.SDK.Android from private GitHub Packages Maven repository",
+    "external": [
+      "Google/Firebase (com.google.firebase)",
+      "Android Jetpack (androidx.*)",
+      "Koin (io.insert-koin)",
+      "Moshi (com.squareup.moshi)",
+      "RevenueCat (com.revenuecat.purchases)",
+      "JitPack (public community libraries)"
+    ]
+  },
+  "build_configuration_location": "buildSrc/ with Kotlin DSL convention plugins for centralized version and dependency management"
+}
+```
+
+---
+
+## Summary
+
+**BabyWeather.Android** is a **pure Android native application** with no backend, web, or multi-platform code. It follows a **feature-slice modular architecture** where each user-facing feature (pages like dashboard, locations, settings) is self-contained with its own UI, state management, and dependency injection.
+
+### Key Takeaways:
+- ✅ **Single Mobile Platform**: Android only
+- ✅ **Modular by Feature**: `page_*` modules enable team scalability
+- ✅ **Koin DI**: Centralized, testable dependency injection
+- ✅ **Firebase-Powered**: Analytics, crash reporting, remote config
+- ✅ **Multi-Flavor Builds**: Debug, staging, release variants with separate configs
+- ✅ **RevenueCat Subscriptions**: Cross-platform monetization abstraction
+- ✅ **BitRaptors SDK Ecosystem**: Part of larger platform with shared SDKs for login, analytics, and feature flags
+- ❌ **No Backend Code**: All backend communication via REST APIs only

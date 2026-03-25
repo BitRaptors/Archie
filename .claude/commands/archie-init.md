@@ -2,7 +2,7 @@
 
 Analyze this repository's architecture. Zero dependencies — works with any language.
 
-**Prerequisites:** Run `npx archie-lite` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie-lite` and try again.
+**Prerequisites:** Run `npx archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie` and try again.
 
 **IMPORTANT: Do NOT write inline Python scripts or bash one-liners. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown. Do NOT generate code to parse JSON, extract data, or create files. The scripts handle everything. If a step produces an error, follow the instructions for that step exactly — do not improvise workarounds.**
 
@@ -18,9 +18,9 @@ Read `.archie/scan.json`. Note total files, detected frameworks, and top-level d
 
 ## Step 3: Spawn parallel analytical agents
 
-Spawn 4–5 Opus subagents in parallel (Agent tool, `model: "opus"`), each focused on a different analytical concern. ALL agents read ALL source files — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
+Spawn 3–4 Opus subagents in parallel (Agent tool, `model: "opus"`), each focused on a different analytical concern. ALL agents read ALL source files — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
 
-**If frontend code was detected in Step 2, spawn all 5 agents (A–E). Otherwise spawn only agents A–D.**
+**If frontend code was detected in Step 2, spawn all 4 agents (A–D). Otherwise spawn only agents A–C.**
 
 ---
 
@@ -280,75 +280,7 @@ Spawn 4–5 Opus subagents in parallel (Agent tool, `model: "opus"`), each focus
 > }
 > ```
 
-### Agent D: "Decisions & Pitfalls"
-
-> Read key architectural files — entry points, main configs, core abstractions, DI containers, route registrations.
->
-> ### 1. Architectural Style Decision
-> THE top-level architecture choice:
-> - **title**: e.g., "Clean Architecture with DDD layers"
-> - **chosen**: What was chosen and how it manifests
-> - **rationale**: WHY this approach (infer from code structure, comments, config)
-> - **alternatives_rejected**: What alternatives were NOT chosen (infer from what's absent)
->
-> ### 2. Key Decisions (3-5)
-> Major architectural choices visible in the code. Each with:
-> - **title**: Decision name
-> - **chosen**: What was chosen
-> - **rationale**: Why (from code evidence)
-> - **alternatives_rejected**: What wasn't chosen
->
-> Examples of decisions to look for: database choice, state management approach, API style, authentication method, deployment strategy, monorepo vs polyrepo, rendering strategy, dependency injection approach.
->
-> ### 3. Trade-offs (3-5)
-> What was deliberately accepted and what benefit was gained.
-> Format: {"accept": "what was given up", "benefit": "what was gained"}
-> Example: {"accept": "No database migrations", "benefit": "Zero-setup SQLite for development"}
->
-> ### 4. Out-of-Scope
-> What this codebase explicitly does NOT do. Look for: missing features that would be expected, explicit boundaries in code/config, things delegated to external services.
->
-> ### 5. Pitfalls (3-5)
-> Non-obvious gotchas SPECIFIC to this codebase. Each with:
-> - **area**: What part of the code
-> - **description**: What the code DOES and the risk of that pattern
-> - **recommendation**: How to avoid the problem
->
-> Only describe problems grounded in actual code patterns you observed. Do NOT recommend alternatives the code doesn't use.
->
-> ### 6. Architecture Diagram
-> Mermaid `graph TD` diagram with 8-12 nodes showing main components and their relationships. Use short node labels. Show data flow direction.
->
-> ### 7. Implementation Guidelines (5-8)
-> Capabilities already implemented using third-party libraries or non-trivial patterns. For each:
-> - **capability**: Human-readable name (e.g., "Push Notifications", "Map Display", "Authentication")
-> - **category**: auth | notifications | media | storage | networking | analytics | persistence | ui | payments | location | state_management | navigation | testing
-> - **libraries**: Libraries used with versions
-> - **pattern_description**: 1-3 sentences: the architecture pattern, main service/class, how data flows
-> - **key_files**: Actual file paths (MUST exist in file_tree)
-> - **usage_example**: Brief code snippet or invocation pattern (max 1 line)
-> - **tips**: Gotchas, caveats, or best practices specific to this implementation
->
-> Focus on capabilities using third-party libraries, cross-cutting concerns, and non-trivial patterns. Do NOT include trivial standard library usage.
->
-> Return JSON:
-> ```json
-> {
->   "decisions": {
->     "architectural_style": {"title": "", "chosen": "", "rationale": "", "alternatives_rejected": []},
->     "key_decisions": [{"title": "", "chosen": "", "rationale": "", "alternatives_rejected": []}],
->     "trade_offs": [{"accept": "", "benefit": ""}],
->     "out_of_scope": []
->   },
->   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
->   "pitfalls": [{"area": "", "description": "", "recommendation": ""}],
->   "implementation_guidelines": [
->     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
->   ]
-> }
-> ```
-
-### Agent E: "Frontend Architecture" (only if frontend detected)
+### Agent D: "Frontend Architecture" (only if frontend detected)
 
 > Read all frontend/UI source files. This analysis covers web frontends, iOS apps, Android apps, cross-platform mobile, and any client-side code. Adapt each section to the platform detected.
 >
@@ -444,7 +376,7 @@ Spawn 4–5 Opus subagents in parallel (Agent tool, `model: "opus"`), each focus
 
 **Spawn ALL agents in parallel.**
 
-## Step 4: Save subagent output and merge
+## Step 4: Save Wave 1 output and merge
 
 After each subagent completes, use the Write tool to save its JSON output to a temporary file. Save the COMPLETE output text — the merge script handles JSON extraction.
 
@@ -452,19 +384,110 @@ After each subagent completes, use the Write tool to save its JSON output to a t
 Write /tmp/archie_sub1.json with Agent A's output
 Write /tmp/archie_sub2.json with Agent B's output
 Write /tmp/archie_sub3.json with Agent C's output
-Write /tmp/archie_sub4.json with Agent D's output
-Write /tmp/archie_sub5.json with Agent E's output (if spawned)
+Write /tmp/archie_sub4.json with Agent D's output (if spawned)
 ```
 
 Then merge:
 
 ```bash
-python3 .archie/merge.py "$PWD" /tmp/archie_sub1.json /tmp/archie_sub2.json /tmp/archie_sub3.json /tmp/archie_sub4.json /tmp/archie_sub5.json
+python3 .archie/merge.py "$PWD" /tmp/archie_sub1.json /tmp/archie_sub2.json /tmp/archie_sub3.json /tmp/archie_sub4.json
 ```
 
 This saves `.archie/blueprint_raw.json` (raw merged data).
 
-## Step 5: AI-normalize the blueprint
+## Step 5: Wave 2 — Agent X ("Architectural Reasoning")
+
+Wave 1 gathered facts: components, patterns, technology, deployment, frontend. Now spawn a single Opus subagent (`model: "opus"`) that reads ALL Wave 1 output and produces deep architectural reasoning.
+
+Tell Agent X:
+
+> Read `.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read key source files: entry points, main configs, core abstractions.
+>
+> With the COMPLETE picture of what was built and how, produce deep architectural reasoning:
+>
+> ### 1. Decision Chain
+> Trace the root constraint(s) that shaped this architecture. Build a dependency tree:
+> - What is the ROOT constraint? (e.g., "local-first tool requiring filesystem access")
+> - What does it FORCE? (each forced decision)
+> - What does EACH forced decision FORCE in turn?
+> - Continue until you reach leaf decisions
+> - For EACH node, include `violation_keywords`: specific code patterns or package names that would violate this decision (e.g., for "SQLite only" → `["pg", "mongoose", "prisma", "typeorm", "postgres"]`)
+>
+> Every decision in the chain must be grounded in code you can see in the blueprint or source files. Do NOT invent theoretical constraints.
+>
+> ### 2. Architectural Style Decision
+> THE top-level architecture choice. You can see the full component list, pattern list, and tech stack — explain WHY this architecture, not just WHAT. Reference specific components and patterns from the blueprint.
+> - **title**: e.g., "Full-stack monolith with subprocess orchestration"
+> - **chosen**: What was chosen and how it manifests
+> - **rationale**: WHY — reference specific components, patterns, and tech stack items from the blueprint
+> - **alternatives_rejected**: What alternatives were NOT chosen and WHY they were ruled out by the constraints
+>
+> ### 3. Key Decisions (3-7)
+> Each with: title, chosen, rationale, alternatives_rejected.
+> - **rationale** must reference specific components, patterns, or tech from the blueprint
+> - **forced_by**: What constraint or other decision made this one necessary
+> - **enables**: What this decision makes possible downstream
+>
+> ### 4. Trade-offs (3-5)
+> Each with: accept, benefit, caused_by (which decision created this trade-off), violation_signals (code patterns that would indicate someone is undoing this trade-off, e.g., removing Puppeteer → `["uninstall puppeteer", "remove puppeteer", "playwright"]`)
+>
+> ### 5. Out-of-Scope
+> What this codebase does NOT do. For each item, optionally note which decision makes it out of scope.
+>
+> ### 6. Pitfalls (3-5)
+> Each with:
+> - **area**, **description**, **recommendation**
+> - **stems_from**: NOT just a label — the FULL causal chain as an array. Example: `["local-first constraint", "chose SQLite for zero-config", "singleton pattern in db.ts", "no connection recovery on corruption"]`. Each element is a step in the chain from root decision to pitfall.
+> - **applies_to**: file paths where this pitfall is relevant
+>
+> Only describe problems grounded in actual code. Do NOT recommend alternatives the code doesn't use.
+>
+> ### 7. Architecture Diagram
+> Mermaid `graph TD` with 8-12 nodes. You have the full component list and communication patterns from the blueprint — use actual component names and real data flows.
+>
+> ### 8. Implementation Guidelines (5-8)
+> Capabilities using third-party libraries. Cross-reference the tech stack and pattern list from the blueprint. For each:
+> - **capability**: Human-readable name
+> - **category**: auth | notifications | media | storage | networking | analytics | persistence | ui | payments | location | state_management | navigation | testing
+> - **libraries**: Libraries used with versions (from tech stack)
+> - **pattern_description**: Architecture pattern, main service/class, data flow
+> - **key_files**: Actual file paths (MUST exist in file_tree)
+> - **usage_example**: Brief code snippet (max 1 line)
+> - **tips**: Gotchas specific to this implementation
+>
+> Return JSON:
+> ```json
+> {
+>   "decisions": {
+>     "architectural_style": {"title": "", "chosen": "", "rationale": "", "alternatives_rejected": []},
+>     "key_decisions": [{"title": "", "chosen": "", "rationale": "", "alternatives_rejected": [], "forced_by": "", "enables": ""}],
+>     "trade_offs": [{"accept": "", "benefit": "", "caused_by": "", "violation_signals": []}],
+>     "out_of_scope": [],
+>     "decision_chain": {"root": "", "forces": [{"decision": "", "rationale": "", "violation_keywords": [], "forces": []}]}
+>   },
+>   "pitfalls": [{"area": "", "description": "", "recommendation": "", "stems_from": ["causal", "chain", "steps"], "applies_to": []}],
+>   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
+>   "implementation_guidelines": [
+>     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
+>   ]
+> }
+> ```
+
+Agent X also gets the GROUNDING RULES from Step 3.
+
+After Agent X completes, save its output and merge into the blueprint:
+
+```
+Write /tmp/archie_sub_x.json with Agent X's output
+```
+
+```bash
+python3 .archie/merge.py "$PWD" /tmp/archie_sub_x.json
+```
+
+This merges Agent X's sections (decisions, pitfalls, architecture_diagram, implementation_guidelines) into `blueprint_raw.json`.
+
+## Step 6: AI-normalize the blueprint
 
 The raw blueprint has correct data but inconsistent field names (subagents return arbitrary shapes). A single AI normalizer call reshapes everything to the canonical schema.
 
@@ -490,7 +513,7 @@ python3 .archie/normalize.py apply "$PWD"
 
 This saves the canonical `.archie/blueprint.json`.
 
-## Step 6: Render and validate
+## Step 7: Render and validate
 
 ```bash
 python3 .archie/renderer.py "$PWD"
@@ -514,9 +537,9 @@ python3 .archie/validate.py all "$PWD"
 
 After fixes, re-run `python3 .archie/validate.py all "$PWD"` to confirm 0 failures.
 
-**IMPORTANT:** Do ONE fix pass at most. If failures remain after one fix pass, proceed to Step 7 — do not loop. Do NOT write inline Python scripts to patch the blueprint. Template patterns like `{resource}` or `{timestamp}` in descriptive fields are expected and not real failures.
+**IMPORTANT:** Do ONE fix pass at most. If failures remain after one fix pass, proceed to Step 8 — do not loop. Do NOT write inline Python scripts to patch the blueprint. Template patterns like `{resource}` or `{timestamp}` in descriptive fields are expected and not real failures.
 
-## Step 7: AI-enrich per-folder CLAUDE.md
+## Step 8: AI-enrich per-folder CLAUDE.md
 
 The per-folder CLAUDE.md files generated in Step 6 are deterministic (file lists, component info). This step enriches them with AI-generated patterns, anti-patterns, debugging tips, and code examples using bottom-up DAG scheduling.
 
@@ -562,10 +585,10 @@ mkdir -p .archie/enrichments
 python3 .archie/enrich.py merge "$PWD"
 ```
 
-## Step 8: Clean up and summarize
+## Step 9: Clean up and summarize
 
 ```bash
-rm -f /tmp/archie_sub*.json /tmp/archie_normalize_prompt.txt /tmp/archie_enrich_prompt.txt
+rm -f /tmp/archie_sub*.json /tmp/archie_sub_x.json /tmp/archie_normalize_prompt.txt /tmp/archie_enrich_prompt.txt
 ```
 
 Print what was generated:

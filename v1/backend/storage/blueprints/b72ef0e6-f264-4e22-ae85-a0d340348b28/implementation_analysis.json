@@ -1,0 +1,178 @@
+```json
+{
+  "implementation_guidelines": [
+    {
+      "capability": "Dependency Injection & Service Locator",
+      "category": "state_management",
+      "libraries": [
+        "Koin 3.x (inferred from patterns)"
+      ],
+      "pattern_description": "Koin DI container is initialized at application startup in BabyWeatherApplication.kt with module-scoped dependencies. All features declare their own Modules.kt files that are composed into the root Koin context. Services are injected into Controllers and ViewModels via constructor injection, enabling singleton patterns for API services, repositories, and analytics managers. The container manages object lifecycle and provides lazy initialization of heavy-weight dependencies.",
+      "key_files": [
+        "app/src/main/java/com/bitraptors/babyweather/BabyWeatherApplication.kt",
+        "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+        "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt"
+      ],
+      "usage_example": "MainController(raptorAnalytics: RaptorAnalytics, reviewManager: InAppReviewManager) receives dependencies via constructor. In Koin module: `single { MainController(get(), get()) }` where `get()` resolves dependencies from the container.",
+      "tips": [
+        "All feature modules must declare their Modules.kt and register with Koin at application startup to avoid lazy initialization failures.",
+        "Singletons are shared across all features—ensure thread-safety for mutable shared state.",
+        "Use scoped dependencies sparingly; prefer singletons for stateless services (API, Analytics, SharedPreferences)."
+      ]
+    },
+    {
+      "capability": "Google OAuth 2.0 Authentication",
+      "category": "auth",
+      "libraries": [
+        "Google Sign-In SDK (implicit)",
+        "Firebase Authentication (implicit via google-services.json)"
+      ],
+      "pattern_description": "OAuth 2.0 credentials are stored per buildType (debug/release/staging) in buildConfig fields during gradle compilation. LoginController orchestrates the login flow using a sealed state machine (LoginSheetState: Init → Visible → Expanded → Hidden). Authentication state is persisted via SharedPreferences and exposed as MutableStateFlow<LoginState> (AnonymousUser vs LoggedInUser). Login UI is rendered in a BottomSheet (page_login_bottomsheet) which communicates results back to MainActivity via shared event flows.",
+      "key_files": [
+        "app/build.gradle.kts (buildConfigField declarations)",
+        "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt",
+        "app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt",
+        "app/src/main/res/layout/dialog_login.xml"
+      ],
+      "usage_example": "buildConfig fields: `this.buildConfigField(\"String\", \"GOOGLE_API_TOKEN\", \"898696094253-...\")`. LoginController exposes `authState: StateFlow<LoginState>`. MainActivity observes this flow and conditionally shows login BottomSheet or grants access to protected features.",
+      "tips": [
+        "Build-config credentials are compile-time constants—ensure different OAuth tokens per buildType to prevent credential misuse across environments.",
+        "LoginSheetState sealed interface enforces state transitions; avoid direct state mutation—use controller methods to transition states.",
+        "SharedPreferences persistence of auth tokens should use encryption at rest in production (consider EncryptedSharedPreferences)."
+      ]
+    },
+    {
+      "capability": "Analytics Event Tracking & Remote Config",
+      "category": "analytics",
+      "libraries": [
+        "Firebase Analytics (firebase-analytics-ktx)",
+        "Mixpanel (via MIXPANEL_KEY buildConfigField)",
+        "RaptorAnalyticsKit (custom wrapper)"
+      ],
+      "pattern_description": "Analytics events are declared as sealed classes extending BasicEvent interface and emitted from ViewModels/Controllers via a centralized RaptorAnalyticsKit service. Events are logged asynchronously to both Firebase Analytics and Mixpanel. Remote config defaults are stored in app/src/main/res/xml/remote_config_defaults.xml and fetched at app startup. Feature flags are managed via a util/services/featureflag/ service that conditionally renders UI based on remote config values, enabling A/B testing without redeployment.",
+      "key_files": [
+        "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+        "app/src/main/res/xml/remote_config_defaults.xml",
+        "util/services/analytics/events/ (event class definitions)",
+        "util/services/featureflag/ (feature flag service)"
+      ],
+      "usage_example": "In controller: `raptorAnalytics.logEvent(LoginAttemptEvent(provider = \"google\"))`. Remote config usage: `featureFlagService.isEnabled(\"premium_features\")` conditionally shows premium UI.",
+      "tips": [
+        "Event classes must be serializable to Mixpanel JSON—use @Json annotations for field name mapping if needed.",
+        "Remote config changes require app restart to take effect; use SharedFlow to notify UI of config updates if real-time updates are needed.",
+        "Mixpanel key is in buildConfig—never hardcode sensitive tracking keys in source; rotate keys in CI/CD pipeline."
+      ]
+    },
+    {
+      "capability": "REST API Communication with Moshi Serialization",
+      "category": "networking",
+      "libraries": [
+        "Retrofit 2.9.0",
+        "OkHttp 4.9.2",
+        "Moshi 1.12.0 (with Kotlin codegen)",
+        "Logging Interceptor"
+      ],
+      "pattern_description": "APIService singleton is created via Retrofit with Moshi converter. Requests are intercepted by logging interceptor (debug mode only) and OkHttp client adds auth headers. Moshi codegen generates fromJson/toJson at compile-time for data classes. Repository pattern wraps API calls, handling errors and mapping DTOs to domain models. Base URL is environment-specific via buildConfigField. Coroutines are used for async API calls, with error handling delegated to ViewModel/Controller layer.",
+      "key_files": [
+        "app/build.gradle.kts (Retrofit, Moshi, OkHttp dependencies)",
+        "buildSrc/src/main/kotlin/Dependencies.kt (version constants)",
+        "common/domain/api/ (APIService interface and interceptors)",
+        "common/data/ (Repository implementations)"
+      ],
+      "usage_example": "APIService.kt: `@GET(\"locations\") suspend fun getLocations(): List<LocationDto>`. Repository wraps: `suspend fun fetchLocations() = apiService.getLocations().mapTo(domainModel)`. ViewModel calls: `viewModelScope.launch { repository.fetchLocations().onSuccess { ... } }`.",
+      "tips": [
+        "Moshi codegen requires @JsonClass(generateAdapter = true) on all DTOs—missing annotation causes runtime serialization failures.",
+        "Logging interceptor logs request/response bodies in debug mode; disable in release to avoid PII leaks in crash reports.",
+        "Base API URL is buildConfigField—ensure dev/staging/prod endpoints are correctly configured per buildType to prevent cross-environment data corruption."
+      ]
+    },
+    {
+      "capability": "Reactive State Management with StateFlow & SharedFlow",
+      "category": "state_management",
+      "libraries": [
+        "Kotlin Coroutines 1.6.0",
+        "AndroidX Lifecycle (implicit)"
+      ],
+      "pattern_description": "ViewModels expose immutable StateFlow<UiState> for reactive UI updates and MutableSharedFlow<UiEvent> for one-time events (navigation, dialogs, errors). State is updated via viewModelScope.launch with coroutine builders (launch, async). Fragments observe flows using lifecycleScope.launch { repeatOnLifecycle(STARTED) } to respect Fragment lifecycle. Controllers similarly expose flows for cross-feature communication. This pattern ensures proper cleanup on Fragment destruction and prevents memory leaks.",
+      "key_files": [
+        "app/src/main/java/com/bitraptors/babyweather/activity_main/MainViewModel.kt",
+        "app/src/main/java/com/bitraptors/babyweather/page_login_bottomsheet/controller/LoginController.kt",
+        "app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt"
+      ],
+      "usage_example": "ViewModel: `val uiState = MutableStateFlow<DashboardState>(Loading); val navigationEvents = MutableSharedFlow<NavigationRequest>()`. Fragment: `viewModel.uiState.collect { state -> renderUI(state) }` within `repeatOnLifecycle(STARTED)` block.",
+      "tips": [
+        "Always use repeatOnLifecycle(STARTED) in Fragments to prevent collecting when Fragment is not visible—avoids unnecessary recompositions and memory leaks.",
+        "Prefer StateFlow for continuous state (UI snapshots) and SharedFlow for discrete events (navigation, dialogs)—mixing causes event loss or state duplication.",
+        "viewModelScope is tied to ViewModel lifecycle; avoid launching long-running tasks that should outlive ViewModel (e.g., background sync)—use WorkManager instead."
+      ]
+    },
+    {
+      "capability": "Fragment-based Navigation with SafeArgs",
+      "category": "navigation",
+      "libraries": [
+        "AndroidX Navigation 2.4.2",
+        "Navigation Safe Args Gradle Plugin"
+      ],
+      "pattern_description": "Navigation graph (navigation_main.xml) defines all Fragment transitions and destinations. SafeArgs plugin auto-generates type-safe argument classes at compile-time. Navigation requests are emitted as sealed classes (NavigationRequest, NavigateBackToDashboardRequest) from Controllers. MainActivity's NavController observes these events and executes navigation. Bottom navigation state is synced with NavController to update selected menu item. Shared element transitions are defined in transition/shared_element_transition.xml.",
+      "key_files": [
+        "app/src/main/res/navigation/navigation_main.xml",
+        "app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt",
+        "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+        "app/src/main/res/transition/shared_element_transition.xml"
+      ],
+      "usage_example": "Navigation graph: `<fragment android:id=\"@+id/dashboardFragment\" android:name=\"...DashboardFragment\"> <argument android:name=\"locationId\" android:defaultValue=\"0\" app:argType=\"integer\" /></fragment>`. SafeArgs generates DashboardFragmentArgs(locationId). Controller: `navigationEvents.emit(NavigationRequest.ToDashboard(locationId))`. MainActivity: `navController.navigate(DashboardFragmentDirections.actionToDashboard(locationId))`.",
+      "tips": [
+        "SafeArgs requires explicit destination IDs in navigation graph—missing @+id/ causes compile-time errors in generated args classes.",
+        "Avoid passing large objects as navigation arguments; use ViewModel-scoped data or database lookups instead (args are serialized/deserialized via Parcelize).",
+        "Bottom navigation selection state must be manually synced with NavController via OnDestinationChangedListener to prevent UI inconsistencies."
+      ]
+    },
+    {
+      "capability": "Material Design 3 Theming with Adaptive Colors",
+      "category": "ui",
+      "libraries": [
+        "AndroidX Material Design Components (MDC)",
+        "Android Framework (Resources system)"
+      ],
+      "pattern_description": "Day/night themes are split into themes.xml (light) and values-night/themes.xml (dark). API-level specific themes override colors in values-v31/32/33/themes.xml to leverage dynamic color (Material You) on Android 12+. Adaptive color resources (button_bg_adaptive.xml, text_input_stroke_adaptive.xml) use <item> tags to select colors based on day/night configuration. Custom attributes (attrs.xml) define reusable color references. Theme is applied at MainActivity level via `setTheme(R.style.Theme_BabyWeather)` before setContentView().",
+      "key_files": [
+        "app/src/main/res/values/themes.xml",
+        "app/src/main/res/values-night/themes.xml",
+        "app/src/main/res/values-v31/themes.xml",
+        "app/src/main/res/values-v32/themes.xml",
+        "app/src/main/res/values-v33/themes.xml",
+        "app/src/main/res/color/button_bg_adaptive.xml",
+        "app/src/main/res/values/attrs.xml"
+      ],
+      "usage_example": "attrs.xml: `<attr name=\"buttonBgColor\" format=\"color\" />`. themes.xml: `<item name=\"buttonBgColor\">@color/button_bg_light</item>`. values-night/themes.xml: `<item name=\"buttonBgColor\">@color/button_bg_dark</item>`. Layout: `android:background=\"?attr/buttonBgColor\"` resolves to correct color based on theme.",
+      "tips": [
+        "API-level specific theme files override base themes—ensure all custom attributes are defined in base themes.xml or build will fail if higher API level is missing a definition.",
+        "Material You dynamic colors (API 31+) use system color palette from wallpaper—test on real devices with custom wallpapers to verify color contrast and readability.",
+        "Avoid hardcoding colors in layouts/drawables; always reference theme attributes via ?attr/ to support dark mode and future theme changes."
+      ]
+    },
+    {
+      "capability": "In-App Purchase & Subscription Management",
+      "category": "payments",
+      "libraries": [
+        "RevenueCat API (via REVENUE_CAT_API_KEY buildConfigField)",
+        "Google Play Billing Library (implicit)"
+      ],
+      "pattern_description": "RevenueCat SDK is initialized with API key stored in buildConfigField. Subscription state is fetched from RevenueCat backend and cached locally. SubscriptionRepository wraps RevenueCat API calls and exposes subscription status (active, expired, trial) as StateFlow. Purchase dialogs (cell_subscription_option_card.xml, cell_subscription_detail_footer.xml) display pricing and initiate purchases via RevenueCat SDK. Errors (ShowPurchaseErrorDialog) are emitted to MainActivity for display. Entitlements are checked before granting access to premium features.",
+      "key_files": [
+        "app/build.gradle.kts (REVENUE_CAT_API_KEY buildConfigField)",
+        "common/domain/repository/SubscriptionRepository.kt",
+        "page_subscription/ (subscription UI and controllers)",
+        "app/src/main/res/layout/cell_subscription_option_card.xml",
+        "app/src/main/res/layout/dialog_subscription_detail.xml"
+      ],
+      "usage_example": "SubscriptionRepository: `suspend fun getSubscriptionStatus() = revenuecatClient.getCustomerInfo()`. ViewModel: `viewModelScope.launch { subscriptionStatus = repository.getSubscriptionStatus() }`. Layout conditionally shows premium content: `android:visibility=\"@{viewModel.hasActivePremium ? View.VISIBLE : View.GONE}\"`.",
+      "tips": [
+        "RevenueCat API key is environment-specific (buildConfigField)—ensure debug/release keys point to correct RevenueCat projects to avoid sandbox/production mix-ups.",
+        "Subscription status should be cached locally with periodic refresh (e.g., on app resume) to minimize API calls and improve UX.",
+        "Handle purchase errors gracefully; RevenueCat SDK may throw exceptions if Google Play is unavailable—always wrap purchase calls in try-catch and emit user-friendly error dialogs."
+      ]
+    }
+  ]
+}
+```

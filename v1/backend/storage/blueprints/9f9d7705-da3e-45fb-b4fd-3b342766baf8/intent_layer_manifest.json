@@ -1,0 +1,145 @@
+{
+  "blueprint_hash": "86fd8edac5bf7f3d9c459d7dbe91f4f535918a210f7dd7ba3b28522e7e687c0f",
+  "entries": [
+    {
+      "path": "CLAUDE.md",
+      "content_hash": "a47927b4c819b2f0a138e4549b2693c0be277c35fdcc28f0bc02d0abe3942000"
+    },
+    {
+      "path": "tuck-in-tales-backend/CLAUDE.md",
+      "content_hash": "7f0740db23f18eb67ddb42ae7c26eb25990d3b61bd0f70effe7d6e4907984bac"
+    },
+    {
+      "path": "tuck-in-tales-backend/src/CLAUDE.md",
+      "content_hash": "c3475471c407e1b25e3dd772676de87dc562e36f420551151238e8d35d9255c8"
+    },
+    {
+      "path": "tuck-in-tales-backend/src/graphs/CLAUDE.md",
+      "content_hash": "07a92c7ebde7e59b02311c1c13140b263c08388380c5b93dafd8f9834fbd1479"
+    },
+    {
+      "path": "tuck-in-tales-backend/src/models/CLAUDE.md",
+      "content_hash": "e5d105dc5f9ee62380034c8073da98c9a43fcb3e98464a1439946061035c3d21"
+    },
+    {
+      "path": "tuck-in-tales-backend/src/routes/CLAUDE.md",
+      "content_hash": "58612abc5042f54ad12d60d7e4de5e5854bae501c808bce07cfccdd80a80f3c9"
+    },
+    {
+      "path": "tuck-in-tales-backend/src/utils/CLAUDE.md",
+      "content_hash": "52c516ae471c2727161d4a5d716d96c4bd65f13627ab9f01c99352024abf1fb3"
+    },
+    {
+      "path": "tuck-in-tales-backend/tests/CLAUDE.md",
+      "content_hash": "3d8687248fa16cf5ca1736e5283e19c2317625e35fce95d516d24efeb0df7eb7"
+    },
+    {
+      "path": "tuck-in-tales-frontend/CLAUDE.md",
+      "content_hash": "d44971f78dbaf703a768107acf40b986b057242a79ad988647f87313174c3c66"
+    },
+    {
+      "path": "tuck-in-tales-frontend/_restore/CLAUDE.md",
+      "content_hash": "c5d101e6e8c21b8691884411a8fa8c762c84d3108cc62c82b823d75854def3d1"
+    },
+    {
+      "path": "tuck-in-tales-frontend/_restore/backend-src/CLAUDE.md",
+      "content_hash": "2a4452072a48979a90afd3e9274617ee52a44eeb5d140e84c39fdf9b9e482b41"
+    },
+    {
+      "path": "tuck-in-tales-frontend/_restore/backend-src/graphs/CLAUDE.md",
+      "content_hash": "5446a775f5a67edca8a75a37571e08838ca5be0cf9bdbe39a02625103fcd4dc3"
+    },
+    {
+      "path": "tuck-in-tales-frontend/_restore/backend-src/models/CLAUDE.md",
+      "content_hash": "175584e34f991171ba59d75de11799f9cfa0089f8cca42ff518845b0b29094e7"
+    },
+    {
+      "path": "tuck-in-tales-frontend/_restore/backend-src/routes/CLAUDE.md",
+      "content_hash": "3adeba5e9d885dcdc9713b7de854c17a92a7a691e88d8ebc09b7d5a9ba41d066"
+    },
+    {
+      "path": "tuck-in-tales-frontend/_restore/backend-src/utils/CLAUDE.md",
+      "content_hash": "cb5345a6142832cf90a2e2f9ee5b33159ee9b27f2548270d328d2435792ae2e2"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/CLAUDE.md",
+      "content_hash": "beeebd0c07c308519bded3aba101b2609b9a1dadf9b86508d4b25b978cc25c18"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/components/Auth/CLAUDE.md",
+      "content_hash": "489d23499262160c569275e7200893b807b564488afff758841e6ef45ab3355d"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/components/CLAUDE.md",
+      "content_hash": "4dff4695eb7a3bc6d3559f474813c282bce0cf851cc340831e957185ad77f425"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/components/Layout/CLAUDE.md",
+      "content_hash": "fc2ff0325721fa4437fe040587d2220f2f4e928243e9fef03db86339b25be70e"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/components/prompts/CLAUDE.md",
+      "content_hash": "920ba0ac680fcb7ea31298d29f2e47fba4fb17dbd8ca2a05bd9c693dddc3f70a"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/components/ui/CLAUDE.md",
+      "content_hash": "ab93d8c7aeaa8648409fead86b132e76e91ebb93c851c91d498648d9f5e9895d"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/hooks/CLAUDE.md",
+      "content_hash": "ac3c499c681d1f935b0db44b4662a4d88525c9bba2f3dd3d9ce6a867c2aac60a"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/lib/CLAUDE.md",
+      "content_hash": "5fbf5f7f98a2f400193f74401715e2bba53faca779e62fcb5af737343b0a661e"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/models/CLAUDE.md",
+      "content_hash": "2a59959ec5deb77d33494438cb92798960867a085aa4b885c4e4a54955d7a541"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/pages/CLAUDE.md",
+      "content_hash": "c5ac4e3e3760c5b2264607dccf0f8b4e195b687232af0b592a290d4e3b292926"
+    },
+    {
+      "path": "tuck-in-tales-frontend/src/utils/CLAUDE.md",
+      "content_hash": "a5effc372cb6d65e7c704e18d50fce937e229db86fd999556c82e9c7923ab51d"
+    },
+    {
+      "path": "tuck-in-tales-mobile/CLAUDE.md",
+      "content_hash": "d42fc4e23ffbf4be85e302d8051304623a4af3455ef81d261bd292a6f8b45866"
+    },
+    {
+      "path": "tuck-in-tales-mobile/app/(auth)/CLAUDE.md",
+      "content_hash": "d4609c8722e54778bf2836cc3189c01d61c11bc9c24711eb6ba2269fc4398dba"
+    },
+    {
+      "path": "tuck-in-tales-mobile/app/(tabs)/CLAUDE.md",
+      "content_hash": "1df6755e3b245bc4f16c415e8c85d931ecee00eb514671a4e3b13547649efa05"
+    },
+    {
+      "path": "tuck-in-tales-mobile/app/CLAUDE.md",
+      "content_hash": "5e9c2c44c36cf73d371f46f049777a20ea7647eb783b559b7ae58ea0f8d2721f"
+    },
+    {
+      "path": "tuck-in-tales-mobile/src/CLAUDE.md",
+      "content_hash": "97cf27f27ecd2bda3ea24a980455fee8715d2c85c64f67ca65c01cc9f3c5f860"
+    },
+    {
+      "path": "tuck-in-tales-mobile/src/config/CLAUDE.md",
+      "content_hash": "7f1578ae04c4da8d294dc78cd8e2bba617a29a0755d3935012260567da942221"
+    },
+    {
+      "path": "tuck-in-tales-mobile/src/hooks/CLAUDE.md",
+      "content_hash": "3d7bf42a60b8b6e4853976a6cf689d1080b5ebd8d0db2e0ad649b66d18854581"
+    },
+    {
+      "path": "tuck-in-tales-mobile/src/hooks/queries/CLAUDE.md",
+      "content_hash": "573f12fd347175bf23ee1e36bdf3a4a30cecd4305da710b49a1799de9aebbf08"
+    },
+    {
+      "path": "tuck-in-tales-mobile/src/models/CLAUDE.md",
+      "content_hash": "3a97b2c3b36cedcb798e879051d3d66b871a6bdedaac65e0fc413610291e5511"
+    }
+  ]
+}

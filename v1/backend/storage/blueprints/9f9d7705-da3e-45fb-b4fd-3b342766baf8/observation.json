@@ -1,0 +1,454 @@
+```json
+{
+  "organization_style": "Monorepo structure with three distinct frontend/mobile applications (tuck-in-tales-frontend web, tuck-in-tales-mobile React Native, tuck-in-tales-backend FastAPI) sharing core models and utilities. Each app tier maintains its own API client, hooks/context, configuration, and UI components, with a shared backend providing REST endpoints for data operations and AI-driven content generation.",
+  "detected_components": [
+    {
+      "type": "API Client",
+      "naming_pattern": "src/api/client.ts or client.py",
+      "examples": [
+        "tuck-in-tales-frontend/src/api/client.ts",
+        "tuck-in-tales-mobile/src/api/client.ts",
+        "tuck-in-tales-backend/src/main.py (FastAPI app)"
+      ]
+    },
+    {
+      "type": "Data Models / TypeScript Interfaces",
+      "naming_pattern": "src/models/*.ts or src/models/*.py",
+      "examples": [
+        "tuck-in-tales-frontend/src/models/character.ts",
+        "tuck-in-tales-frontend/src/models/story.ts",
+        "tuck-in-tales-backend/src/models/character.py"
+      ]
+    },
+    {
+      "type": "Firebase/Auth Configuration",
+      "naming_pattern": "src/config/firebase.ts or firebaseConfig.ts",
+      "examples": [
+        "tuck-in-tales-frontend/src/firebaseConfig.ts",
+        "tuck-in-tales-mobile/src/config/firebase.ts"
+      ]
+    },
+    {
+      "type": "Context / State Management (React)",
+      "naming_pattern": "src/context/*.tsx",
+      "examples": [
+        "tuck-in-tales-frontend/src/context/AuthContext.tsx",
+        "tuck-in-tales-mobile/src/context/AuthContext.tsx"
+      ]
+    },
+    {
+      "type": "Custom Hooks",
+      "naming_pattern": "src/hooks/use*.ts or src/hooks/queries/use*.ts",
+      "examples": [
+        "tuck-in-tales-frontend/src/hooks/useStoryStream.ts",
+        "tuck-in-tales-mobile/src/hooks/queries/useFamilyDetails.ts",
+        "tuck-in-tales-mobile/src/hooks/useGoogleSignIn.ts"
+      ]
+    },
+    {
+      "type": "Utility Functions",
+      "naming_pattern": "src/utils/*.ts or src/utils/*.py",
+      "examples": [
+        "tuck-in-tales-frontend/src/utils/firebase.ts",
+        "tuck-in-tales-frontend/src/utils/supabaseUtils.ts",
+        "tuck-in-tales-backend/src/utils/auth.py"
+      ]
+    },
+    {
+      "type": "React Components",
+      "naming_pattern": "src/components/**/*.tsx",
+      "examples": [
+        "tuck-in-tales-frontend/src/components/CharacterList.tsx",
+        "tuck-in-tales-frontend/src/components/MentionInput.tsx",
+        "tuck-in-tales-frontend/src/components/ui/button.tsx"
+      ]
+    },
+    {
+      "type": "Page / Screen Components",
+      "naming_pattern": "src/pages/*.tsx or app/(route)/*.tsx",
+      "examples": [
+        "tuck-in-tales-frontend/src/pages/LoginPage.tsx",
+        "tuck-in-tales-frontend/src/pages/CharacterCreationPage.tsx",
+        "tuck-in-tales-mobile/app/(tabs)/index.tsx"
+      ]
+    },
+    {
+      "type": "FastAPI Routes",
+      "naming_pattern": "src/routes/*.py",
+      "examples": [
+        "tuck-in-tales-backend/src/routes/characters.py",
+        "tuck-in-tales-backend/src/routes/stories.py",
+        "tuck-in-tales-backend/src/routes/memories.py"
+      ]
+    },
+    {
+      "type": "Graph/Agent Orchestration (LangGraph)",
+      "naming_pattern": "src/graphs/*.py",
+      "examples": [
+        "tuck-in-tales-backend/src/graphs/story_generator.py",
+        "tuck-in-tales-backend/src/graphs/avatar_generator.py",
+        "tuck-in-tales-backend/src/graphs/memory_analyzer.py"
+      ]
+    },
+    {
+      "type": "Service Layer",
+      "naming_pattern": "src/services/*.py",
+      "examples": [
+        "tuck-in-tales-backend/src/services/family_service.py"
+      ]
+    },
+    {
+      "type": "Configuration & Initialization",
+      "naming_pattern": "src/config.py, *Config.ts, *config.js",
+      "examples": [
+        "tuck-in-tales-backend/src/config.py",
+        "tuck-in-tales-frontend/tailwind.config.js",
+        "tuck-in-tales-mobile/babel.config.js"
+      ]
+    },
+    {
+      "type": "UI Component Library",
+      "naming_pattern": "src/components/ui/*.tsx",
+      "examples": [
+        "tuck-in-tales-frontend/src/components/ui/button.tsx",
+        "tuck-in-tales-frontend/src/components/ui/card.tsx",
+        "tuck-in-tales-frontend/src/components/ui/dialog.tsx"
+      ]
+    },
+    {
+      "type": "Supabase Integration",
+      "naming_pattern": "src/config/supabase.ts or src/utils/supabaseUtils.ts",
+      "examples": [
+        "tuck-in-tales-frontend/src/utils/supabaseUtils.ts",
+        "tuck-in-tales-mobile/src/config/supabase.ts"
+      ]
+    },
+    {
+      "type": "LLM Client Wrappers",
+      "naming_pattern": "src/utils/*_client.py",
+      "examples": [
+        "tuck-in-tales-backend/src/utils/openai_client.py",
+        "tuck-in-tales-backend/src/utils/groq_client.py",
+        "tuck-in-tales-backend/src/utils/gemini_client.py"
+      ]
+    }
+  ],
+  "dependency_flow": "Monorepo pattern with bidirectional knowledge: Frontend/Mobile apps depend on shared models and backend API. Frontend/Mobile initialize Firebase auth and Supabase clients for real-time data. Backend FastAPI routes depend on Supabase client for persistence, LLM clients (OpenAI/Groq/Gemini) for content generation, and LangGraph state machines (graphs/) for orchestrating multi-step AI workflows (story generation, memory analysis, avatar creation). Auth flows through Firebase tokens verified server-side. React Query manages client-side data fetching in both web and mobile. Shared concern: supabaseUtils and model definitions replicated across frontend/mobile (not centralized).",
+  "architecture_style": "Multi-tier AI-native application with three distinct presentation layers (React web, React Native mobile, backend API) communicating via REST and real-time Supabase subscriptions. The backend employs a state machine orchestration pattern using LangGraph to coordinate complex, multi-step AI workflows (content generation, image synthesis, memory analysis). Each layer maintains its own API abstraction and model definitions. Authentication is federated through Firebase with Supabase token-based access control. No traditional service/repository pattern—instead, direct API client calls from frontend/mobile, with backend routes directly orchestrating graph executions.",
+  "unique_patterns": [
+    "LangGraph state machines for AI workflow orchestration (story_generator.py, avatar_generator.py, memory_analyzer.py) with SSE streaming for real-time client feedback",
+    "Replicated model definitions across frontend/mobile/backend (character.ts/py, story.ts/py) without a shared model library",
+    "Firebase authentication tokens verified server-side with Supabase user sync for access control",
+    "Custom React hooks (useStoryStream, useMemoryStream, useAvatarStream) abstracting SSE event streaming and parsing",
+    "Prompt templating and variable substitution system (prompt_resolver.py) with caching for dynamic AI prompts",
+    "Multi-LLM support (OpenAI, Groq, Gemini) with pluggable client wrappers for image generation and text analysis",
+    "React Query used for client-side caching in mobile (hooks/queries/) but not visible in web codebase",
+    "Radix UI primitives with Tailwind CSS for consistent component library across frontend",
+    "Mobile app using Expo Router for file-based routing with tab navigation pattern (app/(tabs)/, app/(auth)/)",
+    "Backend assets in _restore/ folder suggesting deployment or version management strategy"
+  ],
+  "standard_patterns_if_any": [
+    "Dependency injection via FastAPI Depends() for route-level concerns (auth, Supabase client)",
+    "OAuth2/Bearer token verification via FastAPI security schemes",
+    "Pydantic models for request/response validation in FastAPI",
+    "Context-based state management (AuthContext) for React/React Native",
+    "Protected route wrappers for authenticated navigation",
+    "Skeleton loaders for loading states",
+    "Error boundaries and alert components for user feedback",
+    "Axios client for HTTP requests with auth token injection"
+  ],
+  "framework_usage": {
+    "react": "web (src/) + mobile (app/, src/), 50+ files",
+    "typescript": "web, mobile, 100+ files",
+    "fastapi": "backend (src/main.py, routes/), 15+ files",
+    "firebase": "auth, web & mobile (firebaseConfig.ts, firebase.ts, useGoogleSignIn.ts), 6+ files",
+    "supabase": "backend & frontend data layer (config/supabase.ts, utils/supabaseUtils.ts), 6+ files",
+    "langgraph": "backend orchestration (graphs/), 3+ files",
+    "react-query": "mobile data fetching (hooks/queries/), 4+ files",
+    "axios": "http client (api/client.ts), 2+ files",
+    "pydantic": "backend models & validation (src/models/, src/config.py), 8+ files",
+    "expo": "mobile runtime (config/firebase.ts, hooks/useGoogleSignIn.ts, app/ routing), 10+ files",
+    "react-router": "web navigation (src/App.tsx, pages/), 5+ files",
+    "radix-ui": "component primitives (src/components/ui/), 15+ files",
+    "tailwind": "styling (tailwind.config.js, components/ui/), 50+ files",
+    "openai": "text & embedding generation (utils/openai_client.py, graphs/), 3+ files",
+    "google-generativeai": "image generation (utils/gemini_client.py), 1+ file",
+    "groq": "alt LLM provider (utils/groq_client.py), 1+ file"
+  },
+  "key_search_terms": [
+    "LangGraph state machine execution flow",
+    "SSE event streaming (sse_generator, sse.py)",
+    "Prompt variable substitution and caching (prompt_resolver.py)",
+    "Firebase token verification → Supabase user sync (auth.py)",
+    "Multi-LLM provider abstraction (openai_client, groq_client, gemini_client)",
+    "React Query usage patterns and cache invalidation",
+    "Avatar generation workflow (avatar_generator.py)",
+    "Memory analysis and photo processing (memory_analyzer.py)",
+    "Story generation orchestration (story_generator.py)",
+    "Supabase real-time subscriptions and file storage",
+    "React Native Expo Router navigation",
+    "Form submission workflows (character creation, memory logging)",
+    "Image cropping and resizing (utils/image_crop.py)",
+    "Tailwind config customization for design tokens"
+  ],
+  "priority_files_by_phase": {
+    "discovery": [
+      "tuck-in-tales-backend/src/main.py",
+      "tuck-in-tales-frontend/src/App.tsx",
+      "tuck-in-tales-mobile/app/_layout.tsx",
+      "tuck-in-tales-backend/src/config.py",
+      "tuck-in-tales-frontend/src/firebaseConfig.ts",
+      "tuck-in-tales-mobile/src/config/firebase.ts",
+      "tuck-in-tales-backend/src/routes/stories.py"
+    ],
+    "layers": [
+      "tuck-in-tales-backend/src/utils/auth.py",
+      "tuck-in-tales-backend/src/utils/supabase.py",
+      "tuck-in-tales-frontend/src/api/client.ts",
+      "tuck-in-tales-mobile/src/api/client.ts",
+      "tuck-in-tales-backend/src/services/family_service.py",
+      "tuck-in-tales-frontend/src/context/AuthContext.tsx",
+      "tuck-in-tales-mobile/src/context/AuthContext.tsx"
+    ],
+    "patterns": [
+      "tuck-in-tales-backend/src/graphs/story_generator.py",
+      "tuck-in-tales-backend/src/graphs/avatar_generator.py",
+      "tuck-in-tales-backend/src/graphs/memory_analyzer.py",
+      "tuck-in-tales-frontend/src/hooks/useStoryStream.ts",
+      "tuck-in-tales-frontend/src/hooks/useMemoryStream.ts",
+      "tuck-in-tales-backend/src/utils/prompt_resolver.py",
+      "tuck-in-tales-frontend/src/components/MentionInput.tsx"
+    ],
+    "communication": [
+      "tuck-in-tales-backend/src/utils/sse.py",
+      "tuck-in-tales-frontend/src/hooks/useSSEStream.ts",
+      "tuck-in-tales-backend/src/api/client.ts",
+      "tuck-in-tales-frontend/src/api/client.ts",
+      "tuck-in-tales-backend/src/routes/characters.py",
+      "tuck-in-tales-backend/src/routes/memories.py",
+      "tuck-in-tales-frontend/src/pages/MemoryLoggingPage.tsx"
+    ],
+    "technology": [
+      "tuck-in-tales-frontend/vite.config.ts",
+      "tuck-in-tales-frontend/tailwind.config.js",
+      "tuck-in-tales-mobile/babel.config.js",
+      "tuck-in-tales-backend/src/config.py",
+      "tuck-in-tales-frontend/eslint.config.js",
+      "tuck-in-tales-mobile/tsconfig.json",
+      "tuck-in-tales-backend/requirements.txt (implied, not in signatures)"
+    ],
+    "deployment": [
+      "tuck-in-tales-backend/src/config.py",
+      "tuck-in-tales-frontend/vite.config.ts",
+      "tuck-in-tales-mobile/app.json (implied Expo config)",
+      "tuck-in-tales-backend/src/utils/firebase_admin_init.py",
+      "tuck-in-tales-frontend/.env (implied, not in signatures)",
+      "docker-compose.yml (not in signatures, likely at monorepo root)",
+      "Dockerfile (not in signatures, likely present)"
+    ],
+    "frontend": [
+      "tuck-in-tales-frontend/src/App.tsx",
+      "tuck-in-tales-frontend/src/main.tsx",
+      "tuck-in-tales-frontend/src/context/AuthContext.tsx",
+      "tuck-in-tales-frontend/src/api/client.ts",
+      "tuck-in-tales-mobile/app/_layout.tsx",
+      "tuck-in-tales-mobile/app/(tabs)/_layout.tsx",
+      "tuck-in-tales-mobile/src/context/AuthContext.tsx",
+      "tuck-in-tales-frontend/src/pages/StoryGenerationPage.tsx"
+    ]
+  },
+  "concerns": [
+    "Model definitions duplicated across frontend/mobile/backend (character.ts, story.ts replicated in .ts and .py) — no shared schema source of truth, risk of drift",
+    "Supabase utilities also replicated (supabaseUtils.ts in frontend and mobile) with slightly different function signatures (getPublicAvatarUrl vs getPublicPhotoUrl variations)",
+    "No visible service abstraction layer in backend — routes directly instantiate graphs and call Supabase; tight coupling between routing and orchestration logic",
+    "SSE streaming pattern for AI workflows (stories, avatars, memory analysis) creates long-lived requests — potential for timeout/connection issues; no visible retry logic in client hooks",
+    "React Query used only in mobile app (hooks/queries/), not in web app — inconsistent data fetching patterns between frontend and mobile",
+    "LangGraph state machines in graphs/*.py appear to be multi-step workflows orchestrating LLM calls, image generation, and database updates without visible transaction boundaries or rollback mechanisms",
+    "Firebase tokens verified in backend auth.py but no visible token refresh logic in client code; potential for silent auth failures",
+    "Prompt system with variable substitution in prompt_resolver.py relies on database lookups with caching — cache invalidation strategy not apparent",
+    "_restore/ folder in frontend suggests potential version control or deployment artifact management strategy not documented in codebase structure",
+    "Image processing (crop_image_by_face_x in utils/image_crop.py) suggests face detection/cropping but no vision model integration visible in imports",
+    "No visible input validation on file uploads (memories, character photos) beyond FastAPI's basic UploadFile handling",
+    "Mobile app using Expo with native modules (SecureStore, AsyncStorage) — potential iOS/Android build complexity not visible in codebase"
+  ]
+}
+```
+
+---
+
+## Per-File Analysis (Architecturally Significant Files)
+
+### **tuck-in-tales-backend/src/main.py**
+**Purpose**: FastAPI application factory and route registration entry point  
+**Exports**: FastAPI app instance with CORS middleware and mounted routers  
+**Imports**: FastAPI, CORSMiddleware, APIRouter, route modules (characters, stories, memories, family, prompts)  
+**Patterns**: Standard FastAPI app factory; CORS middleware for frontend/mobile access; modular route registration via APIRouter; health check endpoint  
+**Surprises**: No middleware for request logging, error handling, or request/response transformation visible; route modules imported but registration pattern not shown in signature
+
+---
+
+### **tuck-in-tales-backend/src/graphs/story_generator.py**
+**Purpose**: LangGraph state machine orchestrating multi-step story generation workflow using LLMs, streaming progress updates via SSE  
+**Exports**: Async functions (determine_language_name, generate_initial_outline, etc.) and state machine construction  
+**Imports**: operator, json, httpx, uuid, base64, LangGraph StateGraph/START/END, SSE utilities, LLM clients (OpenAI, Groq)  
+**Patterns**: TypedDict state definition (StoryGenerationState), conditional routing (route_after_* functions), SSE event broadcasting via asyncio queues, state mutation through dict updates  
+**Surprises**: State machine nodes appear to directly mutate shared state dict; no visible compensation/rollback logic; HTTP requests via httpx inside graph nodes; language determination logic embedded in node functions
+
+---
+
+### **tuck-in-tales-backend/src/graphs/avatar_generator.py**
+**Purpose**: LangGraph orchestrator for character avatar generation, coordinating description generation, image generation, and database persistence  
+**Exports**: Avatar generation workflow nodes (planner, generate_description, generate_image, update_database, decide_next_step)  
+**Imports**: operator, TypedDict, LangGraph, UUID, httpx, Gemini client, Supabase client  
+**Patterns**: Multi-step agentic workflow with decision nodes (decide_next_step) for conditional routing; Gemini API for image generation; image download and Supabase upload pattern  
+**Surprises**: decide_next_step returns routing string but conditional logic not visible; image download via httpx into memory before Supabase upload; no error recovery per node
+
+---
+
+### **tuck-in-tales-backend/src/utils/sse.py**
+**Purpose**: Server-sent events abstraction for streaming real-time updates to clients during long-running operations  
+**Exports**: Async generators (sse_generator), utility functions (send_sse_event, format_sse, get_or_create_queue)  
+**Imports**: asyncio, json, logging  
+**Patterns**: Global dict of asyncio.Queue per client_id; format_sse encodes event name and JSON data; sse_generator yields formatted strings for FastAPI StreamingResponse  
+**Surprises**: Queue cleanup (remove_queue) called manually — potential memory leak if not cleaned up; no heartbeat/ping mechanism visible; blocking operations in queue.get() could deadlock if consumer dies
+
+---
+
+### **tuck-in-tales-backend/src/utils/auth.py**
+**Purpose**: Firebase token verification and Supabase user sync for federated authentication  
+**Exports**: verify_firebase_token (dependency), get_or_create_supabase_user, get_current_supabase_user (dependency)  
+**Imports**: fastapi Depends/HTTPException, Firebase Admin Auth, Supabase client, UUID  
+**Patterns**: OAuth2PasswordBearer scheme; Depends() for route-level injection; UserData TypedDict for verified token payload; Supabase upsert for user sync  
+**Surprises**: No visible token refresh logic; get_or_create_supabase_user creates user on first API call if not exists (implies async signup flow); family_id extracted from Supabase user metadata
+
+---
+
+### **tuck-in-tales-backend/src/utils/prompt_resolver.py**
+**Purpose**: Dynamic prompt templating system with variable substitution, database caching, and config resolution  
+**Exports**: resolve_prompt, get_prompt_config, invalidate_cache  
+**Imports**: re, time, logging, Supabase client  
+**Patterns**: Template string with {variable} placeholders; database lookup with in-memory cache dict; invalidate_cache for stale data; _fetch_prompt_from_db calls Supabase queries  
+**Surprises**: Cache has no TTL — relies on manual invalidation; _fetch_prompt_from_db called on every resolve unless cached; no template syntax validation or error for missing variables
+
+---
+
+### **tuck-in-tales-backend/src/routes/stories.py**
+**Purpose**: REST endpoints for story CRUD, generation orchestration, and real-time streaming  
+**Exports**: Endpoints (list_stories, read_story, delete_story, generate_story)  
+**Imports**: FastAPI, Depends (auth), UUID, LangGraph graph execution, SSE utilities, Supabase client  
+**Patterns**: Dependency injection for authenticated user and family_id; background task execution for long-running story generation; SSE streaming via StreamingResponse; queue-based communication between graph and SSE  
+**Surprises**: generate_story launches graph in background task but returns immediately with story_id; client polls SSE stream for progress; no visible idempotency token to prevent duplicate generation requests
+
+---
+
+### **tuck-in-tales-frontend/src/App.tsx**
+**Purpose**: Root React component with routing configuration and auth provider setup  
+**Exports**: App component, HomePage function  
+**Imports**: React Router (BrowserRouter, Route, Routes, Link), page components, AuthProvider, ProtectedRoute  
+**Patterns**: Route-based navigation with lazy page imports; ProtectedRoute wrapper for authenticated pages; provider composition  
+**Surprises**: HomePage defined inline in App.tsx rather than separate page; no loading/error boundary visible; navigation structure not apparent from Route list
+
+---
+
+### **tuck-in-tales-frontend/src/hooks/useStoryStream.ts**
+**Purpose**: Custom hook abstracting SSE stream parsing for real-time story generation progress  
+**Exports**: useStoryStream hook, StoryPage and StoryStreamState interfaces  
+**Imports**: useState, useCallback, useRef, useSSEStream (lower-level hook)  
+**Patterns**: Composition of useSSEStream + custom parsing; state accumulation (pages, outline, page_progress); ref for parsing intermediate state  
+**Surprises**: Appears to parse multiple event types (outline, pages, page_progress) with custom parsing logic per event; error handling deferred to useSSEStream; useRef for tracking last_error_index (unclear purpose)
+
+---
+
+### **tuck-in-tales-frontend/src/hooks/useSSEStream.ts**
+**Purpose**: Low-level SSE event streaming hook with auth token injection and reconnection logic  
+**Exports**: useSSEStream hook  
+**Imports**: useState, useEffect, useRef, useCallback, Firebase auth  
+**Patterns**: EventSource API with auth Bearer token; manual reconnection retry logic; event listener registration for custom event types  
+**Surprises**: No visible exponential backoff; connect() called on every dependency change; no cleanup of EventSource on unmount visible (possible in useEffect cleanup, not shown in signature)
+
+---
+
+### **tuck-in-tales-frontend/src/api/client.ts**
+**Purpose**: Axios instance wrapper with auth token injection and type-safe API methods  
+**Exports**: api (Axios instance), API methods (listCharacters, createCharacter, generateStory, etc.)  
+**Imports**: axios, Firebase auth, model types  
+**Patterns**: Axios request interceptor for Bearer token; type-safe method wrappers for common endpoints; error handling delegated to caller  
+**Surprises**: No visible response interceptor for token refresh; no retry logic; Supabase client methods not visible (file signature cuts off, likely present)
+
+---
+
+### **tuck-in-tales-mobile/app/_layout.tsx**
+**Purpose**: Root layout for Expo Router, provider composition (Auth, React Query, Gesture Handler)  
+**Exports**: RootLayout component  
+**Imports**: Expo Router (Stack), React Query (QueryClientProvider), Gesture Handler, AuthProvider, AuthContext hook  
+**Patterns**: Provider nesting for global state; Stack navigator setup; conditional rendering based on auth state  
+**Surprises**: No error boundary visible; Gesture Handler required for react-native-gesture-handler dependencies; QueryClient instantiated in component (could be extracted)
+
+---
+
+### **tuck-in-tales-mobile/src/context/AuthContext.tsx**
+**Purpose**: Firebase auth state management and token persistence for mobile  
+**Exports**: AuthProvider component, useAuth hook  
+**Imports**: React, Firebase auth (onAuthStateChanged), Firebase config, token persistence utils (saveToken, removeToken, getToken)  
+**Patterns**: useContext for hook consumption; AuthContextType TypedDict; Firebase onAuthStateChanged listener for reactive updates  
+**Surprises**: Token saved/removed via platform-specific storage (AsyncStorage/SecureStore); no visible error handling for token persistence; loading state during auth initialization
+
+---
+
+### **tuck-in-tales-mobile/src/hooks/queries/useFamilyDetails.ts**
+**Purpose**: React Query hook for family data fetching with caching  
+**Exports**: useFamilyDetails hook, familyQueryKey constant  
+**Imports**: React Query useQuery, api client  
+**Patterns**: Query key as const array tuple; return type uses UseQueryResult generic; no stale time or cache duration visible  
+**Surprises**: Minimal — straightforward React Query hook usage; no infinite query or pagination visible
+
+---
+
+### **tuck-in-tales-backend/src/models/story.py**
+**Purpose**: Pydantic models for story-related requests/responses  
+**Exports**: StoryPageProgress (TypedDict), Story, StoryGenerationRequest, StoryBasic (BaseModel subclasses)  
+**Imports**: uuid, datetime, pydantic, typing  
+**Patterns**: TypedDict for partial/optional fields (StoryPageProgress); BaseModel Config for Pydantic v2 settings; Field() for descriptions and defaults  
+**Surprises**: StoryPageProgress defined as TypedDict extending _StoryPageRequired (unusual pattern mixing TypedDict and Pydantic); Story.Config.json_schema_extra not visible in signature
+
+---
+
+### **tuck-in-tales-frontend/src/components/ui/button.tsx**
+**Purpose**: Radix UI button component wrapper with CVA variants (class-variance-authority)  
+**Exports**: Button component with variant props (variant, size)  
+**Imports**: React, CVA, clsx, tailwind-merge (cn utility)  
+**Patterns**: CVA for composable button variants; Slot for polymorphic as prop; cn() for Tailwind class merging  
+**Surprises**: No surprises — standard headless UI pattern with Tailwind styling
+
+---
+
+### **tuck-in-tales-frontend/src/pages/MemoryLoggingPage.tsx**
+**Purpose**: Complex form page for logging family memories with text, photos, and auto-detected character avatars  
+**Exports**: Component with sub-components (AvatarGenRow, form steps)  
+**Imports**: useState, useCallback, useDropzone, date-fns, icons, form components, API client, hooks (useMemoryStream)  
+**Patterns**: Multi-step form (input → analysis → confirm → generating → done); useMemoryStream for SSE-based memory analysis; character avatar generation tracking (CharacterGenProgress)  
+**Surprises**: Complex state management with multiple type definitions inline (FileWithPreview, Step, CharacterGenProgress, EditableNewCharacter); avatar generation progress per character tracked in state; form appears to support inline character creation during memory logging
+
+---
+
+### **tuck-in-tales-backend/src/services/family_service.py**
+**Purpose**: Business logic for family operations (creation, joining, member management)  
+**Exports**: generate_join_code, create_family, join_family, get_family_details_for_user, update_family_settings, add_main_character, remove_main_character  
+**Imports**: uuid, Supabase client, random/string for code generation  
+**Patterns**: Pure functions operating on Supabase client; UUIDs for resource IDs; Optional return types for error handling  
+**Surprises**: join_family logic not visible (signature cuts off); no transaction boundaries for multi-step operations (e.g., create family + link user + generate code); error handling via Supabase exceptions
+
+---
+
+## Key Observations
+
+1. **No Centralized Schema**: TypeScript models and Pydantic models duplicated across frontend, mobile, backend—no shared schema source.
+2. **LangGraph as Orchestrator**: Complex AI workflows (story, avatar, memory analysis) expressed as state machines with explicit node functions and routing.
+3. **SSE for Real-Time Feedback**: Long-running operations stream progress via EventSource; client-side hooks (useStoryStream, useMemoryStream) parse and accumulate state.
+4. **Firebase + Supabase**: Firebase for auth tokens; Supabase for data persistence and file storage; user sync on first API call.
+5. **No Service/Repository Abstraction**: Routes directly call Supabase and instantiate graph machines; tight coupling between REST layer and orchestration.
+6. **Radix UI + Tailwind**: Consistent component library across web frontend with headless UI primitives and utility-first styling.
+7. **Expo Router for Mobile**: File-based routing in mobile app (app/ directory); tab-based navigation pattern.
+8. **Multi-LLM Support**: Pluggable LLM clients (OpenAI, Groq, Gemini) for text generation and image synthesis.
+9. **React Query in Mobile Only**: Data fetching caching in mobile (hooks/queries/); no equivalent in web app (direct API calls).
+10. **Monorepo Code Duplication**: supabaseUtils, models, and auth logic replicated across frontend and mobile—potential source of divergence.

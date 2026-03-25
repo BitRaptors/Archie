@@ -1,0 +1,527 @@
+```json
+{
+  "organization_style": "Monorepo with clear separation between backend (Python/FastAPI), frontend (Next.js/React), and landing page. Backend follows domain-driven design with layers: domain/entities, domain/interfaces, infrastructure, application/services, and api/routes. Frontend is feature-organized with hooks, services, components, and views. Clear physical separation matches logical boundaries.",
+  
+  "detected_components": [
+    {
+      "type": "Domain Entities",
+      "naming_pattern": "backend/src/domain/entities/*.py - singular nouns representing core business concepts",
+      "examples": ["user.py", "repository.py", "analysis.py", "blueprint.py", "architecture_rule.py", "analysis_prompt.py"]
+    },
+    {
+      "type": "Domain Interfaces & Exceptions",
+      "naming_pattern": "backend/src/domain/interfaces/*.py and backend/src/domain/exceptions/*.py - Abstract contracts and error definitions",
+      "examples": ["repositories.py (IRepository, IUserRepository, etc.)", "database.py (DatabaseClient, QueryBuilder)", "domain_exceptions.py (DomainException, NotFoundError, ValidationError)"]
+    },
+    {
+      "type": "Infrastructure Adapters",
+      "naming_pattern": "backend/src/infrastructure/*/*.py - Concrete implementations of domain interfaces",
+      "examples": ["persistence/postgres_adapter.py", "persistence/supabase_adapter.py", "storage/local_storage.py", "external/github_client.py", "analysis/structure_analyzer.py"]
+    },
+    {
+      "type": "Application Services",
+      "naming_pattern": "backend/src/application/services/*.py - Orchestrators that combine domain logic and infrastructure",
+      "examples": ["analysis_service.py", "phased_blueprint_generator.py", "delivery_service.py", "prompt_service.py", "intent_layer_service.py"]
+    },
+    {
+      "type": "API Routes",
+      "naming_pattern": "backend/src/api/routes/*.py - FastAPI routers, typically REST endpoints",
+      "examples": ["repositories.py", "analyses.py", "prompts.py", "delivery.py", "settings.py"]
+    },
+    {
+      "type": "Frontend React Components",
+      "naming_pattern": "frontend/components/*.tsx - UI building blocks, often with Props interfaces",
+      "examples": ["DeliveryPanel.tsx", "SourceFileModal.tsx", "MermaidDiagram.tsx", "ProjectTree.tsx"]
+    },
+    {
+      "type": "Frontend View Components",
+      "naming_pattern": "frontend/components/views/*.tsx - Page-level container components",
+      "examples": ["AnalysisView.tsx", "RepositoryView.tsx", "BlueprintView.tsx", "SettingsView.tsx"]
+    },
+    {
+      "type": "Frontend Hooks",
+      "naming_pattern": "frontend/hooks/*.tsx or frontend/hooks/api/*.tsx - React hooks for logic extraction",
+      "examples": ["useAuth.tsx", "usePrompts.ts", "useDelivery.ts", "useWorkspace.ts"]
+    },
+    {
+      "type": "Frontend Services",
+      "naming_pattern": "frontend/services/*.ts - API client abstraction layer",
+      "examples": ["auth.ts", "repositories.ts", "delivery.ts", "prompts.ts", "workspace.ts"]
+    },
+    {
+      "type": "Configuration & Dependency Injection",
+      "naming_pattern": "backend/src/config/*.py - Settings, constants, DI container setup",
+      "examples": ["settings.py (Pydantic BaseSettings)", "container.py (dependency_injector.containers)", "constants.py"]
+    },
+    {
+      "type": "Worker/Background Jobs",
+      "naming_pattern": "backend/src/workers/*.py - Async task execution with arq",
+      "examples": ["tasks.py (task definitions)", "worker.py (worker entry point)"]
+    },
+    {
+      "type": "MCP Server Components",
+      "naming_pattern": "backend/src/infrastructure/mcp/*.py - Model Context Protocol integration",
+      "examples": ["server.py", "tools.py", "resources.py"]
+    },
+    {
+      "type": "Test Files",
+      "naming_pattern": "backend/tests/[unit|integration]/*.py or test_*.py - Comprehensive test suite with fixtures",
+      "examples": ["tests/conftest.py (pytest fixtures)", "tests/unit/test_*.py", "tests/integration/test_*.py"]
+    },
+    {
+      "type": "Layout & Wrapper Components",
+      "naming_pattern": "frontend/components/layout/*.tsx - Page structure components",
+      "examples": ["Shell.tsx", "Sidebar.tsx", "PageHeader.tsx"]
+    },
+    {
+      "type": "UI Components",
+      "naming_pattern": "frontend/components/ui/*.tsx - Shadcn/radix-ui based primitives",
+      "examples": ["button.tsx", "card.tsx", "input.tsx", "badge.tsx"]
+    }
+  ],
+
+  "dependency_flow": "Backend follows onion/clean architecture: outer API layer (routes) → middle application layer (services) → inner domain layer (entities/interfaces) ← infrastructure (adapters) implements domain interfaces. Frontend uses hooks for state management and API abstraction, calling services which use axios to hit backend routes. Frontend components consume hooks, which call services. Landing page is isolated (separate Next.js app). Configuration (DI container, settings) bootstraps all layers at app startup. Worker processes subscribe to analysis tasks via arq/redis.",
+
+  "architecture_style": "Modular monorepo with a clean/onion architecture backend (domain-driven design with dependency inversion), a React frontend with custom hook-based state management and service abstraction, and a separated landing page. The backend uses explicit layers: domain entities as immutable dataclasses, domain interfaces as abstract contracts, infrastructure adapters as concrete implementations (Postgres, Supabase, GitHub, local filesystem), and application services as orchestrators. FastAPI routes are thin request/response handlers. The frontend uses React Query for server state, custom hooks for logic extraction, and a context-based auth system. Configuration-driven initialization via dependency_injector and Pydantic Settings. Async-first throughout (asyncio, FastAPI, React Query).",
+
+  "unique_patterns": [
+    "Dual database backend abstraction: DatabaseClient interface with both PostgresAdapter and SupabaseAdapter implementations, allowing hot-swapping between backends via configuration",
+    "Phased blueprint generation: AI analysis pipeline broken into discoverable phases (discovery → layers → enrichment) with progress callbacks and RAG-based code retrieval",
+    "Intent layer rendering: Multi-stage rendering pipeline (FolderHierarchyBuilder → IntentLayerService → IntentLayerRenderer) that progressively enriches codebase analysis with AI-generated intent descriptions",
+    "Dual push client abstraction: GitHubPushClient (for remote) and LocalPushClient (for local development), both implementing same file-writing interface",
+    "Smart refresh service: Incremental re-analysis that diffs blueprints against current codebase, identifies affected folders, and selectively updates only changed sections",
+    "Multi-format delivery: Delivery service generates outputs in multiple formats (markdown, JSON for MCP config, CLAUDE.md, .cursor/rules.md, agents.md) from single blueprint",
+    "Manifest-based change tracking: GenerationManifest with content hashing tracks which folders have been generated, enabling targeted re-generation on subsequent analyses",
+    "RAG-augmented analysis: RAGRetriever uses SentenceTransformer embeddings to index repository and retrieve relevant code snippets for each analysis phase",
+    "Event-driven progress tracking: Analysis events (discovery_started, phase_completed, etc.) published to event bus and streamed to frontend via SSE",
+    "Custom prompt versioning: PromptRevision system with revert-to-revision capability; prompts can be customized per repository or use defaults from database",
+    "Context-aware MCP server: Model Context Protocol integration with active repository awareness, automatically filtering tools/resources based on selected repo",
+    "Hybrid enrichment engine: Token-aware file prioritization and context windowing for AI calls, balancing token limits with code coverage"
+  ],
+
+  "standard_patterns_if_any": [
+    "Dependency Injection via dependency_injector library (Container with providers pattern)",
+    "Repository pattern for data access (IRepository generic interface, concrete implementations for each entity type)",
+    "Service layer pattern for business logic orchestration",
+    "Data Transfer Objects (Pydantic models in api/dto/) for API request/response validation",
+    "Factory functions for entity creation (Entity.create() classmethods)",
+    "Middleware error handling (domain_exception_handler wrapping DomainExceptions into HTTP responses)",
+    "React Query for server-state management with custom useQuery/useMutation hooks",
+    "Context API for auth state management",
+    "Feature-based organization in frontend (views, hooks/api per feature)",
+    "Axios for HTTP client library",
+    "Pytest fixtures (conftest.py) with AsyncMock/MagicMock for testing"
+  ],
+
+  "framework_usage": {
+    "FastAPI": "Core backend framework, used in api/app.py, all api/routes/*.py, SSE event streaming",
+    "Pydantic": "Data validation throughout (Settings, entity serialization, DTO validation)",
+    "SQLAlchemy/asyncpg": "Postgres driver (PostgresAdapter uses asyncpg.Pool directly)",
+    "Supabase": "Alternative database backend (SupabaseAdapter wraps postgrest client)",
+    "dependency_injector": "DI container (config/container.py), manages singleton instances, async resource lifecycle",
+    "arq": "Job queue for background analysis tasks (workers/tasks.py, Redis-backed)",
+    "sentence-transformers": "Embedding model for RAG (infrastructure/analysis/shared_embedder.py)",
+    "anthropic": "Claude API client for LLM calls (phased_blueprint_generator.py with retry logic)",
+    "PyGithub": "GitHub API integration (infrastructure/external/github_client.py, github_push_client.py)",
+    "Next.js": "Frontend framework (frontend/next.config.js, pages routing, SSR)",
+    "React": "Frontend UI library (hooks, components, context)",
+    "React Query": "Server state management (useQuery, useMutation in hooks/api/)",
+    "Axios": "HTTP client for frontend (frontend/services/*.ts)",
+    "Tailwind CSS": "Utility-first CSS framework (tailwind.config.js, cn() utility for merging classes)",
+    "Shadcn/radix-ui": "Headless UI components (Button, Card, Input primitives)",
+    "Mermaid": "Diagram rendering (MermaidDiagram component, embedded in blueprints)",
+    "SyntaxHighlighter": "Code syntax highlighting (SourceFileModal.tsx)",
+    "Sonner": "Toast notifications (frontend/_app.tsx)",
+    "MCP (Model Context Protocol)": "Claude integration protocol (infrastructure/mcp/server.py)",
+    "Lenis": "Smooth scrolling library (landing page)",
+    "GSAP": "Animation library (landing page with ScrollTrigger)",
+    "Pytest": "Testing framework (extensive test suite, conftest.py fixtures)",
+    "Postgres": "Primary database",
+    "Redis": "Session/queue backend (arq integration)"
+  },
+
+  "key_search_terms": [
+    "DatabaseClient interface - understand abstraction over Postgres/Supabase",
+    "AnalysisService.run_analysis - core orchestration of analysis pipeline",
+    "PhasedBlueprintGenerator - multi-phase LLM-based code analysis",
+    "RAGRetriever - semantic code search via embeddings",
+    "IntentLayerService - folder hierarchy enrichment",
+    "SmartRefreshService - incremental diff-based re-analysis",
+    "DeliveryService - multi-format blueprint output generation",
+    "Container.wire() - DI setup and provider initialization",
+    "analyze_repository task - background worker entry point",
+    "BlueprintView - main UI component integrating analysis & delivery",
+    "useAuth context - authentication state and token management",
+    "AnalysisEvent streaming - SSE progress updates",
+    "PromptRevision versioning - custom prompt management",
+    "MCP tools/resources - Claude integration points",
+    "Blueprint entity model - JSON schema for architecture output"
+  ],
+
+  "priority_files_by_phase": {
+    "discovery": [
+      "backend/src/main.py",
+      "backend/src/api/app.py",
+      "backend/src/config/container.py",
+      "backend/src/config/settings.py",
+      "frontend/pages/_app.tsx",
+      "frontend/pages/index.tsx",
+      "landing/app/page.tsx"
+    ],
+    "layers": [
+      "backend/src/config/container.py",
+      "backend/src/domain/interfaces/repositories.py",
+      "backend/src/domain/interfaces/database.py",
+      "backend/src/api/routes/repositories.py",
+      "backend/src/application/services/analysis_service.py",
+      "backend/src/infrastructure/persistence/analysis_repository.py",
+      "frontend/context/auth.tsx"
+    ],
+    "patterns": [
+      "backend/src/infrastructure/persistence/postgres_adapter.py",
+      "backend/src/infrastructure/persistence/supabase_adapter.py",
+      "backend/src/application/services/phased_blueprint_generator.py",
+      "backend/src/application/services/smart_refresh_service.py",
+      "backend/src/application/services/delivery_service.py",
+      "backend/src/domain/entities/architecture_rule.py",
+      "frontend/hooks/api/usePrompts.ts"
+    ],
+    "communication": [
+      "backend/src/api/app.py",
+      "backend/src/api/routes/analyses.py",
+      "backend/src/infrastructure/events/event_bus.py",
+      "backend/src/workers/tasks.py",
+      "backend/src/infrastructure/external/github_client.py",
+      "backend/src/infrastructure/external/github_push_client.py",
+      "backend/src/infrastructure/mcp/server.py",
+      "frontend/services/repositories.ts"
+    ],
+    "technology": [
+      "backend/src/config/settings.py",
+      "backend/src/config/container.py",
+      "backend/src/infrastructure/persistence/db_factory.py",
+      "backend/src/workers/worker.py",
+      "backend/src/infrastructure/analysis/shared_embedder.py",
+      "start-dev.py",
+      "frontend/next.config.js"
+    ],
+    "deployment": [
+      "docker-compose.yml (inferred from tests)",
+      "backend/scripts/seed_prompts.py",
+      "backend/scripts/rerun_synthesis.py",
+      "start-dev.py",
+      "backend/src/workers/worker.py",
+      "backend/src/workers/tasks.py",
+      "backend/src/config/settings.py"
+    ],
+    "frontend": [
+      "frontend/pages/_app.tsx",
+      "frontend/pages/index.tsx",
+      "frontend/context/auth.tsx",
+      "frontend/hooks/useAuth.tsx",
+      "frontend/hooks/api/useRepositoriesQuery.tsx",
+      "frontend/components/views/BlueprintView.tsx",
+      "frontend/components/views/AnalysisView.tsx"
+    ]
+  },
+
+  "concerns": [
+    "Database abstraction complexity: While abstraction enables Postgres/Supabase swapping, maintenance burden increases; subtle behavioral differences (e.g., array handling in postgres_adapter vs supabase_adapter) could cause subtle bugs",
+    "LLM call retry logic and error handling: Phased generator retries on rate limits/server errors, but no circuit breaker or fallback strategy visible; long analyses could timeout or fail partially",
+    "RAG indexing freshness: Embeddings indexed once per analysis; if code changes between analyses, retrieval may become stale until next full re-index",
+    "State synchronization: Smart refresh diffs against stored blueprint manifest, but manifest could diverge from actual file system state if delivery fails partway through",
+    "Token counting precision: hybrid_enrichment_engine estimates tokens with tiktoken, but actual Claude token count may differ (encoding mismatch, multimodal tokens); truncation could be inaccurate",
+    "MCP tool filtering complexity: BlueprintTools and BlueprintResources both handle filtering by repository; duplication and potential consistency issues if filtering logic diverges",
+    "Frontend auth token management: SERVER_TOKEN sentinel value used for local development; unclear how this is handled in production or how token refresh works",
+    "Event streaming reliability: SSE stream to frontend may drop events if connection flaky; no client-side retry or reconnect logic visible",
+    "Prompt versioning without explicit migration: PromptRevision allows reverting, but no audit trail or migration path for changing prompt structure/inputs across all runs",
+    "Intent layer rendering line limit: MAX_LINES hard cap on rendered output; could silently truncate important information without warning"
+  ]
+}
+```
+
+---
+
+## Per-File Priority Analysis (Discovery Phase)
+
+### `backend/src/main.py`
+**Purpose**: Application entry point that bootstraps FastAPI server  
+**Exports**: Implicit – starts uvicorn server  
+**Imports**: `create_app` from api/app, `get_settings`  
+**Patterns**: Minimal wrapper; config-driven via environment  
+**Surprises**: No explicit lifespan management here; all setup deferred to `create_app()`
+
+---
+
+### `backend/src/api/app.py`
+**Purpose**: FastAPI application factory with middleware and lifespan setup  
+**Exports**: `create_app() -> FastAPI`  
+**Imports**: FastAPI, CORS middleware, CORSMiddleware, exception handlers, asynccontextmanager, Container  
+**Patterns**: Async lifespan context manager for resource initialization/shutdown; middleware exception handler wrapping DomainException; CORS configuration  
+**Surprises**: Database and container initialization happen inside lifespan, not at module level – enables graceful shutdown. Exception handler catches DomainException and converts to HTTP 400/404/409/401 responses.
+
+---
+
+### `backend/src/config/container.py`
+**Purpose**: Dependency injection container setup using dependency_injector library  
+**Exports**: `Container` class with providers for db, storage, arq_pool, services  
+**Imports**: `DeclarativeContainer`, `providers`, arq, Postgres/Supabase setup, all service classes  
+**Patterns**: Declarative container pattern; async resource providers with init/shutdown callbacks; singleton scope for db and storage  
+**Surprises**: Container wires services lazily; arq_pool created asynchronously but stored as provider for lifespan management. Container.container references itself globally for test/script access.
+
+---
+
+### `backend/src/config/settings.py`
+**Purpose**: Centralized configuration management using Pydantic  
+**Exports**: `Settings` dataclass, `get_settings()` cached function  
+**Imports**: Pydantic BaseSettings, Field, model_validator  
+**Patterns**: BaseSettings for env var binding with validation; @model_validator for cross-field logic; @lru_cache singleton pattern for get_settings()  
+**Surprises**: Dual backend support (DB_BACKEND toggles Postgres vs Supabase); some fields optional/conditional based on backend choice. JWT_SECRET optional for Supabase but required for custom auth flows.
+
+---
+
+### `backend/src/workers/tasks.py`
+**Purpose**: Background job definitions for arq job queue  
+**Exports**: `analyze_repository(ctx, analysis_id, repository_id, token)` task, `startup`/`shutdown` hooks, `WorkerSettings`  
+**Imports**: AnalysisService, RepositoryService, analysis_data_collector, event publishing  
+**Patterns**: arq task pattern with context object; startup/shutdown for DI setup; event logging via async publish  
+**Surprises**: Task has retry logic for marking analysis failed if supabase unreachable. Task publishes events to event_bus during execution. Long-running task (analysis can take minutes).
+
+---
+
+### `frontend/pages/_app.tsx`
+**Purpose**: Next.js root component wrapping all pages with providers  
+**Exports**: Default function (unnamed component)  
+**Imports**: QueryClient, QueryClientProvider, AuthContextProvider, Sonner toast, global CSS  
+**Patterns**: Provider wrapping pattern; error toast notifications on QueryCache/MutationCache errors; error message extraction utility  
+**Surprises**: QueryClient configured inline with MutationCache/QueryCache error handlers; centralized error notification here rather than per-component.
+
+---
+
+### `frontend/pages/index.tsx`
+**Purpose**: Main dashboard/home page component  
+**Exports**: Default function (Dashboard component)  
+**Imports**: Shell, Sidebar, useAuth, repository/analysis views, navigation state machine  
+**Patterns**: View state machine (repositories | analysis | blueprint | settings); nested conditional rendering based on state; view-specific onX callback handlers  
+**Surprises**: Complex local state management (viewState, currentRepoId, currentAnalysisId, history); sidebar history tracking is manual array append. No route-based navigation – all SPA state in component.
+
+---
+
+### `frontend/context/auth.tsx`
+**Purpose**: Authentication context providing token and auth status  
+**Exports**: `AuthContextProvider` component, `useAuth()` hook, `SERVER_TOKEN` sentinel constant  
+**Imports**: React context/hooks, authService for API calls  
+**Patterns**: React Context for global auth state; custom hook to access context with error checking  
+**Surprises**: SERVER_TOKEN `'__server__'` string used as a sentinel for local/dev mode (no actual token). Token stored in memory (no localStorage visible). Init logic checks auth status on mount.
+
+---
+
+## Per-File Details (Layers Phase)
+
+### `backend/src/domain/interfaces/database.py`
+**Purpose**: Abstract database client interface with query builder pattern  
+**Exports**: `DatabaseClient` (ABC), `QueryBuilder` (ABC), `DatabaseError` exception, `QueryResult` dataclass  
+**Imports**: ABC, abstractmethod, typing  
+**Patterns**: Fluent query builder interface (select().eq().execute()); generic column/table naming; error metadata (code, message)  
+**Surprises**: QueryResult is a dataclass tuple of (data, count, status); symmetric query methods (select/insert/update/delete/upsert); chainable filter operators (eq, neq, in_). No explicit transaction support visible.
+
+---
+
+### `backend/src/domain/interfaces/repositories.py`
+**Purpose**: Generic and entity-specific repository interfaces  
+**Exports**: `IRepository[T, ID]` generic, `IUserRepository`, `IRepositoryRepository`, `IAnalysisRepository`, `IAnalysisEventRepository`, `IUserProfileRepository`  
+**Imports**: ABC, Generic TypeVar, all entity types  
+**Patterns**: Generic repository pattern with entity-specific subinterfaces; consistent CRUD + find methods; entity-specific query methods (e.g., get_by_user_id)  
+**Surprises**: IRepository has add/update but no save (separate concerns); get_by_analysis_id in IAnalysisEventRepository (one direction of relationship). TypeVar T, ID kept generic.
+
+---
+
+### `backend/src/infrastructure/persistence/postgres_adapter.py`
+**Purpose**: Concrete PostgreSQL adapter implementing DatabaseClient interface  
+**Exports**: `PostgresAdapter`, `PostgresQueryBuilder` classes  
+**Imports**: asyncpg.Pool, DatabaseClient interface, QueryBuilder  
+**Patterns**: SQL string building in query builder; parameter normalization (_coerce_param handles UUID, datetime, lists); row record normalization to dict  
+**Surprises**: Raw SQL concatenation in builders (not parameterized in string, but via asyncpg execute); asyncpg.Record treated as dict-like. No ORM layer – pure SQL.
+
+---
+
+### `backend/src/infrastructure/persistence/supabase_adapter.py`
+**Purpose**: Concrete Supabase/PostgREST adapter implementing DatabaseClient interface  
+**Exports**: `SupabaseAdapter`, `SupabaseQueryBuilder` classes  
+**Imports**: postgrest client, DatabaseClient interface  
+**Patterns**: Wrapper around Supabase postgrest library; defers actual execution to postgrest methods; error handling converts APIError  
+**Surprises**: Supabase adapter leans on postgrest library heavily (less custom SQL); upsert via on_conflict parameter; RPC calls for stored procedures (rpc method).
+
+---
+
+### `backend/src/application/services/analysis_service.py`
+**Purpose**: Orchestrates the full analysis pipeline – cloning repo, analyzing, generating blueprint  
+**Exports**: `AnalysisService` class with `start_analysis()` and `run_analysis()` methods  
+**Imports**: Repositories, RepositoryService, SourceFileCollector, StructureAnalyzer, PhasedBlueprintGenerator, storage, event publishing  
+**Patterns**: Service composition (calls multiple lower-level services); progress callbacks for UI updates; event logging; analysis state transitions (pending → running → completed/failed)  
+**Surprises**: Two separate methods: start_analysis (async, enqueues to worker), run_analysis (does actual work, can be called in-process or via worker). Temp directory for cloned repo cleaned up after analysis. Enrichment happens post-generation if enabled.
+
+---
+
+## Per-File Details (Patterns Phase)
+
+### `backend/src/application/services/phased_blueprint_generator.py`
+**Purpose**: Multi-phase LLM-based blueprint generation orchestrator  
+**Exports**: `PhasedBlueprintGenerator` class with `generate()` method  
+**Imports**: PhasedBlueprintGenerator, Claude Anthropic client, RAGRetriever, PromptLoader, StructureAnalyzer  
+**Patterns**: Phase-based orchestration (discovery → layers → enrichment); prompt templating with context variables; LLM result parsing (JSON extraction); progress callbacks  
+**Surprises**: Custom retry logic for Claude API (exponential backoff on rate limits); token counting with tiktoken; RAG context retrieval with custom queries per phase. Phases run sequentially with data accumulation. Output structured as JSON then parsed into StructuredBlueprint.
+
+---
+
+### `backend/src/application/services/smart_refresh_service.py`
+**Purpose**: Incremental re-analysis – identifies changed folders and regenerates only affected sections  
+**Exports**: `SmartRefreshService` class with `refresh()` method  
+**Imports**: blueprint_folder_mapper, intent_layer_service, storage, LLM client  
+**Patterns**: Diff-based change detection (blueprint hash vs current codebase); AI-assisted impact analysis; targeted regeneration  
+**Surprises**: Loads existing blueprint, compares against current file tree, identifies covered folders, computes affected folders via AI evaluation (not just code comparison). Returns SmartRefreshResult with status (NO_REFRESH | WARNINGS | REFRESHED_WITH_UPDATES).
+
+---
+
+### `backend/src/application/services/delivery_service.py`
+**Purpose**: Generates multi-format outputs from a blueprint (markdown, JSON, Claude config, cursor rules)  
+**Exports**: `DeliveryService` class with `preview()` and `apply()` methods  
+**Imports**: storage, blueprint_renderer, agent_file_generator, intent_layer_renderer, github_push_client, local_push_client  
+**Patterns**: Multi-output format strategy; markdown merge logic (appends generated to existing with markers); JSON config merge (deep merge with conflict resolution)  
+**Surprises**: Handles both preview (return outputs without writing) and apply (write to repo or create PR). Dynamically chooses push client (GitHub vs local). Markdown merge uses comment markers to track generated sections. MCP config generation separate from other outputs.
+
+---
+
+### `backend/src/domain/entities/blueprint.py`
+**Purpose**: Core data model for architecture blueprint  
+**Exports**: `StructuredBlueprint` (via Pydantic BaseModel), confidence scores, metadata, rules, layers  
+**Imports**: Pydantic, field validators, coercion helpers  
+**Patterns**: Pydantic model with BeforeValidator coercions for type flexibility; nested models (ConfidenceScores, BlueprintMeta, ArchitectureRules); list/string coercions for robustness  
+**Surprises**: Heavy use of coercion validators (_coerce_str_list, _coerce_contracts) to handle both string and list inputs; local_state and global_state have special coercion logic (state_management as dict or list). Schema designed for flexibility in LLM output.
+
+---
+
+## Per-File Details (Communication Phase)
+
+### `backend/src/api/routes/analyses.py`
+**Purpose**: REST endpoints for analysis operations (list, get, stream progress, retrieve data)  
+**Exports**: Router with GET/POST endpoints  
+**Imports**: FastAPI, SSE EventSourceResponse, repositories, domain entities  
+**Patterns**: Dependency injection via request object to get repos; async event streaming via SSE; event_generator async generator  
+**Surprises**: `stream_analysis_progress` endpoint streams analysis events as SSE; event_generator subscribes to event_bus and yields events. Endpoints use IAnalysisRepository from DI container via request context.
+
+---
+
+### `backend/src/infrastructure/events/event_bus.py`
+**Purpose**: Simple in-memory event pub/sub system  
+**Exports**: `publish(analysis_id, event)` and `subscribe(analysis_id)` async functions  
+**Imports**: asyncio, asynccontextmanager  
+**Patterns**: In-memory queue per analysis; async context manager for subscription  
+**Surprises**: Very minimal – no external event bus; just asyncio.Queue per analysis_id; publish puts event on queue, subscribe creates async generator that yields from queue. Events are dicts (loosely typed).
+
+---
+
+### `backend/src/infrastructure/external/github_client.py`
+**Purpose**: GitHub API client for read operations  
+**Exports**: `GitHubClient` class  
+**Imports**: PyGithub library, domain exceptions  
+**Patterns**: Wrapper around PyGithub; token validation; error handling converts GithubException to domain exceptions  
+**Surprises**: Client is read-only (get_user, list_repositories, get_repository, get_latest_commit_sha); no write operations. Raises AuthorizationError on invalid token, ValidationError on bad requests.
+
+---
+
+### `backend/src/infrastructure/external/github_push_client.py`
+**Purpose**: GitHub API client for write operations (PR creation, file commits)  
+**Exports**: `GitHubPushClient` class  
+**Imports**: PyGithub, base64 for file encoding, domain exceptions  
+**Patterns**: Atomic commits via GitHub tree API; branch creation before commit; PR creation for code delivery  
+**Surprises**: Uses InputGitTreeElement to build tree atomically; encodes file content as base64. get_file_content for reading existing files (used in merge logic). Creates branches and PRs with specified base branch.
+
+---
+
+### `backend/src/infrastructure/mcp/server.py`
+**Purpose**: Model Context Protocol server integration for Claude  
+**Exports**: `create_server()` function returning MCP Server  
+**Imports**: MCP Server, BlueprintTools, BlueprintResources, user profile repo, analysis repo  
+**Patterns**: Resource listing, tool calling, dynamic repository filtering based on active repo  
+**Surprises**: Integrates with user_profile to track active repository; tools/resources filtered by active repo. MCP server exposes analyzed repositories as resources (blueprint, sections, files). Tools for searching/analyzing blueprints.
+
+---
+
+### `frontend/services/repositories.ts`
+**Purpose**: API client abstraction for repository operations  
+**Exports**: `repositoriesService` object with methods  
+**Imports**: axios, SERVER_TOKEN, domain types  
+**Patterns**: Service object pattern; methods return Promise<T>; auth headers injected  
+**Surprises**: Minimal – just wraps axios calls to backend. Uses SERVER_TOKEN as sentinel for local dev.
+
+---
+
+## Per-File Details (Technology/Deployment Phase)
+
+### `backend/src/config/settings.py`
+**Purpose**: Configuration and environment variable binding  
+**Exports**: `Settings` class, `get_settings()` function  
+**Imports**: Pydantic BaseSettings, dotenv  
+**Patterns**: BaseSettings with env var prefixes; validation via model_validator; conditional field requirements based on backend choice  
+**Surprises**: Supports both Postgres (asyncpg) and Supabase backends; JWT_SECRET optional; API keys for external services (GitHub, Anthropic); LLM model selection; debug mode flag.
+
+---
+
+### `backend/src/config/container.py`
+**Purpose**: Dependency injection container  
+**Exports**: `Container` class  
+**Imports**: dependency_injector, all services/repos, database factory, arq pool factory  
+**Patterns**: DeclarativeContainer with provider declarations; async resource management; lazy initialization  
+**Surprises**: Providers for db, storage, arq_pool, services; async _init_and_return_db wraps db_factory.create_db(); container.wire() used to inject dependencies into classes. Single-app design (global container reference).
+
+---
+
+### `start-dev.py`
+**Purpose**: Local development startup script  
+**Exports**: Implicit – runs backend and frontend servers  
+**Imports**: subprocess, sys, signal, os, time  
+**Patterns**: Multi-process management; signal handling for graceful shutdown; environment setup (redis, postgres checks)  
+**Surprises**: Checks for Redis and Postgres availability before starting services; parses REDIS_URL to extract host/port; starts backend (FastAPI) and frontend (Next.js dev) in separate processes; cleanup handler stops both on SIGINT.
+
+---
+
+### `backend/src/workers/worker.py`
+**Purpose**: arq worker process entry point  
+**Exports**: `main()` function  
+**Imports**: arq, WorkerSettings from tasks  
+**Patterns**: arq worker initialization; runs event loop with worker tasks  
+**Surprises**: Minimal wrapper around arq.run_worker(); WorkerSettings passed as config (defines startup/shutdown/functions).
+
+---
+
+### `frontend/next.config.js`
+**Purpose**: Next.js configuration  
+**Exports**: nextConfig object  
+**Imports**: next config type  
+**Patterns**: Standard Next.js config; may include webpack customization, env vars, output settings  
+**Surprises**: Minimal visible – typical Next.js setup.
+
+---
+
+## Conclusions
+
+This is a **sophisticated, production-ready AI-powered codebase analysis tool** with:
+
+1. **Layered backend** following clean architecture principles (domain → application → infrastructure → API)
+2. **Dual database support** via interface abstraction (Postgres + Supabase)
+3. **Multi-phase LLM analysis** with RAG-augmented code retrieval and progress streaming
+4. **Incremental smart refresh** via diff-based change detection and targeted re-generation
+5. **Multi-format delivery** (Markdown, JSON, Claude config, Cursor rules, MCP tools)
+6. **React frontend** with custom hook-based state management and React Query
+7. **Background job system** via arq + Redis for long-running analyses
+8. **MCP integration** for Claude desktop/IDE usage
+
+**Key architectural decisions:**
+- Domain-driven design enables clear separation of concerns and testability
+- Database abstraction allows vendor choice at runtime
+- Event-driven progress tracking enables real-time UI updates
+- Service composition enables reusable orchestration logic
+- React hooks + Query centralize API interaction logic
+
+**Concerns to address:** Token estimation accuracy, LLM retry resilience, manifest freshness, state synchronization, and frontend auth token lifecycle in production.

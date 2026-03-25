@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/csacsi/.claude/**)",
+      "Read(//Users/csacsi/DEV/BedtimeApp/**)",
+      "Bash(npx:*)",
+      "Bash(node --version:*)",
+      "Bash(printenv:*)",
+      "Bash(curl:*)",
+      "Bash(claude mcp remove:*)",
+      "Bash(claude mcp list:*)",
+      "Bash(source:*)",
+      "Bash(claude mcp add:*)",
+      "mcp__supabase__list_projects",
+      "mcp__supabase__list_tables",
+      "Bash(env:*)",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__execute_sql",
+      "Bash(unzip:*)",
+      "Bash(\"/Users/csacsi/DEV/BedtimeApp/Backup/insert_stories.py\":*)",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__get_publishable_keys",
+      "Bash(npm install:*)",
+      "Bash($HOME/.nvm/versions/node/*/bin/npm)",
+      "Bash(poetry --version:*)",
+      "Bash(/Users/csacsi/.local/bin/poetry env info:*)",
+      "Bash(/Users/csacsi/.local/bin/poetry show:*)",
+      "Bash(PATH=\"$HOME/.local/bin:$PATH\" poetry show:*)",
+      "Bash(/Users/csacsi/.local/bin/poetry --version)",
+      "Bash(/Users/csacsi/.local/bin/poetry env list:*)",
+      "Bash(/Users/csacsi/.local/bin/poetry env remove:*)",
+      "Bash(/Users/csacsi/.local/bin/poetry env use:*)",
+      "Bash(find:*)",
+      "Bash(npm --version:*)",
+      "Bash(/opt/homebrew/bin/brew:*)",
+      "Bash(/opt/homebrew/bin/npx create-expo-app@latest tuck-in-tales-mobile --template blank-typescript --yes)",
+      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")",
+      "Bash(kill:*)",
+      "Bash(poetry run uvicorn src.main:app --reload --port 8000)",
+      "Bash(xargs cat:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/csacsi/DEV/BedtimeApp/.git"
+    ]
+  },
+  "mcpServers": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=nxuprpxggpymnhuebbqq"
+    }
+  }
+}

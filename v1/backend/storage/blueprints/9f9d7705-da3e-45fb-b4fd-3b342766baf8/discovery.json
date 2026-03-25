@@ -1,0 +1,213 @@
+```json
+{
+  "project_type": "Monorepo - Full-stack web and mobile application with shared backend",
+  "platforms": [
+    "backend",
+    "web-frontend",
+    "mobile-frontend"
+  ],
+  "entry_points": [
+    {
+      "file": "tuck-in-tales-backend/src/main.py",
+      "purpose": "FastAPI application server - REST API and SSE streaming endpoints",
+      "platform": "backend",
+      "framework": "FastAPI + Python",
+      "description": "Core backend service providing character management, story generation, avatar creation, and memory logging"
+    },
+    {
+      "file": "tuck-in-tales-frontend/src/main.tsx",
+      "purpose": "React web application entry point",
+      "platform": "web-frontend",
+      "framework": "React + Vite + TypeScript",
+      "description": "Web-based UI for story generation, character management, family features, and content creation"
+    },
+    {
+      "file": "tuck-in-tales-mobile/App.tsx",
+      "purpose": "React Native / Expo mobile application entry point",
+      "platform": "mobile-frontend",
+      "framework": "React Native + Expo",
+      "description": "Cross-platform mobile app for iOS/Android with tabs-based navigation (home, characters, memories)"
+    }
+  ],
+  "module_organization": {
+    "structure": "Feature-based layered architecture with shared utilities and models",
+    "backend": {
+      "location": "tuck-in-tales-backend/src/",
+      "layers": {
+        "entry": "main.py - FastAPI app initialization and route mounting",
+        "routes": "routes/ - API endpoints (characters.py, stories.py, memories.py, family.py, prompts.py)",
+        "models": "models/ - Pydantic data models (user.py, character.py, story.py, memory.py, family.py, prompt.py)",
+        "services": "services/ - Business logic (family_service.py)",
+        "graphs": "graphs/ - LangGraph-based workflows (story_generator.py, avatar_generator.py, memory_analyzer.py)",
+        "utils": "utils/ - Cross-cutting concerns (auth.py, sse.py, supabase.py, gemini_client.py, groq_client.py, openai_client.py, prompt_resolver.py, image_crop.py, firebase_admin_init.py)",
+        "config": "config.py - Environment and dependency configuration"
+      },
+      "design_pattern": "Route → Service/Graph → Model pattern with shared auth and database utilities"
+    },
+    "web_frontend": {
+      "location": "tuck-in-tales-frontend/src/",
+      "layers": {
+        "pages": "pages/ - Route-level components (CharacterCreationPage.tsx, StoryGenerationPage.tsx, etc.)",
+        "components": "components/ - Reusable UI components (Auth, CharacterList, prompts, ui library)",
+        "context": "context/ - React Context state management (AuthContext.tsx)",
+        "hooks": "hooks/ - Custom React hooks (useStoryStream.ts, useAvatarStream.ts, useSSEStream.ts, useMemoryStream.ts)",
+        "models": "models/ - TypeScript interfaces (character.ts, story.ts, memory.ts, family.ts, prompt.ts)",
+        "api": "api/client.ts - HTTP client with Axios",
+        "utils": "utils/ - Utilities (firebase.ts, supabaseUtils.ts)",
+        "lib": "lib/ - Helper functions (promptVariables.ts, utils.ts)",
+        "config": "firebaseConfig.ts - Firebase initialization"
+      },
+      "design_pattern": "Component → Hook → API Client pattern with Context for auth state"
+    },
+    "mobile_frontend": {
+      "location": "tuck-in-tales-mobile/",
+      "layers": {
+        "app": "app/ - Expo Router navigation structure (tabs layout, auth layout, story detail route)",
+        "src/api": "api/client.ts - HTTP client matching web frontend",
+        "src/context": "context/AuthContext.tsx - Authentication state",
+        "src/hooks": "hooks/queries/ - TanStack Query hooks (useCharacters.ts, useStories.ts, etc.) + useGoogleSignIn.ts",
+        "src/models": "models/ - TypeScript interfaces (character.ts, story.ts, family.ts)",
+        "src/config": "config/ - Firebase and Supabase initialization",
+        "src/utils": "utils/supabaseUtils.ts - Database utilities"
+      },
+      "design_pattern": "Expo Router (file-based routing) → Context/Hooks → API Client"
+    }
+  },
+  "config_approach": {
+    "backend": {
+      "method": "Environment variables + config.py centralized configuration",
+      "key_patterns": [
+        "FIREBASE_CREDENTIALS - Firebase service account JSON",
+        "SUPABASE_URL, SUPABASE_KEY - Supabase connection",
+        "GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY - AI service credentials",
+        "Loaded via tuck-in-tales-backend/src/config.py"
+      ],
+      "references": [
+        "tuck-in-tales-backend/src/utils/firebase_admin_init.py - Firebase admin SDK setup",
+        "tuck-in-tales-backend/src/utils/supabase.py - Supabase client factory",
+        "tuck-in-tales-backend/src/utils/gemini_client.py, groq_client.py, openai_client.py - AI client initialization"
+      ]
+    },
+    "web_frontend": {
+      "method": "Environment variables + firebaseConfig.ts",
+      "key_patterns": [
+        "VITE_FIREBASE_* - Firebase project configuration (apiKey, projectId, etc.)",
+        "VITE_BACKEND_URL - API base URL for backend communication",
+        "Loaded via tuck-in-tales-frontend/src/firebaseConfig.ts"
+      ],
+      "references": [
+        "tuck-in-tales-frontend/src/api/client.ts - Axios instance with backend URL",
+        "tuck-in-tales-frontend/src/utils/supabaseUtils.ts - Optional Supabase client"
+      ]
+    },
+    "mobile_frontend": {
+      "method": "Environment variables + config files",
+      "key_patterns": [
+        "EXPO_PUBLIC_FIREBASE_* - Firebase configuration",
+        "EXPO_PUBLIC_BACKEND_URL - API base URL",
+        "Loaded via tuck-in-tales-mobile/src/config/firebase.ts and supabase.ts"
+      ],
+      "references": [
+        "tuck-in-tales-mobile/src/api/client.ts - Axios instance configuration",
+        "tuck-in-tales-mobile/src/config/supabase.ts - Supabase client initialization"
+      ]
+    }
+  },
+  "key_observations": [
+    "STREAMING ARCHITECTURE: SSE (Server-Sent Events) pattern implemented via tuck-in-tales-backend/src/utils/sse.py for real-time story/avatar generation progress. Clients connect with StreamingResponse endpoint and receive typed events (chunk, status, done, error). SSE utility provides queue-based event management with automatic client_id lifecycle handling.",
+    "AI ORCHESTRATION: LangGraph-based workflows (tuck-in-tales-backend/src/graphs/story_generator.py, avatar_generator.py, memory_analyzer.py) orchestrate multi-step AI operations. Multiple AI providers supported: Gemini, Groq, OpenAI via pluggable client utilities.",
+    "AUTHENTICATION: Firebase ID tokens verified on backend (tuck-in-tales-backend/src/utils/auth.py). User auto-provisioning in Supabase on first login. OAuth2PasswordBearer scheme for API authentication.",
+    "DATA PERSISTENCE: Supabase (PostgreSQL) as primary database with Pydantic models providing type safety across all tiers. Shared model definitions reduce coupling.",
+    "CROSS-PLATFORM API: Single REST API backend consumed by both web (Axios client in tuck-in-tales-frontend/src/api/client.ts) and mobile (identical client in tuck-in-tales-mobile/src/api/client.ts). Custom hooks (useStoryStream, useAvatarStream) abstract SSE connectivity.",
+    "STATE MANAGEMENT PATTERN: Web uses React Context (AuthContext) for auth state + TanStack Query implied by dependencies. Mobile uses Context + TanStack Query hooks explicitly (useCharacters, useStories, etc.). No centralized state store (Redux/Zustand) detected.",
+    "MOBILE ROUTING: Expo Router with file-based routing (app directory structure). Auth layout segregated from tabs layout (characters, memories, home). Story detail via dynamic route (app/story/[id].tsx).",
+    "WEB ROUTING: Implied SPA with pages directory structure (CharacterCreationPage, StoryGenerationPage, etc.) and ProtectedRoute wrapper for auth-gated access.",
+    "UI FRAMEWORK: Web uses Radix UI components (alert-dialog, avatar, checkbox, etc.) with Tailwind CSS + shadcn/ui patterns. Mobile likely uses React Native native components (Expo built-ins).",
+    "BUILD TOOLING**: Web: Vite + TypeScript compilation. Mobile: Babel + Expo. Backend: Poetry for Python dependency management. Root package.json orchestrates concurrent dev servers.",
+    "TESTING**: Backend has test structure (tuck-in-tales-backend/tests/) with pytest pattern (conftest.py, test_characters.py).",
+    "RESTORE/BACKUP ARTIFACT**: tuck-in-tales-frontend/_restore/ directory contains backup of older backend code. Both current and backup versions of backend code exist in registry - current implementation is in tuck-in-tales-backend/, restore is legacy.",
+    "PROMPT MANAGEMENT**: Dedicated prompt model and resolver (tuck-in-tales-backend/src/models/prompt.py, tuck-in-tales-backend/src/utils/prompt_resolver.py) for dynamic AI prompt templating. Web frontend includes PromptEditor and PromptPlayground components (tuck-in-tales-frontend/src/components/prompts/).",
+    "FAMILY FEATURES**: Multi-user family support via explicit family_service (tuck-in-tales-backend/src/services/family_service.py) and family routes. FamilyPage (web) and useFamilyDetails (mobile) indicate shared family context across platforms.",
+    "MEMORY LOGGING**: Dedicated memory model and routes for storing user interactions/feedback (memory.py, memories.py route). Memory analyzer graph (memory_analyzer.py) processes stored memories.",
+    "IMAGE PROCESSING**: Avatar generation includes image crop utility (tuck-in-tales-backend/src/utils/image_crop.py) for character avatar handling.",
+    "MONOREPO SCRIPT ORCHESTRATION**: Root package.json uses concurrently to run dev:backend (Poetry Uvicorn) and dev:frontend (Vite) in parallel."
+  ],
+  "architecture_characteristics": {
+    "scalability_approach": "Stateless backend with queue-based SSE streaming allows horizontal scaling. AI operations offloaded to external APIs. Database-centric state via Supabase.",
+    "real_time_capability": "SSE-based streaming for long-running operations (story generation, avatar creation). Not WebSocket - simpler, HTTP-based alternative.",
+    "code_reuse": "Shared TypeScript models and Pydantic models across platforms. Identical API clients (tuck-in-tales-frontend/src/api/client.ts ≈ tuck-in-tales-mobile/src/api/client.ts). No shared component library.",
+    "deployment_targets": "Backend: Containerizable FastAPI app (Uvicorn). Web: Static build output (Vite). Mobile: Expo app (TestFlight/Play Store via Expo build service).",
+    "external_integrations": "Firebase Auth, Supabase PostgreSQL, Gemini/Groq/OpenAI APIs, Expo services (mobile)",
+    "technology_maturity": "Production-ready stack: FastAPI (Python async), React 18+, React Native/Expo, PostgreSQL, Firebase"
+  }
+}
+```
+
+---
+
+## **Architectural Summary**
+
+### **Project Purpose**
+**BedtimeApp** (branded as "Tuck-in Tales") is a full-stack platform for generating personalized bedtime stories and character avatars using AI. It enables family accounts to create stories tailored to specific children with generated illustrations.
+
+### **Three-Tier Platform Architecture**
+
+| Layer | Technology | Key Responsibility |
+|-------|-----------|-------------------|
+| **Backend** | FastAPI (Python) + Supabase + LangGraph | REST API, AI orchestration, user/family management, SSE streaming |
+| **Web Frontend** | React + Vite + TypeScript + Radix UI | Browser-based story creation, character management, prompt editing |
+| **Mobile Frontend** | React Native + Expo + Expo Router | iOS/Android native apps, tab-based navigation, story viewing |
+
+### **Critical Design Patterns**
+
+1. **SSE Streaming for Long-Running AI Tasks**: Instead of WebSockets, uses Server-Sent Events with async queue infrastructure for progress updates on story/avatar generation
+2. **LangGraph Orchestration**: Multi-step AI workflows (story_generator, avatar_generator, memory_analyzer) manage complex AI operations
+3. **Firebase + Supabase Hybrid**: Firebase for auth, Supabase for data persistence
+4. **Shared REST API**: Single backend consumed identically by web and mobile
+5. **Context + React Query Pattern**: Frontend state management via Context (auth) + TanStack Query (data fetching)
+
+### **Entry Points by Platform**
+- **Backend**: `tuck-in-tales-backend/src/main.py` (Uvicorn ASGI server)
+- **Web**: `tuck-in-tales-frontend/src/main.tsx` (React + Vite)
+- **Mobile**: `tuck-in-tales-mobile/App.tsx` (Expo + Expo Router)
+
+### **Monorepo Organization**
+```
+Root (package.json orchestrates dev servers)
+├── tuck-in-tales-backend/          (FastAPI + Poetry)
+│   ├── src/
+│   │   ├── main.py                 (FastAPI app)
+│   │   ├── routes/                 (API endpoints)
+│   │   ├── models/                 (Pydantic schemas)
+│   │   ├── graphs/                 (LangGraph workflows)
+│   │   ├── services/               (Business logic)
+│   │   └── utils/                  (Auth, SSE, AI clients, DB)
+│   └── tests/                      (pytest)
+├── tuck-in-tales-frontend/         (React + Vite)
+│   └── src/
+│       ├── pages/                  (Route components)
+│       ├── components/             (UI + Auth + Prompts)
+│       ├── hooks/                  (useStoryStream, custom logic)
+│       ├── api/                    (Axios HTTP client)
+│       ├── context/                (AuthContext)
+│       ├── models/                 (TypeScript interfaces)
+│       └── utils/                  (Firebase, Supabase utils)
+└── tuck-in-tales-mobile/           (React Native + Expo)
+    ├── app/                        (Expo Router - file-based routing)
+    └── src/
+        ├── api/                    (Axios HTTP client)
+        ├── context/                (AuthContext)
+        ├── hooks/queries/          (TanStack Query hooks)
+        ├── models/                 (TypeScript interfaces)
+        └── config/                 (Firebase, Supabase init)
+```
+
+### **Feature Coverage**
+- ✅ User authentication (Firebase)
+- ✅ Family account management
+- ✅ Character creation/editing with AI avatars
+- ✅ Story generation (streaming progress)
+- ✅ Memory logging (user interaction feedback)
+- ✅ Prompt management & playground
+- ✅ Real-time progress tracking via SSE
+- ✅ Multi-AI provider support (Gemini, Groq, OpenAI)

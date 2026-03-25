@@ -1,0 +1,667 @@
+```json
+{
+  "has_layers": true,
+  "structure_type": "layered",
+  "platforms": ["mobile-ios", "mobile-android", "backend-firebase-functions"],
+  "layers": [
+    {
+      "name": "Presentation/UI Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/ViewControllers, iOS/AroundSound/App/Views",
+      "responsibility": "Manages all user interface interactions, screen navigation, and view controller lifecycle. Orchestrates user input through gesture recognition, text input, and button interactions. Renders recording players, album details, sharing interfaces, and onboarding flows. Delegates business logic to ViewModels via RxSwift bindings.",
+      "contains": [
+        "ViewControllers (MainViewController, AlbumsViewController, SoundsViewController, AlbumDetailsViewController, CommentsViewController, SharingViewController, OnboardingViewController, RatingViewController, TrimmingViewController)",
+        "Custom Views (RecorderView, PlayerView, FullscreenPlayer, MiniPlayer, ScrollableHeader, SoundWaveContainerView)",
+        "TableView Cells (RecordingCell, AlbumTableViewCell, SharedRecordingCell, AlbumCommentCell, PreviewJoinCell)",
+        "Dialog/Popup components (PopupViewController, DialogWindow)",
+        "Animators (CommentsAnimator, PopupAnimator, NavigationEventAnimator, RatingPromptAnimator)"
+      ],
+      "depends_on": [
+        "ViewModel Layer",
+        "Models (Domain/DTOs)",
+        "Utils/UI Utilities"
+      ],
+      "exposes_to": [
+        "Direct user interaction entry points"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/ViewControllers/MainViewController.swift",
+          "description": "Root container managing tab-based navigation between Albums, Sounds, and Sharing views"
+        },
+        {
+          "file": "iOS/AroundSound/App/ViewControllers/AlbumDetailsViewController.swift",
+          "description": "Displays album content, recordings, comments, and handles user interactions for album editing"
+        },
+        {
+          "file": "iOS/AroundSound/App/Views/Recorder/RecorderView.swift",
+          "description": "Audio recording UI component with play/record/stop controls and waveform visualization"
+        },
+        {
+          "file": "iOS/AroundSound/App/Views/Player/PlayerView.swift",
+          "description": "Playback UI component managing play/pause/seek controls and playback state display"
+        }
+      ]
+    },
+    {
+      "name": "ViewModel/Presentation Logic Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/ViewModel",
+      "responsibility": "Implements MVVM presentation logic using RxSwift Observables and PublishRelays. Transforms domain models into UI-optimized formats. Manages user interaction event handling (add/delete/update recordings and albums). Coordinates between UI layer and Repository layer, exposing Drivers and Observables for reactive data binding. Handles cell view models for table/collection view data display.",
+      "contains": [
+        "ViewModels (AlbumsViewModel, RecordingsViewModel, AlbumDetailsViewModel, CommentsViewModel, RatingViewModel, SettingsViewModel, SharingViewModel, SmartAlbumViewModel)",
+        "Cell ViewModels (AlbumCellViewModel, SharedAlbumCellViewModel, SmartAlbumRecordingCell, AlbumDetailsRecordingCell, AlbumDetailsCommentCell)",
+        "Utilities (RecordingTransformationUtility for sync state transformation)"
+      ],
+      "depends_on": [
+        "Repository Layer",
+        "Domain Providers",
+        "Models (Domain/DTOs)",
+        "Error Handling (ASError, ASErrorFactory)"
+      ],
+      "exposes_to": [
+        "Presentation/UI Layer",
+        "Used via Resolver/DI Container"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/ViewModel/AlbumsViewModel.swift",
+          "description": "Manages album list state, creation/deletion, tracks album selection, exposes albumsOutput Driver"
+        },
+        {
+          "file": "iOS/AroundSound/App/ViewModel/RecordingsViewModel.swift",
+          "description": "Orchestrates recording CRUD operations via PublishRelays (addInput, deleteInput, updateInput), exposes recordingsOutput Driver"
+        },
+        {
+          "file": "iOS/AroundSound/App/ViewModel/AlbumDetailsViewModel.swift",
+          "description": "Manages album content display, recording addition/removal, comment operations"
+        },
+        {
+          "file": "iOS/AroundSound/App/ViewModel/RecordingTransformationUtility.swift",
+          "description": "Transforms recording sync states (uploading/downloading/synced) for UI display"
+        }
+      ]
+    },
+    {
+      "name": "Repository/Data Access Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Domain/Repository",
+      "responsibility": "Implements data persistence and synchronization patterns. Manages local disk caching via Disk framework (recordings.json storage). Coordinates Firebase real-time updates via getRecordingUpdates(). Exposes reactive Drivers for UI consumption and PublishRelays for input commands. Merges local changes, Firebase live updates, and sync status into unified data streams. Handles error propagation to error subjects.",
+      "contains": [
+        "RecordingsRepository - manages recording CRUD with disk persistence and Firebase sync",
+        "AlbumRepository - manages album CRUD and recording-to-album associations",
+        "SharedAlbumRepository - manages shared album previews and access",
+        "CommentRepository - manages comment operations on albums"
+      ],
+      "depends_on": [
+        "Firebase Provider",
+        "Error Factory",
+        "Settings Manager",
+        "Models (Domain)",
+        "Disk framework for local storage"
+      ],
+      "exposes_to": [
+        "ViewModel Layer",
+        "Application services (via protocol interfaces)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Domain/Repository/Recordings/RecordingsRepository.swift",
+          "description": "Core repository orchestrating: disk loading (loadRecordings), Firebase live updates (getRecordingUpdates), runtime changes (add/delete/update inputs), and sync status management. Exposes recordingsOutput Driver with merged upstream sources."
+        },
+        {
+          "file": "iOS/AroundSound/App/Domain/Repository/Albums/AlbumRepository.swift",
+          "description": "Manages album lifecycle and recording-album associations. Exposes albumsOutput Observable with create/delete/modify/addRecording operations."
+        }
+      ]
+    },
+    {
+      "name": "Domain Provider Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Domain/Provider",
+      "responsibility": "Provides filtered, computed, or specialized views of repository data. Acts as secondary query layer on top of repositories. Supplies data for specific UI use cases like album visibility state, shared album previews, and scan helpers for search/filtering operations.",
+      "contains": [
+        "AlbumProvider - filters and organizes albums",
+        "AlbumVisibilityStateProvider - determines album visibility/access permissions",
+        "SharedAlbumPreviewProvider - fetches and manages shared album preview data",
+        "CommentProvider - manages comment queries and operations",
+        "ScanHelpers - search and filter utilities"
+      ],
+      "depends_on": [
+        "Firebase Provider",
+        "Models (Domain)",
+        "Error Handling"
+      ],
+      "exposes_to": [
+        "ViewModel Layer",
+        "Repository Layer"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Domain/Provider/AlbumProvider.swift",
+          "description": "Provides computed album data, filters by user role and sharing status"
+        },
+        {
+          "file": "iOS/AroundSound/App/Domain/Provider/SharedAlbumPreviewProvider.swift",
+          "description": "Fetches and caches shared album previews for deeplink/share flows"
+        }
+      ]
+    },
+    {
+      "name": "Firebase Provider/Networking Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Networking",
+      "responsibility": "Abstracts Firebase Firestore and Storage operations. Provides RxSwift-based API methods for CRUD operations on recordings, albums, shared links, and comments. Implements real-time listener subscriptions (getRecordingUpdates, getAlbumUpdates). Handles CloudFunctions invocations for complex backend operations (sharing, analytics). Manages Firebase authentication state.",
+      "contains": [
+        "FirebaseProvider - main Firebase client with Firestore queries and real-time listeners",
+        "FirebaseSyncManager - coordinates upload/download operations",
+        "Converters (DTO <-> Model transformations) - RecordingConverter, AlbumConverter, SharedAlbumPreviewConverter, UserInfoConverter, SocialSummaryConverter, PermissionsConverter, CommentConverter"
+      ],
+      "depends_on": [
+        "Firebase SDK (Firestore, Storage, Auth, Functions, Messaging)",
+        "CodableFirebase for serialization",
+        "Models (Domain/DTOs)"
+      ],
+      "exposes_to": [
+        "Repository Layer",
+        "Domain Provider Layer",
+        "AppDelegate (initialization)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+          "description": "Main Firebase client implementing: getRecordings, getAlbumDetails, createAlbum, deleteAlbum, updateRecording, getRecordingUpdates (real-time listener), addComment, deleteComment"
+        },
+        {
+          "file": "iOS/AroundSound/App/Networking/Converters/RecordingConverter.swift",
+          "description": "Bidirectional conversion between RecordingDto (Firestore serializable) and Recording (domain model)"
+        },
+        {
+          "file": "iOS/AroundSound/App/Networking/Converters/SharedAlbumPreviewConverter.swift",
+          "description": "Complex converter handling SharedAlbumPreviewDto with nested recording, user info, and permissions transformations"
+        },
+        {
+          "file": "iOS/AroundSound/App/Networking/Sync/FirebaseSyncManager.swift",
+          "description": "Manages upload/download state and coordinates with Firebase Storage"
+        }
+      ]
+    },
+    {
+      "name": "Domain Models Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Models",
+      "responsibility": "Defines core domain entities (Recording, Album, Comment, SharedAlbum, UserInfo) and value objects (GeoPosition, SyncStatus, Permissions). Includes DTOs for Firebase serialization and API contracts. Provides protocol definitions (RecordingProtocol) for polymorphic model handling. Models are Codable for disk persistence.",
+      "contains": [
+        "Domain Models: Recording, Album, SharedAlbum, Comment, UserInfo, GeoPosition, SocialSummary, Permissions",
+        "Sync Status Models: BasicSyncStatus, ExtendedSyncStatus, AlbumSyncStatus",
+        "UI State Models: PlaybackUIState, RecorderViewState, AppState",
+        "DTOs: RecordingDto, AlbumDto, SharedAlbumDto, PermissionsDto, UserInfoDto, SocialSummaryDto",
+        "Notification Models: ASNotification, CommentCreatedNotification, LikeCreatedNotification, RecordingAddedToSharedAlbumNotification",
+        "Deeplink Models: DeeplinkInfo, SharedAlbumDeeplinkInfo"
+      ],
+      "depends_on": [
+        "Foundation frameworks for Codable"
+      ],
+      "exposes_to": [
+        "All layers (Repositories, ViewModels, Networking, Converters)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Models/Recording.swift",
+          "description": "Core domain entity for audio recordings with uuid, album references, sync state, playback state, geo position, and metadata"
+        },
+        {
+          "file": "iOS/AroundSound/App/Models/Album.swift",
+          "description": "Core domain entity for albums with recordings, permissions, visibility, and social summary"
+        },
+        {
+          "file": "iOS/AroundSound/App/Models/SharedAlbum.swift",
+          "description": "Shared album entity with user roles, permissions, and joined user info"
+        },
+        {
+          "file": "iOS/AroundSound/App/Models/Dtos/RecordingDto.swift",
+          "description": "DTO for Firestore serialization with CodingKeys mapping to Firebase snake_case field names"
+        }
+      ]
+    },
+    {
+      "name": "Audio Engine Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/AudioEngine",
+      "responsibility": "Encapsulates audio recording and playback functionality. Manages AVAudioEngine/AVAudioRecorder for recording with configurable quality settings. Manages AVPlayer for playback with status tracking. Implements audio trimming via AudioProcessor. Exposes recording/playback status enums for UI state management.",
+      "contains": [
+        "GeneralRecorder - audio recording with RecordingStatus and RecordingQuality management",
+        "GeneralPlayer - audio playback with PlaybackStatus tracking",
+        "AudioProcessor - trimming/editing functionality",
+        "RecordingPermission - microphone permission handling",
+        "RecordingStatus, PlaybackStatus, RecordingQuality - status enums"
+      ],
+      "depends_on": [
+        "AVFoundation framework",
+        "Permissions (RecordingPermission)"
+      ],
+      "exposes_to": [
+        "ViewControllers (RecorderView, PlayerView)",
+        "ViewModels"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/AudioEngine/Recording/GeneralRecorder.swift",
+          "description": "Manages audio recording lifecycle using AVAudioRecorder, handles various quality settings, exposes recording status"
+        },
+        {
+          "file": "iOS/AroundSound/App/AudioEngine/Playback/GeneralPlayer.swift",
+          "description": "Wraps AVPlayer for playback control with PlaybackStatus enum tracking (playing, paused, stopped)"
+        },
+        {
+          "file": "iOS/AroundSound/App/AudioEngine/Trim/AudioProcessor.swift",
+          "description": "Implements audio trimming functionality for TrimmingViewController"
+        }
+      ]
+    },
+    {
+      "name": "Error Handling Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/ErrorHandling",
+      "responsibility": "Provides unified error handling infrastructure. Defines error type hierarchy (ASError base class with FirebaseError, GeneralError, PersistenceError, RecordingError, ShareError subclasses). ASErrorFactory creates typed errors with severity levels. ASErrorRouter determines UI presentation (toast, alert, dialog). Propagates errors through RxSwift error subjects.",
+      "contains": [
+        "ASError - base error class with severity",
+        "ASErrorFactory - factory for creating typed errors",
+        "ASErrorRouter - error presentation logic",
+        "Error subclasses: FirebaseError, GeneralError, PersistenceError, RecordingError, ShareError with specific error kinds"
+      ],
+      "depends_on": [
+        "RxSwift (for error propagation)",
+        "Foundation"
+      ],
+      "exposes_to": [
+        "Repository Layer (error propagation)",
+        "ViewModel Layer (error handling)",
+        "AppDelegate (error routing)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/ErrorHandling/ASError.swift",
+          "description": "Base error class with severity levels (critical, warning, info) and error tracking"
+        },
+        {
+          "file": "iOS/AroundSound/App/ErrorHandling/ASErrorFactory.swift",
+          "description": "Factory creating typed errors (Firebase, Persistence, Recording, etc.) with consistent error handling"
+        },
+        {
+          "file": "iOS/AroundSound/App/ErrorHandling/ASErrorRouter.swift",
+          "description": "Routes errors to appropriate UI presentation (toast notification, alert, dialog)"
+        }
+      ]
+    },
+    {
+      "name": "Dependency Injection Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/DI",
+      "responsibility": "Provides centralized dependency injection using Swinject framework. Defines registration and resolution protocols (RegistrableProtocol, ResolvableProtocol, ResolvingProtocol). Maintains singleton DepedencyContainer for application-wide service registration. Resolver provides static API for service lookup across layers.",
+      "contains": [
+        "DepedencyContainer - Swinject container wrapper",
+        "Resolver - static service resolver",
+        "Dependencies - likely registration configuration (referenced but not shown)"
+      ],
+      "depends_on": [
+        "Swinject framework"
+      ],
+      "exposes_to": [
+        "All layers (via Resolver.resolve calls)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+          "description": "Swinject container singleton providing register() and resolve() methods with object scope management"
+        },
+        {
+          "file": "iOS/AroundSound/App/DI/Resolver.swift",
+          "description": "Static API wrapper for accessing DepedencyContainer.instance.resolve() throughout application"
+        },
+        {
+          "file": "iOS/AroundSound/App/DI/Dependencies.swift",
+          "description": "Registration configuration file (not shown but referenced - registers all services/factories)"
+        }
+      ]
+    },
+    {
+      "name": "Analytics/Logging Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Analytics",
+      "responsibility": "Provides analytics and event tracking via Firebase Analytics and App Center. Defines event types (ASAnalyticsEvent) and performance events. Abstracts analytics backend via ASAnalyticsService protocol with Firebase and debug implementations. Tracks user actions (recording creation, album sharing, etc.) and app performance metrics.",
+      "contains": [
+        "ASAnalyticsManager - main analytics coordinator",
+        "ASAnalyticsService (protocol) - analytics backend interface",
+        "FirebaseAnalyticsService - Firebase Analytics implementation",
+        "AnalyticsDebugService - debug/logging implementation",
+        "ASAnalyticsEvent - event type definitions",
+        "ASAnalyticsPerformanceEvent - performance metrics"
+      ],
+      "depends_on": [
+        "Firebase Analytics SDK",
+        "App Center SDK"
+      ],
+      "exposes_to": [
+        "AppDelegate (initialization)",
+        "ViewControllers (event tracking)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Analytics/ASAnalyticsManager.swift",
+          "description": "Central analytics coordinator managing event tracking via injected ASAnalyticsService"
+        },
+        {
+          "file": "iOS/AroundSound/App/Analytics/FirebaseAnalyticsService.swift",
+          "description": "Firebase Analytics implementation for tracking user actions and engagement"
+        },
+        {
+          "file": "iOS/AroundSound/App/Analytics/ASAnalyticsEvent.swift",
+          "description": "Defines event types for recording creation, album operations, sharing, etc."
+        }
+      ]
+    },
+    {
+      "name": "Settings/User Preferences Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/SettingsManager",
+      "responsibility": "Manages persistent user settings and application state (login status, user preferences). Exposes observables for authentication state and preference changes. Provides source of truth for whether user is logged in to Firebase.",
+      "contains": [
+        "SettingsManager - persistent settings management"
+      ],
+      "depends_on": [
+        "UserDefaults or similar persistence",
+        "RxSwift Observables"
+      ],
+      "exposes_to": [
+        "Repository Layer (login state trigger for reset)",
+        "ViewModels",
+        "AppDelegate"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/SettingsManager/SettingsManager.swift",
+          "description": "Manages authentication state and user preferences with isLoggedInOutput Observable"
+        }
+      ]
+    },
+    {
+      "name": "Utilities/Extensions Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Utils",
+      "responsibility": "Provides general-purpose utilities, UI extensions, and helper functions. Includes RxSwift extensions (AVPlayer+Rx, AVPlayerItem+Rx), UI component utilities, keyboard management, reachability/connectivity detection, custom UI controls, date/timezone utilities, and encoding/decoding helpers.",
+      "contains": [
+        "RxSwift extensions: AVPlayer+Rx, AVPlayerItem+Rx",
+        "Keyboard management: KeyboardManager, KeyboardEvent, KeyboardNotification",
+        "Reachability: ASReachabilityService, ReachabilityService, Reachability",
+        "UI utilities: ColorUtil, UIImageUtils, UIButtonUtils, UIUtils, AnimatedButtonWithSubtitle variants",
+        "Data utilities: DateUtil, TimezoneUtil, MetadataUtil, ArrayUtil, DictionaryUtil, DecodableUtil",
+        "Custom controls: CustomSlider, CustomInsetTextfield, FormTextField, HitAreaButton, HitAreaLabel",
+        "Encoding: DictionaryEncoder, DictionaryDecoder for SwiftDictionaryCoding"
+      ],
+      "depends_on": [
+        "RxSwift",
+        "UIKit",
+        "Foundation"
+      ],
+      "exposes_to": [
+        "All layers (utilities consumed throughout)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Utils/KeyboardManager/KeyboardManager.swift",
+          "description": "Manages keyboard show/hide notifications and constraint adjustments"
+        },
+        {
+          "file": "iOS/AroundSound/App/Utils/Reachability/ASReachabilityService.swift",
+          "description": "Monitors network connectivity status via Reachability"
+        },
+        {
+          "file": "iOS/AroundSound/App/Utils/RxUtils.swift",
+          "description": "RxSwift extensions and utilities for observable transformations"
+        }
+      ]
+    },
+    {
+      "name": "Location Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Location",
+      "responsibility": "Handles device location tracking and management. Provides location observables for recording geolocation tagging. Manages location permissions and coordinate updates.",
+      "contains": [
+        "LocationManager - device location service"
+      ],
+      "depends_on": [
+        "CoreLocation framework"
+      ],
+      "exposes_to": [
+        "ViewModels (recording with location)",
+        "Domain Models (GeoPosition)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Location/LocationManager.swift",
+          "description": "Manages device location permissions and provides location observables for geo-tagged recordings"
+        }
+      ]
+    },
+    {
+      "name": "Deeplink/Sharing Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Deeplinking",
+      "responsibility": "Handles universal deeplinks and share link processing. Parses shared album and recording deeplinks. Manages sharing workflows and deeplink navigation.",
+      "contains": [
+        "ShareHelper - deeplink and share handling"
+      ],
+      "depends_on": [
+        "Domain Providers",
+        "Models (DeeplinkInfo, SharedAlbumDeeplinkInfo)"
+      ],
+      "exposes_to": [
+        "AppDelegate (deeplink routing)",
+        "ViewControllers (share handling)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Deeplinking/ShareHelper.swift",
+          "description": "Parses and handles universal deeplinks for shared albums and recordings"
+        }
+      ]
+    },
+    {
+      "name": "AppDelegate/Lifecycle Layer (iOS)",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/App/Appdelegate",
+      "responsibility": "Application entry point managing lifecycle events. Initializes Firebase (Auth, Firestore, Messaging, Analytics), Google Sign-In, App Center crashes/analytics. Registers push notification handlers. Initializes DI container with all services. Configures global debug utilities (SwiftTweaks). Routes deeplinks.",
+      "contains": [
+        "AppDelegate - UIApplicationMain entry point"
+      ],
+      "depends_on": [
+        "Firebase SDK (Auth, Firestore, Messaging, Crashlytics, Analytics)",
+        "Google Sign-In SDK",
+        "App Center SDK",
+        "DI Container",
+        "Error Routing",
+        "Analytics",
+        "Push Notifications"
+      ],
+      "exposes_to": [
+        "System (application lifecycle)"
+      ],
+      "key_files": [
+        {
+          "file": "iOS/AroundSound/App/Appdelegate/AppDelegate.swift",
+          "description": "Initializes Firebase/Google/AppCenter, sets up DI container with Swinject, registers push notifications, configures analytics, manages deeplinks and push notification payloads"
+        }
+      ]
+    },
+    {
+      "name": "Presentation/API Layer (Backend)",
+      "platform": "backend-firebase-functions",
+      "location": "platform/firebase/functions/src",
+      "responsibility": "Implements Firebase Cloud Functions HTTP endpoints and event handlers for albums, recordings, shared links, users, comments, and notifications. Serves as API gateway coordinating with Firestore database operations. Implements web views for embed player and listen pages. Handles CloudFunction invocations from mobile clients.",
+      "contains": [
+        "HTTP endpoints via Cloud Functions (albums.ts, recordings.ts, shared_links.ts, users.ts, notifications.ts)",
+        "View rendering via Handlebars templates (embed-player.handlebars, listen.handlebars)",
+        "Analytics event functions (analytics.ts)",
+        "Utility functions (cloud_function_utils.ts, promise_utils.ts)",
+        "Configuration management (config.ts)"
+      ],
+      "depends_on": [
+        "Firestore database (via firebase.ts provider)",
+        "Firebase Admin SDK",
+        "Express framework (for HTTP functions)",
+        "Handlebars templating"
+      ],
+      "exposes_to": [
+        "Mobile clients (iOS/Android) via HTTP/CloudFunctions",
+        "Web browsers (via embedded player and listen views)"
+      ],
+      "key_files": [
+        {
+          "file": "platform/firebase/functions/src/index.ts",
+          "description": "CloudFunctions router/entry point exporting all endpoint functions"
+        },
+        {
+          "file": "platform/firebase/functions/src/albums.ts",
+          "description": "Album CRUD operations: createAlbum, deleteAlbum, getAlbumDetails, updateAlbum"
+        },
+        {
+          "file": "platform/firebase/functions/src/recordings.ts",
+          "description": "Recording operations: createRecording, deleteRecording, updateRecording, batchUpdateRecordings"
+        },
+        {
+          "file": "platform/firebase/functions/src/shared_links.ts",
+          "description": "Shared link operations: createShareLink, updateShareLink, getShareLinkDetails"
+        },
+        {
+          "file": "platform/firebase/functions/src/notifications.ts",
+          "description": "Push notification management: sendNotification, handleNotificationPayloads"
+        },
+        {
+          "file": "platform/firebase/functions/views/embed-player.handlebars",
+          "description": "HTML template for embedded player view on shared recordings"
+        },
+        {
+          "file": "platform/firebase/functions/views/listen.handlebars",
+          "description": "HTML template for web listener page on shared albums"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/Database Layer (Backend)",
+      "platform": "backend-firebase-functions",
+      "location": "platform/firebase",
+      "responsibility": "Defines Firestore database schema, security rules, and indexes. Implements data persistence and access control. Manages Cloud Storage rules for audio file uploads. Provides database initialization and migration scripts.",
+      "contains": [
+        "Firestore security rules (firestore.rules) - document/collection access control",
+        "Cloud Storage security rules (storage.rules) - audio file access control",
+        "Firestore indexes (firestore.indexes.json) - query optimization",
+        "Firestore provider (firebase.ts) - database client implementation",
+        "Migration scripts (bin/adhoc directory)"
+      ],
+      "depends_on": [
+        "Firebase Admin SDK",
+        "Firestore database service"
+      ],
+      "exposes_to": [
+        "Presentation/API Layer (via firebase.ts provider)"
+      ],
+      "key_files": [
+        {
+          "file": "platform/firebase/firestore.rules",
+          "description": "Security rules enforcing user authentication and ownership-based access control"
+        },
+        {
+          "file": "platform/firebase/storage.rules",
+          "description": "Cloud Storage rules restricting audio file access to recording owners"
+        },
+        {
+          "file": "platform/firebase/firestore.indexes.json",
+          "description": "Composite indexes for efficient querying (album by user, recordings by album, etc.)"
+        },
+        {
+          "file": "platform/firebase/functions/src/firebase.ts",
+          "description": "Firebase Admin SDK client providing Firestore query and mutation methods"
+        },
+        {
+          "file": "platform/firebase/bin/adhoc/migrate-user-recordings.py",
+          "description": "Migration script for bulk data transformations"
+        }
+      ]
+    },
+    {
+      "name": "Utilities/Helpers Layer (Backend)",
+      "platform": "backend-firebase-functions",
+      "location": "platform/firebase/functions/src, platform/firebase/bin",
+      "responsibility": "Provides helper functions and utilities for backend operations. Includes promise/async utilities, error handling, data validation, CSV export, test data generation, and bulk operations.",
+      "contains": [
+        "cloud_function_utils.ts - HTTP request/response helpers",
+        "promise_utils.ts - Promise-based utility functions",
+        "Test data generation (generate-test-data.py)",
+        "Data export/import scripts (bulk-download.py, anonymised-data-export.py, copy-user-recordings.py)",
+        "Data migration/fixup scripts in bin/adhoc"
+      ],
+      "depends_on": [
+        "firebase.ts provider",
+        "Firestore models"
+      ],
+      "exposes_to": [
+        "All backend modules"
+      ],
+      "key_files": [
+        {
+          "file": "platform/firebase/functions/src/cloud_function_utils.ts",
+          "description": "HTTP utilities for request validation, response formatting, error handling"
+        },
+        {
+          "file": "platform/firebase/functions/src/promise_utils.ts",
+          "description": "Promise and async helper functions for batch operations"
+        },
+        {
+          "file": "platform/firebase/bin/generate-test-data.py",
+          "description": "Generates test users, albums, and recordings for development"
+        },
+        {
+          "file": "platform/tools/bin/bulk-download.py",
+          "description": "Bulk download tool for recordings and data"
+        }
+      ]
+    },
+    {
+      "name": "Configuration & Deployment Layer",
+      "platform": "backend-firebase-functions",
+      "location": "platform/firebase, platform/tools",
+      "responsibility": "Manages Firebase project configuration, environment setup, and deployment. Includes environment-specific configurations, local development setup, and CI/CD deployment scripts.",
+      "contains": [
+        "firebase.json - Firebase project configuration",
+        "deploy-to-environment.sh - deployment script",
+        "prepare-local-development-environment.sh - development setup",
+        "Requirements files (requirements.txt) for Python dependencies",
+        "Android/iOS build configurations (android/build.gradle, iOS project config)"
+      ],
+      "depends_on": [
+        "Firebase CLI",
+        "Environment variables"
+      ],
+      "exposes_to": [
+        "DevOps/Deployment systems"
+      ],
+      "key_files": [
+        {
+          "file": "platform/firebase/firebase.json",
+          "description": "Firebase project ID and configuration for functions, hosting, and Firestore"
+        },
+        {
+          "file": "platform/firebase/deploy-to-environment.sh",
+          "description": "Deployment script for Cloud Functions and rules to Firebase"
+        },
+        {
+          "file": "platform/firebase/prepare-local-development-environment.sh",
+          "description": "Sets up local Firebase emulator and development dependencies"
+        }
+      ]
+    }
+  ],
+  "actual_structure": "Full-stack layered monorepo with strong separation of concerns across platforms. iOS follows classic MVVM+Repository pattern with RxSwift reactivity and Swinject DI. Backend uses serverless Firebase architecture with presentation (CloudFunctions API endpoints), infrastructure (Firestore/Storage), and utility layers. Clear vertical dependency flow: UI → ViewModel → Repository → Firebase Provider → Firestore, with cross-cutting Error Handling, Analytics, and DI layers. Android structure not detailed due to limited provided context, but AndroidManifest.xml suggests similar architecture. Model layer shared through converters between mobile and backend DTO definitions."
+}
+```

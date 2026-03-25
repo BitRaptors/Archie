@@ -1,0 +1,230 @@
+```json
+{
+  "implementation_guidelines": [
+    {
+      "capability": "Reactive Audio Recording with State Management",
+      "category": "media",
+      "libraries": [
+        "RxSwift 4.x",
+        "RxCocoa 4.x",
+        "AVFoundation (native iOS)"
+      ],
+      "pattern_description": "Wraps native AVAudioRecorder in a protocol-based wrapper (AVAudioRecorderWrapper) that emits recording state changes via RxSwift BehaviorSubject and PublishSubject observables. GeneralRecorder exposes recordingStatus as a Driver<RecordingStatus> and newlyCreatedRecording as Observable<RawLocalRecording>, allowing ViewControllers to bind UI updates reactively to recording lifecycle events (idle → preparing → recording → paused → ended). State transitions are delegated to AVAudioRecorderWrapperDelegate callbacks which update the internal status subject.",
+      "key_files": [
+        "iOS/AroundSound/App/AudioEngine/Recording/GeneralRecorder.swift",
+        "iOS/AroundSound/App/AudioEngine/Recording/RecordingStatus.swift",
+        "iOS/AroundSound/App/AudioEngine/Recording/RecordingPermission.swift",
+        "iOS/AroundSound/App/Views/Recorder/RecorderView.swift"
+      ],
+      "usage_example": "let recorder = GeneralRecorder(errorFactory: errorFactory, settingsManager: settingsManager)\nrecorder.recordingStatus\n  .drive(onNext: { status in\n    switch status {\n    case .recording: updateRecorderUI()\n    case .paused: pauseWaveformAnimation()\n    case .ended: handleRecordingFinished()\n    default: break\n    }\n  })\n  .disposed(by: disposeBag)\nrecorder.newlyCreatedRecording\n  .subscribe(onNext: { rawRecording in\n    uploadToFirebase(rawRecording)\n  })\n  .disposed(by: disposeBag)",
+      "tips": [
+        "recordingStatus is exposed as Driver (guaranteed main thread, no errors), but newlyCreatedRecording is Observable (must handle threading in subscription).",
+        "Recording permission must be requested before calling start(); use recordingPermission() and askForRecordingPermissions() to handle iOS 14.5+ privacy requirements.",
+        "The wrapper disables MPRemoteCommandCenter during recording to prevent interference from control center playback controls.",
+        "BehaviorSubject<RecordingStatus> ensures late subscribers receive the current state immediately, critical for handling View Controller lifecycle transitions."
+      ]
+    },
+    {
+      "capability": "Reactive Audio Playback with Remote Transport Controls",
+      "category": "media",
+      "libraries": [
+        "RxSwift 4.x",
+        "RxCocoa 4.x",
+        "AVFoundation (native iOS)",
+        "MediaPlayer (native iOS)"
+      ],
+      "pattern_description": "GeneralPlayer abstracts two underlying players (AVAudioPlayerWrapper for local files, AvPlayerWrapper for remote URLs) and merges their observable streams (percentage, playbackStatus) using Observable.merge(). Exposes percentage as Driver<Float> and playbackStatus as Driver<PlaybackStatus> for UI binding. Integrates with iOS MediaPlayer framework's MPRemoteCommandCenter to enable Control Center playback controls and Now Playing info updates. The ReplaySubject<RecordingProtocol> currentRecordingInput buffers the last 1 recording for late subscribers.",
+      "key_files": [
+        "iOS/AroundSound/App/AudioEngine/Playback/GeneralPlayer.swift",
+        "iOS/AroundSound/App/AudioEngine/Playback/PlaybackStatus.swift",
+        "iOS/AroundSound/App/Views/Player/PlayerView.swift",
+        "iOS/AroundSound/App/Views/Player/FullscreenPlayer.swift",
+        "iOS/AroundSound/App/Views/Player/MiniPlayer.swift",
+        "iOS/AroundSound/App/Utils/AVPlayer+Rx.swift",
+        "iOS/AroundSound/App/Utils/AVPlayerItem+Rx.swift"
+      ],
+      "usage_example": "let player = GeneralPlayer(analyticsManager: analyticsManager)\nplayer.play(recording: myRecording, albumid: \"album-123\")\nplayer.percentage\n  .drive(onNext: { progress in\n    seekSlider.value = progress\n  })\n  .disposed(by: disposeBag)\nplayer.playbackStatus\n  .drive(onNext: { status in\n    playButton.isSelected = (status == .playing)\n  })\n  .disposed(by: disposeBag)\nplayer.currentRecordingInput\n  .subscribe(onNext: { recording in\n    setupRemoteTransportControls()\n  })\n  .disposed(by: disposeBag)",
+      "tips": [
+        "Observable.merge() automatically handles subscription cleanup across both local and remote player observables; ensure disposeBag outlives the ViewController.",
+        "currentRecordingInput is a ReplaySubject with bufferSize: 1, so setting a recording before subscribing will immediately emit the last value—critical for handling View Controller pushes/pops.",
+        "seek(valueFromSlider:) expects normalized 0.0-1.0 range; seekTo(value:) takes absolute seconds. getCurrentTime() and getRemainingTime() provide utilities for UI display.",
+        "setupRemoteTransportControls() must be called after each play() to sync MPNowPlayingInfoCenter with current recording metadata (title, duration, artwork).",
+        "Call stopCurrentRecording() before releasing player or memory leaks may occur due to AVAudioPlayer references."
+      ]
+    },
+    {
+      "capability": "Firebase Firestore Reactive Data Synchronization with Observable Streams",
+      "category": "networking",
+      "libraries": [
+        "Firebase Admin SDK 2.10.0+ (backend TypeScript)",
+        "Firebase Authentication (frontend)",
+        "Cloud Firestore google-cloud-firestore 0.29.0+",
+        "RxSwift 4.x (iOS frontend)"
+      ],
+      "pattern_description": "FirebaseProvider wraps Cloud Firestore operations (CRUD on collections: recordings, albums, shared_links, users, comments) in protocol-based methods returning RxSwift Observables. Repositories (AlbumProvider, RecordingsRepository, SharedLinksRepository) call FirebaseProvider methods and emit results via PublishRelay/PublishSubject output observables. Firestore listeners attach to document/collection snapshots and emit updates to downstream ViewModels. Error propagation leverages .catchError(to: errorSubject) to feed errors into a centralized errorOutput Driver. Backend Cloud Functions (platform/firebase/functions/src/*.ts) validate requests against firestore.rules and perform server-side mutations.",
+      "key_files": [
+        "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+        "iOS/AroundSound/App/Domain/Provider/AlbumProvider.swift",
+        "iOS/AroundSound/App/Domain/Provider/SharedAlbumPreviewProvider.swift",
+        "iOS/AroundSound/App/Domain/Provider/CommentProvider.swift",
+        "iOS/AroundSound/App/Networking/Sync/FirebaseSyncManager.swift",
+        "iOS/AroundSound/App/Networking/Converters/AlbumConverter.swift",
+        "iOS/AroundSound/App/Networking/Converters/RecordingConverter.swift",
+        "platform/firebase/functions/src/index.ts",
+        "platform/firebase/functions/src/albums.ts",
+        "platform/firebase/functions/src/recordings.ts",
+        "platform/firebase/functions/src/shared_links.ts"
+      ],
+      "usage_example": "let albumProvider = AlbumProvider(firebase: firebaseProvider, errorFactory: errorFactory)\nalbumProvider.createAlbumInput.accept(AlbumCreationRequest(title: \"My Album\", description: \"...\"))\nalbumProvider.albumsOutput\n  .drive(onNext: { albums in\n    tableView.reloadData()\n  })\n  .disposed(by: disposeBag)\nalbumProvider.errorOutput\n  .drive(onNext: { error in\n    errorRouter.route(error: error)\n  })\n  .disposed(by: disposeBag)",
+      "tips": [
+        "FirebaseProvider methods should wrap Firestore calls in Observable.create { observer } and call observer.onCompleted() / observer.onError() to properly signal Observable lifecycle.",
+        "Use PublishRelay for inputs and PublishSubject for outputs to avoid accidental completion of the entire observable chain; Relay does not have onCompleted/onError.",
+        "Firestore listeners (collection snapshots) are long-lived; store unsubscribe functions and call them in ViewController.deinit or when navigating away.",
+        "Always include request.auth.uid validation in firestore.rules to enforce owner-based access control; Client SDK enforces these rules before write/read.",
+        "Backend Cloud Functions must validate all inputs manually (no ORM) and check field-level permissions; use cloud_function_utils.ts helpers for common validation.",
+        "Converters (AlbumConverter, RecordingConverter, etc.) map Firestore DTOs ↔ Domain models; keep converters pure functions for testability."
+      ]
+    },
+    {
+      "capability": "Dependency Injection Container with Swinject",
+      "category": "state_management",
+      "libraries": [
+        "Swinject 2.x (iOS native DI framework)"
+      ],
+      "pattern_description": "AppDelegate initializes a centralized Swinject DI container (DepedencyContainer) at app launch. All services (FirebaseProvider, repositories, ViewModels, analytics, error factory) are registered as singletons or transients in the container. ViewControllers resolve their dependencies from the container at initialization; ViewModels receive ~10-15 injected dependencies (repositories, providers, factories, managers) via struct initializers. Protocols define contracts for all injectable services, enabling mock substitution in tests.",
+      "key_files": [
+        "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+        "iOS/AroundSound/App/DI/Dependencies.swift",
+        "iOS/AroundSound/App/DI/Resolver.swift",
+        "iOS/AroundSound/App/Appdelegate/AppDelegate.swift",
+        "iOS/AroundSound/App/ViewModel/MainViewModel.swift",
+        "iOS/AroundSound/App/ViewModel/AlbumDetailsViewModel.swift"
+      ],
+      "usage_example": "// In AppDelegate.swift\nlet dependencyContainer = DepedencyContainer()\nDependencies.shared.container = dependencyContainer.swinjectContainer\n\n// In ViewController or Storyboard initialization\nlet resolver = Resolver(container: Dependencies.shared.container)\nlet viewModel = resolver.resolve(MainViewModel.self)!\n\n// In MainViewModel struct\nstruct MainViewModel {\n  let generalPlayer: GeneralPlayerProtocol\n  let recorder: GeneralRecorderProtocol\n  let recordingsRepository: RecordingsRepositoryProtocol\n  let albumProvider: AlbumProviderProtocol\n  let errorFactory: ASErrorFactoryProtocol\n  // ... 10+ more dependencies\n  \n  init(generalPlayer: GeneralPlayerProtocol,\n       recorder: GeneralRecorderProtocol,\n       recordingsRepository: RecordingsRepositoryProtocol,\n       // ...\n       errorFactory: ASErrorFactoryProtocol) {\n    self.generalPlayer = generalPlayer\n    // ... assignment\n  }\n}",
+      "tips": [
+        "Use struct-based ViewModels + constructor injection over classes with property injection; structs enforce immutability and make dependencies explicit.",
+        "Register all service protocols, not concrete classes, in the container; this decouples implementation details.",
+        "Singletons (container.register(Service.self) { _ in Service() }.inObjectScope(.container)) should be stateless or thread-safe; use transients for stateful objects.",
+        "Resolver pattern (Resolver + Dependencies.shared) centralizes container access; avoid passing the container directly to reduce coupling.",
+        "Perform DI resolution early (AppDelegate or ViewController init), not lazily in ViewModel properties, to catch missing dependencies at app startup.",
+        "For testing, create a mock container and pass it to Resolver; Swinject enables easy swapping of mock services."
+      ]
+    },
+    {
+      "capability": "Centralized Error Handling with Custom Error Hierarchy",
+      "category": "auth",
+      "libraries": [
+        "Custom ASError hierarchy (Swift enums)",
+        "Firebase Admin SDK (backend error mapping)"
+      ],
+      "pattern_description": "ASError is a top-level Swift enum with nested subtypes (FirebaseError, GeneralError, RecordingError, ShareError, PersistenceError). ASErrorFactory creates domain-specific errors from native exceptions (Firebase errors, AVAudioRecorder errors, network errors) with enriched context (error kind, user message, severity level). Errors propagate through Observable.catchError(to: errorSubject) in repositories, which emit to ViewModels' errorOutput observable. ASErrorRouter routes errors to UI (dialogs, toasts) or analytics logging based on ASErrorSeverity (critical, warning, info). Backend Cloud Functions map HTTP status codes to specific error types.",
+      "key_files": [
+        "iOS/AroundSound/App/ErrorHandling/ASError.swift",
+        "iOS/AroundSound/App/ErrorHandling/ASErrorFactory.swift",
+        "iOS/AroundSound/App/ErrorHandling/ASErrorRouter.swift",
+        "iOS/AroundSound/App/ErrorHandling/ASErrorSeverity.swift",
+        "iOS/AroundSound/App/ErrorHandling/FirebaseError/FirebaseError.swift",
+        "iOS/AroundSound/App/ErrorHandling/GeneralError/GeneralError.swift",
+        "iOS/AroundSound/App/ErrorHandling/RecordingError/RecordingError.swift",
+        "platform/firebase/functions/src/cloud_function_utils.ts"
+      ],
+      "usage_example": "// In Repository\nfirebaseProvider.createAlbum(request)\n  .catchError { error -> Observable<[Album]> in\n    let asError = self.errorFactory.createFirebaseError(\n      kind: .albumCreationFailed,\n      externalError: error,\n      additionalContext: [\"albumTitle\": request.title]\n    )\n    self.errorSubject.onNext(asError)\n    return Observable.empty()\n  }\n  .bind(to: albumsSubject)\n  .disposed(by: disposeBag)\n\n// In ViewController\nviewModel.errorOutput\n  .drive(onNext: { error in\n    errorRouter.route(error: error) // Shows dialog or logs based on severity\n  })\n  .disposed(by: disposeBag)",
+      "tips": [
+        "ASErrorFactory.createFirebaseError() detects no-internet errors (-1009) and wraps them distinctly; always check for connectivity errors separately for UX.",
+        "Errors include userMessage (localized) for UI display and internalMessage for logging; never show internalMessage to end users.",
+        "ASErrorSeverity (critical, warning, info) determines routing: critical → user-facing dialog, warning → toast, info → silent logging.",
+        "When catching errors in Observable chains, emit to errorSubject and return Observable.empty() to prevent downstream breaks; alternatively, use .do(onError:) to log without consuming the error.",
+        "Backend Cloud Functions should return consistent error shape: { errorCode, userMessage, internalMessage } to enable client-side error factory to map to ASError types.",
+        "Test error scenarios by mocking FirebaseProvider to throw known errors; verify errorFactory produces correct ASError variants and errorRouter routes appropriately."
+      ]
+    },
+    {
+      "capability": "Analytics Event Tracking with Firebase Analytics",
+      "category": "analytics",
+      "libraries": [
+        "Firebase Analytics (iOS SDK)",
+        "Custom ASAnalyticsManager (wrapper)",
+        "BigQuery (backend aggregation)"
+      ],
+      "pattern_description": "ASAnalyticsManager wraps Firebase Analytics SDK and provides typed event logging methods (logEvent(event:customAttributes:)). Events are defined as enums in ASAnalyticsEvent (e.g., recording_playback_started, album_created, user_joined_shared_album). Backend Cloud Functions emit events to BigQuery for aggregation and dashboarding. AnalyticsDebugService logs events to console in debug mode. GeneralPlayer and recording operations call analyticsManager.logEvent() with contextual attributes (recording_id, album_id, duration, user_id) for funnel analysis and user journey tracking.",
+      "key_files": [
+        "iOS/AroundSound/App/Analytics/ASAnalyticsManager.swift",
+        "iOS/AroundSound/App/Analytics/ASAnalyticsEvent.swift",
+        "iOS/AroundSound/App/Analytics/ASAnalyticsService.swift",
+        "iOS/AroundSound/App/Analytics/FirebaseAnalyticsService.swift",
+        "iOS/AroundSound/App/Analytics/AnalyticsDebugService.swift",
+        "iOS/AroundSound/App/AudioEngine/Playback/GeneralPlayer.swift",
+        "platform/firebase/functions/src/analytics.ts"
+      ],
+      "usage_example": "// In GeneralPlayer\nlet newSessionId = UUID().uuidString\nanalyticsManager.logEvent(\n  event: .recording_playback_started,\n  customAttributes: [\n    \"playback_session_id\": newSessionId,\n    \"recording_id\": recording.uuid,\n    \"recording_owner_id\": recording.ownerId,\n    \"initiating_action\": \"user\",\n    \"recording_length_seconds\": recording.durationInMS(),\n    \"album_id\": albumId\n  ]\n)\n\n// Custom wrapper implementation\nfunc logEvent(event: ASAnalyticsEvent, customAttributes: [String: Any]?) {\n  firebaseAnalytics.logEvent(event.rawValue, parameters: customAttributes)\n  debugService.log(\"Event: \\(event.rawValue) with \\(customAttributes ?? [:])\")  \n}",
+      "tips": [
+        "Event names must be Firebase-compliant (alphanumeric + underscores, max 40 chars); ASAnalyticsEvent enum enforces naming convention.",
+        "Custom attributes are limited to 25 per event; prioritize high-value attributes (user_id, session_id, outcome) for funnel analysis.",
+        "Wrap Firebase Analytics calls to decouple your app from Firebase implementation; AnalyticsDebugService enables testing without Firebase dependency.",
+        "Log events synchronously before async operations (recording starts, playback begins); avoid logging in finally blocks as they may execute after user leaves.",
+        "BigQuery integration requires backend Cloud Functions to export Firestore mutations + client analytics events; coordinate with backend team on schema.",
+        "Use session_id attribute to correlate user actions across multiple events; generate new UUID() at app launch and reuse for session-duration tracking."
+      ]
+    },
+    {
+      "capability": "Deep Linking and App Routing with Custom Deeplink Handling",
+      "category": "navigation",
+      "libraries": [
+        "Custom ShareHelper (deeplink parser)",
+        "Firebase Dynamic Links (backend)",
+        "RxSwift Observable chains"
+      ],
+      "pattern_description": "ShareHelper parses incoming URLs (app:// scheme or http:// universal links) and extracts deeplink parameters (album ID, shared link code, preview token). ViewControllers (RootViewController, AlbumPreviewViewController) listen for app launch arguments and subscribe to deeplink observables. SharedAlbumProvider accepts deeplinkInput (PublishRelay<SharedAlbumDeeplinkInfo>) and triggers .flatMapLatest to fetch album preview from backend, emitting to albumsOutput. AlbumPreviewViewModel orchestrates the deeplink flow: validates token, loads preview album, routes to join/view UI. Backend Cloud Functions validate deeplink codes and enforce access control before returning preview data.",
+      "key_files": [
+        "iOS/AroundSound/App/Deeplinking/ShareHelper.swift",
+        "iOS/AroundSound/App/Domain/Provider/SharedAlbumPreviewProvider.swift",
+        "iOS/AroundSound/App/ViewModel/AlbumPreviewViewModel.swift",
+        "iOS/AroundSound/App/ViewControllers/AlbumPreviewViewController.swift",
+        "iOS/AroundSound/App/ViewControllers/RootViewController.swift",
+        "iOS/AroundSound/App/Models/SharedAlbumDeeplinkInfo.swift",
+        "platform/firebase/functions/src/shared_links.ts"
+      ],
+      "usage_example": "// In RootViewController (app launch)\nlet deeplinkInfo = ShareHelper.parseDeeplink(url: launchOptions[.url] as? URL)\nif let deeplinkInfo = deeplinkInfo {\n  albumPreviewViewModel.handleDeeplink(deeplinkInfo)\n}\n\n// In AlbumPreviewViewModel\nfunc handleDeeplink(_ info: SharedAlbumDeeplinkInfo) {\n  sharedAlbumProvider.deeplinkInput.accept(info)\n}\n\n// In SharedAlbumPreviewProvider\ndeeplinkInput\n  .flatMapLatest { info in\n    firebaseProvider.fetchSharedAlbumPreview(code: info.code, token: info.token)\n      .catchError { error in\n        self.errorSubject.onNext(self.errorFactory.createShareError(kind: .invalidShareCode, externalError: error))\n        return Observable.empty()\n      }\n  }\n  .bind(to: albumsSubject)\n  .disposed(by: disposeBag)",
+      "tips": [
+        "Parse deeplinks in AppDelegate.application(_:didFinishLaunchingWithOptions:) and in UIApplicationDelegate.application(_:open:options:) for cold and warm app starts.",
+        "Use UUID-based share codes rather than guessable IDs; backend validates codes against Firebase Firestore documents before returning data.",
+        "SharedAlbumDeeplinkInfo should include both code (for fetching preview) and token (for access control); tokens expire server-side and should be validated per request.",
+        "Store parsed deeplinkInfo in AppState or pass via ViewController initializer; do NOT parse multiple times as it wastes bandwidth and exposes errors.",
+        "Test deeplinks by triggering them via UIApplication.shared.open(url:) in unit tests; mock ShareHelper.parseDeeplink() to inject test deeplink data.",
+        "If deeplink validation fails, route to error screen or onboarding, not a silent failure; users expect feedback when clicking shared links."
+      ]
+    },
+    {
+      "capability": "Reactive Presence & Real-Time Notifications with Observable Streams",
+      "category": "notifications",
+      "libraries": [
+        "Firebase Cloud Messaging (FCM)",
+        "Firebase Realtime Database (for presence, implicit)",
+        "RxSwift Subjects for notification routing"
+      ],
+      "pattern_description": "Backend Cloud Functions emit push notifications via FCM (via Firebase Admin SDK) when events occur (comment added, recording shared, user joined album). Frontend receives FCM tokens and registers them in Firestore. AppDelegate handles incoming FCM notifications via UNUserNotificationCenter delegate callbacks. Notification data is parsed and routed via ASNotification enum subtypes (CommentCreatedNotification, LikeCreatedNotification, RecordingAddedToSharedAlbumNotification, UserJoinedSharedAlbumNotification). NotificationProvider emits received notifications to subscribers (ViewControllers, ViewModels) via PublishSubject observable chains. Comments and albums streams listen for real-time updates from Firestore and merge with FCM notifications for unified live update UI.",
+      "key_files": [
+        "iOS/AroundSound/App/Models/Notification/ASNotification.swift",
+        "iOS/AroundSound/App/Models/Notification/CommentCreatedNotification.swift",
+        "iOS/AroundSound/App/Models/Notification/LikeCreatedNotification.swift",
+        "iOS/AroundSound/App/Models/Notification/UserJoinedSharedAlbumNotification.swift",
+        "iOS/AroundSound/App/Domain/Provider/CommentProvider.swift",
+        "iOS/AroundSound/App/ViewControllers/CommentsViewController.swift",
+        "iOS/AroundSound/App/ViewModel/CommentsViewModel.swift",
+        "platform/firebase/functions/src/notifications.ts",
+        "platform/firebase/functions/src/index.ts"
+      ],
+      "usage_example": "// In CommentsViewModel\nlet liveComments = commentProvider.commentsOutput // Firestore listener\nlet incomingNotifications = notificationProvider.notificationInput\n  .filter { $0 is CommentCreatedNotification }\n  .map { $0 as! CommentCreatedNotification }\n  .map { Comment(from: $0) }\n\nObservable.merge(liveComments, incomingNotifications)\n  .scan([], accumulator: { existing, new in\n    existing + [new]\n  })\n  .bind(to: commentsSubject)\n  .disposed(by: disposeBag)\n\n// In AppDelegate\nfunc userNotificationCenter(\n  _ center: UNUserNotificationCenter,\n  didReceive response: UNNotificationResponse,\n  withCompletionHandler completionHandler: @escaping () -> Void\n) {\n  let notificationData = response.notification.request.content.userInfo\n  if let asNotification = parseNotification(notificationData) {\n    notificationProvider.notificationInput.onNext(asNotification)\n  }\n  completionHandler()\n}",
+      "tips": [
+        "FCM tokens should be stored in Firestore user document and refreshed via FCM SDK delegate; validate token exists before enabling push notifications.",
+        "Parse FCM notification payload (dictionary from userInfo) into strongly-typed ASNotification enum; this prevents runtime crashes from missing keys.",
+        "Merge Firestore listener + FCM streams to handle both case (user open app → sees live Firestore updates, or user in background → sees FCM notification then Firestore sync).",
+        "Use Observable.merge() to combine multiple notification sources; order matters (Firestore first, then FCM notifications) to avoid duplicate deduplication logic.",
+        "In AppDelegate userNotificationCenter delegate, call notificationProvider.notificationInput.onNext() to emit to subscribers; notificationInput should be PublishSubject (not Relay) to ensure only active subscribers receive.",
+        "Test notification routing by mocking userInfo dictionary and calling AppDelegate delegate methods directly; verify ASNotification type matches expected subclass.",
+        "Limit FCM payload size to ~4KB; use notification ID to fetch full data from Firestore if needed, rather than embedding large JSON in FCM message."
+      ]
+    }
+  ]
+}
+```

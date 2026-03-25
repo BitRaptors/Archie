@@ -1,0 +1,453 @@
+```json
+{
+  "internal_communication": [
+    {
+      "type": "Direct Method Calls",
+      "platform": "backend",
+      "mechanism": "Python function calls within FastAPI request lifecycle",
+      "examples": [
+        "routes/stories.py calls graphs/story_generator.py:run_story_generation()",
+        "routes/characters.py calls graphs/avatar_generator.py for avatar generation",
+        "routes/memories.py calls graphs/memory_analyzer.py for analysis",
+        "All routes depend on utils/prompt_resolver.py for prompt retrieval"
+      ]
+    },
+    {
+      "type": "Dependency Injection",
+      "platform": "backend",
+      "mechanism": "FastAPI Depends() for shared utilities (Supabase client, auth, SSE queues)",
+      "examples": [
+        "get_supabase_client() injected via Depends()",
+        "get_current_supabase_user() for auth-protected endpoints",
+        "sse_generator(client_id) passed to StreamingResponse"
+      ]
+    },
+    {
+      "type": "Async Queue-Based Event Streaming",
+      "platform": "backend",
+      "mechanism": "asyncio.Queue managed by utils/sse.py for server-sent events",
+      "examples": [
+        "Graph nodes call send_sse_event(client_id, event, data) to push events",
+        "FastAPI endpoints use sse_generator(client_id) with StreamingResponse",
+        "Client_id is story_id or character_id, keyed in _queues registry",
+        "Terminal events ('done', 'error', 'complete') signal stream completion"
+      ]
+    },
+    {
+      "type": "LangGraph Stateful Workflows",
+      "platform": "backend",
+      "mechanism": "LangGraph compiled graphs with checkpoint state management",
+      "examples": [
+        "story_generator.py: orchestrates character info → story generation → streaming",
+        "avatar_generator.py: visual analysis → image generation with reference photos",
+        "memory_analyzer.py: memory log analysis and sentiment tracking",
+        "Graphs emit SSE events via send_sse_event() calls within nodes"
+      ]
+    },
+    {
+      "type": "Props and Context API",
+      "platform": "frontend",
+      "mechanism": "React component hierarchy with context for global state",
+      "examples": [
+        "AuthContext.tsx provides user state (from Firebase) to all routes",
+        "Page components receive route parameters via useParams()",
+        "UI components accept callbacks (onSubmit, onChange, etc.) as props"
+      ]
+    },
+    {
+      "type": "Custom Hooks with SSE",
+      "platform": "frontend",
+      "mechanism": "Custom React hooks that manage EventSource lifecycle and state updates",
+      "examples": [
+        "useStoryStream.ts: opens SSE connection to /api/stories/{id}/stream, emits 'chunk', 'status', 'done' events",
+        "useAvatarStream.ts: streams avatar generation progress in real-time",
+        "useMemoryStream.ts: streams memory analysis results",
+        "useSSEStream.ts: generic SSE wrapper handling connection, reconnection, error states"
+      ]
+    },
+    {
+      "type": "State Management via Hooks",
+      "platform": "frontend",
+      "mechanism": "React useState, useEffect, useCallback for component-level state",
+      "examples": [
+        "Story generation pages manage loading, error, progress states locally",
+        "Character creation pages accumulate form state before submission",
+        "Memory logging pages track sentiment and memory text input"
+      ]
+    },
+    {
+      "type": "Query Management (React Query / TanStack Query implied)",
+      "platform": "frontend",
+      "mechanism": "Likely hook-based query abstractions for API calls (useQuery, useMutation patterns)",
+      "examples": [
+        "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts",
+        "tuck-in-tales-mobile/src/hooks/queries/useStories.ts",
+        "tuck-in-tales-mobile/src/hooks/queries/useStory.ts",
+        "Queries fetch from backend API client"
+      ]
+    },
+    {
+      "type": "Mobile-Specific State Management",
+      "platform": "frontend",
+      "mechanism": "React Context + hooks for cross-screen state (AuthContext)",
+      "examples": [
+        "tuck-in-tales-mobile/src/context/AuthContext.tsx manages Firebase auth state",
+        "Tab-based navigation (_layout.tsx) maintains auth context across tabs",
+        "Expo routing integrates with auth flow"
+      ]
+    }
+  ],
+  "external_communication": [
+    {
+      "type": "REST API",
+      "protocol": "HTTP/HTTPS (REST)",
+      "direction": "frontend → backend",
+      "examples": [
+        "POST /api/stories - generate new story (long-lived, may return 202 + stream URL)",
+        "POST /api/characters - create character with photo upload",
+        "POST /api/memories - log memory event",
+        "GET /api/characters/{id} - fetch character details",
+        "GET /api/stories/{id}/stream - SSE endpoint for story generation progress",
+        "GET /api/characters/{id}/stream - SSE endpoint for avatar generation progress"
+      ]
+    },
+    {
+      "type": "Server-Sent Events (SSE)",
+      "protocol": "HTTP/text-event-stream",
+      "direction": "backend → frontend",
+      "examples": [
+        "Story generation: emits 'chunk' events as text is generated, 'status' for milestones, 'done' on completion",
+        "Avatar generation: emits 'chunk' events with image URL, 'done' when ready",
+        "Memory analysis: emits analysis results incrementally, 'done' on completion",
+        "Frontend connects via EventSource API in custom hooks, listens to named events"
+      ]
+    },
+    {
+      "type": "Supabase Client (PostgreSQL + Auth + Realtime)",
+      "protocol": "HTTPS + WebSocket (via Supabase client SDK)",
+      "direction": "backend ↔ frontend",
+      "examples": [
+        "Backend: Supabase client in utils/supabase.py manages DB connections, user auth, RLS policies",
+        "Frontend: Supabase SDK imported in src/utils/supabaseUtils.ts for auth and data queries",
+        "Mobile: Supabase SDK in src/config/supabase.ts for cross-platform consistency",
+        "Auth flow: Firebase signs user in → Firebase ID token → backend validates via Supabase RLS"
+      ]
+    },
+    {
+      "type": "Firebase Authentication",
+      "protocol": "HTTPS + Firebase REST API",
+      "direction": "frontend → Firebase → backend",
+      "examples": [
+        "Frontend: Firebase SDK (firebaseConfig.ts) handles email/password, Google OAuth sign-in",
+        "Mobile: src/config/firebase.ts, useGoogleSignIn.ts hook for Google Sign-In",
+        "Backend: utils/firebase_admin_init.py verifies Firebase ID tokens on protected endpoints",
+        "AuthContext on all platforms retrieves user object from Firebase auth state"
+      ]
+    },
+    {
+      "type": "LLM API Calls (Streaming)",
+      "protocol": "HTTPS + streaming (text/event-stream or chunked)",
+      "direction": "backend → external LLM providers",
+      "examples": [
+        "OpenAI (gpt-4o-mini, gpt-image-1): utils/openai_client.py, streaming completion requests",
+        "Groq (meta-llama/llama-4-scout-17b): utils/groq_client.py, low-latency inference",
+        "Google Gemini: utils/gemini_client.py, vision + text analysis",
+        "Prompts resolved at runtime via utils/prompt_resolver.py (caches for 60s)"
+      ]
+    },
+    {
+      "type": "Image Processing & Storage",
+      "protocol": "HTTPS (multipart/form-data for uploads)",
+      "direction": "frontend → backend → storage + LLM",
+      "examples": [
+        "Character creation: user uploads photo → backend receives multipart upload",
+        "Backend crops image via utils/image_crop.py (likely PIL/Pillow)",
+        "Image passed to avatar_generator.py as reference for Gemini vision analysis",
+        "Generated avatar images stored in Supabase storage or cloud storage (inferred)"
+      ]
+    },
+    {
+      "type": "Database Transactions",
+      "protocol": "PostgreSQL (via Supabase client)",
+      "direction": "backend ↔ Supabase",
+      "examples": [
+        "Story creation: insert into stories table + store content/metadata",
+        "Character creation: insert into characters table + store avatar image reference",
+        "Memory logging: insert into memories table with sentiment score",
+        "Family features: manage family_members, roles, RLS policies in family_service.py"
+      ]
+    },
+    {
+      "type": "File Upload/Download",
+      "protocol": "HTTPS + multipart/form-data",
+      "direction": "frontend ↔ backend (multipart) → Supabase storage",
+      "examples": [
+        "Character avatar upload during creation (photo reference)",
+        "Generated story text saved to database, potentially with media attachments",
+        "Avatar images returned as URLs (likely Supabase storage CDN links)"
+      ]
+    }
+  ],
+  "third_party_integrations": [
+    {
+      "service": "Firebase Authentication",
+      "purpose": "User identity and authentication (email/password, Google OAuth)",
+      "integration_point": "Frontend SDK (firebaseConfig.ts, src/utils/firebase.ts), Backend validation (firebase_admin_init.py)",
+      "data_flow": "Frontend logs in → Firebase returns ID token → token passed to backend → backend validates via Firebase Admin SDK"
+    },
+    {
+      "service": "Supabase (PostgreSQL + Auth + Storage)",
+      "purpose": "Primary database, user management (RLS), file storage for avatars/media",
+      "integration_point": "Backend: utils/supabase.py (client init, queries), Frontend: src/utils/supabaseUtils.ts, Mobile: src/config/supabase.ts",
+      "data_flow": "All data models (Story, Character, Memory, Family) persist to Supabase PostgreSQL with RLS policies, avatar images stored in Supabase Storage"
+    },
+    {
+      "service": "OpenAI API",
+      "purpose": "LLM-powered story generation (gpt-4o-mini) and image generation (gpt-image-1)",
+      "integration_point": "Backend: utils/openai_client.py, called from graphs/story_generator.py and graphs/avatar_generator.py",
+      "data_flow": "Backend sends story prompts + character context → OpenAI returns text/image → streamed back to frontend via SSE"
+    },
+    {
+      "service": "Groq API",
+      "purpose": "Fast LLM inference for avatar visual analysis (meta-llama/llama-4-scout-17b)",
+      "integration_point": "Backend: utils/groq_client.py, called from avatar_generator.py for photo analysis",
+      "data_flow": "User photo sent to Groq → visual feature extraction → description used for avatar generation prompt"
+    },
+    {
+      "service": "Google Gemini",
+      "purpose": "Vision API for image analysis, alternative LLM for prompts",
+      "integration_point": "Backend: utils/gemini_client.py, used in avatar_generator.py for vision tasks",
+      "data_flow": "Character photo → Gemini vision analysis → features extracted → fed into avatar generation pipeline"
+    },
+    {
+      "service": "Image Generation (OpenAI DALL-E or similar)",
+      "purpose": "Generate cartoon avatars from descriptions",
+      "integration_point": "Backend: openai_client.py (gpt-image-1 model), called from avatar_generator.py",
+      "data_flow": "Visual description + character name → image generation → URL returned to frontend"
+    },
+    {
+      "service": "Google Sign-In SDK",
+      "purpose": "Social authentication for users (Google OAuth)",
+      "integration_point": "Mobile: src/hooks/useGoogleSignIn.ts, Frontend: Firebase SDK integration",
+      "data_flow": "User taps Google Sign-In → redirects to Google → Firebase receives OAuth token → app logs in user"
+    }
+  ],
+  "frontend_backend_contract": {
+    "protocol": "REST over HTTPS + SSE for streaming",
+    "shared_types": true,
+    "type_sharing_mechanism": "TypeScript models defined in frontend (src/models/*.ts) mirror Pydantic models in backend (src/models/*.py). Type definitions are manually kept in sync (no shared package or code generation detected).",
+    "shared_models": [
+      {
+        "entity": "Story",
+        "frontend_location": "tuck-in-tales-frontend/src/models/story.ts",
+        "backend_location": "tuck-in-tales-backend/src/models/story.py",
+        "fields": ["id", "user_id", "title", "content", "character_ids", "created_at", "updated_at"]
+      },
+      {
+        "entity": "Character",
+        "frontend_location": "tuck-in-tales-frontend/src/models/character.ts",
+        "backend_location": "tuck-in-tales-backend/src/models/character.py",
+        "fields": ["id", "user_id", "name", "description", "avatar_url", "visual_description", "created_at"]
+      },
+      {
+        "entity": "Memory",
+        "frontend_location": "tuck-in-tales-frontend/src/models/memory.ts",
+        "backend_location": "tuck-in-tales-backend/src/models/memory.py",
+        "fields": ["id", "user_id", "memory_text", "emotion", "tags", "created_at"]
+      },
+      {
+        "entity": "Family",
+        "frontend_location": "tuck-in-tales-frontend/src/models/family.ts",
+        "backend_location": "tuck-in-tales-backend/src/models/family.py",
+        "fields": ["id", "family_code", "members", "created_at"]
+      },
+      {
+        "entity": "Prompt",
+        "frontend_location": "tuck-in-tales-frontend/src/models/prompt.ts",
+        "backend_location": "tuck-in-tales-backend/src/models/prompt.py",
+        "fields": ["id", "name", "system_prompt", "user_prompt", "provider", "model", "temperature", "max_tokens"]
+      }
+    ],
+    "error_propagation": "HTTP status codes + JSON error responses",
+    "error_handling_flow": [
+      {
+        "scenario": "Story generation fails",
+        "backend_response": "SSE stream emits 'error' event with message, or HTTP 500 if request fails",
+        "frontend_handling": "useStoryStream.ts catches error event → sets error state → displays error toast/UI",
+        "example": "useStoryStream hook listens for 'error' events in EventSource, calls onError callback"
+      },
+      {
+        "scenario": "Unauthorized API call",
+        "backend_response": "HTTP 401 Unauthorized if Firebase token invalid",
+        "frontend_handling": "API client catches 401 → redirects to login page via AuthContext",
+        "example": "api/client.ts interceptor detects 401 → navigates to /login"
+      },
+      {
+        "scenario": "Validation error on request",
+        "backend_response": "HTTP 422 Unprocessable Entity with Pydantic validation details",
+        "frontend_handling": "Form validation mirrors backend (likely duplicate logic) or displays server errors",
+        "example": "StoryGenerationPage validates character selection before sending POST /api/stories"
+      },
+      {
+        "scenario": "SSE connection drops",
+        "backend_response": "Client-side EventSource handles reconnection automatically (browser default)",
+        "frontend_handling": "useSSEStream.ts tracks connection state, shows 'reconnecting' UI if needed",
+        "example": "EventSource auto-reconnects with exponential backoff"
+      }
+    ],
+    "api_request_patterns": [
+      {
+        "method": "POST",
+        "endpoint": "/api/stories",
+        "request_body": "StoryGenerationRequest { character_ids: UUID[], tone: string, setting?: string }",
+        "response": "HTTP 202 Accepted + { stream_url: '/api/stories/{story_id}/stream', story_id: UUID }",
+        "streaming": "Client connects to stream_url via EventSource, listens to 'chunk', 'status', 'done' events"
+      },
+      {
+        "method": "POST",
+        "endpoint": "/api/characters",
+        "request_body": "multipart/form-data { name: string, description: string, photo: File }",
+        "response": "HTTP 201 Created + Character { id, name, avatar_url, visual_description }",
+        "streaming": "No streaming, but may return 202 with stream URL if avatar generation is async"
+      },
+      {
+        "method": "GET",
+        "endpoint": "/api/characters/{id}",
+        "request_body": null,
+        "response": "HTTP 200 + Character object",
+        "streaming": false
+      },
+      {
+        "method": "POST",
+        "endpoint": "/api/memories",
+        "request_body": "MemoryLogRequest { memory_text: string, emotion?: string, tags?: string[] }",
+        "response": "HTTP 201 Created + Memory object (may include sentiment analysis)",
+        "streaming": "Optionally streams analysis via SSE to /api/memories/{memory_id}/stream"
+      },
+      {
+        "method": "GET",
+        "endpoint": "/api/prompts/{slug}",
+        "request_body": null,
+        "response": "HTTP 200 + Prompt object (cached, refreshed every 60s)",
+        "streaming": false
+      }
+    ],
+    "authentication_flow": "Firebase ID token (JWT) in Authorization: Bearer header on all requests. Backend validates via firebase_admin_init.py, ties requests to Supabase RLS user_id. Supabase RLS policies enforce row-level security.",
+    "session_management": "Stateless JWT-based. Frontend stores Firebase ID token in memory/localStorage. Token auto-refreshed by Firebase SDK. SSE connections authenticated via Authorization header or via user context from initial request.",
+    "content_negotiation": "JSON for REST endpoints, text/event-stream for SSE endpoints. Image uploads as multipart/form-data."
+  },
+  "pattern_guidelines": [
+    {
+      "scenario": "Real-time streaming of long-running tasks (story generation, avatar creation)",
+      "pattern": "SSE + async queue + LangGraph workflows",
+      "rationale": "SSE is simpler than WebSocket (HTTP-based, no persistent connection overhead), asyncio.Queue in utils/sse.py decouples graph computation from HTTP response, LangGraph manages state and checkpoints for resumable workflows. Frontend hooks (useStoryStream, useAvatarStream) handle connection lifecycle.",
+      "implementation": "1) Route creates unique client_id (story_id/character_id), passes to graph. 2) Graph nodes call send_sse_event(client_id, event, data). 3) Route returns StreamingResponse(sse_generator(client_id)). 4) Frontend opens EventSource, listens to events, updates UI state incrementally."
+    },
+    {
+      "scenario": "Prompt management with dynamic resolution",
+      "pattern": "Supabase table + in-memory cache with TTL + fallback defaults",
+      "rationale": "Admins can edit prompts in database without redeploying. prompt_resolver.py caches for 60s to avoid DB hits on every request. FALLBACK_DEFAULTS in prompt_resolver.py ensure app works even if prompts table is empty (mirrors seed data). Avoids cold-start latency.",
+      "implementation": "1) routes/prompts.py exposes CRUD endpoints. 2) graph nodes call prompt_resolver.get_prompt(slug) to resolve system/user prompts. 3) Cache checked first, DB queried on miss, fallback used if DB unavailable. 4) Frontend likely caches prompts in React state or localStorage for editing."
+    },
+    {
+      "scenario": "Multi-LLM provider support (OpenAI, Groq, Gemini)",
+      "pattern": "Provider abstraction in config, separate client utilities, prompt-driven selection",
+      "rationale": "Different providers have different latencies, costs, and capabilities (e.g., Gemini for vision, Groq for speed). prompt_resolver.py stores provider + model per prompt. Graph nodes route to appropriate client (openai_client, groq_client, gemini_client) based on prompt config. Allows A/B testing and fallback.",
+      "implementation": "1) Prompt object includes provider and model fields. 2) Graph nodes call appropriate client based on prompt.provider. 3) Each client handles auth, retries, streaming format. 4) Backend config stores API keys for each provider. 5) Frontend doesn't know about providers; backend abstracts."
+    },
+    {
+      "scenario": "Image upload + vision analysis + generation pipeline",
+      "pattern": "Multipart upload → local crop → vision analysis → text-to-image generation → stream result",
+      "rationale": "Avatar creation requires analyzing user photo for features, then using those features in image generation prompt. Cropping optimizes image size for vision models. Streaming progress back to user shows work in progress.",
+      "implementation": "1) User uploads photo via POST /api/characters (multipart). 2) Backend crops via utils/image_crop.py. 3) avatar_generator.py sends cropped image to Gemini/Groq vision API. 4) Vision output describes features → feeds into avatar_image prompt. 5) OpenAI generates avatar image → SSE streams progress and final URL back to frontend."
+    },
+    {
+      "scenario": "Authentication across web + mobile + backend",
+      "pattern": "Firebase for frontend auth, Firebase Admin SDK for backend validation, Supabase RLS for data isolation",
+      "rationale": "Firebase provides OAuth and session management on frontend. Backend validates Firebase tokens and ties them to Supabase user_id. Supabase RLS policies ensure users can only access their own data (stories, characters, memories). Mobile app reuses same Firebase + Supabase SDKs as web.",
+      "implementation": "1) Frontend SDK (Firebase) signs user in, stores ID token. 2) Frontend sends token in Authorization: Bearer header. 3) Backend endpoint decorated with @depends(get_current_supabase_user) validates token and extracts user_id. 4) Supabase RLS policies check user_id column on all queries. 5) Routes return 401 if token invalid, 403 if user lacks permission."
+    },
+    {
+      "scenario": "Family features with role-based access",
+      "pattern": "Family group with parent/child roles, family_service.py for business logic, RLS for enforcement",
+      "rationale": "Multiple users (parents, children) in one family can view shared characters/stories. Roles determine who can edit/delete. family_service.py orchestrates role checks. Supabase RLS policies enforce at DB level.",
+      "implementation": "1) Family table stores family_code and members list. 2) family_members table links users to families with roles. 3) family_service.py exposes get_family_members(), check_permission(user_id, family_id, action). 4) Routes call service before DB ops. 5) RLS policies on story/character tables check if user is in family."
+    },
+    {
+      "scenario": "Prompt testing and playground (Admin feature)",
+      "pattern": "PromptTestRequest → backend → LLM → PromptTestResponse, with variable substitution",
+      "rationale": "Admins need to test prompt changes before deploying. Prompt editor UI (PromptEditor.tsx, PromptPlayground.tsx) lets users fill in variables and see outputs. prompt_resolver.py handles variable substitution (e.g., @character_name → actual name).",
+      "implementation": "1) Frontend PromptPlayground sends POST /api/prompts/test with system/user prompts and sample variables. 2) Backend receives PromptTestRequest, calls LLM client directly. 3) LLM response returned as PromptTestResponse with usage info. 4) Frontend displays result live in editor. 5) Admin can update Prompt in DB and test again."
+    },
+    {
+      "scenario": "Memory logging + sentiment analysis",
+      "pattern": "User logs memory text → backend analyzes sentiment/themes → stores result + streams analysis back",
+      "rationale": "Memories are logs of family moments. Sentiment analysis helps parents track emotional tone over time. Streaming analysis back to user provides real-time feedback.",
+      "implementation": "1) User submits MemoryLogRequest via POST /api/memories. 2) Backend stores in memories table, then queues analysis. 3) memory_analyzer.py uses LLM to extract sentiment, themes, key entities. 4) Results streamed back via SSE /api/memories/{memory_id}/stream. 5) Frontend useMemoryStream.ts displays analysis incrementally."
+    },
+    {
+      "scenario": "Cross-platform code sharing (web + mobile)",
+      "pattern": "Separate frontend repos (web = React + Vite, mobile = React Native + Expo) with shared API client and type models",
+      "rationale": "React and React Native have different rendering engines and native module requirements. Sharing a single codebase is impractical. Sharing API client (tuck-in-tales-frontend/src/api/client.ts and tuck-in-tales-mobile/src/api/client.ts) and TypeScript models (src/models/*.ts) reduces duplication.",
+      "implementation": "1) Each platform has its own repo with platform-specific setup (web: Vite, mobile: Expo). 2) API client and models are maintained separately but kept in sync. 3) Both call same backend endpoints, handle responses identically. 4) AuthContext implemented in both, tying to Firebase (shared SDK). 5) UI components are platform-specific (React for web, React Native for mobile)."
+    },
+    {
+      "scenario": "Error recovery in SSE streams",
+      "pattern": "Terminal events ('done', 'error', 'complete') close stream, frontend hook triggers cleanup, user can retry",
+      "rationale": "SSE streams can fail mid-stream (network, backend crash, timeout). Terminal events signal when to stop listening. Retry logic allows user to restart operation without full page reload.",
+      "implementation": "1) Graph nodes emit 'error' event if exception occurs, or 'done' if successful. 2) sse_generator() checks _TERMINAL_EVENTS and breaks loop. 3) Frontend useSSEStream.ts hook listens for 'error', calls onError callback. 4) Error UI shows retry button, user can call same endpoint again. 5) New stream_id generated (new SSE queue), no conflict with old stream."
+    }
+  ]
+}
+```
+
+---
+
+## Key Observations
+
+### Communication Architecture Summary
+
+**The app uses a hybrid communication model:**
+
+1. **Backend-to-Frontend:** REST for request/response, SSE for long-running tasks (story/avatar generation, memory analysis)
+2. **Frontend Layers:** Props/Context API on web, similar on mobile, no complex state manager visible (likely uses React Query or similar for server state)
+3. **Data Layer:** Supabase PostgreSQL + RLS for security, Firebase for auth, third-party LLMs for AI features
+
+### Critical Flow: Story Generation (end-to-end)
+
+```
+User selects characters → Frontend POST /api/stories (with character IDs)
+  ↓
+Backend route receives request, validates auth (Firebase token → Supabase user_id)
+  ↓
+Route calls graphs/story_generator.py:run_story_generation()
+  ↓
+Graph fetches characters, prompts (from prompt_resolver cache)
+  ↓
+Graph calls OpenAI API (or alternative LLM based on prompt.provider)
+  ↓
+Graph yields chunks via send_sse_event(story_id, 'chunk', text_chunk)
+  ↓
+FastAPI route streams via sse_generator(story_id) in StreamingResponse
+  ↓
+Frontend EventSource listener receives 'chunk' events, appends to state
+  ↓
+When graph emits 'done', stream closes, story saved to DB, frontend shows complete story
+```
+
+### Type Safety Gaps
+
+- **No shared type package:** TypeScript models (frontend) and Pydantic models (backend) are maintained separately. Risk of drift if a field is added to backend but forgotten in frontend.
+- **Mitigation:** Code generation (openapi-generator, tRPC, or graphql-codegen) would eliminate this, but not currently visible.
+
+### Security Model
+
+- **Authentication:** Firebase ID tokens validated on every protected endpoint via `get_current_supabase_user`
+- **Authorization:** Supabase RLS policies enforce row-level data access (users can only see their own stories/characters/memories)
+- **Family features:** Additional role-based checks in family_service.py before cross-family data access
+
+### Scalability Concerns
+
+- **SSE memory:** Each active stream holds an asyncio.Queue in `_queues` dict. Memory grows with concurrent users. No eviction policy visible (relies on stream completion or manual cleanup).
+- **Prompt cache:** 60s TTL is reasonable, but large prompt dataset could hit memory. LRU cache not visible.
+- **Supabase RLS:** Scales well if DB indexes are optimized, but backend must construct secure queries (no direct SQL injection visible, Pydantic models are ORM-like).

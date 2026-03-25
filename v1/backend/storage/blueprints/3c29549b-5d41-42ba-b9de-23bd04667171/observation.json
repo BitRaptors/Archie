@@ -1,0 +1,373 @@
+```json
+{
+  "organization_style": "Next.js monolith organized into three main directories: src/app (Next.js routes and API endpoints), src/components (React UI components), and src/lib (business logic, utilities, database access). A clear separation between server-side API routes, client-side React components, and shared libraries. Configuration files (tailwind, vitest, next.config) at the root.",
+  "detected_components": [
+    {
+      "type": "API Route Handlers",
+      "naming_pattern": "src/app/api/[feature]/route.ts",
+      "examples": ["src/app/api/pins/route.ts", "src/app/api/generate/route.ts", "src/app/api/github/route.ts", "src/app/api/health/route.ts"]
+    },
+    {
+      "type": "React UI Components",
+      "naming_pattern": "src/components/[Feature]*.tsx",
+      "examples": ["PinBoard.tsx", "GeneratePanel.tsx", "RefinementChat.tsx", "ClaudeTerminal.tsx"]
+    },
+    {
+      "type": "Library/Business Logic",
+      "naming_pattern": "src/lib/[concern]*.ts",
+      "examples": ["src/lib/generate.ts", "src/lib/github.ts", "src/lib/db.ts"]
+    },
+    {
+      "type": "Next.js Pages/Layouts",
+      "naming_pattern": "src/app/[page].tsx",
+      "examples": ["src/app/page.tsx", "src/app/layout.tsx"]
+    },
+    {
+      "type": "Test Files",
+      "naming_pattern": "src/lib/[concern]*.test.ts or *.integration.test.ts",
+      "examples": ["generate.test.ts", "stream-parsing.test.ts", "generate.integration.test.ts"]
+    }
+  ],
+  "dependency_flow": "Client components (PinBoard, GeneratePanel, etc.) make HTTP requests to API routes (src/app/api/*). API routes delegate to library functions (src/lib/generate.ts, src/lib/github.ts) which handle core business logic. All routes access shared database via src/lib/db.ts. Component state flows upward from child to parent (AddPinModal -> PinBoard), with event handlers passed down. RefinementChat and ClaudeTerminal are tightly coupled, sharing message parsing logic.",
+  "architecture_style": "A full-stack Next.js application with a clear client-server boundary. The architecture is procedurally-driven rather than pattern-driven: API routes directly call library functions which invoke external services (Google Generative AI, Anthropic Claude, GitHub API, Puppeteer). State management is local to React components using useState/useEffect hooks. The codebase is feature-organized at the top level (pins, generation, github, presets) but mixes concerns — UI components handle data fetching, API routes handle orchestration, and library files do both business logic and infrastructure tasks (database, subprocess spawning). The backend is primarily a thin orchestration layer that routes requests to AI services and shell commands.",
+  "unique_patterns": [
+    "Streaming responses for long-running operations (generate/stream/route.ts, generate/refine/route.ts) - Claude generations stream SSE events back to client",
+    "Terminal-like output visualization (ClaudeTerminal) parsing structured tool-use events from AI responses",
+    "Screenshot-based 'pins' system - users can save website URLs as pins with snapshots, used as context for generation",
+    "Multi-panel workspace UI (PinBoard, GeneratePanel, GitHubPanel, PresetsPanel, SettingsPanel) - panels operate semi-independently with shared session state",
+    "Session persistence with sessionId and siteDir - generation artifacts stored in filesystem, referenced across requests",
+    "Dual AI provider support (Gemini and Claude) with different capabilities - Gemini for synchronous generation, Claude for streaming refinement"
+  ],
+  "standard_patterns_if_any": [
+    "RESTful API routes following Next.js conventions (GET/POST/PUT/DELETE methods exported from route.ts files)",
+    "React hooks pattern (useState, useEffect, useCallback, useRef) for component state management",
+    "Context-like data flow through page.tsx to child components (props drilling)"
+  ],
+  "framework_usage": {
+    "Next.js": "10+ files (app directory, API routes, metadata, image handling)",
+    "React": "12+ files (components, hooks: useState, useEffect, useCallback, useRef)",
+    "TypeScript": "All source files (.ts, .tsx)",
+    "Tailwind CSS": "1 file (tailwind.config.ts) but used throughout components",
+    "Google Generative AI": "2 files (generate.ts, generate.integration.test.ts) - Gemini API",
+    "Anthropic Claude": "3 files (generate.ts, ClaudeTerminal.tsx, streaming endpoints) - Claude API",
+    "Octokit": "1 file (github.ts) - GitHub API client",
+    "Puppeteer": "1 file (screenshot/route.ts) - headless browser for screenshots",
+    "better-sqlite3": "1 file (db.ts) - SQLite database",
+    "react-masonry-css": "1 file (PinBoard.tsx) - grid layout",
+    "child_process (Node.js)": "4 files - executing shell commands (npm, git, etc.)",
+    "Vitest": "3 files (.test.ts, vitest.config.ts) - testing framework",
+    "SSE (Server-Sent Events)": "2 streaming endpoints parse/produce SSE format implicitly"
+  },
+  "key_search_terms": [
+    "generateWithClaude vs generateWithGemini - dual AI provider logic",
+    "streamClaudeGeneration vs streamClaudeRefinement - streaming vs non-streaming flows",
+    "tool-start, tool-result, tool-use - Claude tool-use event parsing",
+    "siteDir, sessionId - session/artifact management",
+    "pins, screenshots - screenshot-based context system",
+    "presets - templated generation configurations",
+    "spawn/execFile - subprocess execution for npm/git commands",
+    "SSE chunk parsing (parseSSEChunk) - streaming response handling",
+    "GitHub token persistence - OAuth-like pattern for external service access"
+  ],
+  "priority_files_by_phase": {
+    "discovery": [
+      "src/app/page.tsx",
+      "src/app/layout.tsx",
+      "src/app/api/generate/route.ts",
+      "src/lib/generate.ts",
+      "next.config.ts"
+    ],
+    "layers": [
+      "src/app/api/generate/stream/route.ts",
+      "src/app/api/generate/refine/route.ts",
+      "src/lib/db.ts",
+      "src/lib/github.ts",
+      "src/app/api/pins/route.ts"
+    ],
+    "patterns": [
+      "src/components/ClaudeTerminal.tsx",
+      "src/lib/generate.ts",
+      "src/components/GeneratePanel.tsx",
+      "src/components/RefinementChat.tsx",
+      "src/lib/stream-parsing.test.ts"
+    ],
+    "communication": [
+      "src/app/api/generate/stream/route.ts",
+      "src/app/api/generate/refine/route.ts",
+      "src/components/RefinementChat.tsx",
+      "src/lib/github.ts",
+      "src/app/api/screenshot/route.ts"
+    ],
+    "technology": [
+      "next.config.ts",
+      "vitest.config.ts",
+      "tailwind.config.ts",
+      "package.json (inferred from imports)",
+      "src/lib/db.ts"
+    ],
+    "deployment": [
+      "next.config.ts",
+      "vitest.config.ts"
+    ],
+    "frontend": [
+      "src/app/page.tsx",
+      "src/app/layout.tsx",
+      "src/components/Header.tsx",
+      "src/components/PinBoard.tsx",
+      "src/components/GeneratePanel.tsx"
+    ]
+  },
+  "per_file_analysis": {
+    "src/app/page.tsx": {
+      "purpose": "Main application page/dashboard - orchestrates all major UI panels and manages session/generation state",
+      "exports": "Default React component with local interfaces (ChatMessage, Pin, etc.)",
+      "imports": "React hooks, PinBoard, GitHubPanel, PresetsPanel, GeneratePanel, PreviewFrame. No external UI library imports.",
+      "patterns": "Multi-panel workspace pattern. useState for complex nested state (pins, messages, generation status). Local loadSession() function manages siteDir and sessionId. useEffect for session persistence.",
+      "surprises": "Business logic mixed into component (loadSession, screenshot fetching) instead of isolated hooks. Session management uses localStorage/API hybrid without explicit state management library."
+    },
+    "src/lib/generate.ts": {
+      "purpose": "Core AI-driven code generation engine. Orchestrates prompt building, AI API calls, filesystem writes, subprocess execution, and context management.",
+      "exports": "Functions: parseReadmeSections, extractDependencies, inferProjectType, mapReadmeToLandingPageSections, buildPrompt, generateWithGemini, generateWithClaude, writeGeneratedSite, streamClaudeGeneration, streamClaudeRefinement, collectFiles",
+      "imports": "Google Generative AI, Node.js child_process/fs/path, Anthropic (implied via streaming), prompt engineering functions",
+      "patterns": "Large orchestration file. Dual AI provider pattern (Gemini for sync, Claude for streaming). Prompt engineering as pure functions (buildPrompt returns string). Streaming responses handled via event callbacks. Context loading from pins (images as base64).",
+      "surprises": "No abstraction layer for AI providers - directly imports GoogleGenerativeAI. Streaming implementation via callback functions rather than Promises/async. File I/O and subprocess execution mixed with AI orchestration logic."
+    },
+    "src/app/api/generate/stream/route.ts": {
+      "purpose": "Streaming endpoint for long-running Claude-based site generation. Returns Server-Sent Events (SSE) stream to client.",
+      "exports": "POST handler exporting NextResponse with streaming body",
+      "imports": "getDb, generateWithGemini, generateWithClaude, writeGeneratedSite, getRepoContent, path, fs, NextRequest/NextResponse",
+      "patterns": "Orchestrator pattern - routes to appropriate AI provider (Gemini for init, Claude for refinement). Delegates to src/lib/generate.ts. Wraps streaming callbacks into SSE format.",
+      "surprises": "Conditional logic for which AI provider to use buried in route handler rather than library. No error handling visible for stream failures."
+    },
+    "src/app/api/generate/refine/route.ts": {
+      "purpose": "Streaming endpoint for Claude-based refinement of existing generated sites. Parses SSE events and forwards them back to client.",
+      "exports": "POST handler with streaming response",
+      "imports": "getDb, streamClaudeRefinement, collectFiles, NextRequest/NextResponse, fs, path",
+      "patterns": "Wrapper around streaming library function. collectFiles() builds context from existing filesystem state. Event forwarding pattern.",
+      "surprises": "collectFiles() called from route handler suggesting file collection is request-time, not pre-computed."
+    },
+    "src/components/ClaudeTerminal.tsx": {
+      "purpose": "Real-time terminal-like UI for visualizing Claude tool-use events during generation. Parses SSE stream and renders structured log entries.",
+      "exports": "React component, helper functions (formatBytes, extractFileName, truncateCode, handleEvent, handleToolUse, handleToolResult, parseSSEChunk)",
+      "imports": "React hooks (useState, useRef, useEffect), no external UI libs",
+      "patterns": "Event parsing layer - transforms raw SSE chunks into typed TerminalEntry objects. Tool-use event handling for Claude's function calling. Incremental rendering of events.",
+      "surprises": "Large helper function collection (parseSSEChunk, handleEvent, handleToolUse, handleToolResult) could be extracted to separate utility file. Real-time parsing happens in component rather than separate stream parser."
+    },
+    "src/lib/db.ts": {
+      "purpose": "SQLite database initialization and management. Single getDb() factory. Seed function for presets.",
+      "exports": "getDb() function, seedPresets() helper",
+      "imports": "better-sqlite3, path, fs",
+      "patterns": "Singleton database instance pattern. Filesystem paths relative to process cwd. Seed data in code.",
+      "surprises": "No schema definition file - schema created inline in getDb(). No migrations pattern."
+    },
+    "src/components/GeneratePanel.tsx": {
+      "purpose": "UI panel for initiating site generation. Manages generation state, displays ClaudeTerminal, and coordinates with preview.",
+      "exports": "React component with GeneratePanelProps interface",
+      "imports": "useState, useEffect, ClaudeTerminal component",
+      "patterns": "Container component managing generation workflow. Event callbacks (onSiteReady, onFileChange) for communicating with parent.",
+      "surprises": "Directly calls /api/generate/stream endpoint - no abstraction layer for HTTP."
+    },
+    "src/app/api/pins/route.ts": {
+      "purpose": "CRUD endpoints for the pins system (screenshots). GET all, POST new pin.",
+      "exports": "GET and POST handlers",
+      "imports": "getDb, NextRequest/NextResponse",
+      "patterns": "Standard REST pattern. Direct database queries in route handlers.",
+      "surprises": "No validation middleware - POST handler trusts incoming data structure."
+    },
+    "src/app/api/github/route.ts": {
+      "purpose": "GitHub integration endpoint. Fetches repo content to provide context for generation.",
+      "exports": "POST handler",
+      "imports": "getDb, getRepoContent (from lib), NextRequest/NextResponse",
+      "patterns": "Delegator - calls out to github.ts library function. Stores token in database.",
+      "surprises": "Token storage in local database rather than environment/secrets."
+    },
+    "src/components/PinBoard.tsx": {
+      "purpose": "Masonry grid display of saved pins (screenshots). Allows add/delete operations and displays pin metadata.",
+      "exports": "React component with Pin interface",
+      "imports": "react-masonry-css, PinCard subcomponent, AddPinModal subcomponent, useState, useEffect",
+      "patterns": "Container component. Fetches pins via API on mount. Manages add/delete state with optimistic updates.",
+      "surprises": "Inline HTTP calls (fetch to /api/pins) rather than custom hook. AddPinModal passed as child component rather than separate route/modal."
+    },
+    "src/lib/github.ts": {
+      "purpose": "GitHub API wrapper. Single function to fetch repo file structure and content.",
+      "exports": "getRepoContent(token, repoUrl) async function",
+      "imports": "Octokit client",
+      "patterns": "Simple adapter over Octokit. Token-based authentication.",
+      "surprises": "Single function file - minimal abstraction."
+    },
+    "src/components/RefinementChat.tsx": {
+      "purpose": "Chat UI for refining generated sites. Sends messages to /api/generate/refine and streams responses.",
+      "exports": "React component with RefinementChatProps interface",
+      "imports": "useState, useRef, useEffect",
+      "patterns": "Chat interaction pattern. Streaming response handling. Message accumulation in local state.",
+      "surprises": "Direct SSE stream parsing in component rather than abstracted hook."
+    },
+    "src/app/api/health/route.ts": {
+      "purpose": "Health check endpoint. Validates system dependencies and environment.",
+      "exports": "GET handler returning HealthStatus object",
+      "imports": "execFile, promisify, path, fs",
+      "patterns": "Diagnostic endpoint. Shell command execution for version checks.",
+      "surprises": "Health check directly executes system commands synchronously."
+    },
+    "src/app/api/screenshot/route.ts": {
+      "purpose": "Screenshot capture endpoint. Uses Puppeteer to take screenshots of URLs.",
+      "exports": "POST handler",
+      "imports": "puppeteer, NextRequest/NextResponse, path, fs, getDb",
+      "patterns": "Headless browser orchestration. Screenshot stored in filesystem and referenced in database.",
+      "surprises": "Puppeteer browser lifecycle not managed - may be creating new browser instance per request."
+    },
+    "src/components/Header.tsx": {
+      "purpose": "Top navigation bar. Contains settings toggle.",
+      "exports": "React component",
+      "imports": "useState, SettingsPanel component",
+      "patterns": "Simple container for settings modal toggle.",
+      "surprises": "Minimal - essentially a wrapper for SettingsPanel."
+    },
+    "src/components/SettingsPanel.tsx": {
+      "purpose": "Configuration UI for API keys, database location, provider selection.",
+      "exports": "React component with Props interface, StatusRow subcomponent, HealthStatus interface",
+      "imports": "useState, useEffect",
+      "patterns": "Modal settings form. Fetches health status on mount. Saves to /api/settings.",
+      "surprises": "Settings persisted server-side via database, not localStorage."
+    },
+    "src/components/PinCard.tsx": {
+      "purpose": "Individual pin display card. Shows screenshot, title, description, delete button.",
+      "exports": "React component with Pin and Props interfaces",
+      "imports": "Minimal - only receives props",
+      "patterns": "Presentational component. Pure UI with no state.",
+      "surprises": "No surprises - straightforward display component."
+    },
+    "src/components/PreviewFrame.tsx": {
+      "purpose": "iframe-based preview of generated site. Fetches from /api/preview/* route.",
+      "exports": "React component with PreviewFrameProps interface",
+      "imports": "useState",
+      "patterns": "Uses dynamic iframe src to preview filesystem-based generated sites.",
+      "surprises": "Refresh mechanism tied to refreshTrigger prop (number) indicating re-renders on external trigger."
+    },
+    "src/components/AddPinModal.tsx": {
+      "purpose": "Modal form for adding new pins (saving URL + metadata).",
+      "exports": "React component with Props interface",
+      "imports": "useState, useEffect, useRef",
+      "patterns": "Form modal component. Calls onAdd callback with form data.",
+      "surprises": "Minimal validation - relies on parent component validation."
+    },
+    "src/components/PresetsPanel.tsx": {
+      "purpose": "UI for toggling preset generation templates on/off.",
+      "exports": "React component with Preset interface",
+      "imports": "useState, useEffect",
+      "patterns": "Fetches presets from /api/presets on mount. Toggle state synced to backend.",
+      "surprises": "Preset is just a name + active flag - no template content in frontend."
+    },
+    "src/lib/stream-parsing.test.ts": {
+      "purpose": "Test suite for SSE event parsing logic. Tests Claude tool-use event handling.",
+      "exports": "Helper functions (extractFileName, formatBytes, truncateCode, handleEvent, handleToolUse, handleToolResult, parseSSEChunk) defined as test utilities",
+      "imports": "vitest (describe, it, expect)",
+      "patterns": "Unit tests for parsing library functions. Tests cover TerminalEntry structure validation.",
+      "surprises": "Helper functions defined in test file rather than exported from main library - suggests these might be duplicated in ClaudeTerminal.tsx."
+    },
+    "src/lib/generate.test.ts": {
+      "purpose": "Unit tests for generate.ts helper functions.",
+      "exports": "Test cases via vitest",
+      "imports": "vitest, functions from generate.ts",
+      "patterns": "Tests for pure functions (parseReadmeSections, extractDependencies, inferProjectType, mapReadmeToLandingPageSections).",
+      "surprises": "Tests exist for pure logic but not for API call orchestration logic."
+    },
+    "src/lib/generate.integration.test.ts": {
+      "purpose": "Integration tests for end-to-end generation flow. Spawns actual Claude processes and verifies output.",
+      "exports": "Test cases via vitest",
+      "imports": "vitest, spawn, fs, path, os - creates temp directories for test artifacts",
+      "patterns": "Integration testing pattern with temp filesystem setup/teardown. Calls actual Claude API.",
+      "surprises": "Uses spawn() directly suggesting tests run actual subprocess commands, not mocked."
+    },
+    "src/app/api/preview/[...path]/route.ts": {
+      "purpose": "Catch-all route for serving generated site files from filesystem. Maps request path to siteDir files.",
+      "exports": "GET handler with dynamic path parameter",
+      "imports": "NextRequest, path, fs",
+      "patterns": "Static file serving from generated artifact directory. Dynamic routing based on path segments.",
+      "surprises": "No caching headers visible. Direct filesystem access for each request."
+    },
+    "src/app/api/presets/route.ts": {
+      "purpose": "CRUD for preset templates. GET all, PUT to update active state.",
+      "exports": "GET and PUT handlers",
+      "imports": "getDb, NextRequest/NextResponse",
+      "patterns": "Standard REST. Direct database queries in handlers.",
+      "surprises": "Presets likely seeded at database init - no POST/DELETE visible."
+    },
+    "src/app/api/settings/route.ts": {
+      "purpose": "Settings persistence endpoint. GET current settings, PUT to update.",
+      "exports": "GET and PUT handlers",
+      "imports": "getDb, NextRequest/NextResponse",
+      "patterns": "Key-value settings store in database. Direct SQL in handlers.",
+      "surprises": "Settings persisted to SQLite rather than environment or config files."
+    },
+    "src/app/layout.tsx": {
+      "purpose": "Root layout component. Sets metadata, imports global styles, renders Header and page content.",
+      "exports": "React component with metadata export",
+      "imports": "Next.js Metadata, Google Fonts (Inter), globals.css, Header component",
+      "patterns": "Next.js app directory layout pattern.",
+      "surprises": "Minimal - standard Next.js boilerplate."
+    },
+    "next.config.ts": {
+      "purpose": "Next.js build and runtime configuration.",
+      "exports": "nextConfig object",
+      "imports": "NextConfig type",
+      "patterns": "Standard Next.js config file.",
+      "surprises": "Empty/minimal config - uses Next.js defaults."
+    },
+    "vitest.config.ts": {
+      "purpose": "Test runner configuration.",
+      "exports": "defineConfig for vitest",
+      "imports": "vitest, path",
+      "patterns": "Standard test configuration with alias resolution.",
+      "surprises": "Uses @/ alias for src directory - matches tsconfig."
+    },
+    "tailwind.config.ts": {
+      "purpose": "Tailwind CSS configuration.",
+      "exports": "Config object",
+      "imports": "tailwindcss Config type",
+      "patterns": "Standard Tailwind config.",
+      "surprises": "Empty/minimal config."
+    }
+  },
+  "concerns": [
+    "No abstraction layer for AI providers - code directly imports Google and Anthropic SDKs. Switching providers or mocking for tests requires code changes.",
+    "Streaming response handling scattered across components and routes - parseSSEChunk, handleEvent, etc. duplicated or scattered. Should be centralized.",
+    "HTTP calls directly in components (fetch in PinBoard, GeneratePanel) instead of custom hooks or service layer - makes testing and refactoring harder.",
+    "Business logic in route handlers - validation, orchestration of multiple services should be extracted to lib/.",
+    "Session management inconsistent - uses both localStorage (page.tsx) and database (settings). No clear session abstraction.",
+    "No middleware for common concerns - no authentication, validation, error handling middleware.",
+    "Database schema defined inline in db.ts with no migrations pattern - scaling risk.",
+    "Filesystem artifact management (siteDir, sessionId) tightly coupled with in-memory state - potential consistency issues.",
+    "Tool-use event parsing for Claude duplicated across ClaudeTerminal.tsx and stream-parsing.test.ts - DRY violation.",
+    "Puppeteer browser instance management in screenshot endpoint may create new instance per request - performance risk.",
+    "Error handling minimal across streaming endpoints - stream failures may silently leave client hanging.",
+    "No logging infrastructure - all output is console or terminal UI, making production debugging difficult.",
+    "Tests minimal for streaming logic despite complexity - only unit tests, limited integration tests.",
+    "Dual AI provider logic (Gemini vs Claude) conditionally selected in routes rather than abstracted - tight coupling."
+  ]
+}
+```
+
+---
+
+## Summary
+
+**BitRaptors/PinLaunch** is a **full-stack AI-powered website generator** built on Next.js. The architecture is **procedurally-orchestrated** rather than pattern-driven:
+
+- **Frontend**: React components (PinBoard, GeneratePanel, RefinementChat, etc.) act as a workspace with multiple semi-independent panels, using local useState for state management.
+- **Backend**: Thin orchestration layer—API routes delegate to library functions which call external AI services (Google Gemini, Anthropic Claude) and execute subprocesses.
+- **Unique Features**: 
+  - "Pins" system (screenshot-based context for generation)
+  - SSE-based streaming for long-running Claude generations
+  - Terminal-like visualization of Claude tool-use events
+  - Multi-panel workspace UI
+  - Preset templates for generation
+  
+**Key Concern**: The codebase mixes concerns—UI components fetch data, API routes orchestrate logic, library functions manage both AI calls and subprocess execution. No abstraction layers for AI providers, HTTP clients, or streaming logic. This makes testing, refactoring, and provider-switching costly.
+
+**Priority Recommendations**:
+1. Centralize streaming/SSE parsing logic (currently scattered)
+2. Extract HTTP clients into a service layer
+3. Create AI provider abstraction (Adapter pattern for Google/Anthropic)
+4. Add middleware for validation and error handling
+5. Move business logic from route handlers to lib/

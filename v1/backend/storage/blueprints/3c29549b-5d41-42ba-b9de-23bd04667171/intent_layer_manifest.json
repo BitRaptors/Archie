@@ -1,0 +1,37 @@
+{
+  "blueprint_hash": "cda05f951922b90e84875f9618b2673c3759962061fdb88160cf6701eadff900",
+  "entries": [
+    {
+      "path": "CLAUDE.md",
+      "content_hash": "26cabd9ba9c6c95f67afee922e4ca92fe498c43f06a892e57464c15fc9233280"
+    },
+    {
+      "path": "src/CLAUDE.md",
+      "content_hash": "4ebb9e08f4205ffec2388bb746bbae92e36ed8f616487fa60292e2a1f91b5a1f"
+    },
+    {
+      "path": "src/app/CLAUDE.md",
+      "content_hash": "9987b9e9384b7110be53ccb2424d1f3f564c936d097868ed0d7a3c612e83dacc"
+    },
+    {
+      "path": "src/app/api/CLAUDE.md",
+      "content_hash": "b86ef1e6ed7bebce67d334e9971c0d9fa9a7e7168dfa3d215b70cde017f49f95"
+    },
+    {
+      "path": "src/app/api/generate/CLAUDE.md",
+      "content_hash": "24bca423008bcba622ce682d48cc19f6e4c8fa731591fdc0cbbdfc2d684dcd19"
+    },
+    {
+      "path": "src/app/api/pins/CLAUDE.md",
+      "content_hash": "5b77a3a1748cc0948bbacc477f613b15bb731f46aa43ffbd9099fbc12ea80ae5"
+    },
+    {
+      "path": "src/components/CLAUDE.md",
+      "content_hash": "eb4947846ed7631b17e19b03a93fec1ce324676c40579d6c4a5eb8f9427c15b3"
+    },
+    {
+      "path": "src/lib/CLAUDE.md",
+      "content_hash": "e84504c549b460eabde2f12eeed645b5787de0e37b6eb09c47205f7313aab489"
+    }
+  ]
+}

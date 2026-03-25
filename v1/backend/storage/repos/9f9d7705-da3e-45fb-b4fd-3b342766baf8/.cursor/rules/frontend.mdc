@@ -1,0 +1,99 @@
+---
+description: 
+globs: *.tsx, *.ts, *.test.ts, *.test.tsx, src/__tests__/**/*, *.json, *.config.*, tailwind.config.*, *.css, *.md, docs/**/*, src/**/*
+alwaysApply: false
+---
+## Frontend Development Rules (React, TypeScript, Tailwind, Shadcn)
+
+1. **Project Setup**:
+   - Use Vite for React projects (`npm create vite@latest` with TypeScript).
+   - Install Tailwind CSS (`npm install -D tailwindcss postcss autoprefixer`) and initialize (`npx tailwindcss init`).
+   - Install Shadcn CLI (`npm install shadcn-ui`) and initialize (`npx shadcn-ui@latest init`).
+   - Set up a clean directory structure:
+     ```
+     project_root/
+     ├── src/
+     │   ├── api/              # API client singleton
+     │   ├── components/       # Reusable components (Shadcn and custom)
+     │   ├── pages/            # Page components
+     │   ├── hooks/            # Custom hooks
+     │   ├── utils/            # Helper functions
+     │   ├── styles/           # Tailwind and global styles
+     │   └── App.tsx           # Main app entry
+     ├── public/               # Static assets
+     ├── docs/                 # Documentation and to-do lists
+     ├── tsconfig.json         # TypeScript config
+     ├── tailwind.config.js    # Tailwind config
+     └── README.md
+     ```
+
+2. **Workflow for New Features**:
+   - **Check Codebase**: Search `src/`, `tests/`, `docs/` for existing implementations.
+   - **Create To-Do List**: Create a file in `docs/` named `newFeature.md` (e.g., `addProductForm.md`). Use Markdown with checkboxes (`[]` for incomplete, `[x]` for complete). Example:
+     ```
+     # To-Do List for Adding Product Form
+     - [] Update API client in `src/api/client.ts` with `createProduct`
+     - [] Create ProductForm component in `src/components/ProductForm.tsx`
+     - [] Add form to page in `src/pages/Products.tsx`
+     - [] Test form submission
+     - [] Document usage in `docs/products.md`
+     ```
+   - **Update To-Do List**: Review and expand the to-do list before starting if new subtasks arise.
+   - **Mark Tasks as Done**: After completing a task, test it (e.g., submit the form in the browser). If it works, mark it as done (`[x]`) in `newFeature.md`.
+   - **Save Progress**: Commit the updated `newFeature.md` to version control.
+
+3. **Pattern for Adding Endpoints**:
+   - When a new backend endpoint is added, follow this sequence:
+     1. Update the API client in `src/api/client.ts` with a new method.
+     2. Test the API call (e.g., using `fetch` or a test script).
+     3. Wire the endpoint into the UI (e.g., in a form or list component).
+     4. Update helper documentation in `docs/<resource>.md`.
+   - Example API client update (`src/api/client.ts`):
+     ```typescript
+     import axios from 'axios';
+
+     const apiClient = axios.create({
+       baseURL: 'http://localhost:8000',
+       headers: { 'Content-Type': 'application/json' },
+     });
+
+     export const api = {
+       createProduct: async (data: { name: string; price: number }) => {
+         const response = await apiClient.post('/products', data);
+         return response.data;
+       },
+     };
+     ```
+
+4. **Code Reusability**:
+   - Check for existing components in `src/components/` or Shadcn’s library.
+   - Use Shadcn CLI (`npx shadcn-ui@latest add <component>`).
+   - Search npm/GitHub for libraries (e.g., `react-query`, `react-hook-form`).
+   - Centralize logic in `src/hooks/` or `src/utils/`.
+
+5. **React and TypeScript**:
+   - Use functional components with TypeScript.
+   - Organize pages in `src/pages/` (e.g., `src/pages/Products.tsx`).
+   - Place reusable components in `src/components/` (e.g., `src/components/ProductForm.tsx`).
+   - Use Tailwind for styling.
+   - Leverage Shadcn components for UI consistency.
+
+6. **Minimal Code**:
+   - Write concise components/hooks using Shadcn and Tailwind.
+   - Use `react-query` for data fetching (`npm install @tanstack/react-query`).
+   - Refactor repetitive UI into reusable components/hooks.
+
+7. **Testing**:
+   - Place tests in `src/__tests__/` mirroring `src/`.
+   - Use `vitest` and `@testing-library/react` (`npm install -D vitest @testing-library/react`).
+   - Test components, hooks, and API client methods.
+
+8. **Documentation**:
+   - Update `README.md` with setup instructions.
+   - Use TypeScript types for self-documentation.
+   - Create helper docs in `docs/` for each resource.
+
+9. **Vibe Coding**:
+   - Keep code clean, typed, and ESLint/Prettier-compliant.
+   - Use Tailwind’s utility classes for rapid styling.
+   - Comment only for complex logic.

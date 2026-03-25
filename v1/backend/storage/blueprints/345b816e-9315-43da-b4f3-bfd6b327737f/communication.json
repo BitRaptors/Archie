@@ -1,0 +1,612 @@
+```json
+{
+  "internal_communication": [
+    {
+      "type": "Reactive Data Flow",
+      "platform": "frontend-ios",
+      "mechanism": "RxSwift Observables/Subjects with PublishRelay",
+      "description": "Primary iOS communication pattern using RxCocoa for reactive bindings between layers",
+      "examples": [
+        "SharedAlbumProvider.deeplinkInput (PublishRelay) → albumsOutput (Observable)",
+        "AlbumRepository: createAlbumInput → firebase.createAlbum() → albumsOutput",
+        "AlbumVisibilityStateProvider: seenSharedAlbumInput → scan operations → lastSeenAlbumStateOutput",
+        "SharedLinksRepository: addSharedLinkInput → firebase call → sharedLinksOutput (Driver)",
+        "AlbumPreviewViewModel: handleDeeplink() triggers deeplinkInput → albumObservable chain"
+      ],
+      "flow_pattern": "PublishRelay<Input> → flatMapLatest/flatMap → Observable<Output> → subscribe in ViewController"
+    },
+    {
+      "type": "Dependency Injection",
+      "platform": "frontend-ios",
+      "mechanism": "Swinject DI Container (initialized in AppDelegate)",
+      "description": "Centralized dependency resolution for all iOS components",
+      "examples": [
+        "AppDelegate initializes DepedencyContainer (Swinject)",
+        "ViewModels receive Firebase/ErrorFactory via constructor injection",
+        "Repositories injected into Providers",
+        "ViewControllers resolve ViewModels from container"
+      ],
+      "files": [
+        "iOS/AroundSound/App/DI/DepedencyContainer.swift",
+        "iOS/AroundSound/App/DI/Dependencies.swift",
+        "iOS/AroundSound/App/DI/Resolver.swift"
+      ]
+    },
+    {
+      "type": "Protocol-Based Abstraction",
+      "platform": "frontend-ios",
+      "mechanism": "Swift Protocol definitions for all services",
+      "description": "Interfaces separate concerns and enable testability",
+      "examples": [
+        "SharedAlbumProviderProtocol: defines errorOutput, albumsOutput, deeplinkInput contract",
+        "AlbumRepositoryProtocol: defines input/output observables for album operations",
+        "AlbumVisibilityStateProviderProtocol: abstracts album visibility state management",
+        "FirebaseProviderProtocol: abstracts all backend communication",
+        "ASErrorFactoryProtocol: abstracts error creation logic"
+      ]
+    },
+    {
+      "type": "Error Propagation",
+      "platform": "frontend-ios",
+      "mechanism": "PublishSubject<ASError> merged into errorOutput observable",
+      "description": "Centralized error handling with custom error types and routing",
+      "examples": [
+        "SharedAlbumProvider catches errors via .catchError(to: errorSubject)",
+        "AlbumVisibilityStateProvider: loadSharedAlbum errors caught → errorSubject.onNext()",
+        "ASError hierarchy: FirebaseError, GeneralError, PersistenceError, RecordingError, ShareError",
+        "ASErrorRouter: routes errors to UI (dialogs, toasts, logging)"
+      ],
+      "files": [
+        "iOS/AroundSound/App/ErrorHandling/ASError.swift",
+        "iOS/AroundSound/App/ErrorHandling/ASErrorFactory.swift",
+        "iOS/AroundSound/App/ErrorHandling/ASErrorRouter.swift"
+      ]
+    },
+    {
+      "type": "State Management via Scan Operators",
+      "platform": "frontend-ios",
+      "mechanism": "RxSwift scan() for accumulating state transformations",
+      "description": "Functional state updates using scan with enums for action types",
+      "examples": [
+        "AlbumVisibilityStateProvider.scan() with AlbumInputType enum (.add, .merge, .reset, .doNothing)",
+        "SharedLinksRepository.scan() with InputType enum for state accumulation",
+        "Maintains immutable state dictionaries, returns modified copies on each action"
+      ]
+    },
+    {
+      "type": "Notification/Event System",
+      "platform": "backend-firebase",
+      "mechanism": "Firebase Cloud Functions event triggers",
+      "description": "Serverless event-driven architecture responding to Firestore/Auth changes",
+      "examples": [
+        "Firestore triggers: onCreate, onWrite, onDelete on collections",
+        "Auth triggers: user creation, deletion",
+        "Async job queues for notifications, analytics processing",
+        "Function chains for cascading operations"
+      ],
+      "files": [
+        "platform/firebase/functions/src/index.ts",
+        "platform/firebase/functions/src/albums.ts",
+        "platform/firebase/functions/src/recordings.ts",
+        "platform/firebase/functions/src/notifications.ts"
+      ]
+    },
+    {
+      "type": "Data Layer Handlers",
+      "platform": "frontend-android",
+      "mechanism": "Handler classes abstracting data source access",
+      "description": "Android data access pattern (inferred from previous analysis)",
+      "examples": [
+        "Album/Recording/Comment handlers manage entity operations",
+        "Local caching via Disk library (persistent storage)",
+        "Firebase provider abstraction for backend calls"
+      ]
+    },
+    {
+      "type": "Local Persistence",
+      "platform": "frontend-ios",
+      "mechanism": "Disk library for file-based persistence",
+      "description": "Offline caching of critical data structures",
+      "examples": [
+        "AlbumVisibilityStateProvider loads from disk via AlbumVisibilityStateProvider.loadSharedAlbum()",
+        "Disk.read() for deserialization, Disk.save() for persistence",
+        "Supports offline-first sync model"
+      ]
+    }
+  ],
+  "external_communication": [
+    {
+      "type": "REST/Firebase API",
+      "protocol": "HTTPS with Firebase SDK",
+      "direction": "frontend → backend",
+      "examples": [
+        "FirebaseProvider.fetchSharedAlbumPreview(albumId, token)",
+        "firebase.getAlbums() - Firestore real-time listener",
+        "firebase.createAlbum(album) - Firestore write",
+        "firebase.fetchSharedAlbumPreview() - Cloud Function invocation"
+      ],
+      "authentication": "Firebase Authentication (Google Sign-In, Email/Password)",
+      "files": [
+        "iOS/AroundSound/App/Networking/FirebaseProvider.swift"
+      ]
+    },
+    {
+      "type": "Firestore Real-time Sync",
+      "protocol": "WebSocket (Firebase persistence layer)",
+      "direction": "bidirectional",
+      "examples": [
+        "getAlbums() establishes real-time listener on /albums collection",
+        "Automatic sync on document changes",
+        "Supports offline queue for writes",
+        "Local cache synchronized with remote"
+      ]
+    },
+    {
+      "type": "Cloud Storage (Audio Files)",
+      "protocol": "HTTPS with resumable upload/download",
+      "direction": "bidirectional",
+      "examples": [
+        "Audio file uploads via Firebase Storage",
+        "Recording binary stored separately from metadata",
+        "Signed URLs for playback access",
+        "Storage rules enforce user access control"
+      ],
+      "files": [
+        "platform/firebase/storage.rules"
+      ]
+    },
+    {
+      "type": "Firebase Cloud Functions",
+      "protocol": "HTTPS (Firebase Functions SDK)",
+      "direction": "frontend → backend (sync)",
+      "examples": [
+        "albums.ts: album CRUD, metadata processing",
+        "recordings.ts: recording operations, file sync",
+        "shared_links.ts: link generation, token validation",
+        "users.ts: user profile, permissions management",
+        "notifications.ts: notification dispatch",
+        "analytics.ts: event processing"
+      ],
+      "files": [
+        "platform/firebase/functions/src/index.ts",
+        "platform/firebase/functions/src/cloud_function_utils.ts"
+      ]
+    },
+    {
+      "type": "Push Notifications",
+      "protocol": "Firebase Cloud Messaging (FCM)",
+      "direction": "backend → frontend",
+      "examples": [
+        "notifications.ts: triggers on comment/like/recording added events",
+        "AppDelegate registers for push notifications (APNs)",
+        "Firebase Messaging SDK handles token refresh",
+        "Notification types: CommentCreatedNotification, LikeCreatedNotification, RecordingAddedToSharedAlbumNotification, UserJoinedSharedAlbumNotification"
+      ],
+      "files": [
+        "iOS/AroundSound/App/Models/Notification/ASNotification.swift",
+        "platform/firebase/functions/src/notifications.ts"
+      ]
+    },
+    {
+      "type": "Analytics Event Tracking",
+      "protocol": "Firebase Analytics / AppCenter Analytics",
+      "direction": "frontend → backend",
+      "examples": [
+        "ASAnalyticsManager logs events: album_created, recording_added, share_link_generated, comment_posted",
+        "Firebase Analytics dashboards in console",
+        "AppCenter for iOS crash reporting and performance monitoring",
+        "Performance events via ASAnalyticsPerformanceEvent"
+      ],
+      "files": [
+        "iOS/AroundSound/App/Analytics/ASAnalyticsManager.swift",
+        "iOS/AroundSound/App/Analytics/FirebaseAnalyticsService.swift",
+        "platform/firebase/functions/src/analytics.ts"
+      ]
+    },
+    {
+      "type": "Deeplink Handling",
+      "protocol": "URL scheme + Firebase Dynamic Links",
+      "direction": "external → frontend",
+      "examples": [
+        "SharedAlbumDeeplinkInfo contains albumId + token",
+        "AlbumPreviewViewController processes deeplink via handleDeeplink()",
+        "SharedAlbumProvider.deeplinkInput.accept(deeplinkInfo)",
+        "Enables sharing via URL with embedded authentication token"
+      ],
+      "files": [
+        "iOS/AroundSound/App/Deeplinking/ShareHelper.swift",
+        "iOS/AroundSound/App/Models/SharedAlbumDeeplinkInfo.swift"
+      ]
+    },
+    {
+      "type": "Google Sign-In",
+      "protocol": "OAuth 2.0",
+      "direction": "frontend → Google Identity Services",
+      "examples": [
+        "AppDelegate initializes Google Sign-In SDK",
+        "Configured in Firebase Console",
+        "Returns idToken used for Firebase Auth"
+      ]
+    },
+    {
+      "type": "Database Queries",
+      "protocol": "Firestore query API",
+      "direction": "frontend/backend → Firestore",
+      "examples": [
+        "firebase.getAlbums(): db.collection('albums').where('ownerId', '==', userId)",
+        "firebase.getSharedAlbums(): cross-user album access",
+        "firebase.getComments(albumId): nested subcollection queries",
+        "Pagination, filtering, sorting via Firestore query builder"
+      ],
+      "files": [
+        "platform/firebase/firestore.rules",
+        "iOS/AroundSound/App/Networking/FirebaseProvider.swift"
+      ]
+    },
+    {
+      "type": "Transaction/Batch Operations",
+      "protocol": "Firestore Transactions",
+      "direction": "backend → Firestore",
+      "examples": [
+        "Atomic album + recording creation",
+        "Batch user permission updates",
+        "Cascade deletes with transaction rollback"
+      ]
+    }
+  ],
+  "third_party_integrations": [
+    {
+      "service": "Firebase Authentication",
+      "purpose": "User authentication and identity management",
+      "integration_point": "AppDelegate initializes Firebase Auth, handles sign-in/sign-out",
+      "platforms": ["iOS", "Android", "Backend"],
+      "providers": ["Google OAuth 2.0", "Email/Password"],
+      "files": [
+        "iOS/AroundSound/App/Appdelegate/AppDelegate.swift"
+      ]
+    },
+    {
+      "service": "Firebase Firestore",
+      "purpose": "Primary NoSQL database for all user data (albums, recordings, comments, permissions)",
+      "integration_point": "FirebaseProvider abstracts Firestore API, real-time listeners, queries",
+      "platforms": ["iOS", "Android", "Backend"],
+      "access_patterns": [
+        "Real-time listeners for active collections",
+        "Query with filters (ownerId, albumId, visibility)",
+        "Transactions for multi-document updates",
+        "Security rules for access control"
+      ],
+      "files": [
+        "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+        "platform/firebase/firestore.rules"
+      ]
+    },
+    {
+      "service": "Firebase Cloud Storage",
+      "purpose": "Blob storage for audio recordings and assets",
+      "integration_point": "Storage path patterns: /users/{userId}/recordings/{recordingId}.m4a",
+      "platforms": ["iOS", "Android", "Backend"],
+      "access_patterns": [
+        "Resumable upload for large audio files",
+        "Signed URL generation for downloads",
+        "Storage rules restrict to owner/shared access"
+      ],
+      "files": [
+        "platform/firebase/storage.rules"
+      ]
+    },
+    {
+      "service": "Firebase Cloud Functions",
+      "purpose": "Serverless backend for business logic, notifications, async processing",
+      "integration_point": "HTTPS callable functions invoked from iOS/Android",
+      "platforms": ["Backend (Node.js)", "iOS", "Android"],
+      "function_modules": [
+        "albums.ts - Album lifecycle (create, update, delete, share permissions)",
+        "recordings.ts - Recording operations, file validation",
+        "shared_links.ts - Public link generation, token validation",
+        "users.ts - User profiles, permission management",
+        "notifications.ts - Event-driven notification dispatch",
+        "analytics.ts - Event aggregation and reporting"
+      ],
+      "files": [
+        "platform/firebase/functions/src/index.ts"
+      ]
+    },
+    {
+      "service": "Firebase Cloud Messaging (FCM)",
+      "purpose": "Push notification delivery (iOS APNs, Android GCM)",
+      "integration_point": "Firebase Messaging SDK in AppDelegate registers device tokens",
+      "platforms": ["iOS", "Android"],
+      "notification_types": [
+        "CommentCreatedNotification - Comment posted on album",
+        "LikeCreatedNotification - Recording/comment liked",
+        "RecordingAddedToSharedAlbumNotification - Recording added to shared album",
+        "UserJoinedSharedAlbumNotification - User joined album collaboration"
+      ],
+      "files": [
+        "iOS/AroundSound/App/Models/Notification/ASNotification.swift",
+        "platform/firebase/functions/src/notifications.ts"
+      ]
+    },
+    {
+      "service": "Firebase Analytics",
+      "purpose": "User behavior tracking, funnel analysis, crash analytics",
+      "integration_point": "ASAnalyticsManager wraps Firebase Analytics and AppCenter",
+      "platforms": ["iOS", "Android", "Backend"],
+      "event_categories": [
+        "User actions: album_created, recording_added, comment_posted, share_generated",
+        "Navigation events: screen_view",
+        "Performance: audio_upload_time, app_startup_time",
+        "Errors: exception_occurred"
+      ],
+      "files": [
+        "iOS/AroundSound/App/Analytics/ASAnalyticsManager.swift",
+        "iOS/AroundSound/App/Analytics/FirebaseAnalyticsService.swift",
+        "platform/firebase/functions/src/analytics.ts"
+      ]
+    },
+    {
+      "service": "Microsoft AppCenter",
+      "purpose": "iOS crash reporting, session analytics, performance monitoring",
+      "integration_point": "AppDelegate initializes AppCenter (Crashes, Analytics modules)",
+      "platforms": ["iOS"],
+      "capabilities": [
+        "Automatic crash stack traces",
+        "Session tracking",
+        "Custom events",
+        "Real-time crash alerts"
+      ],
+      "files": [
+        "iOS/AroundSound/App/Appdelegate/AppDelegate.swift"
+      ]
+    },
+    {
+      "service": "Google Sign-In SDK",
+      "purpose": "OAuth 2.0 Google authentication for seamless login",
+      "integration_point": "Configured in Firebase Console, initialized in AppDelegate",
+      "platforms": ["iOS", "Android"],
+      "flow": "User taps Google Sign-In → SDK opens Google login → returns idToken → Firebase Auth"
+    },
+    {
+      "service": "SwiftTweaks",
+      "purpose": "Debug utilities for in-app parameter tuning (iOS only)",
+      "integration_point": "Optional debug-time configuration of thresholds, timeouts",
+      "platforms": ["iOS"],
+      "usage": "Development/testing only"
+    },
+    {
+      "service": "Disk (iOS library)",
+      "purpose": "Simple file-based persistence for local caching",
+      "integration_point": "AlbumVisibilityStateProvider uses Disk.read/save for offline data",
+      "platforms": ["iOS"],
+      "files": [
+        "iOS/AroundSound/App/Domain/Provider/AlbumVisibilityStateProvider.swift"
+      ]
+    },
+    {
+      "service": "CodableFirebase",
+      "purpose": "Automatic codable encoding/decoding from Firestore documents",
+      "integration_point": "Data model classes (Album, Recording, Comment, etc.) use Codable",
+      "platforms": ["iOS", "Android", "Backend"],
+      "reduces": "Manual Firebase document mapping code"
+    }
+  ],
+  "frontend_backend_contract": {
+    "protocol": "REST/HTTPS via Firebase Cloud Functions and Firestore real-time API",
+    "invocation_style": [
+      "Firestore listeners (real-time, bidirectional)",
+      "Firestore queries (point reads/queries)",
+      "Cloud Functions (callable functions via HTTPS)",
+      "Cloud Storage (resumable uploads/downloads)"
+    ],
+    "shared_types": true,
+    "type_sharing_mechanism": [
+      "Data Transfer Objects (DTOs) with Codable/CodableFirebase",
+      "Mirrored domain models: Album.swift (iOS) ↔ album interface (TypeScript backend)",
+      "Common enums: SyncStatus, Permissions, NotificationType"
+    ],
+    "shared_type_files": [
+      "iOS/AroundSound/App/Models/Dtos/AlbumDto.swift",
+      "iOS/AroundSound/App/Models/Dtos/RecordingDto.swift",
+      "iOS/AroundSound/App/Models/Dtos/SharedAlbumDto.swift",
+      "iOS/AroundSound/App/Models/Dtos/CommentDto.swift",
+      "iOS/AroundSound/App/Models/Dtos/PermissionsDto.swift",
+      "iOS/AroundSound/App/Models/Dtos/SyncStatusDto.swift"
+    ],
+    "error_propagation": {
+      "backend_to_frontend": [
+        "Firebase Cloud Functions throw typed errors with code + message",
+        "Firestore security rule violations return permission-denied error",
+        "iOS ASErrorFactory converts Firebase errors to ASError domain model",
+        "ASError includes severity level (fatal, warning, info)",
+        "Errors published to errorOutput observable, routed via ASErrorRouter to UI (dialogs, toasts)"
+      ],
+      "error_types": [
+        "FirebaseError (auth, permission, network)",
+        "GeneralError (generic operation failures)",
+        "PersistenceError (disk I/O issues)",
+        "RecordingError (audio codec, format)",
+        "ShareError (link generation, token validation)"
+      ],
+      "error_display_example": "Recording not available → Dialog shown in AlbumPreviewViewController"
+    },
+    "frontend_communication_pattern": {
+      "input_relay": "PublishRelay<Input> accepts user actions (tap, form submission)",
+      "backend_call": "Relay triggers flatMapLatest to Firebase provider method",
+      "async_execution": "Cloud Function or Firestore query executes on backend",
+      "result_mapping": "Response mapped to domain model via DTO converter",
+      "error_handling": ".catchError(to: errorSubject) diverts errors",
+      "output_observable": "Result emitted to output Observable, UI subscribes via RxCocoa binding"
+    },
+    "request_response_flow": "SharedAlbumProvider.deeplinkInput.accept() → flatMapLatest → firebase.fetchSharedAlbumPreview() → Cloud Function receives albumId+token → queries Firestore with auth context → returns SharedAlbumPreviewDto → converter transforms to SharedAlbumPreview → albumsOutput.onNext() → UI re-renders",
+    "authentication": {
+      "mechanism": "Firebase ID tokens (JWT) attached to all requests",
+      "acquisition": "User authenticates via Google Sign-In or email → Firebase Auth returns idToken",
+      "usage": "idToken sent in Authorization header (automatic via Firebase SDK)",
+      "refresh": "SDK handles token refresh transparently",
+      "backend_validation": "Cloud Functions verify token claims via Firebase Admin SDK",
+      "firestore_rules": "Rules access request.auth.uid to enforce document-level access"
+    }
+  },
+  "pattern_guidelines": [
+    {
+      "scenario": "Multi-platform data synchronization (iOS/Android/Web share same backend)",
+      "pattern": "Firestore real-time listeners + Cloud Functions event triggers",
+      "rationale": "Ensures consistent state across all clients without polling. Firestore handles conflict resolution (last-write-wins) and offline queueing.",
+      "implementation": "FirebaseProvider establishes listeners on relevant collections; backend functions cascade changes via Firestore writes triggered by onCreate/onWrite/onDelete"
+    },
+    {
+      "scenario": "Complex state management (album visibility, last-seen comments, user permissions)",
+      "pattern": "RxSwift scan operators with immutable state dictionaries and input type enums",
+      "rationale": "Functional state updates are predictable, testable, and prevent race conditions. Enum-based inputs make state transitions explicit.",
+      "example": "AlbumVisibilityStateProvider accumulates .add, .merge, .reset actions via scan()"
+    },
+    {
+      "scenario": "Cascading asynchronous operations (create album → validate recordings → send notifications)",
+      "pattern": "Cloud Functions with sequential await/async or Firebase Transactions",
+      "rationale": "Reduces client-side orchestration complexity. Backend ensures atomicity and can implement retry logic.",
+      "implementation": "albums.ts triggers on album create → recordings.ts validates files → notifications.ts sends FCM messages"
+    },
+    {
+      "scenario": "Offline-first mobile app (users record audio without network)",
+      "pattern": "Local persistence (Disk) + Firestore offline queue + sync status enums",
+      "rationale": "Enables offline recording, then syncs when connectivity returns. Firestore SDK handles offline queue automatically.",
+      "tracking": "Recording entities track SyncStatus (pending, syncing, synced, failed)"
+    },
+    {
+      "scenario": "Real-time collaboration (multiple users editing shared album simultaneously)",
+      "pattern": "Firestore listeners + optimistic updates + conflict resolution rules",
+      "rationale": "Listeners ensure all clients see latest changes. Firestore's last-write-wins prevents orphaned state.",
+      "example": "Comment added by user A → Firestore write → triggers Cloud Function → emits FCM to user B → user B's listener fires → comment appears in list"
+    },
+    {
+      "scenario": "Error resilience across network/auth failures",
+      "pattern": "Centralized ASErrorFactory + ASErrorRouter + error output observables in all providers",
+      "rationale": "Uniform error categorization and user-facing messaging. Errors don't crash app, but notify UI layer.",
+      "implementation": "All providers expose errorOutput observable; ViewControllers subscribe and route via ASErrorRouter"
+    },
+    {
+      "scenario": "Handling large binary uploads (audio files > 100MB)",
+      "pattern": "Firebase Cloud Storage resumable upload + sync status tracking",
+      "rationale": "Resumable uploads survive network interruptions. Parallel uploads via multiple chunks.",
+      "implementation": "iOS GeneralRecorder publishes to Cloud Storage; Recording entity tracks upload progress via ExtendedSyncStatus"
+    },
+    {
+      "scenario": "Public sharing with token-based access (non-authenticated users view shared albums)",
+      "pattern": "Cloud Function validates short-lived tokens + returns preview data",
+      "rationale": "Prevents enumeration of all albums. Tokens expire, revoking access.",
+      "implementation": "shared_links.ts generates token → encodes in deeplink → AlbumPreviewViewModel verifies token in Cloud Function before fetching preview"
+    },
+    {
+      "scenario": "Push notification delivery with user engagement tracking",
+      "pattern": "Cloud Messaging + event-driven Cloud Functions + analytics events",
+      "rationale": "Decouples notification trigger (e.g., comment posted) from delivery. Analytics tracks engagement.",
+      "flow": "Comment created → Firestore onCreate → notifications.ts → FCM sends → iOS receives → analytics event logged"
+    },
+    {
+      "scenario": "Dependency injection for testability (unit tests mock Firebase)",
+      "pattern": "Protocol-based abstraction + Swinject container with swappable implementations",
+      "rationale": "Tests inject mock FirebaseProvider instead of real Firebase. Observables remain, enabling RxSwift testing.",
+      "example": "SharedAlbumProviderProtocol abstracted; tests pass MockFirebaseProvider returning deterministic observables"
+    },
+    {
+      "scenario": "Cross-platform type safety (iOS + TypeScript backend share data contracts)",
+      "pattern": "DTO classes with Codable/CodableFirebase; TypeScript interfaces mirror iOS models",
+      "rationale": "Reduces serialization bugs. Frontend knows exact shape of backend responses.",
+      "example": "AlbumDto.swift (iOS) ↔ Album type (TypeScript) both define same fields (uuid, title, ownerId, etc.)"
+    },
+    {
+      "scenario": "Rate limiting and quota management (prevent abuse of shared link generation)",
+      "pattern": "Cloud Function validates quotas from Firestore user document + returns error if exceeded",
+      "rationale": "Backend is single source of truth for quotas. Prevents client spoofing.",
+      "implementation": "shared_links.ts checks user.remainingShares before allowing link creation"
+    }
+  ],
+  "architecture_summary": {
+    "frontend_architecture": {
+      "ios": {
+        "layers": [
+          {
+            "name": "Presentation (ViewControllers + Views)",
+            "responsibility": "UI rendering, user input handling, lifecycle management",
+            "technologies": "UIKit, RxCocoa bindings"
+          },
+          {
+            "name": "ViewModel",
+            "responsibility": "Transform domain data to UI-ready format, handle user actions",
+            "technologies": "RxSwift, observables, business logic orchestration"
+          },
+          {
+            "name": "Domain (Providers + Repositories)",
+            "responsibility": "Business logic, state management, use case orchestration",
+            "technologies": "RxSwift, protocols, error handling"
+          },
+          {
+            "name": "Data (Firebase, Local Disk, Audio Engine)",
+            "responsibility": "Backend API calls, persistence, audio I/O",
+            "technologies": "Firebase SDK, Disk library, AVFoundation"
+          }
+        ],
+        "reactive_core": "All data flows through RxSwift observables; no direct state mutations; unidirectional event flow"
+      },
+      "android": {
+        "pattern": "Data-layer architecture with handler abstraction",
+        "state": "Inferred from previous analysis; likely uses LiveData or RxJava"
+      }
+    },
+    "backend_architecture": {
+      "deployment": "Google Cloud Platform (Firebase suite)",
+      "serverless_functions": "Node.js Cloud Functions triggered by Firestore events or HTTP calls",
+      "database": "Firestore NoSQL with security rules for row-level access control",
+      "storage": "Cloud Storage for blobs (audio files) with signed URLs",
+      "messaging": "Cloud Messaging for push notifications",
+      "modules": [
+        {
+          "name": "albums.ts",
+          "responsibility": "Album CRUD, permission management, sharing logic"
+        },
+        {
+          "name": "recordings.ts",
+          "responsibility": "Recording metadata, file sync, storage operations"
+        },
+        {
+          "name": "shared_links.ts",
+          "responsibility": "Public link generation, token validation, expiration"
+        },
+        {
+          "name": "users.ts",
+          "responsibility": "User profiles, authentication, permission checks"
+        },
+        {
+          "name": "notifications.ts",
+          "responsibility": "Event-driven FCM delivery, user engagement tracking"
+        },
+        {
+          "name": "analytics.ts",
+          "responsibility": "Event aggregation, reporting, performance metrics"
+        }
+      ]
+    },
+    "data_flow_end_to_end": "User taps 'Create Album' → AlbumsViewController → AlbumsViewModel.createAlbum() → AlbumRepository.createAlbumInput.accept(album) → flatMapLatest → FirebaseProvider.createAlbum() → Cloud Function: albums.ts onCreate → Firestore.albums.add() → Cloud Storage paths created → Cloud Function returns albumId → mapped to Album model → albumsOutput emits → ViewController subscribes → tableView reloaded → other users' listeners fire (Firestore real-time) → their AlbumsViewControllers update simultaneously"
+  }
+}
+```
+
+## Key Insights
+
+### Communication Strengths
+1. **Reactive-First Design**: RxSwift throughout iOS creates predictable, composable data flows immune to callback hell
+2. **Multi-Platform Consistency**: Firestore real-time sync keeps iOS/Android/Web synchronized without polling
+3. **Type Safety**: DTOs with Codable reduce serialization errors across language boundaries
+4. **Error Isolation**: Centralized error handling prevents crashes; errors are data in the stream
+
+### Critical Contracts
+- **Firestore Real-time Listeners**: Establish two-way sync between mobile clients and backend state
+- **Cloud Functions as API Gateway**: Encapsulates business logic, authentication, authorization
+- **Push Notifications**: Decouple in-app updates from user presence (enables notifications even when app closed)
+- **Deeplink Tokens**: Enable public sharing while maintaining access control via short-lived tokens
+
+### Potential Bottlenecks
+1. **Firestore Listener Overhead**: Many simultaneous listeners on large collections could exceed quota
+2. **Real-time Sync Conflicts**: Concurrent edits handled by last-write-wins; could cause data loss in rare cases
+3. **Cloud Storage Upload Sizes**: No apparent chunking strategy for very large recordings (> 500MB)

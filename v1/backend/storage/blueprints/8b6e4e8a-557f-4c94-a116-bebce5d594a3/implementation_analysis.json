@@ -1,0 +1,204 @@
+```json
+{
+  "implementation_guidelines": [
+    {
+      "capability": "JWT-based Authentication with Role-based Access Control",
+      "category": "auth",
+      "libraries": [
+        "python-jose[cryptography] >=3.3.0",
+        "passlib[bcrypt] >=1.7.4",
+        "cryptography >=41.0.0"
+      ],
+      "pattern_description": "Backend implements JWT token generation and validation using python-jose, with bcrypt password hashing via passlib. Frontend maintains auth state in React Context (frontend/context/auth.tsx) and syncs JWT tokens across requests via custom useAuth() hook. The backend's dependency injection container wires auth middleware into FastAPI routes, ensuring token validation occurs before handlers execute. Supabase Auth is integrated as the auth provider.",
+      "key_files": [
+        "backend/src/api/routes/auth.py",
+        "backend/src/domain/entities/user.py",
+        "backend/src/domain/entities/user_profile.py",
+        "backend/src/infrastructure/persistence/user_repository.py",
+        "backend/src/infrastructure/persistence/user_profile_repository.py",
+        "frontend/context/auth.tsx",
+        "frontend/hooks/useAuth.tsx",
+        "frontend/services/auth.ts"
+      ],
+      "usage_example": "// Frontend: useAuth() hook provides login/logout/token state\nconst { user, token, login, logout } = useAuth();\nawait login(email, password);\n\n// Backend: Routes require auth via FastAPI dependency\n@router.get('/api/workspace')\nasync def get_workspace(current_user: User = Depends(get_current_user)):\n    return await workspace_service.get_user_workspace(current_user.id)",
+      "tips": [
+        "JWT tokens stored in frontend localStorage/sessionStorage; ensure HTTPS in production to prevent token interception",
+        "Bcrypt salt rounds configured in passlib; higher rounds (12+) recommended for production but increase CPU cost",
+        "Token expiration should be validated server-side on each request; refresh token rotation pattern not visible in samples but recommended",
+        "Supabase Auth integration handles multi-factor auth and OAuth providers; custom JWT validation must coordinate with Supabase claims"
+      ]
+    },
+    {
+      "capability": "Asynchronous Background Job Processing with Task Queue",
+      "category": "persistence",
+      "libraries": [
+        "arq >=0.23.0",
+        "redis >=5.0.0",
+        "asyncpg >=0.29.0"
+      ],
+      "pattern_description": "Backend uses ARQ (Async Redis Queue) for distributed task execution, with Redis as the backing store. Analysis workflows spawn long-running tasks via worker.py that execute asynchronously and report progress through an event bus. The PhasedBlueprintGenerator accepts a progress_callback that logs events to the database, decoupling analysis work from HTTP request handling. Tasks are enqueued from services and consumed by worker processes.",
+      "key_files": [
+        "backend/src/workers/worker.py",
+        "backend/src/workers/tasks.py",
+        "backend/src/application/services/phased_blueprint_generator.py",
+        "backend/src/application/services/analysis_service.py",
+        "backend/src/infrastructure/events/event_bus.py",
+        "backend/src/infrastructure/persistence/analysis_event_repository.py"
+      ],
+      "usage_example": "// Service enqueues analysis task\nawait self._analysis_repo.add(analysis)\nawait arq_queue.enqueue('run_analysis', analysis_id=analysis.id)\n\n// Worker processes task asynchronously\nasync def run_analysis(ctx, analysis_id: str):\n    analysis = await analysis_repo.get_by_id(analysis_id)\n    blueprint = await phased_gen.generate(analysis, progress_callback=log_event)\n    await storage.save(analysis_id, blueprint)",
+      "tips": [
+        "ARQ requires Redis connection pooling; ensure Redis is running before workers start or tasks will be lost",
+        "Task results are not persisted in Redis by default; save outputs to database/storage within task handler to prevent data loss on worker failure",
+        "Progress callbacks in phased_blueprint_generator should be non-blocking; any DB write failure in callback is caught and logged to stderr, not propagated",
+        "Monitor Redis memory usage; old task data should be cleaned up or Redis will fill up over time"
+      ]
+    },
+    {
+      "capability": "RAG-based Code Retrieval with Vector Embeddings",
+      "category": "persistence",
+      "libraries": [
+        "sentence-transformers >=2.2.0",
+        "torch >=2.0.0",
+        "pgvector >=0.2.0",
+        "asyncpg >=0.29.0"
+      ],
+      "pattern_description": "Backend embeds source code using Sentence Transformers, stores vectors in PostgreSQL pgvector columns, and retrieves semantically relevant code during analysis via RAG. The shared_embedder.py provides a singleton embedding model; query_embedder.py generates query embeddings on-demand; rag_retriever.py performs similarity searches in pgvector. The phased_blueprint_generator uses retrieved code snippets to feed Claude with contextually relevant source for each analysis phase.",
+      "key_files": [
+        "backend/src/infrastructure/analysis/shared_embedder.py",
+        "backend/src/infrastructure/analysis/query_embedder.py",
+        "backend/src/infrastructure/analysis/rag_retriever.py",
+        "backend/src/application/services/phased_blueprint_generator.py",
+        "backend/src/infrastructure/persistence/postgres_adapter.py"
+      ],
+      "usage_example": "// Embedder generates vectors for all code files\nembedder = SharedEmbedder()\nvectors = await embedder.embed_batch(code_snippets)\nawait db_client.insert_vectors(repo_id, vectors)\n\n// During analysis, retrieve semantically relevant code\nquery_vector = await query_embedder.embed(f'How does {phase_task} work?')\nrelevant_code = await rag_retriever.retrieve_similar(\n    repo_id, query_vector, top_k=5\n)\n// Feed relevant_code to Claude as context",
+      "tips": [
+        "Sentence Transformers loads full model into GPU/CPU memory on first use; initialization can take 5-10 seconds; use singleton pattern to load once",
+        "pgvector similarity search (cosine distance) is O(n) without HNSW indexes; add index on vector columns in production: CREATE INDEX ... USING hnsw (embedding vector_cosine_ops);",
+        "Embedding generation for large codebases can be slow; batch embedding and cache vectors to avoid re-computing on every query",
+        "Vector dimension depends on model (e.g., all-MiniLM-L6-v2 uses 384 dims); ensure pgvector column matches: vector(384)"
+      ]
+    },
+    {
+      "capability": "Phased AI-driven Code Analysis with Streaming & Progress Tracking",
+      "category": "networking",
+      "libraries": [
+        "anthropic >=0.7.0",
+        "sse-starlette >=1.8.0",
+        "tiktoken >=0.7.0"
+      ],
+      "pattern_description": "Backend calls Claude API via Anthropic SDK for code analysis across multiple phases (discovery, structure, patterns, relationships, insights). Each phase streams token-by-token responses; PhasedBlueprintGenerator orchestrates phase sequencing, manages token budgets, and invokes progress callbacks. Frontend receives streaming analysis results via Server-Sent Events (SSE) endpoint, enabling real-time progress updates. Tiktoken is used for token counting to optimize prompt sizes before API calls.",
+      "key_files": [
+        "backend/src/application/services/phased_blueprint_generator.py",
+        "backend/src/api/routes/analyses.py",
+        "backend/src/infrastructure/analysis/rag_retriever.py",
+        "backend/src/infrastructure/prompts/database_prompt_loader.py"
+      ],
+      "usage_example": "// Service initiates phased analysis with streaming\n@router.post('/analyses/{analysis_id}/start')\nasync def start_analysis(analysis_id: str):\n    analysis = await analysis_repo.get_by_id(analysis_id)\n    # Blueprint generation happens in background worker\n    await phased_gen.generate(\n        analysis,\n        progress_callback=lambda msg, details: await log_event(analysis_id, msg, details)\n    )\n\n// Frontend streams results via SSE\n@router.get('/analyses/{analysis_id}/stream')\nasync def stream_analysis(analysis_id: str):\n    async def event_generator():\n        events = await event_repo.get_by_analysis(analysis_id)\n        for event in events:\n            yield f'data: {json.dumps(event)}\\n\\n'\n    return StreamingResponse(event_generator(), media_type='text/event-stream')",
+      "tips": [
+        "Anthropic API calls can timeout for large codebases; phased approach breaks analysis into smaller chunks to reduce single request size",
+        "Token counting via tiktoken must use correct model name (e.g., 'claude-3-opus' token limit differs from 'claude-3-haiku'); validate before sending to API",
+        "SSE connections are long-lived; ensure frontend implements reconnection logic and server-side timeout handling (e.g., keep-alive pings)",
+        "Progress callbacks should not block analysis; failed DB writes in callbacks are caught and logged but don't halt analysis pipeline"
+      ]
+    },
+    {
+      "capability": "Dual-backend Database Abstraction with Adapter Pattern",
+      "category": "persistence",
+      "libraries": [
+        "supabase >=2.0.0",
+        "asyncpg >=0.29.0",
+        "psycopg2-binary >=2.9.9"
+      ],
+      "pattern_description": "Backend implements abstract DatabaseClient interface with two pluggable implementations: PostgresAdapter (using asyncpg for async queries) and SupabaseAdapter (using Supabase SDK). Factory pattern in db_factory.py instantiates the correct adapter based on DB_BACKEND setting. Repositories depend on the DatabaseClient interface, not concrete implementations, allowing seamless backend switching without changing business logic. All repositories (AnalysisRepository, UserRepository, etc.) inherit from generic Repository interface.",
+      "key_files": [
+        "backend/src/domain/interfaces/database.py",
+        "backend/src/domain/interfaces/repositories.py",
+        "backend/src/infrastructure/persistence/db_factory.py",
+        "backend/src/infrastructure/persistence/postgres_adapter.py",
+        "backend/src/infrastructure/persistence/supabase_adapter.py",
+        "backend/src/infrastructure/persistence/analysis_repository.py",
+        "backend/src/infrastructure/persistence/user_repository.py",
+        "backend/src/infrastructure/persistence/prompt_repository.py"
+      ],
+      "usage_example": "// Factory returns appropriate adapter\ndb_client = create_db()  # Returns PostgresAdapter OR SupabaseAdapter\n\n// Repository uses abstract DatabaseClient interface\nclass AnalysisRepository(IRepository[Analysis, str]):\n    def __init__(self, db_client: DatabaseClient):\n        self._db = db_client  # Works with any DatabaseClient impl\n    \n    async def get_by_id(self, id: str) -> Analysis:\n        result = await self._db.query('SELECT * FROM analyses WHERE id = $1', [id])\n        return Analysis.from_dict(result.data[0])\n\n// Service receives injected repository (implementation agnostic)\nservice = AnalysisService(analysis_repo=repository)  # Adapter is hidden",
+      "tips": [
+        "Both adapters must implement the full DatabaseClient interface (query, insert, update, delete); partial implementations break dependency injection",
+        "Connection pooling differs: asyncpg uses asyncpg.Pool; Supabase uses AsyncClient with built-in pooling; monitor pool exhaustion in production",
+        "Transaction support is limited in Supabase SDK; if complex multi-step transactions needed, PostgresAdapter is more reliable",
+        "Switching backends at runtime requires careful testing; ensure all repository queries use parameterized placeholders ($1, $2) compatible with both adapters"
+      ]
+    },
+    {
+      "capability": "Intent Layer Manifesto Generation & Folder Blueprint Synthesis",
+      "category": "state_management",
+      "libraries": [
+        "anthropic >=0.7.0",
+        "pydantic >=2.0.0"
+      ],
+      "pattern_description": "Backend synthesizes repository architecture into human-readable folder-by-folder blueprints via IntentLayerService. Input is a structured StructuredBlueprint from AI analysis; output is a GenerationManifest (list of FolderManifestEntry) where each folder is rendered as CLAUDE.md by IntentLayerRenderer. The service orchestrates phase analysis, blueprint merging, and recursive folder mapping using blueprint_folder_mapper.py. Pydantic models (intent_layer.py) define the hierarchical data structures (FolderNode, FolderBlueprint, FolderEnrichment).",
+      "key_files": [
+        "backend/src/application/services/intent_layer_service.py",
+        "backend/src/application/services/intent_layer_renderer.py",
+        "backend/src/application/services/intent_layer_manifest.py",
+        "backend/src/application/services/blueprint_folder_mapper.py",
+        "backend/src/domain/entities/intent_layer.py",
+        "backend/src/domain/entities/blueprint.py"
+      ],
+      "usage_example": "// Service synthesizes blueprint into folder-by-folder manifesto\nmanifest = await intent_layer_service.generate_manifest(\n    structured_blueprint=blueprint,\n    repository_name='my-repo'\n)\n# manifest.entries = [\n#   FolderManifestEntry(path='src/api', content='# API Layer...'),\n#   FolderManifestEntry(path='src/domain', content='# Domain Layer...'),\n# ]\n\n// Renderer creates markdown for each folder\nrenderer = IntentLayerRenderer()\nfor entry in manifest.entries:\n    markdown = renderer.render_from_blueprint(\n        folder_node=entry.folder_node,\n        blueprint=entry.blueprint,\n        repo_name='my-repo'\n    )\n    # markdown contains navigation, responsibilities, key files, recipes, pitfalls",
+      "tips": [
+        "Intent layer generation is CPU-intensive; ensure sufficient memory for blueprint parsing and Pydantic model validation on large codebases",
+        "FolderBlueprint child_summaries must be recursively expanded; circular folder references should be detected and logged to avoid infinite traversal",
+        "Rendered markdown includes deep-links (../CLAUDE.md, ./sub/CLAUDE.md) for navigation; test link generation against final file tree structure",
+        "IntentLayerRenderer applies line truncation (MAX_LINES=500) to code examples; if examples are truncated, source file links are provided as fallback"
+      ]
+    },
+    {
+      "capability": "GitHub Repository Sync & Git Push Integration",
+      "category": "networking",
+      "libraries": [
+        "PyGithub (implicit via github_client.py)",
+        "GitPython (implicit via local_push_client.py)"
+      ],
+      "pattern_description": "Backend integrates with GitHub via github_client.py (OAuth token-based API client) for repository cloning, branch detection, and metadata retrieval. For code delivery, DeliveryService orchestrates a two-path strategy: (1) GitHub API pushes via github_push_client.py for remote repos (creates branches, commits, opens PRs), (2) Local git operations via local_push_client.py for local clones (direct git commands). Both clients inherit from an abstract PushClient interface, allowing handler selection based on repository type.",
+      "key_files": [
+        "backend/src/infrastructure/external/github_client.py",
+        "backend/src/infrastructure/external/github_push_client.py",
+        "backend/src/infrastructure/external/local_push_client.py",
+        "backend/src/application/services/delivery_service.py",
+        "backend/src/application/services/github_service.py",
+        "backend/src/api/routes/delivery.py"
+      ],
+      "usage_example": "// Service syncs repo from GitHub\nrepo = await github_service.sync_repository(\n    github_url='https://github.com/user/repo',\n    auth_token=user.github_token\n)\n# Clones repo, extracts file tree, indexes code\n\n// Delivery pushes blueprint as commit to repo\nawait delivery_service.push_blueprint(\n    analysis_id=analysis.id,\n    delivery_config={'target': 'github', 'branch': 'claude-docs'}\n)\n# Creates branch, commits CLAUDE.md files, opens PR if configured",
+      "tips": [
+        "GitHub API token must have 'repo' and 'workflow' scopes for branch creation and PR opening; limited-scope tokens will fail silently",
+        "Repository cloning via github_client downloads entire history; for large repos, consider using shallow cloning (--depth 1) to reduce bandwidth",
+        "Local git operations (local_push_client) require git binary installed and .git folder present; validate before attempting push",
+        "PR creation via github_push_client can fail if branch already exists; idempotency handling should check existing branches before pushing"
+      ]
+    },
+    {
+      "capability": "Settings Validation & Dynamic Capabilities Configuration",
+      "category": "persistence",
+      "libraries": [
+        "pydantic >=2.0.0",
+        "asyncpg >=0.29.0"
+      ],
+      "pattern_description": "Backend stores user-defined analysis settings (ignored directories, library capabilities) in PostgreSQL via AnalysisSettingsRepository. Settings are validated using Pydantic models (AnalysisSettings) before persistence; validation includes path pattern matching, capability enumeration, and constraint checking. Services read settings on-demand from SettingsRepository, cache locally, and use them to filter code during analysis (StructureAnalyzer respects ignored dirs). Dynamic capabilities allow users to extend/disable library-specific knowledge (e.g., 'React', 'FastAPI', 'PostgreSQL').",
+      "key_files": [
+        "backend/src/domain/entities/analysis_settings.py",
+        "backend/src/infrastructure/persistence/analysis_settings_repository.py",
+        "backend/src/infrastructure/analysis/structure_analyzer.py",
+        "backend/src/api/routes/settings.py",
+        "backend/src/application/services/phased_blueprint_generator.py"
+      ],
+      "usage_example": "// User updates settings via API\nawait settings_service.update_ignored_dirs(\n    user_id=user.id,\n    ignored_dirs=['node_modules/**', '.git/**', 'venv/**']\n)\n\n// Settings validated by Pydantic\nclass AnalysisSettings(BaseModel):\n    ignored_dirs: List[str] = Field(..., min_items=0)\n    library_capabilities: Dict[str, bool] = Field(default_factory=dict)\n    # Pydantic validates pattern syntax, field types, constraints\n\n// Analysis filters files based on settings\nstructure = await structure_analyzer.analyze(\n    repo_path=repo.local_path,\n    ignored_dirs=settings.ignored_dirs  # Passed as filter\n)\n# Only files matching ignored_dirs patterns are excluded",
+      "tips": [
+        "Ignored dir patterns use glob syntax; ensure users understand wildcards (**/ for recursive, * for any name)",
+        "Capabilities are stored as JSON; validation should ensure capability names match known library names (typos silently disable features)",
+        "Settings are read once per analysis; changes during ongoing analysis do not take effect until next analysis",
+        "Default ignored dirs should include common build/dependency folders (node_modules, .git, venv, __pycache__); provide sensible defaults to reduce user input"
+      ]
+    }
+  ]
+}
+```

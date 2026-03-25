@@ -2,7 +2,7 @@
 
 Analyze this repository's architecture. Zero dependencies — works with any language.
 
-**Prerequisites:** Run `npx archie-lite` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie-lite` and try again.
+**Prerequisites:** Run `npx archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie` and try again.
 
 **IMPORTANT: Do NOT write inline Python scripts or bash one-liners. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown. Do NOT generate code to parse JSON, extract data, or create files. The scripts handle everything. If a step produces an error, follow the instructions for that step exactly — do not improvise workarounds.**
 

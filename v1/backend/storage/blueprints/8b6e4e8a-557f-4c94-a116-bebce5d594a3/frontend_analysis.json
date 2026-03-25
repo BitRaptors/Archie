@@ -1,0 +1,624 @@
+```json
+{
+  "framework": "Next.js 13+ (React 18, TypeScript)",
+  "rendering_strategy": "hybrid (ISR + CSR + SSR)",
+  "frontend_platforms": [
+    {
+      "name": "web-frontend-main",
+      "directory": "frontend/",
+      "purpose": "Primary dashboard for analysis results, repository management, settings configuration",
+      "tech_stack": ["Next.js", "React 18", "TypeScript", "Tailwind CSS", "Radix UI"],
+      "rendering": "ISR for static pages + CSR for interactive dashboard"
+    },
+    {
+      "name": "web-frontend-landing",
+      "directory": "landing/",
+      "purpose": "Marketing/landing page with interactive 3D visualizations",
+      "tech_stack": ["Next.js", "React 18", "TypeScript", "Three.js", "Framer Motion", "GSAP", "Tailwind CSS"],
+      "rendering": "SSG + interactive CSR components"
+    }
+  ],
+  "ui_components": [
+    {
+      "name": "Shell",
+      "location": "frontend/components/layout/Shell.tsx",
+      "component_type": "layout",
+      "description": "Main application layout wrapper providing sidebar navigation, page header, and main content area",
+      "props": ["children: ReactNode"],
+      "children": ["Sidebar", "PageHeader", "main content slot"],
+      "responsibility": "Global layout structure, navigation context"
+    },
+    {
+      "name": "Sidebar",
+      "location": "frontend/components/layout/Sidebar.tsx",
+      "component_type": "feature",
+      "description": "Left navigation sidebar with repository list, analysis results, and workspace navigation",
+      "props": ["currentPath: string"],
+      "children": ["Repository links", "Analysis links", "Settings links"],
+      "responsibility": "Primary navigation and context switching"
+    },
+    {
+      "name": "PageHeader",
+      "location": "frontend/components/layout/PageHeader.tsx",
+      "component_type": "shared",
+      "description": "Top page header with breadcrumbs, page title, and action buttons",
+      "props": ["title: string", "breadcrumbs?: BreadcrumbItem[]", "actions?: ReactNode"],
+      "children": ["Breadcrumb navigation", "Action button slots"],
+      "responsibility": "Page context and primary actions"
+    },
+    {
+      "name": "AnalysisView",
+      "location": "frontend/components/views/AnalysisView.tsx",
+      "component_type": "page",
+      "description": "Analysis results page displaying blueprint, timeline, and status",
+      "props": ["analysisId: string", "repositoryId: string"],
+      "children": ["BlueprintView", "DeliveryPanel", "MermaidDiagram", "DebugView"],
+      "responsibility": "Analysis results orchestration and display"
+    },
+    {
+      "name": "BlueprintView",
+      "location": "frontend/components/views/BlueprintView.tsx",
+      "component_type": "feature",
+      "description": "Structured blueprint viewer with TOC navigation, markdown rendering, and section collapsing",
+      "props": ["blueprint: StructuredBlueprint", "onSectionSelect?: (section: string) => void"],
+      "children": ["TOC sidebar", "Markdown rendered sections", "ProjectTree"],
+      "responsibility": "Blueprint display and navigation"
+    },
+    {
+      "name": "BlueprintTOC",
+      "location": "frontend/lib/blueprint-toc.ts",
+      "component_type": "shared",
+      "description": "Table of contents generator for blueprint markdown structure (utility, not a component)",
+      "props": [],
+      "children": [],
+      "responsibility": "Parse blueprint markdown and generate TOC hierarchy"
+    },
+    {
+      "name": "ProjectTree",
+      "location": "frontend/components/ProjectTree.tsx",
+      "component_type": "shared",
+      "description": "Hierarchical file tree visualization with collapsible directories and file icons",
+      "props": ["structure: TreeNode[]", "onFileSelect?: (path: string) => void"],
+      "children": ["Recursive TreeNode items", "File/folder icons"],
+      "responsibility": "File structure visualization"
+    },
+    {
+      "name": "MermaidDiagram",
+      "location": "frontend/components/MermaidDiagram.tsx",
+      "component_type": "shared",
+      "description": "Mermaid diagram renderer for architecture visualizations (flowcharts, graphs, class diagrams)",
+      "props": ["definition: string", "title?: string"],
+      "children": [],
+      "responsibility": "Architecture diagram rendering"
+    },
+    {
+      "name": "SourceFileModal",
+      "location": "frontend/components/SourceFileModal.tsx",
+      "component_type": "shared",
+      "description": "Modal dialog displaying full source file content with syntax highlighting",
+      "props": ["filePath: string", "onClose: () => void"],
+      "children": ["Code block with syntax highlighting", "File metadata"],
+      "responsibility": "Source code viewer modal"
+    },
+    {
+      "name": "DeliveryPanel",
+      "location": "frontend/components/DeliveryPanel.tsx",
+      "component_type": "feature",
+      "description": "Delivery artifacts panel (CLAUDE.md, cursor rules, hook scripts) with copy/download actions",
+      "props": ["analysisId: string", "artifacts?: DeliveryArtifact[]"],
+      "children": ["Artifact tabs", "Code blocks", "Copy/download buttons"],
+      "responsibility": "Delivery artifact management and export"
+    },
+    {
+      "name": "RepositoryView",
+      "location": "frontend/components/views/RepositoryView.tsx",
+      "component_type": "page",
+      "description": "Repository management page showing repository list, analysis history, and repo settings",
+      "props": ["repositoryId?: string"],
+      "children": ["Repository list", "Analysis history timeline", "Settings panel"],
+      "responsibility": "Repository management and analysis history"
+    },
+    {
+      "name": "SettingsView",
+      "location": "frontend/components/views/SettingsView.tsx",
+      "component_type": "page",
+      "description": "Global settings page with tabs for different setting categories",
+      "props": [],
+      "children": ["IgnoredDirsSettingsView", "CapabilitiesSettingsView", "General settings panels"],
+      "responsibility": "Settings management orchestration"
+    },
+    {
+      "name": "IgnoredDirsSettingsView",
+      "location": "frontend/components/views/IgnoredDirsSettingsView.tsx",
+      "component_type": "feature",
+      "description": "Settings panel for managing ignored directories and file patterns",
+      "props": ["settings: AnalysisSettings", "onSave: (settings: AnalysisSettings) => void"],
+      "children": ["Pattern input fields", "Tag list", "Save button"],
+      "responsibility": "Ignored patterns configuration"
+    },
+    {
+      "name": "CapabilitiesSettingsView",
+      "location": "frontend/components/views/CapabilitiesSettingsView.tsx",
+      "component_type": "feature",
+      "description": "Settings panel for enabling/disabling feature analysis capabilities (mobile, cloud, etc.)",
+      "props": ["settings: AnalysisSettings", "onSave: (settings: AnalysisSettings) => void"],
+      "children": ["Toggle switches for capabilities", "Description text"],
+      "responsibility": "Feature capability toggles configuration"
+    },
+    {
+      "name": "DebugView",
+      "location": "frontend/components/DebugView.tsx",
+      "component_type": "shared",
+      "description": "Development mode component showing raw blueprint JSON and analysis metadata",
+      "props": ["data: Record<string, any>"],
+      "children": ["JSON code block"],
+      "responsibility": "Debug information display"
+    },
+    {
+      "name": "ConfirmationDialog",
+      "location": "frontend/components/ConfirmationDialog.tsx",
+      "component_type": "primitive",
+      "description": "Reusable modal dialog for confirmation actions",
+      "props": ["title: string", "description: string", "onConfirm: () => void", "onCancel: () => void", "confirmText?: string", "cancelText?: string"],
+      "children": [],
+      "responsibility": "Confirmation UX pattern"
+    },
+    {
+      "name": "UI Primitive Components",
+      "location": "frontend/components/ui/",
+      "component_type": "primitive",
+      "description": "Radix UI based low-level components (button, card, input, badge, progress, skeleton)",
+      "props": ["varies per component"],
+      "children": [],
+      "responsibility": "Design system primitives",
+      "files": ["button.tsx", "card.tsx", "input.tsx", "badge.tsx", "progress.tsx", "skeleton.tsx"]
+    },
+    {
+      "name": "ShaderBackground",
+      "location": "landing/components/ShaderBackground.tsx",
+      "component_type": "shared",
+      "description": "Three.js based animated shader background for landing page",
+      "props": [],
+      "children": [],
+      "responsibility": "3D background animation"
+    },
+    {
+      "name": "SmoothScroll",
+      "location": "landing/components/SmoothScroll.tsx",
+      "component_type": "shared",
+      "description": "Smooth scroll behavior wrapper for landing page using Framer Motion/GSAP",
+      "props": ["children: ReactNode"],
+      "children": ["Scrollable content"],
+      "responsibility": "Smooth scroll animation orchestration"
+    }
+  ],
+  "state_management": {
+    "approach": "Hybrid: React Context API for global state + React hooks for local state + React Query (via custom hooks) for server state",
+    "global_state": [
+      {
+        "store": "auth.tsx (AuthContext)",
+        "location": "frontend/context/auth.tsx",
+        "purpose": "User authentication state (user object, token, login/logout, isAuthenticated)",
+        "scope": "App-wide",
+        "persistence": "localStorage (token) + session management via backend API"
+      }
+    ],
+    "server_state": {
+      "mechanism": "Custom hooks wrapping fetch/axios calls with manual caching",
+      "hooks": [
+        {
+          "name": "useRepositoriesQuery",
+          "location": "frontend/hooks/api/useRepositoriesQuery.tsx",
+          "purpose": "Fetch and cache repository list",
+          "returns": "{ data: Repository[], isLoading, error, refetch }"
+        },
+        {
+          "name": "useWorkspace",
+          "location": "frontend/hooks/api/useWorkspace.ts",
+          "purpose": "Fetch workspace data and analytics",
+          "returns": "{ workspace: WorkspaceData, isLoading, error }"
+        },
+        {
+          "name": "useSettings",
+          "location": "frontend/hooks/api/useSettings.ts",
+          "purpose": "Fetch and manage global analysis settings",
+          "returns": "{ settings: AnalysisSettings, updateSettings, isLoading, error }"
+        },
+        {
+          "name": "useDelivery",
+          "location": "frontend/hooks/api/useDelivery.ts",
+          "purpose": "Fetch delivery artifacts (CLAUDE.md, cursor rules)",
+          "returns": "{ artifacts: DeliveryArtifact[], isLoading, error, download }"
+        },
+        {
+          "name": "usePrompts",
+          "location": "frontend/hooks/api/usePrompts.ts",
+          "purpose": "Fetch and manage analysis prompts",
+          "returns": "{ prompts: AnalysisPrompt[], updatePrompt, isLoading, error }"
+        }
+      ],
+      "rationale": "Simple data fetching needs without heavy React Query overhead; direct fetch/axios calls in service layer with hook wrappers for consistency"
+    },
+    "local_state": {
+      "mechanism": "React useState for component-level state",
+      "patterns": [
+        "Modal open/close state (SourceFileModal, ConfirmationDialog)",
+        "Form input state (settings forms, repository creation)",
+        "Accordion/accordion state (BlueprintView section expansion)",
+        "Tab selection state (SettingsView tabs)",
+        "Filter/sort state (Repository list filtering)"
+      ]
+    },
+    "custom_hooks": [
+      {
+        "name": "useAuth",
+        "location": "frontend/hooks/useAuth.tsx",
+        "purpose": "Convenience hook to access AuthContext, provides login/logout/isAuthenticated",
+        "returns": "{ user, isAuthenticated, login, logout, register }"
+      }
+    ],
+    "rationale": "Context API sufficient for auth (global, infrequent updates); custom fetch hooks for data layer (no complex caching needed); local useState for UI state (modal, forms, tabs)"
+  },
+  "routing": {
+    "approach": "Next.js file-based routing (App Router or Pages Router)",
+    "pattern": "Pages in frontend/pages/ map to routes; dynamic routes via [param].tsx",
+    "routes": [
+      {
+        "path": "/",
+        "file": "frontend/pages/index.tsx",
+        "component": "index page (dashboard home)",
+        "description": "Dashboard home page, entry route for authenticated users",
+        "auth_required": true,
+        "children": ["Repository list", "Recent analyses", "Quick actions"]
+      },
+      {
+        "path": "/auth",
+        "file": "frontend/pages/auth.tsx",
+        "component": "Authentication page",
+        "description": "Login/signup authentication page for unauthenticated users",
+        "auth_required": false,
+        "children": ["Login form", "Signup form", "OAuth integrations"]
+      },
+      {
+        "path": "/repository/[id]",
+        "file": "frontend/pages/repository/[id].tsx (inferred)",
+        "component": "RepositoryView",
+        "description": "Repository detail page with analysis history and settings",
+        "auth_required": true,
+        "dynamic_param": "id = repository UUID",
+        "children": ["Analysis timeline", "Repository settings", "Delete/manage actions"]
+      },
+      {
+        "path": "/analysis/[id]",
+        "file": "frontend/pages/analysis/[id].tsx (inferred)",
+        "component": "AnalysisView",
+        "description": "Analysis results page displaying blueprint, status, and delivery artifacts",
+        "auth_required": true,
+        "dynamic_param": "id = analysis UUID",
+        "children": ["BlueprintView", "DeliveryPanel", "Status timeline", "Share/export actions"]
+      },
+      {
+        "path": "/settings",
+        "file": "frontend/pages/settings.tsx (inferred)",
+        "component": "SettingsView",
+        "description": "Global settings page with tabs for different configuration categories",
+        "auth_required": true,
+        "children": ["IgnoredDirsSettingsView", "CapabilitiesSettingsView", "User preferences"]
+      }
+    ],
+    "auth_protection": {
+      "mechanism": "Frontend guard via AuthContext check in _app.tsx",
+      "protected_routes": ["/", "/repository/*", "/analysis/*", "/settings"],
+      "public_routes": ["/auth"],
+      "redirect_logic": "Unauthenticated users accessing protected routes → redirect to /auth"
+    },
+    "note": "Actual route files not fully listed in file registry; paths inferred from component locations and naming patterns"
+  },
+  "data_fetching": [
+    {
+      "name": "Repository List",
+      "hook": "useRepositoriesQuery",
+      "location": "frontend/hooks/api/useRepositoriesQuery.tsx",
+      "mechanism": "Custom hook wrapping fetch call to /api/repositories endpoint",
+      "endpoint": "GET /api/repositories",
+      "when_to_use": "On dashboard home page (index.tsx), in Sidebar for navigation",
+      "examples": ["RepositoryView component lists repositories", "Dashboard shows recent repos"],
+      "error_handling": "Show error toast/inline message, retry button",
+      "loading_state": "Skeleton loaders for repo list"
+    },
+    {
+      "name": "Analysis Data",
+      "hook": "Custom fetch in AnalysisView",
+      "location": "frontend/components/views/AnalysisView.tsx",
+      "mechanism": "Direct fetch call (likely useEffect hook) to /api/analyses/[id] endpoint",
+      "endpoint": "GET /api/analyses/:id",
+      "when_to_use": "When navigating to analysis results page",
+      "examples": ["BlueprintView receives parsed blueprint JSON", "DeliveryPanel receives artifacts"],
+      "error_handling": "Error boundary, fallback UI, retry mechanism",
+      "loading_state": "Skeleton layouts for blueprint sections"
+    },
+    {
+      "name": "Settings",
+      "hook": "useSettings",
+      "location": "frontend/hooks/api/useSettings.ts",
+      "mechanism": "Custom hook for fetching and mutating settings",
+      "endpoints": ["GET /api/settings", "PUT /api/settings"],
+      "when_to_use": "SettingsView page load, CapabilitiesSettingsView, IgnoredDirsSettingsView",
+      "examples": ["Load ignored patterns on mount", "Save capability toggles on form submit"],
+      "error_handling": "Validation errors displayed inline on form fields",
+      "loading_state": "Disabled save button, loading spinner"
+    },
+    {
+      "name": "Delivery Artifacts",
+      "hook": "useDelivery",
+      "location": "frontend/hooks/api/useDelivery.ts",
+      "mechanism": "Custom hook for fetching generated artifacts (CLAUDE.md, cursor rules, etc.)",
+      "endpoint": "GET /api/analyses/:id/delivery",
+      "when_to_use": "On AnalysisView page load, when user clicks 'download' or 'copy'",
+      "examples": ["DeliveryPanel shows CLAUDE.md, cursor rules, hook scripts", "Download artifact as file"],
+      "error_handling": "Toast notification if download fails",
+      "loading_state": "Skeleton for artifact cards, disabled download button"
+    },
+    {
+      "name": "Prompts Management",
+      "hook": "usePrompts",
+      "location": "frontend/hooks/api/usePrompts.ts",
+      "mechanism": "Custom hook for fetching and updating analysis prompts",
+      "endpoints": ["GET /api/prompts", "PUT /api/prompts/:id"],
+      "when_to_use": "Settings page, prompt editor modal (if implemented)",
+      "examples": ["Load prompt revisions for analysis", "Update prompt definitions"],
+      "error_handling": "Validation error toast, form error display",
+      "loading_state": "Disabled form submit, loading spinner"
+    },
+    {
+      "name": "Workspace Data",
+      "hook": "useWorkspace",
+      "location": "frontend/hooks/api/useWorkspace.ts",
+      "mechanism": "Custom hook for workspace analytics and summary data",
+      "endpoint": "GET /api/workspace",
+      "when_to_use": "Dashboard home page, analytics section",
+      "examples": ["Show total repositories, analyses count", "Display recent activity"],
+      "error_handling": "Show 'N/A' or empty state if data unavailable",
+      "loading_state": "Skeleton loaders for stat cards"
+    }
+  ],
+  "styling": {
+    "framework": "Tailwind CSS",
+    "component_library": "Radix UI (primitives layer)",
+    "design_tokens": {
+      "location": "frontend/lib/theme.ts",
+      "coverage": "Colors, typography, spacing, shadows (via Tailwind config)",
+      "customization": "Tailwind config extends with custom theme values"
+    },
+    "approach": "Utility-first CSS with Tailwind, component-level Radix UI primitives for accessibility",
+    "files": {
+      "config": "frontend/tailwind.config.js",
+      "postcss": "frontend/postcss.config.js"
+    },
+    "conventions": [
+      "Use Tailwind utility classes for layout and spacing",
+      "Radix UI components (Button, Card, Input, etc.) imported from frontend/components/ui/",
+      "Custom component styling via Tailwind classes + Radix API props",
+      "Dark mode support likely via Tailwind dark: prefix (if configured)"
+    ],
+    "landing_page_styling": {
+      "framework": "Tailwind CSS + Three.js canvas + Framer Motion animations + GSAP",
+      "components": [
+        "ShaderBackground (Three.js animated background)",
+        "SmoothScroll (GSAP scroll animations)"
+      ],
+      "approach": "Hero section with 3D shader, smooth scroll animations, interactive elements"
+    }
+  },
+  "key_conventions": [
+    {
+      "category": "File Naming",
+      "rules": [
+        "Pages: frontend/pages/*.tsx (lowercase, hyphens for multi-word, e.g., page-name.tsx)",
+        "Components: frontend/components/**/*.tsx (PascalCase, e.g., AnalysisView.tsx)",
+        "Hooks: frontend/hooks/**/*.ts or .tsx (useHookName pattern, e.g., useAuth.tsx)",
+        "Services/API clients: frontend/services/*.ts (camelCase, e.g., repositories.ts, auth.ts)",
+        "Utilities: frontend/lib/*.ts (camelCase, e.g., utils.ts, theme.ts)"
+      ]
+    },
+    {
+      "category": "Component Organization",
+      "rules": [
+        "Feature-based layout: components/views/ for page-level features, components/layout/ for global layout, components/ui/ for primitives",
+        "Atomic structure implied: ui/ = atoms, views/ = organisms/pages, shared/ = molecules",
+        "Co-location: Component + related hooks/services kept together by feature folder"
+      ]
+    },
+    {
+      "category": "Hook Patterns",
+      "rules": [
+        "Custom API hooks in frontend/hooks/api/ follow pattern: useFunctionName (e.g., useRepositoriesQuery)",
+        "Hooks return object with { data, isLoading, error, refetch/mutate } shape",
+        "useAuth is special context consumer hook for AuthContext convenience"
+      ]
+    },
+    {
+      "category": "Service Layer",
+      "rules": [
+        "API clients in frontend/services/*.ts (repositories.ts, auth.ts, settings.ts, etc.)",
+        "Each service wraps fetch calls to backend API endpoints",
+        "Services are called from custom hooks, not directly from components (separation of concerns)"
+      ]
+    },
+    {
+      "category": "Testing",
+      "rules": [
+        "Test file colocation: *.test.ts or *.test.tsx next to implementation (e.g., blueprint-toc.test.ts)",
+        "Unit tests for utilities, services, hooks",
+        "Integration tests for page routes and workflows (likely in tests/ directory, not shown in full registry)"
+      ]
+    },
+    {
+      "category": "TypeScript",
+      "rules": [
+        "Strict mode enabled (inferred from .tsx extensions and type safety patterns)",
+        "Type definitions for all props, state, API responses",
+        "Interfaces/types defined alongside components or in shared types file (not listed in registry, but likely exists)"
+      ]
+    },
+    {
+      "category": "Next.js Specific",
+      "rules": [
+        "_app.tsx is root provider (wraps with AuthContext)",
+        "_document.tsx for HTML structure customization (if needed)",
+        "next.config.js for Next.js configuration",
+        "Hybrid rendering: ISR for mostly-static pages, CSR for interactive dashboard"
+      ]
+    },
+    {
+      "category": "Styling",
+      "rules": [
+        "No CSS Modules in sight; Tailwind utilities + Radix component styles",
+        "inline className with Tailwind utilities in JSX",
+        "Radix UI provides semantic HTML + accessibility out-of-box"
+      ]
+    }
+  ],
+  "entry_points": [
+    {
+      "file": "frontend/pages/_app.tsx",
+      "platform": "web-frontend-main",
+      "purpose": "Next.js app wrapper, global context providers (auth), theme/layout initialization",
+      "type": "React/Next.js component",
+      "wraps": [
+        "AuthContext provider (frontend/context/auth.tsx)",
+        "Shell layout component (frontend/components/layout/Shell.tsx)"
+      ],
+      "initialization": "Authenticates user via backend API, sets theme, initializes global state"
+    },
+    {
+      "file": "frontend/pages/index.tsx",
+      "platform": "web-frontend-main",
+      "purpose": "Dashboard home page, entry route for authenticated users",
+      "type": "Next.js page component",
+      "rendered_by": "_app.tsx > Shell > main content",
+      "child_components": ["Repository list", "Recent analyses", "Workspace stats"]
+    },
+    {
+      "file": "landing/app/layout.tsx",
+      "platform": "web-frontend-landing",
+      "purpose": "Landing page layout and root provider (Next.js App Router)",
+      "type": "Next.js layout",
+      "wraps": ["ShaderBackground", "SmoothScroll", "page content"],
+      "initialization": "Sets up 3D background shader, smooth scroll animations, global styles"
+    },
+    {
+      "file": "landing/app/page.tsx",
+      "platform": "web-frontend-landing",
+      "purpose": "Landing page hero and marketing content",
+      "type": "Next.js page component",
+      "rendered_by": "layout.tsx",
+      "child_components": ["ShaderBackground", "Hero section", "Feature sections", "CTA buttons"]
+    }
+  ],
+  "interaction_patterns": [
+    {
+      "pattern": "Analysis Workflow",
+      "description": "User uploads/configures repository → backend analyzes → frontend polls for status → displays results in BlueprintView + DeliveryPanel",
+      "components_involved": ["RepositoryView", "AnalysisView", "BlueprintView", "DeliveryPanel"],
+      "state_flow": "useRepositoriesQuery → select repo → trigger analysis → useEffect watches status → fetch blueprint → render"
+    },
+    {
+      "pattern": "Settings Management",
+      "description": "User navigates to SettingsView → selects capability/ignored pattern → edits → saves to backend → local state updates with UI feedback",
+      "components_involved": ["SettingsView", "CapabilitiesSettingsView", "IgnoredDirsSettingsView"],
+      "state_flow": "useSettings hook loads initial state → form onChange updates local state → onSubmit calls updateSettings → refetch via hook"
+    },
+    {
+      "pattern": "Artifact Export",
+      "description": "User views analysis results → clicks 'download' on delivery artifact → browser downloads or copy-to-clipboard → toast feedback",
+      "components_involved": ["DeliveryPanel", "SourceFileModal"],
+      "state_flow": "useDelivery hook loads artifacts → user action triggers download/copy → service layer handles HTTP or clipboard API"
+    },
+    {
+      "pattern": "File Tree Navigation",
+      "description": "User views blueprint → clicks file in ProjectTree → modal opens showing source code → can close or navigate to next file",
+      "components_involved": ["BlueprintView", "ProjectTree", "SourceFileModal"],
+      "state_flow": "useState for modal visibility and selected file → onClick handler sets state → modal fetches file content via API"
+    }
+  ],
+  "performance_considerations": [
+    {
+      "area": "Blueprint Rendering",
+      "issue": "Large markdown blueprints may cause lag when rendering",
+      "mitigation": "BlueprintView likely uses virtualization or lazy-load sections; ProjectTree renders with React.memo or windowing"
+    },
+    {
+      "area": "3D Landing Page",
+      "issue": "Three.js shader background + GSAP animations may be heavy on slower devices",
+      "mitigation": "ShaderBackground likely has fallback or progressive enhancement; animations use requestAnimationFrame"
+    },
+    {
+      "area": "Data Fetching",
+      "issue": "Multiple independent API calls (repositories, workspace, settings) may waterfall",
+      "mitigation": "Custom hooks likely batch requests or use useEffect dependencies carefully; consider Promise.all in service layer"
+    }
+  ],
+  "missing_or_inferred_details": [
+    "Exact route file structure (frontend/pages/repository/[id].tsx, frontend/pages/analysis/[id].tsx not in file registry)",
+    "Type definitions and interfaces (likely in frontend/types/ or alongside components, not listed)",
+    "Full API client implementations in frontend/services/ (only listed as existing, not detailed)",
+    "Error boundary setup and error recovery UI patterns (inferred but not shown in component list)",
+    "Authentication flow details (token refresh, session management, OAuth integration)",
+    "Real-time updates mechanism (WebSocket, polling, Server-Sent Events) for analysis status"
+  ]
+}
+```
+
+---
+
+## Additional Analysis: Architectural Observations
+
+### 1. **Two-Frontend Strategy**
+- **Main App** (`frontend/`): Full-featured dashboard for authenticated users with analysis results, settings, repository management
+- **Landing Page** (`landing/`): Marketing-focused with 3D animations and CTAs, completely separate Next.js app
+- **Benefit**: Clean separation of concerns; landing page can be heavily optimized/cached (SSG); main app focuses on interactivity (CSR/ISR)
+
+### 2. **Minimal State Management**
+- **No Redux, Zustand, or complex state machine**
+- **Auth Context** only for global auth state (minimal updates)
+- **Custom fetch hooks** for data fetching (no React Query overhead)
+- **Local useState** for UI state
+- **Rationale**: Simple app with straightforward data flow; Context + hooks sufficient for this scale
+
+### 3. **Component Hierarchy**
+```
+_app.tsx (AuthContext provider)
+  └─ Shell.tsx (global layout)
+      ├─ Sidebar.tsx (navigation)
+      ├─ PageHeader.tsx (breadcrumbs, title, actions)
+      └─ <Route Component>
+          ├─ AnalysisView.tsx
+          │   ├─ BlueprintView.tsx
+          │   │   ├─ ProjectTree.tsx
+          │   │   └─ Markdown sections
+          │   ├─ DeliveryPanel.tsx
+          │   ├─ MermaidDiagram.tsx
+          │   └─ DebugView.tsx
+          ├─ RepositoryView.tsx
+          ├─ SettingsView.tsx
+          │   ├─ CapabilitiesSettingsView.tsx
+          │   └─ IgnoredDirsSettingsView.tsx
+          └─ ...
+```
+
+### 4. **Data Flow**
+- **Backend API** → Service layer (`frontend/services/`) → Custom hook wrapper (`frontend/hooks/api/`) → Component state + render
+- **Example**: `GET /api/repositories` → `repositories.ts` → `useRepositoriesQuery.tsx` → RepositoryView component
+
+### 5. **Accessibility & Design System**
+- **Radix UI primitives** ensure semantic HTML and WCAG compliance
+- **Tailwind CSS** for consistent styling and design tokens
+- **Primitives in `frontend/components/ui/`** (button, card, input, badge, etc.) allow component reuse
+
+### 6. **Key Missing Pieces** (not visible in file registry)
+- Type definitions file(s) for API responses, component props
+- Integration tests for user workflows
+- Error boundary component
+- Real-time status updates (WebSocket or polling) for analysis progress
+- Form validation utilities (likely in lib/)

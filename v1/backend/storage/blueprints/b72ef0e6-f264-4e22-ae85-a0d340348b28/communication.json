@@ -1,0 +1,692 @@
+```json
+{
+  "internal_communication": [
+    {
+      "type": "Dependency Injection",
+      "platform": "frontend",
+      "mechanism": "Koin DI Container",
+      "examples": [
+        "networkModule provides singleton APIService instances",
+        "domainModule configures repository dependencies",
+        "Feature modules (page_*) declare their own Modules.kt for local scope",
+        "BabyWeatherApplication.kt initializes root Koin context"
+      ],
+      "details": "Single-container pattern with module-scoped dependencies; all feature modules share centralized domain layer"
+    },
+    {
+      "type": "ViewModel-Fragment Communication",
+      "platform": "frontend",
+      "mechanism": "SharedViewModel via Koin + MutableSharedFlow for events",
+      "examples": [
+        "ViewModels emit UiViewModelEvent (e.g., RefreshFragmentRequest)",
+        "Fragments observe MutableSharedFlow<String> for error messages",
+        "State flows for reactive UI updates"
+      ],
+      "details": "Unidirectional data flow: ViewModel → Fragment via flows; Fragment → ViewModel via direct method calls"
+    },
+    {
+      "type": "Navigation Events",
+      "platform": "frontend",
+      "mechanism": "Navigation Controller + Controller classes",
+      "examples": [
+        "page_* modules contain controller/* subdirectories for navigation logic",
+        "MainActivity.kt hosts NavController for bottom navigation routing",
+        "Navigation graph defined in app/src/main/res/navigation/navigation_main.xml"
+      ],
+      "details": "Centralized navigation via MainActivity; feature modules communicate nav events through controller objects"
+    },
+    {
+      "type": "Analytics Events",
+      "platform": "frontend",
+      "mechanism": "BasicEvent interface + RaptorAnalyticsKit",
+      "examples": [
+        "Custom events extend BasicEvent interface",
+        "Events emitted from ViewModels/Controllers",
+        "Centralized in util/services/analytics/events/"
+      ],
+      "details": "Declarative event system; events logged asynchronously to analytics backend"
+    },
+    {
+      "type": "Feature Flag Management",
+      "platform": "frontend",
+      "mechanism": "Util layer service (util/services/featureflag/)",
+      "examples": [
+        "Remote config defaults in app/src/main/res/xml/remote_config_defaults.xml",
+        "Feature modules conditionally render based on flags"
+      ],
+      "details": "Decoupled feature toggling; allows A/B testing without redeployment"
+    },
+    {
+      "type": "Dialog/BottomSheet Communication",
+      "platform": "frontend",
+      "mechanism": "Fragment arguments + SharedViewModel callbacks",
+      "examples": [
+        "page_login_bottomsheet communicates auth state to MainActivity",
+        "page_feedback collects user input and emits via flows",
+        "dialog/* subdirectories in feature modules"
+      ],
+      "details": "Modular dialog system; dialogs emit results back to parent fragments via shared flows"
+    },
+    {
+      "type": "RecyclerView Adapter Communication",
+      "platform": "frontend",
+      "mechanism": "Listener callbacks + Flow emissions",
+      "examples": [
+        "cells/* contain ViewHolder classes with item click listeners",
+        "Adapters receive data from ViewModel via LiveData/StateFlow",
+        "Item selection events propagated to parent Fragment via callback interfaces"
+      ],
+      "details": "Reactive list binding; adapters observe ViewModel state changes"
+    },
+    {
+      "type": "Custom View Events (SwipeLayout)",
+      "platform": "frontend",
+      "mechanism": "Listener interface pattern + ViewDragHelper",
+      "examples": [
+        "SwipeLayout.kt uses OnSwipeListener for swipe events",
+        "ViewDragHelper intercepts touch events and triggers callbacks",
+        "Integrated into page_locations for swipe-to-delete"
+      ],
+      "details": "Low-level gesture recognition; decoupled via listener interface"
+    }
+  ],
+  "external_communication": [
+    {
+      "type": "HTTP/REST API",
+      "protocol": "REST over HTTPS",
+      "direction": "frontend-to-backend",
+      "framework": "Retrofit 2 + OkHttp",
+      "details": {
+        "base_url": "Configured via baseUrl property",
+        "timeout": "30 seconds (connection + read)",
+        "interceptors": [
+          "HttpLoggingInterceptor (request/response logging in debug)",
+          "HttpRequestInterceptor (custom header injection)"
+        ],
+        "serialization": "Moshi JSON with custom adapters",
+        "error_handling": "NetworkResponseAdapterFactory wraps responses in sealed classes"
+      },
+      "endpoints": [
+        {
+          "method": "GET /pages/home",
+          "purpose": "Fetch weather data + recommendations for location",
+          "auth": "Bearer token in Authorization header",
+          "response_type": "List<HomePageDto>",
+          "query_params": [
+            "language (optional)",
+            "position (optional: lat,lng)",
+            "childId (optional: baby profile context)",
+            "locationKey (optional: specific location ID)",
+            "temperatureUnit (optional: C/F)"
+          ]
+        },
+        {
+          "method": "GET /pages/home/location",
+          "purpose": "Fetch single location weather detail",
+          "auth": "Bearer token",
+          "response_type": "HomePageDto",
+          "query_params": "Same as /pages/home"
+        },
+        {
+          "method": "GET /tips",
+          "purpose": "Fetch contextual clothing/health tips",
+          "auth": "None (public endpoint)",
+          "response_type": "TipListDto",
+          "query_params": ["language"]
+        },
+        {
+          "method": "GET /tips/tags",
+          "purpose": "Fetch available tip categories for filtering",
+          "auth": "None",
+          "response_type": "List<TipTagDto>",
+          "query_params": ["language"]
+        },
+        {
+          "method": "GET /settings",
+          "purpose": "Fetch user preferences and settings",
+          "auth": "Bearer token",
+          "response_type": "SettingsDto"
+        },
+        {
+          "method": "PUT /settings",
+          "purpose": "Update user preferences",
+          "auth": "Bearer token",
+          "request_body": "SettingsDto",
+          "response_type": "SettingsDto"
+        },
+        {
+          "method": "GET /settings/children",
+          "purpose": "Fetch user's baby profiles",
+          "auth": "Bearer token",
+          "response_type": "List<ChildDto>"
+        },
+        {
+          "method": "POST /settings/children",
+          "purpose": "Create new baby profile",
+          "auth": "Bearer token",
+          "request_body": "ChildDto",
+          "response_type": "ChildDto"
+        },
+        {
+          "method": "PUT /settings/children/{childId}",
+          "purpose": "Update existing baby profile",
+          "auth": "Bearer token",
+          "request_body": "ChildDto",
+          "response_type": "ChildDto"
+        },
+        {
+          "method": "DELETE /settings/children/{childId}",
+          "purpose": "Delete baby profile",
+          "auth": "Bearer token",
+          "response_type": "DeleteResponseDto"
+        },
+        {
+          "method": "DELETE /settings/delete-account",
+          "purpose": "Full account deletion",
+          "auth": "Bearer token",
+          "response_type": "DeleteResponseDto"
+        },
+        {
+          "method": "GET /weather/autocomplete",
+          "purpose": "Location search autocomplete",
+          "auth": "None",
+          "response_type": "List<LocationDto>",
+          "query_params": [
+            "input (user search query)",
+            "language"
+          ]
+        }
+      ],
+      "error_response_format": {
+        "type": "NetworkResponse<T, String> sealed class",
+        "variants": [
+          "NetworkResponse.Success<T>(data: T)",
+          "NetworkResponse.Failure<String>(error: NetworkErrorResponse<String>)"
+        ],
+        "error_types": [
+          "NetworkErrorResponse.ApiError (HTTP 4xx/5xx)",
+          "NetworkErrorResponse.NetworkError (connectivity/timeout)",
+          "NetworkErrorResponse.AuthenticationError (401/403)",
+          "NetworkErrorResponse.UnknownError (uncategorized)"
+        ]
+      }
+    },
+    {
+      "type": "Authentication",
+      "protocol": "OAuth 2.0 + Bearer tokens",
+      "direction": "frontend-to-backend",
+      "details": {
+        "provider": "Google Sign-In (ic_google.xml drawable indicates integration)",
+        "token_storage": "Managed by loginManager (injected into NetworkDatasource)",
+        "token_injection": "HttpRequestInterceptor adds Authorization header to all authenticated requests",
+        "flow": "page_login_bottomsheet handles login UI; token persisted for subsequent requests"
+      },
+      "integration_points": [
+        "BabyWeatherApplication.kt initializes auth framework",
+        "HttpRequestInterceptor (util/services/) injects token into headers",
+        "NetworkDatasource wraps API calls with auth logic"
+      ]
+    },
+    {
+      "type": "Push Notifications",
+      "protocol": "FCM (Firebase Cloud Messaging)",
+      "direction": "backend-to-frontend",
+      "details": {
+        "framework": "Firebase SDK (implied by BabyWeatherApplication setup)",
+        "use_case": "Real-time weather alerts, subscription notifications",
+        "handling": "Service/BroadcastReceiver (not visible in provided files but typical Android pattern)"
+      }
+    },
+    {
+      "type": "In-App Purchase / Subscriptions",
+      "protocol": "Google Play Billing Library",
+      "direction": "frontend-to-backend (with Google as intermediary)",
+      "details": {
+        "ui_module": "page_subscription_detail handles purchase flow",
+        "products": "Implied by cell_subscription_option_card.xml layouts",
+        "verification": "Backend likely validates receipts via Google Play API"
+      }
+    },
+    {
+      "type": "Image Upload",
+      "protocol": "multipart/form-data HTTP POST (implied)",
+      "direction": "frontend-to-backend",
+      "details": {
+        "use_case": "Baby profile avatars (cell_baby_settings_avatar_selector.xml)",
+        "capture": "dialog_image_cropper.xml handles image selection/cropping",
+        "implementation": "Likely extends APIService with multipart upload endpoint (not shown in provided code)"
+      }
+    },
+    {
+      "type": "Analytics / Crash Reporting",
+      "protocol": "HTTP/HTTPS to third-party services",
+      "direction": "frontend-to-external",
+      "details": {
+        "framework": "RaptorAnalyticsKit (hu.bitraptors.analytics package)",
+        "events": "CustomEvent interface + BasicEvent implementations",
+        "setup": "BabyWeatherApplication.kt configures during app initialization",
+        "transmission": "Asynchronous background transmission; queued if offline"
+      }
+    },
+    {
+      "type": "Remote Configuration",
+      "protocol": "HTTP polling / event-driven",
+      "direction": "backend-to-frontend",
+      "details": {
+        "defaults": "app/src/main/res/xml/remote_config_defaults.xml",
+        "use_case": "Feature flags, UI text, endpoint URLs, A/B test variants",
+        "framework": "Likely Firebase Remote Config"
+      }
+    },
+    {
+      "type": "Network Security",
+      "protocol": "Certificate pinning + TLS 1.2+",
+      "details": {
+        "config_file": "app/src/main/res/xml/network_security_config.xml",
+        "debug_mode": "Trusts user-added + system CAs (dev certificate support)",
+        "release_mode": "Cleartext traffic disabled; strict certificate validation",
+        "intent": "Prevents MITM attacks and unauthorized API access"
+      }
+    }
+  ],
+  "third_party_integrations": [
+    {
+      "service": "Google Sign-In",
+      "purpose": "User authentication and account management",
+      "integration_point": "page_login_bottomsheet (dialog_login.xml)",
+      "communication_flow": "Frontend → Google OAuth → Backend (token validation)",
+      "assets": "ic_google.xml drawable"
+    },
+    {
+      "service": "Google Play Billing",
+      "purpose": "In-app subscriptions (weather alerts, premium features)",
+      "integration_point": "page_subscription_detail module",
+      "communication_flow": "Frontend → Google Play API → Backend (receipt verification)",
+      "assets": "Multiple subscription detail layouts (cell_subscription_*)"
+    },
+    {
+      "service": "Firebase Cloud Messaging (FCM)",
+      "purpose": "Push notifications for weather alerts and updates",
+      "integration_point": "BabyWeatherApplication.kt (implied setup)",
+      "communication_flow": "Backend → FCM → Frontend",
+      "use_cases": [
+        "Weather alert notifications",
+        "Subscription reminders",
+        "Engagement notifications"
+      ]
+    },
+    {
+      "service": "Firebase Remote Config",
+      "purpose": "Dynamic feature flags and UI configuration",
+      "integration_point": "util/services/featureflag/ + remote_config_defaults.xml",
+      "communication_flow": "Firebase backend → polling/event-driven sync → Feature modules",
+      "use_cases": [
+        "A/B testing UI variants",
+        "Gradual feature rollout",
+        "Dynamic endpoint URLs"
+      ]
+    },
+    {
+      "service": "RaptorAnalytics Kit",
+      "purpose": "Event tracking and analytics",
+      "integration_point": "util/services/analytics/events/",
+      "communication_flow": "ViewModels/Fragments emit events → RaptorAnalyticsKit → Analytics backend",
+      "event_types": [
+        "User actions (tip views, location selection)",
+        "Feature usage (subscription interactions)",
+        "Error tracking"
+      ]
+    },
+    {
+      "service": "Weather API Backend",
+      "purpose": "Real-time weather data, forecast, location autocomplete",
+      "integration_point": "common/domain/api/APIService.kt",
+      "communication_flow": "Frontend REST → Custom backend → Weather data sources",
+      "endpoints": "Documented in external_communication section"
+    },
+    {
+      "service": "Crash Analytics (Implied)",
+      "purpose": "Exception tracking and stability monitoring",
+      "integration_point": "BabyWeatherApplication.kt (setup during init)",
+      "communication_flow": "App exceptions → HTTP POST → Crash reporting service",
+      "framework": "Likely Crashlytics or similar"
+    },
+    {
+      "service": "Google Play Review API",
+      "purpose": "In-app rating prompts",
+      "integration_point": "util/services/review/",
+      "communication_flow": "ViewModel triggers review flow → Google Play in-app review dialog",
+      "triggers": "Post-purchase, feature discovery, milestone events"
+    },
+    {
+      "service": "Location Services",
+      "purpose": "Device GPS, geocoding, location permissions",
+      "integration_point": "page_location_permission, page_locations modules",
+      "communication_flow": "Fragments request permissions → Android LocationManager → GPS provider",
+      "permissions": "ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION (AndroidManifest.xml)"
+    },
+    {
+      "service": "Media Storage (Camera/Gallery)",
+      "purpose": "Baby profile image selection and capture",
+      "integration_point": "page_baby_settings module + dialog_image_cropper.xml",
+      "communication_flow": "Fragment → Android Intent (camera/gallery) → Image cropper → Upload",
+      "permissions": "CAMERA, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE"
+    }
+  ],
+  "frontend_backend_contract": {
+    "protocol": "REST/HTTP",
+    "base_architecture": "Retrofit 2 + Moshi JSON serialization",
+    "shared_types": false,
+    "type_system": {
+      "status": "Frontend has DTOs defined locally (common/domain/api/dto/*)",
+      "rationale": "Android doesn't typically share backend code; DTOs are frontend-only representations",
+      "dto_generation": "Likely manually maintained or generated from OpenAPI/Swagger spec",
+      "example_dtos": [
+        "HomePageDto (weather summary + tips)",
+        "ChildDto (baby profile)",
+        "SettingsDto (user preferences)",
+        "TipListDto (content recommendations)",
+        "TipTagDto (tip category metadata)"
+      ]
+    },
+    "error_propagation": {
+      "mechanism": "NetworkResponse<T, String> sealed class wraps all API responses",
+      "flow": [
+        "APIService returns NetworkResponse<T, String>",
+        "NetworkExtension.kt provides checkError() extension functions",
+        "checkError() either calls success callback or emits error via MutableSharedFlow<String>",
+        "ViewModels observe error flows and emit UI events",
+        "Fragments/Activities display error messages via snackbars or dialogs"
+      ],
+      "error_messages": {
+        "ApiError": "Maps to ErrorResult.Api.message (user-facing string resource)",
+        "NetworkError": "Maps to ErrorResult.Network.message (connectivity issue message)",
+        "AuthenticationError": "Maps to ErrorResult.Authentication.message (re-login prompt)",
+        "UnknownError": "Maps to ErrorResult.Unknown.message (generic fallback)"
+      ],
+      "example_usage": "checkError(errorFlow) { homeData -> processWeatherData(homeData) }"
+    },
+    "serialization": {
+      "framework": "Moshi JSON adapter library",
+      "custom_adapters": [
+        {
+          "class": "CustomDateAdapter",
+          "purpose": "Parse server date format (yyyy-MM-dd'T'HH:mm) to Java Date objects",
+          "direction": "Bidirectional (@FromJson and @ToJson)",
+          "thread_safety": "Synchronized dateFormatter access"
+        }
+      ],
+      "null_handling": "nullValue() emitted for null dates; safe parsing with exception handling"
+    },
+    "authentication": {
+      "scheme": "Bearer token in Authorization header",
+      "injection_point": "HttpRequestInterceptor (util/services/)",
+      "token_source": "loginManager (injected into NetworkDatasource)",
+      "endpoints_requiring_auth": [
+        "GET /pages/home",
+        "GET /pages/home/location",
+        "GET /settings",
+        "PUT /settings",
+        "GET /settings/children (and POST/PUT/DELETE variants)",
+        "DELETE /settings/delete-account"
+      ],
+      "endpoints_public": [
+        "GET /tips",
+        "GET /tips/tags",
+        "GET /weather/autocomplete"
+      ]
+    },
+    "request_format": {
+      "headers": {
+        "Authorization": "Bearer {token}",
+        "User-Agent": "BabyWeather/{version} (Android {os_version})",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+      },
+      "query_parameters": "Documented per-endpoint in external_communication section",
+      "request_body": "JSON serialized via Moshi (e.g., SettingsDto, ChildDto)"
+    },
+    "response_format": {
+      "success": {
+        "http_status": "200, 201, 204",
+        "body": "T (generic success type, can be object or array)",
+        "mapped_to": "NetworkResponse.Success<T>(data)"
+      },
+      "error": {
+        "http_status": "4xx, 5xx",
+        "body": "Backend error response (likely JSON with error code/message)",
+        "mapped_to": "NetworkResponse.Failure<String>(error: NetworkErrorResponse.ApiError)"
+      }
+    },
+    "rate_limiting": "Not explicitly visible; likely handled server-side with 429 responses",
+    "versioning": "API versioning strategy not evident from provided files; likely implicit in base_url or headers"
+  },
+  "pattern_guidelines": [
+    {
+      "scenario": "Displaying weather data for a location",
+      "pattern": "MVVM + Repository + Flow<T>",
+      "flow": [
+        "Fragment (page_dashboard) observes DashboardViewModel.weatherState: StateFlow<WeatherUiState>",
+        "ViewModel calls repository.fetchWeatherData(locationKey, childId)",
+        "Repository calls APIService.fetchLocation() via Retrofit",
+        "APIService returns NetworkResponse<HomePageDto, String>",
+        "Repository maps success to domain model and emits via StateFlow",
+        "Fragment renders weather UI with animations (slide_in_left.xml, etc.)",
+        "On error: checkError() emits to errorFlow; Fragment shows snackbar"
+      ],
+      "rationale": "Separates UI logic from business logic; reactive updates; centralized error handling"
+    },
+    {
+      "scenario": "User adds a new baby profile",
+      "pattern": "ViewModel event emission + Navigation callback",
+      "flow": [
+        "page_baby_settings Fragment collects input",
+        "Fragment calls viewModel.addBaby(babyName, birthDate, color)",
+        "ViewModel calls repository.addBaby(childDto)",
+        "Repository calls APIService.addBaby() with Bearer token",
+        "On success: ViewModel emits RefreshFragmentRequest event or navigation event",
+        "MainActivity's NavController pops back to settings or refreshes list",
+        "On error: checkError() captures error; Fragment shows validation error dialog"
+      ],
+      "rationale": "One-way data flow; events trigger side effects; auth token injected automatically"
+    },
+    {
+      "scenario": "Fetching contextual weather tips",
+      "pattern": "Public API endpoint + aggressive caching",
+      "flow": [
+        "page_tips Fragment calls viewModel.fetchTips(language)",
+        "ViewModel calls repository.fetchTips() (no auth required)",
+        "Repository checks local cache; if stale, calls APIService.fetchTips(language)",
+        "Tips cached locally (likely in Room database, not shown)",
+        "Fragment renders tips in RecyclerView with cell_tip.xml items",
+        "User can filter by tags (cell_tips_filter.xml); filtered locally from cache"
+      ],
+      "rationale": "Public data doesn't require auth; caching reduces network calls; tag filtering is deterministic"
+    },
+    {
+      "scenario": "Handling network timeout",
+      "pattern": "NetworkErrorResponse.NetworkError → User-facing message",
+      "flow": [
+        "OkHttp request times out after 30 seconds",
+        "Retrofit wraps in IOException",
+        "NetworkResponseAdapterFactory catches and maps to NetworkResponse.Failure<NetworkErrorResponse.NetworkError>",
+        "checkError() extension catches and calls errorMessage()",
+        "errorMessage() returns ErrorResult.Network.message (localized string)",
+        "ViewModel emits to errorFlow; Fragment shows snackbar with retry button"
+      ],
+      "rationale": "Explicit error types allow tailored user feedback; timeout configurable globally"
+    },
+    {
+      "scenario": "Authentication failure (expired token)",
+      "pattern": "HttpRequestInterceptor redirect + OAuth refresh",
+      "flow": [
+        "API call returns 401 Unauthorized",
+        "NetworkResponseAdapterFactory maps to NetworkResponse.Failure<AuthenticationError>",
+        "checkError() returns ErrorResult.Authentication.message",
+        "MainActivity/ViewModel detects auth error",
+        "Triggers page_login_bottomsheet dialog (dialog_login.xml)",
+        "User re-authenticates; new token stored in loginManager",
+        "HttpRequestInterceptor injects new token in retry request"
+      ],
+      "rationale": "Centralized token injection; automatic re-auth flow; stateless API design"
+    },
+    {
+      "scenario": "Swipe-to-delete location",
+      "pattern": "Custom gesture detection (SwipeLayout) + confirmation dialog",
+      "flow": [
+        "page_locations Fragment uses SwipeLayout parent in cell_location.xml",
+        "User swipes left on location item",
+        "SwipeLayout.OnSwipeListener.onSwipeLeft() callback triggered",
+        "Fragment shows alert dialog (view_alert_double_option.xml) for confirmation",
+        "User confirms deletion",
+        "Fragment calls viewModel.deleteLocation(locationId)",
+        "ViewModel calls repository.deleteBaby() with Bearer token",
+        "On success: ViewModel updates locationList StateFlow; RecyclerView auto-refreshes",
+        "Animate removal with dissapear.xml"
+      ],
+      "rationale": "Low-level gesture handling decoupled from business logic; confirmation prevents accidental deletion"
+    },
+    {
+      "scenario": "Image cropping for baby avatar",
+      "pattern": "Dialog fragment + custom view (CircleCrop/SquareCrop)",
+      "flow": [
+        "page_baby_settings Fragment opens image picker (view_photo_selector.xml)",
+        "Intent launched to gallery or camera",
+        "Result received; image displayed in dialog_image_cropper.xml",
+        "User adjusts crop rectangle in view_circle_crop.xml or view_square_crop.xml",
+        "Dialog returns cropped bitmap to parent Fragment",
+        "Fragment uploads to backend (implied multipart endpoint)",
+        "On success: ViewModel updates babyProfile; Avatar updates immediately (optimistic)"
+      ],
+      "rationale": "Dialog encapsulates image editing logic; decoupled from settings module; result callback pattern"
+    },
+    {
+      "scenario": "Feature flag gating (e.g., pro features)",
+      "pattern": "Remote config check + conditional UI rendering",
+      "flow": [
+        "app_initialization: BabyWeatherApplication fetches remote config defaults",
+        "page_subscription_detail checks: if (featureFlagService.isPremiumFeatureEnabled)",
+        "If true: Show premium features (cell_subscription_option_card.xml)",
+        "If false: Show upsell CTA",
+        "Remote config can be updated server-side; frontend auto-syncs on next launch",
+        "Analytics event logged: 'premium_feature_viewed', featureFlag variant"
+      ],
+      "rationale": "Server-side feature control; A/B testing support; gradual rollout capability"
+    },
+    {
+      "scenario": "Search location autocomplete",
+      "pattern": "Debounced query input → API call → filtered dropdown",
+      "flow": [
+        "page_locations Fragment (cell_location_search.xml) captures user text input",
+        "ViewModel debounces input (500ms) to avoid excessive API calls",
+        "ViewModel calls repository.autocomplete(userInput, language)",
+        "APIService.autocomplete() returns List<LocationDto> (no auth required)",
+        "Repository emits to searchResultsFlow: StateFlow<List<LocationDto>>",
+        "Fragment updates dropdown list; user selects location",
+        "Selected location added to user's location list; full weather data fetched"
+      ],
+      "rationale": "Debouncing reduces server load; public endpoint; reactive list updates"
+    },
+    {
+      "scenario": "Analytics event tracking",
+      "pattern": "BasicEvent interface + RaptorAnalyticsKit",
+      "flow": [
+        "ViewModel detects user action (e.g., viewed tip with ID 'tip_123')",
+        "ViewModel emits: analyticsService.logEvent(TipViewedEvent(tipId = 'tip_123', category = 'feeding'))",
+        "TipViewedEvent extends BasicEvent; getEventName() returns 'tip_viewed'",
+        "RaptorAnalyticsKit serializes event with properties → HTTP POST to analytics backend",
+        "Backend aggregates events; dashboards show engagement metrics"
+      ],
+      "rationale": "Declarative event definitions; decoupled from analytics SDK; centralized event naming"
+    },
+    {
+      "scenario": "Bottom sheet login dialog lifecycle",
+      "pattern": "Fragment result callback + SharedViewModel for auth state",
+      "flow": [
+        "page_login_bottomsheet displayed over MainActivity",
+        "User taps 'Sign in with Google'",
+        "OAuth flow initiated; token received",
+        "loginManager.setToken(token)",
+        "page_login_bottomsheet emits LoginSuccessEvent to SharedViewModel",
+        "MainActivity observes auth state; navigates to next screen",
+        "BottomSheet dismissed with popBackStack()",
+        "MainActivity.onFragmentResult() callback handles auth success side effects"
+      ],
+      "rationale": "Bottom sheets communicate via fragment result callbacks; auth state shared across features"
+    },
+    {
+      "scenario": "Preventing double-submission in purchase flow",
+      "pattern": "ViewModel-level lock + disabled UI button",
+      "flow": [
+        "page_subscription_detail displays cell_subscription_option_card.xml items",
+        "User taps purchase button",
+        "ViewModel sets isLoadingPurchase: MutableStateFlow<Boolean> = true",
+        "Button is disabled (view state reflects flow)",
+        "ViewModel initiates Google Play Billing purchase",
+        "On result (success/failure/cancelled): isLoadingPurchase = false",
+        "Button re-enabled; snackbar shows result message"
+      ],
+      "rationale": "Prevents accidental duplicate purchases; feedback to user during async operation"
+    }
+  ],
+  "architecture_summary": {
+    "platforms": ["Android Native (Kotlin)"],
+    "frontend_backend_integration": "Frontend communicates exclusively via REST API; no shared code/types",
+    "state_management": "MVVM + Kotlin StateFlow/MutableSharedFlow for reactive updates",
+    "dependency_injection": "Koin framework; module-based scoping per feature",
+    "error_handling": "Sealed class NetworkResponse<T, String>; centralized via checkError() extension",
+    "authentication": "OAuth 2.0 + Bearer tokens; injected via HttpRequestInterceptor",
+    "network_security": "TLS 1.2+; certificate pinning via network_security_config.xml",
+    "key_design_principles": [
+      "Feature-slice modular architecture (page_* directories)",
+      "Centralized domain layer shared across features",
+      "Unidirectional data flow (ViewModel → Fragment)",
+      "Event-driven inter-component communication",
+      "Explicit error types for granular error handling",
+      "Async-first with coroutines + Flow",
+      "Public vs. authenticated endpoints clearly separated"
+    ]
+  }
+}
+```
+
+---
+
+## Additional Context: Communication Patterns Observed
+
+### Frontend Communication Summary
+
+**Synchronous:**
+- Fragment → ViewModel direct method calls (`viewModel.fetchWeather()`)
+- Custom View listeners (SwipeLayout.OnSwipeListener)
+- RecyclerView adapter callbacks
+
+**Asynchronous:**
+- ViewModel → Fragment via StateFlow/SharedFlow (primary pattern)
+- Dialog → Parent Fragment via fragment result callback
+- Navigation events via NavController
+- Analytics events queued for async transmission
+
+### Backend Contract Specifics
+
+1. **Request Standardization:**
+   - All authenticated requests include `Authorization: Bearer {token}` header
+   - Query parameters optional per endpoint (e.g., `childId` contextualizes weather data for a baby)
+   - Timeouts: 30 seconds global (OkHttp)
+
+2. **Response Standardization:**
+   - Uniform `NetworkResponse<T, String>` wrapper (success or typed error)
+   - No HTTP 4xx responses without error context
+   - Nullable fields handled via Moshi's null-coalescing
+
+3. **Error Recovery:**
+   - Network errors trigger offline UI (implied by error handling)
+   - Auth errors trigger re-login flow automatically
+   - API errors mapped to user-facing messages via ErrorResult enum
+
+4. **Data Consistency:**
+   - No transaction guarantees mentioned (stateless API design)
+   - Idempotent endpoints (likely for PUT /settings/children/{childId})
+   - No webhook-based real-time updates (polling/FCM only)
+
+This architecture prioritizes **separation of concerns** and **reactive data binding** typical of modern Android development, with a clear contract between frontend and backend enforced by DTO serialization and interceptor-based authentication.

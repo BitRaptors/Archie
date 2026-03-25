@@ -1,0 +1,636 @@
+```json
+{
+  "internal_communication": [
+    {
+      "type": "Dependency Injection Container",
+      "platform": "backend",
+      "mechanism": "IoC container with singleton pattern",
+      "examples": [
+        "backend/src/config/container.py - provides DatabaseClient, service instances",
+        "backend/src/infrastructure/persistence/db_factory.py - singleton DatabaseClient caching"
+      ],
+      "description": "Services and repositories are instantiated once and cached, injected via FastAPI dependency parameters"
+    },
+    {
+      "type": "Abstract Interfaces",
+      "platform": "backend",
+      "mechanism": "ABC (Abstract Base Classes) for inversion of control",
+      "examples": [
+        "backend/src/domain/interfaces/database.py - DatabaseClient, QueryBuilder",
+        "backend/src/domain/interfaces/repositories.py - Repository interfaces",
+        "Implementations: SupabaseAdapter, PostgresAdapter"
+      ],
+      "description": "Repositories depend on database interfaces, not concrete implementations. Allows swappable backends (Supabase/PostgreSQL)"
+    },
+    {
+      "type": "Domain-Driven Design Layers",
+      "platform": "backend",
+      "mechanism": "Layered architecture with clear separation",
+      "layers": [
+        "Domain Layer (entities, interfaces): backend/src/domain/",
+        "Application Layer (services, orchestration): backend/src/application/",
+        "Infrastructure Layer (persistence, external APIs): backend/src/infrastructure/",
+        "API Layer (HTTP routes, DTOs): backend/src/api/"
+      ],
+      "data_flow": "API routes → Application services → Domain repositories → Infrastructure adapters → Database"
+    },
+    {
+      "type": "Service-to-Service Calls",
+      "platform": "backend",
+      "mechanism": "Direct method invocation within application layer",
+      "examples": [
+        "backend/src/application/services/analysis_service.py calls backend/src/application/services/blueprint_folder_mapper.py",
+        "backend/src/application/services/delivery_service.py calls backend/src/infrastructure/external/github_push_client.py",
+        "backend/src/application/services/intent_layer_service.py coordinates multiple analysis steps"
+      ],
+      "description": "Application services orchestrate complex workflows by calling other services and repositories"
+    },
+    {
+      "type": "Event Bus / In-Process Events",
+      "platform": "backend",
+      "mechanism": "Event-driven architecture for async operations",
+      "examples": [
+        "backend/src/infrastructure/events/event_bus.py - publishes domain events",
+        "backend/src/domain/entities/analysis_event.py - event definitions",
+        "Analysis completion triggers webhook/notification events"
+      ],
+      "description": "Decouples analysis workflow stages; events trigger delivery, notifications, and async tasks"
+    },
+    {
+      "type": "Task Queue / Worker Pattern",
+      "platform": "backend",
+      "mechanism": "Async job processing with task workers",
+      "examples": [
+        "backend/src/workers/tasks.py - defines async tasks",
+        "backend/src/workers/worker.py - background worker processes",
+        "backend/src/api/routes/analyses.py - enqueues analysis jobs"
+      ],
+      "description": "Long-running analyses are enqueued and processed asynchronously, not on request threads"
+    },
+    {
+      "type": "React Context API",
+      "platform": "frontend",
+      "mechanism": "Global state management for shared data",
+      "examples": [
+        "frontend/context/auth.tsx - authentication state, user info, token management",
+        "Wrapped in frontend/pages/_app.tsx - available to all components"
+      ],
+      "description": "Provides authentication state, user session, and API base URL to entire app"
+    },
+    {
+      "type": "Custom React Hooks",
+      "platform": "frontend",
+      "mechanism": "Encapsulated logic for API integration and state management",
+      "examples": [
+        "frontend/hooks/api/useRepositoriesQuery.tsx - repository list/detail queries",
+        "frontend/hooks/api/useWorkspace.ts - workspace operations",
+        "frontend/hooks/api/useSettings.ts - settings CRUD",
+        "frontend/hooks/api/useDelivery.ts - delivery/publish operations",
+        "frontend/hooks/useAuth.tsx - authentication operations"
+      ],
+      "description": "Custom hooks abstract API calls, error handling, and loading states from components"
+    },
+    {
+      "type": "Props & Component Composition",
+      "platform": "frontend",
+      "mechanism": "Data flow through component tree",
+      "examples": [
+        "frontend/pages/index.tsx passes data to frontend/components/views/AnalysisView.tsx",
+        "frontend/components/layout/Shell.tsx orchestrates Sidebar and main content",
+        "frontend/components/views/ components receive analyzed data and render UI"
+      ],
+      "description": "Parent components pass data down, children emit events back up through callback props"
+    },
+    {
+      "type": "Service Layer (Frontend)",
+      "platform": "frontend",
+      "mechanism": "API client services that abstract HTTP calls",
+      "examples": [
+        "frontend/services/auth.ts - authentication API methods",
+        "frontend/services/repositories.ts - repository CRUD operations",
+        "frontend/services/workspace.ts - workspace analysis operations",
+        "frontend/services/settings.ts - settings management",
+        "frontend/services/delivery.ts - delivery/publish operations",
+        "frontend/services/prompts.ts - prompt management"
+      ],
+      "description": "Centralized API clients that use fetch/axios, handle auth headers, and transform responses"
+    },
+    {
+      "type": "Next.js Data Fetching",
+      "platform": "frontend",
+      "mechanism": "SSR/SSG and client-side data fetching",
+      "examples": [
+        "frontend/pages/index.tsx - client-side fetch in useEffect via custom hooks",
+        "frontend/pages/auth.tsx - login/signup with service layer"
+      ],
+      "description": "Pages use Next.js patterns combined with React hooks for data fetching"
+    }
+  ],
+  "external_communication": [
+    {
+      "type": "REST API (Frontend → Backend)",
+      "protocol": "HTTP/HTTPS with JSON",
+      "direction": "Frontend → Backend",
+      "authentication": "Bearer token (JWT) in Authorization header",
+      "base_url": "Configured in frontend/context/auth.tsx (NEXT_PUBLIC_API_URL)",
+      "endpoints": [
+        "POST /api/auth/login - user authentication",
+        "POST /api/auth/logout - session termination",
+        "GET /api/workspace/repositories - list repositories",
+        "POST /api/analyses - start new analysis",
+        "GET /api/analyses/{id} - fetch analysis results",
+        "POST /api/delivery/publish - publish/deploy results",
+        "GET /api/settings - fetch user settings",
+        "PUT /api/settings - update settings",
+        "POST /api/prompts - create custom prompts",
+        "GET /api/prompts - list prompts",
+        "PUT /api/prompts/{id} - update prompts"
+      ],
+      "examples": [
+        "frontend/services/repositories.ts calls backend/src/api/routes/repositories.py",
+        "frontend/services/workspace.ts calls backend/src/api/routes/analyses.py",
+        "frontend/hooks/api/useSettings.ts calls backend/src/api/routes/settings.py"
+      ]
+    },
+    {
+      "type": "Streaming/Server-Sent Events (SSE)",
+      "protocol": "HTTP with text/event-stream",
+      "direction": "Backend → Frontend",
+      "purpose": "Real-time analysis progress updates",
+      "examples": [
+        "Analysis job completion events streamed to frontend",
+        "Live progress updates during long-running operations"
+      ],
+      "potential": "Could use frontend/hooks/api/useWorkspace.ts for event streaming integration"
+    },
+    {
+      "type": "REST API (Backend → External AI)",
+      "protocol": "HTTP/HTTPS with JSON",
+      "service": "Anthropic Claude API",
+      "examples": [
+        "backend/src/application/services/analysis_service.py - code analysis via Claude",
+        "backend/src/application/services/phased_blueprint_generator.py - blueprint generation",
+        "backend/src/application/services/intent_layer_service.py - intent layer analysis"
+      ],
+      "auth": "ANTHROPIC_API_KEY environment variable"
+    },
+    {
+      "type": "REST API (Backend → GitHub)",
+      "protocol": "HTTP/HTTPS with JSON",
+      "service": "GitHub REST API v3",
+      "examples": [
+        "backend/src/infrastructure/external/github_client.py - fetch repository metadata, commits",
+        "backend/src/infrastructure/external/github_push_client.py - create branches, PRs, push changes"
+      ],
+      "auth": "GITHUB_TOKEN environment variable"
+    },
+    {
+      "type": "Database Connections",
+      "protocol": "PostgreSQL protocol (native) or HTTP (PostgREST/Supabase)",
+      "purpose": "Persistent data storage and retrieval",
+      "backends": [
+        "PostgreSQL (via asyncpg) - native database",
+        "Supabase (via PostgREST) - managed PostgreSQL with REST wrapper"
+      ],
+      "examples": [
+        "backend/src/infrastructure/persistence/postgres_adapter.py - direct asyncpg connections",
+        "backend/src/infrastructure/persistence/supabase_adapter.py - PostgREST client",
+        "backend/src/infrastructure/persistence/db_factory.py - factory selects backend"
+      ],
+      "connection_pooling": "asyncpg.Pool for PostgreSQL; Supabase AsyncClient for Supabase"
+    },
+    {
+      "type": "Message Queue / Redis",
+      "protocol": "Redis protocol (RESP)",
+      "purpose": "Task queuing and async job processing",
+      "examples": [
+        "backend/src/workers/tasks.py - enqueue analysis jobs",
+        "backend/src/workers/worker.py - process queued jobs asynchronously"
+      ],
+      "use_case": "Long-running analyses don't block HTTP requests; results delivered via webhook/events"
+    },
+    {
+      "type": "File Storage",
+      "protocol": "Local filesystem or cloud storage API",
+      "examples": [
+        "backend/src/infrastructure/storage/local_storage.py - local file system storage",
+        "backend/src/infrastructure/storage/temp_storage.py - temporary files for analysis",
+        "backend/src/application/services/delivery_service.py - artifact generation and delivery"
+      ],
+      "use_case": "Generated blueprints, analysis results, code reports stored and served to frontend"
+    },
+    {
+      "type": "MCP (Model Context Protocol)",
+      "protocol": "Stdio-based protocol",
+      "purpose": "Tool integration for AI models",
+      "examples": [
+        "backend/src/infrastructure/mcp/server.py - MCP server implementation",
+        "backend/src/infrastructure/mcp/tools.py - tools exposed to Claude",
+        "backend/src/infrastructure/mcp/resources.py - resource management"
+      ],
+      "use_case": "Claude AI accesses codebase context, repository metadata, and analysis tools via MCP"
+    }
+  ],
+  "third_party_integrations": [
+    {
+      "service": "Anthropic Claude API",
+      "purpose": "AI-powered code analysis, blueprint generation, intent layer extraction",
+      "integration_point": "backend/src/application/services/",
+      "integration_type": "REST API client",
+      "environment_config": "ANTHROPIC_API_KEY",
+      "usage": [
+        "Code understanding and architecture analysis",
+        "Blueprint generation from code structure",
+        "Intent layer and capability extraction",
+        "Documentation synthesis"
+      ],
+      "error_handling": "backend/src/api/middleware/error_handler.py handles API errors"
+    },
+    {
+      "service": "GitHub API",
+      "purpose": "Repository metadata, code retrieval, git operations",
+      "integration_point": "backend/src/infrastructure/external/",
+      "integration_type": "REST API client",
+      "modules": [
+        "backend/src/infrastructure/external/github_client.py - read operations (fetch repos, commits)",
+        "backend/src/infrastructure/external/github_push_client.py - write operations (create branches, PRs)"
+      ],
+      "environment_config": "GITHUB_TOKEN",
+      "usage": [
+        "Fetch repository metadata and file contents",
+        "Retrieve commit history",
+        "Create analysis result branches",
+        "Generate pull requests with suggested changes"
+      ]
+    },
+    {
+      "service": "Supabase (PostgreSQL + Auth + Storage)",
+      "purpose": "Database, user authentication, file storage",
+      "integration_point": "backend/src/infrastructure/persistence/ and frontend/services/",
+      "integration_type": "SDK client (async) + PostgREST API",
+      "modules": [
+        "backend/src/infrastructure/persistence/supabase_adapter.py - database abstraction",
+        "backend/src/domain/interfaces/database.py - interface definition",
+        "Supabase Auth SDK used indirectly via JWT tokens"
+      ],
+      "environment_config": "SUPABASE_URL, SUPABASE_KEY",
+      "usage": [
+        "User authentication and session management",
+        "Store user profiles, repositories, analyses, settings",
+        "File storage for generated artifacts"
+      ],
+      "optional": "Can be replaced with self-hosted PostgreSQL (db_factory.py switches backends)"
+    },
+    {
+      "service": "PostgreSQL (Self-Hosted Alternative)",
+      "purpose": "Database backend alternative to Supabase",
+      "integration_point": "backend/src/infrastructure/persistence/postgres_adapter.py",
+      "integration_type": "asyncpg native driver with connection pooling",
+      "environment_config": "DATABASE_URL, DB_BACKEND=postgres",
+      "usage": [
+        "Full database functionality without Supabase dependency",
+        "Custom JSON/JSONB handling via type codecs",
+        "pgvector extension for embeddings"
+      ],
+      "setup": "backend/src/infrastructure/persistence/db_factory.py auto-initializes pool and extensions"
+    },
+    {
+      "service": "Redis",
+      "purpose": "Task queue and caching",
+      "integration_point": "backend/src/workers/",
+      "integration_type": "Message queue client",
+      "modules": [
+        "backend/src/workers/tasks.py - task definitions",
+        "backend/src/workers/worker.py - worker process"
+      ],
+      "environment_config": "REDIS_URL",
+      "usage": [
+        "Enqueue long-running analyses",
+        "Maintain job state and results",
+        "Implement request-response pattern for async operations"
+      ]
+    },
+    {
+      "service": "Next.js (Frontend Framework)",
+      "purpose": "React framework with SSR/SSG, routing, optimization",
+      "integration_point": "frontend/pages/, landing/",
+      "integration_type": "Framework",
+      "apps": [
+        "frontend/ - main dashboard application",
+        "landing/ - marketing landing page"
+      ],
+      "usage": [
+        "Server-side rendering for SEO",
+        "Client-side app shell for dashboard",
+        "API route abstraction (could be used)"
+      ]
+    },
+    {
+      "service": "Three.js + Framer Motion + GSAP (3D Visualization)",
+      "purpose": "Interactive 3D graphics and animations on landing page",
+      "integration_point": "landing/components/ShaderBackground.tsx",
+      "integration_type": "Client-side libraries",
+      "usage": [
+        "3D shader-based background animations",
+        "Smooth scroll interactions",
+        "Motion design and visual feedback"
+      ]
+    },
+    {
+      "service": "Tailwind CSS",
+      "purpose": "Utility-first CSS framework for styling",
+      "integration_point": "frontend/tailwind.config.js, landing/",
+      "integration_type": "CSS framework",
+      "config_files": [
+        "frontend/tailwind.config.js",
+        "frontend/postcss.config.js"
+      ],
+      "usage": "All UI components styled with Tailwind utilities"
+    },
+    {
+      "service": "Mermaid Diagrams",
+      "purpose": "Render architecture diagrams in analysis results",
+      "integration_point": "frontend/components/MermaidDiagram.tsx",
+      "integration_type": "Rendering library",
+      "usage": "Display generated blueprints and architecture visualizations"
+    }
+  ],
+  "frontend_backend_contract": {
+    "protocol": "REST API with JSON",
+    "base_communication": {
+      "direction": "Frontend initiates requests; Backend responds with data",
+      "transport": "HTTP/HTTPS",
+      "content_type": "application/json",
+      "authentication": "Bearer token (JWT) in Authorization header"
+    },
+    "api_structure": {
+      "base_url": "NEXT_PUBLIC_API_URL environment variable in frontend",
+      "version": "v1 implied (no explicit versioning in sample routes)",
+      "convention": "RESTful with resource-based URLs"
+    },
+    "shared_types": {
+      "status": "NOT explicitly shared",
+      "method": "Frontend recreates types from API responses (implied by sample code)",
+      "risk": "Type mismatch possible if backend schema changes",
+      "opportunity": "Could generate TypeScript types from OpenAPI/Zod schemas"
+    },
+    "request_flow": [
+      "Frontend service method (e.g., frontend/services/repositories.ts) calls backend endpoint",
+      "Custom React hook wraps service call with loading/error state (frontend/hooks/api/useRepositoriesQuery.tsx)",
+      "Component receives data and renders UI",
+      "User interactions trigger mutations via service methods"
+    ],
+    "response_contract": {
+      "success_response": {
+        "format": "JSON object with data payload",
+        "example": "{\"data\": {...}, \"success\": true}",
+        "status_code": "200 OK"
+      },
+      "error_response": {
+        "format": "JSON error object",
+        "status_codes": [
+          "400 Bad Request - invalid input",
+          "401 Unauthorized - missing/invalid token",
+          "403 Forbidden - insufficient permissions",
+          "404 Not Found - resource not found",
+          "500 Internal Server Error - server error"
+        ],
+        "error_handler": "backend/src/api/middleware/error_handler.py centralizes error formatting"
+      }
+    },
+    "error_propagation": {
+      "backend_to_frontend": "HTTP status codes + JSON error messages",
+      "frontend_handling": [
+        "Custom hooks catch errors and set error state",
+        "Components display error toast/notification to user",
+        "API errors logged (potential monitoring integration)",
+        "Retry logic in some hooks (useWorkspace.ts may implement exponential backoff)"
+      ],
+      "error_example": "frontend/services/repositories.ts catches fetch errors and throws with context"
+    },
+    "authentication_flow": {
+      "login": [
+        "Frontend calls frontend/services/auth.ts login()",
+        "Backend validates credentials against Supabase/user table (backend/src/api/routes/auth.py)",
+        "Backend returns JWT token",
+        "Frontend stores token in context (frontend/context/auth.tsx)",
+        "Subsequent requests include Authorization header with token"
+      ],
+      "token_refresh": [
+        "Frontend checks token expiry in context",
+        "Expired token triggers login redirect",
+        "Could implement refresh token rotation (not visible in samples)"
+      ]
+    },
+    "asynchronous_patterns": {
+      "long_running_operations": [
+        "Frontend calls POST /api/analyses to start analysis",
+        "Backend enqueues job and returns job ID (202 Accepted)",
+        "Frontend polls GET /api/analyses/{id} for status and results",
+        "Alternative: Server-sent events (SSE) could stream progress in real-time"
+      ],
+      "streaming": "Potential for SSE integration in analysis progress, not evidenced in samples"
+    },
+    "data_mutation_patterns": {
+      "create": "POST /api/{resource} with request body",
+      "read": "GET /api/{resource}/{id}",
+      "update": "PUT /api/{resource}/{id} with updated data",
+      "delete": "DELETE /api/{resource}/{id}",
+      "examples": [
+        "POST /api/analyses - start new analysis",
+        "GET /api/workspace/repositories - list repos",
+        "PUT /api/settings - update user settings",
+        "POST /api/delivery/publish - publish results"
+      ]
+    },
+    "validation": {
+      "frontend": "Basic input validation in forms (component level)",
+      "backend": "Comprehensive validation in routes (backend/src/api/routes/*.py) and services",
+      "contract": "Backend DTOs define expected request shape (backend/src/api/dto/requests.py)"
+    }
+  },
+  "pattern_guidelines": [
+    {
+      "scenario": "Adding a new feature that requires backend API + frontend UI",
+      "pattern": "Domain-Driven Design with Layered Architecture",
+      "steps": [
+        "1. Define domain entity in backend/src/domain/entities/",
+        "2. Create repository interface in backend/src/domain/interfaces/repositories.py",
+        "3. Implement concrete repository in backend/src/infrastructure/persistence/",
+        "4. Create application service in backend/src/application/services/",
+        "5. Add API route in backend/src/api/routes/",
+        "6. Define DTOs in backend/src/api/dto/",
+        "7. Create frontend service in frontend/services/",
+        "8. Create custom hook in frontend/hooks/api/",
+        "9. Build component in frontend/components/views/"
+      ],
+      "rationale": "Clear separation of concerns; easy to test; flexible database swapping"
+    },
+    {
+      "scenario": "Long-running operation (analysis, processing)",
+      "pattern": "Task Queue + Event-Driven Architecture",
+      "implementation": [
+        "Route returns 202 Accepted with job ID immediately",
+        "Enqueue task via backend/src/workers/tasks.py",
+        "Worker processes asynchronously (backend/src/workers/worker.py)",
+        "Emit event on completion (backend/src/infrastructure/events/event_bus.py)",
+        "Event triggers delivery, notifications, or status updates",
+        "Frontend polls backend/src/api/routes/analyses.py for status"
+      ],
+      "rationale": "Prevents request timeout; allows horizontal scaling; improves UX with progress feedback"
+    },
+    {
+      "scenario": "Switching database backend (Supabase → PostgreSQL or vice versa)",
+      "pattern": "Adapter Pattern with Factory",
+      "implementation": [
+        "Both adapters implement DatabaseClient interface (backend/src/domain/interfaces/database.py)",
+        "Factory (backend/src/infrastructure/persistence/db_factory.py) creates appropriate adapter",
+        "Select via DB_BACKEND environment variable",
+        "No code changes in services or repositories"
+      ],
+      "rationale": "Zero-friction backend swapping; compatible APIs; easy testing with different databases"
+    },
+    {
+      "scenario": "Frontend needs to display complex analysis results with multiple views",
+      "pattern": "Custom Hooks + Context + Component Composition",
+      "implementation": [
+        "Create custom hook frontend/hooks/api/useAnalysis.ts for API calls",
+        "Optional: Context for shared analysis state across routes",
+        "Build separate components for each view (frontend/components/views/)",
+        "Use Props to pass data down; callbacks for mutations"
+      ],
+      "rationale": "Separation of data fetching from UI rendering; reusable logic; easy to test hooks"
+    },
+    {
+      "scenario": "Integrating new external service (e.g., OpenAI, Slack)",
+      "pattern": "Infrastructure Layer Abstraction",
+      "implementation": [
+        "Create client interface in backend/src/domain/interfaces/ (optional)",
+        "Implement concrete client in backend/src/infrastructure/external/",
+        "Inject into application service via DI container (backend/src/config/container.py)",
+        "Handle errors in service, not in routes"
+      ],
+      "rationale": "Pluggable integrations; easy to mock for testing; clear error boundaries"
+    },
+    {
+      "scenario": "User settings need to propagate across UI immediately",
+      "pattern": "React Context + Custom Hook",
+      "implementation": [
+        "Store settings in Context (similar to frontend/context/auth.tsx)",
+        "Custom hook frontend/hooks/api/useSettings.ts manages persistence",
+        "Wrap app with Provider in frontend/pages/_app.tsx",
+        "Components read from context and trigger updates via hook"
+      ],
+      "rationale": "Avoids prop drilling; single source of truth; automatic re-render on changes"
+    },
+    {
+      "scenario": "Backend needs to call AI model with rich context",
+      "pattern": "MCP (Model Context Protocol) for Tool Access",
+      "implementation": [
+        "Define tools in backend/src/infrastructure/mcp/tools.py",
+        "Register resources in backend/src/infrastructure/mcp/resources.py",
+        "Claude calls tools via MCP server (backend/src/infrastructure/mcp/server.py)",
+        "Service orchestrates Claude + MCP interactions"
+      ],
+      "rationale": "Rich context without flooding prompts; structured tool calls; repeatable workflows"
+    },
+    {
+      "scenario": "Error in analysis needs detailed logging and user notification",
+      "pattern": "Centralized Error Handling + Event Bus",
+      "implementation": [
+        "Service catches error and emits error event (backend/src/infrastructure/events/event_bus.py)",
+        "Error handler middleware logs (backend/src/api/middleware/error_handler.py)",
+        "Event listener updates analysis status in database",
+        "Frontend polls and displays error to user"
+      ],
+      "rationale": "Consistent error handling; traceability; user-friendly feedback; decoupled concerns"
+    },
+    {
+      "scenario": "Frontend needs real-time updates on analysis progress",
+      "pattern": "Server-Sent Events (SSE) or WebSocket",
+      "potential_implementation": [
+        "Backend opens SSE stream on GET /api/analyses/{id}/stream",
+        "Worker emits events as job progresses",
+        "Frontend hooks into stream and updates state",
+        "Connection closes when job completes"
+      ],
+      "current_state": "Not evidenced in samples; polling pattern used instead",
+      "rationale": "More efficient than polling; real-time user feedback; reduced backend load"
+    },
+    {
+      "scenario": "Validating complex interdependent fields",
+      "pattern": "Domain Entity Validation",
+      "implementation": [
+        "Validation logic in domain entity (backend/src/domain/entities/)",
+        "Service calls entity validate() before persistence",
+        "Route validation for HTTP-level concerns (backend/src/api/)",
+        "Separate concerns: HTTP validation ≠ business logic validation"
+      ],
+      "rationale": "Domain entities remain consistent; reusable validation; clearer intent"
+    },
+    {
+      "scenario": "Frontend components need shared API client configuration",
+      "pattern": "Service Layer + Context",
+      "implementation": [
+        "Auth context (frontend/context/auth.tsx) provides API base URL and token",
+        "Service methods use context values for headers (frontend/services/)",
+        "Custom hooks manage service calls and state (frontend/hooks/api/)"
+      ],
+      "rationale": "Centralized configuration; consistent headers; easy to swap API base URL"
+    }
+  ]
+}
+```
+
+---
+
+## Key Insights
+
+### **Backend Architecture Highlights**
+1. **Pluggable Database Layer**: Both Supabase and PostgreSQL adapters implement the same `DatabaseClient` interface. The `db_factory.py` selects based on `DB_BACKEND` env var with **zero business logic changes**.
+
+2. **Layered Communication**:
+   - **Routes** (HTTP) → **Services** (orchestration) → **Repositories** (domain) → **Adapters** (implementation)
+   - This separation allows easy testing and future changes.
+
+3. **Async-First with Task Queue**:
+   - Long-running analyses don't block HTTP requests.
+   - Jobs enqueued to Redis; workers process asynchronously.
+   - Events signal completion and trigger delivery/notifications.
+
+4. **AI Integration via MCP**:
+   - Claude AI accesses codebase context through structured tools, not raw prompts.
+   - Enables repeatable, auditable analysis workflows.
+
+### **Frontend Architecture Highlights**
+1. **Custom Hooks Abstract API Complexity**:
+   - `useRepositoriesQuery()`, `useWorkspace()`, `useSettings()` encapsulate fetch logic, error handling, and loading states.
+   - Components remain simple presentational layers.
+
+2. **Auth Context as Single Source of Truth**:
+   - Token, user info, and API base URL stored in React Context.
+   - All service methods read from context for headers.
+
+3. **Modular Service Layer**:
+   - `frontend/services/` provides API client methods.
+   - Services are pure functions, not tied to React; easy to test and reuse.
+
+4. **Responsive UI with Compound Components**:
+   - `Shell.tsx` orchestrates `Sidebar` and main content.
+   - Feature-based organization (`AnalysisView`, `BlueprintView`, `SettingsView`).
+
+### **Frontend-Backend Communication**
+- **REST JSON** with **Bearer token authentication**
+- **Error propagation**: HTTP status codes + JSON error messages; frontend hooks catch and display errors
+- **Async workflows**: Frontend polls `/api/analyses/{id}` for job status (potential SSE upgrade)
+- **No shared TypeScript types**: Frontend recreates types from API responses (opportunity for OpenAPI/Zod codegen)
+
+### **External Services**
+| Service | Purpose | Integration |
+|---------|---------|-------------|
+| **Anthropic Claude** | Code analysis, blueprint generation | REST API calls in services |
+| **GitHub API** | Repository metadata, code retrieval, PR creation | Native REST client |
+| **Supabase** | User auth, database, file storage | PostgREST adapter + JWT |
+| **PostgreSQL** | Alternative database backend | asyncpg with connection pool |
+| **Redis** | Task queue and job management | Message queue via workers |
+| **MCP Server** | AI tool access, context management | Stdio protocol integration |
