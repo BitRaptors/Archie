@@ -24,11 +24,6 @@ def run_serve(project_root: Path, port: int = 8000) -> None:
         )
         raise SystemExit(1)
 
-    # Add backend/src to sys.path so we can import the renderer
-    backend_src = Path(__file__).resolve().parent.parent.parent / "backend" / "src"
-    if backend_src.exists() and str(backend_src) not in sys.path:
-        sys.path.insert(0, str(backend_src))
-
     import uvicorn
 
     app = _build_app(project_root)
@@ -159,15 +154,11 @@ def _build_app(project_root: Path) -> Any:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Blueprint not found")
 
-        # Try backend renderer
+        # Render blueprint to markdown via standalone renderer
         try:
-            from application.services.blueprint_renderer import render_blueprint_markdown
-            from domain.entities.blueprint import StructuredBlueprint
-
-            structured = StructuredBlueprint.model_validate(bp)
-            content = render_blueprint_markdown(structured)
+            from archie.standalone.renderer import generate_claude_md
+            content = generate_claude_md(bp)
         except Exception:
-            # Fallback: return raw JSON as code block
             content = f"```json\n{json.dumps(bp, indent=2)}\n```"
 
         return {

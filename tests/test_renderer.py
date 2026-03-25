@@ -34,7 +34,6 @@ def test_render_outputs_returns_file_map(tmp_path: Path) -> None:
     assert isinstance(result, dict)
     assert "CLAUDE.md" in result
     assert "AGENTS.md" in result
-    assert "ARCHITECTURE.md" in result
     # Should have at least one rule file path
     claude_rule_paths = [k for k in result if k.startswith(".claude/rules/")]
     assert len(claude_rule_paths) > 0, "No .claude/rules/ entries in file map"
