@@ -18,7 +18,7 @@ Read `.archie/scan.json`. Note total files, detected frameworks, and top-level d
 
 ## Step 3: Spawn parallel analytical agents
 
-Spawn 3–4 Opus subagents in parallel (Agent tool, `model: "opus"`), each focused on a different analytical concern. ALL agents read ALL source files — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
+Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each focused on a different analytical concern. ALL agents read ALL source files — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
 
 **If frontend code was detected in Step 2, spawn all 4 agents (A–D). Otherwise spawn only agents A–C.**
 
@@ -475,71 +475,19 @@ Tell Agent X:
 
 Agent X also gets the GROUNDING RULES from Step 3.
 
-After Agent X completes, save its output and merge into the blueprint:
+After Agent X completes, save its output and finalize:
 
 ```
 Write /tmp/archie_sub_x.json with Agent X's output
 ```
 
 ```bash
-python3 .archie/merge.py "$PWD" /tmp/archie_sub_x.json
+python3 .archie/finalize.py "$PWD" /tmp/archie_sub_x.json
 ```
 
-This merges Agent X's sections (decisions, pitfalls, architecture_diagram, implementation_guidelines) into `blueprint_raw.json`.
+This single command: merges Agent X into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, generates per-folder CLAUDE.md, extracts enforcement rules, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
 
-## Step 6: AI-normalize the blueprint
-
-The raw blueprint has correct data but inconsistent field names (subagents return arbitrary shapes). A single AI normalizer call reshapes everything to the canonical schema.
-
-1. Generate the normalizer prompt:
-```bash
-python3 .archie/normalize.py prompt "$PWD" > /tmp/archie_normalize_prompt.txt
-```
-
-2. Read `/tmp/archie_normalize_prompt.txt`
-
-3. Spawn a single Opus subagent (`model: "opus"`). Tell it:
-
-   > Read `/tmp/archie_normalize_prompt.txt`. It contains raw blueprint data and the canonical schema. Reshape the data to match the schema and write the result as valid JSON to `.archie/blueprint_normalized.json` using the Write tool.
-   >
-   > **Rules:** Preserve all data exactly as provided. Do NOT infer, add, or change file paths, HTTP methods, or component descriptions. Your job is to reshape the structure, not to add content. Output ONLY valid JSON to the file — no markdown fences, no commentary.
-
-   **IMPORTANT:** The subagent must write `.archie/blueprint_normalized.json` itself using the Write tool. Do NOT try to extract JSON from the subagent's response.
-
-4. Apply the normalized blueprint:
-```bash
-python3 .archie/normalize.py apply "$PWD"
-```
-
-This saves the canonical `.archie/blueprint.json`.
-
-## Step 7: Render and validate
-
-```bash
-python3 .archie/renderer.py "$PWD"
-python3 .archie/intent_layer.py "$PWD"
-python3 .archie/rules.py "$PWD"
-python3 .archie/install_hooks.py "$PWD"
-```
-
-Run all four commands. They read `.archie/blueprint.json` and generate everything.
-
-Then validate the output against the actual codebase:
-
-```bash
-python3 .archie/validate.py all "$PWD"
-```
-
-**Review the validation output.** If there are FAIL results:
-- **path_exists failures** (e.g. `public/output` doesn't exist) — the blueprint has a wrong path. Read `.archie/blueprint.json`, find the incorrect path, and fix it to match the actual directory from scan.json. Save the corrected blueprint and re-run the four render commands above.
-- **http_methods failures** (e.g. claims GET/POST but exports GET/PUT) — read the actual route file, fix the `key_interfaces.methods` array in the blueprint, save, and re-render.
-- **component_verb warnings** — update the component `responsibility` field in the blueprint to match what the code actually does.
-
-After fixes, re-run `python3 .archie/validate.py all "$PWD"` to confirm 0 failures.
-
-**IMPORTANT:** Do ONE fix pass at most. If failures remain after one fix pass, proceed to Step 8 — do not loop. Do NOT write inline Python scripts to patch the blueprint. Template patterns like `{resource}` or `{timestamp}` in descriptive fields are expected and not real failures.
-
-## Step 8: AI-enrich per-folder CLAUDE.md
+## Step 6: AI-enrich per-folder CLAUDE.md
 
 The per-folder CLAUDE.md files generated in Step 6 are deterministic (file lists, component info). This step enriches them with AI-generated patterns, anti-patterns, debugging tips, and code examples using bottom-up DAG scheduling.
 
@@ -585,7 +533,7 @@ mkdir -p .archie/enrichments
 python3 .archie/enrich.py merge "$PWD"
 ```
 
-## Step 9: Clean up and summarize
+## Step 7: Clean up and summarize
 
 ```bash
 rm -f /tmp/archie_sub*.json /tmp/archie_sub_x.json /tmp/archie_normalize_prompt.txt /tmp/archie_enrich_prompt.txt

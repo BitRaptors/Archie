@@ -39,7 +39,7 @@ for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-enrich.md", "a
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "enrich.py", "enrich_test.py", "validate.py", "viewer.py"]) {
+for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "finalize.py", "enrich.py", "enrich_test.py", "validate.py", "viewer.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
