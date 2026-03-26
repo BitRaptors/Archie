@@ -38,6 +38,216 @@ SKIP_EXTENSIONS = {
 
 ALLOWED_DOTFILES = {".env.example", ".gitignore", ".dockerignore", ".editorconfig"}
 
+# ── Sub-project Detection ─────────────────────────────────────────────────
+
+# Build file → project type mapping
+SUBPROJECT_SIGNALS = {
+    "build.gradle": "android/jvm",
+    "build.gradle.kts": "android/jvm",
+    "AndroidManifest.xml": "android",
+    "package.json": "node",
+    "pyproject.toml": "python",
+    "setup.py": "python",
+    "Cargo.toml": "rust",
+    "go.mod": "go",
+    "pubspec.yaml": "flutter",
+    "Podfile": "ios",
+    "pom.xml": "java",
+}
+
+# Extension-based signals (matched via glob)
+SUBPROJECT_EXT_SIGNALS = {
+    ".xcodeproj": "ios",
+    ".xcworkspace": "ios",
+    ".csproj": "dotnet",
+    ".sln": "dotnet",
+}
+
+# Dirs to skip during sub-project detection (superset of SKIP_DIRS)
+SUBPROJECT_SKIP_DIRS = SKIP_DIRS | {
+    "node_modules", "Pods", "build", ".gradle", "DerivedData",
+    "storage", "fixtures", "testdata", "test_data", "__fixtures__",
+}
+
+
+def _detect_workspace_modules(root: Path) -> set[str]:
+    """Detect directories that are declared modules of a root workspace/project.
+
+    These are sub-modules of a single project, NOT independent sub-projects.
+    Examples: Gradle include(":app"), npm workspaces, Cargo workspace members.
+    """
+    modules: set[str] = set()
+
+    # Gradle: settings.gradle.kts / settings.gradle — include(":app", ":lib")
+    for name in ("settings.gradle.kts", "settings.gradle"):
+        path = root / name
+        if path.is_file():
+            try:
+                content = path.read_text(errors="ignore")
+            except OSError:
+                continue
+            # Match include(":app"), include(":app", ":lib"), include ":app"
+            for m in re.findall(r'include\s*\(?\s*["\']:([\w.-]+)["\']', content):
+                modules.add(m)
+            # Also match buildSrc which is an implicit Gradle module
+            if (root / "buildSrc").is_dir():
+                modules.add("buildSrc")
+
+    # npm/yarn/pnpm workspaces in package.json
+    pkg_path = root / "package.json"
+    if pkg_path.is_file():
+        try:
+            pkg = json.loads(pkg_path.read_text(errors="ignore"))
+            workspaces = pkg.get("workspaces", [])
+            # Can be list or {"packages": [...]}
+            if isinstance(workspaces, dict):
+                workspaces = workspaces.get("packages", [])
+            if isinstance(workspaces, list):
+                for ws in workspaces:
+                    # Resolve simple workspace entries (no glob)
+                    if "*" not in ws and "?" not in ws:
+                        modules.add(ws.rstrip("/"))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Cargo workspace in Cargo.toml — members = ["crate-a", "crate-b"]
+    cargo_path = root / "Cargo.toml"
+    if cargo_path.is_file():
+        try:
+            content = cargo_path.read_text(errors="ignore")
+            members_match = re.search(r'members\s*=\s*\[(.*?)\]', content, re.DOTALL)
+            if members_match:
+                for m in re.findall(r'"([^"]+)"', members_match.group(1)):
+                    modules.add(m.rstrip("/"))
+        except OSError:
+            pass
+
+    return modules
+
+
+def _primary_type(types: set[str]) -> str:
+    """Determine the primary project type from a set of signal types."""
+    if "android" in types:
+        return "android"
+    if "android/jvm" in types:
+        return "android"
+    if "ios" in types:
+        return "ios"
+    for t in sorted(types):
+        if "/" not in t:
+            return t
+    return sorted(types)[0]
+
+
+def detect_subprojects(root: Path) -> list[dict]:
+    """Detect independent sub-projects in a monorepo by build file signals.
+
+    A sub-project is an independent, self-contained project with its own build
+    system — NOT a module/package within a single project's workspace.
+    """
+    root = root.resolve()
+
+    # First, detect workspace modules declared by the root project.
+    # These are sub-modules of one project, not separate projects.
+    workspace_modules = _detect_workspace_modules(root)
+
+    # Collect all (directory, signal_file, type) tuples
+    candidates: dict[str, dict] = {}  # dir_rel -> {types, signals}
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SUBPROJECT_SKIP_DIRS]
+        rel_dir = str(Path(dirpath).relative_to(root))
+        if rel_dir == ".":
+            rel_dir = ""
+
+        for fname in filenames:
+            sig_type = None
+            if fname in SUBPROJECT_SIGNALS:
+                sig_type = SUBPROJECT_SIGNALS[fname]
+            else:
+                ext = os.path.splitext(fname)[1].lower()
+                if ext in SUBPROJECT_EXT_SIGNALS:
+                    sig_type = SUBPROJECT_EXT_SIGNALS[ext]
+
+            if sig_type is None:
+                continue
+
+            if rel_dir not in candidates:
+                candidates[rel_dir] = {"types": set(), "signals": []}
+            candidates[rel_dir]["types"].add(sig_type)
+            candidates[rel_dir]["signals"].append(fname)
+
+        # Also check directory names for .xcodeproj/.xcworkspace
+        for dname in list(dirnames):
+            ext = os.path.splitext(dname)[1].lower()
+            if ext in SUBPROJECT_EXT_SIGNALS:
+                sig_type = SUBPROJECT_EXT_SIGNALS[ext]
+                if rel_dir not in candidates:
+                    candidates[rel_dir] = {"types": set(), "signals": []}
+                candidates[rel_dir]["types"].add(sig_type)
+                candidates[rel_dir]["signals"].append(dname)
+
+    if not candidates:
+        return []
+
+    # Filter out workspace modules — these are parts of the root project
+    for mod in workspace_modules:
+        candidates.pop(mod, None)
+
+    # Also filter any candidate whose top-level dir is a workspace module
+    # (e.g., "app/src/main" should be filtered if "app" is a module)
+    to_remove = []
+    for dir_rel in candidates:
+        if dir_rel:
+            top = dir_rel.split("/")[0]
+            if top in workspace_modules:
+                to_remove.append(dir_rel)
+    for d in to_remove:
+        del candidates[d]
+
+    if not candidates:
+        return []
+
+    # Resolve nesting: keep outermost project roots, skip sub-modules
+    sorted_dirs = sorted(candidates.keys(), key=lambda d: d.count("/") if d else -1)
+
+    # Check if deeper sub-projects exist (to detect root wrappers)
+    has_deeper = any(d for d in sorted_dirs if d)
+
+    accepted: list[dict] = []
+    accepted_dirs: list[str] = []
+
+    for dir_rel in sorted_dirs:
+        info = candidates[dir_rel]
+        is_root = dir_rel == ""
+
+        # Skip if an already-accepted non-wrapper ancestor covers this dir
+        skip = False
+        for acc_dir in accepted_dirs:
+            if acc_dir == "":
+                continue
+            if dir_rel.startswith(acc_dir + "/"):
+                skip = True
+                break
+        if skip:
+            continue
+
+        is_root_wrapper = is_root and has_deeper
+        name = Path(dir_rel).name if dir_rel else Path(root).name
+        primary = _primary_type(info["types"])
+
+        accepted.append({
+            "path": dir_rel if dir_rel else ".",
+            "name": name,
+            "type": primary,
+            "signals": sorted(set(info["signals"])),
+            "is_root_wrapper": is_root_wrapper,
+        })
+        accepted_dirs.append(dir_rel)
+
+    return accepted
+
+
 # ── File Scanner ───────────────────────────────────────────────────────────
 
 def scan_files(root: Path) -> list[dict]:
@@ -376,15 +586,31 @@ def run_scan(repo_path: str) -> dict:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 scanner.py /path/to/repo", file=sys.stderr)
+        print("Usage: python3 scanner.py /path/to/repo [--detect-subprojects]", file=sys.stderr)
         sys.exit(1)
 
-    repo = sys.argv[1]
+    args = sys.argv[1:]
+    detect_only = "--detect-subprojects" in args
+    repo = [a for a in args if not a.startswith("--")][0]
+
     if not Path(repo).is_dir():
         print(f"Error: {repo} is not a directory", file=sys.stderr)
         sys.exit(1)
 
+    if detect_only:
+        # Fast mode: only detect sub-projects, no full scan
+        subprojects = detect_subprojects(Path(repo))
+        non_wrapper = [s for s in subprojects if not s["is_root_wrapper"]]
+        print(f"Detected {len(non_wrapper)} sub-project(s)", file=sys.stderr)
+        for sp in non_wrapper:
+            print(f"  {sp['name']} ({sp['type']}) — {sp['path']}", file=sys.stderr)
+        json.dump({"subprojects": subprojects}, sys.stdout, indent=2)
+        sys.exit(0)
+
     scan = run_scan(repo)
+
+    # Add sub-project info to full scan
+    scan["subprojects"] = detect_subprojects(Path(repo))
 
     # Save to .archie/scan.json
     archie_dir = Path(repo) / ".archie"

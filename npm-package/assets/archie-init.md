@@ -6,21 +6,65 @@ Analyze this repository's architecture. Zero dependencies — works with any lan
 
 **IMPORTANT: Do NOT write inline Python scripts or bash one-liners. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown. Do NOT generate code to parse JSON, extract data, or create files. The scripts handle everything. If a step produces an error, follow the instructions for that step exactly — do not improvise workarounds.**
 
-## Step 1: Run the scanner
+## Step 1: Detect sub-projects
 
 ```bash
-python3 .archie/scanner.py "$PWD"
+python3 .archie/scanner.py "$PWD" --detect-subprojects
 ```
 
-## Step 2: Read scan results
+Read the JSON output. Count non-wrapper sub-projects (where `is_root_wrapper` is false).
 
-Read `.archie/scan.json`. Note total files, detected frameworks, and top-level directories. Check if frontend code is detected (look for React, Vue, Angular, Svelte, Next.js, Nuxt, Flutter, SwiftUI, Jetpack Compose, React Native, etc. in frameworks or file extensions like .tsx, .jsx, .vue, .svelte, .dart, .swift, .kt).
+- **If 0-1 non-wrapper sub-projects:** This is a single-project repo. Set `PROJECT_ROOT="$PWD"` and go to Step 3 (single-project pipeline).
+- **If 2+ non-wrapper sub-projects:** This is a monorepo. Go to Step 2.
 
-## Step 3: Spawn parallel analytical agents
+## Step 2: Project selection (monorepo only)
 
-Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each focused on a different analytical concern. ALL agents read ALL source files — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
+Present the detected sub-projects to the user as a numbered list:
 
-**If frontend code was detected in Step 2, spawn all 4 agents (A–D). Otherwise spawn only agents A–C.**
+> Found N sub-projects:
+> 1. name (type) — path
+> 2. name (type) — path
+> ...
+>
+> Options:
+> - **all** — Analyze all sub-projects
+> - **1,3** — Analyze specific projects (comma-separated numbers)
+
+Wait for the user's response. Build a list of selected sub-project paths.
+
+Then ask:
+
+> Run selected projects in **parallel** (faster, more agents) or **sequential** (one at a time)?
+
+**Parallel mode:** For each selected sub-project, spawn a separate background Agent (Agent tool, `run_in_background: true`) that runs the full pipeline (Steps 3-8) with `PROJECT_ROOT="$PWD/<subproject_path>"`. Use the project name in the agent name (e.g., "Archie: gasztroterkepek-android"). Namespace temp files with the project name: `/tmp/archie_sub1_<name>.json`. Wait for all agents to complete, then go to Step 9.
+
+**Sequential mode:** For each selected sub-project, set `PROJECT_ROOT="$PWD/<subproject_path>"` and run Steps 3-8 in order. Repeat for the next project. Then go to Step 9.
+
+**IMPORTANT:** The `.archie/*.py` scripts are installed at the REPO ROOT. Always reference them as `.archie/scanner.py` etc. from the repo root. But pass `PROJECT_ROOT` (the sub-project path) as the first argument to each script. This is how the scripts know which directory to analyze.
+
+---
+
+## Steps 3-8: Per-Project Pipeline
+
+Run these steps once per project. In single-project mode, `PROJECT_ROOT` is the repo root. In monorepo mode, `PROJECT_ROOT` is the sub-project directory.
+
+Use `PROJECT_NAME` as the basename of `PROJECT_ROOT` for namespacing temp files (e.g., "gasztroterkepek-android").
+
+## Step 3: Run the scanner
+
+```bash
+python3 .archie/scanner.py "$PROJECT_ROOT"
+```
+
+## Step 4: Read scan results
+
+Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, and top-level directories. Check if frontend code is detected (look for React, Vue, Angular, Svelte, Next.js, Nuxt, Flutter, SwiftUI, Jetpack Compose, React Native, etc. in frameworks or file extensions like .tsx, .jsx, .vue, .svelte, .dart, .swift, .kt).
+
+## Step 5: Spawn parallel analytical agents
+
+Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each focused on a different analytical concern. ALL agents read ALL source files under `$PROJECT_ROOT` — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
+
+**If frontend code was detected in Step 4, spawn all 4 agents (A–D). Otherwise spawn only agents A–C.**
 
 ---
 
@@ -376,32 +420,32 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 
 **Spawn ALL agents in parallel.**
 
-## Step 4: Save Wave 1 output and merge
+## Step 6: Save Wave 1 output and merge
 
 After each subagent completes, use the Write tool to save its JSON output to a temporary file. Save the COMPLETE output text — the merge script handles JSON extraction.
 
 ```
-Write /tmp/archie_sub1.json with Agent A's output
-Write /tmp/archie_sub2.json with Agent B's output
-Write /tmp/archie_sub3.json with Agent C's output
-Write /tmp/archie_sub4.json with Agent D's output (if spawned)
+Write /tmp/archie_sub1_$PROJECT_NAME.json with Agent A's output
+Write /tmp/archie_sub2_$PROJECT_NAME.json with Agent B's output
+Write /tmp/archie_sub3_$PROJECT_NAME.json with Agent C's output
+Write /tmp/archie_sub4_$PROJECT_NAME.json with Agent D's output (if spawned)
 ```
 
 Then merge:
 
 ```bash
-python3 .archie/merge.py "$PWD" /tmp/archie_sub1.json /tmp/archie_sub2.json /tmp/archie_sub3.json /tmp/archie_sub4.json
+python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tmp/archie_sub2_$PROJECT_NAME.json /tmp/archie_sub3_$PROJECT_NAME.json /tmp/archie_sub4_$PROJECT_NAME.json
 ```
 
-This saves `.archie/blueprint_raw.json` (raw merged data).
+This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data).
 
-## Step 5: Wave 2 — Agent X ("Architectural Reasoning")
+## Step 7: Wave 2 — Agent X ("Architectural Reasoning")
 
 Wave 1 gathered facts: components, patterns, technology, deployment, frontend. Now spawn a single Opus subagent (`model: "opus"`) that reads ALL Wave 1 output and produces deep architectural reasoning.
 
 Tell Agent X:
 
-> Read `.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read key source files: entry points, main configs, core abstractions.
+> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read key source files: entry points, main configs, core abstractions.
 >
 > With the COMPLETE picture of what was built and how, produce deep architectural reasoning:
 >
@@ -473,28 +517,28 @@ Tell Agent X:
 > }
 > ```
 
-Agent X also gets the GROUNDING RULES from Step 3.
+Agent X also gets the GROUNDING RULES from Step 5.
 
 After Agent X completes, save its output and finalize:
 
 ```
-Write /tmp/archie_sub_x.json with Agent X's output
+Write /tmp/archie_sub_x_$PROJECT_NAME.json with Agent X's output
 ```
 
 ```bash
-python3 .archie/finalize.py "$PWD" /tmp/archie_sub_x.json
+python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
 ```
 
 This single command: merges Agent X into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, generates per-folder CLAUDE.md, extracts enforcement rules, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
 
-## Step 6: AI-enrich per-folder CLAUDE.md
+## Step 8: AI-enrich per-folder CLAUDE.md
 
-The per-folder CLAUDE.md files generated in Step 6 are deterministic (file lists, component info). This step enriches them with AI-generated patterns, anti-patterns, debugging tips, and code examples using bottom-up DAG scheduling.
+The per-folder CLAUDE.md files generated in Step 7 are deterministic (file lists, component info). This step enriches them with AI-generated patterns, anti-patterns, debugging tips, and code examples using bottom-up DAG scheduling.
 
 1. Prepare the folder DAG:
 ```bash
-python3 .archie/enrich.py prepare "$PWD"
-mkdir -p .archie/enrichments
+python3 .archie/enrich.py prepare "$PROJECT_ROOT"
+mkdir -p "$PROJECT_ROOT/.archie/enrichments"
 ```
 
 2. Process in readiness waves. Maintain a list of done folder paths (starts empty).
@@ -503,7 +547,7 @@ mkdir -p .archie/enrichments
 
    a. Get ready folders (folders whose children are all done, or leaves with no children):
    ```bash
-   python3 .archie/enrich.py next-ready "$PWD" <done1> <done2> ...
+   python3 .archie/enrich.py next-ready "$PROJECT_ROOT" <done1> <done2> ...
    ```
    First call with no done folders returns all leaf folders.
 
@@ -511,43 +555,45 @@ mkdir -p .archie/enrichments
 
    c. Get batches for the ready folders:
    ```bash
-   python3 .archie/enrich.py suggest-batches "$PWD" <ready1> <ready2> ...
+   python3 .archie/enrich.py suggest-batches "$PROJECT_ROOT" <ready1> <ready2> ...
    ```
 
    d. For each batch, generate the prompt and spawn a subagent:
    ```bash
-   python3 .archie/enrich.py prompt "$PWD" --folders <comma-separated> --child-summaries .archie/enrichments/ > /tmp/archie_enrich_prompt.txt
+   python3 .archie/enrich.py prompt "$PROJECT_ROOT" --folders <comma-separated> --child-summaries "$PROJECT_ROOT/.archie/enrichments/" > /tmp/archie_enrich_prompt_$PROJECT_NAME.txt
    ```
    Read the prompt file. Spawn a Sonnet subagent (`model: "sonnet"`) with the prompt content. The subagent must return ONLY valid JSON with folder paths as keys.
    **Spawn ALL batches in a wave in parallel.**
 
    e. Save each subagent's JSON output:
    ```
-   Write .archie/enrichments/<batch_id>.json with the subagent's JSON output
+   Write $PROJECT_ROOT/.archie/enrichments/<batch_id>.json with the subagent's JSON output
    ```
 
    f. Add all folders from completed batches to the done list. Go to (a).
 
 3. Merge enrichments into CLAUDE.md files:
 ```bash
-python3 .archie/enrich.py merge "$PWD"
+python3 .archie/enrich.py merge "$PROJECT_ROOT"
 ```
 
-## Step 7: Clean up and summarize
+---
+
+## Step 9: Clean up and summarize
 
 ```bash
-rm -f /tmp/archie_sub*.json /tmp/archie_sub_x.json /tmp/archie_normalize_prompt.txt /tmp/archie_enrich_prompt.txt
+rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_enrich_prompt_$PROJECT_NAME.txt
 ```
 
-Print what was generated:
-- `.archie/blueprint.json` — architecture blueprint (AI-normalized)
-- `.archie/blueprint_raw.json` — raw subagent output (preserved for debugging)
-- `CLAUDE.md` — root architecture context
-- `AGENTS.md` — comprehensive agent guidance
-- `.claude/rules/` — 7 topic-split rule files
-- `.cursor/rules/` — Cursor rule files
+For each project analyzed, print what was generated:
+- `$PROJECT_ROOT/.archie/blueprint.json` — architecture blueprint (AI-normalized)
+- `$PROJECT_ROOT/.archie/blueprint_raw.json` — raw subagent output (preserved for debugging)
+- `$PROJECT_ROOT/CLAUDE.md` — root architecture context
+- `$PROJECT_ROOT/AGENTS.md` — comprehensive agent guidance
+- `$PROJECT_ROOT/.claude/rules/` — 7 topic-split rule files
+- `$PROJECT_ROOT/.cursor/rules/` — Cursor rule files
 - Per-folder `CLAUDE.md` — directory-level context (AI-enriched with patterns, anti-patterns, debugging tips, code examples)
-- `.claude/hooks/` — real-time enforcement hooks
-- `.archie/rules.json` — enforcement rules
+- `$PROJECT_ROOT/.claude/hooks/` — real-time enforcement hooks
+- `$PROJECT_ROOT/.archie/rules.json` — enforcement rules
 
 Tell the user: "Archie is now active. Architecture rules will be enforced on every code change."

@@ -1,37 +1,58 @@
 # Archie Install
 
-Install Archie into the current project. After this, `/archie-init` will be available.
+Install Archie into a target project. After this, `/archie-init` will be available.
+
+The ARGUMENTS field contains the target project path. If empty, ask the user for the target path.
 
 ## Steps
 
-### 1. Create the commands directory
+### 1. Locate the Archie source repo
+
+Find the Archie repo by searching common locations. Try these in order:
+1. Check if this command is running FROM the Archie repo (look for `archie/standalone/scanner.py` relative to the repo root)
+2. Look for `~/DEV/BitRaptors/Archie/archie/standalone/scanner.py`
+3. Search for any directory containing `archie/standalone/scanner.py` under `~/DEV`
+
+Save the found path as `ARCHIE_SRC`. If not found, tell the user: "Could not find the Archie source repo. Please provide the path."
+
+### 2. Create directories in the target project
 
 ```bash
-mkdir -p .claude/commands
+mkdir -p <target>/.claude/commands
+mkdir -p <target>/.archie
 ```
 
-### 2. Download the archie-init command
+### 3. Copy the archie-init command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/.claude/commands/archie-init.md -o .claude/commands/archie-init.md
+cp $ARCHIE_SRC/.claude/commands/archie-init.md <target>/.claude/commands/archie-init.md
 ```
 
-### 3. Download the standalone scanner
+### 4. Copy all standalone scripts
 
 ```bash
-mkdir -p .archie
-curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/scanner.py -o .archie/scanner.py
+for script in scanner.py merge.py finalize.py renderer.py normalize.py rules.py validate.py enrich.py intent_layer.py install_hooks.py viewer.py refresh.py; do
+  cp $ARCHIE_SRC/archie/standalone/$script <target>/.archie/$script
+done
 ```
 
-### 4. Verify
-
-Tell the user: "Archie installed. Run `/archie-init` to analyze your architecture."
-
-### 5. Optional: Add to .gitignore
+### 5. Verify all scripts are present
 
 ```bash
-echo ".archie/scan.json" >> .gitignore
-echo ".archie/stats.jsonl" >> .gitignore
+ls <target>/.archie/*.py | wc -l
+```
+
+Should show 12 files. If not, report which are missing.
+
+### 6. Add to .gitignore
+
+```bash
+echo ".archie/scan.json" >> <target>/.gitignore
+echo ".archie/stats.jsonl" >> <target>/.gitignore
 ```
 
 The blueprint.json, rules.json, CLAUDE.md, and AGENTS.md should be committed — they're useful for the whole team.
+
+### 7. Done
+
+Tell the user: "Archie installed. Run `/archie-init` in that project to analyze your architecture."

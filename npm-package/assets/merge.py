@@ -60,8 +60,10 @@ def extract_json_from_text(text: str) -> dict | None:
         except json.JSONDecodeError:
             pass
 
-    start = text.find('{')
-    if start >= 0:
+    # Try all possible JSON object boundaries — find the largest valid one
+    for start in range(len(text)):
+        if text[start] != '{':
+            continue
         depth = 0
         for i in range(start, len(text)):
             if text[i] == '{':
@@ -74,6 +76,9 @@ def extract_json_from_text(text: str) -> dict | None:
                     except json.JSONDecodeError:
                         pass
                     break
+        # Only try first few start positions to avoid O(n^2) on large files
+        if start > 500:
+            break
 
     return None
 

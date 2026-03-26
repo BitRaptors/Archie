@@ -8,9 +8,20 @@ Replaces 6+ manual commands with 1.
 
 Zero dependencies beyond Python 3.11+ stdlib.
 """
+import importlib.util
 import json
 import sys
 from pathlib import Path
+
+# When running standalone (.archie/), import sibling scripts directly by path
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+def _import_sibling(name: str):
+    """Import a sibling .py file by name (e.g. 'merge' → merge.py in same dir)."""
+    spec = importlib.util.spec_from_file_location(name, _SCRIPT_DIR / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def finalize(root: Path, agent_x_file: str | None = None):
@@ -29,7 +40,9 @@ def finalize(root: Path, agent_x_file: str | None = None):
 
     # ── 1. Merge Agent X output (if provided) ─────────────────────────────
     if agent_x_file:
-        from archie.standalone.merge import extract_json_from_text, deep_merge
+        _merge = _import_sibling("merge")
+        extract_json_from_text = _merge.extract_json_from_text
+        deep_merge = _merge.deep_merge
 
         agent_x_path = Path(agent_x_file)
         if agent_x_path.exists():
@@ -73,7 +86,7 @@ def finalize(root: Path, agent_x_file: str | None = None):
     print(f"  {comp_count} components, {pattern_count} patterns, {decision_count} decisions", file=sys.stderr)
 
     # ── 3. Render ──────────────────────────────────────────────────────────
-    from archie.standalone.renderer import generate_all
+    generate_all = _import_sibling("renderer").generate_all
 
     files = generate_all(bp)
     for rel_path, content in files.items():
@@ -83,7 +96,7 @@ def finalize(root: Path, agent_x_file: str | None = None):
     print(f"  Rendered {len(files)} files", file=sys.stderr)
 
     # ── 4. Intent layer ────────────────────────────────────────────────────
-    from archie.standalone.intent_layer import generate_all as generate_intent
+    generate_intent = _import_sibling("intent_layer").generate_all
 
     scan_path = archie_dir / "scan.json"
     if scan_path.exists():
@@ -95,7 +108,7 @@ def finalize(root: Path, agent_x_file: str | None = None):
         print(f"  Intent layer: {len(il_files)} per-folder CLAUDE.md files", file=sys.stderr)
 
     # ── 5. Rules ───────────────────────────────────────────────────────────
-    from archie.standalone.rules import extract_rules
+    extract_rules = _import_sibling("rules").extract_rules
 
     # Preserve promoted rules
     old_severities: dict[str, str] = {}
@@ -121,13 +134,14 @@ def finalize(root: Path, agent_x_file: str | None = None):
     print(f"  Rules: {len(rules)} extracted ({promoted} promoted to error)", file=sys.stderr)
 
     # ── 6. Hooks ───────────────────────────────────────────────────────────
-    from archie.standalone.install_hooks import install
+    install = _import_sibling("install_hooks").install
 
     install(root)
     print("  Hooks installed", file=sys.stderr)
 
     # ── 7. Validate (informational) ────────────────────────────────────────
-    from archie.standalone.validate import check_paths, check_methods, check_pitfalls
+    _validate = _import_sibling("validate")
+    check_paths, check_methods, check_pitfalls = _validate.check_paths, _validate.check_methods, _validate.check_pitfalls
 
     all_errors = []
     for name, fn in [("paths", check_paths), ("methods", check_methods), ("pitfalls", check_pitfalls)]:
