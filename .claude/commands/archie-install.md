@@ -22,10 +22,10 @@ mkdir -p <target>/.claude/commands
 mkdir -p <target>/.archie
 ```
 
-### 3. Copy all archie commands
+### 3. Copy all command files
 
 ```bash
-for cmd in archie-init.md archie-intent-layer.md archie-refresh.md archie-viewer.md; do
+for cmd in archie-init.md archie-intent-layer.md archie-viewer.md archie-refresh.md; do
   cp $ARCHIE_SRC/.claude/commands/$cmd <target>/.claude/commands/$cmd
 done
 ```
