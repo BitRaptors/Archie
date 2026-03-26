@@ -31,7 +31,7 @@ cp $ARCHIE_SRC/.claude/commands/archie-init.md <target>/.claude/commands/archie-
 ### 4. Copy all standalone scripts
 
 ```bash
-for script in scanner.py merge.py finalize.py renderer.py normalize.py rules.py validate.py enrich.py intent_layer.py install_hooks.py viewer.py refresh.py; do
+for script in scanner.py merge.py finalize.py renderer.py normalize.py rules.py validate.py intent_layer.py install_hooks.py viewer.py refresh.py; do
   cp $ARCHIE_SRC/archie/standalone/$script <target>/.archie/$script
 done
 ```
@@ -42,7 +42,7 @@ done
 ls <target>/.archie/*.py | wc -l
 ```
 
-Should show 12 files. If not, report which are missing.
+Should show 11 files. If not, report which are missing.
 
 ### 6. Add to .gitignore
 

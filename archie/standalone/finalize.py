@@ -95,17 +95,9 @@ def finalize(root: Path, agent_x_file: str | None = None):
         full_path.write_text(content)
     print(f"  Rendered {len(files)} files", file=sys.stderr)
 
-    # ── 4. Intent layer ────────────────────────────────────────────────────
-    generate_intent = _import_sibling("intent_layer").generate_all
-
-    scan_path = archie_dir / "scan.json"
-    if scan_path.exists():
-        il_files = generate_intent(root)
-        for rel_path, content in il_files.items():
-            full_path = root / rel_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content)
-        print(f"  Intent layer: {len(il_files)} per-folder CLAUDE.md files", file=sys.stderr)
+    # ── 4. Intent layer — skipped ──────────────────────────────────────────
+    # Per-folder CLAUDE.md files are created by the intent layer (intent_layer.py merge).
+    # No deterministic pre-enrichment files are generated.
 
     # ── 5. Rules ───────────────────────────────────────────────────────────
     extract_rules = _import_sibling("rules").extract_rules

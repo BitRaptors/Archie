@@ -9,7 +9,7 @@ Archie — AI-powered architecture analysis and enforcement for coding agents. A
 ## Repository Layout
 
 - `archie/` — Python package (`archie-cli`): CLI commands, analysis engine, MCP server, standalone scripts
-- `archie/standalone/` — Zero-dependency Python scripts (scanner, renderer, rules, validator, enrichment)
+- `archie/standalone/` — Zero-dependency Python scripts (scanner, renderer, rules, validator, intent layer)
 - `npm-package/` — NPM distribution (`npx archie`): copies scripts + Claude Code commands to target projects
 - `tests/` — Test suite (pytest)
 - `docs/` — Architecture documentation
@@ -32,15 +32,12 @@ python3 archie/standalone/rules.py /path/to/project
 # Validator — check generated output against actual codebase
 python3 archie/standalone/validate.py all /path/to/project
 
-# Intent layer — generate per-folder CLAUDE.md structure
-python3 archie/standalone/intent_layer.py /path/to/project
-
 # Hooks — install enforcement hooks
 python3 archie/standalone/install_hooks.py /path/to/project
 
-# Enrichment — AI-enrich per-folder CLAUDE.md via DAG scheduling
-python3 archie/standalone/enrich.py prepare /path/to/project
-python3 archie/standalone/enrich.py next-ready /path/to/project
+# Intent layer — AI-generated per-folder CLAUDE.md via DAG scheduling
+python3 archie/standalone/intent_layer.py prepare /path/to/project
+python3 archie/standalone/intent_layer.py next-ready /path/to/project
 ```
 
 ### NPM Package
@@ -77,7 +74,7 @@ python -m pytest tests/ -v
 4. **Normalize** — AI reshapes raw output to canonical schema
 5. **Render** — Deterministic JSON→Markdown (CLAUDE.md, AGENTS.md, rule files)
 6. **Validate** — Cross-reference output against actual codebase
-7. **Enrich** — AI-generated per-folder CLAUDE.md via bottom-up DAG
+7. **Intent Layer** — AI-generated per-folder CLAUDE.md via bottom-up DAG
 
 ## Key Data Model
 

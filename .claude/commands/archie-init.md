@@ -537,7 +537,7 @@ The per-folder CLAUDE.md files generated in Step 7 are deterministic (file lists
 
 1. Prepare the folder DAG:
 ```bash
-python3 .archie/enrich.py prepare "$PROJECT_ROOT"
+python3 .archie/intent_layer.py prepare "$PROJECT_ROOT"
 mkdir -p "$PROJECT_ROOT/.archie/enrichments"
 ```
 
@@ -547,7 +547,7 @@ mkdir -p "$PROJECT_ROOT/.archie/enrichments"
 
    a. Get ready folders (folders whose children are all done, or leaves with no children):
    ```bash
-   python3 .archie/enrich.py next-ready "$PROJECT_ROOT" <done1> <done2> ...
+   python3 .archie/intent_layer.py next-ready "$PROJECT_ROOT" <done1> <done2> ...
    ```
    First call with no done folders returns all leaf folders.
 
@@ -555,12 +555,12 @@ mkdir -p "$PROJECT_ROOT/.archie/enrichments"
 
    c. Get batches for the ready folders:
    ```bash
-   python3 .archie/enrich.py suggest-batches "$PROJECT_ROOT" <ready1> <ready2> ...
+   python3 .archie/intent_layer.py suggest-batches "$PROJECT_ROOT" <ready1> <ready2> ...
    ```
 
    d. For each batch, generate the prompt and spawn a subagent:
    ```bash
-   python3 .archie/enrich.py prompt "$PROJECT_ROOT" --folders <comma-separated> --child-summaries "$PROJECT_ROOT/.archie/enrichments/" > /tmp/archie_enrich_prompt_$PROJECT_NAME.txt
+   python3 .archie/intent_layer.py prompt "$PROJECT_ROOT" --folders <comma-separated> --child-summaries "$PROJECT_ROOT/.archie/enrichments/" > /tmp/archie_intent_prompt_$PROJECT_NAME.txt
    ```
    Read the prompt file. Spawn a Sonnet subagent (`model: "sonnet"`) with the prompt content. The subagent must return ONLY valid JSON with folder paths as keys.
    **Spawn ALL batches in a wave in parallel.**
@@ -574,7 +574,7 @@ mkdir -p "$PROJECT_ROOT/.archie/enrichments"
 
 3. Merge enrichments into CLAUDE.md files:
 ```bash
-python3 .archie/enrich.py merge "$PROJECT_ROOT"
+python3 .archie/intent_layer.py merge "$PROJECT_ROOT"
 ```
 
 ---
@@ -582,7 +582,7 @@ python3 .archie/enrich.py merge "$PROJECT_ROOT"
 ## Step 9: Clean up and summarize
 
 ```bash
-rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_enrich_prompt_$PROJECT_NAME.txt
+rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt
 ```
 
 For each project analyzed, print what was generated:
