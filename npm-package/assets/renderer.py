@@ -20,8 +20,18 @@ from pathlib import Path
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _clean_str_item(s: str) -> str:
-    """Clean a stringified Python dict back into readable text."""
+def _clean_str_item(item) -> str:
+    """Convert any item (str, dict, etc.) to readable text."""
+    if isinstance(item, dict):
+        # Agent returned a dict — extract meaningful fields
+        parts = []
+        for k, v in item.items():
+            if isinstance(v, list):
+                parts.append(f"{k}: {', '.join(str(x) for x in v)}")
+            elif v:
+                parts.append(f"{k}: {v}")
+        return "; ".join(parts) if parts else str(item)
+    s = str(item)
     stripped = s.strip()
     if not (stripped.startswith("{") and stripped.endswith("}")):
         return s

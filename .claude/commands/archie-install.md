@@ -22,10 +22,12 @@ mkdir -p <target>/.claude/commands
 mkdir -p <target>/.archie
 ```
 
-### 3. Copy the archie-init command
+### 3. Copy all archie commands
 
 ```bash
-cp $ARCHIE_SRC/.claude/commands/archie-init.md <target>/.claude/commands/archie-init.md
+for cmd in archie-init.md archie-intent-layer.md archie-refresh.md archie-viewer.md; do
+  cp $ARCHIE_SRC/.claude/commands/$cmd <target>/.claude/commands/$cmd
+done
 ```
 
 ### 4. Copy all standalone scripts
