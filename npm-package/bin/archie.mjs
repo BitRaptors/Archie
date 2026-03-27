@@ -29,7 +29,7 @@ mkdirSync(claudeCommands, { recursive: true });
 mkdirSync(archieDir, { recursive: true });
 
 // 2. Copy Claude Code commands
-for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-enrich.md", "archie-viewer.md"]) {
+for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-viewer.md", "archie-drift.md"]) {
   const src = join(ASSETS, cmd);
   const dest = join(claudeCommands, cmd);
   if (existsSync(src)) {
@@ -39,7 +39,7 @@ for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-enrich.md", "a
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "finalize.py", "enrich.py", "enrich_test.py", "validate.py", "viewer.py"]) {
+for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "finalize.py", "enrich_test.py", "validate.py", "viewer.py", "drift.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -66,7 +66,41 @@ try {
   }
 } catch { /* not critical */ }
 
-// 5. Check Python availability
+// 5. Set up permissions so /archie-init runs without interactive prompts
+const settingsPath = join(projectRoot, ".claude", "settings.local.json");
+try {
+  let settings = {};
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, "utf8")); } catch {}
+  }
+  const perms = settings.permissions || {};
+  const existing = new Set(perms.allow || []);
+  const archieAllow = [
+    // Archie scripts
+    "Bash(python3 .archie/*.py *)",
+    "Bash(python3 .archie/*.py)",
+    "Bash(python3 -c *)",
+    "Bash(mkdir -p */.archie/*)",
+    "Bash(rm -f /tmp/archie_*)",
+    // Temp files for agent output
+    "Write(//tmp/archie_*)",
+    "Read(//tmp/archie_*)",
+    // Reading/writing archie data & generated files
+    "Read(.archie/*)",
+    "Read(.archie/**)",
+    "Write(.archie/*)",
+    "Write(.archie/**)",
+    // Subagent spawning (Wave 1, Wave 2, rules, intent layer)
+    "Agent(*)",
+  ];
+  for (const entry of archieAllow) existing.add(entry);
+  perms.allow = [...existing].sort();
+  settings.permissions = perms;
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  console.log(`  ${GREEN}✓${RESET} .claude/settings.local.json (permissions)`);
+} catch { /* not critical */ }
+
+// 6. Check Python availability
 let hasPython = false;
 try {
   execSync("python3 --version", { stdio: "ignore" });

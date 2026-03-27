@@ -22,8 +22,10 @@ Run:
 Zero dependencies beyond Python 3.11+ stdlib.
 """
 import json
+import os
 import re
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -125,7 +127,9 @@ def cmd_prepare(root: Path):
             continue  # skip root files
         dir_files[parent].append(p)
 
-    # Filter: skip enrichment-irrelevant directories
+    # Filter: skip only enrichment-irrelevant directories (build, dist, etc.)
+    # Any folder with at least 1 source file qualifies — wherever we code, we
+    # need a CLAUDE.md.  Safety valve: depth > 8 with exactly 1 file is noise.
     qualifying = []
     for d, flist in sorted(dir_files.items()):
         if not flist:
@@ -133,11 +137,33 @@ def cmd_prepare(root: Path):
         if _should_skip_dir(d):
             continue
         depth = d.count("/") + 1
-        if depth > 4 and len(flist) < 3:
+        if depth > 8 and len(flist) == 1:
             continue
         qualifying.append(d)
 
     qualifying_set = set(qualifying)
+
+    # Structural qualification: intermediate directories that have qualifying
+    # children but no direct source files still deserve a CLAUDE.md that
+    # describes the purpose and responsibility of that layer.
+    # Use a work-queue so newly promoted ancestors are also processed.
+    promote_queue = list(qualifying)
+    while promote_queue:
+        d = promote_queue.pop()
+        p = Path(d).parent
+        while str(p) != "." and str(p) != p.root:
+            ancestor = str(p)
+            if ancestor in qualifying_set:
+                break  # already qualified
+            if _should_skip_dir(ancestor):
+                break
+            # This ancestor has qualifying descendants — promote it
+            qualifying.append(ancestor)
+            qualifying_set.add(ancestor)
+            promote_queue.append(ancestor)
+            if ancestor not in dir_files:
+                dir_files[ancestor] = []  # structural folder, no direct files
+            p = p.parent
 
     # Calculate folder content sizes from file system
     folder_sizes: dict[str, int] = {}
@@ -178,6 +204,9 @@ def cmd_prepare(root: Path):
             roots.append(d)
     roots = sorted(roots)
 
+    # Mark structural folders (no direct source files, only qualifying children)
+    structural_set = {d for d in qualifying if not dir_files.get(d)}
+
     plan = {
         "version": 2,
         "folders": {
@@ -185,6 +214,7 @@ def cmd_prepare(root: Path):
                 "children": sorted(folder_children[d]),
                 "depth": d.count("/") + 1,
                 "size_chars": folder_sizes.get(d, 0),
+                **({"structural": True} if d in structural_set else {}),
             }
             for d in qualifying
         },
@@ -203,13 +233,71 @@ def cmd_prepare(root: Path):
 
 
 # ---------------------------------------------------------------------------
+# State tracking — persistent done list
+# ---------------------------------------------------------------------------
+
+_STATE_FILE = "enrich_state.json"
+
+
+def _load_state(root: Path) -> dict:
+    """Load enrichment state (done folders, wave count)."""
+    state_path = root / ".archie" / _STATE_FILE
+    if state_path.exists():
+        try:
+            return json.loads(state_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"done": [], "wave": 0}
+
+
+def _save_state(root: Path, state: dict):
+    """Save state atomically — write to temp file then rename."""
+    state_path = root / ".archie" / _STATE_FILE
+    tmp = state_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    os.replace(tmp, state_path)
+
+
+def cmd_mark_done(root: Path, folders: list[str]):
+    """Mark folders as done in persistent state."""
+    state = _load_state(root)
+    done_set = set(state.get("done", []))
+    added = 0
+    for f in folders:
+        if f not in done_set:
+            done_set.add(f)
+            added += 1
+    state["done"] = sorted(done_set)
+    state["wave"] = state.get("wave", 0) + 1
+    _save_state(root, state)
+    print(f"Marked {added} folders done (total: {len(done_set)}, wave {state['wave']})", file=sys.stderr)
+
+
+def cmd_reset_state(root: Path):
+    """Reset enrichment state for a fresh run."""
+    state_path = root / ".archie" / _STATE_FILE
+    if state_path.exists():
+        state_path.unlink()
+    print("Enrichment state reset", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # next-ready — DAG scheduler
 # ---------------------------------------------------------------------------
 
 def cmd_next_ready(root: Path, done_folders: list[str]):
-    """Given completed folders, return folders whose children are ALL done."""
+    """Given completed folders, return folders whose children are ALL done.
+
+    If no done_folders are passed as CLI args, reads from persistent state file.
+    """
     plan = _load_json(root / ".archie" / "enrich_batches.json")
     folders = plan.get("folders", {})
+
+    # Use persistent state if no explicit done list
+    if not done_folders:
+        state = _load_state(root)
+        done_folders = state.get("done", [])
+
     done_set = set(done_folders)
 
     ready = []
@@ -380,14 +468,27 @@ def cmd_prompt(root: Path, folders: list[str], child_summaries_dir: str | None =
     prompt_parts.append("5. For code_examples: use the actual import paths and naming conventions from this codebase")
     prompt_parts.append("6. For key_imports: list only the exports that other parts of the codebase actually consume")
     prompt_parts.append("")
+    prompt_parts.append("### Structural (no-code) folders")
+    prompt_parts.append("")
+    prompt_parts.append("Some folders have no direct source files — they are organisational folders whose children contain the actual code.")
+    prompt_parts.append("For these, describe the folder's **role and responsibility in the architecture**: what domain/layer it owns, how its children relate, and what a developer should know before navigating into it.")
+    prompt_parts.append("Do NOT just list children. Synthesise: 'sdk is the public API surface for weather data — its sub-packages split by transport (HTTP, gRPC) and domain (forecast, alerts)'.")
+    prompt_parts.append("")
     prompt_parts.append("Return a JSON object with folder paths as keys:")
     prompt_parts.append('{"folder/path": {purpose, patterns, key_file_guides, ...}, ...}')
     prompt_parts.append("")
     prompt_parts.append("---")
     prompt_parts.append("")
 
+    # Detect which folders are structural
+    plan_folders = plan.get("folders", {})
+
     for folder in folders:
-        prompt_parts.append(f"## Folder: {folder}")
+        is_structural = plan_folders.get(folder, {}).get("structural", False)
+        label = f"## Folder: {folder}"
+        if is_structural:
+            label += "  *(structural — no direct source files)*"
+        prompt_parts.append(label)
         prompt_parts.append("")
 
         # Component context
@@ -447,22 +548,31 @@ def cmd_prompt(root: Path, folders: list[str], child_summaries_dir: str | None =
         if child_summaries_dir:
             _inject_child_summaries(prompt_parts, folder, child_summaries_dir, plan)
 
-        # Read ALL source files
-        folder_files = files_by_dir.get(folder, [])
-        source_files = [fp for fp in sorted(folder_files) if _is_source_file(fp)]
+        if is_structural:
+            # Structural folder: list children only, no source files to read
+            children = plan_folders.get(folder, {}).get("children", [])
+            if children:
+                prompt_parts.append(f"**Sub-folders:** {', '.join(sorted(children))}")
+            prompt_parts.append("")
+            prompt_parts.append("*This folder contains no direct source files. Describe its architectural role based on its children's summaries above.*")
+            prompt_parts.append("")
+        else:
+            # Read ALL source files
+            folder_files = files_by_dir.get(folder, [])
+            source_files = [fp for fp in sorted(folder_files) if _is_source_file(fp)]
 
-        prompt_parts.append(f"**All files:** {', '.join(Path(f).name for f in sorted(folder_files))}")
-        prompt_parts.append("")
+            prompt_parts.append(f"**All files:** {', '.join(Path(f).name for f in sorted(folder_files))}")
+            prompt_parts.append("")
 
-        for fp in source_files:
-            content = _read_file_content(root, fp)
-            if content:
-                fname = fp.rsplit("/", 1)[-1] if "/" in fp else fp
-                prompt_parts.append(f"### {fname}")
-                prompt_parts.append(f"```")
-                prompt_parts.append(content)
-                prompt_parts.append("```")
-                prompt_parts.append("")
+            for fp in source_files:
+                content = _read_file_content(root, fp)
+                if content:
+                    fname = fp.rsplit("/", 1)[-1] if "/" in fp else fp
+                    prompt_parts.append(f"### {fname}")
+                    prompt_parts.append(f"```")
+                    prompt_parts.append(content)
+                    prompt_parts.append("```")
+                    prompt_parts.append("")
 
         prompt_parts.append("---")
         prompt_parts.append("")
@@ -585,6 +695,145 @@ def _render_enrichment_section(data: dict) -> str:
     return "\n".join(lines)
 
 
+def _extract_enrichment_json(text: str) -> dict | None:
+    """Extract enrichment JSON from agent output text.
+
+    Handles:
+    - Plain JSON
+    - JSON inside code fences
+    - Claude Code NDJSON conversation envelopes
+    - Multiple JSON blocks (one per folder) that need merging
+    - Common AI escape issues (\\$, nested quotes)
+    """
+    def _fix_escapes(s: str) -> str:
+        return s.replace("\\$", "$")
+
+    def _try_parse(s: str) -> dict | None:
+        for attempt in (s, _fix_escapes(s)):
+            try:
+                obj = json.loads(attempt)
+                if isinstance(obj, dict):
+                    return obj
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return None
+
+    # 1. Try direct parse
+    result = _try_parse(text)
+    if result is not None:
+        return result
+
+    # 2. Try unwrapping NDJSON conversation envelope
+    if text.lstrip().startswith(("{\"parentUuid\"", "{\"isSidechain\"")):
+        content_parts = []
+        for line in text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if record.get("type") != "assistant":
+                continue
+            for block in record.get("message", {}).get("content", []):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    content_parts.append(block["text"])
+        if content_parts:
+            text = "\n".join(content_parts)
+            result = _try_parse(text)
+            if result is not None:
+                return result
+
+    # 3. Extract from code fences — merge multiple blocks
+    fences = list(re.finditer(r'```(?:json)?\s*\n?(.*?)\n?\s*```', text, re.DOTALL))
+    if fences:
+        merged = {}
+        for match in fences:
+            block = match.group(1).strip()
+            if block.startswith("{"):
+                parsed = _try_parse(block)
+                if parsed:
+                    merged.update(parsed)
+        if merged:
+            return merged
+
+    # 4. String-aware brace-matching — find all top-level JSON objects and merge
+    merged = {}
+    i = 0
+    limit = len(text)
+    attempts = 0
+    while i < limit and attempts < 50:
+        if text[i] != '{':
+            i += 1
+            continue
+        attempts += 1
+        # Walk forward, skip braces inside quoted strings
+        depth = 0
+        j = i
+        in_string = False
+        while j < limit:
+            ch = text[j]
+            if in_string:
+                if ch == '\\':
+                    j += 2
+                    continue
+                if ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        parsed = _try_parse(text[i:j + 1])
+                        if parsed:
+                            if "parentUuid" not in parsed and "isSidechain" not in parsed:
+                                merged.update(parsed)
+                        break
+            j += 1
+        i = j + 1 if j < limit else limit
+
+    return merged if merged else None
+
+
+def cmd_save_enrichment(root: Path, name: str, input_file: str):
+    """Extract enrichment JSON from agent output and save to enrichments dir.
+
+    Also marks the extracted folders as done in the state file.
+    """
+    enrichments_dir = root / ".archie" / "enrichments"
+    enrichments_dir.mkdir(parents=True, exist_ok=True)
+
+    text = Path(input_file).read_text() if input_file != "-" else sys.stdin.read()
+    data = _extract_enrichment_json(text)
+
+    if not data:
+        print(f"Error: could not extract JSON from {input_file}", file=sys.stderr)
+        sys.exit(1)
+
+    # Filter: only keep entries that look like folder enrichments (have 'purpose' key)
+    clean = {}
+    for key, val in data.items():
+        if isinstance(val, dict) and ("purpose" in val or "patterns" in val or "contains" in val):
+            clean[key] = val
+
+    if not clean:
+        # Fallback: keep all dict entries
+        clean = {k: v for k, v in data.items() if isinstance(v, dict)}
+
+    out_path = enrichments_dir / f"{name}.json"
+    out_path.write_text(json.dumps(clean, indent=2))
+    print(f"Saved {len(clean)} folders to {out_path}", file=sys.stderr)
+
+    # Mark these folders as done
+    cmd_mark_done(root, list(clean.keys()))
+
+    return clean
+
+
 def cmd_merge(root: Path):
     """Patch existing CLAUDE.md files with enrichment data."""
     enrichments_dir = root / ".archie" / "enrichments"
@@ -592,17 +841,20 @@ def cmd_merge(root: Path):
         print("Error: .archie/enrichments/ not found. Run enrichment first.", file=sys.stderr)
         sys.exit(1)
 
-    # Load all enrichment JSONs
+    # Load all enrichment JSONs (use robust extraction in case of raw agent output)
     all_enrichments: dict[str, dict] = {}
     for json_file in sorted(enrichments_dir.iterdir()):
         if not json_file.name.endswith(".json"):
             continue
         try:
-            data = json.loads(json_file.read_text())
-            if isinstance(data, dict):
+            text = json_file.read_text()
+            data = _extract_enrichment_json(text)
+            if data:
                 all_enrichments.update(data)
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"  Warning: could not load {json_file}: {e}", file=sys.stderr)
+            else:
+                print(f"  Warning: could not extract JSON from {json_file}", file=sys.stderr)
+        except OSError as e:
+            print(f"  Warning: could not read {json_file}: {e}", file=sys.stderr)
 
     if not all_enrichments:
         print("No enrichment data found.", file=sys.stderr)
@@ -656,6 +908,9 @@ if __name__ == "__main__":
         print("  python3 intent_layer.py suggest-batches /path/to/repo [ready1 ready2 ...]", file=sys.stderr)
         print("  python3 intent_layer.py prompt /path/to/repo --folder <path>", file=sys.stderr)
         print("  python3 intent_layer.py prompt /path/to/repo --folders <p1>,<p2>", file=sys.stderr)
+        print("  python3 intent_layer.py save-enrichment /path/to/repo <name> <input.json>", file=sys.stderr)
+        print("  python3 intent_layer.py mark-done /path/to/repo <folder1> [folder2 ...]", file=sys.stderr)
+        print("  python3 intent_layer.py reset-state /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py merge /path/to/repo", file=sys.stderr)
         sys.exit(1)
 
@@ -670,6 +925,16 @@ if __name__ == "__main__":
     elif subcmd == "suggest-batches":
         ready = sys.argv[3:] if len(sys.argv) > 3 else []
         cmd_suggest_batches(root, ready)
+    elif subcmd == "save-enrichment":
+        if len(sys.argv) < 5:
+            print("Usage: save-enrichment /path/to/repo <name> <input.json|->", file=sys.stderr)
+            sys.exit(1)
+        cmd_save_enrichment(root, sys.argv[3], sys.argv[4])
+    elif subcmd == "mark-done":
+        folders = sys.argv[3:] if len(sys.argv) > 3 else []
+        cmd_mark_done(root, folders)
+    elif subcmd == "reset-state":
+        cmd_reset_state(root)
     elif subcmd == "prompt":
         # Parse --folder, --folders, or positional batch_id
         child_dir = None

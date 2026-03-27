@@ -46,39 +46,140 @@ def deep_merge(base: dict, overlay: dict) -> dict:
     return result
 
 
-def extract_json_from_text(text: str) -> dict | None:
-    """Extract a JSON object from text that may contain markdown or other content."""
+def _fix_json_escapes(text: str) -> str:
+    """Fix common invalid JSON escapes produced by AI models."""
+    # Fix invalid \$ (not a valid JSON escape)
+    text = text.replace("\\$", "$")
+    # Fix unescaped control chars inside strings — replace with space
+    # (newlines/tabs inside JSON string values that aren't properly escaped)
+    return text
+
+
+def _try_parse_json(text: str) -> dict | None:
+    """Try parsing JSON with progressively more lenient fixups."""
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
+    # Try fixing common escape issues
+    try:
+        return json.loads(_fix_json_escapes(text))
+    except json.JSONDecodeError:
+        pass
+    return None
 
-    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
 
-    # Try all possible JSON object boundaries — find the largest valid one
-    for start in range(len(text)):
-        if text[start] != '{':
+def _unwrap_conversation_envelope(text: str) -> str | None:
+    """Extract content from Claude Code agent conversation NDJSON envelope.
+
+    Agent outputs saved by Claude Code are NDJSON where each line is a
+    conversation record like {"parentUuid":...,"message":{...},"type":"assistant"}.
+    The actual content is in message.content[].text of assistant records.
+    """
+    # Quick check: does this look like NDJSON with conversation records?
+    if not text.lstrip().startswith('{"parentUuid"') and not text.lstrip().startswith('{"isSidechain"'):
+        return None
+
+    content_parts = []
+    for line in text.strip().split("\n"):
+        line = line.strip()
+        if not line:
             continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        # Only look at assistant messages
+        if record.get("type") != "assistant":
+            continue
+        msg = record.get("message", {})
+        for block in msg.get("content", []):
+            if isinstance(block, dict) and block.get("type") == "text":
+                content_parts.append(block["text"])
+            elif isinstance(block, str):
+                content_parts.append(block)
+
+    return "\n".join(content_parts) if content_parts else None
+
+
+def _brace_match_extract(text: str) -> dict | None:
+    """Find the first valid JSON object using string-aware brace matching.
+
+    Skips braces inside quoted strings so {"msg": "hello } world"} parses correctly.
+    """
+    i = 0
+    limit = len(text)
+    attempts = 0
+    while i < limit and attempts < 20:
+        if text[i] != '{':
+            i += 1
+            continue
+        attempts += 1
+        # Walk forward tracking depth, skipping string contents
         depth = 0
-        for i in range(start, len(text)):
-            if text[i] == '{':
-                depth += 1
-            elif text[i] == '}':
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start:i + 1])
-                    except json.JSONDecodeError:
-                        pass
-                    break
-        # Only try first few start positions to avoid O(n^2) on large files
-        if start > 500:
-            break
+        j = i
+        in_string = False
+        while j < limit:
+            ch = text[j]
+            if in_string:
+                if ch == '\\':
+                    j += 2  # skip escaped char
+                    continue
+                if ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        result = _try_parse_json(text[i:j + 1])
+                        if result is not None:
+                            return result
+                        break
+            j += 1
+        i = j + 1 if j < limit else limit
+    return None
+
+
+def extract_json_from_text(text: str) -> dict | None:
+    """Extract a JSON object from text that may contain markdown, conversation
+    envelopes, or other wrapper content.  Handles:
+    - Plain JSON
+    - JSON inside ```json code fences
+    - Claude Code agent NDJSON conversation envelopes
+    - Minor escape issues from AI-generated JSON
+    """
+    # 1. Try direct parse
+    result = _try_parse_json(text)
+    if result is not None:
+        return result
+
+    # 2. Try unwrapping conversation envelope
+    unwrapped = _unwrap_conversation_envelope(text)
+    if unwrapped:
+        result = _try_parse_json(unwrapped)
+        if result is not None:
+            return result
+        # Envelope unwrapped but content isn't plain JSON — continue with
+        # the unwrapped text for code-fence / brace-matching extraction
+        text = unwrapped
+
+    # 3. Try extracting from code fences — find JSON blocks inside ```
+    fences = list(re.finditer(r'```(?:json)?\s*\n?(.*?)\n?\s*```', text, re.DOTALL))
+    for match in reversed(fences):
+        block = match.group(1).strip()
+        if block.startswith("{"):
+            result = _try_parse_json(block)
+            if result is not None:
+                return result
+
+    # 4. Brace-matching fallback — string-aware to handle braces inside quotes
+    result = _brace_match_extract(text)
+    if result is not None:
+        return result
 
     return None
 

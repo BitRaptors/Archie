@@ -422,13 +422,15 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 
 ## Step 6: Save Wave 1 output and merge
 
-After each subagent completes, use the Write tool to save its JSON output to a temporary file. Save the COMPLETE output text — the merge script handles JSON extraction.
+After each subagent completes, use the Write tool to save its COMPLETE output text to a temporary file. The merge script handles JSON extraction automatically — it can parse plain JSON, code-fenced JSON, and conversation envelopes.
+
+**IMPORTANT: Save the COMPLETE raw text from each agent. Do NOT try to extract JSON yourself — the script handles all extraction including conversation envelopes, code fences, and escape issues.**
 
 ```
-Write /tmp/archie_sub1_$PROJECT_NAME.json with Agent A's output
-Write /tmp/archie_sub2_$PROJECT_NAME.json with Agent B's output
-Write /tmp/archie_sub3_$PROJECT_NAME.json with Agent C's output
-Write /tmp/archie_sub4_$PROJECT_NAME.json with Agent D's output (if spawned)
+Write /tmp/archie_sub1_$PROJECT_NAME.json with Agent A's COMPLETE output text
+Write /tmp/archie_sub2_$PROJECT_NAME.json with Agent B's COMPLETE output text
+Write /tmp/archie_sub3_$PROJECT_NAME.json with Agent C's COMPLETE output text
+Write /tmp/archie_sub4_$PROJECT_NAME.json with Agent D's COMPLETE output text (if spawned)
 ```
 
 Then merge:
@@ -437,7 +439,7 @@ Then merge:
 python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tmp/archie_sub2_$PROJECT_NAME.json /tmp/archie_sub3_$PROJECT_NAME.json /tmp/archie_sub4_$PROJECT_NAME.json
 ```
 
-This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data).
+This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data). Verify the output shows non-zero component/section counts. If it says "0 sections, 0 components", the merge failed — check the agent output files.
 
 ## Step 7: Wave 2 — Agent X ("Architectural Reasoning")
 
@@ -529,27 +531,99 @@ Write /tmp/archie_sub_x_$PROJECT_NAME.json with Agent X's output
 python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
 ```
 
-This single command: merges Agent X into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, generates per-folder CLAUDE.md, extracts enforcement rules, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
+This single command: merges Agent X into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
 
-## Step 8: AI-enrich per-folder CLAUDE.md
+## Step 7.5: AI Rule Synthesis
 
-The per-folder CLAUDE.md files generated in Step 7 are deterministic (file lists, component info). This step enriches them with AI-generated patterns, anti-patterns, debugging tips, and code examples using bottom-up DAG scheduling.
+The blueprint contains architectural facts. This step synthesizes them into **mechanically enforceable rules** that hooks can validate on every code edit.
 
-1. Prepare the folder DAG:
+Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
+
+> Read `$PROJECT_ROOT/.archie/blueprint.json`. It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, and development rules.
+>
+> Produce 20-40 enforcement rules that a hook can mechanically validate. Each rule checks a file path + code content and gives a clear pass/fail. Return ONLY valid JSON: `{"rules": [...]}`.
+>
+> ## Rule types (use these exact `check` values):
+>
+> ### `forbidden_import` — File in directory X must not import from Y
+> ```json
+> {"check": "forbidden_import", "description": "...", "applies_to": "path/prefix/", "forbidden_patterns": ["regex1", "regex2"], "severity": "error"}
+> ```
+> `applies_to`: directory prefix. `forbidden_patterns`: regex patterns matched against file content.
+>
+> ### `required_pattern` — File matching a name pattern must contain certain code
+> ```json
+> {"check": "required_pattern", "description": "...", "file_pattern": "glob pattern", "required_in_content": ["string1", "string2"], "severity": "warn"}
+> ```
+> `file_pattern`: glob matched against filename (e.g., `*ViewModel.kt`). `required_in_content`: at least ONE must appear in the file content.
+>
+> ### `forbidden_content` — Code must never contain certain patterns
+> ```json
+> {"check": "forbidden_content", "description": "...", "forbidden_patterns": ["regex1", "regex2"], "applies_to": "", "severity": "error"}
+> ```
+> `applies_to`: optional directory prefix (empty = all files). `forbidden_patterns`: regex patterns.
+>
+> ### `architectural_constraint` — Deep invariants scoped to specific file types
+> ```json
+> {"check": "architectural_constraint", "description": "...", "file_pattern": "glob", "forbidden_patterns": ["regex1"], "rationale": "why this matters", "severity": "error"}
+> ```
+> `file_pattern`: glob matched against filename. `forbidden_patterns`: regex patterns that violate the constraint.
+>
+> ## What to produce:
+>
+> **Structural rules** — dependency direction between layers/components, forbidden technologies (from decisions/trade-offs), file naming where violations would break the build or architecture.
+>
+> **Deep architectural rules** — invariants an AI coding agent might accidentally violate. These are the most valuable. Examples: "ViewModel must never reference View/Context", "Repository must use IO dispatcher", "Fragments must use DI delegation not direct construction". Derive these from decision chains, trade-offs, pitfalls, and pattern descriptions.
+>
+> ## Critical:
+> - Every rule must be specific to THIS project — never generic programming advice
+> - Focus on what an AI coding agent would get wrong without knowing this codebase
+> - Every `forbidden_patterns` entry must be a valid regex
+> - Include an `"id"` field for each rule (e.g., "dep-001", "arch-001", "ban-001")
+> - The `description` must explain WHAT is forbidden and WHY in one sentence
+
+After the agent responds, save its COMPLETE output text to a temp file and use the merge script to extract the JSON:
+
+```
+Write /tmp/archie_rules_$PROJECT_NAME.json with the agent's COMPLETE output text
+```
+
+```bash
+python3 -c "
+import json, sys; sys.path.insert(0, '$PROJECT_ROOT/.archie')
+from merge import extract_json_from_text
+text = open('/tmp/archie_rules_$PROJECT_NAME.json').read()
+data = extract_json_from_text(text)
+if data:
+    open('$PROJECT_ROOT/.archie/rules.json', 'w').write(json.dumps(data, indent=2))
+    print(f'Saved {len(data.get(\"rules\", []))} rules')
+else:
+    print('ERROR: could not extract rules JSON', file=sys.stderr); sys.exit(1)
+"
+```
+
+**IMPORTANT: Do NOT try to extract or parse JSON yourself. The script handles conversation envelopes, code fences, and escape issues.**
+
+## Step 8: Intent Layer — per-folder CLAUDE.md
+
+This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
+
+1. Prepare the folder DAG and reset state:
 ```bash
 python3 .archie/intent_layer.py prepare "$PROJECT_ROOT"
+python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
 mkdir -p "$PROJECT_ROOT/.archie/enrichments"
 ```
 
-2. Process in readiness waves. Maintain a list of done folder paths (starts empty).
+2. Process in readiness waves. The script tracks done folders automatically.
 
    **Repeat until done:**
 
-   a. Get ready folders (folders whose children are all done, or leaves with no children):
+   a. Get ready folders:
    ```bash
-   python3 .archie/intent_layer.py next-ready "$PROJECT_ROOT" <done1> <done2> ...
+   python3 .archie/intent_layer.py next-ready "$PROJECT_ROOT"
    ```
-   First call with no done folders returns all leaf folders.
+   The script reads done state from `.archie/enrich_state.json` automatically. First call returns all leaf folders.
 
    b. If the ready list is empty (`[]`), all folders are done. Proceed to step 3.
 
@@ -565,12 +639,18 @@ mkdir -p "$PROJECT_ROOT/.archie/enrichments"
    Read the prompt file. Spawn a Sonnet subagent (`model: "sonnet"`) with the prompt content. The subagent must return ONLY valid JSON with folder paths as keys.
    **Spawn ALL batches in a wave in parallel.**
 
-   e. Save each subagent's JSON output:
+   e. After each subagent completes, save its COMPLETE output text to a temp file, then use the save-enrichment command to extract JSON and mark folders as done:
    ```
-   Write $PROJECT_ROOT/.archie/enrichments/<batch_id>.json with the subagent's JSON output
+   Write /tmp/archie_enrichment_<batch_id>.json with the subagent's COMPLETE output text
    ```
+   ```bash
+   python3 .archie/intent_layer.py save-enrichment "$PROJECT_ROOT" <batch_id> /tmp/archie_enrichment_<batch_id>.json
+   ```
+   This extracts the JSON, saves it to `.archie/enrichments/<batch_id>.json`, and automatically marks the folders as done.
 
-   f. Add all folders from completed batches to the done list. Go to (a).
+   **IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT write inline Python to process agent output. The save-enrichment command handles everything including conversation envelopes, code fences, multi-block merging, and escape issues.**
+
+   f. Go to (a) for the next wave.
 
 3. Merge enrichments into CLAUDE.md files:
 ```bash
@@ -579,21 +659,143 @@ python3 .archie/intent_layer.py merge "$PROJECT_ROOT"
 
 ---
 
-## Step 9: Clean up and summarize
+## Step 9: Clean up
 
 ```bash
-rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt
+rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json
 ```
 
-For each project analyzed, print what was generated:
-- `$PROJECT_ROOT/.archie/blueprint.json` — architecture blueprint (AI-normalized)
-- `$PROJECT_ROOT/.archie/blueprint_raw.json` — raw subagent output (preserved for debugging)
-- `$PROJECT_ROOT/CLAUDE.md` — root architecture context
-- `$PROJECT_ROOT/AGENTS.md` — comprehensive agent guidance
-- `$PROJECT_ROOT/.claude/rules/` — 7 topic-split rule files
-- `$PROJECT_ROOT/.cursor/rules/` — Cursor rule files
-- Per-folder `CLAUDE.md` — directory-level context (AI-enriched with patterns, anti-patterns, debugging tips, code examples)
-- `$PROJECT_ROOT/.claude/hooks/` — real-time enforcement hooks
-- `$PROJECT_ROOT/.archie/rules.json` — enforcement rules
+## Step 10: Drift Detection & Architectural Assessment
 
-Tell the user: "Archie is now active. Architecture rules will be enforced on every code change."
+### Phase 1: Mechanical drift scan
+
+```bash
+python3 .archie/drift.py "$PROJECT_ROOT"
+```
+
+### Phase 2: Deep architectural drift (AI)
+
+Identify files to analyze:
+```bash
+git -C "$PROJECT_ROOT" log --name-only --pretty=format: --since="30 days ago" -- '*.kt' '*.java' '*.swift' '*.ts' '*.tsx' '*.py' '*.go' '*.rs' | sort -u | head -100
+```
+If that returns nothing (new repo or no recent changes), use all source files from the scan:
+```bash
+python3 -c "import json; [print(f['path']) for f in json.load(open('$PROJECT_ROOT/.archie/scan.json')).get('file_tree',[]) if f.get('extension','') in ('.kt','.java','.swift','.ts','.tsx','.py','.go','.rs')]" | head -100
+```
+
+For each file (batch into groups of ~15), collect:
+- The file's content
+- Its folder's CLAUDE.md (per-folder patterns, anti-patterns)
+- Its parent folder's CLAUDE.md if it exists
+
+Read `$PROJECT_ROOT/.archie/blueprint.json` — specifically `decisions.key_decisions`, `decisions.decision_chain`, `decisions.trade_offs` (with `violation_signals`), `pitfalls` (with `stems_from`), `communication.patterns`, `development_rules`.
+
+Read `$PROJECT_ROOT/.archie/drift_report.json` (mechanical findings from Phase 1).
+
+Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their folder CLAUDE.md files, and the blueprint context. Tell it:
+
+> You are an architecture reviewer. You have the project's architectural blueprint (decisions, trade-offs, pitfalls, patterns), per-folder CLAUDE.md files describing expected patterns, mechanical drift findings (already detected), and source files to review.
+>
+> Find **deep architectural violations** — problems that pattern matching cannot catch. For each finding, return:
+> - `folder`: the folder path
+> - `file`: the specific file
+> - `type`: one of `decision_violation`, `pattern_erosion`, `trade_off_undermined`, `pitfall_triggered`, `responsibility_leak`, `abstraction_bypass`
+> - `severity`: `error` or `warn`
+> - `decision_or_pattern`: which architectural decision, pattern, or pitfall this violates (reference by name from the blueprint)
+> - `evidence`: the specific code (function name, class, line pattern) that demonstrates the violation
+> - `message`: one sentence explaining what's wrong and why it matters
+>
+> Focus on:
+> 1. **Decision violations** — code that contradicts a key architectural decision
+> 2. **Pattern erosion** — code that doesn't follow the patterns described in its folder's CLAUDE.md
+> 3. **Trade-off undermining** — code that works against an accepted trade-off (check `violation_signals`)
+> 4. **Pitfall triggers** — code that falls into a documented pitfall (check `stems_from` chains)
+> 5. **Responsibility leaks** — a component doing work that belongs to another component
+> 6. **Abstraction bypass** — code reaching through a layer instead of using the intended interface
+>
+> Do NOT report: style/formatting/naming (the script handles those), generic best-practice violations not grounded in THIS project's blueprint, or issues already in the mechanical drift report.
+>
+> Return JSON: `{"deep_findings": [...]}`
+
+Save the deep findings:
+```
+Write /tmp/archie_deep_drift.json with the agent's COMPLETE output text
+```
+```bash
+python3 -c "
+import json, sys; sys.path.insert(0, '$PROJECT_ROOT/.archie')
+from merge import extract_json_from_text
+text = open('/tmp/archie_deep_drift.json').read()
+data = extract_json_from_text(text)
+if data:
+    report = json.load(open('$PROJECT_ROOT/.archie/drift_report.json'))
+    report['deep_findings'] = data.get('deep_findings', [])
+    s = report['summary']
+    deep_count = len(report['deep_findings'])
+    s['deep_findings'] = deep_count
+    s['total_findings'] += deep_count
+    s['warnings'] += sum(1 for f in report['deep_findings'] if f.get('severity') == 'warn')
+    open('$PROJECT_ROOT/.archie/drift_report.json', 'w').write(json.dumps(report, indent=2))
+    print(f'Added {deep_count} deep findings')
+else:
+    print('Warning: could not extract deep findings', file=sys.stderr)
+"
+rm -f /tmp/archie_deep_drift.json
+```
+
+### Phase 3: Present the combined assessment
+
+Read `$PROJECT_ROOT/.archie/blueprint.json` and `$PROJECT_ROOT/.archie/drift_report.json` (now contains both mechanical and deep findings). This is the final output — make it valuable.
+
+#### Part 1: What was generated
+
+List the generated artefacts with counts:
+- Blueprint sections populated (out of total)
+- Components discovered
+- Enforcement rules generated
+- Per-folder CLAUDE.md files created
+- Rule files in `.claude/rules/` and `.cursor/rules/`
+
+#### Part 2: Architecture Summary
+
+From the blueprint, summarize in 5-10 lines:
+- **Architecture style** (from `meta.architecture_style`)
+- **Key components** (top 5-7 from `components.components` — name + one-line responsibility)
+- **Technology stack highlights** (from `technology.stack` — framework, language, key libs)
+- **Key decisions** (from `decisions.key_decisions` — the 2-3 most impactful, one line each)
+
+#### Part 3: Architecture Health Assessment
+
+Rate and explain each dimension (use these exact labels: Strong / Adequate / Weak / Not assessed):
+
+1. **Separation of concerns** — Are layers/modules clearly bounded? Do components have single responsibilities? Any god classes or circular dependencies?
+2. **Dependency direction** — Do dependencies flow in one direction? Are domain/core layers independent of infrastructure? Any inverted or tangled dependencies?
+3. **Pattern consistency** — Is the same pattern used consistently across similar components? Are there one-off deviations that break the uniformity?
+4. **Testability** — Is the architecture conducive to testing? Can components be tested in isolation? Are external dependencies injectable?
+5. **Change impact radius** — When a component changes, how many others are affected? Are changes localised or do they ripple?
+
+Base every rating on actual evidence from the blueprint and drift findings — reference specific components, patterns, or findings. If the blueprint lacks data for a dimension, say "Not assessed" rather than guessing.
+
+#### Part 4: Architectural Drift
+
+Present ALL findings — mechanical and deep together, organized by severity (errors first).
+
+**Deep architectural findings** (from AI analysis):
+- For each: the file, which decision/pattern it violates, the evidence, and why it matters
+- Group related findings (e.g., multiple files violating the same decision)
+
+**Mechanical findings** (from script):
+- Pattern divergences, dependency violations, naming violations, structural outliers, anti-pattern clusters
+- For each: what diverged, why it matters, suggested action
+
+If 0 findings, say so — that's a positive signal.
+
+#### Part 5: Top Risks & Recommendations
+
+Synthesize from pitfalls, trade-offs, drift findings (both mechanical and deep), and your observations. List the **3-5 most important architectural risks**, ordered by impact:
+- What the risk is (one sentence)
+- Where it manifests (specific components/files/drift findings)
+- What to watch for going forward
+
+End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-drift` to track drift over time."**
