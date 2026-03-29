@@ -30,7 +30,7 @@ git log --name-only --pretty=format: --since="30 days ago" -- '*.kt' '*.java' '*
 ```
 If this returns nothing (new repo or no recent changes), use all source files from the scan:
 ```bash
-python3 -c "import json; [print(f['path']) for f in json.load(open('.archie/scan.json')).get('file_tree',[]) if f.get('extension','') in ('.kt','.java','.swift','.ts','.tsx','.py','.go','.rs')]" | head -100
+python3 .archie/extract_output.py recent-files ".archie/scan.json"
 ```
 
 For each file (batch into groups of ~15), collect:
@@ -72,24 +72,7 @@ Save the deep findings:
 Write /tmp/archie_deep_drift.json with the agent's COMPLETE output text
 ```
 ```bash
-python3 -c "
-import json, sys; sys.path.insert(0, '.archie')
-from merge import extract_json_from_text
-text = open('/tmp/archie_deep_drift.json').read()
-data = extract_json_from_text(text)
-if data:
-    report = json.load(open('.archie/drift_report.json'))
-    report['deep_findings'] = data.get('deep_findings', [])
-    s = report['summary']
-    deep_count = len(report['deep_findings'])
-    s['deep_findings'] = deep_count
-    s['total_findings'] += deep_count
-    s['warnings'] += sum(1 for f in report['deep_findings'] if f.get('severity') == 'warn')
-    open('.archie/drift_report.json', 'w').write(json.dumps(report, indent=2))
-    print(f'Added {deep_count} deep findings')
-else:
-    print('Warning: could not extract deep findings', file=sys.stderr)
-"
+python3 .archie/extract_output.py deep-drift /tmp/archie_deep_drift.json ".archie/drift_report.json"
 rm -f /tmp/archie_deep_drift.json
 ```
 
@@ -97,22 +80,7 @@ rm -f /tmp/archie_deep_drift.json
 
 Read `$PWD/.archie/drift_report.json` (now contains both mechanical and deep findings).
 
-**If a previous snapshot exists**, also read the diff. The script already saved the current snapshot — load the previous one and compare:
-```bash
-python3 -c "
-import json
-from pathlib import Path
-history = sorted(Path('.archie/drift_history').glob('drift_*.json'))
-if len(history) >= 2:
-    prev = json.loads(history[-2].read_text())
-    curr = json.loads(history[-1].read_text())
-    prev_total = prev.get('summary',{}).get('total_findings',0)
-    curr_total = curr.get('summary',{}).get('total_findings',0)
-    print(json.dumps({'previous_total': prev_total, 'current_total': curr_total, 'delta': curr_total - prev_total}))
-else:
-    print(json.dumps({'first_run': True}))
-"
-```
+**If a previous snapshot exists**, the script already auto-diffed and saved `.archie/drift_diff.json`. Read it if it exists — it contains `previous_total`, `current_total`, `new_findings`, `resolved_findings`, and `persisting_findings` counts.
 
 Present to the user:
 

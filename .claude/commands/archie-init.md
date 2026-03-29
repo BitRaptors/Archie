@@ -582,27 +582,17 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > - Include an `"id"` field for each rule (e.g., "dep-001", "arch-001", "ban-001")
 > - The `description` must explain WHAT is forbidden and WHY in one sentence
 
-After the agent responds, save its COMPLETE output text to a temp file and use the merge script to extract the JSON:
+After the agent responds, save its COMPLETE output text to a temp file and extract:
 
 ```
 Write /tmp/archie_rules_$PROJECT_NAME.json with the agent's COMPLETE output text
 ```
 
 ```bash
-python3 -c "
-import json, sys; sys.path.insert(0, '$PROJECT_ROOT/.archie')
-from merge import extract_json_from_text
-text = open('/tmp/archie_rules_$PROJECT_NAME.json').read()
-data = extract_json_from_text(text)
-if data:
-    open('$PROJECT_ROOT/.archie/rules.json', 'w').write(json.dumps(data, indent=2))
-    print(f'Saved {len(data.get(\"rules\", []))} rules')
-else:
-    print('ERROR: could not extract rules JSON', file=sys.stderr); sys.exit(1)
-"
+python3 .archie/extract_output.py rules /tmp/archie_rules_$PROJECT_NAME.json "$PROJECT_ROOT/.archie/rules.json"
 ```
 
-**IMPORTANT: Do NOT try to extract or parse JSON yourself. The script handles conversation envelopes, code fences, and escape issues.**
+**IMPORTANT: Do NOT try to extract or parse JSON yourself. Always use the pre-installed scripts.**
 
 ## Step 8: Intent Layer — per-folder CLAUDE.md
 
@@ -681,7 +671,7 @@ git -C "$PROJECT_ROOT" log --name-only --pretty=format: --since="30 days ago" --
 ```
 If that returns nothing (new repo or no recent changes), use all source files from the scan:
 ```bash
-python3 -c "import json; [print(f['path']) for f in json.load(open('$PROJECT_ROOT/.archie/scan.json')).get('file_tree',[]) if f.get('extension','') in ('.kt','.java','.swift','.ts','.tsx','.py','.go','.rs')]" | head -100
+python3 .archie/extract_output.py recent-files "$PROJECT_ROOT/.archie/scan.json"
 ```
 
 For each file (batch into groups of ~15), collect:
@@ -723,24 +713,7 @@ Save the deep findings:
 Write /tmp/archie_deep_drift.json with the agent's COMPLETE output text
 ```
 ```bash
-python3 -c "
-import json, sys; sys.path.insert(0, '$PROJECT_ROOT/.archie')
-from merge import extract_json_from_text
-text = open('/tmp/archie_deep_drift.json').read()
-data = extract_json_from_text(text)
-if data:
-    report = json.load(open('$PROJECT_ROOT/.archie/drift_report.json'))
-    report['deep_findings'] = data.get('deep_findings', [])
-    s = report['summary']
-    deep_count = len(report['deep_findings'])
-    s['deep_findings'] = deep_count
-    s['total_findings'] += deep_count
-    s['warnings'] += sum(1 for f in report['deep_findings'] if f.get('severity') == 'warn')
-    open('$PROJECT_ROOT/.archie/drift_report.json', 'w').write(json.dumps(report, indent=2))
-    print(f'Added {deep_count} deep findings')
-else:
-    print('Warning: could not extract deep findings', file=sys.stderr)
-"
+python3 .archie/extract_output.py deep-drift /tmp/archie_deep_drift.json "$PROJECT_ROOT/.archie/drift_report.json"
 rm -f /tmp/archie_deep_drift.json
 ```
 

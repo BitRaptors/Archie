@@ -39,7 +39,7 @@ for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-viewer.md", "a
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "finalize.py", "enrich_test.py", "validate.py", "viewer.py", "drift.py"]) {
+for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "finalize.py", "enrich_test.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -79,8 +79,15 @@ try {
     // Archie scripts
     "Bash(python3 .archie/*.py *)",
     "Bash(python3 .archie/*.py)",
-    "Bash(python3 -c *)",
-    "Bash(mkdir -p */.archie/*)",
+    // Shell utilities Claude uses during orchestration
+    "Bash(git *)",
+    "Bash(test *)",
+    "Bash(cp *)",
+    "Bash(wc *)",
+    "Bash(cat *)",
+    "Bash(echo *)",
+    "Bash(for *)",
+    "Bash(mkdir *)",
     "Bash(rm -f /tmp/archie_*)",
     // Temp files for agent output
     "Write(//tmp/archie_*)",

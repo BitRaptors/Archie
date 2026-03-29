@@ -150,14 +150,55 @@ PYEOF
 '''
 
 
+POST_PLAN_HOOK = r'''#!/usr/bin/env bash
+# Archie post-plan review — triggers architectural review after plan approval
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+[ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
+python3 "$PROJECT_ROOT/.archie/arch_review.py" plan "$PROJECT_ROOT"
+'''
+
+PRE_COMMIT_HOOK = r'''#!/usr/bin/env bash
+# Archie pre-commit review — triggers architectural review before git commit
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+[ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
+# Only fire for git commit commands
+TOOL_INPUT=$(cat || true)
+COMMAND=$(echo "$TOOL_INPUT" | python3 -c "
+import sys, json
+try: print(json.load(sys.stdin).get('tool_input',{}).get('command',''))
+except: print('')
+" 2>/dev/null || echo "")
+case "$COMMAND" in *git\ commit*|*git\ -C*commit*) ;; *) exit 0 ;; esac
+python3 "$PROJECT_ROOT/.archie/arch_review.py" diff "$PROJECT_ROOT"
+'''
+
+
+def _add_hook(hooks_list: list, matcher: str, command: str):
+    """Add a hook entry if not already present."""
+    if not any(
+        h.get("matcher") == matcher
+        and any(hh.get("command") == command for hh in h.get("hooks", []))
+        for h in hooks_list
+    ):
+        hooks_list.append({
+            "matcher": matcher,
+            "hooks": [{"type": "command", "command": command}],
+        })
+
+
 def install(project_root: Path) -> None:
     hook_dir = project_root / ".claude" / "hooks"
     hook_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write hook script
-    path = hook_dir / "pre-validate.sh"
-    path.write_text(PRE_VALIDATE_HOOK)
-    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # Write hook scripts
+    for name, content in [
+        ("pre-validate.sh", PRE_VALIDATE_HOOK),
+        ("post-plan-review.sh", POST_PLAN_HOOK),
+        ("pre-commit-review.sh", PRE_COMMIT_HOOK),
+    ]:
+        path = hook_dir / name
+        path.write_text(content)
+        path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     # Update settings.local.json
     settings_path = project_root / ".claude" / "settings.local.json"
@@ -171,15 +212,14 @@ def install(project_root: Path) -> None:
     # Merge hooks — preserve user's existing hooks, add ours
     hooks = settings.get("hooks", {})
     pre_tool = hooks.get("PreToolUse", [])
-    archie_hook = {"matcher": "Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": ".claude/hooks/pre-validate.sh"}]}
-    # Only add if not already present
-    if not any(
-        h.get("matcher") == "Write|Edit|MultiEdit"
-        and any(hh.get("command") == ".claude/hooks/pre-validate.sh" for hh in h.get("hooks", []))
-        for h in pre_tool
-    ):
-        pre_tool.append(archie_hook)
+    post_tool = hooks.get("PostToolUse", [])
+
+    _add_hook(pre_tool, "Write|Edit|MultiEdit", ".claude/hooks/pre-validate.sh")
+    _add_hook(pre_tool, "Bash", ".claude/hooks/pre-commit-review.sh")
+    _add_hook(post_tool, "ExitPlanMode", ".claude/hooks/post-plan-review.sh")
+
     hooks["PreToolUse"] = pre_tool
+    hooks["PostToolUse"] = post_tool
     settings["hooks"] = hooks
 
     # Add permissions so /archie-init and /archie-refresh run without
@@ -190,8 +230,15 @@ def install(project_root: Path) -> None:
         # Running archie scripts
         "Bash(python3 .archie/*.py *)",
         "Bash(python3 .archie/*.py)",
-        "Bash(python3 -c *)",
-        "Bash(mkdir -p */.archie/*)",
+        # Shell utilities Claude uses during orchestration
+        "Bash(git *)",
+        "Bash(test *)",
+        "Bash(cp *)",
+        "Bash(wc *)",
+        "Bash(cat *)",
+        "Bash(echo *)",
+        "Bash(for *)",
+        "Bash(mkdir *)",
         "Bash(rm -f /tmp/archie_*)",
         # Temp files for agent output
         "Write(//tmp/archie_*)",
