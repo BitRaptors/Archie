@@ -8,6 +8,7 @@ Update the blueprint and per-folder CLAUDE.md files after code changes. No pip i
 # Download if not present
 [ ! -f .archie/scanner.py ] && curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/scanner.py -o .archie/scanner.py
 [ ! -f .archie/refresh.py ] && curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/refresh.py -o .archie/refresh.py
+[ ! -f .archie/intent_layer.py ] && curl -fsSL https://raw.githubusercontent.com/BitRaptors/Archie/main/archie/standalone/intent_layer.py -o .archie/intent_layer.py
 
 # Run refresh (detects changes, re-scans)
 python3 .archie/refresh.py "$PWD"
@@ -148,7 +149,13 @@ print(f'Updated CLAUDE.md ({len(lines)} lines)')
 "
 ```
 
-## Step 5: Update enforcement rules
+## Step 5: Regenerate per-folder CLAUDE.md files
+
+```bash
+python3 .archie/intent_layer.py "$PWD"
+```
+
+## Step 6: Update enforcement rules
 
 ```bash
 python3 -c "

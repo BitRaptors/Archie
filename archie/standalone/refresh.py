@@ -4,8 +4,10 @@
 Run: python3 refresh.py /path/to/repo
 Output: JSON to stdout with change summary
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 import os

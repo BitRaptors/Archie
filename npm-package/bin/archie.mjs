@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
@@ -29,7 +29,7 @@ mkdirSync(claudeCommands, { recursive: true });
 mkdirSync(archieDir, { recursive: true });
 
 // 2. Copy Claude Code commands
-for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-viewer.md", "archie-drift.md"]) {
+for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-viewer.md", "archie-drift.md", "archie-intent-layer.md", "archie-install.md"]) {
   const src = join(ASSETS, cmd);
   const dest = join(claudeCommands, cmd);
   if (existsSync(src)) {
@@ -39,13 +39,21 @@ for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-viewer.md", "a
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "rules.py", "install_hooks.py", "merge.py", "normalize.py", "finalize.py", "enrich_test.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py"]) {
+for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
     writeFileSync(dest, readFileSync(src, "utf8"));
     chmodSync(dest, 0o755);
     console.log(`  ${GREEN}✓${RESET} .archie/${script}`);
+  }
+}
+
+// 3b. Remove obsolete scripts from previous installs
+for (const dead of ["enrich_test.py", "normalize.py", "rules.py", "enrich.py"]) {
+  const deadPath = join(archieDir, dead);
+  if (existsSync(deadPath)) {
+    try { unlinkSync(deadPath); console.log(`  ${DIM}removed obsolete .archie/${dead}${RESET}`); } catch {}
   }
 }
 

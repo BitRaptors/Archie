@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Archie — AI-powered architecture analysis and enforcement for coding agents. Analyzes any codebase, generates a structured blueprint (JSON), and produces: CLAUDE.md, AGENTS.md, Cursor rules, per-folder context files, and real-time enforcement hooks. Works with any language, zero dependencies beyond Python 3.11+.
+Archie — AI-powered architecture analysis and enforcement for coding agents. Analyzes any codebase, generates a structured blueprint (JSON), and produces: CLAUDE.md, AGENTS.md, Cursor rules, per-folder context files, and real-time enforcement hooks. Works with any language, zero dependencies beyond Python 3.9+.
 
 ## Repository Layout
 
@@ -60,12 +60,12 @@ python -m pytest tests/ -v
 ## Analysis Pipeline (2-Wave)
 
 1. **Scanner** — Counts files, detects frameworks, builds file tree
-2. **Wave 1** (parallel) — 3-4 Opus agents gather facts:
-   - Agent A: Structure & Components
-   - Agent B: Patterns & Communication
-   - Agent C: Technology, Deployment & Rules
-   - Agent D: Frontend Architecture (if detected)
-3. **Wave 2** — Agent X reads all Wave 1 output, produces architectural reasoning:
+2. **Wave 1** (parallel) — 3-4 Sonnet agents gather facts:
+   - Structure agent: Components, layers, file placement
+   - Patterns agent: Communication, design patterns, integrations
+   - Technology agent: Stack, deployment, dev rules
+   - UI Layer agent: UI components, state, routing (only if frontend_ratio >= 0.20)
+3. **Wave 2** — Reasoning agent (Opus) reads all Wave 1 output, produces architectural reasoning:
    - Decision chain (rooted constraint tree with violation keywords)
    - Key decisions with forced_by/enables links
    - Trade-offs with violation signals
@@ -93,6 +93,13 @@ Deep rules use Agent X's reasoning: violation_keywords per decision chain node, 
 
 Standalone scripts exist in two places (canonical → copy):
 - `archie/standalone/*.py` → `npm-package/assets/*.py`
-- Command docs: `npm-package/assets/archie-*.md` → `.claude/commands/archie-*.md` (in target projects)
+- `.claude/commands/archie-*.md` → `npm-package/assets/archie-*.md`
 
 Always edit `archie/standalone/` first, then copy to `npm-package/assets/`.
+Always edit `.claude/commands/` first, then copy to `npm-package/assets/`.
+
+**Before committing, run the sync checker:**
+```bash
+python3 scripts/verify_sync.py
+```
+This verifies all canonical files, asset copies, and `archie.mjs` references are consistent. Catches missing copies, orphan assets, and dead installer references.

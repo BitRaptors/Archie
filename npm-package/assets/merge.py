@@ -8,8 +8,10 @@ Reads subagent JSON outputs (files or stdin), deep-merges into a single dict,
 saves raw to .archie/blueprint_raw.json. Does NOT normalize field names —
 that is handled by a separate AI normalizer step.
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import json
 import re
 import sys

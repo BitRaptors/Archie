@@ -16,8 +16,10 @@ Run:
   python3 validate.py paths /path/to/repo
   python3 validate.py methods /path/to/repo
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import json
 import re
 import sys

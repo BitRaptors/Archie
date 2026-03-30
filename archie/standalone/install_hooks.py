@@ -4,8 +4,10 @@
 Run: python3 install_hooks.py /path/to/repo
 Output: Creates .claude/hooks/ scripts and updates .claude/settings.local.json
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import json
 import os
 import stat

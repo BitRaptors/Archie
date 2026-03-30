@@ -58,17 +58,19 @@ python3 .archie/scanner.py "$PROJECT_ROOT"
 
 ## Step 4: Read scan results
 
-Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, and top-level directories. Check if frontend code is detected (look for React, Vue, Angular, Svelte, Next.js, Nuxt, Flutter, SwiftUI, Jetpack Compose, React Native, etc. in frameworks or file extensions like .tsx, .jsx, .vue, .svelte, .dart, .swift, .kt).
+Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, top-level directories, and `frontend_ratio`.
+
+**UI layer detection:** Only spawn the dedicated UI Layer agent if `frontend_ratio` >= 0.20 (20%+ of source files are UI/frontend). A small SwiftUI menubar or a minor React admin panel in an otherwise backend/CLI/library project does NOT warrant a dedicated UI agent — the Structure agent will cover it.
 
 ## Step 5: Spawn parallel analytical agents
 
 Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each focused on a different analytical concern. ALL agents read ALL source files under `$PROJECT_ROOT` — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
 
-**If frontend code was detected in Step 4, spawn all 4 agents (A–D). Otherwise spawn only agents A–C.**
+**If `frontend_ratio` >= 0.20, spawn all 4 agents. Otherwise spawn only the first 3 (skip UI Layer).**
 
 ---
 
-### Agent A: "Structure & Components"
+### Structure agent
 
 > **CRITICAL INSTRUCTIONS:**
 > You are analyzing a codebase to understand its architecture. Your goal is to OBSERVE and DESCRIBE what exists, NOT to categorize it into known patterns.
@@ -151,7 +153,7 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > }
 > ```
 
-### Agent B: "Patterns & Communication"
+### Patterns agent
 
 > Read all source files. Analyze design patterns and communication across ALL platforms (backend AND frontend).
 >
@@ -231,7 +233,7 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > }
 > ```
 
-### Agent C: "Technology, Deployment & Rules"
+### Technology agent
 
 > Read config files, package.json/requirements.txt/Gemfile/build.gradle/pubspec.yaml/Package.swift, CI/CD configs, Dockerfiles, cloud platform files. Create a complete technology inventory.
 >
@@ -324,9 +326,9 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > }
 > ```
 
-### Agent D: "Frontend Architecture" (only if frontend detected)
+### UI Layer agent (only if `frontend_ratio` >= 0.20)
 
-> Read all frontend/UI source files. This analysis covers web frontends, iOS apps, Android apps, cross-platform mobile, and any client-side code. Adapt each section to the platform detected.
+> Read all UI/frontend source files. This codebase contains a significant UI layer. Analyze it as ONE ASPECT of the project — do NOT label the entire project as a "frontend app" or "iOS app" if the UI is only part of a larger system. Adapt each section to the platform detected.
 >
 > ### 1. Framework & Rendering
 > - **Web**: What UI framework? (React, Vue, Angular, Svelte, etc.) Rendering strategy? (SSR, SSG, CSR, ISR, hybrid) Meta-framework? (Next.js, Nuxt, Remix, etc.)
@@ -427,10 +429,10 @@ After each subagent completes, use the Write tool to save its COMPLETE output te
 **IMPORTANT: Save the COMPLETE raw text from each agent. Do NOT try to extract JSON yourself — the script handles all extraction including conversation envelopes, code fences, and escape issues.**
 
 ```
-Write /tmp/archie_sub1_$PROJECT_NAME.json with Agent A's COMPLETE output text
-Write /tmp/archie_sub2_$PROJECT_NAME.json with Agent B's COMPLETE output text
-Write /tmp/archie_sub3_$PROJECT_NAME.json with Agent C's COMPLETE output text
-Write /tmp/archie_sub4_$PROJECT_NAME.json with Agent D's COMPLETE output text (if spawned)
+Write /tmp/archie_sub1_$PROJECT_NAME.json with Structure agent's COMPLETE output text
+Write /tmp/archie_sub2_$PROJECT_NAME.json with Patterns agent's COMPLETE output text
+Write /tmp/archie_sub3_$PROJECT_NAME.json with Technology agent's COMPLETE output text
+Write /tmp/archie_sub4_$PROJECT_NAME.json with UI Layer agent's COMPLETE output text (if spawned)
 ```
 
 Then merge:
@@ -441,11 +443,11 @@ python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tm
 
 This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data). Verify the output shows non-zero component/section counts. If it says "0 sections, 0 components", the merge failed — check the agent output files.
 
-## Step 7: Wave 2 — Agent X ("Architectural Reasoning")
+## Step 7: Wave 2 — Reasoning agent
 
-Wave 1 gathered facts: components, patterns, technology, deployment, frontend. Now spawn a single Opus subagent (`model: "opus"`) that reads ALL Wave 1 output and produces deep architectural reasoning.
+Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. Now spawn a single Opus subagent (`model: "opus"`) that reads ALL Wave 1 output and produces deep architectural reasoning.
 
-Tell Agent X:
+Tell the Reasoning agent:
 
 > Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read key source files: entry points, main configs, core abstractions.
 >
@@ -519,19 +521,19 @@ Tell Agent X:
 > }
 > ```
 
-Agent X also gets the GROUNDING RULES from Step 5.
+The Reasoning agent also gets the GROUNDING RULES from Step 5.
 
-After Agent X completes, save its output and finalize:
+After the Reasoning agent completes, save its output and finalize:
 
 ```
-Write /tmp/archie_sub_x_$PROJECT_NAME.json with Agent X's output
+Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's output
 ```
 
 ```bash
 python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
 ```
 
-This single command: merges Agent X into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
+This single command: merges the Reasoning agent's output into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
 
 ## Step 7.5: AI Rule Synthesis
 
@@ -539,7 +541,7 @@ The blueprint contains architectural facts. This step synthesizes them into **me
 
 Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 
-> Read `$PROJECT_ROOT/.archie/blueprint.json`. It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, and development rules.
+> Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, and development rules.
 >
 > Produce 20-40 enforcement rules that a hook can mechanically validate. Each rule checks a file path + code content and gives a clear pass/fail. Return ONLY valid JSON: `{"rules": [...]}`.
 >

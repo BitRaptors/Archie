@@ -4,8 +4,10 @@
 Run: python3 viewer.py /path/to/repo [--port PORT]
 Opens a browser showing only Archie-generated output.
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import http.server
 import json
 import os
@@ -14,7 +16,7 @@ import sys
 import threading
 import webbrowser
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
 # Helpers

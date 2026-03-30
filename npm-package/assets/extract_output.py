@@ -10,8 +10,10 @@ Subcommands:
   deep-drift   <input_file> <report_path>   — extract deep findings, merge into drift report
   recent-files <scan_json>                  — print source file paths from scan.json
 
-Zero dependencies beyond Python 3.11+ stdlib + sibling merge.py.
+Zero dependencies beyond Python 3.9+ stdlib + sibling merge.py.
 """
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path

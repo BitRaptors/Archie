@@ -10,8 +10,10 @@ Subcommands:
 
 Outputs structured review prompt to stdout that the hook passes to Claude.
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import json
 import subprocess
 import sys

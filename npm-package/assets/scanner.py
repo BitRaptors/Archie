@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Archie standalone scanner — zero dependencies beyond Python 3.11+ stdlib.
+"""Archie standalone scanner — zero dependencies beyond Python 3.9+ stdlib.
 
 Run: python3 scanner.py /path/to/repo
 Output: JSON to stdout (the RawScan equivalent)
@@ -7,6 +7,8 @@ Output: JSON to stdout (the RawScan equivalent)
 This script is designed to be copy-pasted or downloaded into any project.
 It does NOT require pip install, pydantic, tiktoken, or any third-party package.
 """
+from __future__ import annotations
+
 import ast
 import hashlib
 import json
@@ -20,9 +22,9 @@ from pathlib import Path
 SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
     ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "dist", "build", ".next", ".nuxt", ".svelte-kit",
+    "dist", "build", ".build", ".next", ".nuxt", ".svelte-kit",
     "coverage", ".nyc_output", ".turbo", ".parcel-cache",
-    "vendor", "Pods", ".gradle", ".idea", ".vscode",
+    "vendor", "Pods", "DerivedData", ".gradle", ".idea", ".vscode",
     ".archie", ".claude", ".cursor",
 }
 
@@ -570,6 +572,16 @@ def run_scan(repo_path: str) -> dict:
     entry_points = detect_entry_points(files)
     configs = collect_configs(root)
 
+    # Compute frontend file ratio for Agent D threshold
+    frontend_exts = {".tsx", ".jsx", ".vue", ".svelte", ".swift", ".xib",
+                     ".storyboard", ".dart", ".xaml"}
+    frontend_files = sum(1 for f in files if f.get("extension", "") in frontend_exts)
+    total_source = sum(1 for f in files if f.get("extension", "") not in (
+        ".json", ".xml", ".yaml", ".yml", ".toml", ".lock", ".md", ".txt",
+        ".png", ".jpg", ".svg", ".gif", ".ico", ".webp",
+    ))
+    frontend_ratio = frontend_files / max(total_source, 1)
+
     return {
         "file_tree": files,
         "token_counts": tokens,
@@ -579,6 +591,7 @@ def run_scan(repo_path: str) -> dict:
         "import_graph": imports,
         "file_hashes": hashes,
         "entry_points": entry_points,
+        "frontend_ratio": round(frontend_ratio, 2),
     }
 
 

@@ -5,8 +5,10 @@ Run: python3 renderer.py /path/to/project
 Reads: .archie/blueprint.json
 Writes: CLAUDE.md, AGENTS.md, .claude/rules/*.md, .cursor/rules/*.md
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import ast
 import json
 import re

@@ -19,13 +19,14 @@ Run:
   python3 intent_layer.py prompt /path/to/repo --folders src/api/routes,src/api/middleware
   python3 intent_layer.py merge /path/to/repo
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import json
 import os
 import re
 import sys
-import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -74,7 +75,8 @@ def _find_component_for_dir(directory: str, components: list[dict]) -> dict | No
 
 # Directories to skip during enrichment (generated/data/config-only folders)
 _SKIP_ENRICHMENT_DIRS = {
-    "output", "data", "dist", "build", "public", "static", "assets",
+    "output", "data", "dist", "build", ".build", "DerivedData",
+    "public", "static", "assets",
     "migrations", "fixtures", "seeds", "__snapshots__",
     "coverage", ".nyc_output",
 }
@@ -252,7 +254,9 @@ def _load_state(root: Path) -> dict:
 
 def _save_state(root: Path, state: dict):
     """Save state atomically — write to temp file then rename."""
-    state_path = root / ".archie" / _STATE_FILE
+    archie_dir = root / ".archie"
+    archie_dir.mkdir(parents=True, exist_ok=True)
+    state_path = archie_dir / _STATE_FILE
     tmp = state_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, indent=2))
     os.replace(tmp, state_path)

@@ -10,8 +10,10 @@ Run:
 
 Output: JSON drift report to stdout, human summary to stderr.
 
-Zero dependencies beyond Python 3.11+ stdlib.
+Zero dependencies beyond Python 3.9+ stdlib.
 """
+from __future__ import annotations
+
 import json
 import re
 import sys
