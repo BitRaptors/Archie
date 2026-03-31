@@ -40,11 +40,21 @@ Read skeletons to understand file structure, imports, and signatures. If the arc
 
 ### 2b: Health assessment
 
-From the health metrics:
-- **Erosion score**: how much complexity is concentrated in god-functions
-- **Verbosity score**: how much code is duplicated
-- **Top complex functions**: list them, read any that look suspicious
-- **Trend**: compare against previous scan if health_history.json exists
+From the health metrics, report each score with a **plain-language explanation** of what it means and whether it's good or bad:
+
+- **Erosion** (0 to 1): What fraction of the codebase's complexity is concentrated in a few god-functions. 0 = complexity evenly distributed (healthy). 1 = all complexity in a handful of functions (critical). Thresholds: <0.3 good, 0.3-0.5 moderate, >0.5 high — complexity is concentrating.
+- **Verbosity** (0 to 1): What fraction of code is duplicated or redundant. 0 = no duplication. Thresholds: <0.05 good, 0.05-0.15 moderate, >0.15 high — significant copy-paste debt.
+- **Functions analyzed**: total count, and how many have CC > 10 (complex) or CC > 15 (god-function territory).
+- **Top complex functions**: list them, read any that look suspicious.
+- **Trend**: compare against previous scan if health_history.json exists.
+
+Present health scores in this format:
+```
+| Metric | Score | Meaning |
+|--------|-------|---------|
+| Erosion | 0.41 | Moderate — 41% of complexity mass in high-CC functions |
+| Verbosity | 0.003 | Good — minimal code duplication |
+```
 
 ### 2c: Architectural analysis
 
