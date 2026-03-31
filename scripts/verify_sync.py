@@ -60,6 +60,15 @@ def main():
     for name in sorted(asset_pys - standalone_pys):
         errors.append(f"ORPHAN ASSET: npm-package/assets/{name} has no canonical in archie/standalone/")
 
+    # 3b. Check: data files (platform_rules.json etc.)
+    standalone_jsons = {f.name for f in STANDALONE.glob("*.json")}
+    asset_jsons = {f.name for f in ASSETS.glob("*.json")}
+    for name in sorted(standalone_jsons - asset_jsons):
+        errors.append(f"MISSING ASSET: archie/standalone/{name} has no copy in npm-package/assets/")
+    for name in sorted(standalone_jsons & asset_jsons):
+        if (STANDALONE / name).read_text() != (ASSETS / name).read_text():
+            errors.append(f"OUT OF SYNC: {name} differs between archie/standalone/ and npm-package/assets/")
+
     # 4. Check: every command .md should have an asset copy
     for name in sorted(command_mds - asset_mds):
         errors.append(f"MISSING ASSET: .claude/commands/{name} has no copy in npm-package/assets/")

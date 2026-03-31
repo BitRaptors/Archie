@@ -29,7 +29,7 @@ mkdirSync(claudeCommands, { recursive: true });
 mkdirSync(archieDir, { recursive: true });
 
 // 2. Copy Claude Code commands
-for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-viewer.md", "archie-drift.md", "archie-intent-layer.md", "archie-install.md"]) {
+for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-init.md", "archie-refresh.md", "archie-viewer.md", "archie-drift.md", "archie-intent-layer.md", "archie-install.md"]) {
   const src = join(ASSETS, cmd);
   const dest = join(claudeCommands, cmd);
   if (existsSync(src)) {
@@ -39,7 +39,7 @@ for (const cmd of ["archie-init.md", "archie-refresh.md", "archie-viewer.md", "a
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py"]) {
+for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -49,7 +49,17 @@ for (const script of ["scanner.py", "refresh.py", "intent_layer.py", "renderer.p
   }
 }
 
-// 3b. Remove obsolete scripts from previous installs
+// 3b. Copy data files (non-script)
+for (const dataFile of ["platform_rules.json"]) {
+  const src = join(ASSETS, dataFile);
+  const dest = join(archieDir, dataFile);
+  if (existsSync(src)) {
+    writeFileSync(dest, readFileSync(src, "utf8"));
+    console.log(`  ${GREEN}✓${RESET} .archie/${dataFile}`);
+  }
+}
+
+// 3c. Remove obsolete scripts from previous installs
 for (const dead of ["enrich_test.py", "normalize.py", "rules.py", "enrich.py"]) {
   const deadPath = join(archieDir, dead);
   if (existsSync(deadPath)) {
@@ -62,7 +72,7 @@ const gitignorePath = join(projectRoot, ".gitignore");
 try {
   let content = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
   let added = false;
-  for (const entry of [".archie/scan.json", ".archie/stats.jsonl"]) {
+  for (const entry of [".archie/scan.json", ".archie/skeletons.json", ".archie/stats.jsonl", ".archie/scan_report.md", ".archie/scan_history/", ".archie/health_history.json", ".archie/ignored_rules.json", ".archie/observations.json", ".archie/drift_history/", ".archie/enrichments/", ".archie/enrich_state.json", ".archie/enrich_batches.json"]) {
     if (!content.includes(entry)) {
       content += `\n${entry}`;
       added = true;
@@ -128,8 +138,8 @@ console.log(`${BOLD}  Installed!${RESET}`);
 console.log("");
 console.log(`  Next steps:`);
 console.log(`  1. Open this project in ${BOLD}Claude Code${RESET}`);
-console.log(`  2. Run ${BOLD}/archie-init${RESET} to analyze your architecture`);
-console.log(`  3. After code changes, run ${BOLD}/archie-refresh${RESET} to update`);
+console.log(`  2. Run ${BOLD}/archie-scan${RESET} for a fast architecture health check (1-3 min)`);
+console.log(`  3. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
 console.log("");
 
 if (!hasPython) {
