@@ -29,7 +29,7 @@ mkdirSync(claudeCommands, { recursive: true });
 mkdirSync(archieDir, { recursive: true });
 
 // 2. Copy Claude Code commands
-for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-init.md", "archie-refresh.md", "archie-viewer.md", "archie-drift.md", "archie-intent-layer.md", "archie-install.md"]) {
+for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md"]) {
   const src = join(ASSETS, cmd);
   const dest = join(claudeCommands, cmd);
   if (existsSync(src)) {
@@ -59,11 +59,17 @@ for (const dataFile of ["platform_rules.json"]) {
   }
 }
 
-// 3c. Remove obsolete scripts from previous installs
+// 3c. Remove obsolete files from previous installs
 for (const dead of ["enrich_test.py", "normalize.py", "rules.py", "enrich.py"]) {
   const deadPath = join(archieDir, dead);
   if (existsSync(deadPath)) {
     try { unlinkSync(deadPath); console.log(`  ${DIM}removed obsolete .archie/${dead}${RESET}`); } catch {}
+  }
+}
+for (const deadCmd of ["archie-init.md", "archie-refresh.md", "archie-drift.md", "archie-intent-layer.md", "archie-install.md"]) {
+  const deadPath = join(claudeCommands, deadCmd);
+  if (existsSync(deadPath)) {
+    try { unlinkSync(deadPath); console.log(`  ${DIM}removed obsolete .claude/commands/${deadCmd}${RESET}`); } catch {}
   }
 }
 
