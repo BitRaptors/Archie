@@ -115,7 +115,12 @@ Recommend `/archie-deep-scan` if:
 
 ## Step 3: Write the report
 
-Write to `.archie/scan_report.md`:
+Get the current date for the filename:
+```bash
+date -u +"%Y-%m-%d"
+```
+
+Write to `.archie/scan_report_YYYY-MM-DD.md` (using the actual date). Also copy to `.archie/scan_report.md` as the "latest" pointer. This keeps all reports for comparison.
 
 ```markdown
 # Archie Scan Report
