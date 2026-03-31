@@ -276,6 +276,84 @@ def cmd_reset_state(root: Path):
 
 
 # ---------------------------------------------------------------------------
+# Deep scan state tracking
+# ---------------------------------------------------------------------------
+
+_DEEP_SCAN_STATE_FILE = "deep_scan_state.json"
+
+
+def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
+    """Manage deep scan state for resume capability.
+
+    Actions:
+      init           — reset state for fresh run
+      complete-step N — mark step N as completed
+      read           — print current state as JSON to stdout
+      check-prereqs N — validate artifacts exist for step N
+    """
+    state_path = root / ".archie" / _DEEP_SCAN_STATE_FILE
+
+    if action == "init":
+        from datetime import datetime, timezone
+        state = {
+            "completed_steps": [],
+            "last_completed": 0,
+            "status": "in_progress",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, indent=2))
+        print("Deep scan state initialized", file=sys.stderr)
+
+    elif action == "complete-step":
+        if step is None:
+            print("Error: step number required", file=sys.stderr)
+            sys.exit(1)
+        try:
+            state = json.loads(state_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            state = {"completed_steps": [], "last_completed": 0, "status": "in_progress"}
+        if step not in state["completed_steps"]:
+            state["completed_steps"].append(step)
+            state["completed_steps"].sort()
+        state["last_completed"] = step
+        state["status"] = "completed" if step == 9 else "in_progress"
+        state_path.write_text(json.dumps(state, indent=2))
+        print(f"Step {step} completed", file=sys.stderr)
+
+    elif action == "read":
+        if state_path.exists():
+            print(state_path.read_text())
+        else:
+            print(json.dumps({"completed_steps": [], "last_completed": 0, "status": "none"}))
+
+    elif action == "check-prereqs":
+        if step is None:
+            print("Error: step number required", file=sys.stderr)
+            sys.exit(1)
+        prereqs = {
+            1: [],
+            2: [".archie/scan.json"],
+            3: [".archie/scan.json"],
+            4: [],
+            5: [".archie/blueprint_raw.json"],
+            6: [".archie/blueprint.json"],
+            7: [".archie/blueprint.json", ".archie/scan.json"],
+            8: [],
+            9: [".archie/blueprint.json"],
+        }
+        missing = [p for p in prereqs.get(step, []) if not (root / p).exists()]
+        if missing:
+            print(json.dumps({"ok": False, "missing": missing, "step": step}))
+            sys.exit(1)
+        else:
+            print(json.dumps({"ok": True, "step": step}))
+    else:
+        print(f"Unknown action: {action}", file=sys.stderr)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # next-ready — DAG scheduler
 # ---------------------------------------------------------------------------
 
@@ -912,6 +990,7 @@ if __name__ == "__main__":
         print("  python3 intent_layer.py mark-done /path/to/repo <folder1> [folder2 ...]", file=sys.stderr)
         print("  python3 intent_layer.py reset-state /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py merge /path/to/repo", file=sys.stderr)
+        print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs> [step]", file=sys.stderr)
         sys.exit(1)
 
     subcmd = sys.argv[1]
@@ -979,6 +1058,10 @@ if __name__ == "__main__":
         else:
             print("Error: prompt requires --folder, --folders, or batch_id", file=sys.stderr)
             sys.exit(1)
+    elif subcmd == "deep-scan-state":
+        action = sys.argv[3] if len(sys.argv) > 3 else ""
+        step_arg = int(sys.argv[4]) if len(sys.argv) > 4 else None
+        cmd_deep_scan_state(root, action, step_arg)
     elif subcmd == "merge":
         cmd_merge(root)
     else:

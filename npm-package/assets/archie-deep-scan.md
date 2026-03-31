@@ -1,12 +1,50 @@
 # Archie Deep Scan — Comprehensive Architecture Baseline
 
-Run a comprehensive architecture analysis. Produces full blueprint, per-folder CLAUDE.md, rules, and health metrics. This is the deep baseline — run it once, then use `/archie-scan` for fast incremental checks.
+Run a comprehensive architecture analysis. Produces full blueprint, per-folder CLAUDE.md, rules, and health metrics.
+
+**Modes:**
+- `/archie-deep-scan` — fresh run from step 1
+- `/archie-deep-scan --from N` — resume from step N (runs N through 9)
+- `/archie-deep-scan --continue` — resume from where the last run stopped
 
 **Prerequisites:** Run `npx archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie` and try again.
 
-**IMPORTANT: Do NOT write inline Python scripts or bash one-liners. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown. Do NOT generate code to parse JSON, extract data, or create files. The scripts handle everything. If a step produces an error, follow the instructions for that step exactly — do not improvise workarounds.**
+**IMPORTANT: Do NOT write inline Python scripts or bash one-liners. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown.**
 
-## Step 1: Detect sub-projects
+## Preamble: Determine starting step
+
+Check the user's message (ARGUMENTS) for flags:
+
+**If `--from N` is present** (e.g., `/archie-deep-scan --from 5`):
+1. Set START_STEP = N (the number after --from)
+2. Validate prerequisites exist:
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" check-prereqs N
+```
+3. If check fails, tell the user which files are missing and which earlier step to run.
+4. If check passes, proceed. Set state:
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
+```
+
+**If `--continue` is present:**
+1. Read state:
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" read
+```
+2. If status is "none" or "completed": print "No interrupted run found. Starting fresh from step 1." Set START_STEP = 1.
+3. If status is "in_progress": Set START_STEP = last_completed + 1. Print "Resuming deep scan from step {START_STEP}."
+
+**If no flags (default):**
+1. Set START_STEP = 1
+2. Initialize fresh state:
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
+```
+
+**For every step below: if the step number < START_STEP, skip it entirely.**
+
+## Detect sub-projects
 
 ```bash
 python3 .archie/scanner.py "$PWD" --detect-subprojects
@@ -14,10 +52,10 @@ python3 .archie/scanner.py "$PWD" --detect-subprojects
 
 Read the JSON output. Count non-wrapper sub-projects (where `is_root_wrapper` is false).
 
-- **If 0-1 non-wrapper sub-projects:** This is a single-project repo. Set `PROJECT_ROOT="$PWD"` and go to Step 3 (single-project pipeline).
-- **If 2+ non-wrapper sub-projects:** This is a monorepo. Go to Step 2.
+- **If 0-1 non-wrapper sub-projects:** This is a single-project repo. Set `PROJECT_ROOT="$PWD"` and go to Step 1.
+- **If 2+ non-wrapper sub-projects:** This is a monorepo. Go to Project selection below.
 
-## Step 2: Project selection (monorepo only)
+## Project selection (monorepo only)
 
 Present the detected sub-projects to the user as a numbered list:
 
@@ -36,33 +74,45 @@ Then ask:
 
 > Run selected projects in **parallel** (faster, more agents) or **sequential** (one at a time)?
 
-**Parallel mode:** For each selected sub-project, spawn a separate background Agent (Agent tool, `run_in_background: true`) that runs the full pipeline (Steps 3-8) with `PROJECT_ROOT="$PWD/<subproject_path>"`. Use the project name in the agent name (e.g., "Archie: gasztroterkepek-android"). Namespace temp files with the project name: `/tmp/archie_sub1_<name>.json`. Wait for all agents to complete, then go to Step 9.
+**Parallel mode:** For each selected sub-project, spawn a separate background Agent (Agent tool, `run_in_background: true`) that runs the full pipeline (Steps 1-7) with `PROJECT_ROOT="$PWD/<subproject_path>"`. Use the project name in the agent name (e.g., "Archie: gasztroterkepek-android"). Namespace temp files with the project name: `/tmp/archie_sub1_<name>.json`. Wait for all agents to complete, then go to Step 8.
 
-**Sequential mode:** For each selected sub-project, set `PROJECT_ROOT="$PWD/<subproject_path>"` and run Steps 3-8 in order. Repeat for the next project. Then go to Step 9.
+**Sequential mode:** For each selected sub-project, set `PROJECT_ROOT="$PWD/<subproject_path>"` and run Steps 1-7 in order. Repeat for the next project. Then go to Step 8.
 
 **IMPORTANT:** The `.archie/*.py` scripts are installed at the REPO ROOT. Always reference them as `.archie/scanner.py` etc. from the repo root. But pass `PROJECT_ROOT` (the sub-project path) as the first argument to each script. This is how the scripts know which directory to analyze.
 
 ---
 
-## Steps 3-8: Per-Project Pipeline
-
-Run these steps once per project. In single-project mode, `PROJECT_ROOT` is the repo root. In monorepo mode, `PROJECT_ROOT` is the sub-project directory.
+Run the following steps once per project. In single-project mode, `PROJECT_ROOT` is the repo root. In monorepo mode, `PROJECT_ROOT` is the sub-project directory.
 
 Use `PROJECT_NAME` as the basename of `PROJECT_ROOT` for namespacing temp files (e.g., "gasztroterkepek-android").
 
-## Step 3: Run the scanner
+## Step 1: Run the scanner
+
+**If START_STEP > 1, skip this step.**
 
 ```bash
 python3 .archie/scanner.py "$PROJECT_ROOT"
 ```
 
-## Step 4: Read scan results
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 1
+```
+
+## Step 2: Read scan results
+
+**If START_STEP > 2, skip this step.**
 
 Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, top-level directories, and `frontend_ratio`.
 
 **UI layer detection:** Only spawn the dedicated UI Layer agent if `frontend_ratio` >= 0.20 (20%+ of source files are UI/frontend). A small SwiftUI menubar or a minor React admin panel in an otherwise backend/CLI/library project does NOT warrant a dedicated UI agent — the Structure agent will cover it.
 
-## Step 5: Spawn parallel analytical agents
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 2
+```
+
+## Step 3: Spawn parallel analytical agents
+
+**If START_STEP > 3, skip this step.**
 
 Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each focused on a different analytical concern. ALL agents read ALL source files under `$PROJECT_ROOT` — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
 
@@ -422,7 +472,15 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 
 **Spawn ALL agents in parallel.**
 
-## Step 6: Save Wave 1 output and merge
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 3
+```
+
+## Step 4: Save Wave 1 output and merge
+
+**If START_STEP > 4, skip this step.**
+
+**If resuming via --from or --continue:** Step 4 depends on Wave 1 agent outputs in /tmp/. These may not survive a system reboot. If merge fails with missing files, re-run from step 3: `/archie-deep-scan --from 3`
 
 After each subagent completes, use the Write tool to save its COMPLETE output text to a temporary file. The merge script handles JSON extraction automatically — it can parse plain JSON, code-fenced JSON, and conversation envelopes.
 
@@ -443,7 +501,13 @@ python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tm
 
 This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data). Verify the output shows non-zero component/section counts. If it says "0 sections, 0 components", the merge failed — check the agent output files.
 
-## Step 7: Wave 2 — Reasoning agent
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
+```
+
+## Step 5: Wave 2 — Reasoning agent
+
+**If START_STEP > 5, skip this step.**
 
 Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. Now spawn a single Opus subagent (`model: "opus"`) that reads ALL Wave 1 output and produces deep architectural reasoning.
 
@@ -521,7 +585,7 @@ Tell the Reasoning agent:
 > }
 > ```
 
-The Reasoning agent also gets the GROUNDING RULES from Step 5.
+The Reasoning agent also gets the GROUNDING RULES from Step 3.
 
 After the Reasoning agent completes, save its output and finalize:
 
@@ -535,7 +599,13 @@ python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
 
 This single command: merges the Reasoning agent's output into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
 
-## Step 7.5: AI Rule Synthesis
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5
+```
+
+## Step 6: AI Rule Synthesis
+
+**If START_STEP > 6, skip this step.**
 
 The blueprint contains architectural facts. This step synthesizes them into **mechanically enforceable rules** that hooks can validate on every code edit.
 
@@ -598,7 +668,13 @@ python3 .archie/extract_output.py rules /tmp/archie_rules_$PROJECT_NAME.json "$P
 
 **IMPORTANT: Do NOT try to extract or parse JSON yourself. Always use the pre-installed scripts.**
 
-## Step 8: Intent Layer — per-folder CLAUDE.md
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
+```
+
+## Step 7: Intent Layer — per-folder CLAUDE.md
+
+**If START_STEP > 7, skip this step.**
 
 This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
 
@@ -653,13 +729,25 @@ python3 .archie/intent_layer.py merge "$PROJECT_ROOT"
 
 ---
 
-## Step 9: Clean up
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
+```
+
+## Step 8: Clean up
+
+**If START_STEP > 8, skip this step.**
 
 ```bash
 rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json
 ```
 
-## Step 10: Drift Detection & Architectural Assessment
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
+```
+
+## Step 9: Drift Detection & Architectural Assessment
+
+**If START_STEP > 9, skip this step.**
 
 ### Phase 0: Health measurement
 
@@ -799,5 +887,9 @@ Synthesize from pitfalls, trade-offs, drift findings (both mechanical and deep),
 - What to watch for going forward
 
 **Health scores** from Phase 0 (erosion, verbosity) have been saved to `.archie/health_history.json` for trending. Run `/archie-scan` regularly to track how these metrics change over time.
+
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 9
+```
 
 End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-scan` for fast health checks, `/archie-drift` for detailed drift analysis."**
