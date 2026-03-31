@@ -46,7 +46,8 @@ python3 archie/standalone/intent_layer.py next-ready /path/to/project
 npx archie /path/to/project
 
 # Then in Claude Code on the target project:
-/archie-init      # Full architecture analysis
+/archie-scan      # Fast architecture health check (1-3 min, run often)
+/archie-deep-scan # Comprehensive architecture baseline (15-20 min, run once)
 /archie-refresh   # Update after code changes
 /archie-enrich    # AI-enrich per-folder CLAUDE.md
 /archie-viewer    # Blueprint inspector
@@ -57,7 +58,12 @@ npx archie /path/to/project
 python -m pytest tests/ -v
 ```
 
-## Analysis Pipeline (2-Wave)
+## Two-Command Architecture
+
+- **`/archie-scan`** — Fast daily health check (1-3 min). Runs scanner, skeleton extraction, health metrics (erosion/verbosity), rule checking, and cycle detection. No AI agents needed.
+- **`/archie-deep-scan`** — Comprehensive baseline (15-20 min). Full 2-wave AI analysis producing blueprint, per-folder CLAUDE.md, rules, and health metrics. Run once, then use `/archie-scan` for incremental checks.
+
+## Deep Scan Pipeline (2-Wave)
 
 1. **Scanner** — Counts files, detects frameworks, builds file tree
 2. **Wave 1** (parallel) — 3-4 Sonnet agents gather facts:
@@ -93,7 +99,7 @@ Deep rules use Agent X's reasoning: violation_keywords per decision chain node, 
 
 Standalone scripts exist in two places (canonical → copy):
 - `archie/standalone/*.py` → `npm-package/assets/*.py`
-- `.claude/commands/archie-*.md` → `npm-package/assets/archie-*.md`
+- `.claude/commands/archie-*.md` (including `archie-scan.md`, `archie-deep-scan.md`) → `npm-package/assets/archie-*.md`
 
 Always edit `archie/standalone/` first, then copy to `npm-package/assets/`.
 Always edit `.claude/commands/` first, then copy to `npm-package/assets/`.
