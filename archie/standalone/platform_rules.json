@@ -1,0 +1,439 @@
+{
+  "rules": [
+    {
+      "id": "universal-god-function",
+      "platform": "universal",
+      "check": "complexity_threshold",
+      "threshold": 15,
+      "severity": "error",
+      "description": "God-function: cyclomatic complexity exceeds 15, split into smaller functions"
+    },
+    {
+      "id": "universal-complex-function",
+      "platform": "universal",
+      "check": "complexity_threshold",
+      "threshold": 10,
+      "severity": "warn",
+      "description": "Complex function: cyclomatic complexity exceeds 10, consider refactoring"
+    },
+    {
+      "id": "universal-god-class-methods",
+      "platform": "universal",
+      "check": "size_threshold",
+      "max_methods": 30,
+      "severity": "warn",
+      "description": "God-class by method count: file has more than 30 methods/functions"
+    },
+    {
+      "id": "universal-god-class-lines",
+      "platform": "universal",
+      "check": "size_threshold",
+      "max_lines": 500,
+      "severity": "warn",
+      "description": "God-class by line count: file exceeds 500 lines"
+    },
+    {
+      "id": "universal-large-file",
+      "platform": "universal",
+      "check": "size_threshold",
+      "max_lines": 800,
+      "severity": "info",
+      "description": "Large file: file exceeds 800 lines, consider splitting"
+    },
+    {
+      "id": "universal-very-large-file",
+      "platform": "universal",
+      "check": "size_threshold",
+      "max_lines": 1500,
+      "severity": "warn",
+      "description": "Very large file: file exceeds 1500 lines, strongly consider splitting"
+    },
+    {
+      "id": "universal-todo-fixme",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["FIXME", "HACK", "XXX"],
+      "severity": "info",
+      "description": "Unresolved FIXME/HACK/XXX comment found"
+    },
+    {
+      "id": "universal-hardcoded-localhost",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["localhost:\\d+", "127\\.0\\.0\\.1:\\d+"],
+      "severity": "info",
+      "description": "Hardcoded localhost URL found — use configuration or environment variables"
+    },
+    {
+      "id": "universal-hardcoded-secret",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["(?i)(api_key|secret_key|password|token)\\s*=\\s*[\"'][^\"']{8,}[\"']"],
+      "severity": "error",
+      "description": "Possible hardcoded secret or API key in source code"
+    },
+    {
+      "id": "universal-many-params-function",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["def\\s+\\w+\\([^)]*,\\s*[^)]*,\\s*[^)]*,\\s*[^)]*,\\s*[^)]*,\\s*[^)]*,\\s*[^)]*\\)"],
+      "severity": "info",
+      "description": "Function with 7+ parameters detected — consider using a data class or builder pattern"
+    },
+    {
+      "id": "universal-disabled-test",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["@Ignore", "@Disabled", "@skip", "xit\\(", "xdescribe\\(", "xtest\\("],
+      "severity": "info",
+      "description": "Disabled or skipped test found — clean up or re-enable"
+    },
+    {
+      "id": "universal-debug-breakpoint",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["\\bdebugger\\b", "\\bbreakpoint\\(\\)", "\\bpdb\\.set_trace\\(\\)"],
+      "severity": "warn",
+      "description": "Debug breakpoint left in code — remove before merging"
+    },
+    {
+      "id": "universal-empty-catch",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["catch\\s*\\([^)]*\\)\\s*\\{\\s*\\}"],
+      "severity": "warn",
+      "description": "Empty catch block swallows errors silently — at minimum log the error"
+    },
+    {
+      "id": "universal-credential-in-url",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["://\\w+:\\w+@"],
+      "severity": "error",
+      "description": "Credentials embedded in URL — use environment variables instead"
+    },
+    {
+      "id": "universal-large-method-count",
+      "platform": "universal",
+      "check": "size_threshold",
+      "max_methods": 20,
+      "severity": "info",
+      "description": "File has more than 20 methods/functions — consider splitting responsibilities"
+    },
+
+    {
+      "id": "android-viewmodel-context",
+      "platform": "android",
+      "check": "forbidden_content",
+      "applies_to": "",
+      "file_pattern": "*ViewModel.kt",
+      "forbidden_patterns": ["import android\\.content\\.Context", "import android\\.app\\.Activity"],
+      "severity": "error",
+      "description": "ViewModel references Context or Activity — use AndroidViewModel or inject application context"
+    },
+    {
+      "id": "android-fragment-network",
+      "platform": "android",
+      "check": "architectural_constraint",
+      "file_pattern": "*Fragment.kt",
+      "forbidden_patterns": ["Retrofit", "OkHttpClient", "HttpURLConnection", "\\.enqueue\\("],
+      "severity": "error",
+      "rationale": "Fragments should not perform network calls directly — delegate to ViewModel/Repository",
+      "description": "Fragment performs network call — move network logic to ViewModel or Repository layer"
+    },
+    {
+      "id": "android-activity-too-large",
+      "platform": "android",
+      "check": "size_threshold",
+      "file_pattern": "*Activity.kt",
+      "max_lines": 300,
+      "severity": "warn",
+      "description": "Activity exceeds 300 lines — extract logic to ViewModel or helper classes"
+    },
+    {
+      "id": "android-fragment-too-large",
+      "platform": "android",
+      "check": "size_threshold",
+      "file_pattern": "*Fragment.kt",
+      "max_lines": 300,
+      "severity": "warn",
+      "description": "Fragment exceeds 300 lines — extract logic to ViewModel or helper classes"
+    },
+    {
+      "id": "android-viewmodel-too-large",
+      "platform": "android",
+      "check": "size_threshold",
+      "file_pattern": "*ViewModel.kt",
+      "max_lines": 400,
+      "severity": "warn",
+      "description": "ViewModel exceeds 400 lines — extract use cases or split responsibilities"
+    },
+    {
+      "id": "android-fragment-direct-db",
+      "platform": "android",
+      "check": "architectural_constraint",
+      "file_pattern": "*Fragment.kt",
+      "forbidden_patterns": ["Room", "\\.dao\\(\\)", "SQLiteDatabase", "ContentResolver"],
+      "severity": "error",
+      "rationale": "Fragments should not access the database directly — use Repository pattern",
+      "description": "Fragment accesses database directly — delegate to Repository layer"
+    },
+    {
+      "id": "android-activity-direct-db",
+      "platform": "android",
+      "check": "architectural_constraint",
+      "file_pattern": "*Activity.kt",
+      "forbidden_patterns": ["Room", "\\.dao\\(\\)", "SQLiteDatabase", "ContentResolver"],
+      "severity": "error",
+      "rationale": "Activities should not access the database directly — use Repository pattern",
+      "description": "Activity accesses database directly — delegate to Repository layer"
+    },
+    {
+      "id": "android-findviewbyid",
+      "platform": "android",
+      "check": "forbidden_content",
+      "file_pattern": "*.kt",
+      "forbidden_patterns": ["findViewById\\("],
+      "severity": "info",
+      "description": "findViewById usage detected — prefer View Binding or Compose"
+    },
+    {
+      "id": "android-hardcoded-string-ui",
+      "platform": "android",
+      "check": "architectural_constraint",
+      "file_pattern": "*Fragment.kt",
+      "forbidden_patterns": ["\\.text\\s*=\\s*\"[A-Z]"],
+      "severity": "info",
+      "rationale": "UI strings should be in strings.xml for localization",
+      "description": "Hardcoded UI string in Fragment — use string resources for localization"
+    },
+    {
+      "id": "android-coroutine-globalscope",
+      "platform": "android",
+      "check": "forbidden_content",
+      "file_pattern": "*.kt",
+      "forbidden_patterns": ["GlobalScope\\.launch", "GlobalScope\\.async"],
+      "severity": "warn",
+      "description": "GlobalScope usage detected — use viewModelScope, lifecycleScope, or a custom scope"
+    },
+
+    {
+      "id": "swift-viewcontroller-too-large",
+      "platform": "swift",
+      "check": "size_threshold",
+      "file_pattern": "*ViewController.swift",
+      "max_lines": 400,
+      "severity": "warn",
+      "description": "ViewController exceeds 400 lines — extract logic to child VCs or coordinators"
+    },
+    {
+      "id": "swift-appdelegate-too-large",
+      "platform": "swift",
+      "check": "size_threshold",
+      "file_pattern": "AppDelegate.swift",
+      "max_lines": 200,
+      "severity": "warn",
+      "description": "AppDelegate exceeds 200 lines — extract initialization to dedicated services"
+    },
+    {
+      "id": "swift-force-unwrap",
+      "platform": "swift",
+      "check": "forbidden_content",
+      "file_pattern": "*.swift",
+      "forbidden_patterns": ["[a-zA-Z_]\\w*!\\s*[^=]"],
+      "severity": "warn",
+      "description": "Force unwrap detected — use guard let, if let, or nil coalescing instead"
+    },
+    {
+      "id": "swift-force-try",
+      "platform": "swift",
+      "check": "forbidden_content",
+      "file_pattern": "*.swift",
+      "forbidden_patterns": ["try!\\s"],
+      "severity": "warn",
+      "description": "Force try detected — use do/catch or try? instead"
+    },
+    {
+      "id": "swift-force-cast",
+      "platform": "swift",
+      "check": "forbidden_content",
+      "file_pattern": "*.swift",
+      "forbidden_patterns": ["\\bas!\\s"],
+      "severity": "warn",
+      "description": "Force cast detected — use as? with guard/if let instead"
+    },
+    {
+      "id": "swift-view-too-large",
+      "platform": "swift",
+      "check": "size_threshold",
+      "file_pattern": "*View.swift",
+      "max_lines": 250,
+      "severity": "warn",
+      "description": "SwiftUI View exceeds 250 lines — extract subviews into separate components"
+    },
+    {
+      "id": "swift-print-in-production",
+      "platform": "swift",
+      "check": "forbidden_content",
+      "file_pattern": "*.swift",
+      "forbidden_patterns": ["\\bprint\\("],
+      "severity": "info",
+      "description": "print() found — use os_log or Logger for production code"
+    },
+    {
+      "id": "swift-singleton-abuse",
+      "platform": "swift",
+      "check": "forbidden_content",
+      "file_pattern": "*.swift",
+      "forbidden_patterns": ["static\\s+let\\s+shared\\s*="],
+      "severity": "info",
+      "description": "Singleton pattern detected — consider dependency injection for testability"
+    },
+
+    {
+      "id": "typescript-component-too-large",
+      "platform": "typescript",
+      "check": "size_threshold",
+      "file_pattern": "*.tsx",
+      "max_lines": 200,
+      "severity": "warn",
+      "description": "React component file exceeds 200 lines — extract into smaller components"
+    },
+    {
+      "id": "typescript-useeffect-empty-deps",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "file_pattern": "*.tsx",
+      "forbidden_patterns": ["useEffect\\(.*,\\s*\\[\\s*\\]\\)"],
+      "severity": "info",
+      "description": "useEffect with empty dependency array — verify this is intentional (runs only on mount)"
+    },
+    {
+      "id": "typescript-direct-dom",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "file_pattern": "*.tsx",
+      "forbidden_patterns": ["document\\.getElementById", "document\\.querySelector", "\\.innerHTML\\s*="],
+      "severity": "warn",
+      "description": "Direct DOM manipulation in React component — use refs or state instead"
+    },
+    {
+      "id": "typescript-console-log",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "file_pattern": "*.ts",
+      "forbidden_patterns": ["console\\.log\\("],
+      "severity": "info",
+      "description": "console.log found — remove or replace with proper logging before merging"
+    },
+    {
+      "id": "typescript-console-log-tsx",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "file_pattern": "*.tsx",
+      "forbidden_patterns": ["console\\.log\\("],
+      "severity": "info",
+      "description": "console.log found in component — remove or replace with proper logging"
+    },
+    {
+      "id": "typescript-any-type",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "file_pattern": "*.ts",
+      "forbidden_patterns": [":\\s*any\\b", "as\\s+any\\b"],
+      "severity": "warn",
+      "description": "Usage of 'any' type defeats TypeScript safety — use proper types or 'unknown'"
+    },
+    {
+      "id": "typescript-any-type-tsx",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "file_pattern": "*.tsx",
+      "forbidden_patterns": [":\\s*any\\b", "as\\s+any\\b"],
+      "severity": "warn",
+      "description": "Usage of 'any' type in component — use proper types or 'unknown'"
+    },
+    {
+      "id": "typescript-index-as-key",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "file_pattern": "*.tsx",
+      "forbidden_patterns": ["key=\\{\\s*(index|i|idx)\\s*\\}"],
+      "severity": "warn",
+      "description": "Array index used as React key — use a stable unique identifier instead"
+    },
+
+    {
+      "id": "python-bare-except",
+      "platform": "python",
+      "check": "forbidden_content",
+      "file_pattern": "*.py",
+      "forbidden_patterns": ["except\\s*:"],
+      "severity": "warn",
+      "description": "Bare except catches all exceptions including KeyboardInterrupt — specify exception type"
+    },
+    {
+      "id": "python-star-import",
+      "platform": "python",
+      "check": "forbidden_content",
+      "file_pattern": "*.py",
+      "forbidden_patterns": ["from\\s+\\S+\\s+import\\s+\\*"],
+      "severity": "warn",
+      "description": "Star import pollutes namespace and hides dependencies — import specific names"
+    },
+    {
+      "id": "python-missing-type-hints",
+      "platform": "python",
+      "check": "forbidden_content",
+      "file_pattern": "*.py",
+      "forbidden_patterns": ["^def\\s+[a-z_]\\w*\\([^)]*\\)\\s*:"],
+      "severity": "info",
+      "description": "Public function without return type annotation — add type hints for clarity"
+    },
+    {
+      "id": "python-global-mutable-state",
+      "platform": "python",
+      "check": "forbidden_content",
+      "file_pattern": "*.py",
+      "forbidden_patterns": ["^[A-Z_]+\\s*=\\s*\\[", "^[A-Z_]+\\s*=\\s*\\{"],
+      "severity": "info",
+      "description": "Global mutable state (list/dict constant) — consider freezing or using immutable types"
+    },
+    {
+      "id": "python-eval-exec",
+      "platform": "python",
+      "check": "forbidden_content",
+      "file_pattern": "*.py",
+      "forbidden_patterns": ["\\beval\\(", "\\bexec\\("],
+      "severity": "error",
+      "description": "eval() or exec() usage is a security risk — find a safer alternative"
+    },
+    {
+      "id": "python-print-in-library",
+      "platform": "python",
+      "check": "forbidden_content",
+      "file_pattern": "*.py",
+      "forbidden_patterns": ["^\\s*print\\("],
+      "severity": "info",
+      "description": "print() found — use logging module for library/production code"
+    },
+    {
+      "id": "python-mutable-default-arg",
+      "platform": "python",
+      "check": "forbidden_content",
+      "file_pattern": "*.py",
+      "forbidden_patterns": ["def\\s+\\w+\\([^)]*=\\s*\\[\\s*\\]", "def\\s+\\w+\\([^)]*=\\s*\\{\\s*\\}"],
+      "severity": "warn",
+      "description": "Mutable default argument — use None and initialize inside the function"
+    },
+    {
+      "id": "python-assert-in-production",
+      "platform": "python",
+      "check": "forbidden_content",
+      "file_pattern": "*.py",
+      "forbidden_patterns": ["^\\s*assert\\s+"],
+      "severity": "info",
+      "description": "assert statement can be disabled with -O flag — use explicit checks for production validation"
+    }
+  ]
+}
