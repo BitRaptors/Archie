@@ -86,19 +86,24 @@ def _get_blueprint_context(root: Path) -> str:
 
 
 def _get_rules_summary(root: Path) -> str:
-    """Extract enforcement rules summary."""
+    """Extract architectural rules with rationale for AI reviewer."""
     rules_data = _load_json(root / ".archie" / "rules.json")
     rules = rules_data.get("rules", []) if isinstance(rules_data, dict) else []
     if not rules:
         return ""
 
-    parts = ["## Enforcement Rules"]
+    parts = ["## Architectural Rules"]
+    parts.append("Evaluate changes against each rule's rationale — the intent matters more than any regex pattern.\n")
     for r in rules:
         if isinstance(r, dict):
             desc = r.get("description", "")
+            rationale = r.get("rationale", "")
             sev = r.get("severity", "warn")
-            check = r.get("check", "")
-            parts.append(f"- [{sev}] ({check}) {desc}")
+            applies = r.get("applies_to", "") or r.get("file_pattern", "")
+            scope = f" (scope: `{applies}`)" if applies else ""
+            parts.append(f"- **[{sev}]** {desc}{scope}")
+            if rationale:
+                parts.append(f"  *Why:* {rationale}")
 
     return "\n".join(parts)
 
@@ -151,6 +156,7 @@ def cmd_plan(root: Path):
     print("2. Does it respect component boundaries and dependency directions?")
     print("3. Does it trigger any trade-off violation signals?")
     print("4. Does it follow the development rules?")
+    print("5. Does the plan violate the INTENT of any architectural rule? Read each rule's rationale — evaluate whether the plan undermines the reasoning, not just whether it matches a regex pattern.")
     print("")
     print("Return JSON: {\"approved\": true/false, \"violations\": [{\"decision\": \"...\", \"concern\": \"...\", \"suggestion\": \"...\"}]}")
     print("")
@@ -231,6 +237,7 @@ def cmd_diff(root: Path):
     print("3. Are component boundaries and dependency directions respected?")
     print("4. Are there any trade-off violation signals in the new code?")
     print("5. Do the changes follow the development rules?")
+    print("6. Do the changes violate the INTENT of any architectural rule? Read each rule's rationale — evaluate whether the change undermines the reasoning, not just whether it matches a regex pattern.")
     print("")
     print("Return JSON: {\"approved\": true/false, \"violations\": [{\"file\": \"...\", \"rule\": \"...\", \"concern\": \"...\", \"suggestion\": \"...\"}]}")
     print("")

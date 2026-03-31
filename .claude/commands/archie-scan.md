@@ -78,21 +78,66 @@ This is the core of the scan. Don't check regex patterns — **understand the ar
 
 Based on what you found, propose **architectural rules** — not refactoring tasks.
 
-Good rules (architectural invariants):
-- "Domain layer must not import from presentation layer"
-- "All ViewModels must use constructor injection, not service locator"
-- "Repositories must expose Flow, not callbacks"
-- "Feature modules must not import from each other"
+Good rules (architectural invariants with reasoning):
+- "Domain layer must not import from presentation layer" — *because the domain is the stable core; if it depends on UI, every UI change ripples through business logic*
+- "All ViewModels must use constructor injection" — *because the testability decision chain requires ViewModels to be unit-testable without framework setup*
+- "Feature modules must not import from each other" — *because independent deployment was a key trade-off; cross-feature imports create hidden coupling*
 
 Bad rules (these are tasks, not rules):
 - "Extract dialog boilerplate into base class"
 - "Move shared types to a model package"
-- "Exclude gradle scripts from scan"
 
-Each rule should be something that can be **checked on every future code change** — not a one-time refactoring. Format:
+Each rule should be something that can be **checked on every future code change** — not a one-time refactoring.
+
+**Rules are enforced by the AI reviewer** (runs on every plan approval and pre-commit). The reviewer reads each rule's `rationale` and evaluates whether changes violate the *intent* — this is the primary enforcement channel.
+
+**Optionally**, if a rule can also be expressed as a regex pattern, add mechanical fields (`forbidden_patterns`, `required_in_content`, etc.) so the pre-edit hook can catch obvious violations instantly. Most architectural rules won't have this — that's fine.
+
+**Rule schema:**
+
+Required fields:
+```json
+{"id": "scan-NNN", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning", "severity": "error|warn"}
+```
+
+Optional mechanical fields (add ONLY when a meaningful regex exists):
+- `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
+- `"applies_to"`: directory prefix scope
+- `"file_pattern"`: glob matched against filename
+- `"forbidden_patterns"`: regex patterns that violate the rule
+- `"required_in_content"`: strings that must appear in matching files
+
+Examples — most rules are rationale-only:
+```json
+{"id": "scan-001", "description": "Feature modules must not import from each other", "rationale": "Independent deployment was a key trade-off. Cross-feature imports create hidden coupling that prevents releasing features independently.", "severity": "error"}
+```
+```json
+{"id": "scan-002", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. If it depends on UI, every UI refactor ripples through business logic.", "severity": "error", "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
+```
+
+The **`rationale`** field is REQUIRED. Write 1-3 sentences tracing the constraint back to an architectural decision, trade-off, or pitfall. If a blueprint exists, reference specific decisions. If not, explain the reasoning from what you observed in the codebase.
+
+Use `id` prefix `scan-` with a 3-digit number (e.g., `scan-001`). Start numbering after the highest existing `scan-` id in `.archie/rules.json`.
+
+Present proposed rules as a **numbered checklist**. Keep the full JSON objects internally (you'll need them for adoption), but show the user a clean summary with the reasoning visible:
 
 ```
-- [ ] Adopt: "rule description" (currently violated by: file1, file2)
+## Proposed Rules
+
+**1.** Domain layer must not import from presentation layer — `error`
+*Why:* The domain is the stable core. If it depends on UI, every UI refactor ripples through business logic, breaking the layered architecture.
+Violated by: `domain/service.py`, `domain/model.py`
+
+**2.** All ViewModels must use constructor injection — `warn`
+*Why:* The testability decision chain requires ViewModels to be unit-testable without framework setup. Service locator breaks this.
+Violated by: `UserViewModel.kt`
+
+**3.** Feature modules must not import from each other — `error`
+*Why:* Independent deployment was a key trade-off. Cross-feature imports create hidden coupling that prevents releasing features independently.
+Violated by: `feed/ProfileHelper.kt`
+
+> **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
+> Adopted rules take effect immediately — the AI reviewer enforces them on every plan, code change, and commit.
 ```
 
 Do NOT propose rules that appear in `.archie/ignored_rules.json`.
@@ -166,15 +211,31 @@ Append health scores to `.archie/health_history.json`:
 
 ## Step 4: Present and process adoptions
 
-Print a summary (not the full report). Include health scores, finding count, proposed rules with checkboxes, next task, and path to full report.
+Print a summary (not the full report). Include health scores, finding count, the **numbered rules table** from section 2d, next task, and path to full report.
 
-Then:
+The table already includes the adoption prompt:
+> **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
 
-> Review the proposed rules above. Tell me which to adopt (enforced on future scans) or ignore (won't be proposed again).
+**Wait for the user's response.** Then process it:
 
-Process the user's response:
-- Adopted → append to `.archie/rules.json`
-- Ignored → append to `.archie/ignored_rules.json`
+Parse the user's reply:
+- Numbers (e.g., `1, 3`) → adopt those rules
+- `all` → adopt every proposed rule
+- `none` → ignore every proposed rule
+- Mixed (e.g., `1, 3, ignore rest`) → adopt the named numbers, ignore the rest
+
+For each **adopted** rule:
+1. Read `.archie/rules.json` (create as `{"rules": []}` if missing)
+2. Append the rule's full JSON object (with `id`, `check`, `description`, `severity`, and all type-specific fields like `forbidden_patterns`, `applies_to`, `file_pattern`, etc.)
+3. Add `"source": "scan-adopted"` to each appended rule
+4. Write back. This is the same schema the deep scan uses — `check_rules.py` must be able to enforce it.
+
+For each **ignored** rule:
+1. Read `.archie/ignored_rules.json` (create as `{"ignored": []}` if missing)
+2. Append each ignored rule's `id` and `description`
+3. Write back.
+
+Print confirmation: `Adopted N rules, ignored M. Rules take effect immediately — the AI reviewer will enforce them on every plan, code change, and commit.`
 
 ## Cleanup
 

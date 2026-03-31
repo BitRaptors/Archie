@@ -234,6 +234,7 @@ def install(project_root: Path) -> None:
         # Running archie scripts
         "Bash(python3 .archie/*.py *)",
         "Bash(python3 .archie/*.py)",
+        "Bash(python3 -c *)",
         # Shell utilities Claude uses during orchestration
         "Bash(git *)",
         "Bash(test *)",
@@ -243,6 +244,7 @@ def install(project_root: Path) -> None:
         "Bash(echo *)",
         "Bash(for *)",
         "Bash(mkdir *)",
+        "Bash(date *)",
         "Bash(rm -f /tmp/archie_*)",
         # Temp files for agent output
         "Write(//tmp/archie_*)",
@@ -252,6 +254,13 @@ def install(project_root: Path) -> None:
         "Read(.archie/**)",
         "Write(.archie/*)",
         "Write(.archie/**)",
+        "Edit(.archie/*)",
+        "Edit(.archie/**)",
+        # Reading project source files for analysis (scan verifies findings)
+        "Read(**)",
+        # Per-folder CLAUDE.md (intent layer writes these)
+        "Write(**/CLAUDE.md)",
+        "Edit(**/CLAUDE.md)",
         # Subagent spawning (Wave 1, Wave 2, rules, intent layer)
         "Agent(*)",
     ]

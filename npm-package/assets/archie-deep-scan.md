@@ -607,52 +607,73 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5
 
 **If START_STEP > 6, skip this step.**
 
-The blueprint contains architectural facts. This step synthesizes them into **mechanically enforceable rules** that hooks can validate on every code edit.
+The blueprint contains architectural facts. This step synthesizes them into **architectural rules** — insights that the AI reviewer uses to evaluate plans and code changes.
 
 Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 
 > Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, and development rules.
 >
-> Produce 20-40 enforcement rules that a hook can mechanically validate. Each rule checks a file path + code content and gives a clear pass/fail. Return ONLY valid JSON: `{"rules": [...]}`.
+> Produce 20-40 architectural rules. Each rule captures an architectural insight that a coding agent must respect when planning or making changes.
 >
-> ## Rule types (use these exact `check` values):
+> **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `rationale` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*.
 >
-> ### `forbidden_import` — File in directory X must not import from Y
+> **Secondary enforcement is mechanical (optional):** if a rule can also be expressed as a regex, add `check` + `forbidden_patterns`/`required_in_content` fields so the pre-edit hook catches obvious violations instantly. Most rules won't have this — that's fine. Don't force regex where it doesn't fit.
+>
+> Return ONLY valid JSON: `{"rules": [...]}`.
+>
+> ## Rule schema
+>
+> **Required fields** (every rule):
 > ```json
-> {"check": "forbidden_import", "description": "...", "applies_to": "path/prefix/", "forbidden_patterns": ["regex1", "regex2"], "severity": "error"}
+> {"id": "dep-001", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning chain", "severity": "error|warn"}
 > ```
-> `applies_to`: directory prefix. `forbidden_patterns`: regex patterns matched against file content.
 >
-> ### `required_pattern` — File matching a name pattern must contain certain code
-> ```json
-> {"check": "required_pattern", "description": "...", "file_pattern": "glob pattern", "required_in_content": ["string1", "string2"], "severity": "warn"}
-> ```
-> `file_pattern`: glob matched against filename (e.g., `*ViewModel.kt`). `required_in_content`: at least ONE must appear in the file content.
+> **Optional mechanical fields** (add ONLY when a meaningful regex exists):
+> - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
+> - `"applies_to"`: directory prefix scope
+> - `"file_pattern"`: glob matched against filename
+> - `"forbidden_patterns"`: regex patterns that violate the rule
+> - `"required_in_content"`: strings that must appear in matching files
 >
-> ### `forbidden_content` — Code must never contain certain patterns
-> ```json
-> {"check": "forbidden_content", "description": "...", "forbidden_patterns": ["regex1", "regex2"], "applies_to": "", "severity": "error"}
-> ```
-> `applies_to`: optional directory prefix (empty = all files). `forbidden_patterns`: regex patterns.
+> When `check` is present:
+> - `forbidden_import`: requires `applies_to` + `forbidden_patterns`
+> - `required_pattern`: requires `file_pattern` + `required_in_content`
+> - `forbidden_content`: requires `forbidden_patterns`, optional `applies_to`
+> - `architectural_constraint`: requires `file_pattern` + `forbidden_patterns`
 >
-> ### `architectural_constraint` — Deep invariants scoped to specific file types
+> ## The `rationale` field (REQUIRED — this is the most important field)
+>
+> This tells the AI reviewer WHY this rule exists — the architectural reasoning chain. Write 1-3 sentences tracing the constraint back to a root decision, trade-off, or pitfall from the blueprint. Examples:
+> - "We chose SQLite for the local-first constraint. Introducing any ORM or remote database would undermine the zero-config deployment model and force connection management the architecture doesn't support."
+> - "ViewModels must stay framework-agnostic because the decision chain roots in testability — if a ViewModel references Android Context, it can't be unit-tested without instrumentation, which breaks the fast-feedback development loop."
+> - "Feature modules are isolated to enable independent deployment. Cross-feature imports create hidden coupling that prevents releasing features independently."
+>
+> ## Examples
+>
+> Rationale-only rule (most rules will look like this):
 > ```json
-> {"check": "architectural_constraint", "description": "...", "file_pattern": "glob", "forbidden_patterns": ["regex1"], "rationale": "why this matters", "severity": "error"}
+> {"id": "arch-001", "description": "Business logic must not depend on UI framework classes", "rationale": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.", "severity": "error"}
 > ```
-> `file_pattern`: glob matched against filename. `forbidden_patterns`: regex patterns that violate the constraint.
+>
+> Rule with optional mechanical enforcement:
+> ```json
+> {"id": "dep-001", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.", "severity": "error", "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
+> ```
 >
 > ## What to produce:
 >
-> **Structural rules** — dependency direction between layers/components, forbidden technologies (from decisions/trade-offs), file naming where violations would break the build or architecture.
+> **Deep architectural rules** — invariants an AI coding agent might accidentally violate. These are the most valuable. Derive them from decision chains, trade-offs, pitfalls, and pattern descriptions. Examples: "ViewModel must never reference View/Context", "Repository must use IO dispatcher", "Fragments must use DI delegation not direct construction".
 >
-> **Deep architectural rules** — invariants an AI coding agent might accidentally violate. These are the most valuable. Examples: "ViewModel must never reference View/Context", "Repository must use IO dispatcher", "Fragments must use DI delegation not direct construction". Derive these from decision chains, trade-offs, pitfalls, and pattern descriptions.
+> **Structural rules** — dependency direction between layers/components, forbidden technologies (from decisions/trade-offs).
 >
 > ## Critical:
 > - Every rule must be specific to THIS project — never generic programming advice
 > - Focus on what an AI coding agent would get wrong without knowing this codebase
-> - Every `forbidden_patterns` entry must be a valid regex
+> - If you include `forbidden_patterns`, every entry must be a valid regex
 > - Include an `"id"` field for each rule (e.g., "dep-001", "arch-001", "ban-001")
-> - The `description` must explain WHAT is forbidden and WHY in one sentence
+> - The `description` must explain WHAT is forbidden in one sentence
+> - The `rationale` must explain WHY — trace it back to a decision, trade-off, or pitfall from the blueprint
+> - Do NOT force mechanical fields — if the insight is "don't put orchestration logic in repositories", that's a rationale-only rule
 
 **IMPORTANT: If `.archie/rules.json` already exists (from previous scans), read it first. The new rules must be MERGED with existing rules — do not overwrite user-adopted rules.**
 
