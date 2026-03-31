@@ -30,18 +30,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _load_json(path: Path) -> dict | list:
-    if path.exists():
-        try:
-            return json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import _load_json  # noqa: E402
 
 
 def _get_components(blueprint: dict) -> list[dict]:
@@ -447,20 +437,17 @@ def cmd_prompt(root: Path, folders: list[str], child_summaries_dir: str | None =
     prompt_parts.append("")
     prompt_parts.append("For each folder, return a JSON object with these fields:")
     prompt_parts.append("- purpose: 1-2 sentence summary — what this folder does, its role in the system, its primary constraint")
-    prompt_parts.append("- contains: 1-2 sentences — what kinds of things are in here and how they relate (e.g. '5 screen ViewModels following MVVM, each paired with a Fragment', 'API DTOs for the weather service, all implementing Serializable')")
-    prompt_parts.append("- patterns: list of {name, description, example} — architectural patterns that MUST be followed when adding code here. Each mechanically verifiable by a code reviewer.")
-    prompt_parts.append("- key_file_guides: list of {file, role, watch_for} — per-file role and foot-guns")
-    prompt_parts.append("- anti_patterns: list of strings — constraints: things that would break the architecture if done here")
-    prompt_parts.append("- common_task: {task, steps} — how to add/modify code that fits this folder's patterns")
-    prompt_parts.append("- code_examples: list of {scenario, code} — REQUIRED, 1-3 copy-pasteable code snippets showing the PATTERN this folder uses. Use actual imports from this codebase.")
-    prompt_parts.append("- decisions: list of {decision, rationale} — why the code is structured this way")
-    prompt_parts.append("- key_imports: list of strings — the public API of this folder: imports that other folders use from here")
+    prompt_parts.append("- patterns: list of {name, description, example} — max 7. Architectural patterns that MUST be followed when adding code here. Each mechanically verifiable.")
+    prompt_parts.append("- key_file_guides: list of {file, role, watch_for} — max 8. Per-file role and foot-guns")
+    prompt_parts.append("- anti_patterns: list of strings — max 5. Things that would break the architecture if done here")
+    prompt_parts.append("- decisions: list of {decision, rationale} — max 3. Why the code is structured this way")
+    prompt_parts.append("- code_examples: list of {scenario, code} — max 1. The SINGLE most representative code pattern. Use actual imports.")
     prompt_parts.append("")
     prompt_parts.append("## Line Budget")
     prompt_parts.append("")
-    prompt_parts.append("~200 lines per folder. Density over completeness. One precise sentence beats three vague ones.")
-    prompt_parts.append("Line costs: purpose=1, contains=2, each pattern=2, each key_file row=1, each step=1, each code_example=5+lines, each list item=1.")
-    prompt_parts.append("Prioritize: purpose > contains > patterns > key_files > code_examples > common_task > anti_patterns > decisions.")
+    prompt_parts.append("~80 lines per folder. Every CLAUDE.md is loaded into Claude's context window — bloated files waste tokens.")
+    prompt_parts.append("Density over completeness. One precise sentence beats three vague ones.")
+    prompt_parts.append("Prioritize: purpose > patterns > key_files > anti_patterns > decisions > code_example.")
     prompt_parts.append("Omit any field where you have nothing code-grounded to say — empty arrays are fine.")
     prompt_parts.append("")
     prompt_parts.append("## Rules")
@@ -469,8 +456,7 @@ def cmd_prompt(root: Path, folders: list[str], child_summaries_dir: str | None =
     prompt_parts.append("2. Every pattern must be mechanically verifiable by a code reviewer")
     prompt_parts.append("3. Reference ONLY files provided below. If you cannot ground a claim in code you see, skip it")
     prompt_parts.append("4. If child folder summaries are provided, add cross-cutting insights — don't repeat what children cover")
-    prompt_parts.append("5. For code_examples: use the actual import paths and naming conventions from this codebase")
-    prompt_parts.append("6. For key_imports: list only the exports that other parts of the codebase actually consume")
+    prompt_parts.append("5. If this folder already has a CLAUDE.md with manual notes, incorporate those insights — don't discard them")
     prompt_parts.append("")
     prompt_parts.append("### Structural (no-code) folders")
     prompt_parts.append("")
@@ -592,8 +578,16 @@ _AI_START = "<!-- archie:ai-start -->"
 _AI_END = "<!-- archie:ai-end -->"
 
 
+_MAX_CLAUDE_MD_LINES = 100  # budget per folder — density over completeness
+
+
 def _render_enrichment_section(data: dict) -> str:
-    """Render enrichment JSON into markdown sections."""
+    """Render enrichment JSON into concise markdown.
+
+    Budget: ~80-100 lines. Density over completeness.
+    Removed: 'contains' (redundant with purpose), 'key_imports' (noise).
+    Code examples: max 1.
+    """
     lines = []
     lines.append(_AI_START)
     lines.append("")
@@ -604,96 +598,73 @@ def _render_enrichment_section(data: dict) -> str:
         lines.append(f"> {purpose}")
         lines.append("")
 
-    # Contains
-    contains = data.get("contains", "")
-    if contains:
-        lines.append(f"**Contains:** {contains}")
-        lines.append("")
-
-    # Patterns
+    # Patterns (compact — name + description on one line)
     patterns = data.get("patterns", [])
     if patterns:
         lines.append("## Patterns")
         lines.append("")
-        for p in patterns:
+        for p in patterns[:7]:  # max 7 patterns
             if isinstance(p, dict):
-                lines.append(f"**{p.get('name', '')}** — {p.get('description', '')}")
+                desc = p.get("description", "")
                 ex = p.get("example", "")
+                line = f"**{p.get('name', '')}** — {desc}"
                 if ex:
-                    lines.append(f"  - Example: `{ex}`")
+                    line += f" (`{ex}`)"
+                lines.append(line)
             elif isinstance(p, str):
                 lines.append(f"- {p}")
         lines.append("")
 
-    # Key File Guides
+    # Key File Guides (compact table)
     guides = data.get("key_file_guides", [])
     if guides:
         lines.append("## Key Files")
         lines.append("")
         lines.append("| File | Role | Watch For |")
         lines.append("|------|------|-----------|")
-        for g in guides:
+        for g in guides[:8]:  # max 8 files
             if isinstance(g, dict):
                 lines.append(f"| `{g.get('file', '')}` | {g.get('role', '')} | {g.get('watch_for', '')} |")
         lines.append("")
 
-    # Anti-Patterns
+    # Anti-Patterns (max 5)
     anti = data.get("anti_patterns", [])
     if anti:
         lines.append("## Anti-Patterns")
         lines.append("")
-        for a in anti:
+        for a in anti[:5]:
             lines.append(f"- {a}")
         lines.append("")
 
-    # Common Task
-    task = data.get("common_task", {})
-    if isinstance(task, dict) and task.get("task"):
-        lines.append("## Common Task")
-        lines.append("")
-        lines.append(f"**{task['task']}**")
-        steps = task.get("steps", [])
-        if steps:
-            for i, s in enumerate(steps, 1):
-                lines.append(f"{i}. {s}")
-        lines.append("")
-
-    # Decisions
+    # Decisions (max 3, compact)
     decisions = data.get("decisions", [])
     if decisions:
         lines.append("## Decisions")
         lines.append("")
-        for dec in decisions:
+        for dec in decisions[:3]:
             if isinstance(dec, dict):
                 lines.append(f"- **{dec.get('decision', '')}** — {dec.get('rationale', '')}")
             elif isinstance(dec, str):
                 lines.append(f"- {dec}")
         lines.append("")
 
-    # Code Examples
+    # Code Example (max 1, most representative)
     examples = data.get("code_examples", [])
     if examples:
-        lines.append("## Code Examples")
-        lines.append("")
-        for ex in examples:
-            if isinstance(ex, dict):
-                lines.append(f"### {ex.get('scenario', '')}")
+        ex = examples[0]
+        if isinstance(ex, dict):
+            code = ex.get("code", "")
+            if code:
+                lines.append(f"## Example: {ex.get('scenario', '')}")
                 lines.append("")
-                code = ex.get("code", "")
-                if code:
-                    lines.append("```")
-                    lines.append(code)
-                    lines.append("```")
+                lines.append("```")
+                # Truncate long examples
+                code_lines = code.split("\n")
+                if len(code_lines) > 15:
+                    code_lines = code_lines[:15] + ["// ..."]
+                lines.append("\n".join(code_lines))
+                lines.append("```")
                 lines.append("")
-
-    # Key Imports
-    imports = data.get("key_imports", [])
-    if imports:
-        lines.append("## Key Imports")
-        lines.append("")
-        for imp in imports:
-            lines.append(f"- `{imp}`")
-        lines.append("")
 
     lines.append(_AI_END)
     return "\n".join(lines)
@@ -869,30 +840,55 @@ def cmd_merge(root: Path):
     for folder_path, enrichment_data in sorted(all_enrichments.items()):
         claude_md_path = root / folder_path / "CLAUDE.md"
         ai_section = _render_enrichment_section(enrichment_data)
+        dir_name = folder_path.rsplit("/", 1)[-1] if "/" in folder_path else folder_path
 
         if claude_md_path.exists():
             content = claude_md_path.read_text()
-            # Replace existing AI section or append
+
             if _AI_START in content and _AI_END in content:
-                # Replace between markers
+                # Has archie markers — replace archie section, keep everything else
                 pattern = re.compile(
                     re.escape(_AI_START) + r".*?" + re.escape(_AI_END),
                     re.DOTALL,
                 )
                 content = pattern.sub(ai_section, content)
             else:
-                # Insert before the footer
+                # No archie markers — existing manual/Claude Code content.
+                # Extract the non-archie content, prepend it to archie section.
+                existing = content.strip()
+                # Remove any old footer
                 footer = "---\n*Auto-generated by Archie.*"
-                if footer in content:
-                    content = content.replace(footer, ai_section + "\n\n" + footer)
+                existing = existing.replace(footer, "").strip()
+                # Remove old header if it's just the dir name
+                if existing.startswith(f"# {dir_name}"):
+                    existing = existing[len(f"# {dir_name}"):].strip()
+
+                if existing:
+                    # Merge: keep existing content as a "Manual notes" block,
+                    # but truncate if combined would exceed budget
+                    existing_lines = existing.split("\n")
+                    ai_lines = ai_section.split("\n")
+                    budget_for_existing = max(20, _MAX_CLAUDE_MD_LINES - len(ai_lines) - 5)
+                    if len(existing_lines) > budget_for_existing:
+                        existing_lines = existing_lines[:budget_for_existing]
+                        existing_lines.append("<!-- truncated to fit line budget -->")
+                    content = f"# {dir_name}\n\n" + "\n".join(existing_lines) + "\n\n" + ai_section + "\n"
                 else:
-                    content = content.rstrip() + "\n\n" + ai_section + "\n"
+                    content = f"# {dir_name}\n\n{ai_section}\n"
+
+            # Enforce total line budget
+            total_lines = content.split("\n")
+            if len(total_lines) > _MAX_CLAUDE_MD_LINES + 20:  # 20 line grace
+                # Trim from the end (before the AI_END marker)
+                content = "\n".join(total_lines[:_MAX_CLAUDE_MD_LINES + 20])
+                if _AI_END not in content:
+                    content += f"\n{_AI_END}\n"
+
             claude_md_path.write_text(content)
             patched += 1
         else:
-            # Create minimal CLAUDE.md with AI section
-            dir_name = folder_path.rsplit("/", 1)[-1] if "/" in folder_path else folder_path
-            content = f"# {dir_name}\n\n{ai_section}\n\n---\n*Auto-generated by Archie.*\n"
+            # Create new CLAUDE.md
+            content = f"# {dir_name}\n\n{ai_section}\n"
             claude_md_path.parent.mkdir(parents=True, exist_ok=True)
             claude_md_path.write_text(content)
             created += 1
