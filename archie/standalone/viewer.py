@@ -18,6 +18,9 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import _load_json  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -25,15 +28,6 @@ from urllib.parse import urlparse
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".archie", "venv",
               ".venv", "dist", "build", ".next", ".nuxt", "coverage",
               ".pytest_cache", ".mypy_cache"}
-
-
-def _load_json(path: Path) -> dict | list:
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
 
 
 def _read_text(path: Path) -> str:

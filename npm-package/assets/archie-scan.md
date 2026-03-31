@@ -84,10 +84,25 @@ From `/tmp/archie_cycles.json` (detect_cycles.py output):
 - List all circular dependency cycles found.
 - For each cycle: name the modules involved, explain what coupling this creates, and why it matters (testing difficulty, build order, change propagation).
 
+From `/tmp/archie_health.json` — if `verbosity` > 0.05 or `duplicates` list is non-empty:
+- Report the specific duplicate code blocks found (file A lines X-Y ≈ file B lines X-Y).
+- Explain what the duplicated code does and suggest where to extract it.
+- AI agents are the primary source of code duplication — they reimplement utilities in each file instead of importing shared code. Flag this pattern explicitly.
+
 Rank all confirmed findings by impact — what would hurt most if left unfixed? Consider: frequency (how many files affected), severity (error vs warn), growth trend (getting worse?), blast radius (how much breaks if this goes wrong).
 
-### Playbook 4: Pattern Discovery and Rule Proposals
+### Playbook 4: Pattern Discovery, Duplication Detection, and Rule Proposals
 
+**Reimplemented code detection (critical — AI agents generate this constantly):**
+Look at the skeletons for functions with the **same or very similar names** appearing in multiple files. This is the #1 sign of AI-generated code rot — instead of importing a shared utility, the agent reimplements it in each file. Examples:
+- Same helper function defined in 3+ files (e.g., `loadConfig()`, `parseResponse()`, `formatDate()`)
+- Same error handling pattern copy-pasted across multiple classes
+- Same data transformation logic repeated with slight variations
+- Same validation logic reimplemented per-feature instead of shared
+
+For each duplication found, report it as a finding AND propose a rule: "Extract [function] to shared module — currently reimplemented in [N] files."
+
+**Pattern consistency checks:**
 Examine skeletons.json for patterns that most of the codebase follows but some files break:
 - If 90%+ of files in a category follow a naming convention, propose a rule for the outliers.
 - If most classes/modules use a consistent base class, DI pattern, or structural pattern, propose a rule.
