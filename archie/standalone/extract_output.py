@@ -29,16 +29,40 @@ from merge import extract_json_from_text  # noqa: E402
 # ---------------------------------------------------------------------------
 
 def cmd_rules(input_file: str, output_path: str):
-    """Extract rules JSON from raw agent output and save."""
+    """Extract rules JSON from raw agent output, merge with existing rules, save."""
     text = Path(input_file).read_text()
     data = extract_json_from_text(text)
     if not data:
         print("ERROR: could not extract rules JSON", file=sys.stderr)
         sys.exit(1)
 
-    Path(output_path).write_text(json.dumps(data, indent=2))
-    rule_count = len(data.get("rules", []))
-    print(f"Saved {rule_count} rules to {output_path}", file=sys.stderr)
+    new_rules = data.get("rules", [])
+
+    # Merge with existing rules — preserve user-adopted rules from /archie-scan
+    out = Path(output_path)
+    if out.exists():
+        try:
+            existing = json.loads(out.read_text())
+            existing_rules = existing.get("rules", [])
+            # Index existing rules by id
+            existing_by_id = {r.get("id", ""): r for r in existing_rules if isinstance(r, dict)}
+            # Index new rules by id
+            new_by_id = {r.get("id", ""): r for r in new_rules if isinstance(r, dict)}
+            # Keep existing rules that aren't replaced by new ones (user-adopted rules)
+            # Also keep existing rules that have source="adopted" — these came from /archie-scan
+            preserved = 0
+            for rid, rule in existing_by_id.items():
+                if rid not in new_by_id:
+                    new_rules.append(rule)
+                    preserved += 1
+            if preserved:
+                print(f"  Preserved {preserved} existing rules not in new set", file=sys.stderr)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    data["rules"] = new_rules
+    out.write_text(json.dumps(data, indent=2))
+    print(f"Saved {len(new_rules)} rules to {output_path}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
