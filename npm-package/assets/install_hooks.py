@@ -70,10 +70,12 @@ if content_file:
 if not fp or not rules_file:
     sys.exit(0)
 
-try:
-    rules = json.load(open(rules_file)).get("rules", [])
-except:
-    sys.exit(0)
+rules = []
+for rpath in [rules_file, rules_file.replace("rules.json", "platform_rules.json")]:
+    try:
+        data = json.load(open(rpath))
+        rules.extend(data.get("rules", []) if isinstance(data, dict) else data)
+    except: pass
 
 # Make file path relative to project root
 project_root = os.environ.get("_ARCHIE_ROOT", ".")
