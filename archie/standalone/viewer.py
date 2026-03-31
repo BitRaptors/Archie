@@ -64,7 +64,6 @@ def _collect_generated_files(root: Path) -> dict[str, str]:
         if p.exists():
             files[name] = _read_text(p)
     # Rule files
-    for rules_dir in (root / ".claude" / "rules", root / ".cursor" / "rules"):
         if rules_dir.is_dir():
             for f in sorted(rules_dir.rglob("*")):
                 if f.is_file():

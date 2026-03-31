@@ -3,7 +3,7 @@
 
 Run: python3 renderer.py /path/to/project
 Reads: .archie/blueprint.json
-Writes: CLAUDE.md, AGENTS.md, .claude/rules/*.md, .cursor/rules/*.md
+Writes: CLAUDE.md, AGENTS.md, .claude/rules/*.md
 
 Zero dependencies beyond Python 3.9+ stdlib.
 """
@@ -511,22 +511,6 @@ def _render_claude(rule: dict) -> str:
     return rule["body"]
 
 
-def _render_cursor(rule: dict) -> str:
-    """Render for Cursor (.cursor/rules/)."""
-    lines = ["---"]
-    if rule.get("description"):
-        lines.append(f"description: {rule['description']}")
-    globs = rule.get("globs") or []
-    if globs:
-        globs_str = ", ".join(f'"{g}"' for g in globs)
-        lines.append(f"globs: [{globs_str}]")
-        lines.append("alwaysApply: false")
-    else:
-        lines.append(f"alwaysApply: {str(rule.get('always_apply', True)).lower()}")
-    lines.append("---")
-    lines.append("")
-    lines.append(rule["body"])
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -997,7 +981,6 @@ def generate_all(bp: dict) -> dict:
     for rf in rule_files:
         topic = rf["topic"]
         files[f".claude/rules/{topic}.md"] = _render_claude(rf)
-        files[f".cursor/rules/{topic}.md"] = _render_cursor(rf)
 
     return files
 

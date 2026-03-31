@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Archie — AI-powered architecture analysis and enforcement for coding agents. Analyzes any codebase, generates a structured blueprint (JSON), and produces: CLAUDE.md, AGENTS.md, Cursor rules, per-folder context files, and real-time enforcement hooks. Works with any language, zero dependencies beyond Python 3.9+.
+Archie — AI-powered architecture analysis and enforcement for coding agents. Analyzes any codebase, generates a structured blueprint (JSON), and produces: CLAUDE.md, AGENTS.md, per-folder context files, and real-time enforcement hooks. Works with any language, zero dependencies beyond Python 3.9+.
 
 ## Repository Layout
 

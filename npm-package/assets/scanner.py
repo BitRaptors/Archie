@@ -26,7 +26,7 @@ SKIP_DIRS = {
     "dist", "build", ".build", ".next", ".nuxt", ".svelte-kit",
     "coverage", ".nyc_output", ".turbo", ".parcel-cache",
     "vendor", "Pods", "DerivedData", ".gradle", ".idea", ".vscode",
-    ".archie", ".claude", ".cursor",
+    ".archie", ".claude",
 }
 
 SKIP_EXTENSIONS = {

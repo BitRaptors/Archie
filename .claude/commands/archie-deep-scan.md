@@ -755,7 +755,7 @@ List the generated artefacts with counts:
 - Components discovered
 - Enforcement rules generated
 - Per-folder CLAUDE.md files created
-- Rule files in `.claude/rules/` and `.cursor/rules/`
+- Rule files in `.claude/rules/`
 
 #### Part 2: Architecture Summary
 

@@ -25,18 +25,8 @@ import re
 import sys
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _load_json(path: Path) -> dict | list:
-    if path.exists():
-        try:
-            return json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import _load_json  # noqa: E402
 
 
 def _read_text(path: Path) -> str:
