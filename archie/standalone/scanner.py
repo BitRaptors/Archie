@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -519,6 +520,194 @@ def estimate_tokens(root: Path, files: list[dict]) -> dict[str, int]:
     return counts
 
 
+# ── Skeleton Extraction ───────────────────────────────────────────────────
+
+_SKELETON_PATTERNS: dict[str, list[tuple[str, re.Pattern[str]]]] = {
+    ".py": [
+        ("class", re.compile(r'^(class\s+\w+[^:]*)', re.MULTILINE)),
+        ("func", re.compile(r'^(\s*(?:async\s+)?def\s+\w+\s*\([^)]*\)[^:]*)', re.MULTILINE)),
+    ],
+    ".kt": [
+        ("class", re.compile(
+            r'^((?:(?:private|public|internal|abstract|open|data|sealed|inline)\s+)*class\s+\w+[^{]*)',
+            re.MULTILINE)),
+        ("interface", re.compile(
+            r'^((?:(?:private|public|internal)\s+)*interface\s+\w+[^{]*)', re.MULTILINE)),
+        ("object", re.compile(
+            r'^((?:(?:private|public|internal)\s+)*object\s+\w+[^{]*)', re.MULTILINE)),
+        ("func", re.compile(
+            r'^((?:(?:private|public|internal|override|suspend|abstract|open|inline)\s+)*fun\s+(?:<[^>]+>\s*)?\w+\s*\([^)]*\)[^{]*)',
+            re.MULTILINE)),
+    ],
+    ".kts": None,  # filled below
+    ".java": [
+        ("class", re.compile(
+            r'^((?:(?:public|private|protected|static|final|abstract)\s+)*class\s+\w+[^{]*)',
+            re.MULTILINE)),
+        ("interface", re.compile(
+            r'^((?:(?:public|private|protected|static)\s+)*interface\s+\w+[^{]*)',
+            re.MULTILINE)),
+        ("func", re.compile(
+            r'^((?:(?:public|private|protected|static|final|abstract|synchronized)\s+)*(?:[\w<>\[\]?,\s]+)\s+\w+\s*\([^)]*\))',
+            re.MULTILINE)),
+    ],
+    ".swift": [
+        ("class", re.compile(
+            r'^((?:(?:public|private|internal|open|final)\s+)*class\s+\w+[^{]*)', re.MULTILINE)),
+        ("struct", re.compile(
+            r'^((?:(?:public|private|internal)\s+)*struct\s+\w+[^{]*)', re.MULTILINE)),
+        ("protocol", re.compile(
+            r'^((?:(?:public|private|internal)\s+)*protocol\s+\w+[^{]*)', re.MULTILINE)),
+        ("enum", re.compile(
+            r'^((?:(?:public|private|internal)\s+)*enum\s+\w+[^{]*)', re.MULTILINE)),
+        ("func", re.compile(
+            r'^((?:(?:public|private|internal|open|static|class|override|mutating)\s+)*(?:init|func\s+\w+)\s*\([^)]*\)[^{]*)',
+            re.MULTILINE)),
+    ],
+    ".go": [
+        ("func", re.compile(
+            r'^(func\s+(?:\(\s*\w+\s+\*?\w+\s*\)\s*)?\w+\s*\([^)]*\)[^{]*)', re.MULTILINE)),
+        ("struct", re.compile(r'^(type\s+\w+\s+struct)', re.MULTILINE)),
+        ("interface", re.compile(r'^(type\s+\w+\s+interface)', re.MULTILINE)),
+    ],
+}
+
+# JS/TS patterns shared across extensions
+_JS_TS_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("func", re.compile(
+        r'^((?:(?:export|async|default)\s+)*function\s+\w+\s*\([^)]*\))', re.MULTILINE)),
+    ("class", re.compile(
+        r'^((?:(?:export|abstract|default)\s+)*class\s+\w+[^{]*)', re.MULTILINE)),
+    ("interface", re.compile(
+        r'^((?:export\s+)?interface\s+\w+[^{]*)', re.MULTILINE)),
+    ("type", re.compile(
+        r'^((?:export\s+)?type\s+\w+\s*(?:<[^>]*>)?\s*=)', re.MULTILINE)),
+    ("func", re.compile(
+        r'^((?:export\s+)?(?:const|let)\s+\w+\s*=)', re.MULTILINE)),
+]
+
+for _ext in (".js", ".jsx", ".ts", ".tsx", ".mjs"):
+    _SKELETON_PATTERNS[_ext] = _JS_TS_PATTERNS
+
+# .kts shares Kotlin patterns
+_SKELETON_PATTERNS[".kts"] = _SKELETON_PATTERNS[".kt"]
+
+# Lines that are imports / blank / comment-only — skipped when building header
+_HEADER_SKIP_RE = re.compile(
+    r'^\s*$'
+    r'|^\s*#'           # Python / shell comments
+    r'|^\s*//'          # C-style line comments
+    r'|^\s*/\*'         # C-style block comment start
+    r'|^\s*\*'          # C-style block comment continuation
+    r'|^import\s'       # import statements
+    r'|^from\s+\S+\s+import'  # Python from-import
+    r'|^package\s'      # Kotlin/Java package
+    r'|^using\s'        # C# using
+    r'|^require\('      # JS require
+    r"|^'use strict'"   # JS strict mode
+    r'|^"use strict"'
+    r'|^@file:'         # Kotlin file annotations
+    r'|^from\s+__future__'
+)
+
+
+def extract_skeletons(root: Path, files: list[dict]) -> dict[str, dict]:
+    """Extract per-file skeletons: header lines + symbol signatures."""
+    skeletons: dict[str, dict] = {}
+
+    for f in files:
+        if f["size"] > 500_000:
+            continue
+        ext = f.get("extension", "")
+        fpath = root / f["path"]
+        try:
+            content = fpath.read_text(errors="ignore")
+        except OSError:
+            continue
+
+        lines = content.splitlines()
+        line_count = len(lines)
+
+        patterns = _SKELETON_PATTERNS.get(ext)
+
+        # Unsupported extension → header only (first 20 lines)
+        if patterns is None:
+            skeletons[f["path"]] = {
+                "header": "\n".join(lines[:20]),
+                "symbols": [],
+                "line_count": line_count,
+            }
+            continue
+
+        # Build header: first 2-3 non-import, non-blank, non-comment lines
+        header_lines: list[str] = []
+        for ln in lines:
+            if len(header_lines) >= 3:
+                break
+            if not _HEADER_SKIP_RE.match(ln):
+                header_lines.append(ln)
+
+        # Extract symbols
+        symbols: list[dict] = []
+        for kind, regex in patterns:
+            for m in regex.finditer(content):
+                sig = m.group(1).rstrip(" {:\t")
+                # Compute line number (1-based)
+                line_no = content[:m.start()].count("\n") + 1
+                # Extract symbol name
+                name = _extract_name(kind, sig)
+                if name:
+                    symbols.append({
+                        "kind": kind,
+                        "name": name,
+                        "signature": sig.strip(),
+                        "line": line_no,
+                    })
+
+        # Sort by line number, deduplicate by line
+        symbols.sort(key=lambda s: s["line"])
+        seen_lines: set[int] = set()
+        deduped: list[dict] = []
+        for sym in symbols:
+            if sym["line"] not in seen_lines:
+                seen_lines.add(sym["line"])
+                deduped.append(sym)
+
+        skeletons[f["path"]] = {
+            "header": "\n".join(header_lines),
+            "symbols": deduped,
+            "line_count": line_count,
+        }
+
+    return skeletons
+
+
+def _extract_name(kind: str, signature: str) -> str:
+    """Pull the symbol name out of a matched signature."""
+    # class Foo, interface Foo, struct Foo, protocol Foo, enum Foo, object Foo, type Foo
+    if kind in ("class", "interface", "struct", "protocol", "enum", "object", "type"):
+        m = re.search(r'(?:class|interface|struct|protocol|enum|object|type)\s+(\w+)', signature)
+        return m.group(1) if m else ""
+    # func / method
+    if kind == "func":
+        # Go receiver methods: func (r Receiver) Name(
+        m = re.search(r'func\s+\([^)]*\)\s*(\w+)', signature)
+        if m:
+            return m.group(1)
+        # Regular func/fun/function/def
+        m = re.search(r'(?:func|fun|function|def)\s+(\w+)', signature)
+        if m:
+            return m.group(1)
+        # init (Swift)
+        if re.search(r'\binit\s*\(', signature):
+            return "init"
+        # const/let arrow functions
+        m = re.search(r'(?:const|let)\s+(\w+)\s*=', signature)
+        if m:
+            return m.group(1)
+    return ""
+
+
 # ── Entry Points ───────────────────────────────────────────────────────────
 
 ENTRY_POINT_NAMES = {
@@ -571,6 +760,13 @@ def run_scan(repo_path: str) -> dict:
     imports = build_import_graph(root, files)
     entry_points = detect_entry_points(files)
     configs = collect_configs(root)
+    skeletons = extract_skeletons(root, files)
+
+    # Aggregate token counts by directory
+    tokens_by_dir: dict[str, int] = defaultdict(int)
+    for path, count in tokens.items():
+        parent = str(Path(path).parent) if "/" in path else "."
+        tokens_by_dir[parent] += count
 
     # Compute frontend file ratio for Agent D threshold
     frontend_exts = {".tsx", ".jsx", ".vue", ".svelte", ".swift", ".xib",
@@ -585,6 +781,7 @@ def run_scan(repo_path: str) -> dict:
     return {
         "file_tree": files,
         "token_counts": tokens,
+        "tokens_by_directory": dict(tokens_by_dir),
         "dependencies": deps,
         "framework_signals": frameworks,
         "config_patterns": configs,
@@ -592,6 +789,7 @@ def run_scan(repo_path: str) -> dict:
         "file_hashes": hashes,
         "entry_points": entry_points,
         "frontend_ratio": round(frontend_ratio, 2),
+        "_skeletons": skeletons,
     }
 
 
@@ -625,20 +823,29 @@ if __name__ == "__main__":
     # Add sub-project info to full scan
     scan["subprojects"] = detect_subprojects(Path(repo))
 
+    # Pop skeletons out of the main scan dict — saved separately
+    skeletons = scan.pop("_skeletons", {})
+
     # Save to .archie/scan.json
     archie_dir = Path(repo) / ".archie"
     archie_dir.mkdir(exist_ok=True)
     out_path = archie_dir / "scan.json"
     out_path.write_text(json.dumps(scan, indent=2))
 
+    # Save skeletons to .archie/skeletons.json
+    skel_path = archie_dir / "skeletons.json"
+    skel_path.write_text(json.dumps(skeletons, indent=2))
+
     # Print summary to stderr, JSON to stdout
     total_tokens = sum(scan["token_counts"].values())
     fw_names = ", ".join(f["name"] for f in scan["framework_signals"]) or "none detected"
+    skel_with_symbols = sum(1 for s in skeletons.values() if s.get("symbols"))
     print(f"Scanned: {len(scan['file_tree'])} files", file=sys.stderr)
     print(f"Frameworks: {fw_names}", file=sys.stderr)
     print(f"Dependencies: {len(scan['dependencies'])}", file=sys.stderr)
     print(f"Tokens (est): {total_tokens:,}", file=sys.stderr)
+    print(f"Skeletons: {len(skeletons)} files ({skel_with_symbols} with symbols)", file=sys.stderr)
     print(f"Saved to: {out_path}", file=sys.stderr)
 
-    # Output JSON to stdout
+    # Output JSON to stdout (without skeletons)
     json.dump(scan, sys.stdout, indent=2)
