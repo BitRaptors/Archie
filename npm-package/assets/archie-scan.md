@@ -1,223 +1,168 @@
-# Archie Scan — Fast Architecture Health Check
+# Archie Scan — Architecture Health Check
 
-Analyze this project's architectural health. Fast, repeatable — run often, each scan improves the next.
+Analyze this project's architectural health. Behave like a senior architect reviewing a codebase — read what matters, understand the structure, find real problems.
 
-**Prerequisites:** Run `/archie-init` first to set up the project. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie` and then `/archie-init` first.
+**Prerequisites:** If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie` first.
 
-**IMPORTANT: Do NOT read all source files. The scripts do the mechanical analysis. You interpret the findings and read ONLY the flagged files to validate and enrich them. Do NOT write inline Python scripts or bash one-liners to parse output — the scripts handle everything.**
+## Step 1: Gather context (scripts — seconds)
 
-## Step 1: Run mechanical checks
-
-Run all scripts in sequence (they're fast — seconds total):
+Run the scanner to get the project map and health metrics:
 
 ```bash
 python3 .archie/scanner.py "$PWD"
-```
-
-```bash
 python3 .archie/measure_health.py "$PWD" > /tmp/archie_health.json 2>&1
+git log --oneline --since="7 days ago" --name-only 2>/dev/null | sort -u | head -50
 ```
 
-```bash
-python3 .archie/check_rules.py "$PWD" > /tmp/archie_violations.json 2>&1
-```
+Now read:
+- `.archie/skeletons.json` — the full project map: every file's header, function/class signatures, line counts
+- `.archie/scan.json` — file tree, import graph, detected frameworks
+- `/tmp/archie_health.json` — erosion score, verbosity score, per-function complexity
 
-```bash
-python3 .archie/detect_cycles.py "$PWD" > /tmp/archie_cycles.json 2>&1
-```
-
-Also check git for recent changes:
-```bash
-git log --oneline --since="7 days ago" --name-only | sort -u | head -50
-```
-
-Now read all of these outputs:
-- `/tmp/archie_health.json`
-- `/tmp/archie_violations.json`
-- `/tmp/archie_cycles.json`
-
-Also read these project files (skip any that don't exist — that's normal):
-- `.archie/skeletons.json` — full project map with signatures, imports, headers
-- `.archie/scan.json` — file tree, import graph, framework detection
+Also read if they exist (skip if not — that's normal):
 - `.archie/blueprint.json` — architectural decisions, component boundaries (from deep scan)
-- `.archie/scan_report.md` — previous scan report for trending comparison
-- `.archie/health_history.json` — historical health scores for trend analysis
-- `.archie/ignored_rules.json` — rules the user previously rejected (do NOT re-propose these)
-- `.archie/rules.json` — project-specific rules already active
+- `.archie/scan_report.md` — previous scan report for trending
+- `.archie/health_history.json` — historical health scores
+- `.archie/rules.json` — project-specific rules already adopted
+- `.archie/ignored_rules.json` — rules user previously rejected
 
-## Step 2: Analyze and produce report
+## Step 2: Analyze the architecture
 
-You are an architectural health assessor. Follow these playbooks in order. Do not skip any.
+You are a senior architect reviewing this codebase. You have the complete project map (skeletons) and health metrics. Now **understand the architecture and find real problems.**
 
-### Playbook 1: Architecture Overview
+**You can and should read any source file** when you need to understand something the skeletons don't tell you. The skeletons are your map — they show what exists and where. When you see something suspicious (high complexity, unexpected import, unusual pattern), read the actual file to understand it.
 
-Write a 5-10 line summary proving you understand this project. Cover:
-- What kind of project is this (app, library, service, CLI, monorepo)?
-- What language(s) and framework(s)?
-- How is it organized (modules, layers, features, packages)?
-- What are the key architectural patterns (MVC, MVVM, Clean, layered, event-driven)?
-- What are the main entry points and data flows?
+### 2a: Architecture overview
 
-Base this on skeletons.json (file structure + signatures) and blueprint.json (if available). Do NOT read source files for this — the metadata is sufficient.
+Write a 5-10 line summary. What is this project? How is it organized? What are the key patterns? What are the main data flows?
 
-### Playbook 2: Health Scoring
+Read skeletons to understand file structure, imports, and signatures. If the architecture isn't clear from skeletons alone, read a few key files (entry points, main config, DI setup).
 
-From the `/tmp/archie_health.json` output, extract and report:
-- **Erosion score** (0-1): fraction of complexity concentrated in high-CC functions. Lower is better.
-- **Verbosity score** (0-1): duplicate/redundant code ratio. Lower is better.
-- **Top 5 highest-CC functions**: list them with file path, function name, and CC value.
+### 2b: Health assessment
 
-If `.archie/health_history.json` exists, compare current scores to the most recent entry:
-- Show trend: rising (worse), falling (better), or stable (within 0.02).
-- Flag any functions whose CC grew since last scan.
+From the health metrics:
+- **Erosion score**: how much complexity is concentrated in god-functions
+- **Verbosity score**: how much code is duplicated
+- **Top complex functions**: list them, read any that look suspicious
+- **Trend**: compare against previous scan if health_history.json exists
 
-If `.archie/scan_report.md` exists, note the scan number and increment it. Otherwise this is Scan #1.
+### 2c: Architectural analysis
 
-### Playbook 3: Findings
+This is the core of the scan. Don't check regex patterns — **understand the architecture and find where it's breaking down.**
 
-From `/tmp/archie_violations.json` (check_rules.py output):
-- List all **ERROR-severity** violations. These are real problems — read the flagged file for each one to validate it's not a false positive. Quote the specific code that violates the rule.
-- List the top 10 **WARN-severity** violations, ordered by impact. For each one, read the flagged file to confirm the issue.
-- If a violation turns out to be a false positive after reading the file, note it as such and skip it.
+**Dependency direction:** Read the import graph from scan.json. Trace the dependency flow between modules/packages. Are there layers? Do dependencies flow in one direction? Find violations — a UI component importing from the data layer, a domain model depending on a framework, a feature module importing from another feature module.
 
-From `/tmp/archie_cycles.json` (detect_cycles.py output):
-- List all circular dependency cycles found.
-- For each cycle: name the modules involved, explain what coupling this creates, and why it matters (testing difficulty, build order, change propagation).
+**Component responsibilities:** Look at the skeletons. Are there god-classes with too many methods? Files that mix concerns (a ViewModel that does network calls)? Read the suspicious ones to confirm.
 
-From `/tmp/archie_health.json` — if `verbosity` > 0.05 or `duplicates` list is non-empty:
-- Report the specific duplicate code blocks found (file A lines X-Y ≈ file B lines X-Y).
-- Explain what the duplicated code does and suggest where to extract it.
-- AI agents are the primary source of code duplication — they reimplement utilities in each file instead of importing shared code. Flag this pattern explicitly.
+**Pattern consistency:** Does the codebase follow its own patterns? If 15 ViewModels extend BaseViewModel but 2 don't, that's drift. If all repositories use constructor injection except one that uses a service locator, that's erosion. The skeletons tell you this — same base class, same structure, same naming — except the outliers.
 
-Rank all confirmed findings by impact — what would hurt most if left unfixed? Consider: frequency (how many files affected), severity (error vs warn), growth trend (getting worse?), blast radius (how much breaks if this goes wrong).
+**Duplication / reimplementation:** Look for functions with the same or similar names in multiple files. AI agents do this constantly — they reimplement helpers instead of importing shared code. Check: are there `loadJson()`, `formatDate()`, `handleError()` style functions duplicated across files?
 
-### Playbook 4: Pattern Discovery, Duplication Detection, and Rule Proposals
+**Circular dependencies:** Trace the import graph for cycles. If module A imports from B and B imports from A, explain what coupling this creates and why it matters.
 
-**Reimplemented code detection (critical — AI agents generate this constantly):**
-Look at the skeletons for functions with the **same or very similar names** appearing in multiple files. This is the #1 sign of AI-generated code rot — instead of importing a shared utility, the agent reimplements it in each file. Examples:
-- Same helper function defined in 3+ files (e.g., `loadConfig()`, `parseResponse()`, `formatDate()`)
-- Same error handling pattern copy-pasted across multiple classes
-- Same data transformation logic repeated with slight variations
-- Same validation logic reimplemented per-feature instead of shared
+**Blueprint violations (if blueprint.json exists):** If a deep scan was run before, the blueprint contains architectural decisions with violation keywords, trade-offs with violation signals, and pitfalls with causal chains. Check if current code violates any of these. Read files to verify.
 
-For each duplication found, report it as a finding AND propose a rule: "Extract [function] to shared module — currently reimplemented in [N] files."
+**For every finding: read the actual file to confirm it's real.** Don't report anything you haven't verified in the source code.
 
-**Pattern consistency checks:**
-Examine skeletons.json for patterns that most of the codebase follows but some files break:
-- If 90%+ of files in a category follow a naming convention, propose a rule for the outliers.
-- If most classes/modules use a consistent base class, DI pattern, or structural pattern, propose a rule.
-- If import ordering or module organization is consistent except for a few files, propose a rule.
+### 2d: Propose rules
 
-**Do NOT propose rules that appear in `.archie/ignored_rules.json`.** The user already rejected these.
+Based on what you found, propose **architectural rules** — not refactoring tasks.
 
-**Do NOT propose rules that already exist in `.archie/rules.json`.** They're already active.
+Good rules (architectural invariants):
+- "Domain layer must not import from presentation layer"
+- "All ViewModels must use constructor injection, not service locator"
+- "Repositories must expose Flow, not callbacks"
+- "Feature modules must not import from each other"
 
-Format each proposed rule with a checkbox:
+Bad rules (these are tasks, not rules):
+- "Extract dialog boilerplate into base class"
+- "Move shared types to a model package"
+- "Exclude gradle scripts from scan"
+
+Each rule should be something that can be **checked on every future code change** — not a one-time refactoring. Format:
+
 ```
-- [ ] Adopt: "description of the rule" (affects: list of files that currently violate it)
+- [ ] Adopt: "rule description" (currently violated by: file1, file2)
 ```
 
-### Playbook 5: Next Task
+Do NOT propose rules that appear in `.archie/ignored_rules.json`.
+Do NOT propose rules that already exist in `.archie/rules.json`.
 
-Identify the single highest-impact item to fix right now. Consider these candidates:
-- The highest-CC function that is still growing (trend from health_history.json)
-- The most impactful circular dependency to break
-- The most common violation pattern (fixing the root cause fixes many violations at once)
-- A structural issue that blocks other improvements
+### 2e: Next task
 
-Write it as an actionable task:
-- **What:** specific action to take (refactor function X, break cycle between A and B, extract pattern into base class)
-- **Where:** exact file path(s)
-- **Why:** what improves (CC drops by N, M violations resolved, cycle broken)
-- **How:** brief sketch of the approach (2-3 sentences max)
+What's the single highest-impact thing to fix right now? Be specific:
+- **What**: the action
+- **Where**: exact file paths
+- **Why**: what improves
+- **How**: 2-3 sentence approach
 
-### Playbook 6: Re-baseline Check
+### 2f: Re-baseline check
 
-Recommend the user run `/archie-init` (full deep scan) if ANY of these are true:
-- This is the first scan (no `.archie/blueprint.json` exists)
-- Erosion score increased by more than 0.10 since the last deep scan
-- More than 30% of directories have new violations compared to last scan
-- The project structure changed significantly (new top-level modules, major refactors visible in git log)
-
-If none of these are true, confirm the project is within normal parameters.
+Recommend `/archie-deep-scan` if:
+- No blueprint.json exists (first time — recommend deep scan for full baseline)
+- Erosion score increased >0.10 since last deep scan
+- Significant structural changes visible in the skeletons
 
 ## Step 3: Write the report
 
-Write the complete report to `.archie/scan_report.md` in this exact format:
+Write to `.archie/scan_report.md`:
 
-```
+```markdown
 # Archie Scan Report
-> Scan #N | YYYY-MM-DD | X files analyzed | Y files changed in last 7 days
+> Scan #N | YYYY-MM-DD | X files analyzed | Y changed in last 7 days
 
 ## Architecture Overview
-[5-10 lines from Playbook 1]
+[5-10 lines]
 
 ## Health Scores
 | Metric | Current | Previous | Trend |
 |--------|---------|----------|-------|
-| Erosion | X.XX | X.XX | rising/falling/stable |
-| Verbosity | X.XX | X.XX | rising/falling/stable |
-| Violations | N | N | rising/falling/stable |
-| Cycles | N | N | rising/falling/stable |
+| Erosion | X.XX | X.XX | ⚠/✓ |
+| Verbosity | X.XX | X.XX | ⚠/✓ |
 
-### Top Complex Functions
-| Function | File | CC | Change |
-|----------|------|----|--------|
-| name | path | N | +/-N or new |
+### Complex Functions
+| Function | File | CC |
+|----------|------|----|
+[top 5]
 
 ## Findings
-
-### Errors
-[Numbered list of confirmed ERROR-severity violations with file, rule, evidence]
-
-### Warnings
-[Numbered list of top WARN-severity violations with file, rule, evidence]
-
-### Circular Dependencies
-[List of cycles with modules involved and impact]
+[Ranked by impact. Each finding: what's wrong, which file, evidence from the code, why it matters]
 
 ## Proposed Rules
-[Checkboxes from Playbook 4, or "No new rules to propose." if none]
+[Checkboxes — architectural invariants only]
 
 ## Next Task
 **What:** [action]
-**Where:** [file path(s)]
+**Where:** [files]
 **Why:** [impact]
 **How:** [approach]
 
 ## Trend
-[Table of last 5 scans from health_history.json if available, otherwise "First scan — no trend data yet."]
+[Last 5 scans if history exists]
 
 ## Recommendations
-[Re-baseline recommendation from Playbook 6, or "Project is within normal parameters. No deep scan needed."]
+[Re-baseline recommendation or "No deep scan needed"]
 ```
 
-Then append the current health scores to `.archie/health_history.json`. If the file exists, read it, parse the JSON array, append the new entry, and write it back. If it doesn't exist, create it with a single-element array. Each entry:
+Append health scores to `.archie/health_history.json`:
 ```json
-{"timestamp": "YYYY-MM-DDTHH:MM:SS", "erosion": 0.00, "verbosity": 0.00, "violations": 0, "cycles": 0, "scan_number": 1, "scan_type": "fast"}
+{"timestamp": "ISO-8601", "erosion": 0.00, "verbosity": 0.00, "scan_number": N, "scan_type": "fast"}
 ```
 
-## Step 4: Present to user and process adoptions
+## Step 4: Present and process adoptions
 
-Print a summary to the user (not the full report — they can read the file). Include:
-- Health scores with trend arrows
-- Count of errors, warnings, cycles
-- The proposed rules with checkboxes
-- The next task recommendation
-- Path to the full report: `.archie/scan_report.md`
+Print a summary (not the full report). Include health scores, finding count, proposed rules with checkboxes, next task, and path to full report.
 
-Then say:
+Then:
 
-> Review the proposed rules above. Tell me which ones to adopt (they'll be enforced on your next scan and in real-time hooks). Tell me which ones to ignore — I won't propose them again.
+> Review the proposed rules above. Tell me which to adopt (enforced on future scans) or ignore (won't be proposed again).
 
-Wait for the user's response. Then:
-- **Adopted rules:** Read `.archie/rules.json` (or start with `{"rules": []}`), append each adopted rule as a new entry, write it back.
-- **Ignored rules:** Read `.archie/ignored_rules.json` (or start with `{"ignored": []}`), append each ignored rule description, write it back.
-
-Confirm what was saved.
+Process the user's response:
+- Adopted → append to `.archie/rules.json`
+- Ignored → append to `.archie/ignored_rules.json`
 
 ## Cleanup
 
 ```bash
-rm -f /tmp/archie_health.json /tmp/archie_violations.json /tmp/archie_cycles.json
+rm -f /tmp/archie_health.json
 ```

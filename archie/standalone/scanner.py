@@ -524,44 +524,44 @@ def estimate_tokens(root: Path, files: list[dict]) -> dict[str, int]:
 
 _SKELETON_PATTERNS: dict[str, list[tuple[str, re.Pattern[str]]]] = {
     ".py": [
-        ("class", re.compile(r'^(class\s+\w+[^:]*)', re.MULTILINE)),
-        ("func", re.compile(r'^(\s*(?:async\s+)?def\s+\w+\s*\([^)]*\)[^:]*)', re.MULTILINE)),
+        ("class", re.compile(r'^\s*(class\s+\w+[^:]*)', re.MULTILINE)),
+        ("func", re.compile(r'^\s*((?:async\s+)?def\s+\w+\s*\([^)]*\)[^:]*)', re.MULTILINE)),
     ],
     ".kt": [
         ("class", re.compile(
-            r'^((?:(?:private|public|internal|abstract|open|data|sealed|inline)\s+)*class\s+\w+[^{]*)',
+            r'^\s*((?:(?:private|public|internal|abstract|open|data|sealed|inline|inner)\s+)*class\s+\w+[^{]*)',
             re.MULTILINE)),
         ("interface", re.compile(
-            r'^((?:(?:private|public|internal)\s+)*interface\s+\w+[^{]*)', re.MULTILINE)),
+            r'^\s*((?:(?:private|public|internal)\s+)*interface\s+\w+[^{]*)', re.MULTILINE)),
         ("object", re.compile(
-            r'^((?:(?:private|public|internal)\s+)*object\s+\w+[^{]*)', re.MULTILINE)),
+            r'^\s*((?:(?:private|public|internal)\s+)*(?:companion\s+)?object\s+\w+[^{]*)', re.MULTILINE)),
         ("func", re.compile(
-            r'^((?:(?:private|public|internal|override|suspend|abstract|open|inline)\s+)*fun\s+(?:<[^>]+>\s*)?\w+\s*\([^)]*\)[^{]*)',
+            r'^\s*((?:(?:private|public|internal|protected|override|suspend|abstract|open|inline|actual|expect)\s+)*fun\s+(?:<[^>]+>\s*)?\w+\s*\([^)]*\)[^{]*)',
             re.MULTILINE)),
     ],
     ".kts": None,  # filled below
     ".java": [
         ("class", re.compile(
-            r'^((?:(?:public|private|protected|static|final|abstract)\s+)*class\s+\w+[^{]*)',
+            r'^\s*((?:(?:public|private|protected|static|final|abstract)\s+)*class\s+\w+[^{]*)',
             re.MULTILINE)),
         ("interface", re.compile(
-            r'^((?:(?:public|private|protected|static)\s+)*interface\s+\w+[^{]*)',
+            r'^\s*((?:(?:public|private|protected|static)\s+)*interface\s+\w+[^{]*)',
             re.MULTILINE)),
         ("func", re.compile(
-            r'^((?:(?:public|private|protected|static|final|abstract|synchronized)\s+)*(?:[\w<>\[\]?,\s]+)\s+\w+\s*\([^)]*\))',
+            r'^\s*((?:(?:public|private|protected|static|final|abstract|synchronized)\s+)*(?:[\w<>\[\]?,\s]+)\s+\w+\s*\([^)]*\))',
             re.MULTILINE)),
     ],
     ".swift": [
         ("class", re.compile(
-            r'^((?:(?:public|private|internal|open|final)\s+)*class\s+\w+[^{]*)', re.MULTILINE)),
+            r'^\s*((?:(?:public|private|fileprivate|internal|open|final)\s+)*class\s+\w+[^{]*)', re.MULTILINE)),
         ("struct", re.compile(
-            r'^((?:(?:public|private|internal)\s+)*struct\s+\w+[^{]*)', re.MULTILINE)),
+            r'^\s*((?:(?:public|private|fileprivate|internal)\s+)*struct\s+\w+[^{]*)', re.MULTILINE)),
         ("protocol", re.compile(
-            r'^((?:(?:public|private|internal)\s+)*protocol\s+\w+[^{]*)', re.MULTILINE)),
+            r'^\s*((?:(?:public|private|fileprivate|internal)\s+)*protocol\s+\w+[^{]*)', re.MULTILINE)),
         ("enum", re.compile(
-            r'^((?:(?:public|private|internal)\s+)*enum\s+\w+[^{]*)', re.MULTILINE)),
+            r'^\s*((?:(?:public|private|fileprivate|internal)\s+)*enum\s+\w+[^{]*)', re.MULTILINE)),
         ("func", re.compile(
-            r'^((?:(?:public|private|internal|open|static|class|override|mutating)\s+)*(?:init|func\s+\w+)\s*\([^)]*\)[^{]*)',
+            r'^\s*((?:(?:public|private|fileprivate|internal|open|static|class|override|mutating|@\w+\s+)\s*)*(?:init|func\s+\w+)\s*\([^)]*\)[^{]*)',
             re.MULTILINE)),
     ],
     ".go": [

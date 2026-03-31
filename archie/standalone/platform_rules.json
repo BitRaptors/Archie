@@ -37,15 +37,6 @@
       "description": "File exceeds 600 lines. In agent-assisted codebases, large files grow because agents append rather than refactor."
     },
     {
-      "id": "erosion-deep-nesting",
-      "platform": "universal",
-      "check": "forbidden_content",
-      "forbidden_patterns": ["^(\\s{16,}|\\t{4,})\\S"],
-      "severity": "warn",
-      "category": "erosion",
-      "description": "Deep nesting (4+ levels). Agents build nested conditionals instead of early returns or extraction."
-    },
-    {
       "id": "erosion-many-params",
       "platform": "universal",
       "check": "forbidden_content",
