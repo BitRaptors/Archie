@@ -910,14 +910,23 @@ Synthesize from pitfalls, trade-offs, drift findings (both mechanical and deep),
 
 #### Part 6: Semantic Duplication
 
-From the deep findings, extract all `semantic_duplication` entries. Present them as a dedicated section:
-- Group by the canonical function (the one that should be kept/shared)
-- For each group: list the duplicates, which files they're in, and what differs (just the signature? types? minor logic?)
-- Count total semantic duplicates found
+**This is a critical section.** The mechanical verbosity score (0-1) only catches exact line-for-line clones. AI agents frequently create near-identical functions with slightly different names, signatures, or types — the verbosity metric completely misses these.
 
-If none found, say "No semantic duplication detected."
+Present the `semantic_duplication` findings from the deep drift analysis. If the drift agent found none, **do your own quick check now**: scan the skeletons for functions with similar names (e.g., `getText`/`getTexts`, `loadUser`/`fetchUser`, `formatDate` in multiple files, `handleError` reimplemented per-module). Read suspicious pairs and confirm whether the logic is duplicated.
 
-**Health scores** from Phase 0 (erosion, verbosity) have been saved to `.archie/health_history.json` for trending. Run `/archie-scan` regularly to track how these metrics change over time.
+For each confirmed duplicate group:
+- The canonical function (the one that should be the shared version)
+- The duplicates: which files, what differs (just the signature? types? minor logic?)
+- Whether they could be consolidated
+
+Present in the health table as:
+```
+| Semantic duplication | N groups found | See Part 6 for details |
+```
+
+If genuinely none found after checking, say "No semantic duplication detected after AI analysis."
+
+**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only) — the semantic duplication analysis in Part 6 above is the AI-powered complement. Run `/archie-scan` regularly to track how these metrics change over time.
 
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 9
