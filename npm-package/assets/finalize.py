@@ -26,7 +26,7 @@ def _import_sibling(name: str):
     return mod
 
 
-def finalize(root: Path, agent_x_file: str | None = None):
+def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = False):
     """Run the full finalization pipeline."""
     archie_dir = root / ".archie"
     bp_raw_path = archie_dir / "blueprint_raw.json"
@@ -40,7 +40,7 @@ def finalize(root: Path, agent_x_file: str | None = None):
         print("Error: no blueprint found (.archie/blueprint_raw.json or .archie/blueprint.json)", file=sys.stderr)
         sys.exit(1)
 
-    # ── 1. Merge Agent X output (if provided) ─────────────────────────────
+    # ── 1. Merge Agent X / patch output ───────────────────────────────────
     if agent_x_file:
         _merge = _import_sibling("merge")
         extract_json_from_text = _merge.extract_json_from_text
@@ -52,8 +52,14 @@ def finalize(root: Path, agent_x_file: str | None = None):
             parsed = extract_json_from_text(text)
             if parsed:
                 bp = deep_merge(bp, parsed)
-                bp_raw_path.write_text(json.dumps(bp, indent=2))
-                print("  Merged Agent X output into blueprint_raw.json", file=sys.stderr)
+                if patch_mode:
+                    # In patch mode, write directly to blueprint.json (skip raw)
+                    bp_path = archie_dir / "blueprint.json"
+                    bp_path.write_text(json.dumps(bp, indent=2))
+                    print("  Patched blueprint.json with incremental reasoning", file=sys.stderr)
+                else:
+                    bp_raw_path.write_text(json.dumps(bp, indent=2))
+                    print("  Merged Agent X output into blueprint_raw.json", file=sys.stderr)
             else:
                 print(f"  Warning: could not parse JSON from {agent_x_file}", file=sys.stderr)
         else:
@@ -98,10 +104,10 @@ def finalize(root: Path, agent_x_file: str | None = None):
     print(f"  Rendered {len(files)} files", file=sys.stderr)
 
     # ── 4. Hooks ───────────────────────────────────────────────────────────
-    install = _import_sibling("install_hooks").install
-
-    install(root)
-    print("  Hooks installed", file=sys.stderr)
+    if not patch_mode:
+        install = _import_sibling("install_hooks").install
+        install(root)
+        print("  Hooks installed", file=sys.stderr)
 
     # ── 7. Validate (informational) ────────────────────────────────────────
     _validate = _import_sibling("validate")
@@ -129,8 +135,13 @@ def finalize(root: Path, agent_x_file: str | None = None):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python3 finalize.py /path/to/project [agent_x_output.json]", file=sys.stderr)
+        print("  Or:  python3 finalize.py /path/to/project --patch incremental_reasoning.json", file=sys.stderr)
         sys.exit(1)
 
     project_root = Path(sys.argv[1]).resolve()
-    agent_x = sys.argv[2] if len(sys.argv) > 2 else None
-    finalize(project_root, agent_x)
+    if len(sys.argv) > 2 and sys.argv[2] == "--patch":
+        agent_x = sys.argv[3] if len(sys.argv) > 3 else None
+        finalize(project_root, agent_x, patch_mode=True)
+    else:
+        agent_x = sys.argv[2] if len(sys.argv) > 2 else None
+        finalize(project_root, agent_x)

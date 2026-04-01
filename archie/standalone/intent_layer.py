@@ -12,7 +12,7 @@ Subcommands:
   merge          — Create/patch CLAUDE.md files with generated content
 
 Run:
-  python3 intent_layer.py prepare /path/to/repo
+  python3 intent_layer.py prepare /path/to/repo [--only-folders folder1,folder2,...]
   python3 intent_layer.py next-ready /path/to/repo [done1 done2 ...]
   python3 intent_layer.py suggest-batches /path/to/repo [ready1 ready2 ...]
   python3 intent_layer.py prompt /path/to/repo --folder src/lib
@@ -104,7 +104,7 @@ def _should_skip_dir(directory: str) -> bool:
 # prepare — build folder DAG
 # ---------------------------------------------------------------------------
 
-def cmd_prepare(root: Path):
+def cmd_prepare(root: Path, only_folders: list[str] | None = None):
     """Build folder DAG for bottom-up enrichment."""
     scan = _load_json(root / ".archie" / "scan.json")
     files = scan.get("file_tree", [])
@@ -213,6 +213,22 @@ def cmd_prepare(root: Path):
         "leaves": leaves,
         "roots": roots,
     }
+
+    # Incremental mode: mark only affected folders + parent chain as dirty
+    if only_folders:
+        dirty = set()
+        for f in only_folders:
+            # Add the folder itself
+            if f in qualifying_set:
+                dirty.add(f)
+            # Add all qualifying ancestors
+            parts = Path(f).parts
+            for i in range(1, len(parts)):
+                ancestor = str(Path(*parts[:i]))
+                if ancestor in qualifying_set:
+                    dirty.add(ancestor)
+        plan["dirty_folders"] = sorted(dirty)
+        print(f"Incremental: {len(dirty)} dirty folders (of {len(qualifying)} total)", file=sys.stderr)
 
     # Save
     archie_dir = root / ".archie"
@@ -348,6 +364,93 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
             sys.exit(1)
         else:
             print(json.dumps({"ok": True, "step": step}))
+    elif action == "save-baseline":
+        import subprocess
+        try:
+            sha = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+        except Exception:
+            sha = ""
+        from datetime import datetime, timezone
+        marker = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "commit_sha": sha,
+            "mode": sys.argv[4] if len(sys.argv) > 4 else "full",
+        }
+        marker_path = root / ".archie" / "last_deep_scan.json"
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(json.dumps(marker, indent=2), encoding="utf-8")
+        print(f"Baseline saved: {sha[:8] if sha else 'no-git'}", file=sys.stderr)
+
+    elif action == "detect-changes":
+        import subprocess
+        marker_path = root / ".archie" / "last_deep_scan.json"
+        if not marker_path.exists():
+            print(json.dumps({"mode": "full", "reason": "no previous deep scan"}))
+            return
+        try:
+            marker = json.loads(marker_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            print(json.dumps({"mode": "full", "reason": "corrupt baseline marker"}))
+            return
+        sha = marker.get("commit_sha", "")
+        if not sha:
+            print(json.dumps({"mode": "full", "reason": "no commit SHA in marker"}))
+            return
+        # Check if SHA still exists in repo
+        try:
+            check = subprocess.run(
+                ["git", "-C", str(root), "cat-file", "-t", sha],
+                capture_output=True, text=True, timeout=5,
+            )
+            if check.returncode != 0:
+                print(json.dumps({"mode": "full", "reason": f"baseline commit {sha[:8]} no longer in repo"}))
+                return
+        except Exception:
+            print(json.dumps({"mode": "full", "reason": "git check failed"}))
+            return
+        # Get changed files
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(root), "diff", "--name-only", sha + "..HEAD"],
+                capture_output=True, text=True, timeout=10,
+            )
+            changed = [f for f in result.stdout.strip().split("\n") if f]
+        except Exception:
+            print(json.dumps({"mode": "full", "reason": "git diff failed"}))
+            return
+        # Count total files
+        scan = _load_json(root / ".archie" / "scan.json")
+        total = len(scan.get("file_tree", []))
+        ratio = len(changed) / max(total, 1)
+        # Thresholds
+        if len(changed) > 30 or ratio > 0.20:
+            mode = "full"
+            reason = f"{len(changed)} files changed ({ratio:.0%}), exceeds threshold"
+        elif len(changed) == 0:
+            mode = "incremental"
+            reason = "no files changed since last deep scan"
+        else:
+            mode = "incremental"
+            reason = f"{len(changed)} files changed ({ratio:.0%})"
+        # Compute affected folders (every ancestor of every changed file)
+        affected_folders = set()
+        for f in changed:
+            parts = Path(f).parts
+            for i in range(1, len(parts)):
+                affected_folders.add(str(Path(*parts[:i])))
+        print(json.dumps({
+            "mode": mode,
+            "reason": reason,
+            "changed_files": changed,
+            "changed_count": len(changed),
+            "total_files": total,
+            "ratio": round(ratio, 4),
+            "affected_folders": sorted(affected_folders),
+        }))
+
     else:
         print(f"Unknown action: {action}", file=sys.stderr)
         sys.exit(1)
@@ -379,6 +482,11 @@ def cmd_next_ready(root: Path, done_folders: list[str]):
         children = info.get("children", [])
         if all(c in done_set for c in children):
             ready.append(folder)
+
+    # In incremental mode, only return dirty folders
+    dirty = set(plan.get("dirty_folders", []))
+    if dirty:
+        ready = [f for f in ready if f in dirty]
 
     print(json.dumps(sorted(ready)))
 
@@ -981,7 +1089,7 @@ def cmd_merge(root: Path):
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage:", file=sys.stderr)
-        print("  python3 intent_layer.py prepare /path/to/repo", file=sys.stderr)
+        print("  python3 intent_layer.py prepare /path/to/repo [--only-folders folder1,folder2,...]", file=sys.stderr)
         print("  python3 intent_layer.py next-ready /path/to/repo [done1 done2 ...]", file=sys.stderr)
         print("  python3 intent_layer.py suggest-batches /path/to/repo [ready1 ready2 ...]", file=sys.stderr)
         print("  python3 intent_layer.py prompt /path/to/repo --folder <path>", file=sys.stderr)
@@ -990,14 +1098,19 @@ if __name__ == "__main__":
         print("  python3 intent_layer.py mark-done /path/to/repo <folder1> [folder2 ...]", file=sys.stderr)
         print("  python3 intent_layer.py reset-state /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py merge /path/to/repo", file=sys.stderr)
-        print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs> [step]", file=sys.stderr)
+        print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs|save-baseline|detect-changes> [step|mode]", file=sys.stderr)
         sys.exit(1)
 
     subcmd = sys.argv[1]
     root = Path(sys.argv[2]).resolve()
 
     if subcmd == "prepare":
-        cmd_prepare(root)
+        only = None
+        for i, arg in enumerate(sys.argv[3:], 3):
+            if arg == "--only-folders" and i + 1 < len(sys.argv):
+                only = sys.argv[i + 1].split(",")
+                break
+        cmd_prepare(root, only_folders=only)
     elif subcmd == "next-ready":
         done = sys.argv[3:] if len(sys.argv) > 3 else []
         cmd_next_ready(root, done)
@@ -1060,7 +1173,12 @@ if __name__ == "__main__":
             sys.exit(1)
     elif subcmd == "deep-scan-state":
         action = sys.argv[3] if len(sys.argv) > 3 else ""
-        step_arg = int(sys.argv[4]) if len(sys.argv) > 4 else None
+        step_arg = None
+        if len(sys.argv) > 4:
+            try:
+                step_arg = int(sys.argv[4])
+            except ValueError:
+                step_arg = None
         cmd_deep_scan_state(root, action, step_arg)
     elif subcmd == "merge":
         cmd_merge(root)

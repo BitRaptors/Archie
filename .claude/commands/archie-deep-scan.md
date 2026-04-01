@@ -3,7 +3,8 @@
 Run a comprehensive architecture analysis. Produces full blueprint, per-folder CLAUDE.md, rules, and health metrics.
 
 **Modes:**
-- `/archie-deep-scan` — fresh run from step 1
+- `/archie-deep-scan` — full baseline from step 1 (default, proven workflow)
+- `/archie-deep-scan --incremental` — only process files changed since last deep scan (fast, 3-6 min)
 - `/archie-deep-scan --from N` — resume from step N (runs N through 9)
 - `/archie-deep-scan --continue` — resume from where the last run stopped
 
@@ -35,14 +36,32 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" read
 2. If status is "none" or "completed": print "No interrupted run found. Starting fresh from step 1." Set START_STEP = 1.
 3. If status is "in_progress": Set START_STEP = last_completed + 1. Print "Resuming deep scan from step {START_STEP}."
 
-**If no flags (default):**
-1. Set START_STEP = 1
-2. Initialize fresh state:
+**If `--incremental` is present:**
+1. Check if `.archie/blueprint.json` exists. If not: print "No existing blueprint — running full baseline instead." Set SCAN_MODE = "full", START_STEP = 1, and proceed as default.
+2. If blueprint exists, detect changes:
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" detect-changes
+```
+3. Read the JSON output:
+   - If `mode` is "full" (threshold exceeded or no previous scan): print the `reason` and say "Running full baseline." Set SCAN_MODE = "full", START_STEP = 1.
+   - If `mode` is "incremental" and `changed_count` is 0: print "No files changed since last deep scan. Nothing to do." Exit.
+   - If `mode` is "incremental": Set SCAN_MODE = "incremental". Save `changed_files` and `affected_folders` from the output. Print "Incremental deep scan: N files changed. Analyzing changes only." Set START_STEP = 1.
+4. Initialize state:
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
 ```
 
-**For every step below: if the step number < START_STEP, skip it entirely.**
+**If no flags (default — full baseline):**
+1. Set SCAN_MODE = "full"
+2. Set START_STEP = 1
+3. Initialize fresh state:
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
+```
+
+**For every step below:**
+- If the step number < START_STEP, skip it entirely.
+- If SCAN_MODE is not set, it defaults to "full" (all existing behavior unchanged).
 
 ## Detect sub-projects
 
@@ -110,9 +129,34 @@ Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, t
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 2
 ```
 
-## Step 3: Spawn parallel analytical agents
+## Step 3: Spawn analytical agents
 
 **If START_STEP > 3, skip this step.**
+
+### If SCAN_MODE = "incremental":
+
+Spawn a **single Sonnet subagent** (`model: "sonnet"`) with:
+- The `changed_files` list (from detect-changes output in preamble)
+- The existing `.archie/blueprint_raw.json`
+- Skeletons for changed files only (read `.archie/skeletons.json`, filter to only keys matching changed file paths)
+- The scan.json import graph
+
+Agent prompt:
+> You have the existing architectural blueprint and a list of files that changed since the last analysis. Read the changed files and their context. Report what changed architecturally:
+> - New or modified components (name, location, responsibility, depends_on)
+> - Changed communication patterns or integrations
+> - New technology or dependencies
+> - Modified file placement patterns
+>
+> Return the same JSON structure as the full analysis but ONLY for sections affected by the changes. Omit unchanged sections — they'll be preserved from the existing blueprint.
+>
+> GROUNDING RULES apply (see below).
+
+Save the agent's complete output to `/tmp/archie_incremental_$PROJECT_NAME.json`.
+
+Then skip to Step 4.
+
+### If SCAN_MODE = "full" (default):
 
 Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each focused on a different analytical concern. ALL agents read ALL source files under `$PROJECT_ROOT` — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
 
@@ -480,6 +524,21 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 3
 
 **If START_STEP > 4, skip this step.**
 
+### If SCAN_MODE = "incremental":
+
+The single incremental agent's output was saved to `/tmp/archie_incremental_$PROJECT_NAME.json` in Step 3. Patch the existing blueprint:
+
+```bash
+python3 .archie/merge.py "$PROJECT_ROOT" --patch /tmp/archie_incremental_$PROJECT_NAME.json
+```
+
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 3
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
+```
+
+### If SCAN_MODE = "full" (default):
+
 **If resuming via --from or --continue:** Step 4 depends on Wave 1 agent outputs in /tmp/. These may not survive a system reboot. If merge fails with missing files, re-run from step 3: `/archie-deep-scan --from 3`
 
 After each subagent completes, use the Write tool to save its COMPLETE output text to a temporary file. The merge script handles JSON extraction automatically — it can parse plain JSON, code-fenced JSON, and conversation envelopes.
@@ -508,6 +567,37 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 ## Step 5: Wave 2 — Reasoning agent
 
 **If START_STEP > 5, skip this step.**
+
+### If SCAN_MODE = "incremental":
+
+Spawn an **Opus subagent** (`model: "opus"`) with scoped context:
+- The existing `$PROJECT_ROOT/.archie/blueprint.json` (full current architecture)
+- The patched `$PROJECT_ROOT/.archie/blueprint_raw.json` (with incremental changes from Step 4)
+- The changed file contents (from `changed_files` list)
+
+Tell the scoped Reasoning agent:
+
+> The architecture was previously analyzed (blueprint.json attached). The blueprint_raw.json was updated with incremental structural changes. These specific files changed: [list changed_files]. Review the changes and update ONLY the affected sections:
+> - If changes affect a key decision, update it
+> - If changes introduce a new trade-off or invalidate one, update trade_offs
+> - If changes trigger or resolve a pitfall, update pitfalls
+> - Update the decision_chain only for affected branches
+> Return ONLY the sections that need updating — unchanged sections will be preserved.
+
+Save output and finalize with patch mode:
+```
+Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's COMPLETE output text
+```
+```bash
+python3 .archie/finalize.py "$PROJECT_ROOT" --patch /tmp/archie_sub_x_$PROJECT_NAME.json
+```
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5
+```
+
+Then skip to Step 6.
+
+### If SCAN_MODE = "full" (default):
 
 Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. Now spawn a single Opus subagent (`model: "opus"`) that reads ALL Wave 1 output and produces deep architectural reasoning.
 
@@ -607,6 +697,14 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5
 
 **If START_STEP > 6, skip this step.**
 
+### If SCAN_MODE = "incremental":
+
+The blueprint was patched in Step 5. Spawn a **Sonnet subagent** (`model: "sonnet"`) with this additional instruction prepended to the standard prompt below:
+
+> The existing rules are in `.archie/rules.json`. Only propose rules for patterns discovered in the changed files. Do not regenerate existing rules. If a change invalidates an existing rule, flag it with `"status": "invalidated"` in the output.
+
+### All modes (full and incremental):
+
 The blueprint contains architectural facts. This step synthesizes them into **architectural rules** — insights that the AI reviewer uses to evaluate plans and code changes.
 
 Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
@@ -699,6 +797,23 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 
 This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
 
+### If SCAN_MODE = "incremental":
+
+Only re-enrich folders containing changed files + their parent chain. Unchanged folders keep their existing CLAUDE.md.
+
+1. Prepare with `--only-folders` using the `affected_folders` from the preamble:
+```bash
+python3 .archie/intent_layer.py prepare "$PROJECT_ROOT" --only-folders AFFECTED_FOLDER1,AFFECTED_FOLDER2,...
+python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
+mkdir -p "$PROJECT_ROOT/.archie/enrichments"
+```
+
+Replace `AFFECTED_FOLDER1,AFFECTED_FOLDER2,...` with the comma-separated `affected_folders` list from the detect-changes output. This marks only those folders + their ancestors as dirty. The `next-ready` command will only return dirty folders.
+
+Then proceed with the same wave processing as full mode (step 2 below). The waves will be much smaller since only dirty folders are included.
+
+### If SCAN_MODE = "full" (default):
+
 1. Prepare the folder DAG and reset state:
 ```bash
 python3 .archie/intent_layer.py prepare "$PROJECT_ROOT"
@@ -773,7 +888,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 ### Phase 0: Health measurement
 
 ```bash
-python3 .archie/measure_health.py "$PROJECT_ROOT" > /tmp/archie_health.json 2>/dev/null
+python3 .archie/measure_health.py "$PROJECT_ROOT" > "$PROJECT_ROOT/.archie/health.json" 2>/dev/null
 ```
 
 Save health scores to history for trending:
@@ -782,7 +897,7 @@ Save health scores to history for trending:
 python3 -c "
 import json
 from datetime import datetime, timezone
-health = json.load(open('/tmp/archie_health.json'))
+health = json.load(open('$PROJECT_ROOT/.archie/health.json'))
 entry = {'timestamp': datetime.now(timezone.utc).isoformat(), 'erosion': health['erosion'], 'gini': health.get('gini', 0), 'top20_share': health.get('top20_share', 0), 'verbosity': health['verbosity'], 'total_loc': health.get('total_loc', 0), 'violations': 0, 'scan_type': 'deep'}
 history_path = '$PROJECT_ROOT/.archie/health_history.json'
 try: history = json.load(open(history_path))
@@ -932,4 +1047,10 @@ If genuinely none found after checking, say "No semantic duplication detected af
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 9
 ```
 
-End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-scan` for fast health checks, `/archie-drift` for detailed drift analysis."**
+Save baseline marker for future incremental runs (use "full" or "incremental" based on SCAN_MODE):
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-baseline SCAN_MODE
+```
+(Replace SCAN_MODE with the actual mode — "full" or "incremental")
+
+End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-scan` for fast health checks. Run `/archie-deep-scan --incremental` after code changes to update the architecture analysis."**

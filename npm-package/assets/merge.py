@@ -194,10 +194,53 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python3 merge.py /path/to/repo [file1.json file2.json ...]", file=sys.stderr)
         print("  Or:  echo '{...}' | python3 merge.py /path/to/repo -", file=sys.stderr)
+        print("  Or:  python3 merge.py /path/to/repo --patch incremental.json", file=sys.stderr)
         sys.exit(1)
 
     root = Path(sys.argv[1]).resolve()
     input_files = sys.argv[2:] if len(sys.argv) > 2 else []
+
+    # --patch mode: merge incremental findings into existing blueprint_raw
+    if len(input_files) >= 2 and input_files[0] == "--patch":
+        patch_file = input_files[1]
+        bp_raw = root / ".archie" / "blueprint_raw.json"
+        if not bp_raw.exists():
+            print("Error: no existing blueprint_raw.json to patch", file=sys.stderr)
+            sys.exit(1)
+        try:
+            existing = json.loads(bp_raw.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Error reading blueprint_raw.json: {e}", file=sys.stderr)
+            sys.exit(1)
+        patch_text = Path(patch_file).read_text()
+        patch_data = extract_json_from_text(patch_text)
+        if not patch_data:
+            print("Error: could not extract JSON from patch file", file=sys.stderr)
+            sys.exit(1)
+        merged = deep_merge(existing, patch_data)
+        # Deduplicate components by name (keep latest version)
+        comps = merged.get("components", {})
+        if isinstance(comps, dict) and "components" in comps:
+            seen: dict[str, dict] = {}
+            deduped: list[dict] = []
+            for c in comps["components"]:
+                if not isinstance(c, dict):
+                    continue
+                name = c.get("name", "")
+                if name in seen:
+                    # Update existing with new data
+                    seen[name].update(c)
+                else:
+                    seen[name] = c
+                    deduped.append(c)
+            comps["components"] = deduped
+        bp_raw.write_text(json.dumps(merged, indent=2, ensure_ascii=False))
+        # Also update blueprint.json
+        bp = root / ".archie" / "blueprint.json"
+        bp.write_text(json.dumps(merged, indent=2, ensure_ascii=False))
+        comp_count = len(merged.get("components", {}).get("components", []) if isinstance(merged.get("components"), dict) else merged.get("components", []))
+        print(f"  Patched blueprint_raw.json ({comp_count} components)", file=sys.stderr)
+        sys.exit(0)
 
     outputs: list[dict] = []
 
