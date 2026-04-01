@@ -812,8 +812,8 @@ python3 .archie/extract_output.py recent-files "$PROJECT_ROOT/.archie/scan.json"
 
 For each file (batch into groups of ~15), collect:
 - The file's content
-- Its folder's CLAUDE.md (per-folder patterns, anti-patterns)
-- Its parent folder's CLAUDE.md if it exists
+- Its folder's CLAUDE.md **if it exists** (per-folder patterns, anti-patterns — these were generated in Step 7, but may be missing if Step 7 was skipped or partially completed)
+- Its parent folder's CLAUDE.md **if it exists**
 
 Read `$PROJECT_ROOT/.archie/blueprint.json` — specifically `decisions.key_decisions`, `decisions.decision_chain`, `decisions.trade_offs` (with `violation_signals`), `pitfalls` (with `stems_from`), `communication.patterns`, `development_rules`.
 

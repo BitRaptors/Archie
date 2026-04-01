@@ -229,10 +229,11 @@ Write to `.archie/scan_report_YYYY-MM-DD.md` (using the actual date). Also copy 
 [Re-baseline recommendation or "No deep scan needed"]
 ```
 
-Append health scores to `.archie/health_history.json`:
+Append health scores to `.archie/health_history.json`. If the file doesn't exist, create it as `[]` first. Read the array, append the new entry, write back:
 ```json
 {"timestamp": "ISO-8601", "erosion": 0.00, "gini": 0.00, "top20_share": 0.00, "verbosity": 0.00, "total_loc": 0, "scan_number": N, "scan_type": "fast"}
 ```
+Scan number N = length of the array after appending (i.e., first scan = 1). If no previous scans exist, the "Previous" column in health tables should show "—" and trend should show "first scan".
 
 Save per-function complexity snapshot to `.archie/function_complexity.json` — overwrite each scan:
 ```json

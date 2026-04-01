@@ -90,53 +90,24 @@ try {
   }
 } catch { /* not critical */ }
 
-// 5. Set up permissions so /archie-init runs without interactive prompts
-const settingsPath = join(projectRoot, ".claude", "settings.local.json");
-try {
-  let settings = {};
-  if (existsSync(settingsPath)) {
-    try { settings = JSON.parse(readFileSync(settingsPath, "utf8")); } catch {}
-  }
-  const perms = settings.permissions || {};
-  const existing = new Set(perms.allow || []);
-  const archieAllow = [
-    // Archie scripts
-    "Bash(python3 .archie/*.py *)",
-    "Bash(python3 .archie/*.py)",
-    // Shell utilities Claude uses during orchestration
-    "Bash(git *)",
-    "Bash(test *)",
-    "Bash(cp *)",
-    "Bash(wc *)",
-    "Bash(cat *)",
-    "Bash(echo *)",
-    "Bash(for *)",
-    "Bash(mkdir *)",
-    "Bash(rm -f /tmp/archie_*)",
-    // Temp files for agent output
-    "Write(//tmp/archie_*)",
-    "Read(//tmp/archie_*)",
-    // Reading/writing archie data & generated files
-    "Read(.archie/*)",
-    "Read(.archie/**)",
-    "Write(.archie/*)",
-    "Write(.archie/**)",
-    // Subagent spawning (Wave 1, Wave 2, rules, intent layer)
-    "Agent(*)",
-  ];
-  for (const entry of archieAllow) existing.add(entry);
-  perms.allow = [...existing].sort();
-  settings.permissions = perms;
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  console.log(`  ${GREEN}✓${RESET} .claude/settings.local.json (permissions)`);
-} catch { /* not critical */ }
-
-// 6. Check Python availability
+// 5. Check Python and run install_hooks.py (sets up hooks + permissions)
 let hasPython = false;
 try {
   execSync("python3 --version", { stdio: "ignore" });
   hasPython = true;
 } catch { /* noop */ }
+
+if (hasPython) {
+  try {
+    execSync(`python3 "${join(archieDir, "install_hooks.py")}" "${projectRoot}"`, { stdio: "pipe" });
+    console.log(`  ${GREEN}✓${RESET} hooks + permissions installed`);
+  } catch (e) {
+    console.log(`  ${DIM}⚠ hook installation failed (non-critical)${RESET}`);
+  }
+} else {
+  console.log("");
+  console.log(`  ⚠ python3 not found — hooks not installed, scanner needs Python 3.9+`);
+}
 
 // Done
 console.log("");
@@ -147,11 +118,6 @@ console.log(`  1. Open this project in ${BOLD}Claude Code${RESET}`);
 console.log(`  2. Run ${BOLD}/archie-scan${RESET} for a fast architecture health check (1-3 min)`);
 console.log(`  3. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
 console.log("");
-
-if (!hasPython) {
-  console.log(`  ⚠ python3 not found — the scanner needs Python 3.11+`);
-  console.log("");
-}
 
 console.log(`  ${DIM}What gets generated:${RESET}`);
 console.log(`  ${DIM}  CLAUDE.md            — architecture context for AI agents${RESET}`);
