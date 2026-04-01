@@ -8,7 +8,7 @@ Archie — AI-powered architecture analysis and enforcement for coding agents. A
 
 ## Repository Layout
 
-- `archie/` — Python package (`archie-cli`): CLI commands, analysis engine, MCP server, standalone scripts
+- `archie/` — Python package (`archie-cli`): CLI commands, analysis engine, standalone scripts
 - `archie/standalone/` — Zero-dependency Python scripts (scanner, renderer, rules, validator, intent layer)
 - `npm-package/` — NPM distribution (`npx archie`): copies scripts + Claude Code commands to target projects
 - `tests/` — Test suite (pytest)

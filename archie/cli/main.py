@@ -87,9 +87,3 @@ def check(files, path):
     exit_code = run_check(Path(path), file_list)
     raise SystemExit(exit_code)
 
-@cli.command()
-@click.option("--path", default=".", type=click.Path(exists=True), help="Project root with .archie/ directory.")
-def mcp(path):
-    """Start MCP server reading from .archie/blueprint.json."""
-    from archie.mcp.server import run_mcp_server
-    run_mcp_server(Path(path))

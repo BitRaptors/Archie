@@ -338,44 +338,6 @@ def _build_frontend_rule(bp: dict):
     }
 
 
-def _build_mcp_tools_rule(bp: dict):
-    """MCP tools rule: static tool table + workflow."""
-    body = """## Architecture MCP Server (MANDATORY)
-
-The `architecture-blueprints` MCP server is the single source of truth for this codebase's architecture.
-You MUST call its tools for every architecture decision — no exceptions.
-
-| Tool | When to Use | Required |
-|------|------------|----------|
-| `where_to_put` | Creating or moving any file | **Always** |
-| `check_naming` | Naming any new component | **Always** |
-| `list_implementations` | Discovering available implementation patterns | **Always** |
-| `how_to_implement_by_id` | Getting full details for a specific capability | **Always** |
-| `how_to_implement` | Fuzzy search when exact capability name unknown | Fallback |
-| `get_file_content` | Reading source files referenced in guidelines | As needed |
-| `list_source_files` | Browsing available source files | As needed |
-| `get_repository_blueprint` | Understanding overall architecture | As needed |
-
-### Workflow
-
-1. Call `list_implementations` to see all known patterns
-2. Match task to capability, call `how_to_implement_by_id` with its ID
-3. Fall back to `how_to_implement` with keyword search if no match
-4. Call `get_file_content` to study referenced source files
-5. Call `where_to_put` before creating any file
-6. Call `check_naming` before naming any component
-
-> If a tool rejects a decision, do NOT proceed — fix the violation first."""
-
-    return {
-        "topic": "mcp-tools",
-        "body": body,
-        "description": "Architecture MCP server usage rules",
-        "always_apply": True,
-        "globs": [],
-    }
-
-
 def _build_guidelines_rule(bp: dict):
     """Implementation guidelines."""
     lines = []
@@ -618,16 +580,7 @@ def generate_claude_md(bp: dict) -> str:
     lines.append("- `guidelines.md` — Implementation guidelines")
     lines.append("- `pitfalls.md` — Common pitfalls, error mapping")
     lines.append("- `dev-rules.md` — Development rules (always/never imperatives)")
-    lines.append("- `mcp-tools.md` — MCP server tool reference")
     lines.append("- `frontend.md` — Frontend rules (when applicable)")
-    lines.append("")
-
-    # MCP mandatory note
-    lines.append("## Architecture MCP Server (MANDATORY)")
-    lines.append("")
-    lines.append("The `architecture-blueprints` MCP server is the single source of truth.")
-    lines.append("You MUST call `where_to_put` before creating files and `check_naming` before naming components.")
-    lines.append("See `.claude/rules/mcp-tools.md` for the full tool reference and workflow.")
     lines.append("")
 
     # Footer
@@ -837,8 +790,6 @@ def generate_agents_md(bp: dict) -> str:
     lines.append("")
     always_items = [
         "Run tests before committing",
-        "Use `where_to_put` MCP tool before creating files",
-        "Use `check_naming` MCP tool before naming components",
         "Follow file placement rules (see `.claude/rules/architecture.md`)",
     ]
     for item in always_items:
@@ -916,21 +867,6 @@ def generate_agents_md(bp: dict) -> str:
                 lines.append(f"  - *{pitfall['recommendation']}*")
         lines.append("")
 
-    # 11. Architecture MCP Server
-    lines.append("## Architecture MCP Server")
-    lines.append("")
-    lines.append("The `architecture-blueprints` MCP server is the single source of truth.")
-    lines.append("Call its tools for every architecture decision.")
-    lines.append("")
-    lines.append("| Tool | When to Use |")
-    lines.append("|------|------------|")
-    lines.append("| `where_to_put` | Before creating or moving any file |")
-    lines.append("| `check_naming` | Before naming any new component |")
-    lines.append("| `list_implementations` | Discovering available implementation patterns |")
-    lines.append("| `how_to_implement_by_id` | Getting full details for a specific capability |")
-    lines.append("| `how_to_implement` | Fuzzy search when exact capability name unknown |")
-    lines.append("| `get_file_content` | Reading source files referenced in guidelines |")
-    lines.append("")
 
     # 12. File Placement Quick Reference
     where = _get(bp, "quick_reference", "where_to_put_code", default={}) or {}
@@ -962,7 +898,6 @@ def generate_all(bp: dict) -> dict:
         _build_architecture_rule,
         _build_patterns_rule,
         _build_frontend_rule,
-        _build_mcp_tools_rule,
         _build_guidelines_rule,
         _build_pitfalls_rule,
         _build_dev_rules_rule,

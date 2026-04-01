@@ -35,11 +35,8 @@ serve = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
 ]
-mcp = [
-    "mcp>=1.0.0",
-]
 all = [
-    "archie-cli[serve,mcp]",
+    "archie-cli[serve]",
 ]
 dev = [
     "pytest>=7.4.0",

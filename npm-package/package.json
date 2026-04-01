@@ -14,8 +14,7 @@
     "linter",
     "enforcement",
     "CLAUDE.md",
-    "AGENTS.md",
-    "mcp"
+    "AGENTS.md"
   ],
   "author": "BitRaptors",
   "license": "MIT",

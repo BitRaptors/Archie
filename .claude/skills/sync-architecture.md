@@ -1,6 +1,6 @@
 # Skill: sync-architecture
 
-Provision architecture outputs (CLAUDE.md, rules, per-folder context, MCP config) from a generated blueprint to the target project's local checkout.
+Provision architecture outputs (CLAUDE.md, rules, per-folder context) from a generated blueprint to the target project's local checkout.
 
 ## Instructions
 
@@ -42,11 +42,6 @@ For each file from the intent layer, write it to the corresponding relative path
   - If the file doesn't exist, write it wrapped in markers
   - The marker format is: `<!-- gbr:start repo={repo_name} -->` where `repo_name` is the last segment of the project path
 
-- **`.mcp.json` and `.cursor/mcp.json`**: If the file already exists:
-  - Parse the existing JSON
-  - Only upsert the `mcpServers.architecture-blueprints` key — preserve all other keys
-  - If the file doesn't exist, write the new JSON directly
-
 - **`.claude/settings.json`**: If the file already exists:
   - Parse the existing JSON
   - Only upsert the `hooks` key — preserve `permissions` and all other top-level keys
@@ -64,7 +59,6 @@ List all files that were written or updated, grouped by category:
 - Claude Code rules (.claude/rules/*)
 - Cursor rules (.cursor/rules/*)
 - Claude Code hooks (.claude/hooks/*.sh, .claude/settings.json)
-- MCP config (.mcp.json, .cursor/mcp.json)
 - Per-folder context (*/CLAUDE.md)
 
 Include the total count.
