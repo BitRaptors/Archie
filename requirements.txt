@@ -1,4 +1,0 @@
-pyyaml>=6.0
-pathspec>=0.12.0
-
-
