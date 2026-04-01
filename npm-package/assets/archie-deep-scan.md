@@ -773,7 +773,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 ### Phase 0: Health measurement
 
 ```bash
-python3 .archie/measure_health.py "$PROJECT_ROOT" > /tmp/archie_health.json 2>&1
+python3 .archie/measure_health.py "$PROJECT_ROOT" > /tmp/archie_health.json 2>/dev/null
 ```
 
 Save health scores to history for trending:

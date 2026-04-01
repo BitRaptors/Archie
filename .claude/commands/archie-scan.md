@@ -10,7 +10,7 @@ Run the scanner to get the project map and health metrics:
 
 ```bash
 python3 .archie/scanner.py "$PWD"
-python3 .archie/measure_health.py "$PWD" > /tmp/archie_health.json 2>&1
+python3 .archie/measure_health.py "$PWD" > /tmp/archie_health.json 2>/dev/null
 git log --oneline --since="7 days ago" --name-only 2>/dev/null | sort -u | head -50
 ```
 
