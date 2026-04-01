@@ -1,0 +1,445 @@
+```json
+{
+  "structural_patterns": [
+    {
+      "pattern": "Dependency Injection",
+      "platform": "frontend",
+      "implementation": "Manual DI with Swinject container. Dependencies are explicitly passed to initializers and stored as struct properties. No automatic wiring; initialization happens in AppDelegate and DI container setup.",
+      "location": "iOS/AroundSound/App/DI/",
+      "examples": [
+        "iOS/AroundSound/App/DI/DepedencyContainer.swift - Central Swinject container registration",
+        "iOS/AroundSound/App/ViewModel/MainViewModel.swift - Dependencies injected via struct initializer with ~15 dependencies: generalPlayer, recorder, recordingsRepository, sharedLinksRepository, albumProvider, syncManager, locationManager, shareHelper, errorFactory, settingsManager, firebaseProvider, analyticsManager",
+        "iOS/AroundSound/App/ViewModel/OnboardingViewModel.swift - Constructor injection pattern: init(sharedLinksRepository, disposeBag, generalPlayer, analyticsManager, settingsManager)",
+        "iOS/AroundSound/App/Domain/Provider/SharedAlbumProvider.swift - Provider pattern with explicit DI: init(firebase: FirebaseProviderProtocol, errorFactory: ASErrorFactoryProtocol)"
+      ],
+      "notes": "No property injection; all dependencies resolved at initialization. Structs used as ViewModels enable value-based composition. Heavy use of protocols for abstraction and testability."
+    },
+    {
+      "pattern": "Repository Pattern",
+      "platform": "frontend",
+      "implementation": "Explicit repository interfaces + protocol-based implementations. Repositories abstract Firebase Firestore/Functions calls. Used for recordings, albums, shared links, and comments.",
+      "location": "iOS/AroundSound/App/Networking/",
+      "examples": [
+        "RecordingsRepository - Abstracts recording persistence and fetching",
+        "SharedLinksRepository - Manages shared link operations",
+        "AlbumProvider (variant of repository) - Returns albumObjectOutput, errorOutput, and accepts inputs",
+        "SharedAlbumProvider - Handles deeplink-triggered album preview fetching via: deeplinkInput -> flatMapLatest -> firebase.fetchSharedAlbumPreview()"
+      ],
+      "notes": "Repository methods return RxSwift Observables/Drivers (reactive). Error handling delegated to errorFactory. Each repository owns its error Subject and exposes errorOutput."
+    },
+    {
+      "pattern": "Factory Pattern",
+      "platform": "frontend",
+      "implementation": "Error factory with typed methods. Creates domain-specific error objects (RecordingError, FirebaseError, GeneralError, etc.) with enriched context and analytics logging.",
+      "location": "iOS/AroundSound/App/ErrorHandling/ASErrorFactory.swift",
+      "examples": [
+        "ASErrorFactory.createFirebaseError(kind:externalError:additionalContext:) - Detects no-internet errors (-1009), wraps external errors, logs to analytics with custom attributes",
+        "createRecordingError, createGeneralError, createShareError, createPersistenceError - Overloaded methods accepting ErrorKind enum + optional external Error + optional context dict",
+        "noInternetError detection - Checks NSError.code == -1009 to provide specialized handling"
+      ],
+      "notes": "Factory couples error creation with analytics logging. Unifies error handling across domain boundaries."
+    },
+    {
+      "pattern": "Provider/Strategy Pattern",
+      "platform": "frontend",
+      "implementation": "Providers abstract complex data flow logic. Return Input relays + Output observables following MVVM push/pull pattern. Examples: AlbumProvider, SharedAlbumProvider, CommentProvider.",
+      "location": "iOS/AroundSound/App/Domain/Provider/",
+      "examples": [
+        "SharedAlbumProvider - Exposes: deeplinkInput (PublishRelay), albumsOutput (Observable<SharedAlbumPreview>), errorOutput (Observable<ASError>). Internal logic: deeplinkInput.flatMapLatest(firebase.fetchSharedAlbumPreview).catchErrors(to: errorSubject)",
+        "AlbumProvider - Multi-output: albumObjectOutput (Driver), errorOutput (Observable). Manages album subscriptions and state",
+        "CommentProvider - Similar pattern for comment operations"
+      ],
+      "notes": "Input/Output ports separate concerns. Publishers/Subscribers decouple ViewModels from Provider implementation details."
+    },
+    {
+      "pattern": "View Hierarchy Composition (iOS)",
+      "platform": "frontend",
+      "implementation": "Traditional UIViewController + UIView hierarchy. Custom views subclass UIView and compose subviews. ViewControllers manage lifecycle, delegate logic to ViewModels.",
+      "location": "iOS/AroundSound/App/ViewControllers/ + iOS/AroundSound/App/Views/",
+      "examples": [
+        "MainViewController - Root container, coordinates tabs, manages RecorderView, PlayerView (mini/fullscreen), navigation",
+        "AlbumDetailsViewController - Displays album metadata, recording list via UITableView with custom cells (AlbumDetailsRecordingCell, AlbumDetailsCommentCell, etc.)",
+        "RecorderView - Custom UIView composing AVAudioRecorder interaction, waveform display, recording state UI",
+        "PlayerView - Encapsulates AVPlayer, playback controls, track display. Used in both mini and fullscreen contexts",
+        "ScrollableHeader - Custom header with parallax/sticky behavior for album details"
+      ],
+      "notes": "No SwiftUI. Heavy XIB usage for layout. Cell/View reuse via UITableViewCell registration. Custom Animators for transitions (CommentsAnimator, PopupAnimator, RatingPromptAnimator)."
+    },
+    {
+      "pattern": "Data Binding with RxSwift",
+      "platform": "frontend",
+      "implementation": "Reactive bindings between ViewModels (Observables/Drivers) and ViewControllers (binding to UI). No two-way binding; unidirectional data flow. Subscriptions disposed via DisposeBag.",
+      "location": "iOS/AroundSound/App/ViewModel/, iOS/AroundSound/App/ViewControllers/",
+      "examples": [
+        "MainViewModel exposes multiple outputs: stateOfRecorderOutput (Driver<RecordingStatus>), locationOutput, errorOutput, isLoadingOutput, loggedInOutput, currentlyPlayedRecordingDeletedOutput",
+        "OnboardingViewModel.shareRecordingInput - PublishRelay accepting user intent. Internally bound to sharedLinksRepository.addDeeplinkInput. newlyAddedSharedLinksOutput bound to generalPlayer.play()",
+        "AVPlayer+Rx.swift, AVPlayerItem+Rx.swift - Reactive wrappers for KVO-based properties (rate, status, duration, playbackBufferFull, loadedTimeRanges, periodicTimeObserver)"
+      ],
+      "notes": "Drivers used for guaranteed delivery (no cold subscription side effects). Subjects/Relays for input. Observable.merge for multi-source outputs. No Redux; ViewModels own local state via Subjects."
+    },
+    {
+      "pattern": "Protocol-Based Abstraction",
+      "platform": "frontend",
+      "implementation": "Heavy use of protocols for interfaces. All major components have Protocol variants (GeneralPlayerProtocol, GeneralRecorderProtocol, RecordingsRepositoryProtocol, etc.). Enables testing via mocks.",
+      "location": "Throughout iOS/AroundSound/App/",
+      "examples": [
+        "GeneralPlayerProtocol - Abstracts AVPlayer management. Methods: play(recording:albumid:), stopCurrentRecording(), needsFullscreen(). Exposes: currentRecordingInput (PublishRelay), currentRecordingOutput (Observable), playbackStatus (Driver)",
+        "RecordingsRepositoryProtocol - Methods: addRecording(), deleteRecording(). Outputs: recordingsOutput, errorOutput, deletedRecordingOutput",
+        "LocationManagerProtocol - Encapsulates CLLocationManager. Exposes: locationOutput (Driver), authObservable, errorOutput",
+        "FirebaseProviderProtocol - High-level Firebase operations returning Observables/Singles wrapping HTTP results"
+      ],
+      "notes": "Protocols define contracts for dependencies. Implementations inject Firebase/Location/Audio frameworks. Testable via protocol conformance."
+    },
+    {
+      "pattern": "Converter/Mapper Pattern",
+      "platform": "frontend",
+      "implementation": "Converters transform Firebase DTOs to domain models. Typically static methods or struct functions in dedicated files. Examples: AlbumConverter, RecordingConverter, SharedAlbumConverter.",
+      "location": "iOS/AroundSound/App/Networking/Converters/",
+      "examples": [
+        "AlbumConverter - Converts AlbumDto (Firebase) -> Album (domain model)",
+        "RecordingConverter - Converts RecordingDto -> Recording",
+        "SharedAlbumPreviewConverter - Converts SharedAlbumPreviewDto -> SharedAlbumPreview",
+        "CommentConverter - Converts CommentDto -> Comment"
+      ],
+      "notes": "Isolates DTO-to-domain transformation logic. Enables schema evolution (DTOs can change without affecting domain models). One-way transformation (no reverse mapping needed)."
+    },
+    {
+      "pattern": "Observer/Notification Pattern (RxSwift variant)",
+      "platform": "frontend",
+      "implementation": "RxSwift PublishSubject/BehaviorRelay for in-process publish-subscribe. External notifications via RxCocoa rx.notification wrapper.",
+      "location": "iOS/AroundSound/App/Utils/AVPlayer+Rx.swift",
+      "examples": [
+        "AVPlayerItem.rx.didPlayToEnd - Wraps AVPlayerItemDidPlayToEndTime notification: NotificationCenter.default.rx.notification(.AVPlayerItemDidPlayToEndTime, object: base)",
+        "MainViewModel.errorOutput - Merges multiple error sources: Observable.merge(locationManager.errorOutput, shareHelper.errorOutput, syncManager.errorOutput, errorSubject, albumProvider.errorOutput)",
+        "SharedAlbumProvider.errorOutput - PublishSubject capturing errors from async operations"
+      ],
+      "notes": "RxSwift provides consistent interface for both push (Relay) and notification-based events. No imperative event handling; declarative stream composition."
+    },
+    {
+      "pattern": "Dependency Injection (Backend)",
+      "platform": "backend",
+      "implementation": "Firebase Cloud Functions use module-level exports. Dependencies (Firebase SDK, Firestore, Functions) imported at module level. No explicit DI container; functions are stateless.",
+      "location": "platform/firebase/functions/src/",
+      "examples": [
+        "platform/firebase/functions/src/firebase.ts - Exports initialized Firebase Admin SDK instance",
+        "platform/firebase/functions/src/index.ts - Imports all handler modules and exports functions. Each handler receives context (req, res) and calls shared Firebase/config modules",
+        "platform/firebase/functions/src/albums.ts - Imports firebase, config, cloud_function_utils. Functions access Firestore via firebase.firestore()"
+      ],
+      "notes": "Implicit DI via module-level singletons. Firebase SDK initialized once at module load. No inversion of control; functions directly import and use shared modules. Testability via mocking Firebase SDK."
+    },
+    {
+      "pattern": "Repository Pattern (Backend variant)",
+      "platform": "backend",
+      "implementation": "Not explicitly implemented. Backend functions directly query/mutate Firestore. Data access logic mixed with business logic. Converters use DTO patterns for type safety.",
+      "location": "platform/firebase/functions/src/",
+      "examples": [
+        "platform/firebase/functions/src/albums.ts - Functions directly call firebase.firestore().collection('albums'). No repository interface; Firestore is the data store.",
+        "platform/firebase/functions/src/recordings.ts - Direct Firestore CRUD operations embedded in function bodies"
+      ],
+      "notes": "Less abstraction than frontend. Firebase functions are thin adapters mapping HTTP requests to Firestore operations. Harder to test without Firebase emulator."
+    },
+    {
+      "pattern": "Utility/Helper Functions (Backend)",
+      "platform": "backend",
+      "implementation": "Shared utility modules (cloud_function_utils.ts, promise_utils.ts, config.ts) export helper functions for common operations.",
+      "location": "platform/firebase/functions/src/",
+      "examples": [
+        "cloud_function_utils.ts - Exports helpers for response formatting, parameter validation",
+        "promise_utils.ts - Promise/async utility functions (likely for batch operations, error handling)",
+        "config.ts - Configuration constants and environment variable loading"
+      ],
+      "notes": "Functional composition via module exports. No classes or OOP patterns; pure functions. Enables code reuse across handlers."
+    }
+  ],
+  "behavioral_patterns": [
+    {
+      "pattern": "Service Orchestration (Multi-Step Workflows)",
+      "platform": "frontend",
+      "implementation": "ViewModels orchestrate multi-step flows using RxSwift operators (flatMapLatest, withLatestFrom, combineLatest). Complex workflows decomposed into observable chains.",
+      "location": "iOS/AroundSound/App/ViewModel/",
+      "examples": [
+        "MainViewModel.recordingShareMetadaOutput - Delegates to shareHelper.recordingShareMetadataOutput. shareHelper coordinates: deeplink parsing, album validation, user auth, metadata enrichment",
+        "OnboardingViewModel.bindSharing() - Coordinates: user intent (shareRecordingInput) -> loading indicator (loadingSubject.accept(true)) -> repository call (bind to sharedLinksRepository.addDeeplinkInput) -> success playback + fullscreen (newlyAddedSharedLinksOutput.bind -> generalPlayer.play)",
+        "SharedAlbumProvider - Single-step orchestration: deeplinkInput -> deeplink validation -> Firebase fetch -> error handling via catchErrors operator",
+        "FirebaseSyncManager - Multi-step sync: subscription to repo outputs -> error wrapping -> analytics logging -> sync state updates"
+      ],
+      "notes": "Orchestration logic decoupled from UI via ViewModels. RxSwift operators (flatMapLatest, catchError, withLatestFrom) compose async operations. Error handling integrated at each step via providers/repositories."
+    },
+    {
+      "pattern": "Event-Driven Architecture (RxSwift)",
+      "platform": "frontend",
+      "implementation": "Observable streams as event buses. ViewModels expose output Observables (events). ViewControllers subscribe to events and react. Input Relays/PublishSubjects for user intents.",
+      "location": "iOS/AroundSound/App/ViewModel/, iOS/AroundSound/App/ViewControllers/",
+      "examples": [
+        "MainViewModel.currentlyPlayedRecordingDeletedOutput - Event stream: recordingsRepository.deletedRecordingOutput withLatestFrom generalPlayer.currentRecordingInput -> filter(uuid match) -> map to Void. ViewControllers react by dismissing detail view.",
+        "OnboardingViewModel.shareRecordingInput - Input relay captures intent event. Internally bound to multiple downstream handlers (repository call, analytics, loading state)",
+        "RecorderView state machine - Exposes recordingStatus (Driver) with enum: .idle, .recording, .paused, .stopped. View reacts via Driver subscriptions.",
+        "Player lifecycle - Exposes rate (0=paused, >0=playing), status (unknown/readyToPlay/failed), error observables. UI updates on any event emission."
+      ],
+      "notes": "Event sources (user gestures, repository updates, system notifications) emit to Subjects. Subscribers (ViewControllers) react declaratively. No imperative event handling. DisposeBag ensures cleanup."
+    },
+    {
+      "pattern": "Asynchronous Streaming (RxSwift Observables)",
+      "platform": "frontend",
+      "implementation": "Long-running operations (Firebase reads, network requests, location updates) modeled as cold Observables. Subscription triggers execution. Backpressure handled via Drivers for UI updates.",
+      "location": "iOS/AroundSound/App/Domain/Provider/, iOS/AroundSound/App/AudioEngine/",
+      "examples": [
+        "SharedAlbumProvider.albumsOutput - Observable chain: deeplinkInput -> flatMapLatest(firebase.fetchSharedAlbumPreview) -> yields SharedAlbumPreview events. Subscribers get async updates as Firebase resolves.",
+        "locationManager.locationOutput - Driver<LocationResult> emitting CLLocation updates continuously. Cold observable; subscription triggers CLLocationManager updates.",
+        "AVPlayer periodic time observer - RxSwift wrapper: Observable.create { observer -> Disposables.create } using addPeriodicTimeObserver. Emits CMTime at regular intervals while playing.",
+        "recorder.recordingStatus - Driver emitting RecordingStatus enum state changes. UI subscribes and displays waveform, duration, record/pause buttons reactively."
+      ],
+      "notes": "Observables are lazy (cold); execution deferred until subscription. No polling; event-driven. Drivers provide UI-safe semantics (guaranteed delivery, replay latest value). Backpressure implicit (no buffering)."
+    },
+    {
+      "pattern": "Reactive Data Binding",
+      "platform": "frontend",
+      "implementation": "One-directional binding from ViewModel outputs (Observables/Drivers) to UIView/UIViewController properties via RxCocoa. No two-way binding.",
+      "location": "iOS/AroundSound/App/ViewControllers/",
+      "examples": [
+        "AlbumsViewController - Likely binds: albumsViewModel.albumsOutput -> UITableView.rx.items(cellIdentifier:, cellType:, configureCell:) closure",
+        "RecorderView - Binds: recorder.recordingStatus -> waveform visualization, duration label, button states (record/pause/stop enabled)",
+        "PlayerView - Binds: generalPlayer.playbackStatus -> play/pause button state; currentTime -> progress slider; duration -> duration label",
+        "MainViewController - Binds: mainViewModel.stateOfRecorderOutput (Driver<RecordingStatus>) -> UI state; mainViewModel.errorOutput -> error toast display; mainViewModel.loggedInOutput -> nav bar updates"
+      ],
+      "notes": "RxCocoa extension methods enable UIKit binding (e.g., UITableView.rx.items, UILabel.rx.text, UIButton.rx.tap). ViewModels own reactive state; ViewControllers are stateless subscribers. Binding defined declaratively in viewDidLoad or viewDidAppear."
+    },
+    {
+      "pattern": "Error Propagation Stream",
+      "platform": "frontend",
+      "implementation": "Errors flow through Observable chains via operators (catchError, catchErrors custom). Each provider/repository exposes errorOutput. ViewModels merge error sources and expose errorOutput. ViewControllers subscribe globally and display toast.",
+      "location": "iOS/AroundSound/App/ErrorHandling/, iOS/AroundSound/App/ViewModel/",
+      "examples": [
+        "ASErrorFactory.createFirebaseError() - Detects no-internet, wraps external error, logs to analytics, returns ASError domain model",
+        "SharedAlbumProvider - flatMapLatest catches Firebase errors via .catchErrors(to: errorSubject). errorOutput = errorSubject.asObservable()",
+        "MainViewModel.errorOutput - Observable.merge(locationManager.errorOutput, shareHelper.errorOutput, syncManager.errorOutput, errorSubject, albumProvider.errorOutput). Merges all error streams.",
+        "View controller binding - mainViewModel.errorOutput.bind { error -> showErrorToast(error) }.disposed(by: disposeBag)"
+      ],
+      "notes": "No try-catch; errors flow as Observable values. catchError operator allows graceful recovery or conversion to errorOutput stream. Error enrichment (external error + context + analytics) centralized in factory. Global error handler in root ViewController."
+    },
+    {
+      "pattern": "State Machine via Enums",
+      "platform": "frontend",
+      "implementation": "Domain models use enums to represent discrete states. Examples: RecordingStatus, PlaybackStatus, RatingState, AlbumSyncStatus. ViewModels expose state as Driver<Enum>; UI reacts declaratively.",
+      "location": "iOS/AroundSound/App/Models/",
+      "examples": [
+        "RecordingStatus - Enum cases: .idle, .recording, .paused, .stopped. recorder.recordingStatus exposes Driver<RecordingStatus>. UI binds and shows appropriate buttons.",
+        "PlaybackStatus - Likely: .idle, .playing, .paused, .stopped, .error. generalPlayer.playbackStatus drives UI controls.",
+        "RatingState - Enum: .notRequired, .required, .shown, .completed, .skipped. ratingViewModel manages state transitions. UI navigates via RatingViewController if required.",
+        "AlbumSyncStatus - Enum tracking sync progress: .pending, .syncing, .synced, .failed. UI shows spinner/checkmark/error indicator based on state."
+      ],
+      "notes": "Type-safe state representation. Swift compiler ensures all cases handled in switch statements. Observable<Enum> enables exhaustive pattern matching in UI bindings. No primitive state strings."
+    },
+    {
+      "pattern": "Deferred Execution (Cold Observables)",
+      "platform": "frontend",
+      "implementation": "Providers/repositories return cold Observables. Subscription triggers execution (e.g., Firebase fetch). Multiple subscribers re-execute; use shareReplay() for caching.",
+      "location": "iOS/AroundSound/App/Domain/Provider/",
+      "examples": [
+        "firebase.fetchSharedAlbumPreview() - Returns Observable<SharedAlbumPreview>. Each subscription triggers a new HTTP request. Not cached by default.",
+        "SharedAlbumProvider.albumsOutput = deeplinkInput.flatMapLatest(firebase.fetchSharedAlbumPreview) - New deeplink input triggers new fetch (cold). Old fetches not cached.",
+        "Best practice (not shown): .shareReplay(bufferSize: 1) would cache last fetch result for multi-subscriber scenarios"
+      ],
+      "notes": "Cold observables defer side effects (network requests, file I/O) until subscription. Enables resource efficiency but requires explicit caching for repeated subscriptions. Contrast with hot Subjects/Drivers."
+    },
+    {
+      "pattern": "Transactional/Atomic Updates (Backend)",
+      "platform": "backend",
+      "implementation": "Firebase Firestore transactions and batched writes for multi-step operations. Implies consistency guarantees (all-or-nothing updates).",
+      "location": "platform/firebase/functions/src/ (inferred from file names: albums.ts, recordings.ts, shared_links.ts)",
+      "examples": [
+        "platform/firebase/functions/src/albums.ts - Likely uses Firestore transactions for: create album + update user.albums + initialize permissions atomically",
+        "shared_links.ts - Likely batches: create shared link doc + update album.sharedLinks + create initial permissions atomically"
+      ],
+      "notes": "Not visible in provided snippets but critical for data integrity. Firebase SDK supports db.transaction() and db.batch() for multi-document updates."
+    },
+    {
+      "pattern": "Notification/Trigger Events (Backend)",
+      "platform": "backend",
+      "implementation": "Firestore triggers (onCreate, onUpdate) for reactive workflows. Examples: user joins album -> send notifications; recording added -> update album sync status.",
+      "location": "platform/firebase/functions/src/notifications.ts, platform/firebase/functions/src/index.ts",
+      "examples": [
+        "platform/firebase/functions/src/notifications.ts - Likely exports onCommentCreated, onRecordingAdded, onUserJoinedAlbum trigger handlers",
+        "Firestore trigger chain: User adds comment to album -> onCreate trigger -> notifications.onCommentCreated() -> fetch album members -> send push notifications via Firebase Messaging"
+      ],
+      "notes": "Backend uses event-driven model via Firestore triggers. Frontend subscribes to document changes via SnapshotListener. Bidirectional event flow: frontend mutations -> backend triggers -> frontend subscriptions."
+    }
+  ],
+  "cross_cutting_patterns": [
+    {
+      "concern": "Error Handling",
+      "approach": "Custom error hierarchy with domain-specific types (RecordingError, FirebaseError, GeneralError, ShareError, PersistenceError). Factory creates typed errors with optional external error + context dict. All errors logged to analytics.",
+      "location": "iOS/AroundSound/App/ErrorHandling/",
+      "implementation": [
+        "ASError protocol/base - Domain model for all errors",
+        "ASErrorFactory.swift - Typed factory methods with overloads. Calls analytics.logError(error:customAttributes:). Detects no-internet (-1009) and handles specially.",
+        "Error types wrap ErrorKind enums - RecordingError.ErrorKind, FirebaseError.ErrorKind, etc. Each kind maps to user-facing message.",
+        "Observatory pattern - errorOutput Observable exposed from all providers/repositories. ViewModels merge error sources. Global error handling in root ViewController.",
+        "No throw/catch - Errors flow as Observable values via catchError operator"
+      ],
+      "backend_approach": "Not explicit in provided code. Likely uses HTTP status codes (400, 500) + JSON error responses. No custom error objects visible.",
+      "notes": "Frontend has rich error handling; backend minimal. No error recovery strategies visible (no retry logic shown in samples)."
+    },
+    {
+      "concern": "Validation",
+      "approach": "No explicit validation layer visible. Likely done implicitly: Firebase client SDK validates auth tokens; Firestore validates schema on write; iOS code assumes valid data from Firebase.",
+      "location": "iOS/AroundSound/App/ (distributed)",
+      "implementation": [
+        "Firebase Auth - Validates JWT tokens server-side before Firestore access",
+        "Firestore security rules - Enforce document-level access control and field-level constraints (implicit validation)",
+        "Type safety - Swift structs with non-optional properties ensure valid models at compile time",
+        "DTO -> Domain conversion - Converters assume valid DTOs; no per-field validation visible"
+      ],
+      "backend_approach": "Firestore security rules + Cloud Functions validation. Functions likely validate request parameters before Firestore writes.",
+      "notes": "Validation distributed (client-side type safety, server-side auth/rules). No dedicated validation library (e.g., Joi, Yup) visible. Relies on Firebase for constraint enforcement."
+    },
+    {
+      "concern": "Authentication & Authorization",
+      "approach": "Firebase Auth + Google Sign-In. JWT token obtained after auth. Firestore security rules enforce authorization (document-level access control). Frontend stores auth state in SettingsManager.",
+      "location": "iOS/AroundSound/App/Appdelegate/AppDelegate.swift, iOS/AroundSound/App/SettingsManager/, platform/firebase/functions/src/firebase.ts",
+      "implementation": [
+        "AppDelegate.swift - Initializes Firebase Auth, GoogleSignIn, registers for push notifications",
+        "SettingsManager - Exposes isLoggedInOutput (Observable<Bool>), userId() getter. Likely wraps Firebase Auth.auth().currentUser",
+        "MainViewModel.loggedInOutput - Drives UI state (show/hide login button, nav bar personalization)",
+        "Firestore security rules - Implicit authorization. Backend rules check auth.uid against document ownership/permissions",
+        "Push notifications - Firebase Cloud Messaging (FCM) for cross-device notifications post-auth",
+        "platform/firebase/functions/src/firebase.ts - Auth context available in Cloud Functions via req.user (from auth middleware or admin SDK)"
+      ],
+      "backend_approach": "Firebase Cloud Functions receive authenticated requests. Admin SDK allows server-side operations bypassing Firestore rules.",
+      "notes": "Firebase-first auth. No JWT validation logic visible in frontend (delegated to Firebase SDK). Authorization enforced server-side via Firestore rules + Cloud Functions context checks."
+    },
+    {
+      "concern": "Logging & Analytics",
+      "approach": "Two-tier logging: (1) Structured analytics via ASAnalyticsService (Firebase Analytics + AppCenter); (2) Error logging with context enrichment.",
+      "location": "iOS/AroundSound/App/Analytics/, iOS/AroundSound/App/ErrorHandling/ASErrorFactory.swift",
+      "implementation": [
+        "ASAnalyticsService - Methods: logError(error:customAttributes:), logEvent(event:customAttributes:). Wraps Firebase Analytics + AppCenter.",
+        "ASAnalyticsEvent - Enum of app events (external_share_opened, etc.). Events logged with event-specific custom attributes.",
+        "ASAnalyticsPerformanceEvent - Performance metrics (likely app startup, screen load times)",
+        "Error logging - Every error factory call logs to analytics.logError(). Includes error type, kind, external error details, custom context dict.",
+        "OnboardingViewModel - Logs external_share_opened event with recording_id, user_id, source, share_event_id attributes",
+        "Firebase Analytics + AppCenter Crashes - Dual instrumentation for redundancy"
+      ],
+      "backend_approach": "analytics.ts likely exports Cloud Functions handlers for analytics ingestion. No client-side logging visible in backend snippets.",
+      "notes": "Comprehensive event tracking. Error logging enriched with domain context (user_id, recording_id, etc.). No debug logging; only analytics events and error logs. No log levels (INFO, DEBUG, WARN) visible."
+    },
+    {
+      "concern": "Caching Strategy",
+      "approach": "Implicit caching via RxSwift operators and Firebase client SDK. No explicit cache management visible. Likely: Firebase caches Firestore documents locally; RxSwift cold observables don't cache (re-execute on subscribe); no .shareReplay() visible.",
+      "location": "iOS/AroundSound/App/Domain/Provider/, iOS/AroundSound/App/AudioEngine/",
+      "implementation": [
+        "Firebase Firestore - Client SDK caches documents locally (offline persistence). Queries use cached data if offline.",
+        "RxSwift operators - flatMapLatest re-executes on new input (no caching). combineLatest replays latest values to new subscribers (implicit cache).",
+        "SharedAlbumProvider.albumsOutput - deeplinkInput.flatMapLatest(firebase.fetch) means old fetch results discarded on new input; no explicit cache-reuse",
+        "AVPlayer - Buffered audio playback. No explicit cache strategies for downloaded recordings visible.",
+        "RecordingStatus Driver - Drivers use shareReplay internally; latest status value available to late subscribers without re-emit"
+      ],
+      "backend_approach": "Firebase Firestore caching is server-side (CDN for assets likely). No visible caching strategies in function code.",
+      "ttl_strategy": "No explicit TTL. Firestore client SDK cache persists across app sessions. Firebase Realtime Listeners maintain long-lived subscriptions (no expiry).",
+      "notes": "Minimal explicit caching. Relies on Firebase SDK built-in offline support. Drivers provide automatic replay (latest-value semantics) for UI subscriptions."
+    },
+    {
+      "concern": "Networking & Data Fetching",
+      "approach": "Firebase SDK abstracts HTTP. Client calls Firestore API via SDK; backend Cloud Functions expose custom HTTP endpoints. No REST client library visible (no Alamofire, URLSession wrapper).",
+      "location": "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+      "implementation": [
+        "FirebaseProvider - Methods return Observable/Single wrapping Firebase API calls. Example: fetchSharedAlbumPreview(albumId, token) -> Observable<SharedAlbumPreview>",
+        "Firebase Admin SDK (backend) - Cloud Functions use admin.firestore() for server-side reads/writes",
+        "No retry logic visible in samples - Likely handled implicitly by Firebase SDK or via RxSwift retry operators (not shown)",
+        "Error handling - External errors from Firebase SDK wrapped by errorFactory.createFirebaseError(kind:externalError:)",
+        "Deeplinks - ShareHelper coordinates: parse deeplink -> extract albumId + token -> call firebase.fetchSharedAlbumPreview()"
+      ],
+      "backend_approach": "Cloud Functions deployed to Firebase. HTTP entry points: functions.https.onRequest((req, res) => { ... }). Express.js style routing.",
+      "notes": "Firebase completely abstracts HTTP details. No visible URL construction, headers, or request/response serialization. Firestore client SDK handles auth token propagation."
+    },
+    {
+      "concern": "State Management",
+      "approach": "Distributed state via Subjects/Relays in each ViewModel + Provider. No global Redux/Zustand. Each feature owns its state (ViewModels are value structs with mutable Subject properties).",
+      "location": "iOS/AroundSound/App/ViewModel/, iOS/AroundSound/App/Domain/Provider/",
+      "implementation": [
+        "MainViewModel - Owns loadingSubject (BehaviorRelay), exposes isLoadingOutput. Other state (recorder status, location, errors) delegated to sub-providers.",
+        "OnboardingViewModel - Owns errorSubject, loadingSubject. Sub-providers (sharedLinksRepository) own their state; ViewModel merges outputs.",
+        "No single app state object - State scattered across providers/repositories. ViewModels aggregate and expose computed outputs.",
+        "Example: MainViewModel.errorOutput = Observable.merge(...) combines errors from 5 sources.",
+        "DisposeBag lifecycle - State Subjects/Relays stored in ViewModel struct; disposed when ViewController deinits"
+      ],
+      "backend_approach": "Stateless Cloud Functions. Persistent state in Firestore documents. No in-memory session state visible.",
+      "notes": "No Redux/Context API (iOS native). Each ViewModel is a mini store. State flows unidirectionally via Observables. Subscriptions create implicit subscriptions graph (hard to visualize globally)."
+    },
+    {
+      "concern": "Testing Strategy",
+      "approach": "Protocol-based abstraction enables mock injection. No visible test examples; inferred from protocol design.",
+      "location": "iOS/AroundSound/App/DI/, iOS/AroundSound/App/AppUITests/, iOS/AroundSound/App/AppUnitTests/",
+      "implementation": [
+        "Protocol conformance - All dependencies defined as protocols (GeneralPlayerProtocol, FirebaseProviderProtocol, etc.). Tests create mock structs conforming to protocols.",
+        "Dependency injection - ViewModel initializers accept protocol types; tests inject test-doubles.",
+        "Example structure: TestGeneralPlayer: GeneralPlayerProtocol { ... }, then init ViewModel with TestGeneralPlayer instance",
+        "DisposeBag ownership - ViewModels own DisposeBag; tests can verify Disposable cleanup",
+        "Observable testing - RxSwift testable() operator available for recording emissions (not shown in samples)"
+      ],
+      "backend_approach": "Firebase emulator for local testing. Cloud Functions can be tested locally against emulator. No visible unit test code.",
+      "notes": "Strong testability via protocols. No mocking library visible (likely use manual mocks or simple mock structs). Integration tests likely use Firebase Test Lab + emulator."
+    },
+    {
+      "concern": "Serialization & Data Transformation",
+      "approach": "Codable for JSON serialization. Converters (AlbumConverter, etc.) map Firebase DTOs to domain models. No custom JSONEncoder/Decoder visible; likely uses default Codable.",
+      "location": "iOS/AroundSound/App/Models/Dtos/, iOS/AroundSound/App/Networking/Converters/",
+      "implementation": [
+        "DTOs - Structs with Codable conformance. Firestore document snapshots decoded to DTOs.",
+        "Example: AlbumDto (Firebase schema) -> AlbumConverter.convert() -> Album (domain model)",
+        "Domain models - May not be Codable; custom properties computed from DTO fields",
+        "Custom serialization - SwiftDictionaryCoding in iOS/AroundSound/App/Utils/ suggests custom encoder/decoder for dictionary<->model conversion",
+        "DictionaryEncoder/DictionaryDecoder - Likely for storing models in UserDefaults or local persistence"
+      ],
+      "backend_approach": "Cloud Functions use TypeScript/JavaScript JSON. DTOs in functions/src/*.ts model Firestore document structure. No visible custom serialization.",
+      "notes": "Two-level serialization: Firestore JSON -> DTO -> Domain. Enables schema evolution (old Firestore docs remain compatible if DTO updated). DictionaryEncoder/DictionaryDecoder for local storage."
+    },
+    {
+      "concern": "Permission & Access Control",
+      "approach": "Firestore security rules enforce document-level access. Albums have Permissions model (OwnerRead, PublicRead, etc.). Frontend checks album.permissions before UI interactions; backend rules enforce authoritatively.",
+      "location": "iOS/AroundSound/App/Models/Permissions.swift, iOS/AroundSound/App/Domain/Provider/AlbumVisibilityStateProvider.swift",
+      "implementation": [
+        "Permissions model - Enum or struct: .ownerRead, .publicRead, .sharedWithGroup, etc.",
+        "AlbumVisibilityStateProvider - Exposes permissions state. UI uses to enable/disable sharing buttons, comment input, etc.",
+        "Firestore rules - Implicit; only visible to backend. Rules check auth.uid against album owner, shared members, permissions field.",
+        "Frontend enforcement - Cosmetic; backend rules are authoritative. Example: UI hides 'share' button if album.permissions != .ownerWrite; backend still enforces via rules.",
+        "MainViewModel.albumsOutputForRecording() - Filters selectable albums by permission (likely removes albums user can't write to)"
+      ],
+      "backend_approach": "Firestore security rules + Cloud Functions context. Admin SDK bypasses rules for internal operations.",
+      "notes": "Defense-in-depth: frontend UI respects permissions, backend rules enforce. No explicit role-based access control (RBAC); permission-based access instead."
+    },
+    {
+      "concern": "Lifecycle Management",
+      "approach": "iOS: ViewControllers/ViewModels manage resource lifecycle via DisposeBag (RxSwift cleanup). BackgroundTasks for background syncing. DeepLink handling in AppDelegate.",
+      "location": "iOS/AroundSound/App/Appdelegate/AppDelegate.swift, iOS/AroundSound/App/ViewModel/",
+      "implementation": [
+        "AppDelegate - Initializes Firebase, GoogleSignIn, AppCenter, Swinject DI on app launch. Registers for remote push notifications.",
+        "DisposeBag - Each ViewModel holds DisposeBag. RxSwift subscriptions added via .disposed(by: disposeBag). When ViewController deinits, DisposeBag deinits, all subscriptions cleaned up.",
+        "DeepLink handling - AppDelegate methods: application(_:continue:restorationHandler:) for universal links. Parses URL, extracts parameters, triggers ViewModel logic.",
+        "Background sync - FirebaseSyncManager subscribed to repository outputs. Syncs recordings on background thread (likely via OperationQueue).",
+        "Push notifications - Received in UserNotificationCenter.current().delegate. Triggers ViewModel actions (navigate to album, play recording, etc.)"
+      ],
+      "backend_approach": "Cloud Functions stateless; no lifecycle. Firestore triggers manage reactive workflows.",
+      "notes": "RxSwift Disposables enable deterministic cleanup. DisposeBag pattern prevents memory leaks (unlike manual .removeObserver). Deeplinks modeled as ViewModel inputs (PublishRelay)."
+    },
+    {
+      "concern": "Concurrency & Threading",
+      "approach": "iOS: RxSwift handles async via Schedulers (implicitly MainScheduler for UI, backgroundScheduler for I/O). No explicit Grand Central Dispatch (GCD) visible. Backend: Node.js async/await.",
+      "location": "iOS/AroundSound/App/Domain/Provider/, platform/firebase/functions/src/",
+      "implementation": [
+        "RxSwift Schedulers - Observables execute on implicit schedulers. UI subscriptions (Driver) forced to MainScheduler. Firebase operations on background scheduler.",
+        "Promise/async (Backend) - Cloud Functions use async/await for readable async code. Promise chains likely used for multi-step operations.",
+        "No explicit DispatchQueue - RxSwift abstracts threading. observeOn(.main) likely implicit in Driver creation.",
+        "Location updates - CLLocationManager delivers on background thread; RxCoreLocation wrapper likely observes on MainScheduler"
+      ],
+      "notes": "Modern Rx + async/await approach. No callback pyramids or manual thread management visible. Scheduler management likely implicit (RxSwift best practices)."
+    }
+  ]
+}
+```
+
+## Summary Notes
+
+### Frontend Architecture (iOS)
+- **Presentation Layer**: UIViewController + UIView hierarchy with XIB layouts. Custom view composition (RecorderView, PlayerView, ScrollableHeader).
+- **Reactive Layer**: Rx

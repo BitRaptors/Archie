@@ -1,0 +1,256 @@
+```json
+{
+  "structural_patterns": [
+    {
+      "pattern": "Dependency Injection (Manual/Functional)",
+      "platform": "backend",
+      "implementation": "Functions receive dependencies as parameters rather than using a DI container. Services are instantiated at route handlers and passed down to utility functions.",
+      "examples": [
+        "src/app/api/generate/stream/route.ts: POST handler calls streamClaudeGeneration(pins, repoContent, userPrompt, presets) - all dependencies passed as arguments",
+        "src/lib/generate.ts: Functions like parseReadmeSections(readme), extractDependencies(packageJsonStr), inferProjectType(deps, fileTree) all receive their data as function parameters",
+        "src/app/api/generate/refine/route.ts: Handler fetches db instance via getDb(), reads settings, then passes context to streamClaudeRefinement(sessionId, message, outputDir)"
+      ]
+    },
+    {
+      "pattern": "Repository Pattern (Data Access Abstraction)",
+      "platform": "backend",
+      "implementation": "Database access is isolated in src/lib/db.ts which exports getDb() function returning a prepared SQLite instance. All routes use this single accessor rather than direct database calls.",
+      "examples": [
+        "src/lib/db.ts: Exports getDb() that returns initialized sqlite3 database instance with schema setup",
+        "src/app/api/pins/route.ts: Calls getDb().prepare(SQL) for SELECT/INSERT/DELETE operations on pins table",
+        "src/app/api/settings/route.ts: Uses getDb().prepare() to read/write settings key-value pairs",
+        "src/app/api/generate/refine/route.ts: Calls getDb().prepare('SELECT key, value FROM settings').all() to fetch configuration"
+      ]
+    },
+    {
+      "pattern": "Factory Pattern (Generator/Streamer Creation)",
+      "platform": "backend",
+      "implementation": "Complex streaming response objects are created by factory-like functions (streamClaudeGeneration, streamClaudeRefinement) that encapsulate initialization logic and return configured ReadableStream instances.",
+      "examples": [
+        "src/lib/generate.ts: streamClaudeGeneration(pins, repoContent, userPrompt, presets) factory creates and configures Claude API streaming session with all context collected",
+        "src/lib/generate.ts: streamClaudeRefinement(sessionId, message, outputDir) factory creates refinement stream by reading existing files and setting up continuation session",
+        "src/app/api/generate/stream/route.ts: Uses factories to create SSE streams, wraps them in Response with appropriate headers"
+      ]
+    },
+    {
+      "pattern": "Registry/Plugin Pattern (AI Provider Selection)",
+      "platform": "backend",
+      "implementation": "Multiple AI provider implementations (Claude vs Gemini) are selected at runtime based on settings. Settings table acts as a registry of provider configurations.",
+      "examples": [
+        "src/app/api/generate/route.ts: Routes POST to different handlers based on settings.ai_provider ('claude' or 'gemini')",
+        "src/app/api/generate/refine/route.ts: Checks chosenProvider = reqProvider || settings.ai_provider || 'gemini', then branches to streamClaudeRefinement() or GoogleGenerativeAI path",
+        "src/app/api/settings/route.ts: GET returns { ai_provider, gemini_api_key, claude_api_key } allowing runtime provider switching",
+        "src/components/GeneratePanel.tsx: Fetches provider setting and branches rendering logic (streaming UI for Claude, direct generation for Gemini)"
+      ]
+    },
+    {
+      "pattern": "Component Composition (React Hooks + Function Components)",
+      "platform": "frontend",
+      "implementation": "UI is composed of small, single-responsibility functional components connected via props callbacks. State is lifted to parent containers using useState/useCallback hooks.",
+      "examples": [
+        "src/app/page.tsx: Root Home component manages siteDir, sessionId, provider state; composes PinBoard, GitHubPanel, PresetsPanel, GeneratePanel, PreviewFrame, RefinementChat as children",
+        "src/components/GeneratePanel.tsx: Manages prompt, generating, streaming, provider, result states; exposes onSiteReady callback to parent; internally composes ClaudeTerminal conditionally",
+        "src/components/ClaudeTerminal.tsx: Receives onDone, onFileChange callbacks from parent; manages terminal display state; processes SSE events and re-renders",
+        "src/components/PinBoard.tsx: Receives pins state from parent (lifted from root); composes PinCard components; delegates edit/delete to parent callbacks"
+      ]
+    },
+    {
+      "pattern": "Server-Sent Events (SSE) for Streaming",
+      "platform": "backend",
+      "implementation": "Long-running generation/refinement operations stream progress events as Server-Sent Events (SSE) using Next.js streaming Response. Client-side uses EventSource to subscribe.",
+      "examples": [
+        "src/app/api/generate/stream/route.ts: Returns new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } }) streaming Claude generation progress",
+        "src/lib/generate.ts: streamClaudeGeneration() and streamClaudeRefinement() create ReadableStream that emits JSON-formatted SSE events with type, message, fileCount, previewUrl, etc.",
+        "src/components/ClaudeTerminal.tsx: Uses EventSource('/api/generate/stream') to subscribe; calls handleEvent() for each SSE message; displays streaming progress in terminal UI"
+      ]
+    },
+    {
+      "pattern": "Session Management (Client-Side)",
+      "platform": "frontend",
+      "implementation": "Application session state (siteDir, sessionId, provider) is persisted to sessionStorage and restored on page load. Used to maintain context across Claude multi-turn refinement sessions.",
+      "examples": [
+        "src/app/page.tsx: loadSession() reads from sessionStorage.getItem('pinlaunch_session'); useState initial value calls loadSession()",
+        "src/app/page.tsx: useEffect([siteDir, sessionId, provider]) persists state back to sessionStorage after each change",
+        "src/components/RefinementChat.tsx: Receives sessionId prop and passes it to /api/generate/refine POST body to maintain Claude conversation continuity"
+      ]
+    },
+    {
+      "pattern": "Data Fetching with Async/Await (Browser Fetch API)",
+      "platform": "frontend",
+      "implementation": "No client-side caching library (React Query, SWR). Direct fetch() calls with async/await in event handlers. Data is managed in component state.",
+      "examples": [
+        "src/components/GeneratePanel.tsx: const res = await fetch('/api/generate', { method: 'POST', body: JSON.stringify({ userPrompt: prompt }) })",
+        "src/components/GitHubPanel.tsx: Fetches /api/github?repo=... to search repositories",
+        "src/components/SettingsPanel.tsx: fetch('/api/settings', { method: 'POST', body: JSON.stringify(settings) }) to persist config",
+        "src/components/GeneratePanel.tsx: useEffect fetches /api/settings to load ai_provider on mount"
+      ]
+    },
+    {
+      "pattern": "File-Based Routing (Next.js App Router)",
+      "platform": "frontend",
+      "implementation": "Routes are defined by file system structure. Next.js App Router convention: src/app/page.tsx is /, src/app/layout.tsx wraps all pages, src/app/api/* are API endpoints.",
+      "examples": [
+        "src/app/page.tsx: Route /",
+        "src/app/layout.tsx: Root layout wrapper for all pages",
+        "src/app/api/health/route.ts: Route GET /api/health",
+        "src/app/api/generate/route.ts: Route POST /api/generate",
+        "src/app/api/generate/stream/route.ts: Route POST /api/generate/stream",
+        "src/app/api/preview/[...path]/route.ts: Dynamic route POST /api/preview/* for catchall file serving"
+      ]
+    },
+    {
+      "pattern": "Context API for Theme/Global State (Implied)",
+      "platform": "frontend",
+      "implementation": "CSS variables (--surface, --radius-lg, --text, --text-secondary, --text-muted, --bg-elevated) suggest theming system, but actual Context/Provider not visible in samples. Components read CSS variables directly.",
+      "examples": [
+        "src/components/GeneratePanel.tsx: className includes 'bg-[var(--surface)]', 'text-[var(--text)]', 'text-[var(--text-secondary)]'",
+        "src/components/PinCard.tsx: References --radius-lg, --text, --text-muted CSS variables for styling",
+        "src/app/layout.tsx: Likely applies theme provider (not shown in sample), but children inherit CSS variable scope"
+      ]
+    }
+  ],
+  "behavioral_patterns": [
+    {
+      "pattern": "Service Orchestration (Multi-Step Generation Workflow)",
+      "platform": "backend",
+      "implementation": "POST /api/generate orchestrates a multi-step workflow: fetch GitHub repo metadata → collect pins from database → parse README sections → extract dependencies → infer project type → call Claude/Gemini → write files → return preview URL. Steps are composed sequentially in route handler.",
+      "examples": [
+        "src/app/api/generate/route.ts: POST handler orchestrates getDb() → fetchGithubRepo() → collectPins() → streamClaudeGeneration() or gemini path",
+        "src/lib/generate.ts: generateWithGemini() orchestrates parseReadmeSections() → extractDependencies() → inferProjectType() → buildPrompt() → call Gemini API",
+        "src/app/api/generate/stream/route.ts: Orchestrates pin collection → repo fetch → preset loading → Claude stream setup → return SSE stream"
+      ]
+    },
+    {
+      "pattern": "Streaming Long-Running Operations (SSE with Progress Events)",
+      "platform": "backend",
+      "implementation": "AI generation is long-running. Instead of blocking response, server streams progress events (init, tool-start, tool-result, done, error, cost) as Server-Sent Events. Client renders real-time terminal output.",
+      "examples": [
+        "src/lib/generate.ts: streamClaudeGeneration() creates ReadableStream that emits { type: 'init', model } → { type: 'assistant', message } → { type: 'tool_use', input } → { type: 'result', subtype: 'success', total_cost_usd }",
+        "src/lib/stream-parsing.test.ts: handleEvent() parses SSE events: 'done' → 'Done! {fileCount} file(s) generated', 'error' → 'Error: {message}', 'assistant' → tool uses, 'result' → cost display",
+        "src/components/ClaudeTerminal.tsx: Subscribes to EventSource; on message event calls handleEvent(); updates terminal entries in real-time"
+      ]
+    },
+    {
+      "pattern": "Conditional Streaming (Provider-Based Branching)",
+      "platform": "backend",
+      "implementation": "Request handler checks ai_provider setting; if 'claude' returns SSE stream response immediately (streaming); if 'gemini' awaits full API response then returns JSON. Frontend adapts UI based on provider.",
+      "examples": [
+        "src/app/api/generate/stream/route.ts: if (provider === 'claude') { const stream = streamClaudeGeneration(...); return new Response(stream, { headers: 'text/event-stream' }) }",
+        "src/app/api/generate/refine/route.ts: if (chosenProvider === 'claude') { return Response with stream } else { await gemini API, parse JSON, write files, return { outputDir } }",
+        "src/components/GeneratePanel.tsx: if (provider === 'claude') { setStreaming(true) } else { setGenerating(true) } - renders different UI states"
+      ]
+    },
+    {
+      "pattern": "Optimistic UI Updates (Session Persistence Before Confirmation)",
+      "platform": "frontend",
+      "implementation": "When generation starts, application immediately sets siteDir and sessionId in state and sessionStorage, then switches to preview mode UI. This allows showing preview frame and refinement chat before files are fully generated.",
+      "examples": [
+        "src/components/GeneratePanel.tsx: onSiteReady(dirName, sid, 'gemini') called from result, which triggers Home component handleSiteReady()",
+        "src/app/page.tsx: handleSiteReady() immediately sets siteDir, sessionId, provider state and persists to sessionStorage, then re-renders preview mode layout",
+        "src/app/page.tsx: Preview mode layout is conditional: if (!siteDir) setup mode else preview mode - switches after onSiteReady called, even if files still being written"
+      ]
+    },
+    {
+      "pattern": "Event-Driven File System Updates (onChange Callbacks)",
+      "platform": "frontend",
+      "implementation": "Components emit onFileChange callbacks when API writes files. Parent Home component receives callback and increments refreshTrigger state, triggering PreviewFrame re-fetch.",
+      "examples": [
+        "src/components/GeneratePanel.tsx: Calls onFileChange() after generation completes or stream receives 'done' event",
+        "src/app/page.tsx: const handleFileChange = useCallback(() => { setRefreshTrigger(n => n + 1) }, []) - increments trigger to signal PreviewFrame to refresh",
+        "src/components/PreviewFrame.tsx: useEffect depends on [refreshTrigger]; re-fetches /api/preview/ and re-renders iframe src when trigger changes"
+      ]
+    },
+    {
+      "pattern": "Multi-Turn Conversation (Session-Based Refinement)",
+      "platform": "backend",
+      "implementation": "Claude API supports multi-turn conversations. sessionId is generated at start of generation and stored in settings. Refinement requests POST to /api/generate/refine with sessionId to continue conversation context.",
+      "examples": [
+        "src/lib/generate.ts: streamClaudeGeneration() stores session context internally or returns sessionId to client",
+        "src/app/api/generate/refine/route.ts: Receives { siteDir, sessionId, message, provider }, validates sessionId, calls streamClaudeRefinement(sessionId, message, outputDir)",
+        "src/components/RefinementChat.tsx: Maintains refinementMessages state; sends { siteDir, sessionId, message } to /api/generate/refine; streams response events"
+      ]
+    }
+  ],
+  "cross_cutting_patterns": [
+    {
+      "concern": "Error Handling",
+      "approach": "Try-catch blocks in async handlers; NextResponse.json({ error: '...' }, { status: 400|404|500 }) for HTTP errors; Frontend catch blocks set error state and display error messages",
+      "location": "src/app/api/generate/route.ts: try { generateWithGemini() } catch (e) { return NextResponse.json({ error: e.message }, { status: 500 }); src/components/GeneratePanel.tsx: catch (e: any) { setError(e.message) }; Components display {error && <div>{error}</div>}"
+    },
+    {
+      "concern": "Validation",
+      "approach": "Input validation at API route handlers: check required fields (siteDir, message, repo), file existence checks (fs.existsSync), JSON parse error handling. No client-side form validation library detected.",
+      "location": "src/app/api/generate/refine/route.ts: if (!siteDir || !message) return NextResponse.json({ error: 'required' }, { status: 400 }); if (!fs.existsSync(outputDir)) return NextResponse.json({ error: 'not found' }, { status: 404 }); src/app/api/generate/route.ts: validation of pins, repoContent structure"
+    },
+    {
+      "concern": "Authentication",
+      "approach": "API keys stored in settings table (gemini_api_key, claude_api_key, github_token). No per-user authentication; application is single-user. API keys read from settings at request time.",
+      "location": "src/app/api/settings/route.ts: GET returns { ai_provider, gemini_api_key, claude_api_key, github_token } keys; POST persists them; src/app/api/generate/route.ts: reads settings.gemini_api_key before calling Gemini; src/lib/generate.ts: receives api keys as function parameters"
+    },
+    {
+      "concern": "Logging",
+      "approach": "Minimal structured logging. Relies on console.log() in development and SSE event streaming for user-facing progress. No centralized logger detected.",
+      "location": "src/lib/stream-parsing.test.ts: Test helper logs terminal entries with console-like output; src/lib/generate.ts: Could emit 'system' events with logging info but none shown in samples; SSE streams provide implicit logging via event emissions"
+    },
+    {
+      "concern": "Caching",
+      "approach": "Session-level caching via sessionStorage for (siteDir, sessionId, provider). GitHub repo metadata fetched fresh each time (no caching). Generated files cached in file system output/ directory. Browser cache headers: 'Cache-Control: no-cache' for SSE streams.",
+      "location": "src/app/page.tsx: sessionStorage.getItem/setItem for session persistence; src/app/api/generate/stream/route.ts: { 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' } headers; src/app/api/preview/[...path]/route.ts: likely serves generated files with default browser caching"
+    },
+    {
+      "concern": "State Management",
+      "approach": "Frontend uses React hooks (useState, useCallback, useEffect) for component-level state. No global state manager (Redux, Zustand, Recoil). State is lifted to Home root component and passed via props callbacks.",
+      "location": "src/app/page.tsx: useState for siteDir, sessionId, provider, refreshTrigger, refinementMessages; useCallback for handleSiteReady, handleFileChange, handleRefinementMessage; useEffect for sessionStorage persistence; passes callbacks as props to children"
+    },
+    {
+      "concern": "Type Safety",
+      "approach": "TypeScript throughout. Interface definitions for API request/response bodies (GenerateInput, ChatMessage). Types defined inline at route handlers and components. No shared type definitions file detected.",
+      "location": "src/lib/generate.ts: interface GenerateInput { pins, repoContent, userPrompt, presets }; src/app/page.tsx: interface ChatMessage { role, content }; src/components/GeneratePanel.tsx: interface GeneratePanelProps { onSiteReady, onFileChange }; All .ts files use TypeScript"
+    },
+    {
+      "concern": "File I/O and Path Handling",
+      "approach": "Uses Node.js fs and path modules. Files written to output/ directory with path.join(process.cwd(), 'output', siteDir). Existence checks via fs.existsSync(). File collection via recursive directory traversal in collectFiles().",
+      "location": "src/lib/generate.ts: collectFiles(outputDir, outputDir, files) recursively reads generated files; fs.readFileSync, fs.writeFileSync for I/O; src/app/api/generate/refine/route.ts: const outputDir = path.join(process.cwd(), 'output', siteDir); fs.existsSync(outputDir) check"
+    },
+    {
+      "concern": "Configuration Management",
+      "approach": "Settings stored in SQLite database (settings table). Single settings.ts endpoint GET/POST to read/write all config. No environment variables used for secret keys; relies on database.",
+      "location": "src/lib/db.ts: CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT); src/app/api/settings/route.ts: GET returns all settings as JSON; POST updates settings[key] = value; src/app/api/generate/route.ts: reads settings.ai_provider, settings.gemini_api_key at runtime"
+    },
+    {
+      "concern": "Database Access Pattern",
+      "approach": "Direct SQL string queries using sqlite3 library. No ORM. Parameters passed safely (prepared statements with ?, , @name syntax). Schema initialized in getDb() with CREATE TABLE IF NOT EXISTS.",
+      "location": "src/lib/db.ts: db.prepare('CREATE TABLE IF NOT EXISTS pins(...)'); db.prepare('SELECT ... FROM pins WHERE id = ?').get(id); src/app/api/pins/[id]/route.ts: db.prepare('DELETE FROM pins WHERE id = ?').run(id)"
+    }
+  ]
+}
+```
+
+---
+
+## Summary: Architectural Pattern Profile
+
+**PinLaunch** is a **lightweight, single-user web application** with a **layered monolithic architecture**:
+
+### Structural Highlights:
+1. **Manual DI** - Dependencies passed as function arguments; no container
+2. **Repository Layer** - `getDb()` abstracts SQLite access; all routes use it
+3. **Factory Functions** - `streamClaudeGeneration()`, `streamClaudeRefinement()` encapsulate complex stream setup
+4. **Runtime Provider Selection** - Settings table acts as a registry; Claude vs Gemini selected at request time
+5. **Compositional React** - Small functional components with lifted state; no HOCs or render props
+6. **File-Based Routing** - Next.js App Router convention; no custom route config
+
+### Behavioral Highlights:
+1. **Service Orchestration** - Generation workflow orchestrated sequentially in route handlers
+2. **SSE Streaming** - Long-running AI operations stream progress events; client subscribes with EventSource
+3. **Multi-Turn Conversations** - Claude refinement maintains session context across requests
+4. **Optimistic UI** - Application switches to preview mode immediately, before files are fully written
+5. **Event-Driven Updates** - onFileChange callbacks trigger UI refresh via refreshTrigger state increment
+
+### Cross-Cutting Patterns:
+- **No advanced caching** (React Query, SWR); uses sessionStorage for session state
+- **Minimal logging**; relies on SSE events for user-facing progress
+- **Type-safe** (TypeScript); interfaces defined inline, no centralized types
+- **No per-user auth**; single-user application with API keys stored in database
+- **Direct fetch() calls** (no data fetching library); async/await with error states
+- **SQLite with prepared statements** (no ORM); schema initialized at startup

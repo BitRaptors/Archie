@@ -1,0 +1,517 @@
+```json
+{
+  "runtime": [
+    {
+      "language": "Python",
+      "version": "3.11",
+      "environment": "CPython (slim container image)",
+      "platform": "backend",
+      "notes": "FROM python:3.11-slim in Dockerfile"
+    },
+    {
+      "language": "JavaScript/TypeScript",
+      "version": "ES2020+",
+      "environment": "Node.js (via Next.js)",
+      "platform": "frontend (main app)",
+      "notes": "React 19.2.3, TypeScript 5"
+    },
+    {
+      "language": "JavaScript/TypeScript",
+      "version": "ES2020+",
+      "environment": "Node.js (via Next.js)",
+      "platform": "frontend (landing)",
+      "notes": "React 19.2.3, Next.js 16.1.6, TypeScript 5"
+    }
+  ],
+  "backend_framework": {
+    "name": "FastAPI",
+    "version": ">=0.104.0",
+    "runtime": "uvicorn[standard] >=0.24.0 | gunicorn >=21.2.0",
+    "features": [
+      "Async request handling",
+      "Automatic OpenAPI/Swagger documentation",
+      "Dependency injection via FastAPI's dependency system",
+      "Server-Sent Events (sse-starlette >=1.8.0)",
+      "Middleware stack (error_handler)",
+      "Route organization via APIRouter includes"
+    ],
+    "platform": "backend"
+  },
+  "frontend_framework": {
+    "name": "Next.js",
+    "version": "16.1.6",
+    "rendering_strategy": "hybrid (SSR + CSR + ISR)",
+    "features": [
+      "App Router (landing/app/ structure)",
+      "Pages Router (frontend/pages/ structure)",
+      "API routes (if used)",
+      "Image optimization",
+      "Built-in CSS support"
+    ],
+    "platforms": ["frontend (main)", "frontend (landing)"]
+  },
+  "database": [
+    {
+      "type": "PostgreSQL",
+      "version": "16 (pgvector variant)",
+      "orm": "Supabase client (asyncpg + psycopg2-binary)",
+      "platform": "backend",
+      "libraries": [
+        "supabase >=2.0.0",
+        "asyncpg >=0.29.0",
+        "psycopg2-binary >=2.9.9",
+        "pgvector >=0.2.0 (vector embeddings)"
+      ],
+      "purpose": "Primary persistence for analyses, repositories, users, events, prompts, settings"
+    }
+  ],
+  "cache": [
+    {
+      "technology": "Redis",
+      "version": "7-alpine (docker-compose)",
+      "platform": "backend",
+      "purpose": "Session caching, task queue (arq), temporary state",
+      "port": "6379",
+      "library": "redis >=5.0.0"
+    }
+  ],
+  "queue": [
+    {
+      "technology": "ARQ (Async Redis Queue)",
+      "version": ">=0.23.0",
+      "platform": "backend",
+      "purpose": "Async background job processing, analysis workflows",
+      "backed_by": "Redis",
+      "files": [
+        "backend/src/workers/worker.py",
+        "backend/src/workers/tasks.py"
+      ]
+    }
+  ],
+  "ai_ml": [
+    {
+      "provider": "Anthropic",
+      "sdk": "anthropic >=0.7.0",
+      "platform": "backend",
+      "models": [
+        "Claude (unspecified version in requirements, likely Claude 3 family)"
+      ],
+      "purpose": "Code analysis, blueprint generation, phased analysis via PhasedBlueprintGenerator"
+    },
+    {
+      "provider": "Sentence Transformers",
+      "library": "sentence-transformers >=2.2.0",
+      "platform": "backend",
+      "purpose": "Embedding generation for RAG-based code retrieval",
+      "backed_by": "torch >=2.0.0"
+    },
+    {
+      "provider": "OpenAI-compatible",
+      "library": "tiktoken >=0.7.0",
+      "platform": "backend",
+      "purpose": "Token counting for prompt optimization"
+    }
+  ],
+  "auth": {
+    "backend": {
+      "library": "python-jose[cryptography] >=3.3.0 + passlib[bcrypt] >=1.7.4",
+      "approach": "JWT-based token authentication",
+      "features": [
+        "Bcrypt password hashing",
+        "JWT token generation/validation",
+        "Cryptographic signing"
+      ],
+      "password_hashing": "bcrypt (via passlib)",
+      "encryption": "cryptography >=41.0.0"
+    },
+    "frontend": {
+      "library": "Custom context-based (frontend/context/auth.tsx)",
+      "approach": "Client-side auth context, JWT token storage",
+      "uses": "Frontend context API for state management",
+      "integration": "useAuth() hook (frontend/hooks/useAuth.tsx)"
+    },
+    "provider": "Supabase Auth (inferred from Supabase client usage)"
+  },
+  "state_management": [
+    {
+      "library": "React Context API",
+      "platform": "frontend",
+      "purpose": "Global auth state (frontend/context/auth.tsx)",
+      "scope": "Authentication state"
+    },
+    {
+      "library": "React Query (likely, inferred from API hook patterns)",
+      "platform": "frontend",
+      "purpose": "Server state caching (useRepositoriesQuery, useWorkspace, etc.)",
+      "files": [
+        "frontend/hooks/api/useRepositoriesQuery.tsx",
+        "frontend/hooks/api/useWorkspace.ts",
+        "frontend/hooks/api/useSettings.ts"
+      ]
+    },
+    {
+      "library": "Local component state (useState)",
+      "platform": "frontend",
+      "purpose": "UI-local state (modals, form inputs, etc.)"
+    }
+  ],
+  "styling": {
+    "framework": "Tailwind CSS",
+    "version": "^4 (landing), unspecified (frontend)",
+    "approach": "Utility-first CSS via class composition",
+    "components": "shadcn/ui (component library built on Tailwind)",
+    "platforms": ["frontend (main)", "frontend (landing)"],
+    "postcss": "PostCSS 4 (@tailwindcss/postcss >=4)",
+    "configs": [
+      "frontend/tailwind.config.js",
+      "landing/next.config.ts (Tailwind v4 beta via app router)"
+    ]
+  },
+  "validation": {
+    "backend": {
+      "library": "Pydantic >=2.5.0 + pydantic-settings >=2.1.0",
+      "approach": "Declarative schema validation via Pydantic models",
+      "purpose": "Request/response validation, settings validation, environment config",
+      "files": [
+        "backend/src/api/dto/requests.py",
+        "backend/src/api/dto/responses.py",
+        "backend/src/config/settings.py"
+      ]
+    },
+    "frontend": {
+      "library": "Not explicitly specified in dependencies",
+      "approach": "Likely client-side form validation (implicit via React patterns)",
+      "notes": "No explicit validator library (zod/yup) in frontend package.json"
+    }
+  },
+  "testing": [
+    {
+      "framework": "pytest >=7.4.0",
+      "type": "unit + integration",
+      "platform": "backend",
+      "libraries": [
+        "pytest-asyncio >=0.21.0 (async test support)"
+      ],
+      "test_files": [
+        "backend/tests/unit/services/test_*.py",
+        "backend/tests/integration/test_*.py",
+        "backend/tests/conftest.py"
+      ]
+    },
+    {
+      "framework": "Jest (inferred from Next.js standard)",
+      "type": "unit + component",
+      "platform": "frontend",
+      "notes": "No explicit jest.config in provided files; next/jest is standard for Next.js"
+    },
+    {
+      "tool": "unittest.mock (standard library)",
+      "type": "mocking",
+      "platform": "backend",
+      "usage": "AsyncMock, MagicMock throughout test suite"
+    }
+  ],
+  "linting": [
+    {
+      "tool": "Ruff",
+      "version": ">=0.1.0",
+      "platform": "backend",
+      "purpose": "Python linting/formatting (fast Rust-based alternative to flake8+black)",
+      "config": "Likely ruff.toml or pyproject.toml (not provided)"
+    },
+    {
+      "tool": "mypy",
+      "version": ">= (incomplete in requirements.txt)",
+      "platform": "backend",
+      "purpose": "Static type checking for Python"
+    },
+    {
+      "tool": "ESLint",
+      "version": "^9",
+      "platform": "frontend (both apps)",
+      "purpose": "JavaScript/TypeScript linting",
+      "config": "eslint-config-next >=16.1.6 (in landing/package.json)"
+    },
+    {
+      "tool": "Prettier (inferred)",
+      "platform": "frontend",
+      "purpose": "Code formatting (standard with Next.js, not explicitly listed)"
+    }
+  ],
+  "deployment": {
+    "container": {
+      "runtime": "Docker",
+      "files": [
+        "backend/Dockerfile (python:3.11-slim base)"
+      ],
+      "compose": "docker-compose.yml (local dev: postgres + redis)",
+      "purpose": "Containerize backend API for cloud deployment"
+    },
+    "cicd": {
+      "platform": "Google Cloud Build",
+      "file": "backend/cloudbuild.yaml",
+      "steps": [
+        "Build Docker image (gcr.io registry)",
+        "Push to GCR",
+        "Deploy to Cloud Run"
+      ]
+    },
+    "cloud_provider": "Google Cloud Platform (GCP)",
+    "compute_services": [
+      "Cloud Run (managed container service for API)"
+    ],
+    "storage": [
+      "google-cloud-storage >=2.10.0 (GCS for file/artifact storage)",
+      "boto3 >=1.29.0 (AWS S3 as fallback/alternative)"
+    ],
+    "database_hosting": "Supabase (managed PostgreSQL on GCP/AWS)",
+    "notes": "Frontend (Next.js) deployment target not explicitly specified in provided files (likely Vercel or self-hosted)"
+  },
+  "monitoring": [
+    {
+      "tool": "Logging (built-in Python logging)",
+      "platform": "backend",
+      "purpose": "Application logs (AnalysisService._logger, event_repo logging)",
+      "integration": "Async event persistence (AnalysisEvent table)"
+    },
+    {
+      "tool": "Event-driven observability",
+      "platform": "backend",
+      "purpose": "Track analysis lifecycle via AnalysisEvent entities",
+      "files": [
+        "backend/src/domain/entities/analysis_event.py",
+        "backend/src/infrastructure/persistence/analysis_event_repository.py"
+      ]
+    },
+    {
+      "notes": "No explicit APM (Datadog, New Relic, etc.) or error tracking (Sentry) in dependencies — likely handled at Cloud Run level"
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "dependency_management",
+      "rule": "Always use pip + requirements.txt for backend dependencies — no poetry/pipenv lock detected; manage versions explicitly in requirements.txt",
+      "source": "backend/requirements.txt (primary), root requirements.txt (minimal)"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use npm + package.json for frontend dependencies — no yarn.lock, pnpm-lock.yaml detected; implicit npm usage",
+      "source": "frontend/package.json, landing/package.json (package-lock.json assumed)"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always run Ruff for Python linting — it is the enforced linter for backend code quality",
+      "source": "backend/requirements.txt (ruff>=0.1.0 listed)"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always run mypy for static type checking — Python type hints are expected (Pydantic models use type annotations)",
+      "source": "backend/requirements.txt (mypy listed), Pydantic schema files"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use Tailwind CSS utility classes for styling — no inline styles or CSS modules in frontend; component library uses shadcn/ui + Tailwind",
+      "source": "frontend/tailwind.config.js, landing/tailwind.config.ts, package.json dependencies"
+    },
+    {
+      "category": "testing",
+      "rule": "Always use pytest + pytest-asyncio for backend testing — async test support is mandatory for FastAPI service tests",
+      "source": "backend/requirements.txt (pytest, pytest-asyncio), backend/tests/conftest.py structure"
+    },
+    {
+      "category": "testing",
+      "rule": "Always mock external dependencies (Supabase, GitHub, Anthropic) in unit tests using AsyncMock — do not call live APIs in test suite",
+      "source": "backend/tests/unit/services/test_*.py (consistent mock patterns)"
+    },
+    {
+      "category": "architecture",
+      "rule": "Always register new API routes via include_router() in backend/src/api/app.py — routes must be explicitly included, not auto-discovered",
+      "source": "backend/src/api/app.py (FastAPI app factory), backend/src/api/routes/__init__.py"
+    },
+    {
+      "category": "architecture",
+      "rule": "Always use @inject decorator for service constructors in application/ layer — dependency injection via dependency-injector >=4.41.0 is enforced",
+      "source": "backend/src/config/container.py (DI container), backend/src/application/services/*.py (inferred from DI pattern)"
+    },
+    {
+      "category": "architecture",
+      "rule": "Never import from infrastructure/ in domain/ layer — domain entities must be infrastructure-agnostic; only interfaces (IRepository, IDatabaseConnection) in domain/interfaces/",
+      "source": "Directory structure: backend/src/domain/, backend/src/infrastructure/, backend/src/application/"
+    },
+    {
+      "category": "architecture",
+      "rule": "Always use Pydantic models for request/response DTOs — place in backend/src/api/dto/requests.py and backend/src/api/dto/responses.py",
+      "source": "backend/src/api/dto/*.py files structure"
+    },
+    {
+      "category": "authentication",
+      "rule": "Always use JWT tokens via python-jose + passlib for backend auth — tokens are signed with cryptography and validated per-request",
+      "source": "backend/requirements.txt (python-jose, passlib, cryptography), backend/src/api/routes/auth.py"
+    },
+    {
+      "category": "database",
+      "rule": "Always use Supabase client (asyncio-based) for async database operations — asyncpg driver is required for non-blocking I/O",
+      "source": "backend/requirements.txt (supabase, asyncpg), backend/src/infrastructure/persistence/supabase_adapter.py"
+    },
+    {
+      "category": "database",
+      "rule": "Always use pgvector for vector embeddings in PostgreSQL — embed semantic code snippets for RAG retrieval",
+      "source": "backend/requirements.txt (pgvector>=0.2.0), infrastructure/analysis/shared_embedder.py (inferred)"
+    },
+    {
+      "category": "async",
+      "rule": "Always use async/await syntax for I/O operations — FastAPI handlers, Supabase calls, Redis operations must be non-blocking",
+      "source": "backend/src/application/services/analysis_service.py (async def methods), backend/tests/unit/services/*.py (@pytest.mark.asyncio)"
+    },
+    {
+      "category": "environment_config",
+      "rule": "Always load environment variables via pydantic-settings >=2.1.0 — use backend/src/config/settings.py for config schema validation",
+      "source": "backend/requirements.txt (pydantic-settings), backend/src/config/settings.py (Settings class)"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always build Docker images via Google Cloud Build — backend/cloudbuild.yaml is the CI/CD pipeline; push to GCR and deploy to Cloud Run",
+      "source": "backend/cloudbuild.yaml (build steps), backend/Dockerfile"
+    },
+    {
+      "category": "git",
+      "rule": "Never commit .env files — use .env.example as template; load secrets via pydantic-settings from environment or Secret Manager",
+      "source": "backend/requirements.txt (python-dotenv), standard .gitignore practices"
+    },
+    {
+      "category": "frontend_routing",
+      "rule": "Always use Next.js App Router for new pages in landing/ — use frontend/ pages router only for legacy compatibility",
+      "source": "landing/app/ (App Router), frontend/pages/ (Pages Router) — mixed routing strategy"
+    },
+    {
+      "category": "frontend_state",
+      "rule": "Always use React Context for auth state (frontend/context/auth.tsx) — avoid prop drilling; provide useAuth() hook for consumer components",
+      "source": "frontend/context/auth.tsx, frontend/hooks/useAuth.tsx"
+    },
+    {
+      "category": "frontend_api",
+      "rule": "Always create API service modules in frontend/services/ and consume via custom hooks in frontend/hooks/api/ — keep API logic separate from components",
+      "source": "frontend/services/*.ts, frontend/hooks/api/use*.ts pattern"
+    },
+    {
+      "category": "validation",
+      "rule": "Always validate request payloads via Pydantic DTO classes in backend/src/api/dto/ — FastAPI automatically validates and returns 422 on failure",
+      "source": "backend/src/api/dto/requests.py, backend/src/api/routes/*.py (route handlers with DTO params)"
+    },
+    {
+      "category": "error_handling",
+      "rule": "Always catch exceptions and log to AnalysisEvent table for audit trail — use _log_event() method in AnalysisService for transparent error tracking",
+      "source": "backend/src/application/services/analysis_service.py (_log_event method), backend/src/api/middleware/error_handler.py"
+    },
+    {
+      "category": "queue_jobs",
+      "rule": "Always use ARQ (Async Redis Queue) for background tasks — define job functions in backend/src/workers/tasks.py and schedule via AnalysisService",
+      "source": "backend/src/workers/tasks.py, backend/src/workers/worker.py, backend/requirements.txt (arq)"
+    },
+    {
+      "category": "testing",
+      "rule": "Always conftest.py fixtures for shared test utilities (mock clients, test data) — define once, reuse across test_*.py files",
+      "source": "backend/tests/conftest.py (shared fixtures)"
+    },
+    {
+      "category": "code_organization",
+      "rule": "Always organize backend services by domain responsibility — place in backend/src/application/services/ with clear single-purpose classes",
+      "source": "backend/src/application/services/*.py (AnalysisService, IntentLayerService, etc.)"
+    },
+    {
+      "category": "documentation",
+      "rule": "Always use docstrings for service class __init__ methods — include dependency parameter list for clarity",
+      "source": "backend/src/application/services/analysis_service.py (init docstring)"
+    }
+  ],
+  "deployment_environment": {
+    "runtime_environment": "GCP Cloud Run (containerized) + self-hosted frontend (Next.js)",
+    "compute_services": [
+      "Cloud Run (managed container service for FastAPI backend)",
+      "Cloud Storage / S3 (object storage for artifacts)"
+    ],
+    "container_runtime": "Docker (python:3.11-slim base image)",
+    "orchestration": "None (Cloud Run is fully managed; local dev uses docker-compose.yml)",
+    "serverless_functions": "None (Cloud Run is serverless but container-based, not function-based like Cloud Functions)",
+    "ci_cd": [
+      "Google Cloud Build (backend/cloudbuild.yaml) — triggered on git commit",
+      "Implicit CI/CD for frontend (likely GitHub Actions or Vercel, not provided)"
+    ],
+    "distribution": [
+      "Docker Hub / GCR (gcr.io registry for backend images)",
+      "npm registry (Next.js frontend — package distribution if published as library)"
+    ],
+    "infrastructure_as_code": "None explicit (cloudbuild.yaml is GCP-specific build config, not IaC like Terraform)",
+    "supporting_services": [
+      "Supabase (managed PostgreSQL database + auth framework)",
+      "Redis (managed or self-hosted for caching + job queue)",
+      "Google Cloud Storage (via google-cloud-storage SDK)",
+      "AWS S3 (fallback via boto3)",
+      "Anthropic API (external AI provider for code analysis)"
+    ],
+    "environment_config": ".env files + python-dotenv (local dev) | Environment variables + GCP Secret Manager (Cloud Run)",
+    "key_files": [
+      "backend/Dockerfile (container image definition for FastAPI)",
+      "backend/cloudbuild.yaml (GCP Cloud Build pipeline configuration)",
+      "docker-compose.yml (local development orchestration: postgres + redis)",
+      "backend/src/main.py (FastAPI entry point)",
+      "backend/src/api/app.py (FastAPI app factory + route registration)",
+      "backend/src/config/settings.py (environment configuration schema)",
+      "frontend/package.json (Next.js main app dependencies)",
+      "landing/package.json (Next.js landing page dependencies)",
+      "frontend/pages/_app.tsx (Next.js app wrapper for main frontend)",
+      "landing/app/layout.tsx (Next.js App Router root layout for landing)"
+    ],
+    "database_deployment": "Supabase-hosted PostgreSQL (managed on GCP/AWS backend, exposed via Supabase client)",
+    "cache_deployment": "Redis instance (docker-compose for local; cloud-hosted or self-managed for production)",
+    "notes": "Backend API is containerized and deployed to Cloud Run; frontend (Next.js) deployment strategy not specified in provided files (likely Vercel, Railway, or self-hosted). All secrets/env vars injected at runtime via Cloud Run environment or Secret Manager."
+  },
+  "supplementary_info": {
+    "monorepo_structure": {
+      "backend": "FastAPI microservice with domain-driven design (domain/ → application/ → infrastructure/)",
+      "frontend": "Next.js app (Pages Router) for dashboard UI",
+      "landing": "Next.js app (App Router) for marketing landing page with 3D animations"
+    },
+    "key_external_dependencies": [
+      "Anthropic Claude API (code analysis, blueprint generation)",
+      "GitHub API (PyGithub >=2.1.0) for repository cloning, branch ops",
+      "Sentence Transformers (embedding generation for RAG)",
+      "tree-sitter (code parsing for Python, JS, TS)",
+      "Three.js + react-three/fiber (3D graphics in landing page)"
+    ],
+    "code_analysis_pipeline": "tree-sitter (parse) → sentence-transformers (embed) → pgvector (store) → RAG retriever (query) → Anthropic Claude (generate)",
+    "frontend_interaction_libraries": [
+      "Framer Motion (animations)",
+      "GSAP (timeline animations)",
+      "Lenis (smooth scroll)",
+      "Three.js + ShaderGradient (3D effects in landing)"
+    ]
+  }
+}
+```
+
+---
+
+## Key Takeaways
+
+### Deployment Model
+- **Backend**: Docker containerized, deployed to **GCP Cloud Run** via Cloud Build pipeline
+- **Frontend**: Next.js apps (main + landing); deployment strategy inferred as Vercel or self-hosted (not explicitly specified)
+- **Database**: Supabase-managed PostgreSQL with pgvector extension
+- **Cache/Queue**: Redis (local docker-compose; production deployment strategy unspecified)
+
+### Critical Development Rules
+1. **Always use Pydantic models for validation** — request/response DTOs in `backend/src/api/dto/`
+2. **Always register routes via `include_router()`** — no auto-discovery in FastAPI
+3. **Never violate domain/infrastructure isolation** — domain stays infrastructure-agnostic
+4. **Always async/await** — FastAPI handlers must be non-blocking
+5. **Always mock external APIs in tests** — no live API calls in pytest suite
+6. **Always use DI container** — `dependency-injector` with `@inject` decorator
+7. **Never commit .env files** — use pydantic-settings for config validation
+
+### Technology Highlights
+- **RAG-based code analysis** leveraging pgvector embeddings + Anthropic Claude
+- **Polyglot monorepo** (Python backend, TypeScript frontends)
+- **Event-driven analysis tracking** via AnalysisEvent persistence
+- **Async-first backend** (FastAPI + asyncpg + arq)
+- **Modern frontend stack** (Next.js + React 19 + Tailwind CSS 4)

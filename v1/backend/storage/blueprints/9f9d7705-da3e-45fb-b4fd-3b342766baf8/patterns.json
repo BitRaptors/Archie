@@ -1,0 +1,353 @@
+```json
+{
+  "structural_patterns": [
+    {
+      "pattern": "Dependency Injection (Manual/FastAPI native)",
+      "platform": "backend",
+      "implementation": "FastAPI's Depends() system for route-level injection. Dependencies are resolved at request time and passed as function parameters. No external DI container; relies on Python's type hints and FastAPI's built-in dependency resolver.",
+      "examples": [
+        "tuck-in-tales-backend/src/utils/auth.py - verify_firebase_token() is a dependency callable: `def verify_firebase_token(token: str = Depends(oauth2_scheme))`",
+        "tuck-in-tales-backend/src/routes/stories.py - routes receive `user_data: UserData = Depends(verify_firebase_token)` and `supabase: Client = Depends(get_supabase_client)`",
+        "tuck-in-tales-backend/src/utils/supabase.py - get_supabase_client() is a dependency factory returning Supabase client singleton"
+      ],
+      "notes": "Lightweight, framework-native approach. No IOC container needed. Dependencies are resolved per-request and can be composed hierarchically."
+    },
+    {
+      "pattern": "Repository Pattern (Data Access Abstraction)",
+      "platform": "backend",
+      "implementation": "Supabase client is abstracted behind utility functions (get_supabase_client). SQL queries are executed through Supabase's PostgREST API. Queries are scattered across routes and services but all go through the same Supabase client instance.",
+      "examples": [
+        "tuck-in-tales-backend/src/routes/characters.py - character creation: `supabase.table('characters').insert(character_data).execute()`",
+        "tuck-in-tales-backend/src/routes/family.py - family queries: `supabase.table('families').select('*').eq('id', family_id).execute()`",
+        "tuck-in-tales-backend/src/services/family_service.py - family operations encapsulated with database access"
+      ],
+      "notes": "Partial implementation. While Supabase is abstracted through a utility, query logic is still embedded in route handlers. A more complete Repository would isolate all data access into dedicated classes."
+    },
+    {
+      "pattern": "Factory Pattern (Complex Object Creation)",
+      "platform": "backend",
+      "implementation": "Prompt resolver factory creates prompt configurations from database or fallback defaults. Graph factories create LangGraph state machines for different workflows (story, avatar, memory).",
+      "examples": [
+        "tuck-in-tales-backend/src/utils/prompt_resolver.py - resolve_prompt() function: retrieves prompt config by key, applies variable substitution, caches with TTL. Returns fully constructed PromptConfig dict.",
+        "tuck-in-tales-backend/src/graphs/story_generator.py - StateGraph construction: builds multi-node workflow for story generation with custom state handlers",
+        "tuck-in-tales-backend/src/graphs/avatar_generator.py - Creates avatar generation workflow graph with multiple async nodes"
+      ],
+      "notes": "Prompt resolver includes caching and fallback logic. Graph factories use LangGraph's declarative API to compose complex multi-step workflows."
+    },
+    {
+      "pattern": "Registry/Plugin Pattern (Multi-Provider Integration)",
+      "platform": "backend",
+      "implementation": "Prompt system supports multiple AI providers (OpenAI, Groq, Gemini) via provider field in prompt config. Client selection is dynamic based on prompt configuration. Each provider has a dedicated utility module (openai_client, groq_client, gemini_client).",
+      "examples": [
+        "tuck-in-tales-backend/src/models/prompt.py - PromptConfig includes 'provider' field specifying which AI service to use",
+        "tuck-in-tales-backend/src/utils/prompt_resolver.py - FALLBACK_DEFAULTS shows avatar_description uses Groq, avatar_image uses OpenAI",
+        "tuck-in-tales-backend/src/graphs/story_generator.py - client selection: if provider == 'openai' use async_openai_client else async_groq_client",
+        "tuck-in-tales-backend/src/utils/openai_client.py, groq_client.py, gemini_client.py - separate implementations per provider"
+      ],
+      "notes": "Ad-hoc registry. Lacks centralized provider factory; provider selection uses if/elif chains. Could benefit from a ProviderRegistry class for looser coupling."
+    },
+    {
+      "pattern": "Hook-Based Composition (Custom Hooks for Server State)",
+      "platform": "frontend",
+      "implementation": "Custom React hooks (useSSEStream, useStoryStream, useMemoryStream, useAvatarStream) encapsulate server-sent events handling. Each hook manages local state, handles SSE connections, and exposes a clean API to consuming components.",
+      "examples": [
+        "tuck-in-tales-frontend/src/hooks/useSSEStream.ts - Base SSE hook: manages EventSource connection, parses events, invokes handlers, manages cleanup",
+        "tuck-in-tales-frontend/src/hooks/useStoryStream.ts - Story-specific hook: extends SSE handling with story-specific state (pages, status, outline). Manages page updates from streaming events.",
+        "tuck-in-tales-frontend/src/hooks/useMemoryStream.ts - Memory analysis hook: handles text analysis, photo analysis, and progress events",
+        "tuck-in-tales-frontend/src/hooks/useAvatarStream.ts - Avatar generation hook: manages image generation progress"
+      ],
+      "notes": "Excellent separation of concerns. Each hook encapsulates domain-specific logic. Hooks compose cleanly and are reusable across pages."
+    },
+    {
+      "pattern": "Implicit Data Fetching (No Query Library)",
+      "platform": "frontend",
+      "implementation": "Direct fetch/axios calls in components and custom hooks. No React Query, SWR, or Apollo. Data fetching is manual with manual loading/error state management. API client (tuck-in-tales-frontend/src/api/client.ts) provides typed fetch wrapper but no caching/deduplication.",
+      "examples": [
+        "tuck-in-tales-frontend/src/api/client.ts - apiClient wrapper around fetch with auth token injection",
+        "tuck-in-tales-frontend/src/pages/CharactersPage.tsx - Likely uses useEffect + useState for character list fetching",
+        "tuck-in-tales-frontend/src/hooks/useStoryStream.ts - Manual SSE connection management and state updates",
+        "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts - Custom hook managing character list state locally"
+      ],
+      "notes": "Low-level approach. More boilerplate than React Query. No automatic request deduplication, caching, or stale-while-revalidate patterns. Leaves caching responsibility to hooks."
+    },
+    {
+      "pattern": "Context-Based Global State (Authentication)",
+      "platform": "frontend",
+      "implementation": "React Context for authentication state. AuthContext provider wraps app and exposes user, token, and auth methods. ProtectedRoute component uses context to guard routes.",
+      "examples": [
+        "tuck-in-tales-frontend/src/context/AuthContext.tsx - Manages Firebase auth state, token storage, user info",
+        "tuck-in-tales-frontend/src/components/Auth/ProtectedRoute.tsx - Uses AuthContext to check auth before rendering",
+        "tuck-in-tales-frontend/src/pages/LoginPage.tsx - Likely uses useAuth from context",
+        "tuck-in-tales-mobile/src/context/AuthContext.tsx - Mobile equivalent"
+      ],
+      "notes": "Lightweight, no external state library needed. Suitable for auth which is single-source-of-truth. No Redux/Zustand overhead."
+    },
+    {
+      "pattern": "File-Based Routing (Expo Router)",
+      "platform": "mobile",
+      "implementation": "App Expo Router conventions. Routes defined by file structure in app/ directory. Auth routes in app/(auth)/, tabbed routes in app/(tabs)/, dynamic routes with [id].tsx syntax.",
+      "examples": [
+        "tuck-in-tales-mobile/app/(auth)/_layout.tsx - Auth stack layout",
+        "tuck-in-tales-mobile/app/(auth)/login.tsx - Login screen route",
+        "tuck-in-tales-mobile/app/(tabs)/_layout.tsx - Tab navigator",
+        "tuck-in-tales-mobile/app/(tabs)/characters.tsx - Characters tab",
+        "tuck-in-tales-mobile/app/story/[id].tsx - Dynamic story detail page"
+      ],
+      "notes": "Convention-over-configuration. Mirrors Next.js app router. Automatic route generation from file structure."
+    },
+    {
+      "pattern": "Config-Based Routing (React Router in Web)",
+      "platform": "frontend",
+      "implementation": "Routes likely defined in App.tsx or routing module using React Router. Routes are programmatically defined and include lazy loading via React.lazy().",
+      "examples": [
+        "tuck-in-tales-frontend/src/App.tsx - Likely root route configuration",
+        "tuck-in-tales-frontend/src/pages/* - Page components (StoryGenerationPage, CharactersPage, etc.) are imported and routed"
+      ],
+      "notes": "Standard React Router approach. Routes are defined imperatively rather than file-based like Expo."
+    }
+  ],
+  "behavioral_patterns": [
+    {
+      "pattern": "LangGraph-Based Service Orchestration",
+      "platform": "backend",
+      "implementation": "Multi-step workflows (story generation, avatar creation, memory analysis) are implemented as directed acyclic graphs (DAGs) using LangGraph. Each step is a node that can be retried, conditioned, and composed. State flows between nodes. Enables complex orchestration with error recovery and branching logic.",
+      "examples": [
+        "tuck-in-tales-backend/src/graphs/story_generator.py - StateGraph for story generation: outline → page_writing → consistency_check → image_generation nodes. Supports retries on consistency failures.",
+        "tuck-in-tales-backend/src/graphs/avatar_generator.py - Two-step graph: analyze_photo → generate_avatar_image",
+        "tuck-in-tales-backend/src/graphs/memory_analyzer.py - Three-step: analyze_memory_text → analyze_photos → save_analysis"
+      ],
+      "notes": "Excellent for AI workflows. LangGraph provides built-in support for retries, branching, and streaming events. State is immutable TypedDict."
+    },
+    {
+      "pattern": "Server-Sent Events (SSE) for Streaming Responses",
+      "platform": "backend",
+      "implementation": "Long-running operations (story generation, avatar creation, memory analysis) use FastAPI StreamingResponse with SSE format. Client maintains EventSource connection. Server sends multiple events as workflow progresses (status, outline, page_start, page_complete, image_generated, etc.). Connection stays open until workflow completes or fails.",
+      "examples": [
+        "tuck-in-tales-backend/src/routes/stories.py - GET /stories/{id}/stream returns StreamingResponse with SSE events",
+        "tuck-in-tales-backend/src/utils/sse.py - send_sse_event() helper formats and sends JSON events",
+        "tuck-in-tales-backend/src/graphs/story_generator.py - Nodes call send_sse_event() at key points: 'status', 'outline', 'page_start', 'page_chunk', 'page_complete', 'image_generated'",
+        "tuck-in-tales-frontend/src/hooks/useSSEStream.ts - Client opens EventSource, listens for events, parses JSON payload"
+      ],
+      "notes": "SSE chosen over WebSocket (likely simpler server implementation). Good for one-way server→client push. Real-time user feedback without polling."
+    },
+    {
+      "pattern": "SSE Stream Hook Pattern (Client-Side Streaming State Management)",
+      "platform": "frontend",
+      "implementation": "Custom hooks wrap SSE EventSource and manage state locally. Hook accepts storyId, opens connection, listens for events, parses JSON, updates local state. Encapsulates all SSE complexity. Returns state object and cleanup functions.",
+      "examples": [
+        "tuck-in-tales-frontend/src/hooks/useSSEStream.ts - Generic SSE stream hook: handleEvent callback processes different event types",
+        "tuck-in-tales-frontend/src/hooks/useStoryStream.ts - Story-specific hook builds on useSSEStream, manages pages array, outline, status",
+        "tuck-in-tales-frontend/src/pages/StoryProgressPage.tsx - Likely consumes useStoryStream(storyId) and displays state",
+        "tuck-in-tales-frontend/src/hooks/useMemoryStream.ts - Memory analysis streaming"
+      ],
+      "notes": "Reactive pattern. Hook manages subscription lifecycle (open on mount, close on unmount). Avoids manual EventSource management in components."
+    },
+    {
+      "pattern": "Optimistic Avatar URL Updates",
+      "platform": "frontend",
+      "implementation": "When avatar generation completes, image_url is returned via SSE event. Frontend stores avatar URL in state and displays immediately. Assumes server response is always valid.",
+      "examples": [
+        "tuck-in-tales-frontend/src/hooks/useAvatarStream.ts - On 'avatar_generated' event, stores imageUrl in state",
+        "tuck-in-tales-frontend/src/pages/CharacterDetailPage.tsx - Likely displays avatar from hook state immediately"
+      ],
+      "notes": "Weak optimism. Not true optimistic update (no local prediction). Relies on server eventually sending correct data."
+    },
+    {
+      "pattern": "Event-Driven AI Provider Integration",
+      "platform": "backend",
+      "implementation": "Workflow nodes trigger API calls to external AI services (OpenAI, Groq, Gemini). Results are emitted as SSE events. Decouples workflow logic from provider APIs.",
+      "examples": [
+        "tuck-in-tales-backend/src/graphs/story_generator.py - outline_llm node calls OpenAI or Groq based on prompt config, emits 'outline' event",
+        "tuck-in-tales-backend/src/graphs/avatar_generator.py - analyze_photo calls Groq vision API, emits result"
+      ],
+      "notes": "Natural fit with LangGraph. Each provider call is isolated to a node."
+    },
+    {
+      "pattern": "Retry Logic with Consistency Checking (Story Generation)",
+      "platform": "backend",
+      "implementation": "Story generation includes consistency checking node that validates page content against outline and previous pages. If consistency fails, page is marked for retry. Up to N retries allowed before moving to next page.",
+      "examples": [
+        "tuck-in-tales-backend/src/graphs/story_generator.py - consistency_check node validates page, returns retry command or success",
+        "tuck-in-tales-frontend/src/hooks/useStoryStream.ts - 'page_retry' event logged, statusMessage updated to show 'Revising page X (attempt Y)'"
+      ],
+      "notes": "AI-specific pattern. Improves quality by validating generated content before sending to user."
+    },
+    {
+      "pattern": "Memory + Photo Analysis Workflow",
+      "platform": "backend",
+      "implementation": "Memory logging triggers text analysis (LLM categorization, character detection) followed by photo analysis (vision model per-image person detection). Results are saved with embeddings for future search/linking.",
+      "examples": [
+        "tuck-in-tales-backend/src/graphs/memory_analyzer.py - analyze_memory_text node → analyze_photos node → save_analysis node",
+        "tuck-in-tales-backend/src/routes/memories.py - POST /memories endpoint initiates workflow via SSE stream"
+      ],
+      "notes": "Sequential workflow. Photos analyzed in parallel (likely via asyncio.gather). Results streamed incrementally."
+    }
+  ],
+  "cross_cutting_patterns": [
+    {
+      "concern": "Authentication & Authorization",
+      "approach": "Firebase ID tokens verified server-side. Token extracted from Authorization header. verify_firebase_token() dependency checks token validity. User record fetched/created in Supabase. Family membership checked before resource access.",
+      "location": "tuck-in-tales-backend/src/utils/auth.py (verification), tuck-in-tales-backend/src/routes/* (enforcement), tuck-in-tales-frontend/src/context/AuthContext.tsx (token storage)",
+      "mechanism": "OAuth2 Bearer token (Firebase JWT) → FastAPI Depends() → route access",
+      "propagation": "Frontend stores token in localStorage/sessionStorage, includes in Authorization header on all API calls. Custom apiClient middleware injects token.",
+      "notes": "Server-side verification is strict. No token refresh mechanism visible; assumes long-lived Firebase tokens."
+    },
+    {
+      "concern": "Error Handling",
+      "approach": "Backend uses try/catch in routes and nodes. HTTPException raised for client errors (400, 404, 401). Server errors (500) logged but not detailed to client. Frontend catches fetch errors and displays error messages. No global error boundary visible.",
+      "location": "tuck-in-tales-backend/src/routes/* (route error handling), tuck-in-tales-backend/src/graphs/* (node error handling), tuck-in-tales-frontend/src/pages/* (component error handling)",
+      "mechanism": "HTTPException for expected errors, generic 500 for unexpected, logged to stdout/logs",
+      "example_backend": "tuck-in-tales-backend/src/utils/auth.py - raises HTTPException with 401 on invalid token",
+      "example_frontend": "tuck-in-tales-frontend/src/hooks/useSSEStream.ts - likely catches fetch errors and sets error state",
+      "notes": "No custom exception hierarchy. Error messages not well-structured for client consumption. No error codes/slugs for programmatic handling."
+    },
+    {
+      "concern": "Validation",
+      "approach": "Backend uses Pydantic models for request body validation. FastAPI automatically validates and returns 422 on schema mismatch. Frontend has TypeScript interfaces but no runtime validation library (zod, io-ts). Manual validation in components (e.g., password strength, image size).",
+      "location": "tuck-in-tales-backend/src/models/* (Pydantic schemas), tuck-in-tales-frontend/src/models/* (TypeScript types)",
+      "backend_validation": "Pydantic auto-validates: CharacterCreate, StoryGenerationRequest, MemoryLogRequest, etc.",
+      "frontend_validation": "TypeScript compile-time only. Runtime validation missing.",
+      "example": "tuck-in-tales-backend/src/routes/characters.py - POST body validated against CharacterCreate model before processing",
+      "notes": "Backend validation is robust. Frontend lacks runtime schema validation; TypeScript types are not enforced at runtime."
+    },
+    {
+      "concern": "Logging",
+      "approach": "Backend uses Python logging module with getLogger(__name__). Logs emitted to stdout/stderr. No structured logging (JSON) visible. Frontend uses console.log/console.error. No client-side logging aggregation.",
+      "location": "tuck-in-tales-backend/src/**/*.py (import logging, logger = getLogger(__name__)), tuck-in-tales-frontend/src/**/*.ts (console.log/error)",
+      "level": "INFO, ERROR, DEBUG likely used",
+      "example_backend": "tuck-in-tales-backend/src/utils/auth.py - logging.error(f'Error verifying Firebase token: {e}')",
+      "example_frontend": "Frontend likely uses console.log for debugging; no aggregation service",
+      "notes": "Minimal structured logging. No correlation IDs for tracing requests. Logs likely visible in deployment logs only."
+    },
+    {
+      "concern": "Caching",
+      "approach": "Backend implements in-memory TTL cache for prompts (60s TTL). Supabase likely has built-in caching. Frontend relies on browser cache for images. No Redis or distributed caching. Custom prompt resolver cache implementation.",
+      "location": "tuck-in-tales-backend/src/utils/prompt_resolver.py (_prompt_cache, _cache_timestamps, CACHE_TTL_SECONDS=60)",
+      "strategy": "In-memory dict with timestamp-based TTL. Cache check on each resolve_prompt() call.",
+      "example": "prompt_resolver.py - if key in _prompt_cache and time.time() - _cache_timestamps[key] < CACHE_TTL_SECONDS: return cached version",
+      "browser_cache": "Image URLs (avatar_url, image_url in stories) cached by browser HTTP cache",
+      "notes": "Simple but effective for prompts. No distributed cache; would fail in multi-instance deployment. Prompt defaults (FALLBACK_DEFAULTS) provide fallback if cache miss and DB unavailable."
+    },
+    {
+      "concern": "Data Serialization",
+      "approach": "Backend uses Pydantic models for JSON serialization/deserialization. Pydantic handles datetime → ISO string conversion, UUID → string, nested model serialization. Frontend uses TypeScript interfaces (compile-time only). Manual parsing of SSE JSON responses.",
+      "location": "tuck-in-tales-backend/src/models/* (Pydantic models), tuck-in-tales-frontend/src/models/* (TypeScript interfaces)",
+      "mechanism_backend": "FastAPI's JSONResponse uses Pydantic .dict() or .model_dump() to serialize",
+      "mechanism_frontend": "JSON.parse() on SSE payload, cast to TypeScript type (runtime unsafe)",
+      "example_backend": "tuck-in-tales-backend/src/models/story.py - Story model includes pages: List[StoryPageProgress], pydantic serializes to JSON array",
+      "example_frontend": "tuck-in-tales-frontend/src/hooks/useStoryStream.ts - data parsed as any, cast to interface",
+      "notes": "Backend serialization is type-safe. Frontend parsing is not; no runtime validation of JSON structure."
+    },
+    {
+      "concern": "State Management (Mobile)",
+      "approach": "Mobile uses custom hooks (useCharacters, useStories, useFamilyDetails) that manage local state with useState/useReducer. Queries are triggered by useEffect. No global state manager (Redux, Zustand). Each hook maintains its own cache.",
+      "location": "tuck-in-tales-mobile/src/hooks/queries/* (custom query hooks)",
+      "example": "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts - likely: useState([characters]), useEffect(() => apiClient.get('/characters')), return { characters, loading, error }",
+      "notes": "Distributed state. Each component/hook manages its own data. Prone to data duplication and staleness. No automatic refetching or synchronization."
+    },
+    {
+      "concern": "Image Handling & Storage",
+      "approach": "Backend uploads images to Supabase Storage buckets (memory-photos, avatar-images, character-images likely). Signed URLs generated for secure access with TTL. Frontend uploads images via multipart/form-data. Avatar generation uses DALL-E or similar, returns image URL.",
+      "location": "tuck-in-tales-backend/src/routes/characters.py (avatar upload), tuck-in-tales-backend/src/routes/memories.py (memory photo upload), tuck-in-tales-backend/src/utils/supabase.py (storage operations)",
+      "mechanism": "Supabase Storage bucket → signed URL with expiry",
+      "example": "memory_analyzer.py - signed_url = supabase.storage.from(MEMORY_PHOTOS_BUCKET).get_public_url(path)",
+      "frontend_upload": "FormData with File, POST to /characters/avatar or /memories",
+      "notes": "Signed URLs prevent direct S3/bucket exposure. TTL on signed URLs (300s in memory_analyzer.py) limits access window."
+    },
+    {
+      "concern": "Prompt Management",
+      "approach": "Prompts stored in database (prompts table in Supabase). Retrieved by key. Support for variable substitution (@character_name, @visual_description). Fallback defaults embedded in code for offline operation. Provider selection per-prompt.",
+      "location": "tuck-in-tales-backend/src/utils/prompt_resolver.py (resolution logic, fallback defaults), tuck-in-tales-backend/src/models/prompt.py (PromptConfig schema)",
+      "mechanism": "resolve_prompt(key, variables) → database lookup → variable substitution → returns PromptConfig",
+      "example": "avatar_image prompt has @character_name and @visual_description placeholders. Resolver substitutes actual values before sending to OpenAI.",
+      "fallback": "If DB unavailable, FALLBACK_DEFAULTS used (hardcoded prompts)",
+      "notes": "Excellent separation of prompts from code. Allows A/B testing and rapid iteration. Multi-provider support via provider field."
+    },
+    {
+      "concern": "Type Safety (Frontend)",
+      "approach": "TypeScript for type safety at compile-time. Interfaces defined in src/models/* matching backend Pydantic models. However, runtime validation is missing. Frontend trusts backend JSON matches interface shape.",
+      "location": "tuck-in-tales-frontend/src/models/* and tuck-in-tales-mobile/src/models/* (TypeScript interfaces)",
+      "example": "tuck-in-tales-frontend/src/models/story.ts - Story interface mirrors backend Story Pydantic model",
+      "limitation": "TypeScript types are erased at runtime. If backend returns unexpected JSON shape, no runtime error; type assertion succeeds and may cause runtime errors downstream.",
+      "notes": "Compile-time safety is good. Runtime safety would require zod, io-ts, or similar. Current approach relies on agreement between frontend and backend types."
+    },
+    {
+      "concern": "Async/Concurrency",
+      "approach": "Backend uses async/await (asyncio). Routes are async, nodes are async. Allows concurrent request handling and concurrent LLM calls. Frontend uses Promises, async/await in custom hooks. Mobile likely similar.",
+      "location": "tuck-in-tales-backend/src/routes/* (async def), tuck-in-tales-backend/src/graphs/* (async node handlers), tuck-in-tales-frontend/src/hooks/* (async fetch)",
+      "example_backend": "tuck-in-tales-backend/src/routes/stories.py - async def stream_story(id: str) with await story_generator.astream()",
+      "example_frontend": "tuck-in-tales-frontend/src/hooks/useStoryStream.ts - async event parsing, await apiClient.get()",
+      "notes": "Async-first approach. Good for I/O-bound workflows (API calls, database queries, LLM inference). Python asyncio may have limitations with CPU-bound work."
+    },
+    {
+      "concern": "Environment Configuration",
+      "approach": "Backend configuration via environment variables (API keys, database URLs, etc.). Likely uses python-dotenv for .env file support. Frontend configuration in firebaseConfig.ts and similar. Mobile configuration in src/config/firebase.ts and src/config/supabase.ts.",
+      "location": "tuck-in-tales-backend/src/config.py (likely reads from os.environ), tuck-in-tales-frontend/src/firebaseConfig.ts, tuck-in-tales-mobile/src/config/*",
+      "mechanism": "dotenv or direct os.environ access for backend. Constants for frontend.",
+      "notes": "Frontend config includes API keys which should not be in code. Better to use environment variables (VITE_* for Vite) or fetch from backend."
+    }
+  ],
+  "summary": {
+    "architecture_style": "Layered monorepo with FastAPI backend, React/React Native frontends, LangGraph-based AI orchestration, and SSE-powered real-time features",
+    "key_strengths": [
+      "Excellent separation of AI workflows via LangGraph (story generation, avatar creation, memory analysis)",
+      "Real-time streaming via SSE with clean hook-based client abstraction",
+      "Multi-provider AI support with prompt registry and fallback defaults",
+      "Type-safe backend with Pydantic models and FastAPI validation",
+      "Firebase + Supabase for auth and data persistence"
+    ],
+    "architectural_gaps": [
+      "Frontend lacks runtime validation library (zod/io-ts); TypeScript safety is compile-time only",
+      "No explicit Repository pattern; data access scattered across routes",
+      "Provider registry uses if/elif chains instead of factory or registry class",
+      "No distributed caching (Redis); in-memory cache fails in multi-instance deployments",
+      "Mobile state management is distributed (custom hooks); no centralized store",
+      "No structured logging or request correlation for observability"
+    ],
+    "patterns_to_consider": [
+      "Add runtime validation with zod to frontend models",
+      "Introduce Repository classes for data access abstraction",
+      "Implement ProviderRegistry for AI provider management",
+      "Add Redis caching for scalability",
+      "Consider Zustand or Jotai for mobile state if app grows",
+      "Add structured logging with request IDs for tracing"
+    ]
+  }
+}
+```
+
+---
+
+## Additional Context
+
+### Backend Dependency Flow
+```
+FastAPI Route
+  ├─ verify_firebase_token (Depends)
+  ├─ get_supabase_client (Depends)
+  └─ Service/Graph Layer
+      ├─ LangGraph State Machine
+      │   ├─ Node 1: Async handler (calls LLM)
+      │   ├─ Node 2: Async handler (calls Vision API)
+      │   └─ ...
+      └─ SSE Event Sender
+          └─ Frontend EventSource
+```
+
+### Frontend Data Flow
+```
+Component (StoryProgressPage)
+  └─ useStoryStream(storyId)
+      ├─ Opens EventSource
+      ├─ useSSEStream (generic hook)
+      │   └─ Parses JSON events
+      └─ Updates local state
+          └─ Renders Story Pages
+```
+
+### Notable Implementation Decisions
+1. **No Query Library (React Query/SWR)**: Chosen simplicity over conveniences like deduplication, caching, stale-while-revalidate. Suitable for apps with simple data fetching patterns.
+2. **SSE over WebSocket**: Simpler server implementation. One-way streaming suits the use case (progress updates from server).
+3. **LangGraph for Workflows**: Provides built-in retry, branching, and streaming support. Avoids manual state machine implementation.
+4. **Pydantic + FastAPI**: Tight integration provides automatic validation and serialization. Type-safe at runtime.
+5. **Firebase + Supabase**: Firebase for auth, Supabase for database and storage. Reduces backend complexity; trade-off is vendor lock-in.

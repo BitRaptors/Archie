@@ -1,0 +1,13 @@
+{
+  "name": "bedtime-app",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "export PATH=\"$HOME/.local/bin:$PATH\" && cd tuck-in-tales-backend && poetry run uvicorn src.main:app --reload --host 0.0.0.0",
+    "dev:frontend": "cd tuck-in-tales-frontend && npm run dev"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0",
+    "concurrently": "^9.1.0"
+  }
+}

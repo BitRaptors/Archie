@@ -1,0 +1,594 @@
+```json
+{
+  "runtime": [
+    {
+      "language": "Python",
+      "version": "3.10+",
+      "environment": "Poetry (virtual environment)",
+      "platform": "backend",
+      "note": "Poetry used for dependency management (poetry run uvicorn)"
+    },
+    {
+      "language": "TypeScript",
+      "version": "5.x",
+      "environment": "Node.js (npm)",
+      "platform": "web-frontend",
+      "note": "Compiled to JavaScript, runs in browser"
+    },
+    {
+      "language": "TypeScript",
+      "version": "5.x",
+      "environment": "Node.js + Expo/React Native runtime",
+      "platform": "mobile-frontend",
+      "note": "Compiles to native iOS/Android via Expo"
+    }
+  ],
+  "backend_framework": {
+    "name": "FastAPI",
+    "version": "latest (inferred from src/main.py usage)",
+    "platform": "backend",
+    "features": [
+      "REST API endpoints",
+      "Server-Sent Events (SSE) streaming",
+      "Async/await support",
+      "Automatic API documentation (OpenAPI)",
+      "Dependency injection"
+    ],
+    "purpose": "Core backend service for character management, story generation, avatar creation, memory logging"
+  },
+  "frontend_framework": [
+    {
+      "name": "React",
+      "version": "18.x (inferred from @vitejs/plugin-react)",
+      "platform": "web-frontend",
+      "rendering_strategy": "CSR (Client-Side Rendering with Vite)",
+      "build_tool": "Vite",
+      "purpose": "Web UI for story generation, character management, family features"
+    },
+    {
+      "name": "React Native + Expo",
+      "version": "React Native (latest), Expo (inferred from package.json)",
+      "platform": "mobile-frontend",
+      "rendering_strategy": "Native (iOS/Android compiled)",
+      "purpose": "Cross-platform mobile app for iOS/Android with tab-based navigation"
+    }
+  ],
+  "database": [
+    {
+      "type": "PostgreSQL",
+      "provider": "Supabase (managed PostgreSQL)",
+      "connection_method": "Supabase Client SDK",
+      "platform": "backend",
+      "purpose": "Primary data store for users, families, characters, stories, memories, prompts",
+      "note": "Accessed via supabase.table() queries in Python (sync Client)"
+    }
+  ],
+  "cache": [
+    {
+      "technology": "Browser LocalStorage/SessionStorage",
+      "platform": "web-frontend",
+      "purpose": "Client-side state persistence (inferred from auth context)"
+    },
+    {
+      "technology": "AsyncStorage",
+      "package": "@react-native-async-storage/async-storage@2.2.0",
+      "platform": "mobile-frontend",
+      "purpose": "Persistent key-value store for mobile app state"
+    },
+    {
+      "technology": "React Query (TanStack Query)",
+      "package": "@tanstack/react-query",
+      "version_web": "^5.74.4",
+      "version_mobile": "^5.90.21",
+      "platform": "web-frontend, mobile-frontend",
+      "purpose": "HTTP request caching, background sync, stale-while-revalidate"
+    }
+  ],
+  "queue": [
+    {
+      "technology": "None detected",
+      "note": "No async task queue (Celery, RQ, ARQ) found. Backend uses sync/async within FastAPI handlers."
+    }
+  ],
+  "ai_ml": [
+    {
+      "provider": "OpenAI",
+      "sdk": "openai (Python SDK inferred from openai_client.py)",
+      "platform": "backend",
+      "models": [
+        "gpt-4o-mini (default chat model, configurable)",
+        "gpt-image-1 (image editing/generation)",
+        "text-embedding-3-small (embeddings, default)"
+      ],
+      "purpose": "Story generation, character descriptions, memory analysis"
+    },
+    {
+      "provider": "Google Gemini",
+      "sdk": "google-generativeai (Python SDK inferred from gemini_client.py)",
+      "platform": "backend",
+      "api_key_config": "GEMINI_API_KEY",
+      "models": [
+        "gemini-1.5-flash (configurable via GEMINI_IMAGE_MODEL)"
+      ],
+      "purpose": "Alternative AI provider for story/image generation"
+    },
+    {
+      "provider": "Groq",
+      "sdk": "groq (Python SDK inferred from groq_client.py)",
+      "platform": "backend",
+      "api_key_config": "GROQ_API_KEY (optional)",
+      "models": [
+        "llava-v1.5-7b-4096-preview (vision model, configurable)"
+      ],
+      "purpose": "Alternative vision/LLM provider"
+    },
+    {
+      "provider": "LangGraph",
+      "sdk": "langgraph (inferred from graphs/ directory structure)",
+      "platform": "backend",
+      "workflows": [
+        "story_generator.py",
+        "avatar_generator.py",
+        "memory_analyzer.py"
+      ],
+      "purpose": "Orchestration of multi-step AI workflows (agentic loops)"
+    }
+  ],
+  "auth": {
+    "backend": {
+      "library": "Firebase Admin SDK + Supabase",
+      "approach": "JWT tokens (Firebase UID + Supabase auth)",
+      "files": [
+        "src/utils/auth.py (get_current_supabase_user dependency)",
+        "src/utils/firebase_admin_init.py"
+      ],
+      "flow": "Firebase Auth → JWT verification → Supabase user lookup",
+      "platform": "backend"
+    },
+    "web_frontend": {
+      "library": "Firebase SDK + Supabase JS SDK",
+      "approach": "JWT tokens, localStorage persistence",
+      "files": [
+        "src/firebaseConfig.ts",
+        "src/context/AuthContext.tsx",
+        "src/components/Auth/LoginForm.tsx",
+        "src/components/Auth/ProtectedRoute.tsx"
+      ],
+      "platform": "web-frontend"
+    },
+    "mobile_frontend": {
+      "library": "Firebase SDK + Supabase JS SDK",
+      "approach": "JWT tokens, AsyncStorage persistence",
+      "files": [
+        "src/config/firebase.ts",
+        "src/context/AuthContext.tsx"
+      ],
+      "platform": "mobile-frontend"
+    }
+  },
+  "state_management": [
+    {
+      "library": "React Context API",
+      "version": "18.x",
+      "platform": "web-frontend, mobile-frontend",
+      "files": [
+        "src/context/AuthContext.tsx"
+      ],
+      "purpose": "Global auth state (user, family, login status)"
+    },
+    {
+      "library": "TanStack React Query",
+      "version_web": "^5.74.4",
+      "version_mobile": "^5.90.21",
+      "platform": "web-frontend, mobile-frontend",
+      "purpose": "Server state management, HTTP caching, background sync"
+    },
+    {
+      "library": "Custom hooks (SSE streaming)",
+      "platform": "web-frontend",
+      "files": [
+        "src/hooks/useStoryStream.ts",
+        "src/hooks/useAvatarStream.ts",
+        "src/hooks/useSSEStream.ts",
+        "src/hooks/useMemoryStream.ts"
+      ],
+      "purpose": "Real-time streaming from backend SSE endpoints"
+    }
+  ],
+  "styling": {
+    "framework": "Tailwind CSS",
+    "version": "3.x (inferred from tailwind.config.js)",
+    "platform": "web-frontend",
+    "component_library": "Radix UI (unstyled, paired with Tailwind)",
+    "radix_packages": [
+      "@radix-ui/react-alert-dialog@^1.1.11",
+      "@radix-ui/react-avatar@^1.1.6",
+      "@radix-ui/react-checkbox@^1.2.3",
+      "@radix-ui/react-dialog@^1.1.11",
+      "@radix-ui/react-dropdown-menu@^2.1.12",
+      "@radix-ui/react-icons@^1.3.2",
+      "@radix-ui/react-label@^2.1.4",
+      "@radix-ui/react-popover@^1.1.11",
+      "@radix-ui/react-progress@^1.1.4",
+      "@radix-ui/react-scroll-area@^1.2.6",
+      "@radix-ui/react-select@^2.2.2",
+      "@radix-ui/react-separator@^1.1.4",
+      "@radix-ui/react-slot@^1.2.0"
+    ],
+    "utilities": [
+      "class-variance-authority@^0.7.1 (CVA for component variants)",
+      "clsx@^2.1.1 (className merging)",
+      "cmdk@^1.1.1 (command palette)"
+    ],
+    "approach": "Utility-first CSS with pre-built Radix UI components"
+  },
+  "validation": {
+    "backend": {
+      "library": "Pydantic",
+      "version": "2.x (inferred from pydantic-settings import)",
+      "platform": "backend",
+      "approach": "Model-based validation with automatic OpenAPI schema generation",
+      "files": [
+        "src/models/ (character.py, story.py, memory.py, family.py, user.py, prompt.py)"
+      ]
+    },
+    "web_frontend": {
+      "library": "None detected (validation in backend only)",
+      "approach": "Relies on backend API validation",
+      "platform": "web-frontend"
+    },
+    "mobile_frontend": {
+      "library": "None detected (validation in backend only)",
+      "approach": "Relies on backend API validation",
+      "platform": "mobile-frontend"
+    }
+  },
+  "testing": [
+    {
+      "framework": "pytest",
+      "type": "unit, integration",
+      "platform": "backend",
+      "files": [
+        "tuck-in-tales-backend/tests/conftest.py",
+        "tuck-in-tales-backend/tests/routes/test_characters.py"
+      ],
+      "note": "Test fixtures in conftest.py (inferred from presence)"
+    },
+    {
+      "framework": "None detected",
+      "type": "frontend testing",
+      "platform": "web-frontend, mobile-frontend",
+      "note": "No Jest, Vitest, or React Testing Library config found"
+    }
+  ],
+  "linting": [
+    {
+      "tool": "ESLint",
+      "platform": "web-frontend",
+      "files": [
+        "tuck-in-tales-frontend/eslint.config.js"
+      ],
+      "purpose": "JavaScript/TypeScript linting"
+    },
+    {
+      "tool": "TypeScript compiler",
+      "platform": "web-frontend",
+      "build_step": "npm run build uses 'tsc -b'",
+      "purpose": "Type checking before Vite build"
+    },
+    {
+      "tool": "ruff (inferred)",
+      "platform": "backend",
+      "note": "No ruff.toml found; assume default Python linting if enabled"
+    }
+  ],
+  "build_tools": [
+    {
+      "tool": "Vite",
+      "version": "5.x (inferred from config)",
+      "platform": "web-frontend",
+      "files": [
+        "tuck-in-tales-frontend/vite.config.ts"
+      ],
+      "plugins": [
+        "@vitejs/plugin-react (React Fast Refresh)"
+      ],
+      "purpose": "Fast build/dev server with HMR"
+    },
+    {
+      "tool": "Poetry",
+      "platform": "backend",
+      "purpose": "Python dependency management, virtual environment, build packaging"
+    },
+    {
+      "tool": "npm (workspace / root scripts)",
+      "platform": "monorepo root",
+      "files": [
+        "package.json (root, uses concurrently)"
+      ],
+      "purpose": "Orchestrate dev server startup for all platforms"
+    },
+    {
+      "tool": "Expo",
+      "platform": "mobile-frontend",
+      "purpose": "React Native build/run abstraction, app configuration"
+    }
+  ],
+  "deployment": {
+    "backend": {
+      "container": "Docker (inferred from typical FastAPI deployment, no Dockerfile in registry but likely exists)",
+      "compute_service": "Likely Cloud Run, App Engine, or self-hosted VPS",
+      "startup_command": "uvicorn src.main:app --reload --host 0.0.0.0",
+      "cicd": "Not detected in file registry (no .github/workflows, cloudbuild.yaml, etc.)",
+      "environment_config": ".env file with SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, OpenAI/Gemini/Groq keys"
+    },
+    "web_frontend": {
+      "build_output": "Vite dist/ directory (SPA)",
+      "hosting": "Likely Vercel, Netlify, or GCS (Firebase Hosting)",
+      "cicd": "Not detected in file registry",
+      "environment_config": ".env.local with API endpoints"
+    },
+    "mobile_frontend": {
+      "build_output": "iOS (.ipa) via Xcode, Android (.apk/.aab) via Android Studio",
+      "distribution": "App Store, Google Play (inferred from Expo setup)",
+      "cicd": "Likely Fastlane or Expo Build (not found in registry)",
+      "app_config": "app.json (Expo config, not in registry but standard)",
+      "signing": "Apple Developer certs, Google Play signing keys"
+    }
+  },
+  "monitoring": [
+    {
+      "tool": "Logging (Python logging module)",
+      "platform": "backend",
+      "files": [
+        "src/services/family_service.py (logging.info, logging.error calls)"
+      ],
+      "purpose": "Server-side application logs"
+    },
+    {
+      "tool": "Firebase Analytics (inferred)",
+      "platform": "web-frontend, mobile-frontend",
+      "files": [
+        "src/firebaseConfig.ts",
+        "src/config/firebase.ts"
+      ],
+      "purpose": "User engagement metrics, crash reporting"
+    },
+    {
+      "tool": "None explicitly detected",
+      "category": "Error tracking",
+      "note": "No Sentry, DataDog, or New Relic config found"
+    }
+  ],
+  "deployment_environment": {
+    "runtime_location": "Backend: Cloud (likely GCP/AWS), Frontend: Browser + Mobile device runtime",
+    "compute_services": [
+      "Google Cloud Run (likely for FastAPI backend based on 0.0.0.0 binding)",
+      "Firebase Hosting (likely for web frontend)",
+      "iOS App Store (mobile)",
+      "Google Play (mobile)"
+    ],
+    "container_runtime": "Docker (backend, likely but Dockerfile not in registry)",
+    "orchestration": "None detected (single backend service, not Kubernetes)",
+    "serverless_functions": "None detected (FastAPI is long-running service, not Cloud Functions/Lambda)",
+    "ci_cd": [
+      "Not found in file registry — no .github/workflows, cloudbuild.yaml, gitlab-ci.yml, or Fastlane detected"
+    ],
+    "distribution": [
+      "App Store (iOS via Expo)",
+      "Google Play (Android via Expo)",
+      "npm (if frontend published as component library — unlikely)"
+    ],
+    "infrastructure_as_code": "None detected (no Terraform, CloudFormation, Pulumi, or Helm charts in registry)",
+    "supporting_services": [
+      "Firebase (Authentication, optional Analytics/Hosting)",
+      "Supabase (PostgreSQL database, Auth, File Storage for avatars/photos)",
+      "OpenAI API (story/image generation)",
+      "Google Gemini API (alternative LLM)",
+      "Groq API (alternative LLM)"
+    ],
+    "storage_services": [
+      "Supabase Storage (photos bucket: SUPABASE_BUCKET_PHOTOS, avatars bucket: SUPABASE_BUCKET_AVATARS)"
+    ],
+    "environment_config": [
+      ".env file (backend root or tuck-in-tales-backend/)",
+      "Environment variables: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, FIREBASE_SERVICE_ACCOUNT_KEY_PATH, IMAGE_GENERATION_PROVIDER"
+    ],
+    "key_files": [
+      "tuck-in-tales-backend/src/main.py (FastAPI entry point)",
+      "tuck-in-tales-backend/src/config.py (environment config)",
+      "tuck-in-tales-frontend/vite.config.ts (web build config)",
+      "tuck-in-tales-mobile/babel.config.js (Expo/React Native build config)",
+      "tuck-in-tales-mobile/app.json (Expo app config, not in registry but standard)"
+    ],
+    "deployment_flow_inference": "Backend: src/main.py → FastAPI app → containerized → Cloud Run. Web: src/main.tsx → Vite build → dist/ → Firebase Hosting/Vercel. Mobile: App.tsx → Expo build → iOS/Android → App Store/Play Store"
+  },
+  "development_rules": [
+    {
+      "category": "dependency_management",
+      "rule": "Always use Poetry for backend Python dependencies — run 'poetry run' for all Python commands",
+      "source": "tuck-in-tales-backend/src/main.py entry point invoked as 'poetry run uvicorn' in package.json scripts"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use npm workspaces structure (monorepo root) to coordinate 3 platforms (backend, frontend, mobile) — never install dependencies in individual package.json without syncing with root scripts",
+      "source": "package.json root defines 'dev:backend' and 'dev:frontend' that cd into subdirs"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use @supabase/supabase-js@^2.49.4 (web) and @2.97.0 (mobile) — maintain separate pinned versions to match compatibility",
+      "source": "tuck-in-tales-frontend/package.json and tuck-in-tales-mobile/package.json have explicit version pins"
+    },
+    {
+      "category": "environment_config",
+      "rule": "Always set IMAGE_GENERATION_PROVIDER env var to select between OPENAI, GEMINI, or GROQ — provider is case-insensitive and defaults to OPENAI",
+      "source": "tuck-in-tales-backend/src/config.py line: IMAGE_GENERATION_PROVIDER: str = os.getenv('IMAGE_GENERATION_PROVIDER', 'OPENAI').upper()"
+    },
+    {
+      "category": "environment_config",
+      "rule": "Always load Firebase service account key from FIREBASE_SERVICE_ACCOUNT_KEY_PATH — defaults to 'firebase-service-account.json' in backend root if not set",
+      "source": "tuck-in-tales-backend/src/config.py: FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY_PATH', 'firebase-service-account.json')"
+    },
+    {
+      "category": "environment_config",
+      "rule": "Always use load_dotenv() at startup to load .env file before importing Settings class",
+      "source": "tuck-in-tales-backend/src/config.py line 5: load_dotenv()"
+    },
+    {
+      "category": "api_design",
+      "rule": "Always use FastAPI dependency injection via Depends() for auth checks on protected routes — get_current_supabase_user is a route dependency",
+      "source": "tuck-in-tales-backend/src/routes/family.py: dependencies=[Depends(get_current_supabase_user)]"
+    },
+    {
+      "category": "api_design",
+      "rule": "Always use FastAPI APIRouter with prefix for route grouping — never define bare @app.get() endpoints outside of routers",
+      "source": "tuck-in-tales-backend/src/routes/family.py: router = APIRouter(prefix='/families', tags=['families'])"
+    },
+    {
+      "category": "database",
+      "rule": "Always use Supabase sync Client (supabase.table().select().eq().execute()) for database queries — never use async drivers in sync FastAPI context",
+      "source": "tuck-in-tales-backend/src/services/family_service.py: supabase.table('users').select('family_id').eq('id', user_id).execute()"
+    },
+    {
+      "category": "database",
+      "rule": "Always check .data and .maybe_single() return values explicitly — Supabase Client returns None for missing records, not exceptions",
+      "source": "tuck-in-tales-backend/src/services/family_service.py: if user_response.data and user_response.data[0].get('family_id')"
+    },
+    {
+      "category": "error_handling",
+      "rule": "Always raise HTTPException with appropriate status_code and detail message from service layer — never let PostgrestAPIError bubble up to client",
+      "source": "tuck-in-tales-backend/src/services/family_service.py: except PostgrestAPIError as e: raise HTTPException(status_code=503, detail='Database error')"
+    },
+    {
+      "category": "type_annotation",
+      "rule": "Always use UUID type for family_id, character_id, story_id in Pydantic models and function signatures — never use string for these IDs",
+      "source": "tuck-in-tales-backend/src/routes/family.py: FamilyDetailResponse has id: uuid.UUID"
+    },
+    {
+      "category": "logging",
+      "rule": "Always use logging.info() for operation checkpoints and logging.error() with exc_info=True for exception context",
+      "source": "tuck-in-tales-backend/src/services/family_service.py: logging.error(..., exc_info=True)"
+    },
+    {
+      "category": "frontend_build",
+      "rule": "Always use 'tsc -b' before 'vite build' for TypeScript type checking — never skip type checking in production builds",
+      "source": "tuck-in-tales-frontend/package.json: 'build': 'tsc -b && vite build'"
+    },
+    {
+      "category": "frontend_styling",
+      "rule": "Always import Tailwind CSS utility classes directly — never write custom CSS in component files",
+      "source": "tuck-in-tales-frontend/tailwind.config.js: content scans all .tsx files for class names"
+    },
+    {
+      "category": "frontend_path_alias",
+      "rule": "Always use '@/' path alias for imports from src/ — configure in vite.config.ts resolve.alias",
+      "source": "tuck-in-tales-frontend/vite.config.ts: '@': path.resolve(__dirname, './src')"
+    },
+    {
+      "category": "state_management",
+      "rule": "Always use TanStack React Query for server state (API responses) — never use Context or useState for fetched data",
+      "source": "tuck-in-tales-frontend/package.json: '@tanstack/react-query@^5.74.4' and hooks/useStoryStream.ts patterns"
+    },
+    {
+      "category": "state_management",
+      "rule": "Always use React Context only for global auth state (login status, user ID) — never use for domain state",
+      "source": "tuck-in-tales-frontend/src/context/AuthContext.tsx provides user and family context"
+    },
+    {
+      "category": "auth",
+      "rule": "Always verify Firebase JWT token and then look up user in Supabase users table — two-layer auth: Firebase + Supabase",
+      "source": "tuck-in-tales-backend/src/utils/auth.py: get_current_supabase_user performs dual verification"
+    },
+    {
+      "category": "auth",
+      "rule": "Always store family_id in users table and check for NULL before family operations — raise 400 BAD_REQUEST if missing",
+      "source": "tuck-in-tales-backend/src/routes/family.py: get_required_family_id() checks for None"
+    },
+    {
+      "category": "mobile_framework",
+      "rule": "Always use Expo Router for navigation (app/ directory with _layout.tsx) — never use React Navigation directly",
+      "source": "tuck-in-tales-mobile/app/(tabs)/_layout.tsx and app/(auth)/_layout.tsx file structure"
+    },
+    {
+      "category": "mobile_storage",
+      "rule": "Always use AsyncStorage for persistent mobile state — never use Context alone for offline data",
+      "source": "tuck-in-tales-mobile/package.json: '@react-native-async-storage/async-storage@2.2.0'"
+    },
+    {
+      "category": "api_client",
+      "rule": "Always use axios with shared client configuration in api/client.ts — never use fetch directly in components",
+      "source": "tuck-in-tales-frontend/src/api/client.ts exists as centralized HTTP client"
+    },
+    {
+      "category": "validation",
+      "rule": "Always validate request bodies using Pydantic models in FastAPI routes — never skip Pydantic validation",
+      "source": "tuck-in-tales-backend/src/routes/family.py: FamilyCreateRequest, FamilyJoinRequest, etc. are Pydantic BaseModel"
+    },
+    {
+      "category": "sse_streaming",
+      "rule": "Always use custom useSSEStream hook for real-time story/avatar generation — hook handles EventSource lifecycle and cleanup",
+      "source": "tuck-in-tales-frontend/src/hooks/useSSEStream.ts provides abstraction for SSE consumption"
+    },
+    {
+      "category": "git",
+      "rule": "Never commit FIREBASE_SERVICE_ACCOUNT_KEY_PATH file or .env files — use .env.example as template",
+      "source": "Inferred from config.py expecting external .env setup"
+    },
+    {
+      "category": "monorepo_structure",
+      "rule": "Always run 'npm run dev' from root to start both backend and frontend concurrently — never start them separately in production CI/CD",
+      "source": "package.json root: 'dev': 'concurrently \"npm run dev:backend\" \"npm run dev:frontend\"'"
+    }
+  ],
+  "notes": {
+    "critical_findings": [
+      "No Docker files in registry — deployment method for backend unknown (likely Cloud Run or self-hosted)",
+      "No CI/CD workflows detected — no automated testing, build, or deployment pipeline visible",
+      "No Kubernetes or IaC configs — single backend service, not distributed",
+      "No frontend test framework configured — no Jest, Vitest, or React Testing Library",
+      "Dual auth layer: Firebase (authentication) + Supabase (authorization + data) — user must exist in both systems",
+      "Three independent package managers: Poetry (backend), npm (root + web), Expo (mobile) — coordination complexity",
+      "SSE streaming used for long-running operations (story generation, avatar creation) — not server-sent events for push notifications"
+    ],
+    "assumed_deployment": {
+      "backend": "Cloud Run with FastAPI, PostgreSQL on Supabase, storage on Supabase Buckets, secrets in .env or Secret Manager",
+      "web_frontend": "Static SPA deployed to Firebase Hosting or Vercel, communicates with backend API",
+      "mobile_frontend": "Expo-managed builds to iOS App Store and Google Play, communicates with backend API"
+    },
+    "missing_context": [
+      "No Dockerfile — cannot determine exact container base image and dependencies",
+      "No app.json for Expo — cannot determine exact mobile app name, version, icons, capabilities",
+      "No GitHub Actions, Cloud Build, or other CI/CD — cannot verify testing, linting, or deployment automation",
+      "No .env.example — cannot determine exact required environment variables",
+      "No poetry.lock (Python) — cannot verify exact dependency versions for reproducible builds"
+    ]
+  }
+}
+```
+
+---
+
+## Summary
+
+**BedtimeApp** is a full-stack monorepo with:
+- **Backend**: FastAPI (Python) + PostgreSQL (Supabase) + Multi-LLM AI (OpenAI/Gemini/Groq)
+- **Web Frontend**: React 18 + Vite + TypeScript + Tailwind CSS + Radix UI
+- **Mobile Frontend**: React Native + Expo (iOS/Android)
+
+**Key Architecture Patterns**:
+1. **Monorepo**: Root orchestrates 3 independent platforms via npm scripts + Poetry
+2. **Dual Auth**: Firebase (identity) → Supabase (data access)
+3. **Streaming**: SSE for long-running AI operations (story/avatar generation)
+4. **State**: React Query (server) + Context (auth) + AsyncStorage (mobile persistence)
+
+**Critical Deployment Gaps**:
+- No CI/CD pipeline visible
+- No Infrastructure-as-Code (Terraform/CloudFormation)
+- No Docker files for backend reproducibility
+- No test framework for frontend
+
+**Development Discipline**:
+- Poetry locks Python dependencies
+- TypeScript compilation before Vite build
+- Pydantic validation at API layer
+- Custom SSE hooks for streaming abstraction

@@ -1,0 +1,1171 @@
+{
+  "meta": {
+    "repository": "BitRaptors/Archie",
+    "repository_id": "bitraptors-archie",
+    "analyzed_at": "2025-01-30T00:00:00Z",
+    "schema_version": "2.0.0",
+    "architecture_style": "Full-stack monorepo with DDD backend (FastAPI/Python) and dual Next.js frontends (main dashboard + landing page)",
+    "platforms": [
+      "backend",
+      "frontend",
+      "landing"
+    ],
+    "executive_summary": "Archie is a code analysis and architecture documentation platform that ingests GitHub or local repositories, runs multi-phase AI analysis via Claude, and produces structured blueprints, intent layers, and agent config files. The backend is Python/FastAPI with domain-driven design, async task processing via ARQ/Redis, and dual Supabase/Postgres persistence. The main frontend is a Next.js dashboard for managing analyses and viewing results; the landing app is a separate Next.js site with 3D visuals. Communication between frontend and backend uses REST + SSE for streaming analysis progress.",
+    "confidence": {
+      "architecture_rules": 0.95,
+      "decisions": 0.92,
+      "components": 0.93,
+      "communication": 0.91,
+      "technology": 0.95,
+      "frontend": 0.92,
+      "deployment": 0.9
+    }
+  },
+  "architecture_rules": {
+    "file_placement_rules": [
+      {
+        "component_type": "api_route",
+        "naming_pattern": "{domain}.py",
+        "location": "backend/src/api/routes/",
+        "example": "backend/src/api/routes/analyses.py",
+        "description": "One APIRouter file per domain feature"
+      },
+      {
+        "component_type": "application_service",
+        "naming_pattern": "{feature}_service.py",
+        "location": "backend/src/application/services/",
+        "example": "backend/src/application/services/analysis_service.py",
+        "description": "Orchestration services live in application layer"
+      },
+      {
+        "component_type": "domain_entity",
+        "naming_pattern": "{entity}.py",
+        "location": "backend/src/domain/entities/",
+        "example": "backend/src/domain/entities/analysis.py",
+        "description": "Pure domain models with no infra dependencies"
+      },
+      {
+        "component_type": "repository_impl",
+        "naming_pattern": "{entity}_repository.py",
+        "location": "backend/src/infrastructure/persistence/",
+        "example": "backend/src/infrastructure/persistence/analysis_repository.py",
+        "description": "Concrete repo implementations behind domain interfaces"
+      },
+      {
+        "component_type": "frontend_view",
+        "naming_pattern": "{Feature}View.tsx",
+        "location": "frontend/components/views/",
+        "example": "frontend/components/views/AnalysisView.tsx",
+        "description": "Page-level feature containers composed from sub-components"
+      },
+      {
+        "component_type": "api_hook",
+        "naming_pattern": "use{Domain}.ts(x)",
+        "location": "frontend/hooks/api/",
+        "example": "frontend/hooks/api/useWorkspace.ts",
+        "description": "Custom hooks wrapping service layer for data fetching"
+      }
+    ],
+    "naming_conventions": [
+      {
+        "scope": "backend_services",
+        "pattern": "PascalCase class, snake_case methods",
+        "examples": [
+          "PhasedBlueprintGenerator",
+          "analysis_service.py",
+          "smart_refresh_service.py"
+        ],
+        "description": "Service classes PascalCase; files and methods snake_case"
+      },
+      {
+        "scope": "backend_interfaces",
+        "pattern": "I{Name} prefix for abstract interfaces",
+        "examples": [
+          "IUserRepository",
+          "IAnalysisRepository",
+          "DatabaseClient"
+        ],
+        "description": "Abstract domain interfaces prefixed with I"
+      },
+      {
+        "scope": "frontend_components",
+        "pattern": "PascalCase files and exports",
+        "examples": [
+          "AnalysisView.tsx",
+          "BlueprintView.tsx",
+          "Shell.tsx"
+        ],
+        "description": "All React components use PascalCase filename and export"
+      },
+      {
+        "scope": "frontend_hooks",
+        "pattern": "use{Feature} camelCase",
+        "examples": [
+          "useAuth",
+          "useWorkspace",
+          "useRepositoriesQuery"
+        ],
+        "description": "React hooks prefixed with use, camelCase"
+      }
+    ]
+  },
+  "decisions": {
+    "architectural_style": {
+      "title": "Domain-Driven Design with Layered Architecture",
+      "chosen": "Strict 4-layer DDD: api → application → domain → infrastructure",
+      "rationale": "Isolates business logic from infra, enables swapping DB backends (Supabase vs Postgres) without touching services",
+      "alternatives_rejected": [
+        "Flat FastAPI module structure",
+        "Active Record pattern"
+      ]
+    },
+    "key_decisions": [
+      {
+        "title": "Dual Database Backend via Adapter Pattern",
+        "chosen": "Abstract DatabaseClient interface with PostgresAdapter (asyncpg) and SupabaseAdapter",
+        "rationale": "Supports both managed Supabase and raw Postgres deployments from one codebase",
+        "alternatives_rejected": [
+          "SQLAlchemy ORM",
+          "Single Supabase-only client"
+        ]
+      },
+      {
+        "title": "Async Task Queue for Analysis Workflows",
+        "chosen": "ARQ (Async Redis Queue) for long-running analysis jobs",
+        "rationale": "Prevents HTTP timeout on multi-phase LLM analysis; enables progress streaming via SSE",
+        "alternatives_rejected": [
+          "Celery",
+          "In-process async threads"
+        ]
+      },
+      {
+        "title": "Phased LLM Analysis with RAG Context",
+        "chosen": "Multi-phase Claude API calls with pgvector RAG retrieval per phase",
+        "rationale": "Reduces single request token size; retrieves relevant code per phase for accuracy",
+        "alternatives_rejected": [
+          "Single-shot full-codebase prompt",
+          "No RAG context"
+        ]
+      },
+      {
+        "title": "Monorepo with Separate Frontend Apps",
+        "chosen": "backend/ + frontend/ + landing/ as independent apps in one repo",
+        "rationale": "Shared deployment tooling; landing and dashboard have different tech requirements (Three.js vs dashboard UI)",
+        "alternatives_rejected": [
+          "Separate repositories",
+          "Single Next.js app with routes for both"
+        ]
+      },
+      {
+        "title": "MCP Integration for Claude Tool Use",
+        "chosen": "Model Context Protocol server embedded in infrastructure layer",
+        "rationale": "Exposes analysis resources and tools directly to Claude via MCP protocol",
+        "alternatives_rejected": [
+          "Custom function-calling wrapper only"
+        ]
+      }
+    ],
+    "trade_offs": [
+      {
+        "accept": "ARQ worker requires Redis to be running for async analysis",
+        "benefit": "Falls back to in-process execution if Redis unavailable (start-dev.py detects this)"
+      },
+      {
+        "accept": "Dual DB adapter adds abstraction overhead",
+        "benefit": "Seamless switch between Supabase and raw Postgres via DB_BACKEND env var"
+      },
+      {
+        "accept": "Two separate Next.js apps increase build complexity",
+        "benefit": "Landing page can use Tailwind v4 + Three.js without polluting dashboard dependencies"
+      }
+    ],
+    "out_of_scope": [
+      "Real-time collaborative editing of blueprints",
+      "Mobile native apps",
+      "Self-hosted LLM inference"
+    ]
+  },
+  "components": {
+    "structure_type": "layered",
+    "components": [
+      {
+        "name": "API Layer",
+        "location": "backend/src/api/",
+        "responsibility": "FastAPI routes, DTOs, error middleware, SSE streaming",
+        "platform": "backend",
+        "depends_on": [
+          "Application Layer",
+          "Domain Layer"
+        ],
+        "exposes_to": [
+          "frontend",
+          "external clients"
+        ],
+        "key_interfaces": [
+          {
+            "name": "FastAPI APIRouter",
+            "methods": [
+              "GET /analyses",
+              "POST /analyses",
+              "GET /analyses/{id}/stream"
+            ],
+            "description": "Per-domain router modules registered in app.py"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "backend/src/api/app.py",
+            "description": "FastAPI factory, middleware, route registration"
+          },
+          {
+            "file": "backend/src/api/routes/analyses.py",
+            "description": "Analysis lifecycle endpoints + SSE stream"
+          },
+          {
+            "file": "backend/src/api/dto/requests.py",
+            "description": "Pydantic request validation schemas"
+          },
+          {
+            "file": "backend/src/api/middleware/error_handler.py",
+            "description": "Global exception-to-HTTP mapping"
+          }
+        ]
+      },
+      {
+        "name": "Application Layer",
+        "location": "backend/src/application/services/",
+        "responsibility": "Orchestrates use cases; coordinates domain + infra; runs analysis workflows",
+        "platform": "backend",
+        "depends_on": [
+          "Domain Layer",
+          "Infrastructure Layer"
+        ],
+        "exposes_to": [
+          "API Layer",
+          "Workers"
+        ],
+        "key_interfaces": [
+          {
+            "name": "AnalysisService",
+            "methods": [
+              "run_analysis()",
+              "get_analysis()",
+              "list_analyses()"
+            ],
+            "description": "Primary analysis lifecycle orchestrator"
+          },
+          {
+            "name": "PhasedBlueprintGenerator",
+            "methods": [
+              "generate(analysis, progress_callback)"
+            ],
+            "description": "Multi-phase LLM blueprint generation with streaming"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "backend/src/application/services/analysis_service.py",
+            "description": "Analysis lifecycle orchestration"
+          },
+          {
+            "file": "backend/src/application/services/phased_blueprint_generator.py",
+            "description": "Multi-phase Claude blueprint generation"
+          },
+          {
+            "file": "backend/src/application/services/delivery_service.py",
+            "description": "Renders and exports blueprints"
+          },
+          {
+            "file": "backend/src/application/services/intent_layer_service.py",
+            "description": "Intent layer synthesis from analysis"
+          }
+        ]
+      },
+      {
+        "name": "Domain Layer",
+        "location": "backend/src/domain/",
+        "responsibility": "Core entities, abstract interfaces, domain exceptions; no framework dependencies",
+        "platform": "backend",
+        "depends_on": [],
+        "exposes_to": [
+          "Application Layer",
+          "Infrastructure Layer",
+          "API Layer"
+        ],
+        "key_interfaces": [
+          {
+            "name": "DatabaseClient",
+            "methods": [
+              "execute()",
+              "query_builder()"
+            ],
+            "description": "DB-agnostic abstraction in domain/interfaces/database.py"
+          },
+          {
+            "name": "IAnalysisRepository",
+            "methods": [
+              "get_by_id()",
+              "save()",
+              "list_by_user()"
+            ],
+            "description": "Abstract analysis persistence contract"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "backend/src/domain/interfaces/database.py",
+            "description": "DatabaseClient, QueryBuilder abstractions"
+          },
+          {
+            "file": "backend/src/domain/interfaces/repositories.py",
+            "description": "All repository interface contracts"
+          },
+          {
+            "file": "backend/src/domain/entities/analysis.py",
+            "description": "Analysis entity with status/metadata"
+          },
+          {
+            "file": "backend/src/domain/entities/blueprint.py",
+            "description": "Blueprint entity for architecture docs"
+          }
+        ]
+      },
+      {
+        "name": "Infrastructure Layer",
+        "location": "backend/src/infrastructure/",
+        "responsibility": "Concrete DB adapters, GitHub clients, RAG/embedding engines, storage, MCP, event bus",
+        "platform": "backend",
+        "depends_on": [
+          "Domain Layer"
+        ],
+        "exposes_to": [
+          "Application Layer",
+          "DI Container"
+        ],
+        "key_interfaces": [
+          {
+            "name": "PostgresAdapter / SupabaseAdapter",
+            "methods": [
+              "execute_query()",
+              "build_query()"
+            ],
+            "description": "Dual DatabaseClient implementations selected by db_factory"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "backend/src/infrastructure/persistence/db_factory.py",
+            "description": "Factory selects Postgres or Supabase adapter"
+          },
+          {
+            "file": "backend/src/infrastructure/persistence/postgres_adapter.py",
+            "description": "asyncpg-based DatabaseClient impl"
+          },
+          {
+            "file": "backend/src/infrastructure/analysis/rag_retriever.py",
+            "description": "pgvector similarity search for RAG"
+          },
+          {
+            "file": "backend/src/infrastructure/mcp/server.py",
+            "description": "MCP server exposing tools/resources to Claude"
+          }
+        ]
+      },
+      {
+        "name": "Workers",
+        "location": "backend/src/workers/",
+        "responsibility": "ARQ background job processing for long-running analyses",
+        "platform": "backend",
+        "depends_on": [
+          "Application Layer"
+        ],
+        "exposes_to": [
+          "Redis queue"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "backend/src/workers/tasks.py",
+            "description": "ARQ task definitions for analysis jobs"
+          },
+          {
+            "file": "backend/src/workers/worker.py",
+            "description": "ARQ WorkerSettings and startup"
+          }
+        ]
+      },
+      {
+        "name": "Frontend Dashboard",
+        "location": "frontend/",
+        "responsibility": "Next.js dashboard for repo management, analysis results, settings, blueprint viewing",
+        "platform": "frontend",
+        "depends_on": [
+          "Backend API"
+        ],
+        "exposes_to": [
+          "end users"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "frontend/pages/_app.tsx",
+            "description": "App wrapper with AuthContext provider"
+          },
+          {
+            "file": "frontend/components/views/AnalysisView.tsx",
+            "description": "Analysis results orchestration view"
+          },
+          {
+            "file": "frontend/components/views/BlueprintView.tsx",
+            "description": "Blueprint viewer with TOC and Mermaid"
+          },
+          {
+            "file": "frontend/context/auth.tsx",
+            "description": "Global auth state via React Context"
+          }
+        ]
+      },
+      {
+        "name": "Landing Page",
+        "location": "landing/",
+        "responsibility": "Marketing site with Three.js shader background and GSAP scroll animations",
+        "platform": "frontend",
+        "depends_on": [],
+        "exposes_to": [
+          "public web"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "landing/app/page.tsx",
+            "description": "Landing homepage with hero and CTAs"
+          },
+          {
+            "file": "landing/components/ShaderBackground.tsx",
+            "description": "Three.js animated shader background"
+          },
+          {
+            "file": "landing/components/SmoothScroll.tsx",
+            "description": "GSAP/Lenis smooth scroll wrapper"
+          }
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "interface_name": "backend/src/domain/interfaces/database.py — DatabaseClient interface between infra and domain",
+        "description": "backend/src/domain/interfaces/database.py — DatabaseClient interface between infra and domain",
+        "methods": [],
+        "properties": [],
+        "implementing_files": []
+      },
+      {
+        "interface_name": "backend/src/domain/interfaces/repositories.py — repository interfaces between app and infra layers",
+        "description": "backend/src/domain/interfaces/repositories.py — repository interfaces between app and infra layers",
+        "methods": [],
+        "properties": [],
+        "implementing_files": []
+      },
+      {
+        "interface_name": "backend/src/api/dto/requests.py + responses.py — HTTP API contract between frontend and backend",
+        "description": "backend/src/api/dto/requests.py + responses.py — HTTP API contract between frontend and backend",
+        "methods": [],
+        "properties": [],
+        "implementing_files": []
+      }
+    ]
+  },
+  "communication": {
+    "patterns": [
+      {
+        "name": "REST JSON (Frontend → Backend)",
+        "when_to_use": "All CRUD operations from dashboard",
+        "how_it_works": "Axios in frontend/services/*.ts sends JWT Bearer token; FastAPI validates and routes to services",
+        "examples": [
+          "frontend/services/repositories.ts → backend/src/api/routes/repositories.py",
+          "frontend/services/workspace.ts → backend/src/api/routes/workspace.py"
+        ]
+      },
+      {
+        "name": "Server-Sent Events (SSE)",
+        "when_to_use": "Real-time analysis progress streaming",
+        "how_it_works": "Backend streams analysis events via sse-starlette; frontend consumes via EventSource",
+        "examples": [
+          "backend/src/api/routes/analyses.py stream endpoint",
+          "frontend/hooks/api/useWorkspace.ts"
+        ]
+      },
+      {
+        "name": "ARQ Task Queue via Redis",
+        "when_to_use": "Long-running analysis jobs",
+        "how_it_works": "API enqueues job to Redis; ARQ worker picks up and runs PhasedBlueprintGenerator; results saved to DB",
+        "examples": [
+          "backend/src/workers/tasks.py",
+          "backend/src/workers/worker.py"
+        ]
+      },
+      {
+        "name": "Dependency Injection Container",
+        "when_to_use": "Wiring services, repos, DB clients at startup",
+        "how_it_works": "config/container.py creates singletons; FastAPI Depends() injects into route handlers",
+        "examples": [
+          "backend/src/config/container.py",
+          "backend/src/infrastructure/persistence/db_factory.py"
+        ]
+      },
+      {
+        "name": "Domain Event Bus",
+        "when_to_use": "Analysis lifecycle notifications",
+        "how_it_works": "Services publish AnalysisEvent objects to event_bus.py; subscribers persist events and trigger downstream actions",
+        "examples": [
+          "backend/src/infrastructure/events/event_bus.py",
+          "backend/src/domain/entities/analysis_event.py"
+        ]
+      }
+    ],
+    "integrations": [
+      {
+        "service": "Anthropic Claude API",
+        "purpose": "Multi-phase code analysis and blueprint generation",
+        "integration_point": "backend/src/application/services/phased_blueprint_generator.py via anthropic SDK"
+      },
+      {
+        "service": "GitHub REST API v3",
+        "purpose": "Repository metadata fetch, clone, branch/PR creation",
+        "integration_point": "backend/src/infrastructure/external/github_client.py + github_push_client.py"
+      },
+      {
+        "service": "Supabase / PostgreSQL",
+        "purpose": "Primary persistence; Supabase also provides Auth",
+        "integration_point": "backend/src/infrastructure/persistence/db_factory.py selects adapter"
+      },
+      {
+        "service": "Redis",
+        "purpose": "ARQ task queue backend and session caching",
+        "integration_point": "backend/src/workers/worker.py WorkerSettings"
+      }
+    ],
+    "pattern_selection_guide": [
+      {
+        "scenario": "User triggers new analysis",
+        "pattern": "POST REST → ARQ enqueue → worker runs PhasedBlueprintGenerator",
+        "rationale": "Analysis takes minutes; must not block HTTP thread"
+      },
+      {
+        "scenario": "Frontend polls analysis status",
+        "pattern": "SSE stream from GET /analyses/{id}/stream",
+        "rationale": "Avoids polling; backend pushes events as they are persisted"
+      },
+      {
+        "scenario": "Service needs DB access",
+        "pattern": "Inject DatabaseClient via DI container; use repository interface",
+        "rationale": "Keeps services DB-agnostic; adapter swapped at runtime"
+      }
+    ]
+  },
+  "quick_reference": {
+    "where_to_put_code": {
+      "new_api_endpoint": "backend/src/api/routes/{domain}.py — add route, register in app.py",
+      "new_business_logic": "backend/src/application/services/{feature}_service.py",
+      "new_domain_entity": "backend/src/domain/entities/{entity}.py",
+      "new_db_query": "backend/src/infrastructure/persistence/{entity}_repository.py",
+      "new_frontend_page": "frontend/pages/{name}.tsx — auto-routed by Next.js",
+      "new_frontend_view": "frontend/components/views/{Feature}View.tsx",
+      "new_api_hook": "frontend/hooks/api/use{Feature}.ts",
+      "new_http_service": "frontend/services/{domain}.ts"
+    },
+    "pattern_selection": {
+      "long_running_task": "Enqueue via ARQ in backend/src/workers/tasks.py",
+      "stream_progress": "SSE via sse-starlette in analyses route",
+      "global_frontend_state": "React Context in frontend/context/auth.tsx pattern",
+      "server_data_fetching": "Custom hook in frontend/hooks/api/ calling frontend/services/"
+    },
+    "error_mapping": [
+      {
+        "error": "DomainException",
+        "status_code": 400,
+        "description": "Business rule violation"
+      },
+      {
+        "error": "Not found entity",
+        "status_code": 404,
+        "description": "Entity not in DB"
+      },
+      {
+        "error": "Unauthenticated",
+        "status_code": 401,
+        "description": "Missing/invalid JWT token"
+      },
+      {
+        "error": "Unhandled exception",
+        "status_code": 500,
+        "description": "Caught by error_handler.py middleware"
+      }
+    ]
+  },
+  "technology": {
+    "stack": [
+      {
+        "category": "backend_framework",
+        "name": "FastAPI",
+        "version": ">=0.104.0",
+        "purpose": "Async REST API, SSE, OpenAPI docs"
+      },
+      {
+        "category": "backend_runtime",
+        "name": "Python",
+        "version": "3.11",
+        "purpose": "Primary backend language"
+      },
+      {
+        "category": "task_queue",
+        "name": "ARQ",
+        "version": ">=0.23.0",
+        "purpose": "Async Redis-backed background jobs"
+      },
+      {
+        "category": "ai_client",
+        "name": "Anthropic SDK",
+        "version": ">=0.7.0",
+        "purpose": "Claude API for phased code analysis"
+      },
+      {
+        "category": "embeddings",
+        "name": "sentence-transformers",
+        "version": ">=2.2.0",
+        "purpose": "Code embedding for RAG retrieval"
+      },
+      {
+        "category": "database_driver",
+        "name": "asyncpg",
+        "version": ">=0.29.0",
+        "purpose": "Async PostgreSQL driver for PostgresAdapter"
+      },
+      {
+        "category": "database_managed",
+        "name": "Supabase",
+        "version": ">=2.0.0",
+        "purpose": "Managed Postgres + Auth + PostgREST adapter"
+      },
+      {
+        "category": "validation",
+        "name": "Pydantic",
+        "version": ">=2.5.0",
+        "purpose": "Request/response/settings schema validation"
+      },
+      {
+        "category": "frontend_framework",
+        "name": "Next.js",
+        "version": "16.1.6",
+        "purpose": "Dashboard and landing page React framework"
+      },
+      {
+        "category": "styling",
+        "name": "Tailwind CSS",
+        "version": "^4 (landing), 3.x (frontend)",
+        "purpose": "Utility-first CSS for both frontends"
+      },
+      {
+        "category": "ui_primitives",
+        "name": "Radix UI / shadcn",
+        "version": "latest",
+        "purpose": "Headless UI primitives in frontend/components/ui/"
+      },
+      {
+        "category": "http_client",
+        "name": "Axios",
+        "version": "latest",
+        "purpose": "HTTP client in frontend/services/*.ts"
+      },
+      {
+        "category": "diagrams",
+        "name": "Mermaid",
+        "version": "latest",
+        "purpose": "Architecture diagram rendering in BlueprintView"
+      },
+      {
+        "category": "3d_graphics",
+        "name": "Three.js",
+        "version": "latest",
+        "purpose": "Shader background in landing page"
+      },
+      {
+        "category": "animation",
+        "name": "GSAP + Lenis",
+        "version": "latest",
+        "purpose": "Scroll animations in landing page"
+      },
+      {
+        "category": "testing",
+        "name": "pytest + pytest-asyncio",
+        "version": ">=7.4.0",
+        "purpose": "Backend unit and integration tests"
+      },
+      {
+        "category": "linting_backend",
+        "name": "Ruff + mypy",
+        "version": ">=0.1.0",
+        "purpose": "Python linting and type checking"
+      },
+      {
+        "category": "cache_queue",
+        "name": "Redis",
+        "version": "7-alpine",
+        "purpose": "ARQ queue backend and session cache"
+      }
+    ],
+    "templates": [
+      {
+        "component_type": "backend_route",
+        "description": "New FastAPI domain route module",
+        "file_path_template": "backend/src/api/routes/{domain}.py",
+        "code": "from fastapi import APIRouter, Depends\nrouter = APIRouter(prefix='/{domain}', tags=['{domain}'])\n@router.get('/')\nasync def list_items(service=Depends(get_service)): ..."
+      },
+      {
+        "component_type": "frontend_api_hook",
+        "description": "Custom hook wrapping service layer",
+        "file_path_template": "frontend/hooks/api/use{Feature}.ts",
+        "code": "import { useState, useEffect } from 'react';\nimport { featureService } from '@/services/{feature}';\nexport function use{Feature}() { const [data, setData] = useState(null); ... }"
+      },
+      {
+        "component_type": "domain_entity",
+        "description": "New domain entity dataclass",
+        "file_path_template": "backend/src/domain/entities/{entity}.py",
+        "code": "from dataclasses import dataclass\nfrom datetime import datetime\n@dataclass\nclass {Entity}:\n    id: str\n    created_at: datetime"
+      }
+    ],
+    "project_structure": "archie/\n├── start-dev.py          # Dev orchestrator\n├── backend/\n│   ├── src/\n│   │   ├── main.py\n│   │   ├── api/          # Routes, DTOs, middleware\n│   │   ├── application/  # Services, agents\n│   │   ├── domain/       # Entities, interfaces, exceptions\n│   │   ├── infrastructure/ # Persistence, external, analysis, MCP\n│   │   ├── workers/      # ARQ tasks\n│   │   └── config/       # Settings, DI container\n│   ├── tests/            # unit + integration\n│   ├── migrations/       # SQL migration files\n│   ├── Dockerfile\n│   └── cloudbuild.yaml\n├── frontend/             # Next.js dashboard (pages router)\n│   ├── pages/\n│   ├── components/\n│   ├── hooks/api/\n│   ├── services/\n│   ├── context/\n│   └── lib/\n└── landing/              # Next.js marketing site (app router)\n    ├── app/\n    └── components/",
+    "run_commands": {
+      "dev_all": "python start-dev.py",
+      "backend_only": "cd backend && .venv/bin/python src/main.py",
+      "frontend_only": "cd frontend && npm run dev",
+      "landing_only": "cd landing && npm run dev",
+      "worker": "cd backend && PYTHONPATH=src .venv/bin/python -m arq workers.tasks.WorkerSettings",
+      "test_backend": "cd backend && .venv/bin/pytest tests/",
+      "lint_backend": "cd backend && .venv/bin/ruff check src/",
+      "setup": "./setup.sh"
+    }
+  },
+  "frontend": {
+    "framework": "Next.js 16.1.6 (dashboard: pages router; landing: app router)",
+    "rendering_strategy": "Dashboard: CSR with Next.js pages router; Landing: SSG with app router",
+    "ui_components": [
+      {
+        "name": "Shell",
+        "location": "frontend/components/layout/Shell.tsx",
+        "component_type": "layout",
+        "description": "Root layout with sidebar + main content area",
+        "props": [
+          "children: ReactNode"
+        ],
+        "children": [
+          "Sidebar",
+          "PageHeader",
+          "main content slot"
+        ]
+      },
+      {
+        "name": "AnalysisView",
+        "location": "frontend/components/views/AnalysisView.tsx",
+        "component_type": "page",
+        "description": "Analysis results orchestration — blueprint, delivery, diagrams",
+        "props": [
+          "analysisId: string",
+          "repositoryId: string"
+        ],
+        "children": [
+          "BlueprintView",
+          "DeliveryPanel",
+          "MermaidDiagram",
+          "DebugView"
+        ]
+      },
+      {
+        "name": "BlueprintView",
+        "location": "frontend/components/views/BlueprintView.tsx",
+        "component_type": "feature",
+        "description": "Blueprint markdown viewer with TOC navigation",
+        "props": [
+          "blueprint: StructuredBlueprint"
+        ],
+        "children": [
+          "TOC sidebar",
+          "ProjectTree",
+          "Markdown sections"
+        ]
+      },
+      {
+        "name": "DeliveryPanel",
+        "location": "frontend/components/DeliveryPanel.tsx",
+        "component_type": "feature",
+        "description": "Delivery artifact viewer — CLAUDE.md, cursor rules, hooks",
+        "props": [
+          "analysisId: string",
+          "artifacts?: DeliveryArtifact[]"
+        ],
+        "children": [
+          "Artifact tabs",
+          "Copy/download buttons"
+        ]
+      },
+      {
+        "name": "MermaidDiagram",
+        "location": "frontend/components/MermaidDiagram.tsx",
+        "component_type": "shared",
+        "description": "Renders Mermaid DSL strings as architecture diagrams",
+        "props": [
+          "definition: string",
+          "title?: string"
+        ],
+        "children": []
+      },
+      {
+        "name": "UI Primitives",
+        "location": "frontend/components/ui/",
+        "component_type": "primitive",
+        "description": "Radix UI / shadcn atomic components",
+        "props": [
+          "varies"
+        ],
+        "children": []
+      },
+      {
+        "name": "ShaderBackground",
+        "location": "landing/components/ShaderBackground.tsx",
+        "component_type": "shared",
+        "description": "Three.js animated WebGL shader for landing page",
+        "props": [],
+        "children": []
+      }
+    ],
+    "state_management": {
+      "approach": "React Context for auth + custom hooks for server state + useState for local UI state",
+      "global_state": [
+        {
+          "description": "frontend/context/auth.tsx — AuthContext: user, token, login, logout, isAuthenticated"
+        }
+      ],
+      "server_state": "Custom hooks in frontend/hooks/api/ wrap frontend/services/*.ts (Axios); likely React Query for caching in useRepositoriesQuery",
+      "local_state": "useState in view components for modals, form inputs, selected items",
+      "rationale": "Auth needs app-wide context; server data is scoped to feature hooks; no Redux needed for this scope"
+    },
+    "routing": [
+      {
+        "path": "/",
+        "component": "frontend/pages/index.tsx",
+        "description": "Dashboard home",
+        "auth_required": true
+      },
+      {
+        "path": "/auth",
+        "component": "frontend/pages/auth.tsx",
+        "description": "Login/signup",
+        "auth_required": false
+      },
+      {
+        "path": "/",
+        "component": "landing/app/page.tsx",
+        "description": "Marketing landing page",
+        "auth_required": false
+      }
+    ],
+    "data_fetching": [
+      {
+        "name": "useWorkspace",
+        "mechanism": "Custom hook → frontend/services/workspace.ts → Axios GET",
+        "when_to_use": "Fetching workspace repos and analyses",
+        "examples": [
+          "frontend/hooks/api/useWorkspace.ts"
+        ]
+      },
+      {
+        "name": "useRepositoriesQuery",
+        "mechanism": "Custom hook with likely React Query useQuery",
+        "when_to_use": "Repository list with caching",
+        "examples": [
+          "frontend/hooks/api/useRepositoriesQuery.tsx"
+        ]
+      },
+      {
+        "name": "SSE Event Stream",
+        "mechanism": "EventSource or fetch with ReadableStream to /analyses/{id}/stream",
+        "when_to_use": "Real-time analysis progress updates",
+        "examples": [
+          "frontend/hooks/api/useWorkspace.ts"
+        ]
+      }
+    ],
+    "styling": "Tailwind CSS utility classes + shadcn/ui primitives in frontend/components/ui/; cn() helper from frontend/lib/utils.ts for conditional class merging",
+    "key_conventions": [
+      "All components are functional with hooks — no class components",
+      "Service layer (frontend/services/) handles all HTTP; hooks consume services",
+      "View components in frontend/components/views/ are page-level containers",
+      "UI primitives in frontend/components/ui/ are never modified directly (shadcn pattern)",
+      "Auth token injected via useAuth() hook from frontend/context/auth.tsx"
+    ]
+  },
+  "developer_recipes": [
+    {
+      "task": "Add a new analysis capability / feature flag",
+      "files": [
+        "backend/src/domain/entities/analysis_settings.py",
+        "backend/src/api/routes/settings.py",
+        "backend/src/api/dto/requests.py",
+        "frontend/components/views/CapabilitiesSettingsView.tsx",
+        "frontend/services/settings.ts"
+      ],
+      "steps": [
+        "1. Add new field to AnalysisSettings entity in domain/entities/analysis_settings.py",
+        "2. Update settings DTO in api/dto/requests.py and settings route in api/routes/settings.py",
+        "3. Add toggle UI in CapabilitiesSettingsView.tsx; update frontend/services/settings.ts to send new field"
+      ]
+    },
+    {
+      "task": "Add a new background analysis task",
+      "files": [
+        "backend/src/workers/tasks.py",
+        "backend/src/workers/worker.py",
+        "backend/src/application/services/analysis_service.py"
+      ],
+      "steps": [
+        "1. Define async task function in backend/src/workers/tasks.py with ctx parameter",
+        "2. Register task in WorkerSettings.functions list in backend/src/workers/worker.py",
+        "3. Enqueue from analysis_service.py using arq queue.enqueue('task_name', **kwargs)"
+      ]
+    },
+    {
+      "task": "Add a new REST endpoint with frontend integration",
+      "files": [
+        "backend/src/api/routes/{domain}.py",
+        "backend/src/api/app.py",
+        "frontend/services/{domain}.ts",
+        "frontend/hooks/api/use{Domain}.ts"
+      ],
+      "steps": [
+        "1. Create route handler in backend/src/api/routes/{domain}.py using APIRouter; add DTOs",
+        "2. Register router in backend/src/api/app.py include_router call",
+        "3. Add Axios call in frontend/services/{domain}.ts; create frontend/hooks/api/use{Domain}.ts hook consuming it"
+      ]
+    },
+    {
+      "task": "Run and debug analysis pipeline locally",
+      "files": [
+        "start-dev.py",
+        "backend/.env.local",
+        "frontend/.env.local",
+        "backend/src/workers/tasks.py"
+      ],
+      "steps": [
+        "1. Ensure backend/.env.local and frontend/.env.local exist (copy from .env.example); set ANTHROPIC_API_KEY, REDIS_URL, DB credentials",
+        "2. Start Redis via docker-compose or local install; run python start-dev.py to launch backend + ARQ worker + frontend",
+        "3. Trigger analysis via dashboard at localhost:{frontend_port}; watch worker logs for PhasedBlueprintGenerator phases"
+      ]
+    }
+  ],
+  "architecture_diagram": "graph TD\n    FE[Frontend Dashboard\\nNext.js pages/] -->|REST + SSE| API[API Layer\\nbackend/src/api/]\n    LAND[Landing Page\\nlanding/app/] -->|static| PUB[Public Web]\n    API -->|Depends| APP[Application Services\\napplication/services/]\n    APP -->|interfaces| DOM[Domain Layer\\ndomain/entities+interfaces]\n    APP -->|calls| INFRA[Infrastructure\\ninfra/persistence+external]\n    INFRA -->|PostgresAdapter| PG[(PostgreSQL\\n+ pgvector)]\n    INFRA -->|SupabaseAdapter| SB[(Supabase\\nManaged DB+Auth)]\n    APP -->|enqueue| WORKER[ARQ Workers\\nworkers/tasks]\n    WORKER -->|via Redis| REDIS[(Redis)]\n    APP -->|Anthropic SDK| CLAUDE[Claude API]\n    APP -->|GitHub API| GH[GitHub REST API]\n    INFRA -->|MCP server| MCP[MCP Protocol\\ninfra/mcp/]",
+  "pitfalls": [
+    {
+      "area": "ARQ Worker / Redis",
+      "description": "If Redis is unavailable at startup, start-dev.py falls back to in-process analysis silently — but production deployments require Redis for task persistence. Lost tasks are not retried.",
+      "recommendation": "Always verify Redis connection before deploying; check REDIS_URL in backend/.env.local; monitor Redis memory to prevent queue overflow"
+    },
+    {
+      "area": "DB Backend Selection",
+      "description": "DB_BACKEND env var controls PostgresAdapter vs SupabaseAdapter selection in db_factory.py; wrong value silently uses wrong adapter, causing query failures.",
+      "recommendation": "Explicitly set DB_BACKEND='postgres' or DB_BACKEND='supabase' in .env.local; run backend/tests/unit/infrastructure/test_db_factory.py to verify"
+    },
+    {
+      "area": "Prompts Version Mismatch",
+      "description": "start-dev.py checks prompts.json version against .prompts-version file and hard-exits if mismatched — running without ./setup.sh after a pull will block startup.",
+      "recommendation": "Always run ./setup.sh after pulling changes that bump prompts.json version"
+    },
+    {
+      "area": "pgvector Embeddings",
+      "description": "SharedEmbedder loads full sentence-transformers model on first use (5-10s); vector column dimension must match model output (e.g. 384 for all-MiniLM-L6-v2) or inserts will fail silently.",
+      "recommendation": "Use singleton pattern (already in shared_embedder.py); ensure vector(N) column dimension matches model in migrations/001_initial_setup.sql"
+    },
+    {
+      "area": "SSE Frontend Connection",
+      "description": "SSE streams from /analyses/{id}/stream are long-lived; if the frontend component unmounts without closing the EventSource, connections leak and Redis/ARQ events accumulate.",
+      "recommendation": "Always close EventSource in useEffect cleanup function in the consuming hook"
+    }
+  ],
+  "implementation_guidelines": [
+    {
+      "capability": "JWT Authentication with Supabase Auth",
+      "category": "authentication",
+      "libraries": [
+        "python-jose[cryptography]>=3.3.0",
+        "passlib[bcrypt]>=1.7.4",
+        "supabase>=2.0.0"
+      ],
+      "pattern_description": "Backend validates JWT via python-jose; Supabase Auth is the identity provider; frontend stores token in AuthContext and attaches as Bearer header via Axios interceptors in services.",
+      "key_files": [
+        "backend/src/api/routes/auth.py",
+        "backend/src/domain/entities/user.py",
+        "frontend/context/auth.tsx",
+        "frontend/hooks/useAuth.tsx",
+        "frontend/services/auth.ts"
+      ],
+      "usage_example": "const { user, login } = useAuth(); await login(email, password);",
+      "tips": [
+        "Token expiry must be validated server-side on every request via FastAPI Depends(get_current_user)",
+        "Supabase Auth claims must align with custom JWT validation logic in auth.py"
+      ]
+    },
+    {
+      "capability": "Phased AI Blueprint Generation with Streaming",
+      "category": "ai_analysis",
+      "libraries": [
+        "anthropic>=0.7.0",
+        "sse-starlette>=1.8.0",
+        "tiktoken>=0.7.0"
+      ],
+      "pattern_description": "PhasedBlueprintGenerator calls Claude across multiple phases with RAG-retrieved code context per phase; progress_callback persists AnalysisEvent objects; frontend streams events via SSE.",
+      "key_files": [
+        "backend/src/application/services/phased_blueprint_generator.py",
+        "backend/src/api/routes/analyses.py",
+        "backend/src/infrastructure/analysis/rag_retriever.py",
+        "backend/src/infrastructure/prompts/database_prompt_loader.py"
+      ],
+      "usage_example": "await phased_gen.generate(analysis, progress_callback=log_event_to_db)",
+      "tips": [
+        "Use tiktoken to count tokens before each Claude call to avoid context window overflow",
+        "Prompt loader can be swapped: file-based PromptLoader or DatabasePromptLoader injected via constructor"
+      ]
+    },
+    {
+      "capability": "Dual-backend Database Abstraction",
+      "category": "persistence",
+      "libraries": [
+        "asyncpg>=0.29.0",
+        "supabase>=2.0.0",
+        "psycopg2-binary>=2.9.9"
+      ],
+      "pattern_description": "db_factory.py reads DB_BACKEND env var and returns either PostgresAdapter (asyncpg pool) or SupabaseAdapter (PostgREST); all repositories receive DatabaseClient interface, never concrete adapter.",
+      "key_files": [
+        "backend/src/infrastructure/persistence/db_factory.py",
+        "backend/src/infrastructure/persistence/postgres_adapter.py",
+        "backend/src/infrastructure/persistence/supabase_adapter.py",
+        "backend/src/domain/interfaces/database.py"
+      ],
+      "usage_example": "db_client = await create_db(settings)  # returns DatabaseClient",
+      "tips": [
+        "Connection pool (_cached_pool) is initialized once; call shutdown_db() on app shutdown to release connections",
+        "Add HNSW index on pgvector columns for production similarity search performance"
+      ]
+    },
+    {
+      "capability": "RAG-based Code Retrieval with pgvector",
+      "category": "persistence",
+      "libraries": [
+        "sentence-transformers>=2.2.0",
+        "torch>=2.0.0",
+        "pgvector>=0.2.0"
+      ],
+      "pattern_description": "SharedEmbedder generates code vectors; stored in pgvector columns; RAGRetriever performs cosine similarity search to fetch relevant code snippets for each LLM analysis phase.",
+      "key_files": [
+        "backend/src/infrastructure/analysis/shared_embedder.py",
+        "backend/src/infrastructure/analysis/query_embedder.py",
+        "backend/src/infrastructure/analysis/rag_retriever.py"
+      ],
+      "usage_example": "snippets = await rag_retriever.retrieve_similar(repo_id, query_vector, top_k=5)",
+      "tips": [
+        "SharedEmbedder is a singleton — do not instantiate per-request",
+        "Vector dimension in DB column must match model output dimension exactly"
+      ]
+    },
+    {
+      "capability": "MCP Server for Claude Tool Integration",
+      "category": "ai_integration",
+      "libraries": [
+        "anthropic>=0.7.0"
+      ],
+      "pattern_description": "infrastructure/mcp/ exposes analysis resources and tools via Model Context Protocol; Claude can query blueprints and codebase maps directly through the MCP server endpoint.",
+      "key_files": [
+        "backend/src/infrastructure/mcp/server.py",
+        "backend/src/infrastructure/mcp/resources.py",
+        "backend/src/infrastructure/mcp/tools.py",
+        "backend/src/api/routes/mcp.py"
+      ],
+      "usage_example": "MCP server registered at /mcp route; Claude calls tools defined in infrastructure/mcp/tools.py",
+      "tips": [
+        "MCP tools and resources must be kept in sync with actual domain entity schemas",
+        "Test MCP integration via backend/tests/unit/infrastructure/test_mcp_server.py"
+      ]
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "dependency_management",
+      "rule": "Always add Python dependencies to backend/requirements.txt with pinned minimum versions; never use poetry or pipenv — the project uses plain pip with venv at backend/.venv",
+      "source": "backend/requirements.txt + start-dev.py venv creation logic"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use npm for frontend and landing dependencies; run npm install in the respective directory (frontend/ or landing/) — no yarn or pnpm detected",
+      "source": "frontend/package.json, landing/package.json, start-dev.py npm run dev invocation"
+    },
+    {
+      "category": "code_style",
+      "rule": "Never place infrastructure imports (asyncpg, supabase SDK, anthropic) inside domain/entities/ or domain/interfaces/ — domain layer must stay framework-free",
+      "source": "backend/src/domain/interfaces/database.py (pure ABC, no imports from infra)"
+    },
+    {
+      "category": "environment",
+      "rule": "Always create backend/.env.local and frontend/.env.local from .env.example before running; start-dev.py will hard-exit if either is missing",
+      "source": "start-dev.py check_env_files() function"
+    },
+    {
+      "category": "environment",
+      "rule": "Always run ./setup.sh after pulling commits that change prompts.json — start-dev.py validates prompts version against .prompts-version and refuses to start on mismatch",
+      "source": "start-dev.py version check block reading backend/prompts.json and backend/.prompts-version"
+    },
+    {
+      "category": "testing",
+      "rule": "Always write async tests using pytest-asyncio for any code touching asyncpg, ARQ, or Anthropic SDK; use unittest.mock.AsyncMock for async dependencies",
+      "source": "backend/tests/conftest.py + backend/tests/unit/services/test_phased_blueprint_generator.py pattern"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Never push Docker images manually — backend/cloudbuild.yaml defines the full build/push/deploy pipeline to GCR and Cloud Run; trigger via GCP Cloud Build",
+      "source": "backend/cloudbuild.yaml"
+    },
+    {
+      "category": "code_style",
+      "rule": "Never modify files in frontend/components/ui/ directly — these are shadcn/radix primitives; extend by composing them in feature components under frontend/components/views/",
+      "source": "frontend/components/ui/ structure mirroring shadcn/ui generation pattern"
+    }
+  ],
+  "deployment": {
+    "runtime_environment": "Google Cloud Platform — Cloud Run for backend API; Supabase for managed PostgreSQL; Redis on Docker (local) or managed Redis (production)",
+    "compute_services": [
+      "Google Cloud Run — containerized FastAPI backend (backend/Dockerfile)",
+      "Vercel or self-hosted — Next.js frontend and landing (deployment target not specified in repo)"
+    ],
+    "container_runtime": "Docker — python:3.11-slim base image defined in backend/Dockerfile",
+    "orchestration": "None (Cloud Run is fully managed; no Kubernetes)",
+    "serverless_functions": "None — all API logic runs in the containerized FastAPI app on Cloud Run",
+    "ci_cd": [
+      "Google Cloud Build — backend/cloudbuild.yaml: build Docker image → push to GCR (gcr.io) → deploy to Cloud Run"
+    ],
+    "distribution": [
+      "Docker image pushed to Google Container Registry (GCR)",
+      "Cloud Run pulls image and serves backend API"
+    ],
+    "infrastructure_as_code": "backend/cloudbuild.yaml (Cloud Build config); backend/migrations/*.sql (database schema)",
+    "supporting_services": [
+      "Supabase — managed PostgreSQL + Auth + PostgREST",
+      "Redis 7-alpine — ARQ task queue (docker-compose for local dev)",
+      "Google Cloud Storage — artifact/file storage (google-cloud-storage>=2.10.0)",
+      "AWS S3 — alternative storage backend (boto3>=1.29.0)"
+    ],
+    "environment_config": "backend/.env.local (DB_BACKEND, REDIS_URL, ANTHROPIC_API_KEY, GITHUB_TOKEN, PORT); frontend/.env.local (NEXT_PUBLIC_API_URL)",
+    "key_files": [
+      "backend/Dockerfile",
+      "backend/cloudbuild.yaml",
+      "start-dev.py",
+      "backend/migrations/001_initial_setup.sql"
+    ]
+  }
+}

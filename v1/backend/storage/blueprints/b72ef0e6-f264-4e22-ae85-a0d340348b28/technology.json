@@ -1,0 +1,387 @@
+```json
+{
+  "runtime": [
+    {
+      "language": "Kotlin",
+      "version": "1.8.20",
+      "environment": "Android Runtime (ART)",
+      "platform": "mobile-android",
+      "minSdk": 23,
+      "targetSdk": 34,
+      "compileSdk": 34
+    },
+    {
+      "language": "Java",
+      "version": "11+ (implicit via Kotlin/Android toolchain)",
+      "environment": "Android Runtime (ART)",
+      "platform": "mobile-android"
+    }
+  ],
+  "backend_framework": {
+    "name": "Not applicable - Backend as a Service (BaaS)",
+    "type": "REST API (third-party)",
+    "endpoints": "https://babyweather-dev.herokuapp.com/api/ (dev), production endpoints via buildConfig",
+    "platform": "mobile-android frontend only"
+  },
+  "frontend_framework": {
+    "name": "Android Framework + Androidx",
+    "version": "varies by component",
+    "rendering_strategy": "Native UI (Fragment-based)",
+    "key_components": [
+      "AndroidX Navigation (2.4.2)",
+      "Fragment-based architecture",
+      "ViewModel lifecycle",
+      "RecyclerView for lists"
+    ]
+  },
+  "database": [
+    {
+      "type": "Remote - REST API",
+      "host": "Heroku (dev), production TBD",
+      "serialization": "Moshi (JSON)",
+      "orm": "None - manual serialization",
+      "version": "Moshi 1.12.0"
+    },
+    {
+      "type": "Local Cache (implicit)",
+      "technology": "SharedPreferences or Room (inferred from architecture)",
+      "purpose": "User preferences, session state"
+    }
+  ],
+  "cache": [
+    {
+      "technology": "SharedPreferences",
+      "purpose": "Persistent key-value storage for user preferences, app state",
+      "platform": "mobile-android"
+    },
+    {
+      "technology": "In-memory (ViewModel state)",
+      "purpose": "Transient UI state during fragment lifecycle",
+      "platform": "mobile-android"
+    }
+  ],
+  "queue": [],
+  "ai_ml": [],
+  "auth": {
+    "library": "Google Sign-In",
+    "provider": "Google OAuth 2.0",
+    "approach": "OAuth 2.0 client ID per buildType (debug/release/staging)",
+    "credentials": {
+      "debug": "151823554728-bhqh7e4ctatpk0pjaircgmgv9da052rt.apps.googleusercontent.com",
+      "release": "898696094253-vrd6lvig1cm91a0c889skt5rdq61vjml.apps.googleusercontent.com"
+    },
+    "platform": "mobile-android",
+    "flow": "bottom sheet login UI (page_login_bottomsheet)"
+  },
+  "state_management": [
+    {
+      "library": "ViewModel + LiveData/StateFlow",
+      "purpose": "UI state management, lifecycle-aware data holders",
+      "platform": "mobile-android",
+      "pattern": "MVVM (Model-View-ViewModel)"
+    },
+    {
+      "library": "Koin DI Container",
+      "purpose": "Dependency injection, object graph management",
+      "platform": "mobile-android",
+      "configuration": "domainModule.kt, feature modules with Modules*.kt files"
+    }
+  ],
+  "styling": {
+    "framework": "Android Material Design (MDC)",
+    "approach": "XML layouts with adaptive colors",
+    "theming": "Theme-based with night mode support",
+    "key_resources": [
+      "values/themes.xml (day mode)",
+      "values-night/themes.xml (night mode)",
+      "values-v31|32|33/themes.xml (API-level specific)",
+      "color/button_bg_adaptive.xml (adaptive color resources)"
+    ],
+    "custom_components": "Custom View classes, custom attrs.xml attributes"
+  },
+  "validation": {
+    "library": "Android Framework + Moshi deserialization",
+    "approach": "Server-side validation primary; client-side via UI validation on input fields",
+    "serialization": "Moshi for JSON validation/deserialization at network boundary",
+    "platform": "mobile-android"
+  },
+  "testing": [
+    {
+      "framework": "JUnit 4",
+      "type": "Unit tests",
+      "platform": "mobile-android",
+      "runner": "AndroidJUnitRunner (testInstrumentationRunner)",
+      "ci_task": "testDebugUnitTest, cleanTestDebugUnitTest"
+    },
+    {
+      "framework": "AndroidX Test (implicit)",
+      "type": "Instrumented tests",
+      "platform": "mobile-android",
+      "runner": "androidx.test.runner.AndroidJUnitRunner"
+    }
+  ],
+  "linting": [
+    {
+      "tool": "Android Lint",
+      "purpose": "Static analysis of Android code and resources",
+      "configuration": "Implicit Android Gradle integration",
+      "platform": "mobile-android"
+    },
+    {
+      "tool": "Kotlin Linter (implicit via kotlinc)",
+      "purpose": "Kotlin syntax and style validation",
+      "platform": "mobile-android"
+    }
+  ],
+  "deployment": {
+    "container": "None - APK/AAB (Android native format)",
+    "build_output": "APK files (debug, release, staging flavors)",
+    "cicd": "Azure Pipelines",
+    "distribution": "Google Play Store, AppCenter",
+    "signing": "JKS keystores (per buildType: debug, release, staging)",
+    "code_obfuscation": "ProGuard/R8 (implicit in release builds)"
+  },
+  "monitoring": [
+    {
+      "tool": "Firebase Analytics",
+      "purpose": "Event tracking and user behavior analytics",
+      "sdk": "firebase-analytics-ktx",
+      "configuration": "google-services.json (environment-specific)"
+    },
+    {
+      "tool": "Firebase Crashlytics",
+      "purpose": "Crash reporting and error tracking",
+      "sdk": "firebase-crashlytics",
+      "plugin": "com.google.firebase.crashlytics"
+    },
+    {
+      "tool": "Firebase Performance Monitoring",
+      "purpose": "App performance metrics",
+      "plugin": "com.google.firebase.firebase-perf",
+      "gradle_plugin": "firebase-perf"
+    },
+    {
+      "tool": "Mixpanel",
+      "purpose": "Custom event tracking and analytics",
+      "api_key": "9aa98367cc8a51fc8126af8263199e0b (debug)",
+      "configuration": "buildConfigField in app/build.gradle.kts"
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "dependency_management",
+      "rule": "Always use buildSrc/src/main/kotlin/ for centralized version management (Dependencies.kt, DependencyConfig.kt, Release.kt)",
+      "source": "buildSrc/build.gradle.kts, build.gradle.kts imports from BuildPlugins/AndroidSdk/Network/Firebase objects"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always reference dependency versions via Objects in Dependencies.kt (e.g., AndroidSdk.compileApi, Network.retrofit) — never hardcode versions in build.gradle.kts",
+      "source": "app/build.gradle.kts uses AndroidSdk.compileApi, Release.versionCode, etc."
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always run Gradle tasks: assemble[BuildType] cleanTestDebugUnitTest testDebugUnitTest (source: azure-pipelines.yml gradleTasks variable)",
+      "source": "azure-pipelines.yml 'gradleTasks' variable"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always build APKs via Azure Pipelines for debug, release, staging variants — never manual builds in CI",
+      "source": "azure-pipelines.yml with BuildType parameter and 3 signingConfigs"
+    },
+    {
+      "category": "environment",
+      "rule": "Always use buildConfigField() for sensitive configuration per buildType (API tokens, URLs, keys) — never hardcode in source",
+      "source": "app/build.gradle.kts buildTypes block with GOOGLE_API_TOKEN, MIXPANEL_KEY, BASE_API_URL, REVENUE_CAT_API_KEY"
+    },
+    {
+      "category": "environment",
+      "rule": "Always use google-services.json from environment-specific source set (src/debug/, src/release/, src/staging/) — Firebase project IDs differ per variant",
+      "source": "app/src/debug/google-services.json (project: babyweather-dev), app/src/release/google-services.json (project: babyweather-ad243)"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use Kotlin for new code (.kt files) — Java is deprecated in this project",
+      "source": "sourceSets in app/build.gradle.kts explicitly uses src/main/kotlin, src/debug/kotlin, src/release/kotlin"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always organize code by feature module (page_* directories) with contained ViewModel, Fragment, Modules*.kt, cells/, dialog/, controller/ subdirectories",
+      "source": "Module organization in discovery analysis (page_dashboard, page_locations, page_settings, etc.)"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always register custom Maven repository for BitRaptors SDK with GitHub Packages credentials (getGprUser(), getGprKey() functions)",
+      "source": "build.gradle.kts allprojects.repositories maven block for https://maven.pkg.github.com/BitRaptors/BitRaptors.SDK.Android"
+    },
+    {
+      "category": "testing",
+      "rule": "Always run unit tests with testDebugUnitTest Gradle task in CI before building APK",
+      "source": "azure-pipelines.yml gradleTasks includes 'cleanTestDebugUnitTest testDebugUnitTest'"
+    },
+    {
+      "category": "deployment",
+      "rule": "Never commit keystore passwords in build.gradle.kts — use Azure Pipelines variable group 'babyweather-android-build-variables' for secrets",
+      "source": "azure-pipelines.yml variables group references, signingConfigs use hardcoded passwords (security risk, should use variable group)"
+    },
+    {
+      "category": "deployment",
+      "rule": "Always sign APKs with buildType-specific keystore (debug, release, staging) before upload to AppCenter or Play Store",
+      "source": "app/build.gradle.kts signingConfigs block with 3 distinct keystores; buildTypes each reference signingConfig"
+    },
+    {
+      "category": "deployment",
+      "rule": "Always upload build artifacts to AppCenter (BitRaptors/BabyWeather-Android) via Azure Pipelines release stage",
+      "source": "azure-pipelines.yml appCenterOrg, appCenterAppPage, RELEASE_ID variables"
+    },
+    {
+      "category": "git",
+      "rule": "Always trigger CI on pull requests to 'develop' branch (no manual integration)",
+      "source": "azure-pipelines.yml pr: [develop]"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use API-versioned theme resources (values-v31, values-v32, values-v33/themes.xml) for Material 3 / dynamic colors on Android 12+",
+      "source": "app/src/main/res/values-v31/themes.xml, values-v32, values-v33 files present"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use Safe Args Gradle plugin for type-safe navigation between fragments — never manual Bundle passing",
+      "source": "androidx.navigation.safeargs.kotlin plugin in plugins block; navigation_main.xml defines navigation graph"
+    },
+    {
+      "category": "analytics",
+      "rule": "Always instrument app with Firebase Analytics, Crashlytics, Performance, and Mixpanel for production tracking",
+      "source": "BabyWeatherApplication.kt entry point initializes analytics; buildConfigField includes MIXPANEL_KEY"
+    },
+    {
+      "category": "code_organization",
+      "rule": "Always use Koin DI container for dependency injection — all modules export Modules*.kt Koin module definitions",
+      "source": "BabyWeatherApplication.kt initializes Koin; domain/domainModule.kt, feature modules each have Modules*.kt"
+    },
+    {
+      "category": "authentication",
+      "rule": "Always use Google OAuth 2.0 for user authentication via buildType-specific CLIENT_ID; store in buildConfigField",
+      "source": "app/build.gradle.kts buildTypes.debug/release/staging with GOOGLE_API_TOKEN fields; google-services.json oauth_client entries"
+    },
+    {
+      "category": "networking",
+      "rule": "Always use Moshi for JSON serialization/deserialization with Retrofit2; never manual JSON parsing",
+      "source": "Dependencies.kt defines Moshi 1.12.0, moshiAdapter, moshiConverter (Retrofit adapter)"
+    },
+    {
+      "category": "deployment",
+      "rule": "Always use separate buildTypes (debug, release, staging) with distinct API endpoints, Firebase projects, and signing configs",
+      "source": "app/build.gradle.kts buildTypes + signingConfigs; google-services.json in src/debug, src/release, src/staging"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use AndroidManifest.xml for activity declarations, permissions, and app metadata — no programmatic registration",
+      "source": "app/src/main/AndroidManifest.xml is standard Android entry point"
+    }
+  ],
+  "deployment_environment": {
+    "runtime_environment": "On-device (Android Runtime - ART)",
+    "compute_services": [
+      "Android Runtime (ART) on user devices",
+      "Backend: Heroku (dev environment - https://babyweather-dev.herokuapp.com)"
+    ],
+    "container_runtime": "None - APK/AAB native format",
+    "orchestration": "None - single-platform mobile app",
+    "serverless_functions": "None (backend infrastructure unknown from frontend code)",
+    "ci_cd": [
+      "Azure Pipelines (primary CI/CD orchestration)",
+      "Gradle (assemble, test, sign tasks)"
+    ],
+    "distribution": [
+      "Google Play Store",
+      "AppCenter (BitRaptors/BabyWeather-Android for testing/beta)",
+      "APK sideload (debug builds)"
+    ],
+    "infrastructure_as_code": "None (configuration via build.gradle.kts and azure-pipelines.yml)",
+    "supporting_services": [
+      "Firebase (Analytics, Crashlytics, Performance Monitoring, Remote Config, Cloud Messaging inferred)",
+      "Google Cloud Platform (GCP) - Firebase",
+      "Google Play Services (Google Sign-In OAuth)",
+      "Mixpanel (custom analytics)",
+      "RevenueCat (in-app purchases/subscriptions) - key: goog_vCRUkeNcPBsvsPsVzLAjChdaRwT",
+      "Heroku (dev backend API)",
+      "AppCenter (distribution and testing)"
+    ],
+    "environment_config": "buildConfigField (build-time config) + google-services.json (Firebase per-variant) + azure-pipelines.yml variable group (secrets)",
+    "signing_config": {
+      "debug": {
+        "keystore": "android-debug.jks",
+        "storePassword": "android",
+        "keyAlias": "androiddebugkey",
+        "keyPassword": "android"
+      },
+      "release": {
+        "keystore": "babyweather_release",
+        "storePassword": "WeatherBaby",
+        "keyAlias": "babyweather",
+        "keyPassword": "BabyWeather"
+      },
+      "staging": {
+        "keystore": "android-debug.jks",
+        "storePassword": "android",
+        "keyAlias": "androiddebugkey",
+        "keyPassword": "android"
+      }
+    },
+    "key_files": [
+      "app/build.gradle.kts (build configuration, signing, buildConfig fields)",
+      "app/src/debug/google-services.json (Firebase dev project config)",
+      "app/src/release/google-services.json (Firebase production project config)",
+      "app/src/staging/google-services.json (Firebase staging project config)",
+      "app/src/main/AndroidManifest.xml (app metadata, permissions, activities)",
+      "azure-pipelines.yml (CI/CD pipeline, build matrix, AppCenter upload)",
+      "build.gradle.kts (root: plugin classpath, repository configuration)",
+      "buildSrc/src/main/kotlin/Dependencies.kt (centralized version management)",
+      "buildSrc/src/main/kotlin/Release.kt (version code/name definitions)"
+    ]
+  }
+}
+```
+
+---
+
+## Summary
+
+**BabyWeather.Android** is a **single-platform Android native mobile application** with the following critical characteristics:
+
+### Architecture
+- **MVVM pattern** with Kotlin + Androidx (Fragment-based UI)
+- **Feature-slice modular** organization (page_* modules) with centralized domain layer
+- **Koin DI** for dependency injection
+- **Bottom navigation** with Navigation Compose (safe args)
+
+### Runtime & Build
+- **Kotlin 1.8.20** compiled to Android bytecode (minSdk 23, targetSdk 34)
+- **Three build variants**: debug (Heroku dev), release (production), staging
+- **Gradle 7.3.1** with custom buildSrc (centralized version management)
+- **Three Firebase projects** (dev, production, staging)
+
+### Backend Integration
+- **REST API** on Heroku (dev: `https://babyweather-dev.herokuapp.com/api/`)
+- **Retrofit 2.9.0 + Moshi 1.12.0** for networking
+- **Google OAuth 2.0** for authentication (per-variant CLIENT_ID)
+- **RevenueCat** for in-app subscriptions
+
+### Monitoring & Analytics
+- **Firebase** (Analytics, Crashlytics, Performance)
+- **Mixpanel** (custom event tracking)
+- **AppCenter** (beta distribution, testing)
+
+### CI/CD & Distribution
+- **Azure Pipelines** orchestrates builds, unit tests, signing, and AppCenter upload
+- **Google Play Store** (production distribution)
+- **AppCenter** (beta/testing distribution)
+- **JKS keystores** for APK signing (per-variant)
+
+### Critical Development Rules
+1. Use buildSrc objects for all versions (never hardcode)
+2. Separate config per buildType (API URLs, Firebase projects, signing keys)
+3. Always run `testDebugUnitTest` before APK assembly
+4. Use Safe Args for type-safe navigation
+5. Instrument with Firebase Analytics + Mixpanel for all builds
+6. Manage secrets via Azure Pipelines variable group (not hardcoded)

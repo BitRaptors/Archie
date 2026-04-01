@@ -1,0 +1,471 @@
+```json
+{
+  "runtime": [
+    {
+      "language": "Swift",
+      "version": "4.x (iOS 11+)",
+      "environment": "iOS Native Runtime",
+      "platform": "mobile-ios"
+    },
+    {
+      "language": "Kotlin/Java",
+      "version": "Java 8 (Android SDK 26+)",
+      "environment": "Android Native Runtime",
+      "platform": "mobile-android"
+    },
+    {
+      "language": "TypeScript",
+      "version": "3.x",
+      "environment": "Node.js 8.x",
+      "platform": "backend-firebase-functions"
+    },
+    {
+      "language": "Python",
+      "version": "2.7",
+      "environment": "CPython",
+      "platform": "backend-tools"
+    }
+  ],
+  "backend_framework": {
+    "name": "Firebase Cloud Functions",
+    "version": "1.x (firebase-admin 2.10.0+)",
+    "runtime": "Node.js 8",
+    "features": [
+      "HTTP triggers for albums, recordings, shared_links, users, notifications",
+      "Firestore integration",
+      "Cloud Storage integration",
+      "BigQuery integration for analytics",
+      "Express.js-like routing (custom handlers)",
+      "TypeScript support with tsc compilation"
+    ]
+  },
+  "frontend_framework": [
+    {
+      "name": "UIKit (iOS)",
+      "version": "11+",
+      "rendering_strategy": "Native",
+      "platform": "mobile-ios"
+    },
+    {
+      "name": "Android Framework",
+      "version": "26+",
+      "rendering_strategy": "Native",
+      "platform": "mobile-android"
+    }
+  ],
+  "database": [
+    {
+      "type": "NoSQL Document Store",
+      "technology": "Cloud Firestore",
+      "version": "google-cloud-firestore 0.29.0+",
+      "orm": "Firebase Admin SDK (schema-less)",
+      "collections": [
+        "recordings",
+        "share_links",
+        "users",
+        "albums",
+        "comments",
+        "shared_albums"
+      ],
+      "security": "firestore.rules (field-level, owner-based access control)"
+    },
+    {
+      "type": "Distributed Analytics",
+      "technology": "BigQuery",
+      "version": "google-cloud-bigquery 1.3.0+",
+      "purpose": "Event aggregation and analytics"
+    }
+  ],
+  "cache": [
+    {
+      "technology": "Firebase Realtime Database (implicit caching)",
+      "purpose": "In-memory sync for presence and live updates"
+    },
+    {
+      "technology": "Local device storage (iOS: UserDefaults, Android: SharedPreferences)",
+      "purpose": "Client-side caching of recordings, albums, user state"
+    }
+  ],
+  "queue": [
+    {
+      "technology": "Cloud Firestore Triggers (implicit)",
+      "purpose": "Event-driven notifications and batch processing"
+    },
+    {
+      "technology": "Firebase Cloud Messaging (FCM)",
+      "purpose": "Push notification queue for iOS/Android"
+    }
+  ],
+  "ai_ml": [],
+  "auth": {
+    "library": "Firebase Authentication",
+    "version": "firebase-admin 2.10.0+",
+    "approach": "Email/Password + Google Sign-In",
+    "token_handling": "JWT (Firebase ID tokens)",
+    "frontend_sdks": [
+      "Firebase Auth SDK (iOS)",
+      "Firebase Auth SDK (Android)"
+    ],
+    "backend_enforcement": "firestore.rules validates request.auth.uid"
+  },
+  "state_management": [
+    {
+      "library": "RxSwift + RxCocoa",
+      "version": "4.x",
+      "platform": "mobile-ios",
+      "purpose": "Reactive streams for UI state, playback status, recording status"
+    },
+    {
+      "library": "Observable/Subject pattern (custom)",
+      "platform": "mobile-ios",
+      "purpose": "Albums, recordings, comments, notifications live updates"
+    },
+    {
+      "library": "Android ViewModel + LiveData",
+      "platform": "mobile-android",
+      "purpose": "Activity/Fragment lifecycle-aware state"
+    }
+  ],
+  "styling": [
+    {
+      "framework": "UIKit Auto Layout",
+      "platform": "mobile-ios",
+      "approach": "Programmatic constraints"
+    },
+    {
+      "framework": "Android ConstraintLayout",
+      "platform": "mobile-android",
+      "approach": "XML layouts"
+    }
+  ],
+  "validation": [
+    {
+      "library": "Firestore rules validation",
+      "platform": "backend",
+      "approach": "Server-side field validation (firestore.rules)"
+    },
+    {
+      "library": "Cloud Function parameter validation",
+      "platform": "backend",
+      "approach": "Manual validation in TypeScript handlers (cloud_function_utils.ts)"
+    },
+    {
+      "library": "iOS form validation (custom)",
+      "platform": "mobile-ios",
+      "approach": "FormTextField + custom validators"
+    }
+  ],
+  "testing": [
+    {
+      "framework": "AVA",
+      "type": "Unit tests",
+      "platform": "backend-firebase-functions",
+      "config": "platform/firebase/functions/test/test.ts",
+      "command": "npm test"
+    },
+    {
+      "framework": "XCTest",
+      "type": "Unit + UI tests",
+      "platform": "mobile-ios",
+      "location": "iOS/AroundSound/AppUnitTests/AroundSoundTests.swift"
+    },
+    {
+      "framework": "Instrumented tests (JUnit)",
+      "type": "Unit tests",
+      "platform": "mobile-android",
+      "build_config": "android/app/build.gradle"
+    }
+  ],
+  "linting": [
+    {
+      "tool": "TSLint",
+      "version": "5.x",
+      "platform": "backend-firebase-functions",
+      "command": "npm run lint",
+      "config": "tsconfig.json"
+    },
+    {
+      "tool": "SwiftLint",
+      "platform": "mobile-ios",
+      "purpose": "Code style enforcement"
+    }
+  ],
+  "deployment": {
+    "container": "None (serverless/native)",
+    "cicd_pipelines": [
+      "Firebase Functions: platform/.gitlab-ci.yml → Firebase Deploy",
+      "Android: android/.gitlab-ci.yml → Gradle assemble",
+      "iOS: Fastlane (inferred from AppDelegate setup)"
+    ],
+    "platforms": [
+      "GCP Firebase (backend)",
+      "Apple App Store (iOS)",
+      "Google Play Store (Android)"
+    ]
+  },
+  "monitoring": [
+    {
+      "tool": "Firebase Analytics",
+      "version": "2.x",
+      "platform": [
+        "mobile-ios",
+        "mobile-android"
+      ],
+      "purpose": "Event tracking (recordings, playback, sharing)",
+      "implementation": "ASAnalyticsManager, FirebaseAnalyticsService"
+    },
+    {
+      "tool": "Firebase Cloud Logging",
+      "platform": "backend-firebase-functions",
+      "purpose": "Function execution logs",
+      "command": "firebase functions:log"
+    },
+    {
+      "tool": "Firebase Crash Reporting / Crashlytics",
+      "version": "AppCenter (iOS)",
+      "platform": "mobile-ios",
+      "purpose": "Exception tracking and crash analytics"
+    },
+    {
+      "tool": "Firebase Performance Monitoring",
+      "platform": [
+        "mobile-ios",
+        "mobile-android"
+      ],
+      "purpose": "Recording/playback latency tracking"
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "dependency_management",
+      "rule": "Always use CocoaPods for iOS dependencies — podfile structure defines all transitive deps (Firebase, RxSwift, Alamofire, etc.)",
+      "source": "iOS/AroundSound/App/Appdelegate/AppDelegate.swift imports Firebase, RxSwift, Swinject"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use Gradle for Android dependencies — android/app/build.gradle defines Firebase, Play Services, AndroidX",
+      "source": "android/.gitlab-ci.yml configures Android SDK/build-tools via gradle"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use npm for backend Firebase Functions — package.json in platform/firebase/functions is source of truth",
+      "source": "platform/firebase/functions/package.json specifies firebase-admin, @google-cloud/bigquery"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Never lock Python requirements.txt to exact versions in production tools — use ranges (e.g., firebase-admin>=2.10) to allow patches",
+      "source": "platform/firebase/requirements.txt and platform/tools/bin/requirements.txt both pin exact versions; this is fragile"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always run TypeScript lint before building Firebase Functions — npm run lint is predeploy hook",
+      "source": "platform/firebase/functions/package.json scripts: lint → tslint, build → tsc"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always build Firebase Functions with TypeScript before deploy — npm run build compiles src/ to lib/",
+      "source": "platform/firebase/functions/package.json main: lib/index.js (compiled output)"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always run Android unit tests in CI before assembleDebug — ./gradlew test executes before artifact generation",
+      "source": "android/.gitlab-ci.yml debug_assemble stage runs ./gradlew test then ./gradlew assembleDebug"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always deploy Firebase Functions manually via GitLab CI manual trigger — platform/.gitlab-ci.yml has when: manual for deploy_dev and deploy_prod",
+      "source": "platform/.gitlab-ci.yml deploy aroundsound-dev and deploy aroundsound-prod stages"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Only deploy to production from master branch — platform/.gitlab-ci.yml deploy aroundsound-prod has only: [master]",
+      "source": "platform/.gitlab-ci.yml deploy aroundsound-prod stage"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Never deploy experimental environment branches to dev — platform/.gitlab-ci.yml deploy_dev excludes /^environment/aroundsound-.*$/",
+      "source": "platform/.gitlab-ci.yml deploy aroundsound-dev except rule"
+    },
+    {
+      "category": "environment",
+      "rule": "Always configure Firebase project via firebaserc — .firebaserc sets default project for deploy commands",
+      "source": "platform/firebase/.firebaserc default: aroundsound-dev"
+    },
+    {
+      "category": "environment",
+      "rule": "Always use environment-specific google-services.json for Android — android/app/src/{debug,experiment,release}/google-services.json maps to different Firebase projects",
+      "source": "android/app/src/debug/google-services.json (aroundsound-dev), android/app/src/release/google-services.json (aroundsound-prod)"
+    },
+    {
+      "category": "environment",
+      "rule": "Always configure iOS with environment-specific Firebase config — likely plist files per build configuration",
+      "source": "iOS/AroundSound/App/Appdelegate/AppDelegate.swift initializes FirebaseApp with [FirebaseApp configure()]"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use BehaviorSubject/PublishSubject for reactive state in iOS — GeneralRecorder/GeneralPlayer use status = BehaviorSubject<T>()",
+      "source": "iOS/AroundSound/App/AudioEngine/Recording/GeneralRecorder.swift and iOS/AroundSound/App/AudioEngine/Playback/GeneralPlayer.swift"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always expose RxSwift observables as Driver<T> in public protocols — GeneralRecorderProtocol.recordingStatus: Driver<RecordingStatus>",
+      "source": "iOS/AroundSound/App/AudioEngine/Recording/GeneralRecorder.swift protocol definition"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use Swinject dependency injection container for iOS — AppDelegate initializes Swinject DI for resolving providers",
+      "source": "iOS/AroundSound/App/DI/DepedencyContainer.swift and AppDelegate initialization"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always log analytics events via ASAnalyticsManager — GeneralPlayer.play() logs recording_playback_started with contextual attributes",
+      "source": "iOS/AroundSound/App/AudioEngine/Playback/GeneralPlayer.swift analyticsManager.logEvent()"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always validate Firestore writes server-side via firestore.rules — recordingReadOnlyFieldsUnchanged() enforces immutable fields",
+      "source": "platform/firebase/firestore.rules function recordingReadOnlyFieldsUnchanged()"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use owner_id field for authorization checks in Firestore — all rules validate isOwnerOf(resource) where resource.data.owner_id == currentUserId()",
+      "source": "platform/firebase/firestore.rules isOwnerOf() function used in all allow statements"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always gate storage writes to authenticated users with size limits — storage.rules limits audio files to 250MB, profile images to 5MB per user",
+      "source": "platform/firebase/storage.rules match /users/{userId}/audio/{recordingId} limits request.resource.size < 250MB"
+    },
+    {
+      "category": "testing",
+      "rule": "Always run AVA tests with TypeScript via tsc before test — platform/firebase/functions/test/test.ts compiled before execution",
+      "source": "platform/firebase/functions/package.json test: tsc && ava"
+    },
+    {
+      "category": "git",
+      "rule": "Never commit google-services.json with production credentials — each flavor (debug/experiment/release) has separate config file",
+      "source": "android/app/src/{debug,experiment,release}/google-services.json separate files per build variant"
+    },
+    {
+      "category": "git",
+      "rule": "Always exclude node_modules and build artifacts from Cloud Functions deploys — .gcloudignore excludes node_modules",
+      "source": "platform/firebase/functions/.gcloudignore"
+    },
+    {
+      "category": "deployment",
+      "rule": "Always use Firebase deployment script with environment isolation — deploy-to-environment.sh in platform/firebase/",
+      "source": "platform/.gitlab-ci.yml calls ./deploy-to-environment.sh aroundsound-dev/aroundsound-prod"
+    },
+    {
+      "category": "deployment",
+      "rule": "Always prepare local development environment before Firebase deploy — prepare-local-development-environment.sh sets up SDK config",
+      "source": "platform/.gitlab-ci.yml before_script runs ./prepare-local-development-environment.sh"
+    }
+  ],
+  "deployment_environment": {
+    "runtime_environment": "GCP Firebase (backend) + Apple/Google native runtimes (mobile)",
+    "compute_services": [
+      "Google Cloud Functions (TypeScript backend)",
+      "Firestore (database)",
+      "Cloud Storage (audio files)",
+      "BigQuery (analytics)",
+      "Firebase Cloud Messaging (push notifications)"
+    ],
+    "container_runtime": "None (serverless Cloud Functions, native mobile)",
+    "orchestration": "None (managed by Google Cloud)",
+    "serverless_functions": "Cloud Functions (HTTP triggers for albums, recordings, shared_links, users, notifications, analytics)",
+    "ci_cd": [
+      "GitLab CI (.gitlab-ci.yml for all platforms)",
+      "Gradle (Android build)",
+      "Firebase CLI (backend deployment)",
+      "Fastlane (inferred for iOS)"
+    ],
+    "distribution": [
+      "Apple App Store (iOS)",
+      "Google Play Store (Android)",
+      "Firebase Hosting (inferred for web component)"
+    ],
+    "infrastructure_as_code": "Firebase configuration files (firebase.json, firestore.rules, storage.rules, firestore.indexes.json)",
+    "supporting_services": [
+      "Firebase Authentication (email/password + Google Sign-In)",
+      "Firestore (NoSQL document database)",
+      "Cloud Storage (audio file storage)",
+      "BigQuery (analytics warehouse)",
+      "Firebase Messaging (push notifications)",
+      "Firebase Analytics (event tracking)",
+      "Firebase Crashes/Crashlytics (error reporting)",
+      "Firebase Performance Monitoring"
+    ],
+    "environment_config": "google-services.json per build variant (debug/experiment/release); Firebase project references via .firebaserc",
+    "mobile_specific": {
+      "backend_services": "Firebase (BaaS — auth, database, storage, messaging)",
+      "push_notifications": "Firebase Cloud Messaging (FCM) + Apple Push Notification service",
+      "analytics_platforms": [
+        "Firebase Analytics",
+        "AppCenter Analytics (iOS)"
+      ],
+      "ota_updates": "None detected (app store updates only)",
+      "app_signing": [
+        "iOS: Apple certificate + provisioning profiles (managed by Xcode/Fastlane)",
+        "Android: multiple signing keys per variant (debug/experiment/release in google-services.json)"
+      ]
+    },
+    "key_files": [
+      "platform/firebase/firebase.json (Cloud Functions, Firestore, Storage config)",
+      "platform/firebase/.firebaserc (Firebase project default)",
+      "platform/firebase/firestore.rules (Firestore security rules)",
+      "platform/firebase/firestore.indexes.json (Firestore indexes)",
+      "platform/firebase/storage.rules (Cloud Storage security rules)",
+      "platform/firebase/functions/src/index.ts (Cloud Functions entry point)",
+      "platform/firebase/functions/package.json (Node.js backend dependencies)",
+      "platform/firebase/requirements.txt (Python admin tools dependencies)",
+      "platform/firebase/bin/adhoc/migrate-user-recordings.py (data migration tools)",
+      "platform/tools/bin/adhoc/ (backup/analytics ad-hoc scripts)",
+      "platform/.gitlab-ci.yml (backend CI/CD pipeline)",
+      "android/.gitlab-ci.yml (Android build pipeline)",
+      "android/app/build.gradle (Android build config)",
+      "android/app/src/main/AndroidManifest.xml (Android manifest)",
+      "android/app/src/{debug,experiment,release}/google-services.json (per-variant Firebase config)",
+      "iOS/AroundSound/App/Appdelegate/AppDelegate.swift (iOS entry point, Firebase init)",
+      "platform/firebase/functions/.gcloudignore (Cloud Functions deployment exclusions)"
+    ]
+  },
+  "additional_context": {
+    "architecture_notes": "Full-stack monorepo with clear separation: iOS native (RxSwift MVVM), Android native (ViewModel pattern), TypeScript Firebase Cloud Functions backend, Firestore NoSQL DB, Cloud Storage for audio binary blobs, BigQuery for analytics.",
+    "data_flow": "Mobile clients record audio → stored in Cloud Storage with metadata in Firestore → Cloud Functions handle sharing/notifications → Firestore Triggers dispatch to FCM for push → Analytics events logged to BigQuery.",
+    "key_patterns": [
+      "Reactive streams (RxSwift on iOS, Observable pattern on Android)",
+      "DI via Swinject (iOS) and Android Framework (Android)",
+      "Owner-based access control (firestore.rules validates request.auth.uid == resource.data.owner_id)",
+      "Tri-environment setup (dev/experiment/prod with separate Firebase projects)",
+      "Manual CI/CD deployments via GitLab manual triggers (safety mechanism)"
+    ],
+    "security_model": "Firebase Auth (email + Google Sign-In) → JWT ID tokens → Firestore rules enforce owner_id validation → Storage rules limit file size and ownership. No explicit API keys in client; Firebase SDK handles auth transparently.",
+    "notable_absence": "No ORM/database ORM needed (Firestore schema-less); no web framework (Cloud Functions are event-driven); no frontend state management library like Redux (RxSwift handles state reactively)"
+  }
+}
+```
+
+---
+
+## Summary
+
+**AroundSound** is a **multi-platform audio recording and sharing application** built on a **Google Cloud Firebase backend** with **native iOS and Android clients**.
+
+### Key Technology Choices:
+
+1. **Backend**: Serverless TypeScript Cloud Functions (Node.js 8) with Firestore NoSQL and Cloud Storage
+2. **iOS**: Swift + UIKit + RxSwift + Swinject DI
+3. **Android**: Kotlin/Java + Android Framework + ViewModel/LiveData
+4. **Database**: Firestore (document-oriented, real-time sync)
+5. **Auth**: Firebase Authentication (email/password + Google Sign-In)
+6. **Deployment**: GitLab CI → Firebase CLI (manual triggers), App Store/Play Store for mobile
+7. **Monitoring**: Firebase Analytics, Crashlytics, Performance Monitoring
+
+### Critical Development Rules:
+
+- **Always enforce owner_id validation** in Firestore rules (security boundary)
+- **Never commit google-services.json** with production keys (use per-flavor configs)
+- **Always use RxSwift Driver<T>** for public observable APIs in iOS
+- **Only deploy to production from master** (GitLab CI branch protection)
+- **Always run lint + build before Firebase deploy** (npm run lint && npm run build)

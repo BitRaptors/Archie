@@ -1,0 +1,534 @@
+```json
+{
+  "structural_patterns": [
+    {
+      "pattern": "Dependency Injection via Service Container",
+      "platform": "backend",
+      "implementation": "Manual DI with centralized container (config/container.py) that wires up services, repositories, and infrastructure clients. Services receive dependencies via constructor injection.",
+      "examples": [
+        "backend/src/config/container.py - Central DI container (referenced but not shown, implied by architecture)",
+        "backend/src/application/services/phased_blueprint_generator.py - Constructor accepts settings, db_client, prompt_loader, progress_callback",
+        "backend/src/application/services/smart_refresh_service.py - Constructor receives db_client, progress_callback for injected dependencies"
+      ],
+      "evidence": "Services like PhasedBlueprintGenerator accept all dependencies as constructor parameters rather than fetching them internally, enabling testability and loose coupling."
+    },
+    {
+      "pattern": "Repository Pattern with Interface Abstraction",
+      "platform": "backend",
+      "implementation": "Domain interfaces (backend/src/domain/interfaces/database.py, repositories.py) define contracts. Multiple implementations exist: PostgresAdapter and SupabaseAdapter both implement DatabaseClient. Repositories wrap data access logic.",
+      "examples": [
+        "backend/src/domain/interfaces/database.py - DatabaseClient interface with QueryBuilder, QueryResult contracts",
+        "backend/src/infrastructure/persistence/postgres_adapter.py - PostgresQueryBuilder implements DatabaseClient via asyncpg",
+        "backend/src/infrastructure/persistence/supabase_adapter.py - SupabaseAdapter implements DatabaseClient for Supabase",
+        "backend/src/infrastructure/persistence/analysis_repository.py - Wraps DatabaseClient for analysis-specific queries",
+        "backend/src/infrastructure/persistence/user_repository.py - Repository layer over raw database access"
+      ],
+      "evidence": "Explicit DatabaseClient interface allows swapping Postgres ↔ Supabase at runtime via db_factory.py without changing business logic."
+    },
+    {
+      "pattern": "Factory Pattern for Database Adapter Creation",
+      "platform": "backend",
+      "implementation": "db_factory.py uses conditional logic based on DB_BACKEND setting to instantiate either PostgresAdapter or SupabaseAdapter. Implements singleton caching to share connection pool globally.",
+      "examples": [
+        "backend/src/infrastructure/persistence/db_factory.py::create_db() - Creates pool and adapter based on settings.db_backend",
+        "Conditional: if settings.db_backend == 'postgres' → asyncpg.Pool + PostgresAdapter, else → Supabase AsyncClient + SupabaseAdapter",
+        "backend/src/infrastructure/persistence/db_factory.py::shutdown_db() - Cleanup factory pattern with connection pool closure"
+      ],
+      "evidence": "Factory returns singleton DatabaseClient instance; connection pool (_cached_pool) is initialized once and reused across all callers."
+    },
+    {
+      "pattern": "Registry Pattern for Analysis Plugins/Engines",
+      "platform": "backend",
+      "implementation": "Multiple orchestration services (phased_blueprint_generator, hybrid_enrichment_engine, intent_layer_service) act as registries for sub-components. Analysis workflow can plug different enrichment strategies.",
+      "examples": [
+        "backend/src/application/services/phased_blueprint_generator.py - Orchestrates multiple analysis phases, can swap RAG retriever, prompt loader",
+        "backend/src/application/services/hybrid_enrichment_engine.py - Registry of enrichment strategies that can be composed",
+        "backend/src/application/services/intent_layer_service.py::FolderHierarchyBuilder - Configurable with excluded_dirs set, Android resource prefixes registry (_ANDROID_RESOURCE_PREFIXES)"
+      ],
+      "evidence": "PhasedBlueprintGenerator accepts optional prompt_loader parameter, allowing swapping file-based PromptLoader with DatabasePromptLoader at runtime."
+    },
+    {
+      "pattern": "Custom Request/Response DTOs for API Contract",
+      "platform": "backend",
+      "implementation": "Pydantic-based request/response models in api/dto/ define API contracts. Services return domain entities; API layer converts to DTOs for HTTP serialization.",
+      "examples": [
+        "backend/src/api/dto/requests.py - Request DTOs with validation",
+        "backend/src/api/dto/responses.py - Response DTOs for API responses",
+        "backend/src/application/services/smart_refresh_service.py::SmartRefreshResult - Pydantic model for API response",
+        "backend/src/application/services/smart_refresh_service.py::ArchitectureWarning - Pydantic model for warning items"
+      ],
+      "evidence": "Services return Pydantic BaseModel instances (SmartRefreshResult, ArchitectureWarning); API routes serialize these to JSON with automatic validation."
+    },
+    {
+      "pattern": "Hook-Based Custom Hooks for Data Fetching",
+      "platform": "frontend",
+      "implementation": "Custom React hooks in hooks/api/ encapsulate server communication. Hooks manage loading/error states and return data. Likely uses fetch API or similar.",
+      "examples": [
+        "frontend/hooks/api/useRepositoriesQuery.tsx - Custom hook for repository queries",
+        "frontend/hooks/api/useSettings.ts - Custom hook for settings data",
+        "frontend/hooks/api/useDelivery.ts - Custom hook for delivery operations",
+        "frontend/hooks/api/usePrompts.ts - Custom hook for prompt management",
+        "frontend/hooks/api/useWorkspace.ts - Custom hook for workspace queries"
+      ],
+      "evidence": "File naming pattern useX.ts/.tsx indicates React hooks convention. Hooks abstract server communication from components."
+    },
+    {
+      "pattern": "Context API for Global Authentication State",
+      "platform": "frontend",
+      "implementation": "React Context API (frontend/context/auth.tsx) manages authentication state globally. Authentication logic in frontend/services/auth.ts. useAuth hook provides context consumer.",
+      "examples": [
+        "frontend/context/auth.tsx - React Context for auth state",
+        "frontend/hooks/useAuth.tsx - Hook to consume auth context",
+        "frontend/services/auth.ts - Auth service with login/logout/refresh logic",
+        "frontend/pages/auth.tsx - Authentication page using auth context"
+      ],
+      "evidence": "Standard React Context pattern; auth state flows from context provider through useAuth hook to consuming components."
+    },
+    {
+      "pattern": "Service Layer for Server Communication",
+      "platform": "frontend",
+      "implementation": "frontend/services/ contain fetch/HTTP logic separated from UI. Services called from custom hooks. Standardized request/response handling.",
+      "examples": [
+        "frontend/services/repositories.ts - Repository API calls",
+        "frontend/services/settings.ts - Settings API calls",
+        "frontend/services/delivery.ts - Delivery/export API calls",
+        "frontend/services/prompts.ts - Prompt management API calls",
+        "frontend/services/workspace.ts - Workspace API calls"
+      ],
+      "evidence": "Services module mirrors backend API routes structure. One service per domain (repositories, settings, etc.)."
+    },
+    {
+      "pattern": "File-Based Routing with Next.js Convention",
+      "platform": "frontend",
+      "implementation": "Next.js file-based routing. Pages in frontend/pages/ automatically become routes. _app.tsx and _document.tsx for app-level setup.",
+      "examples": [
+        "frontend/pages/_app.tsx - App wrapper, provider setup",
+        "frontend/pages/_document.tsx - Document-level setup (meta tags, fonts)",
+        "frontend/pages/index.tsx - Home page (/)",
+        "frontend/pages/auth.tsx - Authentication page (/auth)",
+        "frontend/components/layout/Sidebar.tsx - Navigation component"
+      ],
+      "evidence": "Standard Next.js file-based routing convention. Pages directory defines route structure."
+    },
+    {
+      "pattern": "Component Composition with Functional Components + Hooks",
+      "platform": "frontend",
+      "implementation": "All components are functional components using React hooks for state/effects. Component tree composition in layout (Shell → Sidebar, main content area). Custom hooks for reusable logic.",
+      "examples": [
+        "frontend/components/views/AnalysisView.tsx - View component composed from smaller components",
+        "frontend/components/views/BlueprintView.tsx - Feature-specific view",
+        "frontend/components/layout/Shell.tsx - Root layout wrapper",
+        "frontend/components/MermaidDiagram.tsx - Specialized diagram component",
+        "frontend/components/ProjectTree.tsx - Tree UI component with custom hook usage"
+      ],
+      "evidence": "All components follow functional component pattern with hooks; no class components or HOCs visible."
+    },
+    {
+      "pattern": "UI Component Library with shadcn/ui Pattern",
+      "platform": "frontend",
+      "implementation": "Reusable UI components (button, card, input, badge, etc.) in frontend/components/ui/. Built with Tailwind CSS. Composed into feature components.",
+      "examples": [
+        "frontend/components/ui/button.tsx - Reusable button component",
+        "frontend/components/ui/card.tsx - Card layout component",
+        "frontend/components/ui/input.tsx - Form input component",
+        "frontend/components/ui/badge.tsx - Badge component",
+        "frontend/components/ui/skeleton.tsx - Loading skeleton component",
+        "frontend/components/ui/progress.tsx - Progress indicator component"
+      ],
+      "evidence": "Dedicated ui/ subdirectory with atomic components. Tailwind CSS for styling. Components imported and composed in views."
+    },
+    {
+      "pattern": "Utility/Helper Functions Library",
+      "platform": "frontend",
+      "implementation": "frontend/lib/ contains utility functions for common tasks. blueprint-toc.ts for TOC generation, theme.ts for theming, utils.ts for general utilities.",
+      "examples": [
+        "frontend/lib/blueprint-toc.ts - Blueprint table of contents generation",
+        "frontend/lib/blueprint-toc.test.ts - Unit tests for TOC logic",
+        "frontend/lib/theme.ts - Theme/styling utilities",
+        "frontend/lib/utils.ts - General utility functions",
+        "frontend/lib/utils.ts - Likely contains cn() for Tailwind class merging"
+      ],
+      "evidence": "Separate lib directory for pure functions; test coverage via blueprint-toc.test.ts shows utility-first approach."
+    }
+  ],
+  "behavioral_patterns": [
+    {
+      "pattern": "Multi-Phase AI-Driven Analysis Orchestration",
+      "platform": "backend",
+      "implementation": "phased_blueprint_generator.py implements OBSERVATION-FIRST approach: 1) Full file scan for signatures, 2) Pattern detection without assumptions, 3) Dynamic RAG queries, 4) Phased incremental analysis. Uses AsyncAnthropic for concurrent AI calls.",
+      "examples": [
+        "backend/src/application/services/phased_blueprint_generator.py - Phased approach with observable patterns before predefined assumptions",
+        "phased_blueprint_generator.py::PhasedBlueprintGenerator.__init__() - AsyncAnthropic client with 600s timeout, 5 retries, model + synthesis_model separation",
+        "analysis_data_collector.py - Gathers codebase structure for RAG context",
+        "rag_retriever.py - Dynamic query generation based on observed patterns"
+      ],
+      "evidence": "Comments explicitly state 'OBSERVATION-FIRST approach' and 'allows analyzing ANY architecture style'. Uses async/await for concurrent phase execution."
+    },
+    {
+      "pattern": "Smart Refresh Service with Staleness Detection",
+      "platform": "backend",
+      "implementation": "smart_refresh_service.py evaluates code changes against architecture blueprint. Identifies affected folders, calls AI to detect staleness/alignment violations, regenerates CLAUDE.md for stale folders. Returns warnings and updated files.",
+      "examples": [
+        "backend/src/application/services/smart_refresh_service.py::SmartRefreshService - Main orchestrator",
+        "Workflow: Load blueprint → Identify affected folders → Check AI alignment → Regenerate stale CLAUDE.md",
+        "Returns SmartRefreshResult with status (refreshed|no_refresh_needed|warnings), updated_files, and ArchitectureWarning items",
+        "Integrates HybridEnrichmentEngine, IntentLayerRenderer for output generation"
+      ],
+      "evidence": "Service accepts changed file list and architectural context; returns structured warnings (severity, folder, message, rule_violated, suggestion)."
+    },
+    {
+      "pattern": "Intent Layer Rendering with Folder Context",
+      "platform": "backend",
+      "implementation": "intent_layer_service.py builds folder hierarchy and generates per-folder CLAUDE.md documentation. Distinguishes real source code from trivial markers (__init__.py) and Android resources. Generates FolderNode tree with enrichment.",
+      "examples": [
+        "backend/src/application/services/intent_layer_service.py::FolderHierarchyBuilder - Builds FolderNode hierarchy from file tree",
+        "_TRIVIAL_MARKERS = {__init__.py, __init__.pyi, __main__.py, py.typed, package-info.java, mod.rs}",
+        "_ANDROID_RESOURCE_PREFIXES registry for drawable, mipmap, values, xml, raw, anim, animator, color, font, menu, navigation, transition",
+        "intent_layer_renderer.py - Renders enriched folder context to CLAUDE.md format"
+      ],
+      "evidence": "Intent layer explicitly filters non-source files; Android resource detection shows domain-specific knowledge baked into orchestration."
+    },
+    {
+      "pattern": "Event-Driven Analysis Pipeline with Progress Callbacks",
+      "platform": "backend",
+      "implementation": "Services accept optional progress_callback parameter (async callback function). Analysis emits events during execution. Components subscribe via callback injection.",
+      "examples": [
+        "backend/src/application/services/phased_blueprint_generator.py::__init__() - Accepts progress_callback parameter",
+        "backend/src/application/services/smart_refresh_service.py - Progress callbacks for long-running operations",
+        "RAGRetriever accepts progress_callback for event emission during retrieval",
+        "Enables real-time frontend updates via WebSocket or streaming responses"
+      ],
+      "evidence": "progress_callback: Optional[callable] pattern allows decoupling progress reporting from analysis logic. Callback injection enables testing and different event handlers."
+    },
+    {
+      "pattern": "Asynchronous Batch Processing with Concurrency Control",
+      "platform": "backend",
+      "implementation": "Uses asyncio for concurrent operations. phased_blueprint_generator uses AsyncAnthropic with controlled retries (5 max attempts, exponential backoff). Database operations use asyncpg connection pool with async/await.",
+      "examples": [
+        "backend/src/application/services/phased_blueprint_generator.py - AsyncAnthropic(timeout=600.0, max_retries=5)",
+        "Retry strategy: 6 total attempts (1 + 5) with exponential backoff (0.5s→1s→2s→4s→8s)",
+        "backend/src/infrastructure/persistence/postgres_adapter.py - async methods for query execution",
+        "intent_layer_service.py - asyncio.gather() for concurrent folder processing"
+      ],
+      "evidence": "Consistent async/await patterns; explicit timeout/retry config for external API calls; connection pooling for database."
+    },
+    {
+      "pattern": "RAG-Augmented Retrieval for Code Context",
+      "platform": "backend",
+      "implementation": "rag_retriever.py provides context-aware code retrieval. Embeddings for semantic search. Dynamic query generation based on observed code patterns. Retrieves relevant code snippets for AI analysis.",
+      "examples": [
+        "backend/src/infrastructure/analysis/rag_retriever.py - RAGRetriever orchestrates semantic search",
+        "query_embedder.py - Converts natural language queries to embeddings",
+        "shared_embedder.py - Shared embedding model for consistency",
+        "Phased blueprint generator uses RAG for targeted retrieval after pattern observation"
+      ],
+      "evidence": "RAGRetriever injected into PhasedBlueprintGenerator; enables AI to reference actual code during analysis."
+    },
+    {
+      "pattern": "Prompt Management with Database and File-Based Loading",
+      "platform": "backend",
+      "implementation": "Prompts loaded either from filesystem (PromptLoader) or database (DatabasePromptLoader). Swappable via dependency injection. Prompts stored with revisions and versioning.",
+      "examples": [
+        "backend/src/infrastructure/prompts/prompt_loader.py - File-based prompt loading",
+        "backend/src/infrastructure/prompts/database_prompt_loader.py - Database-backed prompt loading",
+        "backend/src/application/services/prompt_service.py - Prompt management service",
+        "backend/src/infrastructure/persistence/prompt_repository.py - Prompt persistence",
+        "backend/src/infrastructure/persistence/prompt_revision_repository.py - Version history"
+      ],
+      "evidence": "phased_blueprint_generator accepts optional prompt_loader parameter; defaults to file-based PromptLoader but can use DatabasePromptLoader."
+    },
+    {
+      "pattern": "Optimistic UI Updates with Eventual Consistency",
+      "platform": "frontend",
+      "implementation": "Frontend submits changes and optimistically updates UI. Custom hooks manage loading states. Rollback on error via state management in hooks.",
+      "examples": [
+        "frontend/hooks/api/useRepositoriesQuery.tsx - Manages loading/error state for repository queries",
+        "frontend/hooks/api/useSettings.ts - Settings changes with loading indicator",
+        "frontend/hooks/api/useDelivery.ts - Delivery/export operations with progress",
+        "ConfirmationDialog.tsx - User confirmation before destructive operations"
+      ],
+      "evidence": "Custom hooks likely implement optimistic updates with error boundaries; confirmation dialogs protect against accidental changes."
+    },
+    {
+      "pattern": "Streaming Analysis Results to Frontend",
+      "platform": "backend",
+      "implementation": "Analysis service (analysis_service.py) orchestrates long-running blueprint generation. Results delivered via delivery_service.py. Likely uses SSE or WebSocket for streaming progress.",
+      "examples": [
+        "backend/src/application/services/analysis_service.py - Main analysis orchestration",
+        "backend/src/application/services/delivery_service.py - Handles delivery of analysis results",
+        "backend/src/api/routes/analyses.py - Analysis endpoints",
+        "backend/src/api/routes/delivery.py - Delivery endpoints (likely with streaming)",
+        "progress_callback enables real-time event streaming"
+      ],
+      "evidence": "progress_callback parameter pattern suggests server-sent events or WebSocket messages during analysis execution."
+    },
+    {
+      "pattern": "Local and Remote Repository Handling",
+      "platform": "backend",
+      "implementation": "local_repo_handler.py handles local file system repositories. github_service.py and github_push_client.py handle GitHub integration. local_push_client.py for local delivery.",
+      "examples": [
+        "backend/src/application/services/local_repo_handler.py - Clones and processes local repos",
+        "backend/src/application/services/github_service.py - GitHub repository integration",
+        "backend/src/infrastructure/external/github_client.py - GitHub API client",
+        "backend/src/infrastructure/external/github_push_client.py - Push results back to GitHub",
+        "backend/src/infrastructure/external/local_push_client.py - Local file delivery"
+      ],
+      "evidence": "Multiple push client implementations (GitHub vs Local) for different delivery targets. Supports both local and remote workflows."
+    },
+    {
+      "pattern": "Model Context Protocol (MCP) Server Integration",
+      "platform": "backend",
+      "implementation": "MCP server implementation for Claude/IDE integration. Provides tools and resources for code analysis capabilities within IDE or Claude interface.",
+      "examples": [
+        "backend/src/infrastructure/mcp/server.py - MCP server implementation",
+        "backend/src/infrastructure/mcp/tools.py - Tools exposed to MCP clients",
+        "backend/src/infrastructure/mcp/resources.py - Resources exposed to MCP clients",
+        "backend/src/api/routes/mcp.py - MCP route handlers"
+      ],
+      "evidence": "Dedicated MCP module suggests integration with Claude ecosystem for IDE-native analysis capabilities."
+    },
+    {
+      "pattern": "Asynchronous Task Queue with Worker Pattern",
+      "platform": "backend",
+      "implementation": "worker.py and tasks.py implement background job processing. Decouples long-running analysis from HTTP requests.",
+      "examples": [
+        "backend/src/workers/worker.py - Background worker process",
+        "backend/src/workers/tasks.py - Task definitions for queue",
+        "Analysis jobs likely queued and processed asynchronously"
+      ],
+      "evidence": "Separate workers module suggests Celery or similar async task queue integration for background analysis execution."
+    },
+    {
+      "pattern": "Analysis State Management and Event Tracking",
+      "platform": "backend",
+      "implementation": "analysis_event_repository.py tracks analysis events. Event bus (event_bus.py) publishes analysis state changes. Enables audit trail and progress tracking.",
+      "examples": [
+        "backend/src/domain/entities/analysis_event.py - Event entity definition",
+        "backend/src/infrastructure/events/event_bus.py - Event publishing",
+        "backend/src/infrastructure/persistence/analysis_event_repository.py - Event persistence",
+        "Events tracked: started, in_progress, completed, failed"
+      ],
+      "evidence": "Dedicated event infrastructure suggests event sourcing for analysis audit trail and progress tracking."
+    },
+    {
+      "pattern": "Hybrid Enrichment with Multiple Enrichment Strategies",
+      "platform": "backend",
+      "implementation": "hybrid_enrichment_engine.py composes multiple enrichment strategies. Can combine AI analysis, pattern detection, intent layer, blueprint mapping.",
+      "examples": [
+        "backend/src/application/services/hybrid_enrichment_engine.py - Multi-strategy enrichment",
+        "blueprint_folder_mapper.py - Maps code to blueprint components",
+        "intent_layer_renderer.py - Renders intent layer documentation",
+        "Strategies combined based on analysis configuration"
+      ],
+      "evidence": "Service name 'hybrid' suggests composition of multiple enrichment approaches for comprehensive analysis."
+    }
+  ],
+  "cross_cutting_patterns": [
+    {
+      "concern": "Error Handling",
+      "approach": "Custom domain exceptions in domain/exceptions/domain_exceptions.py. API middleware error_handler.py catches and transforms exceptions to HTTP responses. Pydantic validation errors auto-converted to 422 responses.",
+      "location": "backend/src/domain/exceptions/domain_exceptions.py (custom exceptions), backend/src/api/middleware/error_handler.py (HTTP handler), services layer (try/catch with logging)",
+      "examples": [
+        "phased_blueprint_generator.py catches APIConnectionError, APITimeoutError, InternalServerError, RateLimitError with retry logic",
+        "Structured error logging via logger.error() with traceback",
+        "API responses use error_handler middleware for consistent error format"
+      ],
+      "evidence": "Explicit exception types catch (APIConnectionError, APITimeoutError, etc.); structured logging with traceback; middleware handles formatting."
+    },
+    {
+      "concern": "Validation",
+      "approach": "Backend: Pydantic models in domain/entities/ and api/dto/ for declarative validation. Request DTOs in api/dto/requests.py validate incoming data. Frontend: Form validation in components with error display.",
+      "location": "backend/src/domain/entities/ (domain models), backend/src/api/dto/ (request/response DTOs), frontend/components/views/ (form components)",
+      "examples": [
+        "backend/src/application/services/smart_refresh_service.py - Pydantic BaseModel for ArchitectureWarning, SmartRefreshResult with Field validation",
+        "api/dto/requests.py - Request validation via Pydantic",
+        "domain/entities/analysis_settings.py - SOURCE_CODE_EXTENSIONS, configuration validation",
+        "Frontend: ConfirmationDialog.tsx validates user intent before destructive operations"
+      ],
+      "evidence": "Pydantic models with Field() constraints; API relies on FastAPI's automatic validation; frontend uses confirmation dialogs."
+    },
+    {
+      "concern": "Authentication",
+      "approach": "Backend: FastAPI routes may include auth guards (auth.py route handler). Frontend: JWT token stored (likely in localStorage). Auth context propagates to all requests. Supabase for auth infrastructure.",
+      "location": "backend/src/api/routes/auth.py (backend auth), frontend/services/auth.ts (frontend auth logic), frontend/context/auth.tsx (auth state), Supabase (auth provider)",
+      "examples": [
+        "backend/src/api/routes/auth.py - Authentication endpoint",
+        "frontend/services/auth.ts - Login, logout, refresh token logic",
+        "frontend/context/auth.tsx - Global auth state context",
+        "frontend/hooks/useAuth.tsx - Hook to access auth state in components",
+        "Likely JWT in Authorization header for API requests"
+      ],
+      "evidence": "Dedicated auth.ts service and auth context; Supabase connection in database factory suggests Supabase Auth integration."
+    },
+    {
+      "concern": "Logging",
+      "approach": "Backend: Python logging module with loggers per module. Structured logging with context (analysis_id, file paths). Frontend: Console logging only (no backend logging visible).",
+      "location": "backend: services, repositories, APIs use logging.getLogger(__name__). frontend: None visible.",
+      "examples": [
+        "phased_blueprint_generator.py - logger = logging.getLogger('phased_blueprint_generator')",
+        "intent_layer_service.py - logger.getLogger(__name__) with debug/info/error calls",
+        "smart_refresh_service.py - logger.getLogger(__name__) for service-level logging",
+        "intent_layer_service.py - 'File {file} excluded: ...' structured logging"
+      ],
+      "evidence": "Consistent logging.getLogger(__name__) pattern; logger calls with context (file paths, analysis status); no log aggregation visible."
+    },
+    {
+      "concern": "Caching",
+      "approach": "Backend: Redis for cache layer (settings.py references Redis). Database factory caches connection pool as singleton. Prompt loading may cache in memory. Frontend: Browser cache for static assets.",
+      "location": "backend/src/config/settings.py (Redis config), infrastructure/persistence/db_factory.py (connection pool singleton), frontend: Next.js built-in static caching",
+      "examples": [
+        "db_factory.py - _cached_db, _cached_pool as module-level singletons",
+        "settings.py - Likely REDIS_URL configuration",
+        "Analysis results possibly cached in Redis to avoid re-running",
+        "Frontend assets cached via Next.js built-in caching"
+      ],
+      "evidence": "Singleton pattern in db_factory; Redis reference in architecture (implied by full-stack); prompts possibly cached."
+    },
+    {
+      "concern": "Request/Response Transformation",
+      "approach": "Backend: DTOs transform domain entities to HTTP responses. Pydantic handles serialization. Services return domain entities; API layer converts to DTOs. Frontend: Services encapsulate API response parsing.",
+      "location": "backend/src/api/ (route handlers convert domain → DTO), backend/src/api/dto/ (DTO definitions), frontend/services/ (response parsing)",
+      "examples": [
+        "phased_blueprint_generator returns StructuredBlueprint (domain entity)",
+        "API routes serialize to json via Pydantic auto-serialization",
+        "SmartRefreshResult (Pydantic model) auto-serialized to JSON",
+        "Frontend services parse responses and convert to component-friendly formats"
+      ],
+      "evidence": "Explicit DTO layer; Pydantic BaseModel inheritance ensures JSON serialization; no manual JSON serialization visible."
+    },
+    {
+      "concern": "Configuration Management",
+      "approach": "Backend: Centralized settings.py with environment variable binding. Settings injected via DI. Database backend selection (Postgres vs Supabase) via DB_BACKEND setting. Frontend: Environment-based config (likely .env.local).",
+      "location": "backend/src/config/settings.py (centralized config), db_factory.py (settings.db_backend decision), frontend: Next.js .env.local (implied)",
+      "examples": [
+        "settings.py - get_settings() returns cached Settings instance",
+        "DB_BACKEND='postgres' or 'supabase' determines adapter instantiation",
+        "settings.anthropic_api_key, settings.default_ai_model for AI configuration",
+        "settings.database_url, settings.supabase_url, settings.supabase_key for data layer",
+        "Frontend API_BASE_URL likely in .env.local"
+      ],
+      "evidence": "Explicit Settings class with get_settings() singleton; conditional logic based on settings values; no hardcoded config."
+    },
+    {
+      "concern": "Concurrency and Threading",
+      "approach": "Backend: Async/await throughout. asyncpg for async database access. AsyncAnthropic for async AI calls. No thread pools visible (pure async model). Frontend: JavaScript single-threaded event loop.",
+      "location": "backend: All services use async def, await for concurrency. frontend: N/A (JavaScript native)",
+      "examples": [
+        "phased_blueprint_generator - AsyncAnthropic, async def methods with await",
+        "postgres_adapter.py - async def methods for all database operations",
+        "Smart refresh service - async orchestration with await for sub-service calls",
+        "asyncio.gather() for parallel operations"
+      ],
+      "evidence": "Consistent async/await patterns; no threading/threading.Lock visible; asyncpg for async DB access; AsyncAnthropic for async API calls."
+    },
+    {
+      "concern": "Dependency Management and Isolation",
+      "approach": "Backend: Constructor-based dependency injection. Services don't create their dependencies. Testability via mock injection. Frontend: Custom hooks encapsulate API client; hooks can be mocked in tests.",
+      "location": "backend/src/application/services/ (constructor injection), backend/src/config/container.py (DI setup), frontend/hooks/ (hook-based isolation)",
+      "examples": [
+        "PhasedBlueprintGenerator(settings, db_client=None, progress_callback=None, prompt_loader=None)",
+        "SmartRefreshService receives all collaborators via constructor",
+        "Tests can pass mock db_client, prompt_loader for unit testing",
+        "Frontend hooks call services; hooks can be mocked with jest.mock()"
+      ],
+      "evidence": "All constructor parameters are optional or explicit; no ServiceLocator pattern; dependency injection enables testing."
+    },
+    {
+      "concern": "Security - Input Sanitization",
+      "approach": "Backend: Pydantic validates all inputs. API routes accept DTOs. SQL injection protected by parameterized queries (asyncpg handles this). Frontend: React auto-escapes JSX text content.",
+      "location": "backend/src/api/dto/ (input validation), backend/src/infrastructure/persistence/ (parameterized queries), frontend: JSX (auto-escaping)",
+      "examples": [
+        "Pydantic request DTOs validate field types, lengths, patterns",
+        "postgres_adapter.py - Uses parameterized queries: self._pool.execute('... WHERE id = $1', [id])",
+        "supabase_adapter.py - Supabase client handles parameterization",
+        "Frontend: {data.path} in JSX auto-escaped"
+      ],
+      "evidence": "Type validation via Pydantic; parameterized queries in adapter layer; React's built-in XSS protection."
+    },
+    {
+      "concern": "Data Consistency and ACID Properties",
+      "approach": "Backend: Uses PostgreSQL/Supabase for ACID guarantees. Transactions managed by database adapter (likely implicit). Upsert operations (on_conflict) for idempotency.",
+      "location": "backend/src/infrastructure/persistence/postgres_adapter.py (upsert, transaction support), database choice (PostgreSQL for ACID)",
+      "examples": [
+        "postgres_adapter.py - on_conflict clauses for upsert operations",
+        "Analyzer runs incrementally; analysis_event_repository tracks state changes",
+        "Blueprint updates via upsert prevent duplicate records"
+      ],
+      "evidence": "Explicit upsert support in QueryBuilder; PostgreSQL as primary DB (ACID compliant); no optimistic locking visible (uses DB constraints)."
+    },
+    {
+      "concern": "Testing Strategy",
+      "approach": "Backend: Unit tests in tests/unit/ with mocking. Integration tests in tests/integration/. Fixtures in conftest.py. Frontend: Component testing implied but no visible test files.",
+      "location": "backend/tests/unit/, backend/tests/integration/, backend/tests/conftest.py, frontend: No test files visible in registry",
+      "examples": [
+        "backend/tests/conftest.py - Pytest fixtures for test setup",
+        "backend/tests/unit/services/ - Service unit tests with mocks",
+        "backend/tests/integration/test_full_analysis_e2e.py - End-to-end testing",
+        "test_*.py files throughout codebase for integration tests"
+      ],
+      "evidence": "Dedicated tests/ directory with unit and integration separation; conftest.py for shared fixtures; E2E tests for critical paths."
+    },
+    {
+      "concern": "Monitoring and Observability",
+      "approach": "Backend: Health check endpoints (health.py). Event tracking via event_bus. Progress callbacks for real-time monitoring. Frontend: Error boundaries implied via DebugView.tsx.",
+      "location": "backend/src/api/routes/health.py (health checks), backend/src/infrastructure/events/event_bus.py (event tracking), frontend/components/DebugView.tsx (debug view)",
+      "examples": [
+        "backend/src/api/routes/health.py - Health check endpoint for monitoring",
+        "event_bus.py - Event publishing for audit trail",
+        "analysis_event_repository.py - Event persistence for analysis history",
+        "DebugView.tsx - Debug panel for frontend diagnostics"
+      ],
+      "evidence": "Health check route visible; event infrastructure for audit; progress callbacks for real-time monitoring."
+    },
+    {
+      "concern": "Type Safety",
+      "approach": "Backend: Python with type hints throughout. Pydantic for runtime validation of types. Frontend: TypeScript with strict mode implied (by .tsx and .ts extension consistency).",
+      "location": "backend: Type hints in all .py files, Pydantic models, domain/entities/. Frontend: .tsx, .ts files (TypeScript)",
+      "examples": [
+        "backend services use type hints: def __init__(self, settings: Settings, db_client: DatabaseClient | None = None)",
+        "Pydantic models: class SmartRefreshResult(BaseModel): status: str = 'no_refresh_needed'",
+        "Frontend: useRepositoriesQuery.tsx, useSettings.ts (TypeScript)",
+        "No implicit any visible"
+      ],
+      "evidence": "Consistent type hints in Python; TypeScript for frontend; Pydantic for runtime validation; domain entities strongly typed."
+    }
+  ]
+}
+```
+
+---
+
+## Summary of Key Architectural Insights
+
+### Backend Architecture
+**Core Pattern**: **Layered Clean Architecture** with strong separation of concerns:
+- **Domain Layer**: Entities, value objects, and interfaces define business rules
+- **Application Layer**: Services orchestrate use cases (analysis, refresh, rendering)
+- **Infrastructure Layer**: Repositories, adapters, external clients implement domain interfaces
+- **API Layer**: Routes and DTOs expose application to HTTP clients
+
+**Key Characteristic**: **Pluggable Infrastructure** — Multiple database implementations (Postgres/Supabase) and prompt sources (file/database) swap via dependency injection.
+
+### Frontend Architecture
+**Core Pattern**: **Hooks + Context API** with feature-based organization:
+- Custom hooks (useRepositoriesQuery, useSettings) encapsulate server communication
+- React Context (auth.tsx) for global state
+- Functional components + Tailwind CSS for UI
+- Service layer (services/) isolates API client logic
+
+**Key Characteristic**: **Separation of Concerns** — UI components never call APIs directly; all HTTP requests go through service → hook → component flow.
+
+### AI/Analysis Orchestration
+**Core Pattern**: **OBSERVATION-FIRST Phased Analysis**:
+1. Full file scan (extract signatures from ALL files)
+2. Pattern detection (observe actual architecture without assumptions)
+3. Dynamic RAG queries (based on observed patterns)
+4. Phased synthesis (build understanding incrementally)
+
+Enables analysis of **any architecture style** (layered, actor-based, event-sourced, CQRS, Flux, custom).
+
+### Cross-Cutting Excellence
+- **Error Handling**: Custom exceptions + middleware + structured logging
+- **Validation**: Pydantic for backend, form validation for frontend
+- **Concurrency**: Pure async/await (no threads); connection pooling; exponential backoff for retries
+- **Testing**: Unit + integration separation; fixtures for setup; E2E for critical paths

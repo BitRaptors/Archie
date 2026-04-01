@@ -1,0 +1,978 @@
+{
+  "meta": {
+    "repository": "BitRaptors/PinLaunch",
+    "repository_id": "bitRaptors-pinlaunch",
+    "analyzed_at": "2025-01-30T00:00:00.000Z",
+    "schema_version": "2.0.0",
+    "architecture_style": "Full-stack Next.js monolith with MVC-like layering",
+    "platforms": [
+      "web-frontend",
+      "backend-api"
+    ],
+    "executive_summary": "PinLaunch is a Next.js 15 full-stack web app that generates landing pages from GitHub repos using Claude or Gemini AI. Users collect inspiration pins, select style presets, connect a GitHub repo, and stream AI-generated HTML/CSS files in real-time via SSE. The stack is React 19 frontend, Next.js API routes as backend, SQLite via better-sqlite3 for persistence, and Anthropic/Google AI SDKs for generation. Architecture follows App Router conventions with components in src/components, API handlers in src/app/api, and shared business logic in src/lib.",
+    "confidence": {
+      "architecture_rules": 0.95,
+      "decisions": 0.9,
+      "components": 0.95,
+      "communication": 0.95,
+      "technology": 0.98,
+      "frontend": 0.95,
+      "deployment": 0.7
+    }
+  },
+  "architecture_rules": {
+    "file_placement_rules": [
+      {
+        "component_type": "API route handler",
+        "naming_pattern": "route.ts",
+        "location": "src/app/api/[feature]/",
+        "example": "src/app/api/pins/route.ts",
+        "description": "Each feature gets its own directory with route.ts"
+      },
+      {
+        "component_type": "Dynamic API route",
+        "naming_pattern": "route.ts inside [param] or [...param]",
+        "location": "src/app/api/[feature]/[id]/",
+        "example": "src/app/api/pins/[id]/route.ts",
+        "description": "Parameterized routes use Next.js bracket conventions"
+      },
+      {
+        "component_type": "React component",
+        "naming_pattern": "PascalCase.tsx",
+        "location": "src/components/",
+        "example": "src/components/GeneratePanel.tsx",
+        "description": "All UI components live flat in src/components"
+      },
+      {
+        "component_type": "Business logic / service",
+        "naming_pattern": "camelCase.ts",
+        "location": "src/lib/",
+        "example": "src/lib/generate.ts",
+        "description": "Shared backend logic and DB access go in src/lib"
+      },
+      {
+        "component_type": "Unit/integration test",
+        "naming_pattern": "*.test.ts",
+        "location": "src/lib/",
+        "example": "src/lib/generate.test.ts",
+        "description": "Tests co-located with implementation in src/lib"
+      },
+      {
+        "component_type": "Next.js page",
+        "naming_pattern": "page.tsx or layout.tsx",
+        "location": "src/app/",
+        "example": "src/app/page.tsx",
+        "description": "App Router pages and layouts only in src/app"
+      }
+    ],
+    "naming_conventions": [
+      {
+        "scope": "API route files",
+        "pattern": "route.ts (fixed filename)",
+        "examples": [
+          "src/app/api/health/route.ts",
+          "src/app/api/generate/stream/route.ts"
+        ],
+        "description": "Next.js App Router requires route.ts for API handlers"
+      },
+      {
+        "scope": "React components",
+        "pattern": "PascalCase with feature suffix",
+        "examples": [
+          "GeneratePanel.tsx",
+          "RefinementChat.tsx",
+          "PinBoard.tsx"
+        ],
+        "description": "Feature name + role suffix (Panel, Modal, Card, Frame)"
+      },
+      {
+        "scope": "Library functions",
+        "pattern": "camelCase verb+noun",
+        "examples": [
+          "streamClaudeGeneration",
+          "getRepoContent",
+          "getDb"
+        ],
+        "description": "Action-first naming for exported functions"
+      },
+      {
+        "scope": "Test files",
+        "pattern": "[module].test.ts or [module].integration.test.ts",
+        "examples": [
+          "generate.test.ts",
+          "generate.integration.test.ts",
+          "stream-parsing.test.ts"
+        ],
+        "description": "Co-located test files with .test.ts or .integration.test.ts suffix"
+      }
+    ]
+  },
+  "decisions": {
+    "architectural_style": {
+      "title": "Full-stack Next.js monolith",
+      "chosen": "Single Next.js app serving both frontend and backend API routes",
+      "rationale": "Eliminates cross-service complexity; API routes share TypeScript types with frontend; simpler deployment",
+      "alternatives_rejected": [
+        "Separate Express/Fastify backend",
+        "Microservices per AI provider"
+      ]
+    },
+    "key_decisions": [
+      {
+        "title": "SQLite over managed database",
+        "chosen": "better-sqlite3 with local file at data/builder.db",
+        "rationale": "Zero-config persistence for single-user local tool; WAL mode handles concurrency",
+        "alternatives_rejected": [
+          "PostgreSQL",
+          "PlanetScale/Turso"
+        ]
+      },
+      {
+        "title": "Dual AI provider support",
+        "chosen": "Runtime switching between Claude and Gemini via settings table",
+        "rationale": "Users can use whichever API key they have; Claude for streaming tool-use, Gemini as fallback",
+        "alternatives_rejected": [
+          "Single provider only"
+        ]
+      },
+      {
+        "title": "SSE over WebSockets for streaming",
+        "chosen": "Server-Sent Events via ReadableStream in Next.js API routes",
+        "rationale": "Unidirectional stream fits generation use case; no WebSocket server needed; works on Vercel",
+        "alternatives_rejected": [
+          "WebSockets",
+          "Long polling"
+        ]
+      },
+      {
+        "title": "No external state management library",
+        "chosen": "React useState/useEffect with sessionStorage for persistence",
+        "rationale": "App has linear state flow; no cross-component sharing complex enough to warrant Redux/Zustand",
+        "alternatives_rejected": [
+          "Redux Toolkit",
+          "Zustand"
+        ]
+      },
+      {
+        "title": "File-system output for generated sites",
+        "chosen": "Generated files written to process.cwd()/output/ directory",
+        "rationale": "Simple local preview via /api/preview catchall route; no cloud storage needed",
+        "alternatives_rejected": [
+          "In-memory storage",
+          "S3 bucket"
+        ]
+      }
+    ],
+    "trade_offs": [
+      {
+        "accept": "SQLite on local filesystem resets on Vercel redeploy",
+        "benefit": "Zero-config setup for local development"
+      },
+      {
+        "accept": "Types duplicated between frontend and backend (no shared package)",
+        "benefit": "No monorepo tooling complexity"
+      },
+      {
+        "accept": "No auth layer; app is fully public",
+        "benefit": "No session/JWT infrastructure needed for local tool"
+      }
+    ],
+    "out_of_scope": [
+      "User authentication/authorization",
+      "Mobile or desktop platforms",
+      "Microservices or separate backend",
+      "GraphQL API layer",
+      "CI/CD pipeline configuration"
+    ]
+  },
+  "components": {
+    "structure_type": "layered",
+    "components": [
+      {
+        "name": "API Route Handlers",
+        "location": "src/app/api/",
+        "responsibility": "Handle HTTP requests, parse bodies, call service layer, return responses",
+        "platform": "backend",
+        "depends_on": [
+          "Application Service Layer",
+          "Infrastructure Layer"
+        ],
+        "exposes_to": [
+          "Frontend Components"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "src/app/api/generate/stream/route.ts",
+            "description": "POST handler returning SSE stream for Claude generation"
+          },
+          {
+            "file": "src/app/api/generate/refine/route.ts",
+            "description": "POST handler for iterative site refinement"
+          },
+          {
+            "file": "src/app/api/pins/route.ts",
+            "description": "GET/POST pins CRUD"
+          },
+          {
+            "file": "src/app/api/settings/route.ts",
+            "description": "GET/PUT settings key-value store"
+          },
+          {
+            "file": "src/app/api/preview/[...path]/route.ts",
+            "description": "Serves generated static files from output dir"
+          }
+        ]
+      },
+      {
+        "name": "Application Service Layer",
+        "location": "src/lib/",
+        "responsibility": "Orchestrate AI generation, GitHub fetching, prompt construction",
+        "platform": "backend",
+        "depends_on": [
+          "Infrastructure Layer",
+          "External AI APIs",
+          "GitHub API"
+        ],
+        "exposes_to": [
+          "API Route Handlers"
+        ],
+        "key_interfaces": [
+          {
+            "name": "streamClaudeGeneration",
+            "methods": [
+              "streamClaudeGeneration(pins, repoContent, userPrompt, presets): ReadableStream"
+            ],
+            "description": "Streams Claude tool-use generation as SSE events"
+          },
+          {
+            "name": "getRepoContent",
+            "methods": [
+              "getRepoContent(repoUrl, token?): Promise<RepoContent>"
+            ],
+            "description": "Fetches GitHub repo metadata via Octokit"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "src/lib/generate.ts",
+            "description": "Core AI generation orchestration and streaming"
+          },
+          {
+            "file": "src/lib/github.ts",
+            "description": "GitHub API wrapper via Octokit"
+          },
+          {
+            "file": "src/lib/prompts.json",
+            "description": "Prompt templates for AI generation"
+          }
+        ]
+      },
+      {
+        "name": "Infrastructure Layer",
+        "location": "src/lib/db.ts",
+        "responsibility": "SQLite singleton, schema init, preset seeding",
+        "platform": "backend",
+        "depends_on": [
+          "better-sqlite3"
+        ],
+        "exposes_to": [
+          "API Route Handlers",
+          "Application Service Layer"
+        ],
+        "key_interfaces": [
+          {
+            "name": "getDb",
+            "methods": [
+              "getDb(): Database"
+            ],
+            "description": "Returns initialized WAL-mode SQLite instance"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "src/lib/db.ts",
+            "description": "DB singleton with schema creation and preset seeding"
+          }
+        ]
+      },
+      {
+        "name": "Feature Components",
+        "location": "src/components/",
+        "responsibility": "Stateful feature containers managing distinct UI domains",
+        "platform": "frontend",
+        "depends_on": [
+          "API Route Handlers via fetch"
+        ],
+        "exposes_to": [
+          "Pages/Views Layer"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "src/components/GeneratePanel.tsx",
+            "description": "Prompt input, triggers generation, hosts ClaudeTerminal"
+          },
+          {
+            "file": "src/components/ClaudeTerminal.tsx",
+            "description": "Real-time SSE stream renderer with tool-use display"
+          },
+          {
+            "file": "src/components/RefinementChat.tsx",
+            "description": "Chat UI for iterative post-generation refinement"
+          },
+          {
+            "file": "src/components/GitHubPanel.tsx",
+            "description": "GitHub repo URL input and metadata display"
+          },
+          {
+            "file": "src/components/PinBoard.tsx",
+            "description": "Masonry grid of inspiration pins"
+          },
+          {
+            "file": "src/components/SettingsPanel.tsx",
+            "description": "API key and provider configuration modal"
+          }
+        ]
+      },
+      {
+        "name": "Pages/Views Layer",
+        "location": "src/app/",
+        "responsibility": "Root layout, metadata, global styles, main page composition",
+        "platform": "frontend",
+        "depends_on": [
+          "Feature Components"
+        ],
+        "exposes_to": [
+          "Browser"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "src/app/page.tsx",
+            "description": "Root page composing all feature panels, manages session state"
+          },
+          {
+            "file": "src/app/layout.tsx",
+            "description": "Root layout with metadata, Inter font, Header"
+          }
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "interface_name": "",
+        "description": "JSON events streamed from /api/generate/stream",
+        "methods": [],
+        "properties": [],
+        "implementing_files": []
+      },
+      {
+        "interface_name": "",
+        "description": "{ id, url, title, description, thumbnail, created_at }",
+        "methods": [],
+        "properties": [],
+        "implementing_files": []
+      },
+      {
+        "interface_name": "",
+        "description": "Key-value pairs: ai_provider, gemini_api_key, github_token, github_repo",
+        "methods": [],
+        "properties": [],
+        "implementing_files": []
+      }
+    ]
+  },
+  "communication": {
+    "patterns": [
+      {
+        "name": "Server-Sent Events (SSE) Streaming",
+        "when_to_use": "Long-running AI generation producing real-time progress",
+        "how_it_works": "API route returns ReadableStream with text/event-stream; frontend reads via fetch + TextDecoder line buffering",
+        "examples": [
+          "src/app/api/generate/stream/route.ts → src/components/ClaudeTerminal.tsx"
+        ]
+      },
+      {
+        "name": "Direct REST fetch",
+        "when_to_use": "CRUD operations on pins, settings, presets, GitHub fetch",
+        "how_it_works": "Frontend calls fetch() with async/await; manages loading/error state in useState",
+        "examples": [
+          "PinBoard.tsx → GET /api/pins",
+          "SettingsPanel.tsx → PUT /api/settings"
+        ]
+      },
+      {
+        "name": "In-process function calls",
+        "when_to_use": "API routes calling service/infrastructure layer",
+        "how_it_works": "TypeScript imports; no HTTP overhead; synchronous for SQLite, async for AI APIs",
+        "examples": [
+          "stream/route.ts calls streamClaudeGeneration() from generate.ts",
+          "github/route.ts calls getRepoContent() from github.ts"
+        ]
+      },
+      {
+        "name": "Callback prop drilling",
+        "when_to_use": "Child-to-parent result propagation in React tree",
+        "how_it_works": "Parent passes callback as prop; child invokes on completion",
+        "examples": [
+          "ClaudeTerminal.onComplete → GeneratePanel → page.tsx handleSiteReady()"
+        ]
+      },
+      {
+        "name": "sessionStorage persistence",
+        "when_to_use": "Preserving siteDir/sessionId/provider across page refreshes",
+        "how_it_works": "useEffect writes state to sessionStorage; useState initializer reads it back",
+        "examples": [
+          "src/app/page.tsx loadSession() / saveSession() pattern"
+        ]
+      }
+    ],
+    "integrations": [
+      {
+        "service": "Anthropic Claude",
+        "purpose": "Streaming landing page code generation with tool-use",
+        "integration_point": "src/lib/generate.ts streamClaudeGeneration()"
+      },
+      {
+        "service": "Google Gemini",
+        "purpose": "Alternative AI provider for generation and refinement",
+        "integration_point": "src/lib/generate.ts GoogleGenerativeAI usage"
+      },
+      {
+        "service": "GitHub API (Octokit)",
+        "purpose": "Fetch repo README, metadata, file tree for generation context",
+        "integration_point": "src/lib/github.ts getRepoContent()"
+      },
+      {
+        "service": "Puppeteer",
+        "purpose": "Headless browser screenshot capture of generated pages",
+        "integration_point": "src/app/api/screenshot/route.ts"
+      }
+    ],
+    "pattern_selection_guide": [
+      {
+        "scenario": "Need real-time AI generation progress in UI",
+        "pattern": "SSE Streaming via /api/generate/stream",
+        "rationale": "Unidirectional stream; works on Vercel; no WebSocket server required"
+      },
+      {
+        "scenario": "Simple data fetch (pins, settings, presets)",
+        "pattern": "Direct REST fetch with useState loading/error",
+        "rationale": "No caching library needed; data is small and user-initiated"
+      },
+      {
+        "scenario": "Backend service accessing database or calling AI",
+        "pattern": "In-process function call to src/lib/* modules",
+        "rationale": "Same Node.js process; avoids HTTP overhead; TypeScript type safety"
+      }
+    ]
+  },
+  "quick_reference": {
+    "where_to_put_code": {
+      "new_api_endpoint": "src/app/api/[feature]/route.ts",
+      "new_react_component": "src/components/[Name].tsx",
+      "shared_business_logic": "src/lib/[module].ts",
+      "database_schema_change": "src/lib/db.ts getDb() initialization block",
+      "prompt_templates": "src/lib/prompts.json",
+      "unit_tests": "src/lib/[module].test.ts"
+    },
+    "pattern_selection": {
+      "streaming_ai_response": "Return ReadableStream from API route with text/event-stream header",
+      "database_access": "Import getDb() from src/lib/db.ts; use prepared statements",
+      "github_metadata": "Call getRepoContent() from src/lib/github.ts",
+      "multi_provider_ai": "Check settings.ai_provider then branch to Claude or Gemini path"
+    },
+    "error_mapping": [
+      {
+        "error": "Missing AI API key",
+        "status_code": 400,
+        "description": "Settings table missing gemini_api_key or ANTHROPIC_API_KEY env var"
+      },
+      {
+        "error": "GitHub repo not found",
+        "status_code": 404,
+        "description": "Octokit throws on invalid owner/repo slug"
+      },
+      {
+        "error": "SQLite SQLITE_CANTOPEN",
+        "status_code": 500,
+        "description": "data/ directory not writable; check process.cwd() permissions"
+      }
+    ]
+  },
+  "technology": {
+    "stack": [
+      {
+        "category": "Framework",
+        "name": "Next.js",
+        "version": "^15.2.0",
+        "purpose": "Full-stack framework: API routes + React SSR/CSR"
+      },
+      {
+        "category": "UI",
+        "name": "React",
+        "version": "^19.0.0",
+        "purpose": "Component-based frontend rendering"
+      },
+      {
+        "category": "Language",
+        "name": "TypeScript",
+        "version": "^5.0.0",
+        "purpose": "Static typing across all source files"
+      },
+      {
+        "category": "Styling",
+        "name": "Tailwind CSS",
+        "version": "^4.0.0",
+        "purpose": "Utility-first CSS with CSS variable theming"
+      },
+      {
+        "category": "Database",
+        "name": "better-sqlite3",
+        "version": "^12.8.0",
+        "purpose": "Synchronous SQLite for pins, settings, presets"
+      },
+      {
+        "category": "AI",
+        "name": "@anthropic-ai/claude-code",
+        "version": "^2.1.76",
+        "purpose": "Claude streaming code generation with tool-use"
+      },
+      {
+        "category": "AI",
+        "name": "@google/generative-ai",
+        "version": "^0.24.1",
+        "purpose": "Gemini API for generation and refinement fallback"
+      },
+      {
+        "category": "Integration",
+        "name": "@octokit/rest",
+        "version": "^22.0.1",
+        "purpose": "GitHub API client for repo metadata extraction"
+      },
+      {
+        "category": "Browser Automation",
+        "name": "puppeteer",
+        "version": "^24.39.1",
+        "purpose": "Headless browser for screenshot capture"
+      },
+      {
+        "category": "Testing",
+        "name": "vitest",
+        "version": "^4.1.0",
+        "purpose": "Unit and integration test runner"
+      }
+    ],
+    "templates": [
+      {
+        "component_type": "API Route Handler",
+        "description": "Standard Next.js API route with DB access",
+        "file_path_template": "src/app/api/[feature]/route.ts",
+        "code": "import { getDb } from '@/lib/db';\nexport async function GET() {\n  const db = getDb(); return Response.json(db.prepare('SELECT * FROM pins').all()); }"
+      },
+      {
+        "component_type": "Feature Component",
+        "description": "Client component with fetch and loading state",
+        "file_path_template": "src/components/[Name]Panel.tsx",
+        "code": "'use client';\nimport { useState, useEffect } from 'react';\nexport default function MyPanel() {\n  const [data, setData] = useState(null); ... }"
+      },
+      {
+        "component_type": "SSE Streaming Route",
+        "description": "API route returning Server-Sent Events",
+        "file_path_template": "src/app/api/[feature]/stream/route.ts",
+        "code": "export async function POST(req: Request) {\n  const stream = createMyStream();\n  return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } }); }"
+      }
+    ],
+    "project_structure": "src/\n├── app/\n│   ├── api/\n│   │   ├── generate/\n│   │   │   ├── route.ts\n│   │   │   ├── stream/route.ts\n│   │   │   └── refine/route.ts\n│   │   ├── pins/\n│   │   │   ├── route.ts\n│   │   │   └── [id]/route.ts\n│   │   ├── github/route.ts\n│   │   ├── settings/route.ts\n│   │   ├── presets/route.ts\n│   │   ├── preview/[...path]/route.ts\n│   │   ├── screenshot/route.ts\n│   │   └── health/route.ts\n│   ├── layout.tsx\n│   ├── page.tsx\n│   └── globals.css\n├── components/\n│   ├── ClaudeTerminal.tsx\n│   ├── GeneratePanel.tsx\n│   ├── GitHubPanel.tsx\n│   ├── PinBoard.tsx\n│   ├── PinCard.tsx\n│   ├── AddPinModal.tsx\n│   ├── PresetsPanel.tsx\n│   ├── PreviewFrame.tsx\n│   ├── RefinementChat.tsx\n│   ├── SettingsPanel.tsx\n│   └── Header.tsx\n└── lib/\n    ├── db.ts\n    ├── generate.ts\n    ├── github.ts\n    ├── prompts.json\n    ├── generate.test.ts\n    ├── generate.integration.test.ts\n    └── stream-parsing.test.ts",
+    "run_commands": {
+      "dev": "npm run dev",
+      "build": "npm run build",
+      "start": "npm start",
+      "test": "npm test (vitest run)",
+      "lint": "npm run lint"
+    }
+  },
+  "frontend": {
+    "framework": "React 19 + Next.js 15 App Router",
+    "rendering_strategy": "Hybrid: SSR for root layout/metadata, CSR ('use client') for all interactive feature components",
+    "ui_components": [
+      {
+        "name": "Home",
+        "location": "src/app/page.tsx",
+        "component_type": "page",
+        "description": "Root page; manages siteDir, sessionId, provider state; composes all panels",
+        "props": [],
+        "children": [
+          "PinBoard",
+          "GitHubPanel",
+          "PresetsPanel",
+          "GeneratePanel",
+          "PreviewFrame",
+          "RefinementChat"
+        ]
+      },
+      {
+        "name": "ClaudeTerminal",
+        "location": "src/components/ClaudeTerminal.tsx",
+        "component_type": "feature",
+        "description": "Terminal UI consuming SSE stream; renders tool-use events, file ops, costs",
+        "props": [
+          "userPrompt: string",
+          "onComplete: (result) => void",
+          "onError: (msg) => void",
+          "onFileChange?: () => void"
+        ],
+        "children": []
+      },
+      {
+        "name": "GeneratePanel",
+        "location": "src/components/GeneratePanel.tsx",
+        "component_type": "feature",
+        "description": "Prompt input; triggers generation stream; conditionally renders ClaudeTerminal",
+        "props": [
+          "onSiteReady: (dir, sid, prov) => void",
+          "onFileChange: () => void"
+        ],
+        "children": [
+          "ClaudeTerminal"
+        ]
+      },
+      {
+        "name": "RefinementChat",
+        "location": "src/components/RefinementChat.tsx",
+        "component_type": "feature",
+        "description": "Chat UI posting to /api/generate/refine with sessionId continuity",
+        "props": [
+          "siteDir: string|null",
+          "sessionId: string|undefined",
+          "messages: ChatMessage[]",
+          "onMessage: (msg) => void"
+        ],
+        "children": []
+      },
+      {
+        "name": "PinBoard",
+        "location": "src/components/PinBoard.tsx",
+        "component_type": "feature",
+        "description": "Masonry grid of pins from /api/pins; hosts AddPinModal",
+        "props": [
+          "refreshTrigger?: number"
+        ],
+        "children": [
+          "PinCard",
+          "AddPinModal"
+        ]
+      },
+      {
+        "name": "PreviewFrame",
+        "location": "src/components/PreviewFrame.tsx",
+        "component_type": "feature",
+        "description": "Iframe pointing to /api/preview/[...path] for generated site preview",
+        "props": [
+          "siteDir: string|null",
+          "refreshTrigger: number"
+        ],
+        "children": []
+      },
+      {
+        "name": "Header",
+        "location": "src/components/Header.tsx",
+        "component_type": "shared",
+        "description": "App header with logo and settings button; conditionally renders SettingsPanel",
+        "props": [],
+        "children": [
+          "SettingsPanel"
+        ]
+      }
+    ],
+    "state_management": {
+      "approach": "React hooks (useState, useEffect, useRef) + sessionStorage for cross-refresh persistence",
+      "global_state": [],
+      "server_state": "Direct fetch() calls per component; no caching library (no SWR/React Query)",
+      "local_state": "Each feature component owns its loading/error/data state; root page.tsx owns siteDir/sessionId/provider",
+      "rationale": "Linear data flow and single-user local tool make global state management unnecessary"
+    },
+    "routing": [
+      {
+        "path": "/",
+        "component": "src/app/page.tsx",
+        "description": "Single-page application root",
+        "auth_required": false
+      },
+      {
+        "path": "/api/generate/stream",
+        "component": "src/app/api/generate/stream/route.ts",
+        "description": "SSE streaming generation endpoint",
+        "auth_required": false
+      },
+      {
+        "path": "/api/preview/[...path]",
+        "component": "src/app/api/preview/[...path]/route.ts",
+        "description": "Catchall serving generated static files",
+        "auth_required": false
+      }
+    ],
+    "data_fetching": [
+      {
+        "name": "SSE Stream Fetch",
+        "mechanism": "fetch() + ReadableStream + TextDecoder line buffering",
+        "when_to_use": "AI generation with real-time progress",
+        "examples": [
+          "ClaudeTerminal.tsx fetching /api/generate/stream"
+        ]
+      },
+      {
+        "name": "Direct JSON fetch",
+        "mechanism": "fetch() with async/await; useState for loading/error/data",
+        "when_to_use": "CRUD operations: pins, settings, presets, GitHub",
+        "examples": [
+          "PinBoard.tsx → GET /api/pins",
+          "SettingsPanel.tsx → GET/PUT /api/settings"
+        ]
+      }
+    ],
+    "styling": "Tailwind CSS v4 utility classes with CSS custom properties (--surface, --text, --text-secondary, --text-muted, --bg-elevated, --radius-lg) for theming. Dark theme applied at html element level in layout.tsx.",
+    "key_conventions": [
+      "All interactive components use 'use client' directive",
+      "CSS variables referenced as bg-[var(--surface)] Tailwind arbitrary values",
+      "sessionStorage key: pinlaunch_session for state persistence",
+      "SSE events parsed with line-split buffer strategy in ClaudeTerminal"
+    ]
+  },
+  "developer_recipes": [
+    {
+      "task": "Add a new API endpoint with database access",
+      "files": [
+        "src/app/api/[feature]/route.ts",
+        "src/lib/db.ts"
+      ],
+      "steps": [
+        "1. Create src/app/api/[feature]/route.ts with export async function GET/POST",
+        "2. Import getDb from '@/lib/db' and run prepared statements",
+        "3. Return Response.json(result) or error with appropriate status code"
+      ]
+    },
+    {
+      "task": "Add a new React feature panel",
+      "files": [
+        "src/components/[Name]Panel.tsx",
+        "src/app/page.tsx"
+      ],
+      "steps": [
+        "1. Create src/components/[Name]Panel.tsx with 'use client' directive and useState hooks",
+        "2. Fetch data via fetch('/api/[feature]') in useEffect or event handlers",
+        "3. Import and render the component in src/app/page.tsx alongside existing panels"
+      ]
+    },
+    {
+      "task": "Add a new SSE streaming endpoint",
+      "files": [
+        "src/app/api/[feature]/stream/route.ts",
+        "src/lib/generate.ts"
+      ],
+      "steps": [
+        "1. Create a ReadableStream factory function in src/lib/generate.ts emitting JSON lines",
+        "2. Create route.ts returning new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } })",
+        "3. Consume in frontend with fetch + ReadableStream reader + TextDecoder line buffer pattern matching ClaudeTerminal.tsx"
+      ]
+    },
+    {
+      "task": "Add a new AI generation preset",
+      "files": [
+        "src/lib/db.ts",
+        "src/app/api/presets/route.ts",
+        "src/components/PresetsPanel.tsx"
+      ],
+      "steps": [
+        "1. Add INSERT into seedPresets() in src/lib/db.ts (or run SQL manually on existing db)",
+        "2. Verify /api/presets GET returns new preset",
+        "3. Confirm PresetsPanel.tsx renders it (no code change needed if using generic list render)"
+      ]
+    }
+  ],
+  "architecture_diagram": "graph TD\n    Browser[Browser] --> Home[page.tsx Root]\n    Home --> GenPanel[GeneratePanel]\n    Home --> PinBoard[PinBoard]\n    Home --> Preview[PreviewFrame]\n    Home --> Refine[RefinementChat]\n    GenPanel --> Terminal[ClaudeTerminal]\n    Terminal -->|SSE fetch| StreamAPI[/api/generate/stream]\n    Refine -->|POST| RefineAPI[/api/generate/refine]\n    PinBoard -->|GET/POST| PinsAPI[/api/pins]\n    Preview -->|GET| PreviewAPI[/api/preview/...path]\n    StreamAPI --> GenLib[src/lib/generate.ts]\n    RefineAPI --> GenLib\n    GenLib -->|tool-use| Claude[Anthropic Claude]\n    GenLib -->|fallback| Gemini[Google Gemini]\n    GenLib -->|writes files| FS[Output Filesystem]\n    StreamAPI --> DB[(SQLite db.ts)]\n    PinsAPI --> DB",
+  "pitfalls": [
+    {
+      "area": "SQLite on Vercel",
+      "description": "data/builder.db is written to process.cwd() which is ephemeral on Vercel; all pins/settings/presets reset on redeploy",
+      "recommendation": "Run locally or mount a persistent volume; consider migrating to Turso/LibSQL for production"
+    },
+    {
+      "area": "SSE line buffering",
+      "description": "TCP fragmentation can split a JSON event across multiple read() chunks; missing the buffer = lines.pop() pattern will cause JSON.parse errors",
+      "recommendation": "Always use the split('\\n') + pop() remainder buffer pattern as in ClaudeTerminal.tsx; validated in src/lib/stream-parsing.test.ts"
+    },
+    {
+      "area": "better-sqlite3 in Next.js API routes",
+      "description": "better-sqlite3 is synchronous and native; it cannot be used in Edge Runtime or client components; will crash if imported in 'use client' files",
+      "recommendation": "Never import src/lib/db.ts in components; always access via fetch to /api/* routes"
+    },
+    {
+      "area": "Preset seeding",
+      "description": "seedPresets() only runs once on first DB connection (checked via SELECT COUNT); manually deleted presets will not be re-seeded without dropping the table",
+      "recommendation": "To reset presets, DELETE FROM presets then restart the server to trigger re-seed"
+    },
+    {
+      "area": "Dual AI provider stream format mismatch",
+      "description": "Claude uses tool_use event types; Gemini uses blocking response; ClaudeTerminal SSE parser only handles Claude event schema",
+      "recommendation": "Refine endpoint handles Gemini separately; do not route Gemini through the ClaudeTerminal component"
+    }
+  ],
+  "implementation_guidelines": [
+    {
+      "capability": "AI Streaming Generation via SSE",
+      "category": "networking",
+      "libraries": [
+        "@anthropic-ai/claude-code ^2.1.76"
+      ],
+      "pattern_description": "streamClaudeGeneration() in src/lib/generate.ts creates a ReadableStream emitting JSON-formatted SSE events for Claude tool-use calls. Frontend ClaudeTerminal reads via fetch + TextDecoder line buffering, dispatching each event to UI state handlers.",
+      "key_files": [
+        "src/lib/generate.ts",
+        "src/app/api/generate/stream/route.ts",
+        "src/components/ClaudeTerminal.tsx"
+      ],
+      "usage_example": "const res = await fetch('/api/generate/stream', { method: 'POST', body: JSON.stringify({ userPrompt }) });",
+      "tips": [
+        "Keep SSE event payloads under 64KB to avoid TCP fragmentation issues",
+        "Maintain sync between ClaudeTerminal.tsx handleEvent() and src/lib/stream-parsing.test.ts when adding event types",
+        "Always set Cache-Control: no-cache and Connection: keep-alive headers on SSE responses"
+      ]
+    },
+    {
+      "capability": "SQLite Persistence via Repository Pattern",
+      "category": "persistence",
+      "libraries": [
+        "better-sqlite3 ^12.8.0"
+      ],
+      "pattern_description": "getDb() in src/lib/db.ts returns a WAL-mode SQLite singleton. Auto-creates schema and seeds presets on first connection. All API routes use this single accessor.",
+      "key_files": [
+        "src/lib/db.ts",
+        "src/app/api/pins/route.ts",
+        "src/app/api/settings/route.ts"
+      ],
+      "usage_example": "const db = getDb(); const pins = db.prepare('SELECT * FROM pins ORDER BY created_at DESC').all();",
+      "tips": [
+        "Only call getDb() in API routes (Node.js runtime); never in client components",
+        "WAL files (db-wal, db-shm) must be on same filesystem as main db file",
+        "data/ directory auto-created via mkdirSync; ensure process.cwd() is writable"
+      ]
+    },
+    {
+      "capability": "GitHub Repo Metadata Extraction",
+      "category": "networking",
+      "libraries": [
+        "@octokit/rest ^22.0.1"
+      ],
+      "pattern_description": "getRepoContent() in src/lib/github.ts uses Octokit to fetch README, package.json, file tree, and repo metadata via parallel Promise.all calls. Results feed into AI generation prompt.",
+      "key_files": [
+        "src/lib/github.ts",
+        "src/app/api/github/route.ts"
+      ],
+      "usage_example": "const content = await getRepoContent(repoUrl, githubToken);",
+      "tips": [
+        "Public API rate limit is 60 req/hr; provide github_token from settings for 5000 req/hr",
+        "README and package.json returned as base64; decode before use",
+        "Recursive tree listing includes all files; filter to avoid prompt size bloat"
+      ]
+    },
+    {
+      "capability": "Dual AI Provider Runtime Switching",
+      "category": "state_management",
+      "libraries": [
+        "@anthropic-ai/claude-code ^2.1.76",
+        "@google/generative-ai ^0.24.1"
+      ],
+      "pattern_description": "settings.ai_provider value ('claude' or 'gemini') read from SQLite at request time in refine and generate routes. Claude path uses streaming tool-use; Gemini path uses blocking generateContent call.",
+      "key_files": [
+        "src/app/api/generate/refine/route.ts",
+        "src/app/api/generate/route.ts",
+        "src/lib/generate.ts"
+      ],
+      "usage_example": "const provider = settings.ai_provider || 'gemini'; if (provider === 'claude') { ... streamClaudeRefinement() }",
+      "tips": [
+        "Test both provider paths independently; event schemas differ significantly",
+        "ClaudeTerminal component only handles Claude SSE event types",
+        "Provider selection persisted to sessionStorage via page.tsx for UI consistency"
+      ]
+    },
+    {
+      "capability": "Generated Site File Preview",
+      "category": "networking",
+      "libraries": [
+        "Node.js fs"
+      ],
+      "pattern_description": "Generated HTML/CSS/JS files written to process.cwd()/output/{dirName}/ by generate.ts. The /api/preview/[...path] catchall route reads files from this directory and returns them with correct MIME types and directory traversal protection.",
+      "key_files": [
+        "src/app/api/preview/[...path]/route.ts",
+        "src/lib/generate.ts"
+      ],
+      "usage_example": "<iframe src={`/api/preview/${siteDir}/index.html`} /> in PreviewFrame.tsx",
+      "tips": [
+        "Directory traversal protection must check resolved path stays within output/ directory",
+        "MIME types inferred from file extension; ensure .css and .js extensions used in generation",
+        "PreviewFrame uses refreshTrigger prop to force iframe reload after refinement"
+      ]
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "environment",
+      "rule": "Always initialize SQLite with WAL pragma via getDb() singleton; never create direct Database instances in route files",
+      "source": "src/lib/db.ts — db.pragma('journal_mode = WAL') + singleton pattern"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always export HTTP verb functions (GET, POST, PUT, DELETE) from route.ts files; never use default exports for API routes",
+      "source": "src/app/api/pins/route.ts, src/app/api/settings/route.ts — named export pattern"
+    },
+    {
+      "category": "testing",
+      "rule": "Always mirror ClaudeTerminal.tsx SSE event handler logic in src/lib/stream-parsing.test.ts when adding new event types",
+      "source": "src/lib/stream-parsing.test.ts — duplicates handleEvent, handleToolUse, TOOL_ICONS from ClaudeTerminal"
+    },
+    {
+      "category": "testing",
+      "rule": "Always run tests with vitest run (not vitest watch) for non-interactive CI execution",
+      "source": "package.json — 'test': 'vitest run'"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use npm; no yarn or pnpm — project uses package-lock.json exclusively",
+      "source": "package-lock.json lockfileVersion 3 present; no yarn.lock or pnpm-lock.yaml"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always add 'use client' directive to components using useState/useEffect; omit for server-only layout/page files",
+      "source": "src/components/GeneratePanel.tsx, ClaudeTerminal.tsx — all interactive components are client components"
+    }
+  ],
+  "deployment": {
+    "runtime_environment": "Vercel (inferred from Next.js 15 + no Docker/cloud config; local dev also supported)",
+    "compute_services": [
+      "Vercel Serverless Functions for src/app/api/* routes",
+      "Vercel Edge Network for static assets"
+    ],
+    "container_runtime": "None",
+    "orchestration": "None",
+    "serverless_functions": "All src/app/api/**/route.ts files auto-deployed as Vercel Serverless Functions",
+    "ci_cd": [],
+    "distribution": [
+      "Web via Vercel deployment",
+      "Local via npm run dev / start.sh"
+    ],
+    "infrastructure_as_code": "None detected",
+    "supporting_services": [
+      "SQLite local file (data/builder.db) — ephemeral on Vercel",
+      "GitHub API (public, optional token for higher rate limits)",
+      "Anthropic Claude API (ANTHROPIC_API_KEY env var)",
+      "Google Gemini API (gemini_api_key in settings table)"
+    ],
+    "environment_config": ".env.local (Next.js convention; inferred from API key usage patterns in generate.ts and route handlers)",
+    "key_files": [
+      "next.config.ts",
+      "src/lib/db.ts",
+      "package.json"
+    ]
+  }
+}

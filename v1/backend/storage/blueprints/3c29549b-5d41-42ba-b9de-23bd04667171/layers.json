@@ -1,0 +1,281 @@
+```json
+{
+  "has_layers": true,
+  "structure_type": "layered",
+  "layers": [
+    {
+      "name": "API Route Handlers (Presentation/Routing)",
+      "platform": "backend",
+      "location": "src/app/api/",
+      "responsibility": "Handles HTTP requests and responses for all backend endpoints. Routes include: POST /api/generate/stream for streaming AI generation, POST /api/generate/refine for iterative refinement (Claude/Gemini), POST /api/github for fetching repository metadata, CRUD operations on /api/pins and /api/presets, /api/settings for configuration persistence, /api/screenshot for page capture, /api/preview/[...path] for serving generated site files, and /api/health for availability checks.",
+      "contains": [
+        "Next.js API Route handlers",
+        "Request/response processing",
+        "Query string and JSON body parsing"
+      ],
+      "depends_on": [
+        "Application/Service Layer (generate.ts, github.ts, db.ts)",
+        "Infrastructure Layer (db.ts for database access)"
+      ],
+      "exposes_to": [
+        "Frontend Components (via fetch calls)",
+        "External clients (REST API consumers)"
+      ],
+      "key_files": [
+        {
+          "file": "src/app/api/generate/stream/route.ts",
+          "description": "Streams Claude AI generation with real-time SSE output. Collects pins, active presets, and repo content, passes to streamClaudeGeneration(), injects previewUrl into done event"
+        },
+        {
+          "file": "src/app/api/generate/refine/route.ts",
+          "description": "Handles post-generation refinement via Claude (with sessionId) or Gemini. Reads current site files, constructs refinement prompt, updates files in output directory"
+        },
+        {
+          "file": "src/app/api/github/route.ts",
+          "description": "Fetches GitHub repository metadata (name, description, language, topics, stars, readme, file tree) via getRepoContent()"
+        },
+        {
+          "file": "src/app/api/pins/route.ts",
+          "description": "CRUD operations (GET all pins, POST new pin) from database"
+        },
+        {
+          "file": "src/app/api/pins/[id]/route.ts",
+          "description": "Delete or update specific pin by ID"
+        },
+        {
+          "file": "src/app/api/settings/route.ts",
+          "description": "GET/PUT settings (github_repo, github_token, ai_provider, gemini_api_key)"
+        },
+        {
+          "file": "src/app/api/preview/[...path]/route.ts",
+          "description": "Serves static files from generated site output directory with proper MIME types and directory traversal protection"
+        },
+        {
+          "file": "src/app/api/presets/route.ts",
+          "description": "Manages style and layout presets (get active, update toggle state)"
+        },
+        {
+          "file": "src/app/api/health/route.ts",
+          "description": "Health check endpoint returning 200 OK"
+        },
+        {
+          "file": "src/app/api/screenshot/route.ts",
+          "description": "Captures screenshots of generated pages"
+        }
+      ]
+    },
+    {
+      "name": "Application/Service Layer",
+      "platform": "backend",
+      "location": "src/lib/",
+      "responsibility": "Orchestrates business logic for AI generation and refinement. streamClaudeGeneration() manages multi-turn Claude conversation with file writing to disk. streamClaudeRefinement() handles iterative refinements. getRepoContent() extracts GitHub repo metadata. collectFiles() recursively gathers generated site files. Constructs prompts from pins, presets, and repo context to guide AI generation.",
+      "contains": [
+        "Generation orchestration (Claude streaming)",
+        "Refinement logic (Claude & Gemini)",
+        "GitHub content extraction",
+        "Prompt construction from templates",
+        "File collection utilities"
+      ],
+      "depends_on": [
+        "Infrastructure Layer (db.ts, @anthropic-sdk, @google/generative-ai)",
+        "Domain/Prompts (lib/prompts.json)"
+      ],
+      "exposes_to": [
+        "API Route Handlers (src/app/api/generate/*, src/app/api/github/)"
+      ],
+      "key_files": [
+        {
+          "file": "src/lib/generate.ts",
+          "description": "Core generation engine. Exports streamClaudeGeneration() (handles multi-turn Claude API with system/user messages, files creation), streamClaudeRefinement() (refinement conversation with sessionId state), collectFiles() utility"
+        },
+        {
+          "file": "src/lib/github.ts",
+          "description": "Extracts repository content via GitHub API: repo metadata, README, package.json, file tree structure. Handles both authenticated (token) and unauthenticated requests"
+        },
+        {
+          "file": "src/lib/prompts.json",
+          "description": "Prompt templates for guiding Claude generation based on presets and context"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure Layer",
+      "platform": "backend",
+      "location": "src/lib/db.ts",
+      "responsibility": "Manages SQLite database persistence using better-sqlite3. Initializes schema (pins, settings, presets tables). Provides singleton getDb() function for database access across the application. Seeds default presets on first initialization.",
+      "contains": [
+        "Database initialization and connection pooling",
+        "Schema management (CREATE TABLE statements)",
+        "Preset seeding",
+        "SQLite pragma configuration (WAL mode)"
+      ],
+      "depends_on": [
+        "better-sqlite3 library",
+        "Node.js filesystem (fs)"
+      ],
+      "exposes_to": [
+        "API Route Handlers (all routes query settings, pins, presets)",
+        "Application/Service Layer (generate.ts reads db for context)"
+      ],
+      "key_files": [
+        {
+          "file": "src/lib/db.ts",
+          "description": "SQLite database singleton. Creates tables: pins (url, title, description, thumbnail, created_at), settings (key-value pairs), presets (name, category, value, is_active). Seeds default presets for Minimal, Bold & Vibrant, Corporate, Startup styles and Hero+Features, Story Flow, Product Focus layouts"
+        }
+      ]
+    },
+    {
+      "name": "Pages/Views Layer",
+      "platform": "frontend",
+      "location": "src/app/",
+      "responsibility": "Root layout and main application page. Wraps entire app with metadata, global styles, Header component. Defines HTML structure and sets dark theme.",
+      "contains": [
+        "Next.js Page Components",
+        "Layout wrappers",
+        "Metadata configuration"
+      ],
+      "depends_on": [
+        "Components/UI Layer (Header component)",
+        "Global styles (globals.css)",
+        "Tailwind CSS"
+      ],
+      "exposes_to": [
+        "Browser (rendered HTML)"
+      ],
+      "key_files": [
+        {
+          "file": "src/app/layout.tsx",
+          "description": "Root layout: sets metadata (title, description), imports Inter font, wraps children with Header and main content container. Dark theme applied to html element"
+        },
+        {
+          "file": "src/app/page.tsx",
+          "description": "Main landing page - entry point for application UI"
+        }
+      ]
+    },
+    {
+      "name": "Features/Containers Layer",
+      "platform": "frontend",
+      "location": "src/components/",
+      "responsibility": "Feature-specific stateful components managing distinct application domains. GeneratePanel orchestrates AI generation flow (user prompts, streaming responses). GitHubPanel manages GitHub connection (repo URL input, token storage, metadata display). RefinementChat handles iterative refinement of generated sites with message history. SettingsPanel manages API keys and provider selection. PinBoard and AddPinModal manage inspiration pin collection. PresetsPanel toggles style/layout presets. PreviewFrame embeds generated site preview.",
+      "contains": [
+        "Client-side components ('use client')",
+        "State management (useState, useEffect)",
+        "Form handling",
+        "API integration (fetch calls)",
+        "Event handlers"
+      ],
+      "depends_on": [
+        "Components/UI Layer (PinCard, Header, etc.)",
+        "API Route Handlers (fetch calls to /api/*)"
+      ],
+      "exposes_to": [
+        "Pages/Views Layer (rendered in app/page.tsx)"
+      ],
+      "key_files": [
+        {
+          "file": "src/components/GeneratePanel.tsx",
+          "description": "Orchestrates AI generation. Accepts user prompt, streams to /api/generate/stream, parses SSE events (token, done), writes tokens to ClaudeTerminal, stores sessionId for refinement"
+        },
+        {
+          "file": "src/components/GitHubPanel.tsx",
+          "description": "GitHub connection UI. Inputs: repo URL, token. Calls /api/github to fetch RepoContent (name, description, stars, readme, file tree). Toggles connect/disconnect state"
+        },
+        {
+          "file": "src/components/RefinementChat.tsx",
+          "description": "Post-generation refinement UI. Maintains message history. Sends refinement messages to /api/generate/refine with siteDir and sessionId. Displays responses"
+        },
+        {
+          "file": "src/components/SettingsPanel.tsx",
+          "description": "Configuration panel for API keys (Gemini, Claude), provider selection, GitHub token storage. Calls /api/settings PUT to persist"
+        },
+        {
+          "file": "src/components/PinBoard.tsx",
+          "description": "Displays grid of inspiration pins fetched from /api/pins. Maps to PinCard components"
+        },
+        {
+          "file": "src/components/AddPinModal.tsx",
+          "description": "Modal for adding new inspiration pin (URL, title, description). Posts to /api/pins"
+        },
+        {
+          "file": "src/components/PresetsPanel.tsx",
+          "description": "Toggle interface for style and layout presets. Calls /api/presets to update is_active status"
+        },
+        {
+          "file": "src/components/PreviewFrame.tsx",
+          "description": "Embeds generated site in iframe from /api/preview/[dirName]/"
+        },
+        {
+          "file": "src/components/ClaudeTerminal.tsx",
+          "description": "Terminal-style display for streaming generation tokens"
+        }
+      ]
+    },
+    {
+      "name": "Components/UI Layer",
+      "platform": "frontend",
+      "location": "src/components/",
+      "responsibility": "Reusable UI primitives and presentational components. PinCard displays individual pin cards. Header provides navigation and branding. Simple, stateless display components that accept props and render UI.",
+      "contains": [
+        "Presentational React components",
+        "UI primitives",
+        "Styling (Tailwind classes)"
+      ],
+      "depends_on": [
+        "Tailwind CSS"
+      ],
+      "exposes_to": [
+        "Features/Containers Layer (GeneratePanel, PinBoard, etc.)"
+      ],
+      "key_files": [
+        {
+          "file": "src/components/Header.tsx",
+          "description": "Navigation header with logo, title 'PinLaunch'"
+        },
+        {
+          "file": "src/components/PinCard.tsx",
+          "description": "Displays single pin: thumbnail, title, description, URL with delete action"
+        }
+      ]
+    },
+    {
+      "name": "Configuration Layer",
+      "platform": "shared",
+      "location": "root",
+      "responsibility": "Build and runtime configuration. next.config.ts defines Next.js build behavior. tailwind.config.ts extends Tailwind with custom theme. tsconfig.json sets TypeScript path aliases (@/ = src/). vitest.config.ts configures test runner with module resolution.",
+      "contains": [
+        "Next.js configuration",
+        "Tailwind CSS theme",
+        "TypeScript configuration",
+        "Test framework configuration"
+      ],
+      "depends_on": [
+        "Framework dependencies (Next.js, Tailwind, TypeScript, Vitest)"
+      ],
+      "exposes_to": [
+        "Build system",
+        "Development environment"
+      ],
+      "key_files": [
+        {
+          "file": "next.config.ts",
+          "description": "Next.js build and runtime config"
+        },
+        {
+          "file": "tailwind.config.ts",
+          "description": "Tailwind CSS theme extension, content paths for component scanning"
+        },
+        {
+          "file": "tsconfig.json",
+          "description": "TypeScript compiler options, @ path alias pointing to src/"
+        },
+        {
+          "file": "vitest.config.ts",
+          "description": "Vitest test runner config with @ path alias resolution"
+        }
+      ]
+    }
+  ],
+  "actual_structure": "Monolithic Next.js application with clear separation between backend API routes and frontend components. Frontend uses client-side React components ('use client') that fetch from backend API routes. Backend is organized by feature (generate, github, pins, settings, presets, preview, screenshot, health). Services layer (src/lib/) provides shared business logic (AI generation, GitHub extraction, database operations). Infrastructure layer (db.ts) abstracts SQLite persistence. Frontend components are organized by responsibility: feature-specific stateful containers (GeneratePanel, GitHubPanel, RefinementChat, SettingsPanel, etc.) compose reusable UI primitives (Header, PinCard). All components use Tailwind CSS with CSS variables for theming. No explicit state management library (Redux/Zustand) - state managed locally with useState in components. No monorepo or microservices. Single codebase, single deployment unit."
+}
+```

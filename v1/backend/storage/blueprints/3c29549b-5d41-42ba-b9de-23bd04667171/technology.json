@@ -1,0 +1,344 @@
+```json
+{
+  "runtime": [
+    {
+      "language": "TypeScript",
+      "version": "^5.0.0",
+      "environment": "Node.js (Next.js runtime)",
+      "platform": "backend"
+    },
+    {
+      "language": "JavaScript (ES2020+)",
+      "version": "ES2020+",
+      "environment": "Browser (React 19)",
+      "platform": "frontend"
+    }
+  ],
+  "backend_framework": {
+    "name": "Next.js",
+    "version": "^15.2.0",
+    "features": [
+      "API Routes (src/app/api/**/route.ts)",
+      "Server-side request handling",
+      "Built-in middleware support",
+      "File-based routing"
+    ],
+    "platform": "backend"
+  },
+  "frontend_framework": {
+    "name": "React",
+    "version": "^19.0.0",
+    "rendering_strategy": "SSR/Hybrid (Next.js App Router with client components)",
+    "platform": "frontend",
+    "supporting_libraries": [
+      {
+        "name": "react-dom",
+        "version": "^19.0.0",
+        "purpose": "React DOM rendering"
+      },
+      {
+        "name": "react-masonry-css",
+        "version": "^1.0.16",
+        "purpose": "Masonry layout for PinBoard component"
+      }
+    ]
+  },
+  "database": [
+    {
+      "type": "SQLite",
+      "orm": "better-sqlite3 (native driver, no ORM)",
+      "version": "^12.8.0",
+      "platform": "backend",
+      "location": "data/builder.db (local file-based)",
+      "schema": {
+        "tables": [
+          "pins (id, url, title, description, thumbnail, created_at)",
+          "settings (key, value)",
+          "presets (id, name, category, value, is_active)"
+        ]
+      },
+      "setup": "src/lib/db.ts initializes with WAL pragma; auto-creates schema on first connection"
+    }
+  ],
+  "cache": [
+    {
+      "technology": "Browser localStorage/sessionStorage",
+      "purpose": "Client-side state persistence for UI settings",
+      "platform": "frontend"
+    },
+    {
+      "technology": "SQLite WAL (Write-Ahead Logging)",
+      "purpose": "Database transaction management and crash recovery",
+      "platform": "backend",
+      "source": "src/lib/db.ts pragma('journal_mode = WAL')"
+    }
+  ],
+  "queue": [],
+  "ai_ml": [
+    {
+      "provider": "Anthropic",
+      "sdk": "@anthropic-ai/claude-code",
+      "version": "^2.1.76",
+      "models": [
+        "Claude (version unspecified in code, likely Claude 3.x)"
+      ],
+      "purpose": "LLM-powered landing page generation and refinement",
+      "platform": "backend",
+      "usage_files": [
+        "src/lib/generate.ts (buildClaudePrompt)",
+        "src/app/api/generate/route.ts",
+        "src/app/api/generate/refine/route.ts"
+      ]
+    },
+    {
+      "provider": "Google",
+      "sdk": "@google/generative-ai",
+      "version": "^0.24.1",
+      "models": [
+        "Gemini (version unspecified, likely Gemini 1.5)"
+      ],
+      "purpose": "Alternative/fallback LLM for landing page generation",
+      "platform": "backend",
+      "usage_files": [
+        "src/lib/generate.ts (GoogleGenerativeAI initialization)"
+      ]
+    }
+  ],
+  "auth": {
+    "library": "None (no authentication library detected)",
+    "approach": "No authentication implemented",
+    "note": "Application is public/unauthenticated. GitHub API uses @octokit/rest but no user login flow detected."
+  },
+  "external_integrations": [
+    {
+      "service": "GitHub API",
+      "sdk": "@octokit/rest",
+      "version": "^22.0.1",
+      "purpose": "Fetch repository metadata, README, file trees, package.json",
+      "platform": "backend",
+      "endpoint": "src/app/api/github/route.ts",
+      "method": "Public GitHub API (no OAuth detected)"
+    },
+    {
+      "service": "Puppeteer",
+      "sdk": "puppeteer",
+      "version": "^24.39.1",
+      "purpose": "Headless browser automation for screenshot generation",
+      "platform": "backend",
+      "endpoint": "src/app/api/screenshot/route.ts"
+    }
+  ],
+  "state_management": [
+    {
+      "library": "React Hooks (useState, useEffect, useContext)",
+      "purpose": "Component-level state management",
+      "platform": "frontend",
+      "note": "No Redux, Zustand, or external state library detected"
+    },
+    {
+      "library": "Next.js Server Actions (implicit)",
+      "purpose": "Server-side form handling and data mutations",
+      "platform": "backend/frontend integration"
+    }
+  ],
+  "styling": {
+    "framework": "Tailwind CSS",
+    "version": "^4.0.0",
+    "approach": "Utility-first CSS with PostCSS integration",
+    "platform": "frontend",
+    "configuration": {
+      "file": "tailwind.config.ts",
+      "content_paths": [
+        "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+        "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+        "./src/app/**/*.{js,ts,jsx,tsx,mdx}"
+      ],
+      "theme_customization": "Minimal (uses Tailwind defaults)"
+    },
+    "supporting_tools": [
+      {
+        "name": "@tailwindcss/postcss",
+        "version": "^4.0.0",
+        "purpose": "PostCSS plugin for Tailwind v4"
+      },
+      {
+        "name": "postcss",
+        "version": "^8.0.0",
+        "purpose": "CSS transformation pipeline"
+      },
+      {
+        "name": "postcss.config.mjs",
+        "purpose": "PostCSS configuration"
+      }
+    ]
+  },
+  "validation": {
+    "library": "None (no validation library detected)",
+    "approach": "Manual TypeScript type checking + basic runtime validation in API routes",
+    "platform": "backend/frontend",
+    "note": "Type safety via TypeScript interfaces in src/lib/generate.ts (GenerateInput interface)"
+  },
+  "testing": [
+    {
+      "framework": "Vitest",
+      "version": "^4.1.0",
+      "type": "Unit & Integration Tests",
+      "platform": "backend",
+      "files": [
+        "src/lib/generate.test.ts (unit tests for parseReadmeSections, extractDependencies, inferProjectType, mapReadmeToLandingPageSections, buildPrompt)",
+        "src/lib/generate.integration.test.ts (integration tests with mock API responses)",
+        "src/lib/stream-parsing.test.ts (streaming response parsing)"
+      ],
+      "configuration": "vitest.config.ts with path alias @ → src/",
+      "coverage": "Not configured (no coverage reports generated)"
+    }
+  ],
+  "linting": [
+    {
+      "tool": "ESLint",
+      "version": "^9.0.0",
+      "purpose": "JavaScript/TypeScript linting",
+      "platform": "backend/frontend",
+      "configuration": "eslint-config-next (extends Next.js recommended rules)"
+    }
+  ],
+  "build_tools": [
+    {
+      "tool": "TypeScript",
+      "version": "^5.0.0",
+      "purpose": "Static type checking and compilation",
+      "configuration": "tsconfig.json"
+    },
+    {
+      "tool": "Next.js Build",
+      "version": "^15.2.0",
+      "purpose": "Full-stack build (frontend + API routes)",
+      "script": "npm run build"
+    }
+  ],
+  "deployment_environment": {
+    "runtime_environment": "Vercel (inferred from Next.js 15.2.0 + no cloud provider config files detected; Vercel is default Next.js host)",
+    "compute_services": [
+      "Vercel Serverless Functions (for API routes)",
+      "Vercel Edge Network (for static assets)"
+    ],
+    "container_runtime": "None (Vercel-managed)",
+    "orchestration": "None (Vercel handles deployment)",
+    "serverless_functions": "Vercel Serverless Functions (src/app/api/*/route.ts auto-deployed)",
+    "ci_cd": [],
+    "distribution": [
+      "Web (Vercel deployment)",
+      "npm package (inferred from package.json but no publish script)"
+    ],
+    "infrastructure_as_code": "None detected",
+    "supporting_services": [
+      "SQLite local database (file-based, no managed service)",
+      "GitHub API (public, no auth token required for public repos)"
+    ],
+    "environment_config": ".env.local (Next.js convention, not found in file registry but inferred from API integration patterns)",
+    "key_files": [
+      "next.config.ts (Next.js deployment config)",
+      "package.json (npm scripts: dev, build, start, test)",
+      "src/lib/db.ts (local SQLite initialization)"
+    ],
+    "deployment_commands": {
+      "dev": "npm run dev → next dev",
+      "build": "npm run build → next build",
+      "start": "npm start → next start"
+    },
+    "note": "No Dockerfile, vercel.json, or explicit cloud provider config. Application follows Next.js defaults for Vercel hosting."
+  },
+  "monitoring": [
+    {
+      "tool": "None detected",
+      "note": "No logging, metrics, or error tracking library configured (no Sentry, DataDog, LogRocket, etc.)"
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "dependency_management",
+      "rule": "Always use npm (inferred from package-lock.json convention and scripts in package.json)",
+      "source": "package.json - no yarn.lock, pnpm-lock.yaml, or Poetry configuration"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always configure Tailwind CSS with content paths pointing to src/pages, src/components, and src/app",
+      "source": "tailwind.config.ts content array"
+    },
+    {
+      "category": "testing",
+      "rule": "Always place test files co-located with implementation files using *.test.ts pattern",
+      "source": "vitest.config.ts include: ['src/**/*.test.ts']"
+    },
+    {
+      "category": "testing",
+      "rule": "Always run tests with vitest run (not watch mode) in CI",
+      "source": "package.json script: 'test': 'vitest run'"
+    },
+    {
+      "category": "environment",
+      "rule": "Always initialize SQLite database with WAL pragma for concurrent access",
+      "source": "src/lib/db.ts db.pragma('journal_mode = WAL')"
+    },
+    {
+      "category": "environment",
+      "rule": "Always auto-create data/ directory and builder.db schema on first database connection",
+      "source": "src/lib/db.ts getDb() function with mkdirSync and db.exec(CREATE TABLE IF NOT EXISTS)"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always use TypeScript path aliases with @ pointing to src/ directory",
+      "source": "vitest.config.ts and tsconfig.json path alias configuration"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use Next.js App Router file-based routing (src/app/[feature]/route.ts) for API endpoints",
+      "source": "API route structure: src/app/api/pins/route.ts, src/app/api/generate/route.ts, etc."
+    },
+    {
+      "category": "git",
+      "rule": "Never commit database file (data/builder.db) — should be in .gitignore",
+      "source": "src/lib/db.ts creates persistent DB in data/ directory"
+    }
+  ],
+  "package_manager": {
+    "manager": "npm",
+    "lockfile": "package-lock.json (inferred, not in file registry)",
+    "node_version": "Assumed 18+ (required for Next.js 15.2.0)"
+  },
+  "summary": {
+    "project_type": "Full-Stack Web Application (Single Monolithic Next.js App)",
+    "platforms": [
+      "Web Frontend (React 19, Browser)",
+      "Backend API (Next.js 15.2.0, Node.js)",
+      "Local Database (SQLite 3)"
+    ],
+    "key_characteristics": [
+      "Serverless-ready (Vercel-first deployment)",
+      "No external authentication system",
+      "No state management library (vanilla React hooks)",
+      "AI-powered landing page generator (Anthropic Claude + Google Gemini)",
+      "GitHub API integration for repository analysis",
+      "Puppeteer-based screenshot generation",
+      "SQLite for local data persistence (pins, settings, presets)",
+      "Utility-first styling (Tailwind CSS 4.0)",
+      "Type-safe development (TypeScript 5.0)"
+    ],
+    "deployment_readiness": "Production-ready for Vercel; self-hosting requires Node.js 18+ with next start"
+  }
+}
+```
+
+---
+
+### **Critical Deployment Notes:**
+
+1. **No Explicit Deployment Configuration**: The repository contains no `Dockerfile`, `vercel.json`, `app.yaml`, or cloud provider config files. This indicates the project is **Vercel-native** (the default deployment platform for Next.js applications).
+
+2. **Database Persistence Issue**: SQLite database (`data/builder.db`) is created at runtime in the working directory. On Vercel (ephemeral filesystem), this will not persist across deployments. For production:
+   - Migrate to a managed database (PostgreSQL via Vercel Postgres, Supabase, etc.)
+   - Or implement a custom database provider abstraction in `src/lib/db.ts`
+
+3. **API Key Management**: The integration with Anthropic Claude and Google Generative AI requires API keys (likely in environment variables). No `.env.example` file is documented in the registry.
+
+4. **Missing CI/CD Configuration**: No `.github/workflows/`, `cloudbuild.yaml`, or similar CI/CD automation detected. Vercel auto-deploys from GitHub (if repo is connected).

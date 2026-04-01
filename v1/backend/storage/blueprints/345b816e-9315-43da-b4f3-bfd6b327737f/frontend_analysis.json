@@ -1,0 +1,799 @@
+```json
+{
+  "platforms": ["iOS", "Android", "Backend Firebase"],
+  "framework": {
+    "ios": "UIKit (imperative) + MVVM + Combine reactive framework",
+    "android": "Android native (XML layouts) + MVVM pattern + Coroutines",
+    "backend": "Firebase Cloud Functions (TypeScript/Node.js)"
+  },
+  "rendering_strategy": {
+    "ios": "Imperative UIKit with programmatic view construction and Storyboard-based layouts",
+    "android": "Imperative XML layout inflation with data binding",
+    "backend": "Serverless functions returning REST/JSON responses"
+  },
+  "app_architecture": {
+    "ios": {
+      "pattern": "MVVM with Dependency Injection (Swinject)",
+      "layers": [
+        "Presentation: ViewControllers + Views",
+        "Business Logic: ViewModels",
+        "Domain: Providers, Repositories, Interactors",
+        "Data: Networking (Firebase), Local Storage (Persistence)",
+        "Infrastructure: DI Container, Analytics, Error Handling"
+      ],
+      "rationale": "Separation of concerns with testable ViewModels, reactive data binding via Combine, centralized DI for loose coupling"
+    },
+    "android": {
+      "pattern": "MVVM with ViewModel + LiveData/StateFlow",
+      "layers": [
+        "Presentation: Activities/Fragments",
+        "Business Logic: ViewModels",
+        "Domain: Repositories",
+        "Data: Remote (Firebase) + Local (Room)",
+        "Infrastructure: DI (Hilt/Manual), Networking"
+      ],
+      "rationale": "Standard Android architecture pattern, lifecycle-aware ViewModels, reactive data flows"
+    }
+  },
+  "ui_components": {
+    "ios": [
+      {
+        "name": "MainViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/MainViewController.swift",
+        "component_type": "screen",
+        "description": "Root/hub view controller managing main navigation between albums, recordings, and profile sections",
+        "children": ["TabBarController abstraction", "AlbumsViewController", "SoundsViewController", "ProfileViewController"]
+      },
+      {
+        "name": "AlbumsViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/AlbumsViewController.swift",
+        "component_type": "screen",
+        "description": "Displays user's personal albums in a table view with add album functionality",
+        "children": ["AlbumTableViewCell", "AddNewAlbumTableViewCell", "EmptyAlbumsView"]
+      },
+      {
+        "name": "AlbumDetailsViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/AlbumDetailsViewController.swift",
+        "component_type": "screen",
+        "description": "Shows detailed view of album with recordings, comments, and metadata. Supports editing and sharing.",
+        "children": [
+          "AlbumDetailsRecordingCell",
+          "AlbumCommentCell",
+          "AlbumDetailsCommentTextfieldCell",
+          "AlbumDetailsAddNewSoundsCell"
+        ]
+      },
+      {
+        "name": "SmartAlbumViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/SmartAlbumViewController.swift",
+        "component_type": "screen",
+        "description": "Displays smart albums containing recordings from shared albums and shared links",
+        "children": ["SmartAlbumTableViewCell", "SmartAlbumItemCell", "SharedRecordingCell"]
+      },
+      {
+        "name": "CommentsViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/CommentsViewController.swift",
+        "component_type": "screen",
+        "description": "Detailed comments view for a recording with custom transition animation (CommentsAnimator)",
+        "children": ["AlbumCommentCell", "CommentInputField"]
+      },
+      {
+        "name": "SoundsViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/SoundsViewController.swift",
+        "component_type": "screen",
+        "description": "Lists all user's recordings (personal, shared album, shared link) in unified view",
+        "children": ["RecordingCell", "SharedRecordingCell", "EmptyRecordingsView"]
+      },
+      {
+        "name": "ProfileViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/ProfileViewController.swift",
+        "component_type": "screen",
+        "description": "User profile and account settings",
+        "children": ["AccountSettingsViewController"]
+      },
+      {
+        "name": "AccountSettingsViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/AccountSettingsViewController.swift",
+        "component_type": "screen",
+        "description": "Account settings, preferences, and user information management",
+        "children": []
+      },
+      {
+        "name": "SharingViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/SharingViewController.swift",
+        "component_type": "screen",
+        "description": "Album/recording sharing interface with privacy settings and member management",
+        "children": [
+          "PopupMemberCell",
+          "PopupMemberListCell",
+          "PopupPrivacySettingsCell",
+          "PopupSelectableListCell"
+        ]
+      },
+      {
+        "name": "RatingViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/RatingViewController.swift",
+        "component_type": "screen",
+        "description": "In-app rating prompt view with custom animation (RatingPromptAnimator/RatingPromptDismissAnimator)",
+        "children": []
+      },
+      {
+        "name": "OnboardingViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/OnboardingViewController.swift",
+        "component_type": "screen",
+        "description": "Multi-step onboarding flow with authentication and permissions setup",
+        "children": [
+          "SimpleOnboardingPage",
+          "AccountOnboardingPage",
+          "EmailAccountOnboardingPage",
+          "CheckYourInboxOnboardingPage",
+          "NewPermissionsOnboardingPage",
+          "YouAreInOnboardingPage",
+          "ContinueWithEmail"
+        ]
+      },
+      {
+        "name": "TrimmingViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/TrimmingViewController.swift",
+        "component_type": "screen",
+        "description": "Audio recording trimming/cropping interface with waveform visualization",
+        "children": [
+          "SoundWaveContainerView",
+          "TrimmingFaderView",
+          "KnobView",
+          "SmallKnobView",
+          "SoundWaveBarSection"
+        ]
+      },
+      {
+        "name": "PopupViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/Popup/PopupViewController.swift",
+        "component_type": "layout",
+        "description": "Reusable modal popup container with custom dismiss animation",
+        "children": ["PopupActionItemCell", "PopupActionItemWithSubtitleCell"]
+      },
+      {
+        "name": "ScrollableHeaderViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/ScrollableHeaderViewController.swift",
+        "component_type": "layout",
+        "description": "Base controller for views with collapsible header during scroll",
+        "children": ["ScrollableHeader"]
+      },
+      {
+        "name": "RootViewController",
+        "location": "iOS/AroundSound/App/ViewControllers/RootViewController.swift",
+        "component_type": "layout",
+        "description": "Application root controller managing transitions between authenticated and onboarding states",
+        "children": ["MainViewController", "OnboardingViewController"]
+      },
+      {
+        "name": "AlbumTableViewCell",
+        "location": "iOS/AroundSound/App/Views/Cells/AlbumTableViewCell.swift",
+        "component_type": "widget",
+        "description": "Cell displaying album thumbnail, title, member count, and recording count",
+        "props": ["AlbumCellViewModel"]
+      },
+      {
+        "name": "RecordingCell",
+        "location": "iOS/AroundSound/App/Views/Cells/RecordingCell.swift",
+        "component_type": "widget",
+        "description": "Cell showing individual recording with playback controls, location, and metadata",
+        "props": ["RecordingDataSource"]
+      },
+      {
+        "name": "RecordingPreviewCell",
+        "location": "iOS/AroundSound/App/Views/Cells/RecordingPreviewCell.swift",
+        "component_type": "widget",
+        "description": "Preview cell for recordings in shared contexts",
+        "props": ["RecordingPreviewCellModel"]
+      },
+      {
+        "name": "SharedRecordingCell",
+        "location": "iOS/AroundSound/App/Views/Cells/SharedRecordingCell.swift",
+        "component_type": "widget",
+        "description": "Cell for recordings in shared albums/links with album attribution",
+        "props": []
+      },
+      {
+        "name": "RecorderView",
+        "location": "iOS/AroundSound/App/Views/Recorder/RecorderView.swift",
+        "component_type": "widget",
+        "description": "Audio recording UI with waveform visualization, location capture, and recording controls",
+        "props": ["RecorderViewState"]
+      },
+      {
+        "name": "PlayerView",
+        "location": "iOS/AroundSound/App/Views/Player/PlayerView.swift",
+        "component_type": "widget",
+        "description": "Base player view with playback controls and progress scrubbing",
+        "children": ["MiniPlayer", "FullscreenPlayer"]
+      },
+      {
+        "name": "MiniPlayer",
+        "location": "iOS/AroundSound/App/Views/Player/MiniPlayer.swift",
+        "component_type": "widget",
+        "description": "Compact player overlay for inline playback",
+        "props": ["PlaybackUIState"]
+      },
+      {
+        "name": "FullscreenPlayer",
+        "location": "iOS/AroundSound/App/Views/Player/FullscreenPlayer.swift",
+        "component_type": "widget",
+        "description": "Full-screen immersive player view",
+        "props": ["PlaybackUIState"]
+      },
+      {
+        "name": "SoundWaveContainerView",
+        "location": "iOS/AroundSound/App/Views/Trim/SoundWaveContainerView.swift",
+        "component_type": "widget",
+        "description": "Container for audio waveform visualization with trim handles",
+        "children": ["BarView", "KnobView", "SmallSoundWaveView"]
+      },
+      {
+        "name": "TrimmingFaderView",
+        "location": "iOS/AroundSound/App/Views/Trim/TrimmingFaderView.swift",
+        "component_type": "widget",
+        "description": "Fader control for audio trimming with position feedback",
+        "props": []
+      },
+      {
+        "name": "OnboardingPage views",
+        "location": "iOS/AroundSound/App/Views/Onboarding/*.swift",
+        "component_type": "widget",
+        "description": "Collection of reusable onboarding page variants (Simple, Account, Email, Permissions, etc.)",
+        "children": []
+      },
+      {
+        "name": "LoadingIndicator",
+        "location": "iOS/AroundSound/App/Views/LoadingIndicator/LoadingIndicator.swift",
+        "component_type": "primitive",
+        "description": "Reusable loading spinner UI component",
+        "props": []
+      },
+      {
+        "name": "DialogWindow",
+        "location": "iOS/AroundSound/App/Views/Dialog/DialogWindow.swift",
+        "component_type": "primitive",
+        "description": "Low-level dialog/alert window management",
+        "props": []
+      }
+    ],
+    "android": [
+      {
+        "name": "MainActivity (inferred)",
+        "location": "android/app/src/main/AndroidManifest.xml",
+        "component_type": "screen",
+        "description": "Root activity entry point for Android app (manifest declares it)",
+        "children": ["Bottom navigation or fragment container"]
+      },
+      {
+        "name": "Activities (inferred from patterns)",
+        "location": "android/app/src/main/...",
+        "component_type": "screen",
+        "description": "Android activities mirroring iOS screens: AlbumsActivity, RecordingsActivity, ProfileActivity, DetailActivity, etc.",
+        "note": "Specific activity files not visible in registry, but structure mirrors iOS VCs"
+      }
+    ]
+  },
+  "state_management": {
+    "ios": {
+      "approach": "MVVM with Combine reactive framework",
+      "global_state": [
+        {
+          "store": "AppState model",
+          "location": "iOS/AroundSound/App/Models/AppState.swift",
+          "purpose": "Central app state model managing authentication, user data, albums, recordings, sync status",
+          "mechanism": "@Published properties in ViewModels propagate changes via Combine publishers"
+        },
+        {
+          "store": "Firebase authenticated user context",
+          "purpose": "Firebase Auth maintains current user session and credentials",
+          "mechanism": "Firebase SDK manages token refresh and auth state"
+        },
+        {
+          "store": "Configuration & RemoteConfig",
+          "location": "iOS/AroundSound/App/Domain/Repository/RemoteConfig/",
+          "purpose": "Feature flags, tweaks, and runtime configuration from Firebase Remote Config",
+          "mechanism": "ConfigurationRepository fetches from remote or local tweaks via ConfigBuilder pattern"
+        }
+      ],
+      "server_state": {
+        "mechanism": "Firebase Firestore + Cloud Storage",
+        "caching": "FirebaseSyncManager handles sync state tracking with BasicSyncStatus/ExtendedSyncStatus enums",
+        "offline_support": "Local persistence layer with sync_state field tracking (synced/pending/failed/offline)",
+        "rationale": "Firestore real-time listeners update ViewModels via Combine, offline writes queue locally"
+      },
+      "local_state": {
+        "mechanism": "@State in views, @ObservedObject in ViewControllers bound to ViewModels",
+        "form_state": "ViewModel properties with @Published bindings, validated via FormTextField",
+        "ui_state": "PlaybackUIState, RecorderViewState, RatingState enum models",
+        "transient": "Navigation state managed via UINavigationController and custom Coordinator patterns"
+      },
+      "rationale": "Combine framework enables reactive data flow. ViewModels encapsulate business logic. Firestore listeners provide real-time sync without polling. Remote Config allows feature toggles without app updates."
+    },
+    "android": {
+      "approach": "MVVM with ViewModel + LiveData/StateFlow (inferred)",
+      "global_state": [
+        {
+          "store": "Firebase Auth",
+          "purpose": "Authentication state and user credentials"
+        },
+        {
+          "store": "FirebaseFirestore + Room database",
+          "purpose": "Central source of truth with offline-first pattern"
+        }
+      ],
+      "server_state": {
+        "mechanism": "Firebase Firestore listeners + Room local DB",
+        "offline_support": "Room database caches data, sync_state tracks pending operations",
+        "rationale": "Single source of truth in Room, Firestore listeners update it"
+      },
+      "local_state": {
+        "mechanism": "ViewModel properties with LiveData/StateFlow, Coroutines",
+        "lifecycle_awareness": "ViewModel survives configuration changes, cleared on activity destruction"
+      }
+    }
+  },
+  "routing": {
+    "ios": {
+      "pattern": "UINavigationController-based with custom Coordinator pattern for complex flows",
+      "deep_linking": {
+        "support": "Yes",
+        "mechanism": "ShareHelper.swift handles deep link parsing for shared albums/links",
+        "routes": [
+          {
+            "path": "shared-album://<album-id>",
+            "component": "AlbumPreviewViewController",
+            "description": "Preview of shared album before joining",
+            "auth_required": false
+          },
+          {
+            "path": "shared-link://<link-id>",
+            "component": "SmartAlbumViewController or AlbumPreviewViewController",
+            "description": "Preview of shared link contents",
+            "auth_required": false
+          }
+        ]
+      },
+      "navigation_structure": [
+        {
+          "context": "Authenticated user",
+          "root": "MainViewController (TabBarController equivalent)",
+          "tabs": [
+            {
+              "tab": "Albums",
+              "screen": "AlbumsViewController",
+              "detail_flow": "AlbumsViewController → AlbumDetailsViewController (navigation push)"
+            },
+            {
+              "tab": "Recordings",
+              "screen": "SoundsViewController",
+              "detail_flow": "SoundsViewController → Recording detail (modal or navigation push)"
+            },
+            {
+              "tab": "Profile",
+              "screen": "ProfileViewController",
+              "detail_flow": "ProfileViewController → AccountSettingsViewController"
+            }
+          ]
+        },
+        {
+          "context": "Unauthenticated user",
+          "root": "RootViewController",
+          "screen": "OnboardingViewController",
+          "flow": "Multi-step wizard: login → permissions → onboarding → authenticated app"
+        },
+        {
+          "modal_flows": [
+            {
+              "name": "Recording",
+              "trigger": "Tap record button on main screen",
+              "screens": [
+                "RecorderView (embedded)",
+                "TrimmingViewController (optional, if trim needed)"
+              ]
+            },
+            {
+              "name": "Sharing",
+              "trigger": "Share button on album/recording",
+              "screens": ["SharingViewController (PopupViewController + content)", "Contact picker"]
+            },
+            {
+              "name": "Comments",
+              "trigger": "Tap comments icon on recording",
+              "screens": ["CommentsViewController (custom transition)"]
+            },
+            {
+              "name": "Rating",
+              "trigger": "In-app rating prompt",
+              "screens": ["RatingViewController (custom transition)"]
+            }
+          ]
+        }
+      ]
+    },
+    "android": {
+      "pattern": "Navigation Component (NavHost/NavGraph) inferred from modern Android patterns",
+      "deep_linking": "Similar to iOS: shared-album:// and shared-link:// deep links supported",
+      "structure": "Mirror of iOS routing with Activities/Fragments instead of ViewControllers"
+    }
+  },
+  "data_fetching": {
+    "ios": [
+      {
+        "name": "Firebase Firestore listeners",
+        "location": "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+        "mechanism": "Firestore.firestore().collection(...).addSnapshotListener()",
+        "when_to_use": "Real-time data sync for albums, recordings, comments, shared albums",
+        "pattern": "Listener registered in ViewModel, publishes updates via @Published Combine subject",
+        "examples": [
+          "FirebaseProvider queries albums collection and publishes via Combine",
+          "CommentsViewController listens to comments sub-collection in real-time"
+        ]
+      },
+      {
+        "name": "Cloud Functions REST calls",
+        "location": "iOS/AroundSound/App/Networking/FirebaseProvider.swift",
+        "mechanism": "URLSession + Codable JSON serialization",
+        "when_to_use": "One-off operations: create recording, add comment, share album, update permissions",
+        "pattern": "Async functions returning Result<T, Error>, wrapped in Combine publishers",
+        "examples": [
+          "POST /albums to create album",
+          "POST /comments to add comment",
+          "POST /shared-links to generate shareable link"
+        ]
+      },
+      {
+        "name": "Cloud Storage audio files",
+        "location": "iOS/AroundSound/App/AudioEngine/",
+        "mechanism": "Firebase Cloud Storage download URLs, AVPlayer for streaming",
+        "when_to_use": "Audio playback and download",
+        "pattern": "GeneralPlayer wraps AVPlayer, streams from signed storage URL",
+        "examples": ["Download and play recording audio"]
+      },
+      {
+        "name": "Firebase Remote Config",
+        "location": "iOS/AroundSound/App/Domain/Repository/RemoteConfig/RemoteConfigRepositoryProtocol.swift",
+        "mechanism": "Firebase Remote Config SDK with local caching",
+        "when_to_use": "Feature flags, behavior toggles, configuration without app update",
+        "pattern": "ConfigurationRepository queries Remote Config and local tweaks",
+        "caching": "Remote Config caches values locally, refreshes on app launch"
+      }
+    ],
+    "android": [
+      {
+        "name": "Firestore + Room hybrid pattern",
+        "mechanism": "Room database as cache, Firestore as source of truth",
+        "when_to_use": "All data queries default to Room (fast), Firestore listener updates Room in background",
+        "offline_support": "Room queries work offline, Firestore sync queues when online"
+      }
+    ],
+    "backend": [
+      {
+        "name": "Cloud Functions",
+        "location": "platform/firebase/functions/src/index.ts",
+        "mechanism": "Express.js HTTP endpoints deployed as serverless functions",
+        "endpoints": [
+          {
+            "path": "/albums",
+            "methods": ["GET", "POST", "PUT"],
+            "handler": "albums.ts",
+            "purpose": "CRUD for albums"
+          },
+          {
+            "path": "/recordings",
+            "methods": ["GET", "POST", "DELETE"],
+            "handler": "recordings.ts",
+            "purpose": "CRUD for recordings, audio metadata"
+          },
+          {
+            "path": "/comments",
+            "methods": ["POST"],
+            "handler": "albums.ts (sub-collection)",
+            "purpose": "Add comment to recording"
+          },
+          {
+            "path": "/shared-links",
+            "methods": ["POST", "GET"],
+            "handler": "shared_links.ts",
+            "purpose": "Create/fetch shareable links"
+          },
+          {
+            "path": "/users",
+            "methods": ["GET", "PUT"],
+            "handler": "users.ts",
+            "purpose": "User profile and preferences"
+          },
+          {
+            "path": "/notifications",
+            "methods": ["POST"],
+            "handler": "notifications.ts",
+            "purpose": "Send push notifications"
+          }
+        ]
+      },
+      {
+        "name": "Firestore database",
+        "location": "platform/firebase/firestore.rules",
+        "mechanism": "Document-oriented NoSQL with real-time listeners and rules-based security",
+        "collections": [
+          {
+            "name": "albums",
+            "documents": "album object with owner_id, title, description, members, recordings array, created_timestamp",
+            "security": "Rules enforce: owner can read/write own albums, members can read, invited users can preview"
+          },
+          {
+            "name": "recordings",
+            "documents": "recording metadata (duration, location, description, owner_id, storage_ref for audio binary)",
+            "sub_collections": ["comments", "likes", "key_moments"],
+            "security": "Rules enforce owner write, album members can read"
+          },
+          {
+            "name": "shared-albums",
+            "documents": "snapshot of album shared to group, tracks members and permissions",
+            "security": "Read-only for members"
+          },
+          {
+            "name": "shared-links",
+            "documents": "public/private links to recordings/albums, expiration tracking",
+            "security": "Read-only for link holders"
+          },
+          {
+            "name": "users",
+            "documents": "User profile (name, avatar, email, preferences)",
+            "security": "Users read/write own document only"
+          }
+        ]
+      },
+      {
+        "name": "Cloud Storage",
+        "location": "platform/firebase/storage.rules",
+        "mechanism": "Binary audio file storage with signed download URLs",
+        "security": "Rules enforce: users can upload to own directory, read based on album/link permissions"
+      }
+    ]
+  },
+  "networking_patterns": {
+    "ios": {
+      "error_handling": "ASError + ASErrorFactory + ASErrorRouter centralized error translation from Firebase to user-friendly messages",
+      "retry_strategy": "Implicit via Firestore listener auto-reconnect, explicit retry in Cloud Functions calls via Result type",
+      "sync_management": "FirebaseSyncManager tracks sync state per entity (BasicSyncStatus: synced/pending/failed, ExtendedSyncStatus adds offline)",
+      "offline_support": "Local AppState model acts as cache, sync_state field indicates pending operations, reconciliation on reconnect"
+    }
+  },
+  "styling": {
+    "ios": {
+      "approach": "Programmatic UIKit styling with custom extensions and utility functions",
+      "utilities": [
+        {
+          "name": "ColorUtil.swift",
+          "purpose": "Centralized color palette and theme colors"
+        },
+        {
+          "name": "UIImageUtils.swift",
+          "purpose": "Image loading, resizing, caching utilities"
+        },
+        {
+          "name": "UIButtonUtils.swift",
+          "purpose": "Custom button styling and state configurations"
+        },
+        {
+          "name": "UIUtils.swift",
+          "purpose": "Generic UI helper functions (shadows, borders, rounded corners, etc.)"
+        }
+      ],
+      "custom_components": [
+        {
+          "name": "CustomSlider.swift",
+          "purpose": "Styled slider for trimming and playback scrubbing"
+        },
+        {
+          "name": "CustomKerningUILabel.swift",
+          "purpose": "Label with custom letter spacing"
+        },
+        {
+          "name": "FormTextField.swift",
+          "purpose": "Styled text field with validation feedback"
+        },
+        {
+          "name": "HitAreaButton.swift",
+          "purpose": "Button with extended touch target area"
+        },
+        {
+          "name": "HitAreaLabel.swift",
+          "purpose": "Tappable label with large hit area"
+        }
+      ],
+      "layout_strategy": "Manual frame/constraint layout, NSConstraintLayoutSet for constraint management",
+      "animation": "Custom CABasicAnimation and UIView animations for transitions (CommentsAnimator, RatingPromptAnimator, PopupAnimator, etc.)",
+      "design_tokens": "No centralized token system; colors and fonts defined in utility files on-demand"
+    },
+    "android": {
+      "approach": "XML layout inflation with Material Design principles (inferred)",
+      "theming": "XML theme definitions, likely Material 2 or Material 3 design system"
+    }
+  },
+  "key_conventions": {
+    "ios_file_naming": [
+      "ViewControllers: [Feature]ViewController.swift (e.g., AlbumsViewController.swift)",
+      "Views: [Feature]View.swift or [Feature][Type]View.swift (e.g., RecorderView.swift, TrimmingFaderView.swift)",
+      "Cells: [Feature]Cell.swift (e.g., AlbumTableViewCell.swift, AlbumCommentCell.swift)",
+      "ViewModels: [Feature]ViewModel.swift (e.g., AlbumsViewModel.swift, CommentsViewModel.swift)",
+      "Models: [Entity].swift (e.g., Album.swift, Recording.swift, Comment.swift)",
+      "DTOs: [Entity]Dto.swift (e.g., AlbumDto.swift, RecordingDto.swift)",
+      "Providers: [Feature]Provider.swift (e.g., AlbumProvider.swift, CommentProvider.swift)",
+      "Repositories: [Feature]Repository.swift or [Feature]RepositoryProtocol.swift",
+      "Utilities: [Feature]Util.swift (e.g., ColorUtil.swift, DateUtil.swift)",
+      "Networking: [Feature]Converter.swift for DTO→Model conversion",
+      "Animators: [Feature]Animator.swift and [Feature]DismissAnimator.swift (e.g., CommentsAnimator.swift)"
+    ],
+    "ios_organization": [
+      "Feature-vertical: Albums/, Recordings/, Comments/, SharedAlbums/ folders group related VCs, VMs, Views, Models",
+      "Layer-horizontal: ViewControllers/, ViewModel/, Models/, Networking/ organize by technical layer across features",
+      "Domain layer: Domain/Provider/, Domain/Repository/ abstract business logic",
+      "Infrastructure: DI/, Analytics/, ErrorHandling/, Location/, AudioEngine/ cross-cutting concerns"
+    ],
+    "ios_state_binding": [
+      "ViewController subscribes to ViewModel @Published properties via Combine or didSet",
+      "ViewModel publishes state changes via @Published properties or PassthroughSubject",
+      "Views use dependency injection (constructor injection or property-based) to receive data from ViewModels",
+      "Custom bindings via Combine subscribers with weak self to prevent cycles"
+    ],
+    "ios_navigation_patterns": [
+      "Push: UINavigationController.pushViewController() for feature progression (Albums → AlbumDetails)",
+      "Modal: present(animated:completion:) for modal dialogs (Sharing, Comments, Rating)",
+      "TabBar: UITabBarController for main section switching (Albums, Recordings, Profile)",
+      "Custom transitions: UIViewControllerAnimatedTransitioning implementations (CommentsAnimator, PopupAnimator)",
+      "Deep links: URL scheme parsing in AppDelegate and ShareHelper forwarding to appropriate VC"
+    ],
+    "ios_async_patterns": [
+      "Combine publishers for data binding (ViewModel @Published → View updates)",
+      "Firestore addSnapshotListener() for real-time updates (non-cancellable until manually removed)",
+      "URLSession for Cloud Functions calls, wrapped in Combine Future<T, Error>",
+      "async-await not prominent (pre-Swift 5.5 patterns or Combine preference for reactive flow)"
+    ],
+    "android_conventions_inferred": [
+      "Activities: [Feature]Activity.swift",
+      "Fragments: [Feature]Fragment.swift",
+      "ViewModels: [Feature]ViewModel extending AndroidViewModel",
+      "Repositories: [Feature]Repository interface + implementation",
+      "Models: [Entity].kt data classes"
+    ],
+    "backend_conventions": [
+      "Cloud Functions: [domain]/[verb].ts (e.g., albums/create.ts, recordings/delete.ts)",
+      "Route handler pattern: Express request/response handlers exported as functions",
+      "Data models: Collection-based structure mirroring Firestore collections",
+      "Utilities: promise_utils.ts for async orchestration, cloud_function_utils.ts for common patterns",
+      "Tests: test/test.ts co-located with function implementations"
+    ],
+    "shared_conventions": [
+      "DTOs for API contracts: Separate from internal models, explicit serialization/deserialization",
+      "Error codes: Standardized error types (PersistenceError, RecordingError, ShareError, FirebaseError) for error routing",
+      "Sync state tracking: BasicSyncStatus, ExtendedSyncStatus enums applied to all network-backed entities",
+      "UUID for entity keys: Consistent use of UUID for albums, recordings, comments, users across platforms",
+      "Timestamps: created_timestamp, modified_timestamp on all Firestore documents",
+      "Owner attribution: owner_id field on owned entities for permission checks"
+    ]
+  },
+  "debugging_tools": {
+    "ios": [
+      {
+        "name": "SwiftTweaks",
+        "purpose": "Runtime feature flags and debug settings without recompile",
+        "location": "Initialized in AppDelegate, injected into ConfigurationRepository"
+      },
+      {
+        "name": "AppCenter Crashes & Analytics",
+        "purpose": "Crash reporting and event analytics",
+        "location": "Initialized in AppDelegate"
+      },
+      {
+        "name": "AnalyticsDebugService",
+        "purpose": "Toggle analytics logging for debugging",
+        "location": "iOS/AroundSound/App/Analytics/AnalyticsDebugService.swift"
+      }
+    ],
+    "backend": [
+      {
+        "name": "Python utility scripts",
+        "location": "platform/tools/bin/",
+        "tools": [
+          "anonymised-data-export.py: Export de-identified recording metadata",
+          "copy-user-recordings.py: Copy recordings between Firebase projects",
+          "generate-test-data.py: Generate synthetic recordings for testing",
+          "bulk-download.py: Download audio files in batch"
+        ]
+      }
+    ]
+  },
+  "performance_optimizations": {
+    "ios": [
+      {
+        "technique": "Lazy loading in table views",
+        "components": ["AlbumsViewController", "SoundsViewController", "SmartAlbumViewController"],
+        "benefit": "Reduces memory for large lists"
+      },
+      {
+        "technique": "Firestore snapshot listener batching",
+        "mechanism": "Consolidate multiple listeners into fewer Firestore reads",
+        "benefit": "Reduces Firebase billing and network chatter"
+      },
+      {
+        "technique": "Audio streaming vs download",
+        "mechanism": "GeneralPlayer streams from Cloud Storage signed URLs",
+        "benefit": "Immediate playback, reduced storage footprint"
+      },
+      {
+        "technique": "Image caching via utility functions",
+        "mechanism": "UIImageUtils caches loaded images",
+        "benefit": "Reduced repeated network requests for avatars/thumbnails"
+      }
+    ]
+  },
+  "accessibility": {
+    "ios": [
+      {
+        "component": "HitAreaButton.swift, HitAreaLabel.swift, HitAreaSlider.swift",
+        "feature": "Extended touch targets for accessibility",
+        "benefit": "Easier for users with fine motor control issues"
+      },
+      {
+        "component": "FormTextField.swift",
+        "feature": "Input validation feedback",
+        "benefit": "Clear user guidance on form errors"
+      }
+    ]
+  },
+  "testing_structure": {
+    "ios": {
+      "unit_tests": "iOS/AroundSound/AppUnitTests/AroundSoundTests.swift",
+      "ui_tests": "iOS/AroundSound/AppUITests/AroundSoundUITests.swift",
+      "pattern": "Separate test targets, XCTest framework"
+    },
+    "backend": {
+      "unit_tests": "platform/firebase/functions/test/test.ts",
+      "pattern": "Jest or similar, co-located test file"
+    }
+  }
+}
+```
+
+## Key Architectural Insights
+
+### 1. **MVVM-Centric Design Across Platforms**
+- **iOS**: UIKit ViewControllers bound to Combine-reactive ViewModels with explicit @Published property subscriptions
+- **Android**: Standard Android ViewModel architecture with LiveData/StateFlow (inferred)
+- **Separation**: Business logic in ViewModels, presentation logic in Controllers/Activities, data persistence in Repositories
+
+### 2. **Firebase as Central Backend**
+- **Real-time Sync**: Firestore listeners drive reactive UI updates via Combine publishers (iOS) / Flow (Android)
+- **Offline-First**: Local cache (AppState model iOS, Room DB Android) with sync_state tracking
+- **Server-side Logic**: Cloud Functions handle complex operations (sharing, notifications, analytics)
+- **Security**: Firestore security rules enforce data access control at DB level
+
+### 3. **Hybrid State Management**
+- **Global**: AppState model, Firebase auth, Remote Config maintained across app lifecycle
+- **Local**: ViewModels manage screen-specific state, views don't hold state
+- **Real-time**: Firestore listeners auto-sync shared data (albums, recordings, comments) without explicit polling
+
+### 4. **Layer-Based + Feature-Vertical Organization**
+- Presentation (VCs/Views/Cells), Business Logic (ViewModels), Domain (Providers/Repositories), Data (Networking/Persistence)
+- Within each layer, features group related code (Albums/, Recordings/, Comments/) for discoverability
+- Cross-cutting concerns (DI, Analytics, Error Handling) isolated in Infrastructure layer
+
+### 5. **Complex Navigation Patterns**
+- **Primary**: UINavigationController for sequential flows (Albums → Details)
+- **Tabbed**: MainViewController acts as hub for Albums/Recordings/Profile sections
+- **Modal**: Sharing, Comments, Rating use custom animators for smooth transitions
+- **Deep Links**: ShareHelper parses shared-album:// and shared-link:// schemes for onboarding unauth users
+
+### 6. **Audio-First Considerations**
+- **Recording**: RecorderView with location capture, RecordingQuality enum, offline recording support
+- **Playback**: GeneralPlayer streams from Cloud Storage, supports seek/pause, mini + fullscreen modes
+- **Processing**: AudioProcessor trims recordings, TrimmingViewController shows waveform for precise editing
+- **Storage**: audio binaries in Cloud Storage, metadata in Firestore
+
+### 7. **Robust Error Handling**
+- Centralized ASErrorFactory translates Firebase/network errors to domain-specific error types
+- ASErrorRouter routes errors to appropriate UI (toast notifications, dialogs, error screens)
+- Sync state tracking provides visibility into pending/failed operations for user reassurance

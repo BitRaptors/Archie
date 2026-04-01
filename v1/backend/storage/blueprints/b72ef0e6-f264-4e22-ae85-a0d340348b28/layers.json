@@ -1,0 +1,347 @@
+```json
+{
+  "has_layers": true,
+  "structure_type": "feature-based modular architecture with centralized domain layer",
+  "platforms": ["mobile-android"],
+  "layers": [
+    {
+      "name": "Application/Process Layer",
+      "platform": "mobile-android",
+      "location": "app/src/main/java/com/bitraptors/babyweather/",
+      "responsibility": "Manages application-level lifecycle, process-wide dependency injection via Koin DI container, initializes analytics and crash reporting, coordinates application startup sequence, manages theme and dark mode state across the application",
+      "contains": [
+        "Application subclass",
+        "Global ViewModels",
+        "DI Module composition",
+        "Process-level lifecycle managers"
+      ],
+      "depends_on": [
+        "Activity/Navigation Layer",
+        "Domain Layer",
+        "Infrastructure/SDK Layer"
+      ],
+      "exposes_to": [
+        "All layers (singleton dependencies via Koin)"
+      ],
+      "key_files": [
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/BabyWeatherApplication.kt",
+          "description": "Application entry point managing Koin DI container initialization, process lifecycle, analytics setup, crash reporting configuration"
+        }
+      ]
+    },
+    {
+      "name": "Activity/Navigation Layer",
+      "platform": "mobile-android",
+      "location": "app/src/main/java/com/bitraptors/babyweather/activity_main/",
+      "responsibility": "Hosts navigation graph, manages bottom navigation state, coordinates fragment-level navigation via NavController, handles navigation events (NavigationRequest, NavigateBackToDashboardRequest), manages login/authentication flow interception, displays dialogs and alerts triggered from features (ShowPurchaseErrorDialog), manages system bar theming and app icon selection",
+      "contains": [
+        "MainActivity (AppCompatActivity)",
+        "MainViewModel",
+        "MainController",
+        "Navigation event classes",
+        "Bottom navigation management",
+        "LoginBottomSheetViewModel",
+        "LoginController"
+      ],
+      "depends_on": [
+        "Feature Modules (page_* directories)",
+        "Domain Layer (LocationRepository, SettingsRepository, SubscriptionRepository)",
+        "Infrastructure/SDK Layer (LocationManager, AppStartService, Analytics, ReviewManager)"
+      ],
+      "exposes_to": [
+        "All feature modules via navigation graph and shared event buses"
+      ],
+      "key_files": [
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/activity_main/MainActivity.kt",
+          "description": "Main activity hosting navigation graph, managing NavController, bottom navigation controller, system bar theming, dialog display coordination"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/activity_main/MainViewModel.kt",
+          "description": "Activity-scoped ViewModel coordinating navigation requests, authentication state, location time flow theme switching, app startup service callbacks"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/activity_main/MainController.kt",
+          "description": "Controller managing analytics events, review manager integration, navigation coordination"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/activity_main/ModulesMainActivity.kt",
+          "description": "Koin DI module providing MainViewModel, MainController, LoginController, LoadingViewModel, ListDecorator"
+        }
+      ]
+    },
+    {
+      "name": "Feature Layer",
+      "platform": "mobile-android",
+      "location": "app/src/main/java/com/bitraptors/babyweather/page_*/",
+      "responsibility": "Implements user-facing features as cohesive modules organized by domain: Dashboard displays current weather and baby recommendations via DashboardViewModel and LocationRepository; Locations manages location selection with LocationsViewModel; Settings manages user preferences via SettingsRepository; Baby Settings manages individual child profiles; Tips displays contextual weather tips; Subscription Detail shows in-app purchase options; Login Bottom Sheet handles authentication; Location Permission handles location access prompts. Each feature encapsulates UI fragments, ViewModels, controllers, and feature-specific business logic coordination",
+      "contains": [
+        "Feature Fragments (UI)",
+        "Feature ViewModels (state & lifecycle management)",
+        "Feature Controllers (business logic orchestration)",
+        "Dialog ViewModels",
+        "Preview ViewModels",
+        "Feature-specific models (HideClothModel, AnimationHelper)",
+        "Feature Koin modules"
+      ],
+      "depends_on": [
+        "Domain Layer (LocationRepository, SettingsRepository, SubscriptionRepository, HomeType)",
+        "Infrastructure/SDK Layer (Analytics, LocationManager, LoginManager)",
+        "Common/Shared Layer (LocalisationManager, DarkModeHelper)"
+      ],
+      "exposes_to": [
+        "Activity/Navigation Layer (via navigation graph and event buses)"
+      ],
+      "key_files": [
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_dashboard/fragment/DashboardViewModel.kt",
+          "description": "Manages dashboard state: coordinates weather data from LocationRepository, manages baby profile selection, animation state via DashboardAnimationHelper, handles subscription status"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_dashboard/fragment/DashboardAnimationHelper.kt",
+          "description": "Encapsulates dashboard-specific animation state management using coroutines and Flow for cloth visibility transitions"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_dashboard/ModulesDashboard.kt",
+          "description": "Koin DI module providing DashboardViewModel, DashboardAnimationHelper, LocationRepository, LocationDataSource with complex Flow combinations for position and location service state"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_locations/fragment/LocationsViewModel.kt",
+          "description": "Manages location selection feature: coordinates LocationRepository operations, triggers navigation via controller"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_locations/ModulesLocations.kt",
+          "description": "Koin DI module providing LocationsViewModel, LocationPermissionViewModel, LocationPreviewViewModel with parameterized factory"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_settings/fragment/SettingsViewModel.kt",
+          "description": "Manages settings state: coordinates SettingsRepository for user preferences, manages subscription status"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_settings/ModulesSettings.kt",
+          "description": "Koin DI module providing SettingsViewModel, SettingsRepository, LocationManager, DataSource for settings persistence, ForecastDateFormatter"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_baby_settings/ModuleBabySettings.kt",
+          "description": "Koin DI module providing parametrized BabySettingViewModel with babyID factory parameter for managing individual child profiles"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/page_subscription_detail/ModulesSubscriptionDetail.kt",
+          "description": "Koin DI module providing SubscriptionDetailViewModel for in-app purchase presentation"
+        }
+      ]
+    },
+    {
+      "name": "Domain Layer",
+      "platform": "mobile-android",
+      "location": "app/src/main/java/com/bitraptors/babyweather/common/domain/",
+      "responsibility": "Defines core business entities, repository interfaces, and business logic abstractions. LocationRepository abstracts weather data and location time flows; SettingsRepository manages user configuration persistence; SubscriptionRepository manages in-app purchase state; domain models define HomeType, LocationRepositoryModel, SettingsRepositoryModel; DataSource abstraction encapsulates local data persistence with Moshi serialization; provides business interfaces independent of implementation details",
+      "contains": [
+        "Repository interfaces (LocationRepository, SettingsRepository, SubscriptionRepository)",
+        "Repository implementations",
+        "Domain entities (LocationRepositoryModel, SettingsRepositoryModel, HomeType)",
+        "DataSource abstraction and factories",
+        "Domain services and value objects"
+      ],
+      "depends_on": [
+        "Infrastructure/SDK Layer (SharedPreferences access, Moshi serialization, NetworkSource, LoginManager)"
+      ],
+      "exposes_to": [
+        "Feature Layer (page_* modules import and inject repositories)",
+        "Activity/Navigation Layer (MainViewModel uses repositories)"
+      ],
+      "key_files": [
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/home/LocationRepository.kt",
+          "description": "Repository interface defining weather data access patterns, exposes currentLocationTimeFlow for theme switching based on location's time"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/home/LocationRepositoryImpl.kt",
+          "description": "LocationRepository implementation coordinating LocationManager, DarkModeHelper, and local DataSource for weather data persistence"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/home/LocationDataSource.kt",
+          "description": "Encapsulates complex weather data fetching logic: combines settings, location permissions, location services, network source, and coordinates local caching"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/settings/SettingsRepository.kt",
+          "description": "Repository interface for user preferences and settings persistence"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/settings/SettingsRepositoryImpl.kt",
+          "description": "SettingsRepository implementation managing network and local DataSource coordination for settings synchronization"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/domain/localdatasource/DataSource.kt",
+          "description": "Generic DataSource abstraction for local data persistence, provides factory functions createDataSourceForNonListBasedObjects for Moshi-backed SharedPreferences storage"
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure/SDK Layer",
+      "platform": "mobile-android",
+      "location": "app/src/main/java/com/bitraptors/babyweather/sdk/",
+      "responsibility": "Provides cross-cutting platform services and external integrations: LocationManager abstracts location and permission access; DarkModeHelper manages theme state; Analytics service tracks user events; ReviewManager coordinates in-app reviews; LoginManager handles authentication; SharedPreferences access; RaptorDialogBuilder provides dialog construction; Network APIs; JSON serialization via Moshi. Bridges Android framework and third-party libraries to domain layer",
+      "contains": [
+        "LocationManager/LocationManagerImpl",
+        "DarkModeHelper",
+        "Analytics service",
+        "ReviewManager",
+        "LoginManager",
+        "SharedPreferences adapters",
+        "Dialog builders",
+        "Network source",
+        "Serialization utilities"
+      ],
+      "depends_on": [
+        "Android framework (Context, SharedPreferences, Location APIs)",
+        "Third-party libraries (Moshi, Firebase, Google Play Services, RevenueCat)"
+      ],
+      "exposes_to": [
+        "Domain Layer (repositories depend on SDK services)",
+        "Feature Layer (ViewModels inject SDK services like Analytics)",
+        "Activity/Navigation Layer (MainViewModel uses LocationManager, ReviewManager)"
+      ],
+      "key_files": [
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/sdk/location/LocationManager.kt",
+          "description": "Interface abstracting location and permission access, provides locationFlow and permission/service availability flows"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/sdk/location/LocationManagerImpl.kt",
+          "description": "LocationManager implementation using Android location APIs and SharedPreferences for last location caching"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/sdk/RaptorDialogBuilder.kt",
+          "description": "Dialog construction utility providing type-safe dialog building abstractions"
+        }
+      ]
+    },
+    {
+      "name": "Common/Shared Layer",
+      "platform": "mobile-android",
+      "location": "app/src/main/java/com/bitraptors/babyweather/common/",
+      "responsibility": "Provides shared utilities, models, and helpers used across features: LocalisationManager for string localization, DarkModeHelper for theme management, ApplicationIcon and Page enums defining common domain concepts, ListDecorator for RecyclerView decoration, common event classes (ShowPurchaseErrorDialog), base classes for ViewModels and fragments, extension functions for coroutines and Flow utilities",
+      "contains": [
+        "LocalisationManager",
+        "DarkModeHelper",
+        "Shared enums (HomeType, ApplicationIcon, Page)",
+        "Shared models (UiModel)",
+        "Common event classes",
+        "Base classes",
+        "Extension functions",
+        "Utility functions"
+      ],
+      "depends_on": [
+        "Android framework",
+        "Infrastructure/SDK Layer (for localization and theme management)"
+      ],
+      "exposes_to": [
+        "All layers (imported by feature modules, domain layer, activity layer)"
+      ],
+      "key_files": [
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/model/ApplicationIcon.kt",
+          "description": "Enum defining available application icon themes (DayAppIcon, NightAppIcon, MoonAppIcon, etc.)"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/model/Page.kt",
+          "description": "Enum defining feature pages for navigation and routing"
+        },
+        {
+          "file": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/home/HomeType.kt",
+          "description": "Enum defining home page type variations (affects weather display logic)"
+        }
+      ]
+    },
+    {
+      "name": "Resources/Configuration Layer",
+      "platform": "mobile-android",
+      "location": "app/src/main/res/",
+      "responsibility": "Defines Android resources for UI rendering, theming, and configuration: layout XML files for Activities, Fragments, and Cells (RecyclerView items); drawable resources including vector graphics and theme-specific assets; color resources with adaptive definitions for light/dark modes; animation resources for transitions; dimension resources for responsive layouts; string resources for localization; theme and style definitions; navigation graph XML; network security configuration",
+      "contains": [
+        "Layout XML files (activity_main.xml, fragment_*.xml, cell_*.xml, dialog_*.xml, view_*.xml)",
+        "Drawable resources (vector graphics, raster images)",
+        "Color resources (colors.xml with -night variants)",
+        "Animation resources (activity_appear.xml, slide_in_*.xml, etc.)",
+        "Dimension resources (dimens.xml, dimen_text.xml, dimen_widgets.xml)",
+        "String resources (strings.xml for localization)",
+        "Style resources (themes.xml, styles_*.xml)",
+        "Navigation graph (navigation_main.xml)",
+        "Configuration files (network_security_config.xml, remote_config_defaults.xml)"
+      ],
+      "depends_on": [],
+      "exposes_to": [
+        "All UI layers (Fragments, Activities reference layouts and resources)"
+      ],
+      "key_files": [
+        {
+          "file": "app/src/main/res/layout/activity_main.xml",
+          "description": "Main activity layout hosting NavHostFragment for navigation graph and BottomNavigationView"
+        },
+        {
+          "file": "app/src/main/res/navigation/navigation_main.xml",
+          "description": "Navigation graph defining all fragment destinations, arguments, and transitions"
+        },
+        {
+          "file": "app/src/main/res/values/themes.xml",
+          "description": "Light theme definition with Material Design attributes"
+        },
+        {
+          "file": "app/src/main/res/values-night/themes.xml",
+          "description": "Dark theme definition"
+        },
+        {
+          "file": "app/src/main/res/values/colors.xml",
+          "description": "Color palette definitions including adaptive colors for light/dark modes"
+        },
+        {
+          "file": "app/src/main/AndroidManifest.xml",
+          "description": "Android manifest declaring application metadata, activities, permissions, and configuration"
+        }
+      ]
+    },
+    {
+      "name": "Build Configuration Layer",
+      "platform": "mobile-android",
+      "location": "app/build.gradle.kts, buildSrc/src/main/kotlin/",
+      "responsibility": "Defines build configuration, dependency management, and gradle plugin setup: version constants for libraries (coroutines, kotlin, navigation); Android SDK targets and build tools; dependency declarations and transitive management; build variants (debug, staging, release) with flavor-specific resources and google-services.json; proguard rules; gradle plugin versions",
+      "contains": [
+        "app/build.gradle.kts (application-level build config)",
+        "buildSrc/src/main/kotlin/Dependencies.kt (centralized dependency versions)",
+        "buildSrc/src/main/kotlin/DependencyConfig.kt",
+        "buildSrc/src/main/kotlin/Extensions.kt",
+        "buildSrc/src/main/kotlin/Release.kt",
+        "app/proguard-rules.pro (minification rules)"
+      ],
+      "depends_on": [
+        "gradle infrastructure",
+        "External repositories (google(), mavenCentral())"
+      ],
+      "exposes_to": [
+        "All modules (gradle automatically applies build configuration)"
+      ],
+      "key_files": [
+        {
+          "file": "buildSrc/src/main/kotlin/Dependencies.kt",
+          "description": "Centralized dependency versions: coroutinesVersion=1.6.0, kotlinVersion=1.8.20, navigation=2.4.2, AndroidSdk config (minApi=23, targetApi=34)"
+        },
+        {
+          "file": "app/build.gradle.kts",
+          "description": "Application-level build configuration: flavors (debug, staging, release), dependencies, compilation options"
+        },
+        {
+          "file": "app/proguard-rules.pro",
+          "description": "ProGuard/R8 minification rules for release builds"
+        },
+        {
+          "file": "settings.gradle.kts",
+          "description": "Gradle settings: root project name, included modules"
+        }
+      ]
+    }
+  ],
+  "actual_structure": "The BabyWeather Android application follows a layered feature-based modular architecture with clear separation of concerns:\n\n1. **Application Entry Point** (BabyWeatherApplication.kt) initializes the Koin DI container at process startup, managing global dependencies and configuration.\n\n2. **Activity/Navigation Layer** (MainActivity.kt + activity_main/) serves as the single-activity architecture host, managing navigation graph, bottom navigation state, and routing feature modules via NavController.\n\n3. **Feature Modules** (page_*/ directories) encapsulate user-facing features with their own ViewModels, controllers, and fragments. Each feature module has a Koin DI module (ModulesFeatureName.kt) providing its dependencies. Features include: Dashboard (weather display), Locations (location management), Settings (user preferences), Baby Settings (child profiles), Tips (weather tips), Subscription Detail (in-app purchases), Login (authentication), Location Permission (permission handling).\n\n4. **Domain Layer** (common/domain/) defines repository interfaces (LocationRepository, SettingsRepository, SubscriptionRepository) and their implementations, entity models, and DataSource abstraction for local persistence. This layer is business-logic focused and independent of Android framework specifics.\n\n5. **Infrastructure/SDK Layer** (sdk/) provides platform services: LocationManager (location and permission access), DarkModeHelper (theme management), Analytics, LoginManager, ReviewManager, and JSON serialization via Moshi. This layer bridges Android framework and third-party libraries.\n\n6. **Common/Shared Layer** (common/) provides utilities shared across features: LocalisationManager, enums (HomeType, ApplicationIcon, Page), base classes, and extension functions.\n\n7. **Resources Layer** (app/src/main/res/) defines Android resources: layout XMLs, drawables, colors, themes (with light/dark variants), animations, dimensions, strings, and navigation graph.\n\n8. **Build Configuration Layer** (build.gradle.kts, buildSrc/) centralizes dependency versions, Android SDK targets, and build variants.\n\n**Key Design Patterns**:\n- **Koin Dependency Injection**: Every feature module defines its own Koin module, composing dependencies from domain and infrastructure layers\n- **Single Activity + Navigation Graph**: All features are fragments within MainActivity, navigated via jetpack Navigation component\n- **Flow-based Reactive State**: Features use Kotlin Flows for state management (currentLocationTimeFlow, animationHelperFlow, etc.)\n- **Repository Pattern**: Abstracts data access with LocationRepository, SettingsRepository managing both local (SharedPreferences) and remote (NetworkSource) data\n- **Feature Isolation**: Features are loosely coupled, communicating via navigation events and shared domain repositories\n- **Build Variants**: Debug, Staging, and Release variants with flavor-specific resources and google-services.json\n\n**Dependency Flow**: Feature Modules → Domain Layer → Infrastructure/SDK Layer → Android Framework + Third-party Libraries"
+}
+```

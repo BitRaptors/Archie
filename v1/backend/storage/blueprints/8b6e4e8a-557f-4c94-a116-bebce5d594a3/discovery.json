@@ -1,0 +1,429 @@
+```json
+{
+  "project_type": "Full-stack Monorepo with Polyglot Architecture",
+  "description": "BitRaptors/Archie is a comprehensive code analysis and architecture documentation platform. It's a monorepo containing a Python/FastAPI backend, Next.js frontend applications (main app + landing page), with domain-driven design patterns in the backend and feature-based organization in frontends.",
+  
+  "platforms": [
+    {
+      "name": "backend",
+      "tech_stack": ["Python 3.x", "FastAPI", "Uvicorn", "Supabase/PostgreSQL", "Redis", "Anthropic API"],
+      "purpose": "Core API server, code analysis engine, blueprint generation, AI orchestration",
+      "status": "primary"
+    },
+    {
+      "name": "web-frontend-main",
+      "tech_stack": ["Next.js", "React", "TypeScript", "Tailwind CSS"],
+      "purpose": "Primary dashboard for analysis results, repository management, settings configuration",
+      "directory": "frontend/",
+      "status": "primary"
+    },
+    {
+      "name": "web-frontend-landing",
+      "tech_stack": ["Next.js", "React", "TypeScript", "Tailwind CSS", "Three.js", "Framer Motion", "GSAP"],
+      "purpose": "Marketing/landing page with interactive 3D visualizations",
+      "directory": "landing/",
+      "status": "secondary"
+    }
+  ],
+  
+  "entry_points": [
+    {
+      "file": "backend/src/main.py",
+      "platform": "backend",
+      "purpose": "FastAPI application initialization, server startup",
+      "type": "Python module",
+      "startup_mechanism": "uvicorn/gunicorn via backend/src/api/app.py"
+    },
+    {
+      "file": "backend/src/api/app.py",
+      "platform": "backend",
+      "purpose": "FastAPI app factory, middleware setup, route registration",
+      "type": "Python module",
+      "dependencies": [
+        "backend/src/api/routes/*.py (all route handlers)",
+        "backend/src/config/container.py (dependency injection)",
+        "backend/src/api/middleware/error_handler.py"
+      ]
+    },
+    {
+      "file": "frontend/pages/_app.tsx",
+      "platform": "web-frontend-main",
+      "purpose": "Next.js app wrapper, global context providers (auth), layout initialization",
+      "type": "React/Next.js",
+      "wraps": [
+        "frontend/context/auth.tsx (authentication context)",
+        "frontend/components/layout/Shell.tsx (main layout shell)"
+      ]
+    },
+    {
+      "file": "frontend/pages/index.tsx",
+      "platform": "web-frontend-main",
+      "purpose": "Dashboard home page, entry route for authenticated users",
+      "type": "Next.js page",
+      "components_tree": "Shell > Sidebar + main content area"
+    },
+    {
+      "file": "frontend/pages/auth.tsx",
+      "platform": "web-frontend-main",
+      "purpose": "Authentication page for login/signup flow",
+      "type": "Next.js page"
+    },
+    {
+      "file": "landing/app/page.tsx",
+      "platform": "web-frontend-landing",
+      "purpose": "Landing page homepage with hero section and CTAs",
+      "type": "Next.js app router",
+      "wraps": [
+        "landing/components/ShaderBackground.tsx (3D visual effects)",
+        "landing/components/SmoothScroll.tsx (scroll interactions)"
+      ]
+    },
+    {
+      "file": "landing/app/layout.tsx",
+      "platform": "web-frontend-landing",
+      "purpose": "Landing page root layout, global styles injection",
+      "type": "Next.js app router layout"
+    },
+    {
+      "file": "start-dev.py",
+      "platform": "backend",
+      "purpose": "Development automation script - starts both backend and frontend services",
+      "type": "Python orchestrator",
+      "note": "Convenience script for local development"
+    }
+  ],
+
+  "module_organization": {
+    "backend": {
+      "style": "Domain-Driven Design with Layered Architecture",
+      "layers": [
+        {
+          "layer": "api/",
+          "responsibility": "HTTP request/response handling, FastAPI routes",
+          "structure": {
+            "routes/": "Feature-based route modules (analyses.py, repositories.py, prompts.py, delivery.py, workspace.py, settings.py, auth.py, health.py, mcp.py)",
+            "dto/": "Data transfer objects (requests.py, responses.py) for input/output schemas",
+            "middleware/": "Cross-cutting concerns (error_handler.py)",
+            "app.py": "FastAPI factory and configuration"
+          }
+        },
+        {
+          "layer": "domain/",
+          "responsibility": "Core business logic, domain-agnostic abstractions",
+          "structure": {
+            "entities/": "Domain models (user.py, repository.py, analysis.py, blueprint.py, analysis_prompt.py, architecture_rule.py, intent_layer.py, analysis_settings.py, analysis_event.py, prompt_revision.py, user_profile.py)",
+            "interfaces/": "Abstract contracts (repositories.py - repository interfaces, database.py - database abstraction)",
+            "exceptions/": "Domain-specific exceptions (domain_exceptions.py)"
+          }
+        },
+        {
+          "layer": "infrastructure/",
+          "responsibility": "External integrations, concrete implementations of domain interfaces",
+          "submodules": [
+            {
+              "module": "persistence/",
+              "contents": "Database adapters (postgres_adapter.py, supabase_adapter.py, db_factory.py) and concrete repositories (user_repository.py, repository_repository.py, analysis_repository.py, analysis_data_repository.py, analysis_event_repository.py, analysis_settings_repository.py, prompt_repository.py, prompt_revision_repository.py, user_profile_repository.py)"
+            },
+            {
+              "module": "external/",
+              "contents": "Third-party API clients (github_client.py, github_push_client.py, local_push_client.py)"
+            },
+            {
+              "module": "analysis/",
+              "contents": "Code analysis engines (structure_analyzer.py, query_embedder.py, rag_retriever.py, shared_embedder.py)"
+            },
+            {
+              "module": "storage/",
+              "contents": "File storage implementations (local_storage.py, temp_storage.py, storage_interface.py)"
+            },
+            {
+              "module": "prompts/",
+              "contents": "Prompt loading strategies (prompt_loader.py, database_prompt_loader.py)"
+            },
+            {
+              "module": "events/",
+              "contents": "Event bus for domain events (event_bus.py)"
+            },
+            {
+              "module": "mcp/",
+              "contents": "Model Context Protocol integration (server.py, resources.py, tools.py)"
+            }
+          ]
+        },
+        {
+          "layer": "application/",
+          "responsibility": "Orchestration of domain and infrastructure logic, business workflow implementation",
+          "structure": {
+            "services/": "Application orchestrators (analysis_service.py, blueprint_folder_mapper.py, phased_blueprint_generator.py, blueprint_renderer.py, delivery_service.py, github_service.py, repository_service.py, intent_layer_service.py, intent_layer_renderer.py, codebase_map_renderer.py, agent_file_generator.py, analysis_data_collector.py, source_file_collector.py, smart_refresh_service.py, local_repo_handler.py, hybrid_enrichment_engine.py, hook_assets.py)",
+            "agents/": "AI agent implementations"
+          }
+        },
+        {
+          "layer": "workers/",
+          "responsibility": "Async task queue workers",
+          "structure": {
+            "worker.py": "Worker initialization",
+            "tasks.py": "Task definitions for background job processing"
+          }
+        },
+        {
+          "layer": "config/",
+          "responsibility": "Application configuration and setup",
+          "structure": {
+            "settings.py": "Environment-based settings (Pydantic settings)",
+            "container.py": "Dependency injection container (dependency-injector)",
+            "constants.py": "Application constants"
+          }
+        }
+      ],
+      "dependency_flow": "api/routes → application/services → domain/entities + domain/interfaces → infrastructure/* (concrete implementations)"
+    },
+    
+    "frontend_main": {
+      "style": "Feature-based with Service-Oriented Architecture",
+      "structure": {
+        "pages/": "Next.js page routes (_app.tsx, _document.tsx, index.tsx, auth.tsx)",
+        "components/": "Reusable UI components organized by feature",
+        "components/views/": "Feature-specific view containers (AnalysisView.tsx, BlueprintView.tsx, RepositoryView.tsx, SettingsView.tsx, CapabilitiesSettingsView.tsx, IgnoredDirsSettingsView.tsx)",
+        "components/layout/": "Layout components (Shell.tsx - main layout, Sidebar.tsx, PageHeader.tsx)",
+        "components/ui/": "Atomic design system components (button.tsx, card.tsx, input.tsx, badge.tsx, progress.tsx, skeleton.tsx)",
+        "hooks/": "React hooks for logic extraction",
+        "hooks/api/": "API-specific hooks (useWorkspace.ts, useSettings.ts, useDelivery.ts, usePrompts.ts, useRepositoriesQuery.tsx)",
+        "hooks/useAuth.tsx": "Authentication state hook",
+        "services/": "HTTP client service layer (auth.ts, workspace.ts, repositories.ts, settings.ts, prompts.ts, delivery.ts)",
+        "context/": "React context providers (auth.tsx)",
+        "lib/": "Utility functions and helpers (blueprint-toc.ts, utils.ts, theme.ts)",
+        "styles/": "Global CSS (globals.css)",
+        "public/": "Static assets"
+      },
+      "data_flow": "pages/views → components → hooks/api (useXxx) → services (HTTP clients)"
+    },
+    
+    "frontend_landing": {
+      "style": "Next.js App Router with Component-based Layout",
+      "structure": {
+        "app/": "Next.js app router directory",
+        "app/page.tsx": "Home page",
+        "app/layout.tsx": "Root layout",
+        "components/": "Reusable components (ShaderBackground.tsx for 3D effects, SmoothScroll.tsx for scroll interactions)",
+        "public/": "Static assets (images, icons)",
+        "styles/": "Global CSS (globals.css)"
+      }
+    }
+  },
+
+  "config_approach": {
+    "backend": {
+      "mechanism": "Pydantic Settings + Environment Variables",
+      "location": "backend/src/config/settings.py",
+      "features": [
+        "Environment-based configuration (development, staging, production)",
+        "Type-safe settings with Pydantic validation",
+        "Secrets management via environment variables",
+        "Support for .env file loading via python-dotenv"
+      ],
+      "key_config_areas": [
+        "Database connection (DATABASE_URL, SUPABASE_URL, SUPABASE_KEY)",
+        "API keys (ANTHROPIC_API_KEY, GITHUB_TOKEN)",
+        "Storage backends (GCS, S3, local)",
+        "Redis/cache settings",
+        "Authentication (JWT secrets)",
+        "CORS and security settings",
+        "DB_BACKEND selector (postgres/supabase)"
+      ]
+    },
+    "frontend_main": {
+      "mechanism": "Next.js environment variables",
+      "features": [
+        "frontend/.env.local for local development",
+        "Environment-specific .env.{environment} files",
+        "NEXT_PUBLIC_* prefix for browser-exposed variables"
+      ],
+      "typical_vars": [
+        "NEXT_PUBLIC_API_BASE_URL (backend API endpoint)",
+        "NEXT_PUBLIC_AUTH_DOMAIN",
+        "API_SECRET_KEY (server-side only)"
+      ]
+    },
+    "frontend_landing": {
+      "mechanism": "Next.js environment variables (same as main frontend)",
+      "separation": "Independent Next.js app with separate config"
+    },
+    "deployment_flexibility": {
+      "supabase_backend": "Uses Supabase-hosted PostgreSQL with PostgREST API",
+      "postgres_backend": "Uses self-hosted PostgreSQL via asyncpg",
+      "switchable": "db_factory.py detects DB_BACKEND setting and instantiates appropriate adapter (SupabaseAdapter or PostgresAdapter)"
+    }
+  },
+
+  "key_observations": [
+    {
+      "category": "Architecture Pattern",
+      "observation": "Hexagonal/Clean Architecture in backend - domain logic completely isolated from infrastructure via database abstraction layer (QueryBuilder, DatabaseClient interfaces in domain/interfaces/database.py with dual implementations: SupabaseAdapter and PostgresAdapter)"
+    },
+    {
+      "category": "Database Abstraction",
+      "observation": "Backend-agnostic database layer enables runtime switching between Supabase (cloud) and self-hosted PostgreSQL via db_factory.py. Both adapters implement identical QueryBuilder interface, allowing repositories to work with either backend transparently."
+    },
+    {
+      "category": "Dependency Injection",
+      "observation": "Backend uses dependency-injector library (config/container.py) for IoC container, enabling loose coupling and testability. Services receive dependencies rather than instantiating them directly."
+    },
+    {
+      "category": "Monorepo Structure",
+      "observation": "Clear physical separation maintained: backend/ (Python), frontend/ (main Next.js app), landing/ (landing page Next.js app) with separate package.json, configs, and tsconfig per frontend. Allows independent deployment and versioning."
+    },
+    {
+      "category": "Domain-Driven Design",
+      "observation": "Backend layers follow DDD principles: domain/ contains pure business logic and entities, infrastructure/ provides implementation details, application/ services orchestrate workflows. No infrastructure dependencies leak into domain layer."
+    },
+    {
+      "category": "Code Analysis Focus",
+      "observation": "Heavy emphasis on code analysis infrastructure: structure_analyzer.py, tree-sitter bindings for multiple languages (Python, JavaScript, TypeScript), embeddings via sentence-transformers, RAG retrieval system (rag_retriever.py, query_embedder.py) for semantic code search"
+    },
+    {
+      "category": "AI Integration",
+      "observation": "Anthropic API integration as primary LLM provider. Phased blueprint generation (phased_blueprint_generator.py) orchestrates multi-step AI processing. Prompt management system (prompt_repository.py, prompt_service.py, database_prompt_loader.py) allows dynamic prompt configuration and versioning."
+    },
+    {
+      "category": "Real-time Features",
+      "observation": "SSE (Server-Sent Events) via sse-starlette for real-time streaming responses. Analysis events published via event_bus.py enable live progress updates to frontend during long-running analysis."
+    },
+    {
+      "category": "Model Context Protocol (MCP)",
+      "observation": "MCP server implementation (infrastructure/mcp/) exposes backend capabilities as MCP tools and resources, enabling integration with MCP-compatible clients and Claude Desktop"
+    },
+    {
+      "category": "GitHub Integration",
+      "observation": "Dual push clients (github_push_client.py for cloud, local_push_client.py for local repos) support both cloud repositories and local directory analysis. github_service.py orchestrates repository operations."
+    },
+    {
+      "category": "Smart Refresh Mechanism",
+      "observation": "smart_refresh_service.py enables incremental re-analysis of changed portions rather than full re-analysis, improving performance for large codebases"
+    },
+    {
+      "category": "Blueprint Generation",
+      "observation": "Multi-stage blueprint generation: structure analysis → intent layer enrichment → rendering. Separate services handle each stage (structure_analyzer.py, intent_layer_service.py, blueprint_renderer.py, codebase_map_renderer.py)"
+    },
+    {
+      "category": "Frontend State Management",
+      "observation": "Main frontend uses React Context (auth.tsx) for global state and custom hooks (useAuth, useWorkspace, useSettings, etc.) for API data fetching. No Redux/Zustand, keeping state management lightweight."
+    },
+    {
+      "category": "Service-Oriented API Layer",
+      "observation": "Frontend services/ directory provides typed HTTP client abstractions (auth.ts, workspace.ts, etc.), decoupling components from direct API calls and enabling easy API client testing"
+    },
+    {
+      "category": "Marketing/Product Separation",
+      "observation": "Landing page (landing/) is completely separate Next.js application, enabling independent styling, deployment, and optimization for marketing purposes while maintaining visual consistency with main app"
+    },
+    {
+      "category": "Development Workflow",
+      "observation": "start-dev.py script orchestrates local development environment startup, suggesting multi-process coordination. setup.sh likely handles initial environment setup."
+    },
+    {
+      "category": "Testing Strategy",
+      "observation": "Comprehensive test organization: unit tests (backend/tests/unit/) with fixtures (conftest.py), integration tests (backend/tests/integration/) validating end-to-end pipelines, separate test files per module (test_*_repository.py pattern)"
+    },
+    {
+      "category": "Worker/Queue System",
+      "observation": "Async task queue via arq (workers/ directory) enables background processing of long-running analyses, decoupling API responses from computation time"
+    },
+    {
+      "category": "Vector Database Support",
+      "observation": "pgvector extension for PostgreSQL enables vector similarity search for RAG. Optional integrations mentioned for Qdrant and Pinecone suggest multi-vector-DB support capability."
+    },
+    {
+      "category": "Storage Abstraction",
+      "observation": "storage/storage_interface.py defines generic storage contract, with implementations for local_storage.py, temp_storage.py, and cloud options (GCS/S3) in requirements.txt"
+    },
+    {
+      "category": "Intent Layer System",
+      "observation": "Sophisticated intent layer concept (intent_layer.py entity, intent_layer_service.py, intent_layer_manifest.py, intent_layer_renderer.py) suggests architectural pattern layering above structural analysis"
+    }
+  ],
+
+  "execution_flow": {
+    "user_analysis_workflow": [
+      "1. User uploads/connects repository via frontend (RepositoryView.tsx)",
+      "2. frontend/services/repositories.ts calls backend /api/repositories endpoint",
+      "3. Backend routes/repositories.py triggers application/services/analysis_service.py",
+      "4. analysis_service.py orchestrates: structure_analyzer → intent_layer_service → phased_blueprint_generator",
+      "5. Long-running tasks queued to workers/tasks.py via arq",
+      "6. SSE stream returns live progress to frontend via infrastructure/events/event_bus.py",
+      "7. Analysis results stored via infrastructure/persistence/ repositories",
+      "8. Frontend components (AnalysisView, BlueprintView) render results from /api/analyses endpoint"
+    ],
+    "ai_enhancement_flow": [
+      "1. phased_blueprint_generator.py calls anthropic.Anthropic() API",
+      "2. Prompts retrieved via infrastructure/prompts/database_prompt_loader.py (application/services/prompt_service.py)",
+      "3. RAG context retrieved via infrastructure/analysis/rag_retriever.py (embeddings via shared_embedder.py)",
+      "4. AI response processed and stored as blueprint entity",
+      "5. Blueprint rendered to multiple formats via application/services/blueprint_renderer.py"
+    ]
+  },
+
+  "deployment_topology": {
+    "backend": {
+      "runtime": "Python 3.x on Uvicorn/Gunicorn",
+      "entry": "backend/src/main.py → backend/src/api/app.py",
+      "database_options": [
+        "Supabase (cloud PostgreSQL with PostgREST)",
+        "Self-hosted PostgreSQL (via asyncpg)"
+      ],
+      "supporting_services": [
+        "Redis (cache/queue)",
+        "Anthropic API (LLM)",
+        "GitHub API (repository access)",
+        "Cloud storage (GCS/S3 optional)"
+      ],
+      "worker_process": "Separate arq worker process subscribing to task queue"
+    },
+    "frontend_main": {
+      "runtime": "Node.js / Next.js on Vercel or custom server",
+      "entry": "frontend/pages/_app.tsx",
+      "api_dependency": "NEXT_PUBLIC_API_BASE_URL → backend FastAPI server"
+    },
+    "frontend_landing": {
+      "runtime": "Node.js / Next.js on Vercel or custom server",
+      "entry": "landing/app/page.tsx",
+      "api_dependency": "None (static marketing site)"
+    }
+  }
+}
+```
+
+---
+
+## Additional Architectural Insights
+
+### Layering Compliance
+The backend strictly adheres to clean architecture principles:
+- **Domain Layer**: Zero dependencies on external libraries (besides standard Python types). Pure business entities in `domain/entities/`.
+- **Interface Layer**: `domain/interfaces/` defines contracts without implementation details.
+- **Infrastructure Layer**: Concrete implementations (database adapters, API clients) in `infrastructure/`. All external dependencies isolated here.
+- **Application Layer**: Orchestrates domain logic using infrastructure primitives. Services in `application/services/`.
+- **API Layer**: HTTP request/response handling in `api/routes/` and `api/dto/`.
+
+### Multi-Database Support Pattern
+The factory pattern in `infrastructure/persistence/db_factory.py` enables runtime database selection:
+```
+settings.DB_BACKEND → ("postgres" | "supabase") 
+  → PostgresAdapter(asyncpg.Pool) OR SupabaseAdapter(AsyncClient)
+  → both implement QueryBuilder interface
+  → repositories work identically with either backend
+```
+
+### Frontend Service Architecture
+Both frontends follow consistent patterns:
+- **API Layer**: `services/` provides typed HTTP clients
+- **Hooks Layer**: Custom hooks encapsulate API + state management
+- **Component Layer**: Pure components receive data via hooks
+- **View Layer**: Feature-specific view containers compose multiple components
+
+### Scalability Considerations Evident
+- Async/await throughout backend (FastAPI, asyncpg, aioredis)
+- Task queue (arq) for long-running analysis
+- Streaming responses (SSE) for live progress
+- Vector embeddings for semantic search (RAG)
+- Incremental analysis (smart_refresh_service.py) to avoid re-computation

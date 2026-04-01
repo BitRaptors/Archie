@@ -1,0 +1,287 @@
+{
+  "rules": [
+    {
+      "id": "erosion-god-function",
+      "platform": "universal",
+      "check": "complexity_threshold",
+      "threshold": 15,
+      "severity": "error",
+      "category": "erosion",
+      "description": "God-function: CC>15. Complexity concentrating here — SlopCodeBench shows this is the #1 agent failure mode. Split before it grows further."
+    },
+    {
+      "id": "erosion-growing-complexity",
+      "platform": "universal",
+      "check": "complexity_threshold",
+      "threshold": 10,
+      "severity": "warn",
+      "category": "erosion",
+      "description": "Complex function approaching god-function territory (CC>10). Track this — if CC grows between scans, it's eroding."
+    },
+    {
+      "id": "erosion-god-class",
+      "platform": "universal",
+      "check": "size_threshold",
+      "max_methods": 20,
+      "severity": "warn",
+      "category": "erosion",
+      "description": "Class has 20+ methods — likely accumulating responsibilities. Agents patch new logic here instead of creating focused classes."
+    },
+    {
+      "id": "erosion-monster-file",
+      "platform": "universal",
+      "check": "size_threshold",
+      "max_lines": 600,
+      "severity": "warn",
+      "category": "erosion",
+      "description": "File exceeds 600 lines. In agent-assisted codebases, large files grow because agents append rather than refactor."
+    },
+    {
+      "id": "erosion-many-params",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["\\(\\s*\\w+\\s*[:,]\\s*\\w+\\s*[:,]\\s*\\w+\\s*[:,]\\s*\\w+\\s*[:,]\\s*\\w+\\s*[:,]\\s*\\w+\\s*[:,]\\s*\\w+"],
+      "severity": "warn",
+      "category": "erosion",
+      "description": "Function with 7+ parameters. Signal of a function doing too much or missing a data class/struct."
+    },
+    {
+      "id": "decay-empty-catch",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["catch\\s*\\([^)]*\\)\\s*\\{\\s*\\}", "except:\\s*$", "except\\s+\\w+:\\s*pass"],
+      "severity": "error",
+      "category": "decay",
+      "description": "Empty catch/except block — error silently swallowed. SlopCodeBench shows error handling degrades first while core functionality stays."
+    },
+    {
+      "id": "decay-disabled-test",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["@Ignore\\b", "@Disabled\\b", "@skip\\b", "xit\\(", "xdescribe\\(", "xcontext\\(", "pytest\\.mark\\.skip"],
+      "severity": "warn",
+      "category": "decay",
+      "description": "Disabled/skipped test. Tests get disabled when agents can't fix them — this hides regressions. The paper shows error-mode tests fail first."
+    },
+    {
+      "id": "decay-todo-fixme-hack",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["\\bFIXME\\b", "\\bHACK\\b", "\\bXXX\\b", "\\bBROKEN\\b"],
+      "severity": "warn",
+      "category": "decay",
+      "description": "FIXME/HACK/XXX marker — acknowledged technical debt. Track these: if count grows between scans, quality is degrading."
+    },
+    {
+      "id": "decay-catch-log-only",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["catch\\s*\\([^)]*\\)\\s*\\{[^}]*(?:log|print|console|Log\\.)[^}]*\\}"],
+      "severity": "info",
+      "category": "decay",
+      "description": "Catch block only logs the error without re-throwing or propagating. Error is visible in logs but callers don't know it failed."
+    },
+    {
+      "id": "security-hardcoded-secret",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["(?:api_key|apikey|secret|password|token|auth)\\s*=\\s*['\"][^'\"]{8,}['\"]"],
+      "severity": "error",
+      "category": "security",
+      "description": "Possible hardcoded secret/API key in source code."
+    },
+    {
+      "id": "security-debug-left-behind",
+      "platform": "universal",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["\\bdebugger\\b", "\\bbreakpoint\\(\\)", "\\bpdb\\.set_trace\\(\\)"],
+      "severity": "error",
+      "category": "security",
+      "description": "Debug breakpoint left in code. Will halt execution in production."
+    },
+
+    {
+      "id": "android-layer-viewmodel-context",
+      "platform": "android",
+      "check": "architectural_constraint",
+      "file_pattern": "*ViewModel.kt",
+      "forbidden_patterns": ["import android\\.content\\.Context", "import android\\.app\\.Activity", "import android\\.widget\\.", "import android\\.view\\."],
+      "rationale": "ViewModel must be lifecycle-independent. Referencing Context/View from ViewModel creates memory leaks and breaks testability.",
+      "severity": "error",
+      "category": "architecture"
+    },
+    {
+      "id": "android-layer-fragment-network",
+      "platform": "android",
+      "check": "architectural_constraint",
+      "file_pattern": "*Fragment.kt",
+      "forbidden_patterns": ["Retrofit", "OkHttpClient", "HttpURLConnection", "\\.enqueue\\(", "NetworkDatasource"],
+      "rationale": "Fragments must not make network calls directly. All data flows through Repository → ViewModel → Fragment.",
+      "severity": "error",
+      "category": "architecture"
+    },
+    {
+      "id": "android-layer-fragment-db",
+      "platform": "android",
+      "check": "architectural_constraint",
+      "file_pattern": "*Fragment.kt",
+      "forbidden_patterns": ["Room\\.", "\\.dao\\(\\)", "SQLiteDatabase", "ContentResolver", "SharedPreferences"],
+      "rationale": "Fragments must not access persistence directly. Data layer is the repository's responsibility.",
+      "severity": "error",
+      "category": "architecture"
+    },
+    {
+      "id": "android-layer-activity-db",
+      "platform": "android",
+      "check": "architectural_constraint",
+      "file_pattern": "*Activity.kt",
+      "forbidden_patterns": ["Room\\.", "\\.dao\\(\\)", "SQLiteDatabase", "ContentResolver"],
+      "rationale": "Activities must not access persistence directly.",
+      "severity": "error",
+      "category": "architecture"
+    },
+    {
+      "id": "android-lifecycle-globalscope",
+      "platform": "android",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["GlobalScope\\.launch", "GlobalScope\\.async"],
+      "severity": "error",
+      "category": "architecture",
+      "description": "GlobalScope ignores lifecycle — coroutines leak on configuration change or process death. Use viewModelScope, lifecycleScope, or inject a supervised scope."
+    },
+    {
+      "id": "android-di-service-locator",
+      "platform": "android",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["KoinJavaComponent\\.get\\(", "KoinJavaComponent\\.inject\\("],
+      "applies_to": "",
+      "severity": "warn",
+      "category": "architecture",
+      "description": "Service locator pattern (KoinJavaComponent.get) breaks constructor injection and makes dependencies invisible. Use constructor injection via Koin modules."
+    },
+
+    {
+      "id": "swift-safety-force-unwrap",
+      "platform": "swift",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["[^!]=![^=]", "\\.first!", "\\.last!"],
+      "severity": "warn",
+      "category": "safety",
+      "description": "Force unwrap (!) crashes at runtime if nil. Use guard let, if let, or ?? default."
+    },
+    {
+      "id": "swift-safety-force-try",
+      "platform": "swift",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["try!"],
+      "severity": "warn",
+      "category": "safety",
+      "description": "Force try crashes at runtime if throwing function fails. Use do/catch or try?."
+    },
+    {
+      "id": "swift-layer-view-network",
+      "platform": "swift",
+      "check": "architectural_constraint",
+      "file_pattern": "*View.swift",
+      "forbidden_patterns": ["URLSession", "Alamofire", "AF\\.", "Moya", "\\.request\\("],
+      "rationale": "SwiftUI Views must not make network calls. Data fetching belongs in ViewModel or Repository.",
+      "severity": "error",
+      "category": "architecture"
+    },
+    {
+      "id": "swift-layer-view-userdefaults",
+      "platform": "swift",
+      "check": "architectural_constraint",
+      "file_pattern": "*View.swift",
+      "forbidden_patterns": ["UserDefaults", "NSUbiquitousKeyValueStore", "CoreData", "NSManagedObjectContext"],
+      "rationale": "Views must not access persistence directly. Use a repository or data manager.",
+      "severity": "error",
+      "category": "architecture"
+    },
+
+    {
+      "id": "typescript-layer-component-fetch",
+      "platform": "typescript",
+      "check": "architectural_constraint",
+      "file_pattern": "*.tsx",
+      "forbidden_patterns": ["fetch\\(", "axios\\.", "\\$http\\.", "XMLHttpRequest"],
+      "rationale": "Components should not fetch data directly. Use hooks, services, or state management (React Query, SWR, etc.).",
+      "severity": "warn",
+      "category": "architecture"
+    },
+    {
+      "id": "typescript-safety-any-type",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "forbidden_patterns": [":\\s*any\\b", "as\\s+any\\b"],
+      "severity": "warn",
+      "category": "safety",
+      "description": "Type escape via 'any' — defeats TypeScript's type system. Use unknown, generics, or proper types."
+    },
+    {
+      "id": "typescript-react-dom-manipulation",
+      "platform": "typescript",
+      "check": "architectural_constraint",
+      "file_pattern": "*.tsx",
+      "forbidden_patterns": ["document\\.getElementById", "document\\.querySelector", "\\.innerHTML\\s*="],
+      "rationale": "Direct DOM manipulation in React components breaks the virtual DOM model and causes subtle rendering bugs.",
+      "severity": "error",
+      "category": "architecture"
+    },
+    {
+      "id": "typescript-react-index-key",
+      "platform": "typescript",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["key=\\{\\s*(?:index|i|idx)\\s*\\}"],
+      "severity": "warn",
+      "category": "safety",
+      "description": "Array index as React key causes rendering bugs when list items are reordered, inserted, or deleted."
+    },
+
+    {
+      "id": "python-safety-bare-except",
+      "platform": "python",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["except:\\s*$"],
+      "severity": "error",
+      "category": "safety",
+      "description": "Bare except catches SystemExit, KeyboardInterrupt, and GeneratorExit. Use except Exception: at minimum."
+    },
+    {
+      "id": "python-safety-eval-exec",
+      "platform": "python",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["\\beval\\(", "\\bexec\\("],
+      "severity": "error",
+      "category": "security",
+      "description": "eval/exec executes arbitrary code — critical security risk if input is user-controlled."
+    },
+    {
+      "id": "python-safety-mutable-default",
+      "platform": "python",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["def\\s+\\w+\\([^)]*=\\s*\\[\\]", "def\\s+\\w+\\([^)]*=\\s*\\{\\}"],
+      "severity": "warn",
+      "category": "safety",
+      "description": "Mutable default argument (list/dict) — shared across all calls. Use None default with assignment in body."
+    },
+    {
+      "id": "python-layer-star-import",
+      "platform": "python",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["from\\s+\\S+\\s+import\\s+\\*"],
+      "severity": "warn",
+      "category": "architecture",
+      "description": "Star import pollutes namespace and hides dependencies. Makes it impossible to trace where a symbol comes from."
+    },
+    {
+      "id": "python-layer-circular-import",
+      "platform": "python",
+      "check": "forbidden_content",
+      "forbidden_patterns": ["if TYPE_CHECKING:", "from __future__ import annotations.*\\nimport"],
+      "severity": "info",
+      "category": "architecture",
+      "description": "TYPE_CHECKING guard suggests circular import was encountered. The cycle should be resolved structurally, not worked around."
+    }
+  ]
+}

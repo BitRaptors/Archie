@@ -1,0 +1,207 @@
+```json
+{
+  "implementation_guidelines": [
+    {
+      "capability": "Firebase Authentication with JWT Token Verification",
+      "category": "auth",
+      "libraries": [
+        "firebase-admin (Python backend)",
+        "firebase/app (TypeScript frontend)",
+        "firebase/auth (TypeScript frontend)"
+      ],
+      "pattern_description": "Multi-layer auth flow: Firebase Admin SDK verifies ID tokens on the backend via OAuth2PasswordBearer dependency injection, extracts user claims (uid, email, name, picture), then queries/creates corresponding Supabase user records for data persistence. Frontend obtains tokens via Firebase SDK and includes them in Authorization headers for API calls.",
+      "key_files": [
+        "tuck-in-tales-backend/src/utils/auth.py",
+        "tuck-in-tales-backend/src/utils/firebase_admin_init.py",
+        "tuck-in-tales-frontend/src/firebaseConfig.ts",
+        "tuck-in-tales-frontend/src/context/AuthContext.tsx",
+        "tuck-in-tales-frontend/src/utils/firebase.ts",
+        "tuck-in-tales-mobile/src/config/firebase.ts",
+        "tuck-in-tales-mobile/src/context/AuthContext.tsx"
+      ],
+      "usage_example": "```python\n# Backend: Protect routes with dependency injection\n@router.post('/stories')\nasync def create_story(\n    user_data: UserData = Depends(verify_firebase_token),\n    supabase: Client = Depends(get_supabase_client)\n):\n    # user_data contains verified Firebase UID and email\n    story = supabase.table('stories').insert({...}).execute()\n\n# Frontend: Get token and make authenticated request\nconst user = auth.currentUser;\nif (user) {\n  const token = await user.getIdToken();\n  const response = await fetch('/api/stories', {\n    headers: { 'Authorization': `Bearer ${token}` }\n  });\n}\n```",
+      "tips": [
+        "verify_firebase_token() uses FastAPI's Depends() for elegant dependency resolution; token is extracted from OAuth2PasswordBearer scheme (Authorization: Bearer {token})",
+        "get_or_create_supabase_user() ensures user exists in Supabase on first login; avoid N+1 queries by caching user lookups if possible",
+        "Frontend must handle token expiry and refresh; use Firebase SDK's onAuthStateChanged() for reactive updates",
+        "Mobile uses the same Firebase config but must initialize before making API calls to ensure token availability"
+      ]
+    },
+    {
+      "capability": "Server-Sent Events (SSE) Streaming for Long-Running Operations",
+      "category": "networking",
+      "libraries": [
+        "asyncio (Python backend)",
+        "FastAPI StreamingResponse",
+        "EventSource (Browser API frontend)"
+      ],
+      "pattern_description": "Backend maintains asyncio.Queue registry keyed by client_id (story_id/character_id); LangGraph nodes emit SSE events via send_sse_event(client_id, event_type, data) which appends JSON to queue; FastAPI sse_generator() yields queue messages as Server-Sent Events to browser; frontend opens EventSource connection and listens for 'chunk', 'status', 'done' events for real-time updates.",
+      "key_files": [
+        "tuck-in-tales-backend/src/utils/sse.py",
+        "tuck-in-tales-backend/src/routes/stories.py",
+        "tuck-in-tales-backend/src/graphs/story_generator.py",
+        "tuck-in-tales-frontend/src/hooks/useStoryStream.ts",
+        "tuck-in-tales-frontend/src/hooks/useSSEStream.ts",
+        "tuck-in-tales-frontend/src/pages/StoryProgressPage.tsx"
+      ],
+      "usage_example": "```python\n# Backend: Graph node emits SSE event\nfrom utils.sse import send_sse_event\n\nasync def story_generation_node(state):\n    story_id = state['story_id']\n    for chunk in stream_story_from_llm(state):\n        await send_sse_event(story_id, 'chunk', {'text': chunk})\n    await send_sse_event(story_id, 'done', {'final_story': story_text})\n    return state\n\n# Frontend: Hook opens EventSource and handles events\nconst { messages, isStreaming } = useStoryStream(storyId);\nreturn (\n  <div>\n    {messages.map(msg => <p key={msg.id}>{msg.chunk.text}</p>)}\n    {isStreaming && <Spinner />}\n  </div>\n);\n```",
+      "tips": [
+        "SSE is one-way (server → client); for bidirectional communication use WebSockets instead",
+        "sse_generator() must yield formatted SSE strings (data: {json}\\n\\n); utils/sse.py handles formatting",
+        "Client-id must match between backend (state['story_id']) and frontend (useStoryStream(storyId))",
+        "Terminal events ('done', 'error', 'complete') trigger EventSource.close() in useSSEStream.ts; ensure graph always emits terminal event to avoid hanging connections",
+        "Use connection pool/limits to prevent resource exhaustion with many concurrent streams"
+      ]
+    },
+    {
+      "capability": "LangGraph Orchestration for Multi-Step AI Workflows",
+      "category": "state_management",
+      "libraries": [
+        "langgraph (Python backend)",
+        "openai (Python backend for chat/embeddings)",
+        "google-generativeai (Python backend alternative AI provider)"
+      ],
+      "pattern_description": "LangGraph StateGraph compiles multi-node workflows (story_generator.py, avatar_generator.py, memory_analyzer.py) with custom state handlers; nodes are async functions that accept state dict, invoke LLM clients (OpenAI/Gemini/Groq), update state, and emit SSE events; graph orchestrates node sequencing, conditional branching, and state management across long-running operations.",
+      "key_files": [
+        "tuck-in-tales-backend/src/graphs/story_generator.py",
+        "tuck-in-tales-backend/src/graphs/avatar_generator.py",
+        "tuck-in-tales-backend/src/graphs/memory_analyzer.py",
+        "tuck-in-tales-backend/src/routes/stories.py",
+        "tuck-in-tales-backend/src/routes/characters.py",
+        "tuck-in-tales-backend/src/utils/openai_client.py"
+      ],
+      "usage_example": "```python\n# Backend: Define graph with nodes and edges\nfrom langgraph.graph import StateGraph\n\nworkflow = StateGraph(StoryGenerationState)\nworkflow.add_node('load_character', load_character_node)\nworkflow.add_node('generate_story', generate_story_node)\nworkflow.add_node('save_story', save_story_node)\nworkflow.add_edge('load_character', 'generate_story')\nworkflow.add_edge('generate_story', 'save_story')\napp = workflow.compile()\n\n# Route invokes graph\n@router.post('/stories/{story_id}/stream')\nasync def stream_story(story_id: str, user_data = Depends(...)):\n    state = {'story_id': story_id, 'user_id': user_data['id']}\n    for output in app.stream(state):\n        # Each output is a node result with updated state\n        pass\n    return {'status': 'complete'}\n```",
+      "tips": [
+        "StateGraph requires explicit type definition (BaseModel or TypedDict); use TypedDict for flexibility",
+        "Nodes must be async; use asyncio.to_thread() for sync operations (e.g., Supabase client calls)",
+        "state.stream() returns incremental outputs per node; state.invoke() waits for complete execution",
+        "Emit SSE events within nodes via send_sse_event(client_id, event, data) for real-time frontend updates",
+        "Checkpoint management not currently used; consider enabling for resumable workflows on failure"
+      ]
+    },
+    {
+      "capability": "Multi-Provider AI Model Abstraction (OpenAI, Gemini, Groq)",
+      "category": "networking",
+      "libraries": [
+        "openai (Python SDK)",
+        "google-generativeai (Python SDK)",
+        "groq (Python SDK)"
+      ],
+      "pattern_description": "Backend abstracts AI provider clients (openai_client.py, gemini_client.py, groq_client.py) with unified interfaces; config.py stores provider selection (IMAGE_GENERATION_PROVIDER env var) and API keys; routes/graphs call provider-agnostic functions which internally route to correct client based on config; enables runtime provider switching without code changes.",
+      "key_files": [
+        "tuck-in-tales-backend/src/config.py",
+        "tuck-in-tales-backend/src/utils/openai_client.py",
+        "tuck-in-tales-backend/src/utils/gemini_client.py",
+        "tuck-in-tales-backend/src/utils/groq_client.py",
+        "tuck-in-tales-backend/src/graphs/story_generator.py",
+        "tuck-in-tales-backend/src/graphs/avatar_generator.py"
+      ],
+      "usage_example": "```python\n# Config: Set provider via environment\n# .env: IMAGE_GENERATION_PROVIDER=OPENAI\nfrom config import settings\n\n# Client abstraction (example from avatar_generator.py)\nasync def generate_avatar(description: str):\n    if settings.IMAGE_GENERATION_PROVIDER == 'OPENAI':\n        image_url = await openai_client.generate_image(description)\n    elif settings.IMAGE_GENERATION_PROVIDER == 'GEMINI':\n        image_url = await gemini_client.generate_image(description)\n    return image_url\n\n# Story generation defaults to OpenAI\nresponse = openai_client.chat_completion(\n    model=settings.OPENAI_CHAT_MODEL,  # gpt-4o-mini\n    messages=[...]\n)\n```",
+      "tips": [
+        "Settings (pydantic_settings.BaseSettings) loads from .env; defaults fall back if env vars not set",
+        "OpenAI is primary provider (chat, embeddings, image); Gemini/Groq are fallbacks for images/vision",
+        "API key validation happens at client init; missing keys will raise HTTPException in routes",
+        "Embedding model (text-embedding-3-small) is OpenAI-only; no fallback for embeddings",
+        "Image edit model (gpt-image-1) may be deprecated; verify with current OpenAI API docs before upgrading"
+      ]
+    },
+    {
+      "capability": "Prompt Template Resolver with Caching and Variable Substitution",
+      "category": "state_management",
+      "libraries": [
+        "functools (Python caching)",
+        "typing (Python type hints)"
+      ],
+      "pattern_description": "prompt_resolver.py implements resolve_prompt(prompt_key, variables, supabase) which retrieves prompt configs from Supabase 'prompts' table, caches results in memory with TTL, performs variable substitution (e.g., ${character_name} → actual name), and returns fully-resolved PromptConfig dict; enables dynamic prompt management without code redeploy.",
+      "key_files": [
+        "tuck-in-tales-backend/src/utils/prompt_resolver.py",
+        "tuck-in-tales-backend/src/routes/prompts.py",
+        "tuck-in-tales-backend/src/graphs/story_generator.py"
+      ],
+      "usage_example": "```python\n# Backend: Retrieve and resolve prompt with variables\nfrom utils.prompt_resolver import resolve_prompt\n\n# In story_generator.py\nstate = {\n    'character_name': 'Luna',\n    'character_age': 7,\n    'story_theme': 'adventure'\n}\n\nprompt_config = await resolve_prompt(\n    prompt_key='story_generation_v1',\n    variables=state,\n    supabase=supabase_client\n)\n\n# prompt_config.system = \"You are a bedtime story writer for ${character_age}-year-olds...\"\n# After substitution: \"You are a bedtime story writer for 7-year-olds...\"\n\nmessages = [\n    {'role': 'system', 'content': prompt_config.system},\n    {'role': 'user', 'content': prompt_config.user_template}\n]\nresponse = openai_client.chat_completion(messages=messages)\n```",
+      "tips": [
+        "Cache uses functools.lru_cache with TTL via custom cache wrapper; stale prompts may serve for 5-10 mins",
+        "Variable substitution uses string.Template or simple ${key} replacement; escaping not implemented—sanitize user input",
+        "Prompt configs stored in Supabase as JSON blobs; include system, user_template, and metadata fields",
+        "Fallback to hardcoded defaults if prompt_key not found; prevents errors but may serve outdated prompts",
+        "Admin endpoints (routes/prompts.py) allow create/update/delete; changes propagate after cache TTL expires"
+      ]
+    },
+    {
+      "capability": "React Query (TanStack Query) for HTTP Caching and Background Sync",
+      "category": "state_management",
+      "libraries": [
+        "@tanstack/react-query (^5.74.4 web, ^5.90.21 mobile)"
+      ],
+      "pattern_description": "React Query wraps all API calls with useQuery/useMutation hooks; caches responses by key, provides stale-while-revalidate semantics, handles background refetch, and manages loading/error states declaratively; custom hooks (useCharacters, useStories, useFamilyDetails) encapsulate query logic and deduplication across components.",
+      "key_files": [
+        "tuck-in-tales-frontend/src/api/client.ts",
+        "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts",
+        "tuck-in-tales-mobile/src/hooks/queries/useStories.ts",
+        "tuck-in-tales-mobile/src/hooks/queries/useFamilyDetails.ts",
+        "tuck-in-tales-mobile/src/hooks/queries/useStory.ts",
+        "tuck-in-tales-frontend/src/pages/CharactersPage.tsx"
+      ],
+      "usage_example": "```typescript\n// Mobile: Custom hook encapsulates query logic\nimport { useQuery } from '@tanstack/react-query';\nimport { supabase } from '../config/supabase';\n\nexport const useCharacters = (familyId: string) => {\n  return useQuery({\n    queryKey: ['characters', familyId],\n    queryFn: async () => {\n      const { data } = await supabase\n        .from('characters')\n        .select('*')\n        .eq('family_id', familyId);\n      return data;\n    },\n    staleTime: 5 * 60 * 1000,  // 5 mins\n    gcTime: 10 * 60 * 1000      // Keep in cache 10 mins\n  });\n};\n\n// Component: Use hook with automatic caching\nfunction CharactersList({ familyId }) {\n  const { data, isLoading, error } = useCharacters(familyId);\n  \n  if (isLoading) return <Skeleton />;\n  if (error) return <ErrorAlert />;\n  return data.map(char => <CharacterCard key={char.id} {...char} />);\n}\n```",
+      "tips": [
+        "queryKey array is critical: ['characters', familyId] ensures cache scoping; changes to familyId auto-refetch",
+        "staleTime controls when data is considered stale (default 0 = immediately stale); gcTime controls deletion from memory",
+        "useMutation() used for POST/PUT/DELETE; pair with queryClient.invalidateQueries() to trigger refetch after mutation",
+        "Custom hooks (useCharacters, useStories) prevent query duplication and centralize API logic; keep them in hooks/queries/",
+        "Mobile version uses @tanstack/react-query@5.90.21 (newer); web uses 5.74.4; ensure compatibility before major version upgrades"
+      ]
+    },
+    {
+      "capability": "Supabase Real-Time Database Access and File Storage",
+      "category": "storage",
+      "libraries": [
+        "supabase (Python sync Client backend)",
+        "@supabase/supabase-js (TypeScript/React frontend)"
+      ],
+      "pattern_description": "Backend uses Supabase Python Client (sync) to query PostgreSQL via PostgREST API (table().select/insert/update/delete().execute()); frontend uses Supabase JS SDK for auth and RLS-protected queries. File uploads stored in Supabase Storage (public buckets: photos, avatars) with presigned URLs; RLS policies enforce user/family data isolation.",
+      "key_files": [
+        "tuck-in-tales-backend/src/utils/supabase.py",
+        "tuck-in-tales-backend/src/routes/characters.py",
+        "tuck-in-tales-backend/src/routes/family.py",
+        "tuck-in-tales-backend/src/services/family_service.py",
+        "tuck-in-tales-frontend/src/utils/supabaseUtils.ts",
+        "tuck-in-tales-mobile/src/config/supabase.ts",
+        "tuck-in-tales-mobile/src/utils/supabaseUtils.ts"
+      ],
+      "usage_example": "```python\n# Backend: CRUD via Supabase PostgREST\nfrom utils.supabase import get_supabase_client\n\n@router.post('/characters')\nasync def create_character(req: CharacterCreate, supabase = Depends(get_supabase_client)):\n    result = supabase.table('characters').insert({\n        'name': req.name,\n        'family_id': user_data['family_id'],\n        'age': req.age\n    }).execute()\n    return result.data[0]\n\n# File upload to Storage\nfile_bytes = await file.read()\nsupabase.storage.from_('photos').upload(\n    path=f'{user_id}/{file.filename}',\n    file=file_bytes\n)\n\n# Frontend: Query with RLS policies enforced\nconst { data } = await supabase\n  .from('characters')\n  .select('*')\n  .eq('family_id', user.family_id);\n```",
+      "tips": [
+        "Backend uses sync Supabase Client; note that Supabase Python SDK is sync-only (no async support yet)",
+        "RLS (Row-Level Security) policies in Supabase enforce data isolation; ensure auth.uid() checks match user_id in policies",
+        "Presigned URLs for file access: use storage.from_('bucket').createSignedUrl() for temporary access without auth headers",
+        "Storage buckets (photos, avatars) must be created and configured with appropriate RLS; default is private",
+        "Frontend queries bypass server auth; RLS policies in Supabase enforce security; never trust client-side filters",
+        "get_supabase_client() returns a singleton; connection pooling handled by Supabase SDK; safe for concurrent requests"
+      ]
+    },
+    {
+      "capability": "Dependency Injection via FastAPI Depends()",
+      "category": "state_management",
+      "libraries": [
+        "fastapi (Depends() system)"
+      ],
+      "pattern_description": "FastAPI's Depends() creates a declarative dependency graph; route handlers declare dependencies as function parameters (e.g., user_data: UserData = Depends(verify_firebase_token)); FastAPI resolves and injects dependencies at request time, enabling clean separation of concerns, testability, and shared resource management (auth, DB clients, SSE queues).",
+      "key_files": [
+        "tuck-in-tales-backend/src/utils/auth.py",
+        "tuck-in-tales-backend/src/utils/supabase.py",
+        "tuck-in-tales-backend/src/routes/stories.py",
+        "tuck-in-tales-backend/src/routes/characters.py",
+        "tuck-in-tales-backend/src/routes/family.py"
+      ],
+      "usage_example": "```python\n# Define reusable dependencies\nfrom fastapi import Depends\nfrom utils.auth import verify_firebase_token\nfrom utils.supabase import get_supabase_client\n\n# Dependency: Extract and verify user\nasync def verify_firebase_token(token: str = Depends(oauth2_scheme)) -> UserData:\n    verified_claims = firebase_admin.auth.verify_id_token(token)\n    return UserData(id=verified_claims['uid'], email=verified_claims['email'])\n\n# Dependency: Get Supabase client\ndef get_supabase_client() -> Client:\n    return Client(SUPABASE_URL, SUPABASE_KEY)\n\n# Route: Declare dependencies as parameters\n@router.post('/stories')\nasync def create_story(\n    req: StoryCreateRequest,\n    user_data: UserData = Depends(verify_firebase_token),  # Injected\n    supabase: Client = Depends(get_supabase_client)          # Injected\n):\n    # Dependencies resolved at request time\n    story = supabase.table('stories').insert({\n        'user_id': user_data.id,\n        'title': req.title\n    }).execute()\n    return story.data[0]\n```",
+      "tips": [
+        "Dependencies are resolved once per request; use Depends(get_supabase_client) (without calling) to inject the dependency, not the result",
+        "Dependency order matters for error handling; place auth dependencies first so unauthorized requests fail fast",
+        "Use dependency callables for validation (e.g., get_required_family_id checks that user has a family and raises HTTPException)",
+        "For global middleware-style behavior, use @app.middleware('http') instead of per-route Depends()",
+        "FastAPI's dependency resolver handles async; mark dependency as async def if it awaits (e.g., await supabase.query())",
+        "Test routes by mocking Depends() overrides using @app.dependency_overrides[get_supabase_client] = mock_client"
+      ]
+    }
+  ]
+}
+```

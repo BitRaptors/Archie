@@ -1,0 +1,1178 @@
+{
+  "meta": {
+    "repository": "csacsi/BedtimeApp",
+    "repository_id": "csacsi/BedtimeApp",
+    "analyzed_at": "2025-01-30T00:00:00Z",
+    "schema_version": "2.0.0",
+    "architecture_style": "Monorepo with three platforms: FastAPI backend, React SPA web frontend, React Native/Expo mobile app",
+    "platforms": [
+      "backend",
+      "web-frontend",
+      "mobile-frontend"
+    ],
+    "executive_summary": "BedtimeApp (Tuck-in-Tales) is a monorepo generating personalized AI bedtime stories for children. The backend is FastAPI/Python using LangGraph to orchestrate multi-step AI workflows across OpenAI, Gemini, and Groq. The web frontend is a React/Vite SPA and the mobile app uses React Native/Expo with file-based routing. Authentication uses Firebase ID tokens verified by the backend, with Supabase as the primary PostgreSQL database. Real-time story and avatar generation progress is streamed to clients via Server-Sent Events.",
+    "confidence": {
+      "architecture_rules": 0.92,
+      "decisions": 0.88,
+      "components": 0.93,
+      "communication": 0.91,
+      "technology": 0.95,
+      "frontend": 0.92,
+      "deployment": 0.72
+    }
+  },
+  "architecture_rules": {
+    "file_placement_rules": [
+      {
+        "component_type": "backend_route",
+        "naming_pattern": "{domain}.py",
+        "location": "tuck-in-tales-backend/src/routes/",
+        "example": "tuck-in-tales-backend/src/routes/stories.py",
+        "description": "One file per domain resource; receives requests and delegates to graphs/services"
+      },
+      {
+        "component_type": "backend_graph",
+        "naming_pattern": "{domain}_generator.py or {domain}_analyzer.py",
+        "location": "tuck-in-tales-backend/src/graphs/",
+        "example": "tuck-in-tales-backend/src/graphs/story_generator.py",
+        "description": "LangGraph StateGraph workflows for multi-step AI orchestration"
+      },
+      {
+        "component_type": "backend_model",
+        "naming_pattern": "{domain}.py",
+        "location": "tuck-in-tales-backend/src/models/",
+        "example": "tuck-in-tales-backend/src/models/character.py",
+        "description": "Pydantic models defining domain entities and API contracts"
+      },
+      {
+        "component_type": "web_page",
+        "naming_pattern": "{Domain}Page.tsx",
+        "location": "tuck-in-tales-frontend/src/pages/",
+        "example": "tuck-in-tales-frontend/src/pages/StoryGenerationPage.tsx",
+        "description": "Route-level React components; one per app screen"
+      },
+      {
+        "component_type": "web_hook",
+        "naming_pattern": "use{Domain}Stream.ts",
+        "location": "tuck-in-tales-frontend/src/hooks/",
+        "example": "tuck-in-tales-frontend/src/hooks/useStoryStream.ts",
+        "description": "Custom hooks wrapping SSE connections or domain-specific state"
+      },
+      {
+        "component_type": "mobile_query_hook",
+        "naming_pattern": "use{Domain}s.ts or use{Domain}.ts",
+        "location": "tuck-in-tales-mobile/src/hooks/queries/",
+        "example": "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts",
+        "description": "TanStack Query hooks for mobile data fetching"
+      }
+    ],
+    "naming_conventions": [
+      {
+        "scope": "backend",
+        "pattern": "snake_case for files, functions, variables",
+        "examples": [
+          "family_service.py",
+          "get_supabase_client",
+          "verify_firebase_token"
+        ],
+        "description": "Python standard snake_case throughout"
+      },
+      {
+        "scope": "frontend_web",
+        "pattern": "PascalCase components, camelCase hooks/utils",
+        "examples": [
+          "CharacterList.tsx",
+          "useStoryStream.ts",
+          "promptVariables.ts"
+        ],
+        "description": "React convention: PascalCase components, camelCase hooks"
+      },
+      {
+        "scope": "mobile",
+        "pattern": "File-based routes use lowercase with brackets for dynamic segments",
+        "examples": [
+          "app/(tabs)/characters.tsx",
+          "app/story/[id].tsx",
+          "app/(auth)/login.tsx"
+        ],
+        "description": "Expo Router file-based routing conventions"
+      },
+      {
+        "scope": "models",
+        "pattern": "Shared domain names across backend (Pydantic) and frontend (TypeScript interfaces)",
+        "examples": [
+          "character.py / character.ts",
+          "story.py / story.ts",
+          "family.py / family.ts"
+        ],
+        "description": "Domain model names are mirrored across all platforms"
+      }
+    ]
+  },
+  "decisions": {
+    "architectural_style": {
+      "title": "LangGraph for AI Workflow Orchestration",
+      "chosen": "LangGraph StateGraph with async nodes emitting SSE events",
+      "rationale": "Multi-step AI generation (outline → pages → images) requires stateful orchestration with retries, branching, and streaming progress to the client",
+      "alternatives_rejected": [
+        "Single monolithic LLM call",
+        "Celery task queue"
+      ]
+    },
+    "key_decisions": [
+      {
+        "title": "Server-Sent Events for real-time streaming",
+        "chosen": "SSE via asyncio.Queue registry in utils/sse.py",
+        "rationale": "One-way server push is sufficient for generation progress; simpler than WebSockets",
+        "alternatives_rejected": [
+          "WebSockets",
+          "polling"
+        ]
+      },
+      {
+        "title": "Firebase Auth + Supabase for persistence",
+        "chosen": "Firebase ID tokens verified backend-side; Supabase PostgreSQL as data store",
+        "rationale": "Firebase handles OAuth/social login; Supabase provides RLS-protected PostgreSQL",
+        "alternatives_rejected": [
+          "Auth0",
+          "Supabase Auth alone"
+        ]
+      },
+      {
+        "title": "Multi-provider AI abstraction",
+        "chosen": "Separate client modules (openai_client, gemini_client, groq_client) selected via config",
+        "rationale": "Enables runtime provider switching and fallback without code changes",
+        "alternatives_rejected": [
+          "Single provider lock-in",
+          "LiteLLM abstraction layer"
+        ]
+      },
+      {
+        "title": "Monorepo with concurrently",
+        "chosen": "Single repo with root package.json orchestrating all three platforms",
+        "rationale": "Shared domain model naming; coordinated dev startup via concurrently",
+        "alternatives_rejected": [
+          "Separate repositories",
+          "Nx/Turborepo"
+        ]
+      },
+      {
+        "title": "Expo Router file-based routing for mobile",
+        "chosen": "app/ directory with grouped layouts (auth), (tabs)",
+        "rationale": "Convention-over-configuration mirrors web file-based router patterns",
+        "alternatives_rejected": [
+          "React Navigation config-based routing"
+        ]
+      }
+    ],
+    "trade_offs": [
+      {
+        "accept": "Scattered Supabase query logic in routes instead of repository classes",
+        "benefit": "Less boilerplate; acceptable at current scale"
+      },
+      {
+        "accept": "Manual SSE client_id lifecycle management",
+        "benefit": "No external message broker dependency"
+      },
+      {
+        "accept": "Ad-hoc AI provider selection via if/elif chains in graphs",
+        "benefit": "Simple; avoids over-engineering a registry for three providers"
+      }
+    ],
+    "out_of_scope": [
+      "WebSocket bidirectional communication",
+      "Celery/ARQ async task queue",
+      "Server-side rendering for web frontend",
+      "Redux or Zustand global state store"
+    ]
+  },
+  "components": {
+    "structure_type": "layered",
+    "components": [
+      {
+        "name": "API Routes",
+        "location": "tuck-in-tales-backend/src/routes/",
+        "responsibility": "FastAPI route handlers; delegates to graphs/services; returns JSON or SSE streams",
+        "platform": "backend",
+        "depends_on": [
+          "Authentication",
+          "Graph Layer",
+          "Service Layer",
+          "Supabase Client"
+        ],
+        "exposes_to": [
+          "web-frontend",
+          "mobile-frontend"
+        ],
+        "key_interfaces": [
+          {
+            "name": "stories router",
+            "methods": [
+              "POST /stories",
+              "GET /stories/{id}/stream"
+            ],
+            "description": "Story creation and SSE streaming endpoint"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "tuck-in-tales-backend/src/routes/stories.py",
+            "description": "Story generation + SSE streaming"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/routes/characters.py",
+            "description": "Character CRUD + avatar upload"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/routes/family.py",
+            "description": "Family management endpoints"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/routes/memories.py",
+            "description": "Memory logging endpoints"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/routes/prompts.py",
+            "description": "Prompt CRUD endpoints"
+          }
+        ]
+      },
+      {
+        "name": "Graph Layer",
+        "location": "tuck-in-tales-backend/src/graphs/",
+        "responsibility": "LangGraph StateGraph workflows for story, avatar, and memory AI operations",
+        "platform": "backend",
+        "depends_on": [
+          "LLM Clients",
+          "SSE Utility",
+          "Supabase Client",
+          "Prompt Resolver"
+        ],
+        "exposes_to": [
+          "API Routes"
+        ],
+        "key_interfaces": [
+          {
+            "name": "story_generator",
+            "methods": [
+              "run_story_generation(state)"
+            ],
+            "description": "Compiled LangGraph for multi-page story generation"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "tuck-in-tales-backend/src/graphs/story_generator.py",
+            "description": "Story outline → pages → images workflow"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/graphs/avatar_generator.py",
+            "description": "Photo analysis → avatar image workflow"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/graphs/memory_analyzer.py",
+            "description": "Memory text/photo analysis workflow"
+          }
+        ]
+      },
+      {
+        "name": "Authentication",
+        "location": "tuck-in-tales-backend/src/utils/auth.py",
+        "responsibility": "Verifies Firebase ID tokens; resolves or creates Supabase user records",
+        "platform": "backend",
+        "depends_on": [
+          "Firebase Admin SDK",
+          "Supabase Client",
+          "User Model"
+        ],
+        "exposes_to": [
+          "API Routes"
+        ],
+        "key_interfaces": [
+          {
+            "name": "verify_firebase_token",
+            "methods": [
+              "verify_firebase_token(token)"
+            ],
+            "description": "FastAPI Depends() callable returning UserData TypedDict"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "tuck-in-tales-backend/src/utils/auth.py",
+            "description": "Token verification + user provisioning"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/utils/firebase_admin_init.py",
+            "description": "Firebase Admin SDK init"
+          }
+        ]
+      },
+      {
+        "name": "SSE Utility",
+        "location": "tuck-in-tales-backend/src/utils/sse.py",
+        "responsibility": "asyncio.Queue registry keyed by client_id; emit and stream SSE events",
+        "platform": "backend",
+        "depends_on": [],
+        "exposes_to": [
+          "Graph Layer",
+          "API Routes"
+        ],
+        "key_interfaces": [
+          {
+            "name": "sse",
+            "methods": [
+              "send_sse_event(client_id, event, data)",
+              "sse_generator(client_id)"
+            ],
+            "description": "Push events to queue; yield formatted SSE strings to StreamingResponse"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "tuck-in-tales-backend/src/utils/sse.py",
+            "description": "Queue-based SSE event manager"
+          }
+        ]
+      },
+      {
+        "name": "LLM Clients",
+        "location": "tuck-in-tales-backend/src/utils/",
+        "responsibility": "Provider-specific wrappers for OpenAI, Gemini, Groq APIs",
+        "platform": "backend",
+        "depends_on": [
+          "Configuration"
+        ],
+        "exposes_to": [
+          "Graph Layer"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "tuck-in-tales-backend/src/utils/openai_client.py",
+            "description": "OpenAI chat + image client"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/utils/gemini_client.py",
+            "description": "Google Gemini client"
+          },
+          {
+            "file": "tuck-in-tales-backend/src/utils/groq_client.py",
+            "description": "Groq inference client"
+          }
+        ]
+      },
+      {
+        "name": "Web Frontend",
+        "location": "tuck-in-tales-frontend/src/",
+        "responsibility": "React SPA with pages, SSE hooks, and auth context for all app features",
+        "platform": "frontend",
+        "depends_on": [
+          "Backend API",
+          "Firebase Auth",
+          "Supabase"
+        ],
+        "exposes_to": [
+          "end users (browser)"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "tuck-in-tales-frontend/src/App.tsx",
+            "description": "Root router + AuthProvider + route config"
+          },
+          {
+            "file": "tuck-in-tales-frontend/src/api/client.ts",
+            "description": "Axios HTTP client with auth token injection"
+          },
+          {
+            "file": "tuck-in-tales-frontend/src/context/AuthContext.tsx",
+            "description": "Firebase auth state context"
+          },
+          {
+            "file": "tuck-in-tales-frontend/src/hooks/useSSEStream.ts",
+            "description": "Generic SSE EventSource hook"
+          }
+        ]
+      },
+      {
+        "name": "Mobile Frontend",
+        "location": "tuck-in-tales-mobile/",
+        "responsibility": "Expo Router mobile app with tab navigation, TanStack Query data fetching",
+        "platform": "frontend",
+        "depends_on": [
+          "Backend API",
+          "Firebase Auth",
+          "Supabase"
+        ],
+        "exposes_to": [
+          "end users (iOS/Android)"
+        ],
+        "key_interfaces": [],
+        "key_files": [
+          {
+            "file": "tuck-in-tales-mobile/App.tsx",
+            "description": "Expo entry point"
+          },
+          {
+            "file": "tuck-in-tales-mobile/app/_layout.tsx",
+            "description": "Root layout with auth gating"
+          },
+          {
+            "file": "tuck-in-tales-mobile/src/api/client.ts",
+            "description": "Axios HTTP client (mirrors web)"
+          },
+          {
+            "file": "tuck-in-tales-mobile/src/context/AuthContext.tsx",
+            "description": "Firebase auth state context"
+          }
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "interface_name": "Backend Pydantic models in tuck-in-tales-backend/src/models/ define API response shapes mirrored by TypeScript interfaces in tuck-in-tales-frontend/src/models/ and tuck-in-tales-mobile/src/models/",
+        "description": "Backend Pydantic models in tuck-in-tales-backend/src/models/ define API response shapes mirrored by TypeScript interfaces in tuck-in-tales-frontend/src/models/ and tuck-in-tales-mobile/src/models/",
+        "methods": [],
+        "properties": [],
+        "implementing_files": []
+      },
+      {
+        "interface_name": "SSE event types (chunk, status, done, error) are implicit contracts between utils/sse.py and frontend hooks (useSSEStream.ts, useStoryStream.ts)",
+        "description": "SSE event types (chunk, status, done, error) are implicit contracts between utils/sse.py and frontend hooks (useSSEStream.ts, useStoryStream.ts)",
+        "methods": [],
+        "properties": [],
+        "implementing_files": []
+      }
+    ]
+  },
+  "communication": {
+    "patterns": [
+      {
+        "name": "FastAPI Dependency Injection",
+        "when_to_use": "All protected backend routes requiring auth or DB client",
+        "how_it_works": "Depends() resolves verify_firebase_token() and get_supabase_client() per request",
+        "examples": [
+          "user_data: UserData = Depends(verify_firebase_token)",
+          "supabase: Client = Depends(get_supabase_client)"
+        ]
+      },
+      {
+        "name": "SSE Streaming",
+        "when_to_use": "Long-running AI generation (story, avatar, memory analysis)",
+        "how_it_works": "Graph nodes call send_sse_event(client_id, event, data); FastAPI returns StreamingResponse from sse_generator(client_id)",
+        "examples": [
+          "GET /stories/{id}/stream → useStoryStream.ts EventSource",
+          "GET /characters/{id}/stream → useAvatarStream.ts"
+        ]
+      },
+      {
+        "name": "REST + Axios",
+        "when_to_use": "All CRUD operations from web and mobile",
+        "how_it_works": "Axios instance in api/client.ts injects Firebase Bearer token from AuthContext",
+        "examples": [
+          "POST /characters",
+          "GET /stories",
+          "POST /memories"
+        ]
+      },
+      {
+        "name": "TanStack Query (mobile)",
+        "when_to_use": "Mobile data fetching with caching and background sync",
+        "how_it_works": "useQuery/useMutation hooks in hooks/queries/ wrap api/client.ts calls",
+        "examples": [
+          "useCharacters.ts",
+          "useStories.ts",
+          "useFamilyDetails.ts"
+        ]
+      },
+      {
+        "name": "LangGraph Node Execution",
+        "when_to_use": "All AI orchestration workflows",
+        "how_it_works": "Compiled StateGraph.stream(state) runs async nodes sequentially; nodes emit SSE events and update TypedDict state",
+        "examples": [
+          "story_generator.py outline→pages→images",
+          "avatar_generator.py analyze→generate"
+        ]
+      }
+    ],
+    "integrations": [
+      {
+        "service": "Firebase Authentication",
+        "purpose": "User identity; email/password + Google OAuth",
+        "integration_point": "Frontend: tuck-in-tales-frontend/src/firebaseConfig.ts, tuck-in-tales-mobile/src/config/firebase.ts; Backend: tuck-in-tales-backend/src/utils/firebase_admin_init.py"
+      },
+      {
+        "service": "Supabase (PostgreSQL + Storage)",
+        "purpose": "Primary DB for all domain data; avatar image storage",
+        "integration_point": "Backend: tuck-in-tales-backend/src/utils/supabase.py; Web: tuck-in-tales-frontend/src/utils/supabaseUtils.ts; Mobile: tuck-in-tales-mobile/src/config/supabase.ts"
+      },
+      {
+        "service": "OpenAI API",
+        "purpose": "Story text generation (gpt-4o-mini) and image generation (gpt-image-1)",
+        "integration_point": "tuck-in-tales-backend/src/utils/openai_client.py"
+      },
+      {
+        "service": "Google Gemini",
+        "purpose": "Alternative vision/text generation provider",
+        "integration_point": "tuck-in-tales-backend/src/utils/gemini_client.py"
+      },
+      {
+        "service": "Groq",
+        "purpose": "Low-latency LLM inference fallback",
+        "integration_point": "tuck-in-tales-backend/src/utils/groq_client.py"
+      }
+    ],
+    "pattern_selection_guide": [
+      {
+        "scenario": "New protected backend endpoint",
+        "pattern": "FastAPI Depends(verify_firebase_token) + Depends(get_supabase_client)",
+        "rationale": "Consistent auth and DB access pattern used across all existing routes"
+      },
+      {
+        "scenario": "Long-running AI generation with frontend progress",
+        "pattern": "LangGraph graph + SSE via sse.py + useSSEStream.ts hook",
+        "rationale": "Established pattern for story/avatar/memory generation"
+      },
+      {
+        "scenario": "Mobile data fetching",
+        "pattern": "TanStack Query hook in hooks/queries/",
+        "rationale": "Caching, background sync, loading/error states handled automatically"
+      }
+    ]
+  },
+  "quick_reference": {
+    "where_to_put_code": {
+      "new_backend_route": "tuck-in-tales-backend/src/routes/{domain}.py + register in tuck-in-tales-backend/src/main.py",
+      "new_ai_workflow": "tuck-in-tales-backend/src/graphs/{domain}_generator.py",
+      "new_backend_model": "tuck-in-tales-backend/src/models/{domain}.py",
+      "new_web_page": "tuck-in-tales-frontend/src/pages/{Domain}Page.tsx + route in tuck-in-tales-frontend/src/App.tsx",
+      "new_web_hook": "tuck-in-tales-frontend/src/hooks/use{Domain}.ts",
+      "new_mobile_screen": "tuck-in-tales-mobile/app/(tabs)/{screen}.tsx or tuck-in-tales-mobile/app/{path}.tsx",
+      "new_mobile_query": "tuck-in-tales-mobile/src/hooks/queries/use{Domain}.ts",
+      "shared_ui_component": "tuck-in-tales-frontend/src/components/ui/{component}.tsx (shadcn pattern)"
+    },
+    "pattern_selection": {
+      "streaming_generation": "LangGraph graph + send_sse_event + SSE route + useSSEStream hook",
+      "auth_protected_route": "Depends(verify_firebase_token) in route handler signature",
+      "mobile_data": "TanStack Query hook wrapping api/client.ts call",
+      "web_data": "Direct api/client.ts call in useEffect or custom hook",
+      "prompt_templating": "resolve_prompt(key, variables, supabase) from tuck-in-tales-backend/src/utils/prompt_resolver.py"
+    },
+    "error_mapping": [
+      {
+        "error": "Invalid Firebase token",
+        "status_code": 401,
+        "description": "verify_firebase_token raises HTTPException when token verification fails"
+      },
+      {
+        "error": "Missing AI provider API key",
+        "status_code": 500,
+        "description": "LLM client init raises error; check config.py environment variables"
+      },
+      {
+        "error": "Supabase query error",
+        "status_code": 500,
+        "description": "Supabase client returns error in .execute() response; routes should check and raise"
+      }
+    ]
+  },
+  "technology": {
+    "stack": [
+      {
+        "category": "backend_framework",
+        "name": "FastAPI",
+        "version": "latest",
+        "purpose": "REST API + SSE streaming endpoints"
+      },
+      {
+        "category": "ai_orchestration",
+        "name": "LangGraph",
+        "version": "latest",
+        "purpose": "Multi-step AI workflow StateGraph"
+      },
+      {
+        "category": "ai_provider",
+        "name": "OpenAI",
+        "version": "latest Python SDK",
+        "purpose": "gpt-4o-mini text + gpt-image-1 image generation"
+      },
+      {
+        "category": "ai_provider",
+        "name": "Google Generative AI",
+        "version": "latest",
+        "purpose": "Gemini vision/text generation"
+      },
+      {
+        "category": "ai_provider",
+        "name": "Groq",
+        "version": "latest Python SDK",
+        "purpose": "Low-latency LLM inference"
+      },
+      {
+        "category": "web_framework",
+        "name": "React",
+        "version": "18.x",
+        "purpose": "Web SPA UI"
+      },
+      {
+        "category": "mobile_framework",
+        "name": "React Native + Expo",
+        "version": "latest",
+        "purpose": "iOS/Android mobile app"
+      },
+      {
+        "category": "routing_mobile",
+        "name": "Expo Router",
+        "version": "latest",
+        "purpose": "File-based mobile routing"
+      },
+      {
+        "category": "routing_web",
+        "name": "React Router",
+        "version": "v6",
+        "purpose": "Web SPA client-side routing"
+      },
+      {
+        "category": "build_tool",
+        "name": "Vite",
+        "version": "5.x",
+        "purpose": "Web frontend build + HMR"
+      },
+      {
+        "category": "state_server",
+        "name": "TanStack Query",
+        "version": "^5.x",
+        "purpose": "HTTP caching + server state (web + mobile)"
+      },
+      {
+        "category": "ui_primitives",
+        "name": "Radix UI",
+        "version": "^1.x",
+        "purpose": "Unstyled accessible component primitives"
+      },
+      {
+        "category": "styling",
+        "name": "Tailwind CSS",
+        "version": "3.x",
+        "purpose": "Utility-first CSS for web"
+      },
+      {
+        "category": "validation",
+        "name": "Pydantic",
+        "version": "2.x",
+        "purpose": "Backend model validation + OpenAPI schema"
+      },
+      {
+        "category": "auth",
+        "name": "Firebase",
+        "version": "latest",
+        "purpose": "Frontend auth SDK + backend Admin token verification"
+      },
+      {
+        "category": "database",
+        "name": "Supabase",
+        "version": "latest",
+        "purpose": "PostgreSQL DB + storage + RLS"
+      },
+      {
+        "category": "http_client",
+        "name": "Axios",
+        "version": "latest",
+        "purpose": "HTTP client for web + mobile API calls"
+      },
+      {
+        "category": "dependency_mgmt",
+        "name": "Poetry",
+        "version": "latest",
+        "purpose": "Python dependency management"
+      }
+    ],
+    "templates": [
+      {
+        "component_type": "backend_route",
+        "description": "FastAPI router with auth + DB injection",
+        "file_path_template": "tuck-in-tales-backend/src/routes/{domain}.py",
+        "code": "router = APIRouter(prefix='/{domain}s', tags=['{domain}s'])\n@router.post('/')\nasync def create(user_data: UserData = Depends(verify_firebase_token), supabase: Client = Depends(get_supabase_client)):"
+      },
+      {
+        "component_type": "langgraph_node",
+        "description": "Async LangGraph node emitting SSE events",
+        "file_path_template": "tuck-in-tales-backend/src/graphs/{domain}_generator.py",
+        "code": "async def generate_node(state: DomainState) -> DomainState:\n    await send_sse_event(state['id'], 'status', {'msg': 'generating'})\n    return {**state, 'result': result}"
+      },
+      {
+        "component_type": "web_page",
+        "description": "React page component with auth-protected route",
+        "file_path_template": "tuck-in-tales-frontend/src/pages/{Domain}Page.tsx",
+        "code": "export default function {Domain}Page() {\n  const { user } = useAuth();\n  return <div>...</div>;\n}"
+      }
+    ],
+    "project_structure": "BedtimeApp/\n├── package.json          # root monorepo scripts (concurrently)\n├── package-lock.json\n├── DOCS/                 # architecture docs, plans, schema\n├── tuck-in-tales-backend/\n│   ├── src/\n│   │   ├── main.py\n│   │   ├── config.py\n│   │   ├── routes/       # characters, stories, family, memories, prompts\n│   │   ├── models/       # character, story, family, memory, user, prompt\n│   │   ├── graphs/       # story_generator, avatar_generator, memory_analyzer\n│   │   ├── services/     # family_service\n│   │   └── utils/        # auth, sse, supabase, llm clients, prompt_resolver\n│   └── tests/\n├── tuck-in-tales-frontend/\n│   ├── src/\n│   │   ├── App.tsx\n│   │   ├── pages/        # all route-level page components\n│   │   ├── components/   # ui/, Auth/, Layout/, prompts/\n│   │   ├── hooks/        # useSSEStream, useStoryStream, etc.\n│   │   ├── context/      # AuthContext\n│   │   ├── models/       # TS interfaces mirroring backend\n│   │   ├── api/          # client.ts\n│   │   └── utils/        # firebase, supabaseUtils\n│   └── _restore/         # legacy backend backup (do not modify)\n└── tuck-in-tales-mobile/\n    ├── App.tsx\n    ├── app/              # Expo Router: (auth)/, (tabs)/, story/[id].tsx\n    └── src/\n        ├── api/          # client.ts\n        ├── context/      # AuthContext\n        ├── hooks/        # queries/, useGoogleSignIn\n        ├── models/       # TS interfaces\n        ├── config/       # firebase, supabase\n        └── utils/        # supabaseUtils",
+    "run_commands": {
+      "dev_all": "npm run dev (root) — starts backend + web frontend concurrently",
+      "dev_backend": "cd tuck-in-tales-backend && poetry run uvicorn src.main:app --reload",
+      "dev_web": "cd tuck-in-tales-frontend && npm run dev",
+      "dev_mobile": "cd tuck-in-tales-mobile && npx expo start",
+      "test_backend": "cd tuck-in-tales-backend && poetry run pytest",
+      "build_web": "cd tuck-in-tales-frontend && npm run build (tsc -b && vite build)"
+    }
+  },
+  "frontend": {
+    "framework": "React 18.x (web) + React Native/Expo (mobile)",
+    "rendering_strategy": "CSR (web SPA via Vite) + Native compilation (mobile via Expo)",
+    "ui_components": [
+      {
+        "name": "AppLayout",
+        "location": "tuck-in-tales-frontend/src/components/Layout/AppLayout.tsx",
+        "component_type": "layout",
+        "description": "Authenticated route wrapper with Sidebar navigation",
+        "props": [
+          "children: React.ReactNode"
+        ],
+        "children": [
+          "Sidebar",
+          "page content"
+        ]
+      },
+      {
+        "name": "ProtectedRoute",
+        "location": "tuck-in-tales-frontend/src/components/Auth/ProtectedRoute.tsx",
+        "component_type": "shared",
+        "description": "Redirects unauthenticated users to /login using AuthContext",
+        "props": [
+          "children: React.ReactNode"
+        ],
+        "children": []
+      },
+      {
+        "name": "CharacterList",
+        "location": "tuck-in-tales-frontend/src/components/CharacterList.tsx",
+        "component_type": "feature",
+        "description": "Grid of character cards fetched from backend /characters",
+        "props": [
+          "characters: Character[]",
+          "onCharacterSelect?: (id: string) => void"
+        ],
+        "children": [
+          "character cards"
+        ]
+      },
+      {
+        "name": "StoryProgressPage",
+        "location": "tuck-in-tales-frontend/src/pages/StoryProgressPage.tsx",
+        "component_type": "page",
+        "description": "Real-time story generation viewer consuming useStoryStream SSE hook",
+        "props": [],
+        "children": [
+          "progress indicator",
+          "streaming page content"
+        ]
+      },
+      {
+        "name": "PromptEditor",
+        "location": "tuck-in-tales-frontend/src/components/prompts/PromptEditor.tsx",
+        "component_type": "feature",
+        "description": "Admin UI for editing AI prompt templates stored in Supabase",
+        "props": [],
+        "children": [
+          "MentionInput",
+          "form controls"
+        ]
+      },
+      {
+        "name": "Sidebar",
+        "location": "tuck-in-tales-frontend/src/components/Layout/Sidebar.tsx",
+        "component_type": "shared",
+        "description": "Main nav with links to Characters, Stories, Memories, Family, Prompts",
+        "props": [],
+        "children": [
+          "navigation links"
+        ]
+      },
+      {
+        "name": "LoginForm",
+        "location": "tuck-in-tales-frontend/src/components/Auth/LoginForm.tsx",
+        "component_type": "feature",
+        "description": "Firebase-backed login form (email/password + Google OAuth)",
+        "props": [],
+        "children": [
+          "input fields",
+          "submit button"
+        ]
+      }
+    ],
+    "state_management": {
+      "approach": "React Context for auth; TanStack Query for server state; local useState for form/UI state",
+      "global_state": [
+        {
+          "description": "AuthContext (user, token, login/logout) in tuck-in-tales-frontend/src/context/AuthContext.tsx"
+        }
+      ],
+      "server_state": "TanStack Query @tanstack/react-query v5 for mobile; direct axios calls + useState for web",
+      "local_state": "React useState/useReducer in page components for forms and UI state",
+      "rationale": "No Redux/Zustand needed; auth is the only cross-cutting global state"
+    },
+    "routing": [
+      {
+        "path": "/",
+        "component": "HomePage (inline in App.tsx)",
+        "description": "Public landing page",
+        "auth_required": false
+      },
+      {
+        "path": "/login",
+        "component": "tuck-in-tales-frontend/src/pages/LoginPage.tsx",
+        "description": "Firebase auth login",
+        "auth_required": false
+      },
+      {
+        "path": "/characters",
+        "component": "tuck-in-tales-frontend/src/pages/CharactersPage.tsx",
+        "description": "Character list",
+        "auth_required": true
+      },
+      {
+        "path": "/characters/create",
+        "component": "tuck-in-tales-frontend/src/pages/CharacterCreationPage.tsx",
+        "description": "Create character + avatar generation",
+        "auth_required": true
+      },
+      {
+        "path": "/stories/generate",
+        "component": "tuck-in-tales-frontend/src/pages/StoryGenerationPage.tsx",
+        "description": "Story generation form",
+        "auth_required": true
+      },
+      {
+        "path": "/stories/:storyId",
+        "component": "tuck-in-tales-frontend/src/pages/StoryProgressPage.tsx",
+        "description": "Real-time story generation progress",
+        "auth_required": true
+      },
+      {
+        "path": "/stories/list",
+        "component": "tuck-in-tales-frontend/src/pages/StoryListPage.tsx",
+        "description": "All stories list",
+        "auth_required": true
+      },
+      {
+        "path": "/memories",
+        "component": "tuck-in-tales-frontend/src/pages/MemoryLoggingPage.tsx",
+        "description": "Memory logging",
+        "auth_required": true
+      },
+      {
+        "path": "/family",
+        "component": "tuck-in-tales-frontend/src/pages/FamilyPage.tsx",
+        "description": "Family management",
+        "auth_required": true
+      },
+      {
+        "path": "/prompts",
+        "component": "tuck-in-tales-frontend/src/pages/PromptsPage.tsx",
+        "description": "Prompt admin",
+        "auth_required": true
+      }
+    ],
+    "data_fetching": [
+      {
+        "name": "useSSEStream",
+        "mechanism": "Browser EventSource API via custom hook",
+        "when_to_use": "Any real-time streaming from backend (story, avatar, memory analysis)",
+        "examples": [
+          "tuck-in-tales-frontend/src/hooks/useSSEStream.ts base hook",
+          "tuck-in-tales-frontend/src/hooks/useStoryStream.ts domain wrapper"
+        ]
+      },
+      {
+        "name": "TanStack Query (mobile)",
+        "mechanism": "useQuery/useMutation wrapping axios client",
+        "when_to_use": "All mobile data fetching with caching requirements",
+        "examples": [
+          "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts",
+          "tuck-in-tales-mobile/src/hooks/queries/useStories.ts"
+        ]
+      },
+      {
+        "name": "Direct Axios (web)",
+        "mechanism": "api/client.ts Axios instance with Bearer token interceptor",
+        "when_to_use": "Web CRUD operations; called from useEffect or event handlers",
+        "examples": [
+          "tuck-in-tales-frontend/src/api/client.ts"
+        ]
+      }
+    ],
+    "styling": "Tailwind CSS utility-first + Radix UI unstyled primitives + shadcn/ui component patterns (CVA variants, clsx merging) — web only; mobile uses React Native native styles",
+    "key_conventions": [
+      "Web UI components in components/ui/ follow shadcn/ui pattern with class-variance-authority",
+      "All page components go in src/pages/{Domain}Page.tsx",
+      "SSE hooks composed from useSSEStream.ts base with domain-specific wrappers",
+      "Mobile routes defined by file structure under app/ following Expo Router conventions",
+      "Auth token injected automatically by api/client.ts; never manually add Authorization headers"
+    ]
+  },
+  "developer_recipes": [
+    {
+      "task": "Add a new AI-powered feature with streaming progress",
+      "files": [
+        "tuck-in-tales-backend/src/graphs/story_generator.py",
+        "tuck-in-tales-backend/src/utils/sse.py",
+        "tuck-in-tales-backend/src/routes/stories.py",
+        "tuck-in-tales-frontend/src/hooks/useSSEStream.ts",
+        "tuck-in-tales-frontend/src/hooks/useStoryStream.ts"
+      ],
+      "steps": [
+        "1. Create tuck-in-tales-backend/src/graphs/{domain}_generator.py with LangGraph StateGraph; nodes call send_sse_event(client_id, 'chunk'/'status'/'done', data)",
+        "2. Add SSE route in tuck-in-tales-backend/src/routes/{domain}.py: POST to start generation, GET /{id}/stream returns StreamingResponse(sse_generator(id))",
+        "3. Register router in tuck-in-tales-backend/src/main.py",
+        "4. Create tuck-in-tales-frontend/src/hooks/use{Domain}Stream.ts extending useSSEStream.ts with domain-specific event handlers",
+        "5. Use hook in tuck-in-tales-frontend/src/pages/{Domain}Page.tsx to display real-time progress"
+      ]
+    },
+    {
+      "task": "Add a new backend CRUD resource",
+      "files": [
+        "tuck-in-tales-backend/src/models/character.py",
+        "tuck-in-tales-backend/src/routes/characters.py",
+        "tuck-in-tales-backend/src/main.py",
+        "tuck-in-tales-frontend/src/models/character.ts",
+        "tuck-in-tales-frontend/src/api/client.ts"
+      ],
+      "steps": [
+        "1. Create Pydantic model in tuck-in-tales-backend/src/models/{domain}.py",
+        "2. Create route file in tuck-in-tales-backend/src/routes/{domain}.py with Depends(verify_firebase_token) and Depends(get_supabase_client) on each handler",
+        "3. Register router in tuck-in-tales-backend/src/main.py: app.include_router({domain}_router)",
+        "4. Mirror TypeScript interface in tuck-in-tales-frontend/src/models/{domain}.ts and tuck-in-tales-mobile/src/models/{domain}.ts",
+        "5. Add mobile query hook in tuck-in-tales-mobile/src/hooks/queries/use{Domain}s.ts"
+      ]
+    },
+    {
+      "task": "Add a new web page with protected route",
+      "files": [
+        "tuck-in-tales-frontend/src/pages/CharactersPage.tsx",
+        "tuck-in-tales-frontend/src/App.tsx",
+        "tuck-in-tales-frontend/src/components/Layout/Sidebar.tsx"
+      ],
+      "steps": [
+        "1. Create tuck-in-tales-frontend/src/pages/{Domain}Page.tsx as a React functional component",
+        "2. Add route in tuck-in-tales-frontend/src/App.tsx inside the AppLayout ProtectedRoute wrapper: <Route path='/{domain}' element={<{Domain}Page />} />",
+        "3. Add navigation link in tuck-in-tales-frontend/src/components/Layout/Sidebar.tsx"
+      ]
+    },
+    {
+      "task": "Add a new mobile tab screen",
+      "files": [
+        "tuck-in-tales-mobile/app/(tabs)/_layout.tsx",
+        "tuck-in-tales-mobile/app/(tabs)/characters.tsx",
+        "tuck-in-tales-mobile/src/hooks/queries/useCharacters.ts"
+      ],
+      "steps": [
+        "1. Create tuck-in-tales-mobile/app/(tabs)/{screen}.tsx as Expo Router screen component",
+        "2. Add tab entry in tuck-in-tales-mobile/app/(tabs)/_layout.tsx TabList",
+        "3. Create data hook in tuck-in-tales-mobile/src/hooks/queries/use{Domain}.ts using TanStack Query useQuery wrapping api/client.ts"
+      ]
+    }
+  ],
+  "architecture_diagram": "graph TD\n    FE[Web Frontend<br/>React/Vite SPA] -->|REST + Bearer token| API\n    MOB[Mobile App<br/>React Native/Expo] -->|REST + Bearer token| API\n    FE -->|EventSource SSE| SSE_ROUTE[SSE Endpoints]\n    API[FastAPI Routes<br/>routes/] --> AUTH[Auth Middleware<br/>utils/auth.py]\n    API --> GRAPHS[LangGraph Graphs<br/>graphs/]\n    API --> SVC[Service Layer<br/>services/]\n    AUTH --> FB[Firebase Admin SDK]\n    AUTH --> SB[(Supabase PostgreSQL)]\n    GRAPHS --> LLM[LLM Clients<br/>OpenAI/Gemini/Groq]\n    GRAPHS --> SSE_UTIL[SSE Utility<br/>utils/sse.py]\n    SSE_UTIL --> SSE_ROUTE\n    GRAPHS --> PR[Prompt Resolver<br/>utils/prompt_resolver.py]\n    PR --> SB\n    SVC --> SB\n    API --> SB\n    FE -->|Firebase SDK| FB_AUTH[Firebase Auth]\n    MOB -->|Firebase SDK| FB_AUTH",
+  "pitfalls": [
+    {
+      "area": "SSE connection lifecycle",
+      "description": "If a LangGraph graph node raises an exception without calling send_sse_event(client_id, 'error', ...) first, the frontend EventSource in useSSEStream.ts will hang indefinitely waiting for a terminal event",
+      "recommendation": "Wrap all graph nodes in try/except; always emit 'error' or 'done' event before re-raising. Check tuck-in-tales-backend/src/utils/sse.py terminal event handling."
+    },
+    {
+      "area": "Firebase token + Supabase user sync",
+      "description": "verify_firebase_token in tuck-in-tales-backend/src/utils/auth.py calls get_or_create_supabase_user on every request; if Supabase is slow this adds latency to all authenticated calls",
+      "recommendation": "Consider caching user lookups in-memory with TTL; or use Supabase's JWT verification directly to skip the extra DB call on subsequent requests"
+    },
+    {
+      "area": "_restore directory",
+      "description": "tuck-in-tales-frontend/_restore/backend-src/ contains legacy backend code that mirrors tuck-in-tales-backend/src/; changes to active backend are NOT reflected in _restore and vice versa",
+      "recommendation": "Never import from _restore/; treat it as read-only historical reference. See tuck-in-tales-frontend/RESTORE-GUIDE.md for context."
+    },
+    {
+      "area": "AI provider selection",
+      "description": "Provider routing in story_generator.py uses if/elif on provider string from prompt config; adding a new provider requires editing graph files directly",
+      "recommendation": "When adding a new LLM provider, update tuck-in-tales-backend/src/utils/ with a new client module AND update all if/elif chains in tuck-in-tales-backend/src/graphs/"
+    },
+    {
+      "area": "Mobile vs web data fetching divergence",
+      "description": "Mobile uses TanStack Query hooks (hooks/queries/) with caching; web uses direct axios calls with manual useState — same API, different caching semantics",
+      "recommendation": "When adding a new API call, create TanStack Query hook for mobile in tuck-in-tales-mobile/src/hooks/queries/; for web consider adding useQuery wrapper for consistency"
+    }
+  ],
+  "implementation_guidelines": [
+    {
+      "capability": "Firebase Auth + Backend Token Verification",
+      "category": "auth",
+      "libraries": [
+        "firebase-admin",
+        "firebase/auth"
+      ],
+      "pattern_description": "Frontend obtains Firebase ID token via auth.currentUser.getIdToken(); token sent as Bearer in Authorization header; backend Depends(verify_firebase_token) in auth.py validates via Firebase Admin SDK and provisions Supabase user on first login",
+      "key_files": [
+        "tuck-in-tales-backend/src/utils/auth.py",
+        "tuck-in-tales-backend/src/utils/firebase_admin_init.py",
+        "tuck-in-tales-frontend/src/context/AuthContext.tsx",
+        "tuck-in-tales-frontend/src/firebaseConfig.ts",
+        "tuck-in-tales-mobile/src/context/AuthContext.tsx",
+        "tuck-in-tales-mobile/src/config/firebase.ts"
+      ],
+      "usage_example": "@router.post('/') async def create(user_data: UserData = Depends(verify_firebase_token))",
+      "tips": [
+        "Token refresh is handled by Firebase SDK; use onAuthStateChanged for reactive updates",
+        "api/client.ts on both platforms injects token automatically; never add Authorization manually",
+        "get_or_create_supabase_user() is called per request; profile data is in Supabase, not Firebase"
+      ]
+    },
+    {
+      "capability": "SSE Streaming for Generation Progress",
+      "category": "networking",
+      "libraries": [
+        "asyncio",
+        "FastAPI StreamingResponse",
+        "EventSource (browser)"
+      ],
+      "pattern_description": "asyncio.Queue registry in sse.py keyed by client_id; graph nodes call send_sse_event(id, event, data); route exposes GET /{id}/stream returning StreamingResponse(sse_generator(id)); frontend useSSEStream.ts opens EventSource and dispatches named events",
+      "key_files": [
+        "tuck-in-tales-backend/src/utils/sse.py",
+        "tuck-in-tales-frontend/src/hooks/useSSEStream.ts",
+        "tuck-in-tales-frontend/src/hooks/useStoryStream.ts",
+        "tuck-in-tales-frontend/src/hooks/useAvatarStream.ts",
+        "tuck-in-tales-frontend/src/hooks/useMemoryStream.ts"
+      ],
+      "usage_example": "const { pages, isStreaming } = useStoryStream(storyId);",
+      "tips": [
+        "client_id must match between graph state and frontend hook parameter (typically story_id or character_id)",
+        "Always emit terminal event ('done'/'error') from graph nodes to close EventSource",
+        "SSE is unidirectional; use REST for any client→server communication during streaming"
+      ]
+    },
+    {
+      "capability": "LangGraph AI Workflow Orchestration",
+      "category": "state_management",
+      "libraries": [
+        "langgraph"
+      ],
+      "pattern_description": "StateGraph compiled with async nodes; state flows as TypedDict; nodes invoke LLM clients, emit SSE events, update Supabase; graph invoked from route handlers via compiled_graph.stream(initial_state)",
+      "key_files": [
+        "tuck-in-tales-backend/src/graphs/story_generator.py",
+        "tuck-in-tales-backend/src/graphs/avatar_generator.py",
+        "tuck-in-tales-backend/src/graphs/memory_analyzer.py"
+      ],
+      "usage_example": "workflow = StateGraph(StoryState); workflow.add_node('generate', node_fn); app = workflow.compile()",
+      "tips": [
+        "Use asyncio.to_thread() for sync Supabase client calls within async nodes",
+        "State TypedDict must be defined before graph compilation",
+        "Emit SSE status events at start of each node for frontend progress indication"
+      ]
+    },
+    {
+      "capability": "Multi-Provider AI Client Abstraction",
+      "category": "networking",
+      "libraries": [
+        "openai",
+        "google-generativeai",
+        "groq"
+      ],
+      "pattern_description": "Separate client modules per provider; IMAGE_GENERATION_PROVIDER env var in config.py selects provider at runtime; graphs use if/elif to route to correct client; FALLBACK_DEFAULTS in prompt_resolver.py specify per-prompt provider",
+      "key_files": [
+        "tuck-in-tales-backend/src/config.py",
+        "tuck-in-tales-backend/src/utils/openai_client.py",
+        "tuck-in-tales-backend/src/utils/gemini_client.py",
+        "tuck-in-tales-backend/src/utils/groq_client.py",
+        "tuck-in-tales-backend/src/utils/prompt_resolver.py"
+      ],
+      "usage_example": "if settings.IMAGE_GENERATION_PROVIDER == 'OPENAI': await openai_client.generate_image(desc)",
+      "tips": [
+        "All API keys loaded via pydantic-settings BaseSettings in config.py from environment",
+        "Missing optional provider keys (GROQ_API_KEY) won't break startup; only fail at call time",
+        "Avatar uses Gemini vision for analysis; OpenAI gpt-image-1 for generation by default"
+      ]
+    },
+    {
+      "capability": "Prompt Template Resolution with Caching",
+      "category": "state_management",
+      "libraries": [
+        "functools"
+      ],
+      "pattern_description": "resolve_prompt(key, variables, supabase) in prompt_resolver.py fetches prompt config from Supabase 'prompts' table, caches with TTL, performs ${variable} substitution; falls back to FALLBACK_DEFAULTS dict if DB row missing",
+      "key_files": [
+        "tuck-in-tales-backend/src/utils/prompt_resolver.py",
+        "tuck-in-tales-backend/src/models/prompt.py",
+        "tuck-in-tales-frontend/src/components/prompts/PromptEditor.tsx",
+        "tuck-in-tales-frontend/src/pages/PromptsPage.tsx"
+      ],
+      "usage_example": "prompt_config = await resolve_prompt('story_generation', {'character': name}, supabase)",
+      "tips": [
+        "PromptEditor/PromptPlayground in web frontend allows live editing of prompt templates in Supabase",
+        "FALLBACK_DEFAULTS in prompt_resolver.py must be updated when adding new prompt keys",
+        "Cache TTL is ~60s; changes to prompts in Supabase are reflected within 1 minute"
+      ]
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "code_style",
+      "rule": "Always use FastAPI Depends(verify_firebase_token) and Depends(get_supabase_client) on every protected route handler — never access Firebase or Supabase directly in route function bodies without dependency injection",
+      "source": "tuck-in-tales-backend/src/utils/auth.py, tuck-in-tales-backend/src/utils/supabase.py"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always emit a terminal SSE event ('done' or 'error') from every LangGraph graph node execution path — never leave an SSE queue open without a terminal signal",
+      "source": "tuck-in-tales-backend/src/utils/sse.py, tuck-in-tales-backend/src/graphs/story_generator.py"
+    },
+    {
+      "category": "environment",
+      "rule": "Never hardcode AI provider API keys or Firebase credentials — all secrets must be loaded via pydantic-settings BaseSettings in config.py from environment variables",
+      "source": "tuck-in-tales-backend/src/config.py"
+    },
+    {
+      "category": "code_style",
+      "rule": "Never import from or modify tuck-in-tales-frontend/_restore/ — it is a read-only legacy backup; all active backend code lives exclusively in tuck-in-tales-backend/src/",
+      "source": "tuck-in-tales-frontend/RESTORE-GUIDE.md"
+    },
+    {
+      "category": "testing",
+      "rule": "Backend tests use pytest with fixtures defined in conftest.py — always add new route tests to tuck-in-tales-backend/tests/routes/ following the pattern in test_characters.py",
+      "source": "tuck-in-tales-backend/tests/conftest.py, tuck-in-tales-backend/tests/routes/test_characters.py"
+    },
+    {
+      "category": "code_style",
+      "rule": "When adding a new LangGraph AI workflow, mirror domain model names exactly between tuck-in-tales-backend/src/models/{domain}.py (Pydantic) and tuck-in-tales-frontend/src/models/{domain}.ts (TypeScript interface)",
+      "source": "tuck-in-tales-backend/src/models/character.py, tuck-in-tales-frontend/src/models/character.ts"
+    }
+  ],
+  "deployment": {
+    "runtime_environment": "Backend: Python/Uvicorn server (Poetry); Web: Browser SPA (Vite build); Mobile: iOS/Android native via Expo",
+    "compute_services": [
+      "Uvicorn ASGI server (backend)",
+      "Vite dev/static build (web)",
+      "Expo EAS or Expo Go (mobile)"
+    ],
+    "container_runtime": "Not detected; no Dockerfile found",
+    "orchestration": "None detected; single Uvicorn process",
+    "serverless_functions": "Firebase Cloud Functions capability available (Firebase dependency) but not implemented in this codebase",
+    "ci_cd": [],
+    "distribution": [
+      "Web: Vite static build output for CDN/static hosting",
+      "Mobile: Expo build (EAS) for App Store / Google Play"
+    ],
+    "infrastructure_as_code": "tuck-in-tales-frontend/supabase-migration.sql (Supabase schema migrations)",
+    "supporting_services": [
+      "Supabase (PostgreSQL + Storage + RLS)",
+      "Firebase (Auth + Admin SDK)",
+      "OpenAI API",
+      "Google Gemini API",
+      "Groq API"
+    ],
+    "environment_config": "Backend: .env loaded via pydantic-settings (FIREBASE_CREDENTIALS, SUPABASE_URL/KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY); Web: VITE_FIREBASE_*, VITE_BACKEND_URL; Mobile: EXPO_PUBLIC_FIREBASE_*, EXPO_PUBLIC_BACKEND_URL",
+    "key_files": [
+      "tuck-in-tales-backend/src/config.py",
+      "tuck-in-tales-frontend/vite.config.ts",
+      "tuck-in-tales-frontend/supabase-migration.sql",
+      "tuck-in-tales-mobile/babel.config.js"
+    ]
+  }
+}

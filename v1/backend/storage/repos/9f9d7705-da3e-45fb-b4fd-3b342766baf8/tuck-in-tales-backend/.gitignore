@@ -1,0 +1,17 @@
+# Environment variables
+.env
+
+# Poetry
+.venv/
+*.pyc
+__pycache__/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS specific
+.DS_Store
+
+# Secrets / Service Account Keys
+firebase-service-account.json 

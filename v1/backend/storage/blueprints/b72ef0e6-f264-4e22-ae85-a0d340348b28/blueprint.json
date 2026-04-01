@@ -1,0 +1,1014 @@
+{
+  "meta": {
+    "repository": "local/BabyWeather.Android",
+    "repository_id": "babyweather-android",
+    "analyzed_at": "2024-01-15T00:00:00Z",
+    "schema_version": "2.0.0",
+    "architecture_style": "Feature-sliced MVVM with centralized domain layer and Koin DI",
+    "platforms": [
+      "mobile-android"
+    ],
+    "executive_summary": "BabyWeather.Android is a native Android app providing weather-based clothing recommendations for babies. Built with Kotlin, Jetpack (Navigation, ViewModel, Flow), and Koin DI. Architecture uses feature-sliced modules (page_*) each owning Fragment, ViewModel, Controller, and Koin module. Domain layer centralizes repository interfaces and REST API communication via Retrofit+Moshi. Firebase suite handles analytics, crash reporting, and remote config; RevenueCat manages subscriptions.",
+    "confidence": {
+      "architecture_rules": 0.95,
+      "decisions": 0.92,
+      "components": 0.93,
+      "communication": 0.91,
+      "technology": 0.95,
+      "frontend": 0.93,
+      "deployment": 0.9
+    }
+  },
+  "architecture_rules": {
+    "file_placement_rules": [
+      {
+        "component_type": "feature_module",
+        "naming_pattern": "page_<feature>/",
+        "location": "app/src/main/java/com/bitraptors/babyweather/page_<feature>/",
+        "example": "page_dashboard/fragment/DashboardFragment.kt",
+        "description": "Each feature owns fragment, viewmodel, controller, cells, dialogs, and Koin module"
+      },
+      {
+        "component_type": "koin_module",
+        "naming_pattern": "Modules<Feature>.kt",
+        "location": "app/src/main/java/com/bitraptors/babyweather/page_<feature>/",
+        "example": "page_dashboard/ModulesDashboard.kt",
+        "description": "Koin DI module per feature; registered in BabyWeatherApplication"
+      },
+      {
+        "component_type": "repository",
+        "naming_pattern": "<Name>Repository.kt / <Name>RepositoryImpl.kt",
+        "location": "app/src/main/java/com/bitraptors/babyweather/common/domain/repository/",
+        "example": "common/domain/repository/home/LocationRepository.kt",
+        "description": "Interface+impl pair in domain layer; never in feature modules"
+      },
+      {
+        "component_type": "recycler_cell",
+        "naming_pattern": "cell_<name>.xml + <Name>Cell.kt",
+        "location": "app/src/main/res/layout/ + page_<feature>/cells/",
+        "example": "cell_dashboard_piece_of_clothing.xml",
+        "description": "XML layout paired with adapterDelegateViewBinding cell class"
+      },
+      {
+        "component_type": "build_version",
+        "naming_pattern": "object <Category> in Dependencies.kt",
+        "location": "buildSrc/src/main/kotlin/Dependencies.kt",
+        "example": "AndroidSdk.compileApi, Network.retrofit",
+        "description": "All dependency versions centralized in buildSrc; never hardcode in build.gradle.kts"
+      },
+      {
+        "component_type": "environment_config",
+        "naming_pattern": "google-services.json per source set",
+        "location": "app/src/debug/ | app/src/release/ | app/src/staging/",
+        "example": "app/src/staging/google-services.json",
+        "description": "Firebase config is variant-specific; main sourceset has no google-services.json"
+      }
+    ],
+    "naming_conventions": [
+      {
+        "scope": "kotlin_classes",
+        "pattern": "PascalCase with role suffix",
+        "examples": [
+          "DashboardViewModel",
+          "LoginController",
+          "LocationRepository"
+        ],
+        "description": "Class name encodes both domain and architectural role"
+      },
+      {
+        "scope": "layout_files",
+        "pattern": "<type>_<feature>_<element>.xml",
+        "examples": [
+          "fragment_dashboard.xml",
+          "cell_settings_baby_item.xml",
+          "dialog_login.xml"
+        ],
+        "description": "Prefix: fragment_, cell_, dialog_, view_, layout_"
+      },
+      {
+        "scope": "build_types",
+        "pattern": "lowercase: debug | staging | release",
+        "examples": [
+          "buildTypes.debug",
+          "buildTypes.staging",
+          "buildTypes.release"
+        ],
+        "description": "Three build variants; staging uses production Firebase but debug API key"
+      },
+      {
+        "scope": "flow_fields",
+        "pattern": "_<name> private MutableXFlow, <name> public immutable",
+        "examples": [
+          "_currentPage / currentPage",
+          "_loginSheetState / loginSheetState"
+        ],
+        "description": "Encapsulate mutable flows; expose read-only counterparts"
+      }
+    ]
+  },
+  "decisions": {
+    "architectural_style": {
+      "title": "Feature-sliced MVVM with centralized domain",
+      "chosen": "page_* feature modules each own UI+state+DI; shared domain layer owns repositories",
+      "rationale": "Enables team parallelization on features while sharing API/business logic",
+      "alternatives_rejected": [
+        "Single-module monolith",
+        "MVI with Redux-style store"
+      ]
+    },
+    "key_decisions": [
+      {
+        "title": "Koin over Hilt for DI",
+        "chosen": "Koin service locator with module-per-feature composition",
+        "rationale": "Simpler setup, no annotation processing overhead, fits Kotlin-first approach",
+        "alternatives_rejected": [
+          "Hilt (requires more boilerplate)",
+          "Dagger 2"
+        ]
+      },
+      {
+        "title": "Controller pattern alongside ViewModel",
+        "chosen": "Controllers (MainController, LoginController) orchestrate cross-cutting concerns",
+        "rationale": "Separates analytics/navigation side-effects from pure UI state in ViewModel",
+        "alternatives_rejected": [
+          "All logic in ViewModel",
+          "UseCase-only pattern"
+        ]
+      },
+      {
+        "title": "RevenueCat for subscriptions",
+        "chosen": "RevenueCat SDK abstracts Google Play Billing",
+        "rationale": "Cross-platform abstraction, receipt validation, entitlement management",
+        "alternatives_rejected": [
+          "Direct Google Play Billing Library"
+        ]
+      },
+      {
+        "title": "Sealed state machines for auth/nav",
+        "chosen": "LoginSheetState, LoginState sealed interfaces drive state transitions",
+        "rationale": "Type-safe exhaustive state handling prevents illegal state combinations",
+        "alternatives_rejected": [
+          "Boolean flags",
+          "Enum-based states"
+        ]
+      },
+      {
+        "title": "buildSrc Kotlin DSL for dependency management",
+        "chosen": "Centralized version objects in buildSrc/src/main/kotlin/Dependencies.kt",
+        "rationale": "Single source of truth for versions; IDE autocomplete; no hardcoded strings",
+        "alternatives_rejected": [
+          "Version catalog (libs.versions.toml)",
+          "Hardcoded versions"
+        ]
+      }
+    ],
+    "trade_offs": [
+      {
+        "accept": "Koin runtime resolution vs compile-time safety",
+        "benefit": "Faster build times and simpler module composition"
+      },
+      {
+        "accept": "XML layouts over full Compose adoption",
+        "benefit": "Stable, battle-tested UI with MotionLayout/ConstraintLayout animations"
+      },
+      {
+        "accept": "Signing credentials in build.gradle.kts (security risk)",
+        "benefit": "Simplified local builds; CI overrides via Azure Pipelines variable groups"
+      }
+    ],
+    "out_of_scope": [
+      "No backend/server code in this repository",
+      "No iOS, Flutter, or React Native code",
+      "No web frontend"
+    ]
+  },
+  "components": {
+    "structure_type": "Feature-sliced modular monorepo (single Android app module)",
+    "components": [
+      {
+        "name": "Application/Process Layer",
+        "location": "app/src/main/java/com/bitraptors/babyweather/",
+        "responsibility": "Koin DI init, process lifecycle, analytics/crash setup, dark mode init",
+        "platform": "frontend",
+        "depends_on": [
+          "Domain Layer",
+          "Infrastructure/SDK Layer"
+        ],
+        "exposes_to": [
+          "All layers via Koin singletons"
+        ],
+        "key_interfaces": [
+          {
+            "name": "BabyWeatherApplication",
+            "methods": [
+              "onCreate()",
+              "onStateChanged(source, event)"
+            ],
+            "description": "Composes all Koin modules; observes ProcessLifecycleOwner"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "app/src/main/AndroidManifest.xml",
+            "description": "App manifest, permissions, activity declarations"
+          }
+        ]
+      },
+      {
+        "name": "Activity/Navigation Layer",
+        "location": "app/src/main/java/com/bitraptors/babyweather/activity_main/",
+        "responsibility": "NavController host, bottom nav, global dialogs, theme observation",
+        "platform": "frontend",
+        "depends_on": [
+          "Feature Layer",
+          "Domain Layer"
+        ],
+        "exposes_to": [
+          "Feature modules via NavController and shared event flows"
+        ],
+        "key_interfaces": [
+          {
+            "name": "MainController",
+            "methods": [
+              "setCurrentPage(pageId)",
+              "navigateToTips()",
+              "navigateToNewBaby()"
+            ],
+            "description": "Exposes navigation SharedFlows and current page StateFlow"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "app/src/main/res/navigation/navigation_main.xml",
+            "description": "Full app navigation graph"
+          },
+          {
+            "file": "app/src/main/res/layout/activity_main.xml",
+            "description": "Root layout with NavHostFragment and bottom nav"
+          }
+        ]
+      },
+      {
+        "name": "Feature Layer (page_*)",
+        "location": "app/src/main/java/com/bitraptors/babyweather/page_*/",
+        "responsibility": "User-facing screens: dashboard, locations, settings, tips, baby profiles, subscriptions",
+        "platform": "frontend",
+        "depends_on": [
+          "Domain Layer",
+          "Common/Shared Layer"
+        ],
+        "exposes_to": [
+          "Activity/Navigation Layer via nav events and shared flows"
+        ],
+        "key_interfaces": [
+          {
+            "name": "DashboardViewModel",
+            "methods": [
+              "refreshDashboard()",
+              "selectBaby(babyId)",
+              "toggleTemperatureType()"
+            ],
+            "description": "Manages weather display state and baby profile selection"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "app/src/main/res/layout/fragment_dashboard.xml",
+            "description": "Home screen layout"
+          },
+          {
+            "file": "app/src/main/res/layout/fragment_settings.xml",
+            "description": "Settings screen layout"
+          }
+        ]
+      },
+      {
+        "name": "Domain Layer",
+        "location": "app/src/main/java/com/bitraptors/babyweather/common/domain/",
+        "responsibility": "Repository interfaces, domain entities, DataSource abstraction, API DTOs",
+        "platform": "frontend",
+        "depends_on": [
+          "Infrastructure/SDK Layer"
+        ],
+        "exposes_to": [
+          "Feature Layer",
+          "Activity/Navigation Layer"
+        ],
+        "key_interfaces": [
+          {
+            "name": "LocationRepository",
+            "methods": [
+              "fetchHomeData()",
+              "currentLocationTimeFlow",
+              "searchLocations(query)"
+            ],
+            "description": "Weather data access; exposes time-of-day flow for theme switching"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "app/src/main/res/xml/network_security_config.xml",
+            "description": "Network security policy"
+          },
+          {
+            "file": "app/src/main/res/xml/remote_config_defaults.xml",
+            "description": "Firebase Remote Config defaults"
+          }
+        ]
+      },
+      {
+        "name": "Build Configuration",
+        "location": "buildSrc/src/main/kotlin/",
+        "responsibility": "Centralized version management, dependency declarations, build plugins",
+        "platform": "shared",
+        "depends_on": [],
+        "exposes_to": [
+          "app/build.gradle.kts"
+        ],
+        "key_interfaces": [
+          {
+            "name": "Dependencies.kt objects",
+            "methods": [
+              "AndroidSdk.*",
+              "Network.*",
+              "Firebase.*"
+            ],
+            "description": "Version constants and dependency strings"
+          }
+        ],
+        "key_files": [
+          {
+            "file": "buildSrc/src/main/kotlin/Dependencies.kt",
+            "description": "All dependency version constants"
+          },
+          {
+            "file": "buildSrc/src/main/kotlin/Release.kt",
+            "description": "versionCode and versionName"
+          },
+          {
+            "file": "app/build.gradle.kts",
+            "description": "App module build config with all buildTypes and signingConfigs"
+          }
+        ]
+      }
+    ],
+    "contracts": []
+  },
+  "communication": {
+    "patterns": [
+      {
+        "name": "StateFlow/SharedFlow ViewModel→Fragment",
+        "when_to_use": "All UI state updates and one-time navigation/dialog events",
+        "how_it_works": "ViewModel exposes StateFlow<UiState>; Fragment collects inside repeatOnLifecycle(STARTED)",
+        "examples": [
+          "dashboardUiStateFlow → DashboardFragment",
+          "redirectedEvent SharedFlow → MainActivity"
+        ]
+      },
+      {
+        "name": "Koin Dependency Injection",
+        "when_to_use": "Providing repositories, controllers, ViewModels to all layers",
+        "how_it_works": "Module-per-feature DSL; root context started in BabyWeatherApplication with all modules",
+        "examples": [
+          "single { MainController(get(), get()) }",
+          "viewModel { DashboardViewModel(get()) }"
+        ]
+      },
+      {
+        "name": "Navigation Component SafeArgs",
+        "when_to_use": "Fragment-to-fragment navigation with typed arguments",
+        "how_it_works": "NavigationRequest sealed events emitted by Controllers; MainActivity executes via NavController",
+        "examples": [
+          "LoadingFragmentDirections.actionLoadingToDestination(startState)",
+          "SettingsDetailFragmentArgs(settingType)"
+        ]
+      },
+      {
+        "name": "RecyclerView Adapter Delegates",
+        "when_to_use": "Heterogeneous list screens (dashboard, settings, tips, locations)",
+        "how_it_works": "adapterDelegateViewBinding DSL creates typed delegates composed into one adapter",
+        "examples": [
+          "NotFoundCell delegate",
+          "TipsEmptyCell delegate",
+          "cell_tip.xml delegate"
+        ]
+      },
+      {
+        "name": "REST API via Retrofit+Moshi",
+        "when_to_use": "All server data fetching (weather, settings, children, tips)",
+        "how_it_works": "APIService interface; OkHttp with auth interceptor; Moshi codegen DTOs; NetworkResponse sealed wrapper",
+        "examples": [
+          "GET /pages/home → HomePageDto",
+          "PUT /settings → SettingsDto"
+        ]
+      }
+    ],
+    "integrations": [
+      {
+        "service": "Firebase (Analytics, Crashlytics, Performance, Remote Config)",
+        "purpose": "Crash reporting, event tracking, A/B testing, feature flags",
+        "integration_point": "google-services.json per build variant; initialized in BabyWeatherApplication"
+      },
+      {
+        "service": "RevenueCat",
+        "purpose": "In-app subscription management and Google Play Billing abstraction",
+        "integration_point": "REVENUE_CAT_API_KEY buildConfigField; page_subscription_detail module"
+      },
+      {
+        "service": "Mixpanel",
+        "purpose": "Custom event analytics complementing Firebase",
+        "integration_point": "MIXPANEL_KEY buildConfigField per buildType; RaptorAnalyticsKit wrapper"
+      },
+      {
+        "service": "BitRaptors SDK (internal)",
+        "purpose": "Base presentation classes, login SDK, feature flags, analytics kit",
+        "integration_point": "GitHub Packages Maven repo; getGprUser()/getGprKey() in gradle.properties"
+      }
+    ],
+    "pattern_selection_guide": [
+      {
+        "scenario": "UI needs continuous state updates",
+        "pattern": "StateFlow<UiState> in ViewModel",
+        "rationale": "Survives recomposition, lifecycle-safe with repeatOnLifecycle"
+      },
+      {
+        "scenario": "One-time events (navigate, show dialog)",
+        "pattern": "MutableSharedFlow<UiEvent>.tryEmit()",
+        "rationale": "Avoids re-delivery on configuration change unlike StateFlow"
+      },
+      {
+        "scenario": "Cross-feature data sharing",
+        "pattern": "Shared repository singleton via Koin",
+        "rationale": "Single source of truth; no direct feature-to-feature dependencies"
+      }
+    ]
+  },
+  "quick_reference": {
+    "where_to_put_code": {
+      "new_screen": "Create page_<feature>/ with Fragment, ViewModel, Modules<Feature>.kt; register module in BabyWeatherApplication",
+      "new_api_endpoint": "Add to APIService interface in common/domain/api/; add DTO with @JsonClass(generateAdapter=true)",
+      "new_dependency_version": "Add version constant to buildSrc/src/main/kotlin/Dependencies.kt; reference in app/build.gradle.kts",
+      "new_list_item": "Add cell_<name>.xml to res/layout/; create Cell.kt with adapterDelegateViewBinding in feature cells/ dir",
+      "new_analytics_event": "Create event class extending BasicEvent in util/services/analytics/events/; emit via raptorAnalytics.logEvent()"
+    },
+    "pattern_selection": {
+      "state_management": "StateFlow for UI state, SharedFlow for events",
+      "dependency_injection": "Koin module DSL; single{} for services, viewModel{} for ViewModels",
+      "navigation": "NavController via NavigationRequest sealed events from Controllers",
+      "lists": "adapterDelegateViewBinding with GenericListItem cells"
+    },
+    "error_mapping": [
+      {
+        "error": "NetworkErrorResponse.AuthenticationError",
+        "status_code": 401,
+        "description": "Token expired; trigger login flow via LoginController"
+      },
+      {
+        "error": "NetworkErrorResponse.ApiError",
+        "status_code": 400,
+        "description": "Server validation error; display via error SharedFlow"
+      },
+      {
+        "error": "NetworkErrorResponse.NetworkError",
+        "status_code": 0,
+        "description": "No connectivity; show ic_no_internet_connection.xml state"
+      }
+    ]
+  },
+  "technology": {
+    "stack": [
+      {
+        "category": "language",
+        "name": "Kotlin",
+        "version": "1.8.20",
+        "purpose": "Primary application language"
+      },
+      {
+        "category": "ui_framework",
+        "name": "AndroidX Fragment + Jetpack",
+        "version": "varies",
+        "purpose": "Fragment lifecycle, ViewModel, Navigation Component"
+      },
+      {
+        "category": "dependency_injection",
+        "name": "Koin",
+        "version": "3.x",
+        "purpose": "Service locator DI container"
+      },
+      {
+        "category": "networking",
+        "name": "Retrofit 2 + OkHttp",
+        "version": "2.9.0 / 4.9.2",
+        "purpose": "REST API client with interceptors"
+      },
+      {
+        "category": "serialization",
+        "name": "Moshi",
+        "version": "1.12.0",
+        "purpose": "JSON serialization with Kotlin codegen"
+      },
+      {
+        "category": "async",
+        "name": "Kotlin Coroutines + Flow",
+        "version": "1.6.0",
+        "purpose": "Async operations and reactive state streams"
+      },
+      {
+        "category": "navigation",
+        "name": "AndroidX Navigation + SafeArgs",
+        "version": "2.4.2",
+        "purpose": "Fragment navigation graph with typed args"
+      },
+      {
+        "category": "layout",
+        "name": "ConstraintLayout / MotionLayout",
+        "version": "varies",
+        "purpose": "Primary XML layout engine; scene animations"
+      },
+      {
+        "category": "list_adapter",
+        "name": "hannesdorfmann/adapterdelegates4",
+        "version": "4.x",
+        "purpose": "Composable RecyclerView adapter delegates"
+      },
+      {
+        "category": "firebase",
+        "name": "Firebase Suite (Analytics, Crashlytics, Perf, RemoteConfig)",
+        "version": "varies",
+        "purpose": "Crash reporting, analytics, feature flags"
+      },
+      {
+        "category": "monetization",
+        "name": "RevenueCat",
+        "version": "varies",
+        "purpose": "In-app subscription management"
+      },
+      {
+        "category": "analytics",
+        "name": "Mixpanel",
+        "version": "varies",
+        "purpose": "Custom event tracking"
+      },
+      {
+        "category": "image_loading",
+        "name": "Glide",
+        "version": "varies",
+        "purpose": "Image loading and caching"
+      },
+      {
+        "category": "animation",
+        "name": "Lottie",
+        "version": "varies",
+        "purpose": "JSON-based animations"
+      },
+      {
+        "category": "internal_sdk",
+        "name": "BitRaptors SDK Android",
+        "version": "private",
+        "purpose": "Base presentation, login, feature flags, analytics kit"
+      }
+    ],
+    "templates": [
+      {
+        "component_type": "feature_viewmodel",
+        "description": "ViewModel with StateFlow and SharedFlow for a page_* feature",
+        "file_path_template": "app/src/main/java/com/bitraptors/babyweather/page_<feature>/fragment/<Feature>ViewModel.kt",
+        "code": "class <Feature>ViewModel(private val repo: <Domain>Repository) : ViewModel() {\n  val uiState = MutableStateFlow<UiModel<<Feature>UiState>>(UiModel.Loading)\n  val events = MutableSharedFlow<UiEvent>() }"
+      },
+      {
+        "component_type": "koin_module",
+        "description": "Koin module registering ViewModel and dependencies for a feature",
+        "file_path_template": "app/src/main/java/com/bitraptors/babyweather/page_<feature>/Modules<Feature>.kt",
+        "code": "val <feature>Modules = module {\n  viewModel { <Feature>ViewModel(get()) }\n  single { <Feature>Controller(get(), get()) } }"
+      },
+      {
+        "component_type": "adapter_cell",
+        "description": "RecyclerView cell using adapterDelegateViewBinding DSL",
+        "file_path_template": "app/src/main/java/com/bitraptors/babyweather/page_<feature>/cells/<Name>Cell.kt",
+        "code": "fun <name>Cell() = adapterDelegateViewBinding<ItemModel, GenericListItem, Cell<Name>Binding>(\n  { inflater, parent -> Cell<Name>Binding.inflate(inflater, parent, false) }\n) { binding.title.text = item.title }"
+      }
+    ],
+    "project_structure": "BabyWeather.Android/\n├── app/\n│   ├── build.gradle.kts\n│   ├── proguard-rules.pro\n│   ├── src/\n│   │   ├── main/\n│   │   │   ├── AndroidManifest.xml\n│   │   │   ├── kotlin/com/bitraptors/babyweather/\n│   │   │   │   ├── BabyWeatherApplication.kt\n│   │   │   │   ├── activity_main/\n│   │   │   │   ├── page_dashboard/\n│   │   │   │   ├── page_locations/\n│   │   │   │   ├── page_settings/\n│   │   │   │   ├── page_settings_detail/\n│   │   │   │   ├── page_baby_settings/\n│   │   │   │   ├── page_tips/\n│   │   │   │   ├── page_subscription_detail/\n│   │   │   │   ├── page_feedback/\n│   │   │   │   ├── page_login_bottomsheet/\n│   │   │   │   ├── common/domain/\n│   │   │   │   ├── baseclasses/\n│   │   │   │   ├── sdk/\n│   │   │   │   └── util/services/\n│   │   │   └── res/\n│   │   │       ├── layout/, drawable/, navigation/, values*/\n│   │   ├── debug/\n│   │   ├── staging/  (google-services.json, launcher icons)\n│   │   └── release/  (google-services.json, launcher icons)\n│   └── staging|release/output-metadata.json\n├── buildSrc/\n│   ├── build.gradle.kts\n│   └── src/main/kotlin/\n│       ├── Dependencies.kt\n│       ├── DependencyConfig.kt\n│       ├── Extensions.kt\n│       └── Release.kt\n├── build.gradle.kts\n├── settings.gradle.kts\n├── android-debug.jks\n└── babyweather_release",
+    "run_commands": {
+      "debug_build": "./gradlew assembleDebug",
+      "staging_build": "./gradlew assembleStaging",
+      "release_build": "./gradlew assembleRelease",
+      "unit_tests": "./gradlew cleanTestDebugUnitTest testDebugUnitTest",
+      "install_debug": "./gradlew installDebug"
+    }
+  },
+  "frontend": {
+    "framework": "Android Native Kotlin (Jetpack Fragment + XML layouts)",
+    "rendering_strategy": "Imperative XML layouts with ConstraintLayout/MotionLayout; ViewBinding for type-safe view access",
+    "ui_components": [
+      {
+        "name": "MainActivity",
+        "location": "app/src/main/res/layout/activity_main.xml",
+        "component_type": "screen",
+        "description": "Root NavHostFragment container with bottom navigation",
+        "props": [],
+        "children": [
+          "NavHostFragment",
+          "view_bottom_nav.xml",
+          "LoadingFragment"
+        ]
+      },
+      {
+        "name": "DashboardFragment",
+        "location": "app/src/main/res/layout/fragment_dashboard.xml",
+        "component_type": "screen",
+        "description": "Home screen: weather, hourly forecast, clothing recommendations",
+        "props": [],
+        "children": [
+          "cell_dashboard_piece_of_clothing.xml",
+          "cell_dashboard_weather_hourly_item.xml",
+          "cell_dashboard_daily_tip.xml",
+          "cell_dashboard_no_baby.xml"
+        ]
+      },
+      {
+        "name": "SettingsFragment",
+        "location": "app/src/main/res/layout/fragment_settings.xml",
+        "component_type": "screen",
+        "description": "User profile, subscription status, baby profiles, app preferences",
+        "props": [],
+        "children": [
+          "cell_settings_profile_picture.xml",
+          "cell_settings_baby_item.xml",
+          "cell_settings_chooser.xml",
+          "cell_settings_active_subscription.xml"
+        ]
+      },
+      {
+        "name": "LocationsFragment",
+        "location": "app/src/main/res/layout/fragment_locations.xml",
+        "component_type": "screen",
+        "description": "Manage saved locations; search and delete with shared element transitions",
+        "props": [],
+        "children": [
+          "cell_location.xml",
+          "cell_location_search.xml",
+          "cell_location_empty.xml",
+          "dialog_location_preview.xml"
+        ]
+      },
+      {
+        "name": "LoginBottomSheet",
+        "location": "app/src/main/res/layout/dialog_login.xml",
+        "component_type": "dialog",
+        "description": "Google OAuth + magic link authentication bottom sheet",
+        "props": [],
+        "children": [
+          "cell_text_input.xml",
+          "cell_button.xml"
+        ]
+      },
+      {
+        "name": "BabySettingsFragment",
+        "location": "app/src/main/res/layout/fragment_baby_settings.xml",
+        "component_type": "screen",
+        "description": "Baby profile create/edit: name, birthdate, avatar emoji, color palette",
+        "props": [],
+        "children": [
+          "cell_baby_settings_avatar_selector.xml",
+          "cell_baby_settings_palette_selector.xml",
+          "cell_baby_settings_item.xml"
+        ]
+      },
+      {
+        "name": "SubscriptionDetailDialog",
+        "location": "app/src/main/res/layout/dialog_subscription_detail.xml",
+        "component_type": "dialog",
+        "description": "In-app purchase options via RevenueCat",
+        "props": [],
+        "children": [
+          "cell_subscription_option_card.xml",
+          "cell_subscription_detail_item.xml",
+          "cell_subscription_detail_footer.xml"
+        ]
+      }
+    ],
+    "state_management": {
+      "approach": "MVVM with StateFlow/SharedFlow; Controllers for cross-cutting orchestration",
+      "global_state": [
+        {
+          "description": "LoginState (AnonymousUser/LoggedInUser)"
+        },
+        {
+          "description": "DarkMode preference"
+        },
+        {
+          "description": "CurrentPage selection"
+        }
+      ],
+      "server_state": "Fetched in repositories via Retrofit; cached in-memory in ViewModel StateFlow",
+      "local_state": "SharedPreferences for auth tokens, dark mode, terms acceptance",
+      "rationale": "StateFlow for continuous UI state; SharedFlow for discrete events; avoids LiveData inconsistencies"
+    },
+    "routing": [
+      {
+        "path": "loading",
+        "component": "LoadingFragment",
+        "description": "Splash; determines initial destination via AppStartService",
+        "auth_required": false
+      },
+      {
+        "path": "dashboard",
+        "component": "DashboardFragment",
+        "description": "Home weather screen",
+        "auth_required": false
+      },
+      {
+        "path": "locations",
+        "component": "LocationsFragment",
+        "description": "Saved locations management",
+        "auth_required": false
+      },
+      {
+        "path": "settings",
+        "component": "SettingsFragment",
+        "description": "User preferences and baby profiles",
+        "auth_required": false
+      },
+      {
+        "path": "settings_detail",
+        "component": "SettingsDetailFragment",
+        "description": "Single setting editor (temp unit, theme, language, icon)",
+        "auth_required": false
+      }
+    ],
+    "data_fetching": [
+      {
+        "name": "Repository pattern",
+        "mechanism": "suspend fun in Repository; called from viewModelScope.launch{}",
+        "when_to_use": "All server data: weather, settings, children, tips",
+        "examples": [
+          "locationRepository.fetchHomeData()",
+          "settingsRepository.getSettings()"
+        ]
+      },
+      {
+        "name": "Flow-based streaming",
+        "mechanism": "Repository exposes Flow<T>; ViewModel combines via combine()/flatMapLatest()",
+        "when_to_use": "Location time-of-day theme, real-time location service state",
+        "examples": [
+          "currentLocationTimeFlow for day/night theme switching"
+        ]
+      }
+    ],
+    "styling": "Material Design 3 with XML themes; day/night variants in values/themes.xml + values-night/themes.xml; API-level overrides in values-v31/v32/v33; adaptive color resources in res/color/",
+    "key_conventions": [
+      "ViewBinding enabled; always use binding.* not findViewById()",
+      "Fragments use BaseBindingFragment from BitRaptors SDK",
+      "All new code in Kotlin; Java deprecated",
+      "Shared element transitions defined in res/transition/shared_element_transiton.xml",
+      "Feature modules must not import other feature modules directly"
+    ]
+  },
+  "developer_recipes": [
+    {
+      "task": "Add a new feature screen",
+      "files": [
+        "app/src/main/res/layout/fragment_<feature>.xml",
+        "app/src/main/res/navigation/navigation_main.xml"
+      ],
+      "steps": [
+        "1. Create page_<feature>/ dir with Fragment.kt, ViewModel.kt, Modules<Feature>.kt",
+        "2. Add fragment_<feature>.xml layout in res/layout/",
+        "3. Register destination in navigation_main.xml with SafeArgs arguments if needed",
+        "4. Add Modules<Feature> to startKoin{} modules list in BabyWeatherApplication"
+      ]
+    },
+    {
+      "task": "Add a new REST API endpoint",
+      "files": [
+        "buildSrc/src/main/kotlin/Dependencies.kt"
+      ],
+      "steps": [
+        "1. Add @JsonClass(generateAdapter=true) DTO data class in common/domain/api/dto/",
+        "2. Add suspend fun to APIService interface with @GET/@POST/@PUT/@DELETE annotation",
+        "3. Add mapping function in Repository implementation; expose via repository interface",
+        "4. Inject repository into feature ViewModel via Koin; call in viewModelScope.launch{}"
+      ]
+    },
+    {
+      "task": "Add a new build dependency",
+      "files": [
+        "buildSrc/src/main/kotlin/Dependencies.kt",
+        "buildSrc/src/main/kotlin/DependencyConfig.kt",
+        "app/build.gradle.kts"
+      ],
+      "steps": [
+        "1. Add version constant to appropriate object in buildSrc/src/main/kotlin/Dependencies.kt",
+        "2. Add dependency string constant referencing the version constant",
+        "3. Reference via object accessor in app/build.gradle.kts dependencies block (e.g. Libraries.newLib)"
+      ]
+    },
+    {
+      "task": "Change app version",
+      "files": [
+        "buildSrc/src/main/kotlin/Release.kt"
+      ],
+      "steps": [
+        "1. Update versionCode (format: YYYYMMDDnn) in Release.kt",
+        "2. Update versionName (semantic: X.Y.Z) in Release.kt",
+        "3. Commit; Azure Pipelines will pick up new values on next triggered build"
+      ]
+    }
+  ],
+  "architecture_diagram": "graph TD\n    App[BabyWeatherApplication<br/>Koin Init + Lifecycle] --> Main[MainActivity<br/>NavController + BottomNav]\n    Main --> Dash[DashboardFragment<br/>Weather + Clothing]\n    Main --> Locs[LocationsFragment<br/>Saved Locations]\n    Main --> Sets[SettingsFragment<br/>Prefs + Babies]\n    Main --> Tips[TipsFragment]\n    Main --> Login[LoginBottomSheet<br/>OAuth + MagicLink]\n    Dash --> Domain[Domain Layer<br/>LocationRepository]\n    Sets --> Domain\n    Locs --> Domain\n    Domain --> API[REST API<br/>Retrofit + Moshi]\n    Domain --> SP[SharedPreferences<br/>Local Cache]\n    App --> Firebase[Firebase Suite<br/>Analytics/Crash/Config]\n    App --> RevCat[RevenueCat<br/>Subscriptions]\n    App --> BitSDK[BitRaptors SDK<br/>Presentation + Login]",
+  "pitfalls": [
+    {
+      "area": "Koin module registration",
+      "description": "Feature Koin modules not added to BabyWeatherApplication startKoin{} block cause runtime NoBeanDefFoundException—no compile-time safety.",
+      "recommendation": "Always add new Modules<Feature>.kt to the modules list in BabyWeatherApplication immediately when creating a feature"
+    },
+    {
+      "area": "Moshi codegen",
+      "description": "DTOs missing @JsonClass(generateAdapter=true) compile without error but fail at runtime with JsonDataException.",
+      "recommendation": "Annotate every DTO used with Moshi; enable kapt strict mode to catch missing adapters at build time"
+    },
+    {
+      "area": "Signing credentials in source",
+      "description": "app/build.gradle.kts contains plaintext keystore passwords (WeatherBaby, BabyWeather) and OAuth tokens in buildConfigField.",
+      "recommendation": "Rotate passwords to Azure Pipelines variable group 'babyweather-android-build-variables'; never commit real credentials"
+    },
+    {
+      "area": "Flow collection in Fragments",
+      "description": "Collecting StateFlow/SharedFlow outside repeatOnLifecycle(STARTED) causes events to be processed when Fragment is stopped.",
+      "recommendation": "Always wrap flow collection in lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { ... } }"
+    },
+    {
+      "area": "Staging vs Release Firebase config",
+      "description": "Staging uses production Firebase project (babyweather-ad243), not a separate staging Firebase project—analytics and crash data mingles.",
+      "recommendation": "Treat staging Firebase data as potentially polluted; filter by app_version or variant in Firebase console"
+    }
+  ],
+  "implementation_guidelines": [
+    {
+      "capability": "Koin Dependency Injection",
+      "category": "state_management",
+      "libraries": [
+        "Koin 3.x"
+      ],
+      "pattern_description": "Each feature declares a module DSL file (Modules<Feature>.kt); all modules composed in BabyWeatherApplication.startKoin{}. Singletons for services, viewModel{} for screen-scoped state, factory{} for parameterized instances (BabySettingsViewModel with babyId).",
+      "key_files": [
+        "buildSrc/src/main/kotlin/DependencyConfig.kt",
+        "app/build.gradle.kts"
+      ],
+      "usage_example": "single { MainController(get(), get()) } — get() resolves RaptorAnalytics and InAppReviewManager from container",
+      "tips": [
+        "Use factory { (babyId: String) -> BabySettingsViewModel(babyId, get()) } for parameterized ViewModels",
+        "Avoid circular dependencies between feature modules—route through domain layer instead",
+        "Test modules with koin-test checkModules() to catch missing bindings before runtime"
+      ]
+    },
+    {
+      "capability": "REST API with Retrofit + Moshi + NetworkResponse",
+      "category": "networking",
+      "libraries": [
+        "Retrofit 2.9.0",
+        "OkHttp 4.9.2",
+        "Moshi 1.12.0"
+      ],
+      "pattern_description": "APIService interface with suspend functions; Moshi converter with @JsonClass codegen DTOs; NetworkResponseAdapterFactory wraps all responses in sealed NetworkResponse<T, String>; HttpRequestInterceptor injects Bearer token; logging interceptor active in debug only.",
+      "key_files": [
+        "app/src/main/res/xml/network_security_config.xml"
+      ],
+      "usage_example": "@GET(\"pages/home\") suspend fun getHomePage(@Query(\"locationKey\") key: String): NetworkResponse<HomePageDto, String>",
+      "tips": [
+        "Handle all four NetworkErrorResponse variants (ApiError, NetworkError, AuthenticationError, UnknownError) exhaustively in repositories",
+        "Base URL differs per buildType: debug→babyweather-dev.herokuapp.com, release/staging→babyweather.herokuapp.com",
+        "Disable logging interceptor in release builds to prevent PII in crash logs"
+      ]
+    },
+    {
+      "capability": "Firebase Remote Config + Feature Flags",
+      "category": "analytics",
+      "libraries": [
+        "Firebase Remote Config",
+        "BitRaptors Feature Flag SDK"
+      ],
+      "pattern_description": "Default values declared in res/xml/remote_config_defaults.xml; fetched at startup via BitRaptors Feature Flag SDK. Feature modules conditionally render UI based on flag values without redeployment.",
+      "key_files": [
+        "app/src/main/res/xml/remote_config_defaults.xml",
+        "app/src/staging/google-services.json"
+      ],
+      "usage_example": "featureFlagService.isEnabled(\"premium_features\") gates subscription UI in SettingsFragment",
+      "tips": [
+        "Staging and release both use the same Firebase project (babyweather-ad243)—use Remote Config conditions to target staging package",
+        "featureFlagDataSourceOverrideModule allows local override of flags in debug builds for testing"
+      ]
+    },
+    {
+      "capability": "Sealed State Machine Authentication",
+      "category": "auth",
+      "libraries": [
+        "BitRaptors Login SDK",
+        "Google Sign-In"
+      ],
+      "pattern_description": "LoginController wraps RaptorLoginManager; transforms external UserState to app's LoginState (AnonymousUser/LoggedInUser). LoginSheetState sealed interface (Init→Visible→Expanded→Hidden) drives bottom sheet visibility. SharedPreferences persist terms acceptance.",
+      "key_files": [
+        "app/src/main/res/layout/dialog_login.xml"
+      ],
+      "usage_example": "loginController.handleGoogleLogin(activityResultLauncher) — triggers Google Sign-In and emits LoginState.LoggedInUser on success",
+      "tips": [
+        "OAuth client IDs differ by buildType; debug uses project 151823554728, release/staging uses 898696094253",
+        "appStartService.refreshAfterLogin() must be called after successful token receipt to reload all app data",
+        "Use EncryptedSharedPreferences in production for token storage"
+      ]
+    },
+    {
+      "capability": "Multi-variant Build Configuration",
+      "category": "environment",
+      "libraries": [
+        "Android Gradle Plugin",
+        "buildSrc Kotlin DSL"
+      ],
+      "pattern_description": "Three buildTypes (debug, staging, release) each with distinct buildConfigField values for API URLs, OAuth tokens, Mixpanel keys, and RevenueCat keys. Version constants centralized in buildSrc/src/main/kotlin/. Source sets allow variant-specific Kotlin code and resources.",
+      "key_files": [
+        "app/build.gradle.kts",
+        "buildSrc/src/main/kotlin/Dependencies.kt",
+        "buildSrc/src/main/kotlin/Release.kt"
+      ],
+      "usage_example": "BuildConfig.BASE_API_URL resolves to env-specific URL at compile time; no runtime URL switching needed",
+      "tips": [
+        "Never reference BuildConfig fields at module init time before Application.onCreate(); use lazy or inject",
+        "Staging APK suffix is '-staging'; use versionName to identify variant in crash reports",
+        "buildSrc changes invalidate the entire Gradle cache; minimize changes during active development"
+      ]
+    }
+  ],
+  "development_rules": [
+    {
+      "category": "dependency_management",
+      "rule": "Always declare dependency versions in buildSrc/src/main/kotlin/Dependencies.kt objects; never hardcode version strings in app/build.gradle.kts",
+      "source": "buildSrc/src/main/kotlin/Dependencies.kt — AndroidSdk.compileApi, Network.retrofit, Firebase.* objects consumed by app/build.gradle.kts"
+    },
+    {
+      "category": "environment",
+      "rule": "Always place google-services.json in variant-specific source sets (src/debug/, src/staging/, src/release/); never in src/main/",
+      "source": "app/src/staging/google-services.json, app/src/release/google-services.json — separate Firebase configs per variant"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always organize new features as page_<feature>/ directories containing Fragment, ViewModel, Modules<Feature>.kt, cells/, dialog/, controller/ subdirectories",
+      "source": "Feature-slice pattern observed across page_dashboard, page_locations, page_settings, page_tips, page_baby_settings"
+    },
+    {
+      "category": "ci_cd",
+      "rule": "Always run cleanTestDebugUnitTest testDebugUnitTest Gradle tasks before assembling APK in CI; never skip unit tests",
+      "source": "azure-pipelines.yml gradleTasks variable: 'assemble[BuildType] cleanTestDebugUnitTest testDebugUnitTest'"
+    },
+    {
+      "category": "dependency_management",
+      "rule": "Always authenticate to GitHub Packages Maven repo using getGprUser()/getGprKey() functions from gradle.properties for BitRaptors SDK; never hardcode credentials",
+      "source": "build.gradle.kts allprojects.repositories maven{url=https://maven.pkg.github.com/BitRaptors/BitRaptors.SDK.Android}"
+    },
+    {
+      "category": "code_style",
+      "rule": "Always use Kotlin source sets (src/main/kotlin, src/debug/kotlin, src/release/kotlin); never add Java files to this project",
+      "source": "app/build.gradle.kts sourceSets block explicitly sets java.srcDirs to kotlin directories only"
+    },
+    {
+      "category": "deployment",
+      "rule": "Never commit real keystore passwords to source; use Azure Pipelines variable group 'babyweather-android-build-variables' to override signingConfig values in CI",
+      "source": "app/build.gradle.kts signingConfigs currently contains plaintext passwords (WeatherBaby, BabyWeather) — security risk requiring CI variable override"
+    }
+  ],
+  "deployment": {
+    "runtime_environment": "Android devices (minSdk 23 / targetSdk 34); backend REST API on Heroku",
+    "compute_services": [
+      "Google Play Store (production distribution)",
+      "AppCenter (BitRaptors/BabyWeather-Android — staging/beta distribution)",
+      "Heroku (REST API backend: babyweather-dev.herokuapp.com / babyweather.herokuapp.com)"
+    ],
+    "container_runtime": "None — APK/AAB native Android package",
+    "orchestration": "None",
+    "serverless_functions": "Firebase Cloud Functions (implied by firebase_url in google-services.json)",
+    "ci_cd": [
+      "Azure Pipelines — triggered on PR to develop branch",
+      "Tasks: assemble[BuildType] + cleanTestDebugUnitTest + testDebugUnitTest",
+      "Artifacts uploaded to AppCenter via release stage"
+    ],
+    "distribution": [
+      "Google Play Store (release buildType)",
+      "AppCenter (staging buildType — QA distribution)",
+      "Direct APK install (debug buildType — local dev)"
+    ],
+    "infrastructure_as_code": "None detected in repository",
+    "supporting_services": [
+      "Firebase Analytics + Crashlytics + Performance + Remote Config (project: babyweather-ad243)",
+      "RevenueCat (subscription management)",
+      "Mixpanel (event analytics)",
+      "Google Play Services (auth + location)"
+    ],
+    "environment_config": "buildConfigField values per buildType in app/build.gradle.kts; Firebase config via variant-specific google-services.json",
+    "key_files": [
+      "file: app/build.gradle.kts; description: All buildTypes, signingConfigs, buildConfigFields",
+      "file: buildSrc/src/main/kotlin/Release.kt; description: versionCode and versionName source of truth",
+      "file: app/src/staging/google-services.json; description: Firebase config for staging builds",
+      "file: app/src/release/google-services.json; description: Firebase config for release builds"
+    ]
+  }
+}

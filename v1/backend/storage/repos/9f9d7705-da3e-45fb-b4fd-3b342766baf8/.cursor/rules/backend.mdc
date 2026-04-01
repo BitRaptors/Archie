@@ -1,0 +1,121 @@
+---
+description: 
+globs: *.py, test_*.py, *test.py, tests/**/*, *.md, docs/**/*, pyproject.toml, src/**/*
+alwaysApply: false
+---
+
+# Cursor Rules for Backend and Frontend Development with Workflow
+
+## Backend Development Rules (Python, Poetry, FastAPI)
+
+1. **Project Setup**:
+   - Use Poetry for dependency management and virtual environments.
+   - Initialize a new project with `poetry init` if no `pyproject.toml` exists.
+   - Ensure `fastapi` and `uvicorn` are added as dependencies (`poetry add fastapi uvicorn`).
+   - Set up a clean directory structure:
+     ```
+     project_root/
+     ├── src/
+     │   ├── models/           # Database models (e.g., Pydantic, SQLAlchemy)
+     │   ├── routes/           # FastAPI route definitions
+     │   ├── services/         # Business logic
+     │   ├── utils/            # Helper functions and utilities
+     │   └── main.py           # FastAPI app entry point
+     ├── tests/                # Unit and integration tests
+     ├── docs/                 # Documentation and to-do lists
+     ├── pyproject.toml        # Poetry configuration
+     └── README.md
+     ```
+
+2. **Workflow for New Features**:
+   - **Check Codebase**: Before starting, search the codebase (`src/`, `tests/`, `docs/`) for existing implementations using `grep` or IDE search.
+   - **Create To-Do List**: Create a file in `docs/` named `newFeature.md` (replace `newFeature` with a descriptive name, e.g., `addProductEndpoint.md`). Use Markdown with checkboxes (`[]` for incomplete, `[x]` for complete). Example:
+     ```
+     # To-Do List for Adding Product Endpoint
+     - [] Create Pydantic model in `src/models/product.py`
+     - [] Add endpoint in `src/routes/products.py`
+     - [] Write tests in `tests/routes/test_products.py`
+     - [] Update frontend API client in `src/api/client.ts`
+     - [] Document endpoint in `docs/products.md`
+     ```
+   - **Update To-Do List**: Before starting a task, review and expand the to-do list if new subtasks are identified (e.g., add validation logic).
+   - **Mark Tasks as Done**: After completing a task, test it (e.g., run the endpoint with `curl` or Postman). If it works, mark it as done (`[x]`) in `newFeature.md`.
+   - **Save Progress**: Commit the updated `newFeature.md` to version control.
+
+3. **Pattern for Adding Endpoints**:
+   - Follow this sequence:
+     1. Add the endpoint in `src/routes/<resource>.py`.
+     2. Test the endpoint (e.g., using `curl`, Postman, or `pytest`).
+     3. Update the frontend API client in `src/api/client.ts`.
+     4. Wire the endpoint into the frontend UI (e.g., in a React component).
+     5. Create helper documentation in `docs/<resource>.md` (e.g., `docs/products.md`) with usage examples.
+   - Example helper doc (`docs/products.md`):
+     ```
+     # Products API
+     ## POST /products
+     Creates a new product.
+     **Request**:
+     ```json
+     {"name": "Laptop", "price": 999.99}
+     ```
+     **Response**:
+     ```json
+     {"id": 1, "name": "Laptop", "price": 999.99}
+     ```
+     ```
+
+4. **Code Reusability**:
+   - Check for existing solutions in:
+     - Project modules (`src/utils`, `src/services`).
+     - Installed dependencies (`poetry show`).
+     - PyPI packages (e.g., `requests`, `pydantic`, `sqlalchemy`).
+   - Use `poetry search <package>` or search PyPI to avoid reinventing the wheel.
+   - Import and configure existing solutions instead of writing from scratch.
+
+5. **FastAPI Development**:
+   - Use FastAPI for all APIs (`from fastapi import FastAPI`).
+   - Organize endpoints in `src/routes/` with one file per resource (e.g., `users.py`, `products.py`).
+   - Use Pydantic models for request/response validation, stored in `src/models/` (e.g., `src/models/product.py`).
+   - Import models globally from `src.models` (e.g., `from src.models.product import Product`).
+   - Example route (`src/routes/products.py`):
+     ```python
+     from fastapi import APIRouter
+     from src.models.product import Product
+
+     router = APIRouter(prefix="/products", tags=["products"])
+
+     @router.post("/")
+     async def create_product(product: Product):
+         return {"id": 1, **product.dict()}
+     ```
+
+6. **Minimal Code**:
+   - Write concise, maintainable code using FastAPI’s features (e.g., dependency injection, OpenAPI docs).
+   - Use libraries for common tasks (e.g., `python-jose` for JWT, `passlib` for hashing).
+   - Refactor repetitive code into `src/utils/` or `src/services/`.
+
+7. **Database and Models**:
+   - Store all models in `src/models/` (e.g., `src/models/product.py`):
+     ```python
+     from pydantic import BaseModel
+
+     class Product(BaseModel):
+         name: str
+         price: float
+     ```
+   - Use SQLAlchemy for ORM if needed (`poetry add sqlalchemy`).
+
+8. **Testing**:
+   - Place tests in `tests/` mirroring `src/` (e.g., `tests/routes/`, `tests/models/`).
+   - Use `pytest` (`poetry add pytest --group dev`).
+   - Test all endpoints and services.
+
+9. **Documentation**:
+   - Update `README.md` with setup instructions.
+   - Use FastAPI’s OpenAPI docs (`/docs`) for endpoints.
+   - Create helper docs in `docs/` for each resource.
+
+10. **Vibe Coding**:
+    - Keep code clean, readable, and PEP 8-compliant.
+    - Use type hints for all functions and models.
+    - Comment only where logic isn’t self-explanatory.

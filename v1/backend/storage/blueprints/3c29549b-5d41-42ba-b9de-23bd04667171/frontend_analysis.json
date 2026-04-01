@@ -1,0 +1,612 @@
+```json
+{
+  "framework": "React 18 + Next.js 14 (App Router)",
+  "rendering_strategy": "hybrid (SSR for layouts, CSR for interactive components)",
+  "ui_components": [
+    {
+      "name": "Home",
+      "location": "src/app/page.tsx",
+      "component_type": "page",
+      "description": "Main application entry point. Client component that orchestrates the entire UI. Manages session state, site generation, and refinement chat lifecycle.",
+      "props": [],
+      "children": [
+        "PinBoard",
+        "GitHubPanel",
+        "PresetsPanel",
+        "GeneratePanel",
+        "PreviewFrame",
+        "RefinementChat"
+      ],
+      "state_managed": [
+        "siteDir (string | null)",
+        "sessionId (string | undefined)",
+        "provider (string)",
+        "refreshTrigger (number)",
+        "refinementMessages (ChatMessage[])"
+      ],
+      "key_callbacks": [
+        "handleSiteReady(dir, sid, prov)",
+        "handleFileChange()",
+        "handleRefinementMessage(msg)"
+      ]
+    },
+    {
+      "name": "PinBoard",
+      "location": "src/components/PinBoard.tsx",
+      "component_type": "feature",
+      "description": "Displays a grid of pins (bookmarks) fetched from the API. Shows thumbnail, title, and description for each pin. Includes button to add new pins.",
+      "props": [
+        "refreshTrigger (number, optional)"
+      ],
+      "children": [
+        "PinCard (multiple)",
+        "AddPinModal"
+      ],
+      "state_managed": [
+        "pins (array)",
+        "loading (boolean)",
+        "showModal (boolean)",
+        "error (string | null)"
+      ]
+    },
+    {
+      "name": "PinCard",
+      "location": "src/components/PinCard.tsx",
+      "component_type": "primitive",
+      "description": "Individual pin card component. Displays thumbnail, title, and description. Renders as clickable card with hover effects.",
+      "props": [
+        "pin { url: string, title: string, description: string, thumbnail?: string | null }",
+        "onDelete (function)"
+      ],
+      "children": [],
+      "state_managed": []
+    },
+    {
+      "name": "AddPinModal",
+      "location": "src/components/AddPinModal.tsx",
+      "component_type": "shared",
+      "description": "Modal dialog for adding new pins. Allows user to input URL, title, and description.",
+      "props": [
+        "onClose (function)",
+        "onAdd (function)"
+      ],
+      "children": [],
+      "state_managed": [
+        "url (string)",
+        "title (string)",
+        "description (string)",
+        "loading (boolean)"
+      ]
+    },
+    {
+      "name": "GitHubPanel",
+      "location": "src/components/GitHubPanel.tsx",
+      "component_type": "feature",
+      "description": "Panel for GitHub repository input and metadata extraction. Allows users to paste repo URL or search for repos. Fetches README, package.json, file tree, and repo metadata.",
+      "props": [],
+      "children": [],
+      "state_managed": [
+        "repoUrl (string)",
+        "loading (boolean)",
+        "repoContent (object | null)",
+        "error (string | null)"
+      ],
+      "key_callbacks": [
+        "onRepoSelect (callback prop) - called when repo is selected"
+      ]
+    },
+    {
+      "name": "PresetsPanel",
+      "location": "src/components/PresetsPanel.tsx",
+      "component_type": "feature",
+      "description": "Panel for selecting and managing AI generation presets. Displays preset categories and allows users to select presets to apply to generation.",
+      "props": [],
+      "children": [],
+      "state_managed": [
+        "presets (array)",
+        "selectedPresets (array)",
+        "loading (boolean)"
+      ]
+    },
+    {
+      "name": "GeneratePanel",
+      "location": "src/components/GeneratePanel.tsx",
+      "component_type": "feature",
+      "description": "Panel with user prompt input and generation trigger. Accepts text prompt and initiates site generation by calling /api/generate/stream. Shows loading state and passes control to ClaudeTerminal on success.",
+      "props": [
+        "onSiteReady (function: (dir, sid, prov) => void)",
+        "onFileChange (function: () => void)"
+      ],
+      "children": [
+        "ClaudeTerminal (conditionally rendered)"
+      ],
+      "state_managed": [
+        "userPrompt (string)",
+        "generating (boolean)",
+        "showTerminal (boolean)",
+        "selectedPresets (array)"
+      ]
+    },
+    {
+      "name": "ClaudeTerminal",
+      "location": "src/components/ClaudeTerminal.tsx",
+      "component_type": "feature",
+      "description": "Terminal-like UI showing real-time streaming output from Claude code generation. Displays tool usage (Write, Edit, Bash, etc.), file operations, costs, and code previews. Expands to full screen on demand.",
+      "props": [
+        "userPrompt (string)",
+        "onComplete (function: (result) => void)",
+        "onError (function: (message) => void)",
+        "onFileChange (function: () => void, optional)"
+      ],
+      "children": [],
+      "state_managed": [
+        "entries (TerminalEntry[])",
+        "expanded (boolean)",
+        "sessionIdRef (ref)"
+      ],
+      "entry_types": [
+        "system",
+        "tool-start",
+        "tool-result",
+        "text",
+        "code-preview",
+        "cost"
+      ],
+      "key_features": [
+        "SSE stream parsing with TextDecoder",
+        "Tool icon rendering (Write, Edit, Read, Bash, Glob, Grep)",
+        "Code truncation to max 8 lines",
+        "Auto-scroll on new entries",
+        "Expandable full-screen view"
+      ]
+    },
+    {
+      "name": "PreviewFrame",
+      "location": "src/components/PreviewFrame.tsx",
+      "component_type": "feature",
+      "description": "Iframe-based preview of the generated website. Points to /api/preview/[...path] proxy endpoint that serves files from the generated site directory.",
+      "props": [
+        "siteDir (string | null)",
+        "refreshTrigger (number)"
+      ],
+      "children": [],
+      "state_managed": [
+        "iframeSrc (string)"
+      ]
+    },
+    {
+      "name": "RefinementChat",
+      "location": "src/components/RefinementChat.tsx",
+      "component_type": "feature",
+      "description": "Chat interface for iterative refinement of generated site. Sends messages to /api/generate/refine endpoint with session ID. Shows assistant responses and allows further modifications.",
+      "props": [
+        "siteDir (string | null)",
+        "sessionId (string | undefined)",
+        "messages (ChatMessage[])",
+        "onMessage (function: (msg) => void)"
+      ],
+      "children": [],
+      "state_managed": [
+        "input (string)",
+        "loading (boolean)",
+        "localMessages (ChatMessage[])"
+      ]
+    },
+    {
+      "name": "SettingsPanel",
+      "location": "src/components/SettingsPanel.tsx",
+      "component_type": "feature",
+      "description": "Modal settings panel for configuring AI provider (Gemini, Claude), API keys, and viewing system health status.",
+      "props": [
+        "onClose (function)"
+      ],
+      "children": [],
+      "state_managed": [
+        "settings (Record<string, string>)",
+        "saving (boolean)",
+        "health (Record<string, HealthStatus> | null)"
+      ],
+      "settings_fields": [
+        { "key": "gemini_api_key", "type": "password" },
+        { "key": "ai_provider", "type": "select", "options": ["gemini", "claude"] }
+      ]
+    },
+    {
+      "name": "Header",
+      "location": "src/components/Header.tsx",
+      "component_type": "shared",
+      "description": "Application header/navigation bar. Displays logo, title, and settings button.",
+      "props": [],
+      "children": [
+        "SettingsPanel (conditionally)"
+      ],
+      "state_managed": [
+        "showSettings (boolean)"
+      ]
+    },
+    {
+      "name": "RootLayout",
+      "location": "src/app/layout.tsx",
+      "component_type": "layout",
+      "description": "Root layout wrapper for entire application. Sets up metadata, global styles (Tailwind), and renders Header + children.",
+      "props": [
+        "children (ReactNode)"
+      ],
+      "children": [
+        "Header",
+        "Page (dynamic)"
+      ],
+      "metadata": [
+        "title: PinLaunch",
+        "description: Generate landing pages from pins"
+      ],
+      "styling": "Tailwind CSS with CSS variables for theming"
+    }
+  ],
+  "state_management": {
+    "approach": "Hybrid: React hooks (useState, useRef, useCallback) + sessionStorage for persistence + React Context implicitly via prop drilling",
+    "global_state": [],
+    "server_state": [
+      {
+        "mechanism": "Direct API calls via fetch()",
+        "endpoints": [
+          "/api/pins - fetch all pins",
+          "/api/github - fetch repo metadata",
+          "/api/presets - fetch presets",
+          "/api/settings - fetch/update settings",
+          "/api/health - fetch system health",
+          "/api/generate/stream - SSE stream for generation",
+          "/api/generate/refine - refinement chat"
+        ],
+        "pattern": "Fetch-on-demand with loading/error states in individual components"
+      }
+    ],
+    "local_state": [
+      {
+        "component": "Home",
+        "state": [
+          "siteDir (string | null) - output directory of generated site",
+          "sessionId (string | undefined) - Claude session ID for refinement",
+          "provider (string) - current AI provider selection",
+          "refreshTrigger (number) - counter to force iframe/components refresh",
+          "refinementMessages (ChatMessage[]) - accumulated chat history"
+        ]
+      },
+      {
+        "component": "PinBoard",
+        "state": [
+          "pins (array) - fetched pin data",
+          "loading (boolean) - fetch loading state",
+          "showModal (boolean) - add pin modal visibility",
+          "error (string | null) - API error message"
+        ]
+      },
+      {
+        "component": "GitHubPanel",
+        "state": [
+          "repoUrl (string) - user input repo URL",
+          "loading (boolean) - fetch loading state",
+          "repoContent (object | null) - extracted repo metadata",
+          "error (string | null) - API error message"
+        ]
+      },
+      {
+        "component": "GeneratePanel",
+        "state": [
+          "userPrompt (string) - user's generation prompt",
+          "generating (boolean) - generation in progress flag",
+          "showTerminal (boolean) - toggle ClaudeTerminal visibility",
+          "selectedPresets (array) - applied presets"
+        ]
+      },
+      {
+        "component": "ClaudeTerminal",
+        "state": [
+          "entries (TerminalEntry[]) - accumulated terminal output lines",
+          "expanded (boolean) - full-screen expansion flag",
+          "sessionIdRef (React.MutableRefObject) - persisted session ID"
+        ]
+      },
+      {
+        "component": "SettingsPanel",
+        "state": [
+          "settings (Record<string, string>) - API key and provider config",
+          "saving (boolean) - save operation in progress",
+          "health (Record<string, HealthStatus> | null) - system health status"
+        ]
+      }
+    ],
+    "session_persistence": {
+      "mechanism": "sessionStorage key: 'pinlaunch_session'",
+      "data": {
+        "siteDir": "string | null",
+        "sessionId": "string | undefined",
+        "provider": "string"
+      },
+      "synced_from": "Home component via useEffect on state changes",
+      "loaded_in": "Home component via loadSession() helper"
+    },
+    "rationale": "Component-level state with fetch-based server state fetching. No centralized store (Redux/Zustand) needed due to UI's hierarchical state propagation. SessionStorage provides lightweight cross-tab session persistence without backend sessions. This keeps the architecture simple and the bundle size minimal."
+  },
+  "routing": [
+    {
+      "path": "/",
+      "component": "Home (src/app/page.tsx)",
+      "description": "Main application page. Implements conditional rendering: setup mode (no siteDir) shows PinBoard + sidebars, generation mode shows PreviewFrame + RefinementChat.",
+      "auth_required": false,
+      "dynamic": false,
+      "nested_routes": []
+    }
+  ],
+  "api_routes": [
+    {
+      "path": "/api/pins",
+      "method": "GET",
+      "handler": "src/app/api/pins/route.ts",
+      "description": "Fetch all saved pins from database"
+    },
+    {
+      "path": "/api/pins/[id]",
+      "method": "DELETE",
+      "handler": "src/app/api/pins/[id]/route.ts",
+      "description": "Delete a pin by ID"
+    },
+    {
+      "path": "/api/github",
+      "method": "POST",
+      "handler": "src/app/api/github/route.ts",
+      "description": "Fetch GitHub repository metadata, README, package.json, and file tree"
+    },
+    {
+      "path": "/api/presets",
+      "method": "GET",
+      "handler": "src/app/api/presets/route.ts",
+      "description": "Fetch available generation presets"
+    },
+    {
+      "path": "/api/settings",
+      "method": "GET | PUT",
+      "handler": "src/app/api/settings/route.ts",
+      "description": "Fetch or update settings (API keys, provider selection)"
+    },
+    {
+      "path": "/api/health",
+      "method": "GET",
+      "handler": "src/app/api/health/route.ts",
+      "description": "Health check endpoint returning status of backend services"
+    },
+    {
+      "path": "/api/generate/stream",
+      "method": "POST",
+      "handler": "src/app/api/generate/stream/route.ts",
+      "description": "Server-sent event stream for real-time code generation. Sends ClaudeTerminal-compatible events.",
+      "content_type": "text/event-stream"
+    },
+    {
+      "path": "/api/generate/refine",
+      "method": "POST",
+      "handler": "src/app/api/generate/refine/route.ts",
+      "description": "Chat endpoint for iterative refinement of generated site using session ID"
+    },
+    {
+      "path": "/api/preview/[...path]",
+      "method": "GET",
+      "handler": "src/app/api/preview/[...path]/route.ts",
+      "description": "Proxy endpoint serving files from generated site directory. Maps preview requests to filesystem."
+    },
+    {
+      "path": "/api/screenshot",
+      "method": "POST",
+      "handler": "src/app/api/screenshot/route.ts",
+      "description": "Generate screenshot of preview page"
+    }
+  ],
+  "data_fetching": [
+    {
+      "name": "Direct fetch() in useEffect",
+      "mechanism": "Native fetch API in useEffect hooks",
+      "when_to_use": "Loading initial component data (pins, settings, health status)",
+      "examples": [
+        "PinBoard: fetch('/api/pins')",
+        "SettingsPanel: fetch('/api/settings'), fetch('/api/health')",
+        "GitHubPanel: fetch('/api/github', {method: 'POST'})"
+      ],
+      "loading_pattern": "useState for loading/error states",
+      "error_handling": "Catch blocks with error state updates"
+    },
+    {
+      "name": "Server-Sent Events (SSE)",
+      "mechanism": "fetch(...) with ReadableStream and TextDecoder",
+      "when_to_use": "Real-time streaming updates from code generation (ClaudeTerminal)",
+      "examples": [
+        "ClaudeTerminal: res.body?.getReader() → decoder.decode(value) → parse newline-delimited JSON"
+      ],
+      "pattern": "Line-buffering with split('\\n'), parse JSON events incrementally",
+      "abort_support": "AbortController for cleanup on unmount"
+    },
+    {
+      "name": "Form POST requests",
+      "mechanism": "fetch(..., {method: 'POST', headers: {...}, body: JSON.stringify(...)})",
+      "when_to_use": "Sending user input (prompts, chat messages, settings updates)",
+      "examples": [
+        "GeneratePanel: POST /api/generate/stream {userPrompt}",
+        "RefinementChat: POST /api/generate/refine {sessionId, messages}",
+        "SettingsPanel: PUT /api/settings {settings object}",
+        "AddPinModal: POST /api/pins {pin data}"
+      ],
+      "loading_pattern": "setSaving/setLoading state before/after request"
+    }
+  ],
+  "styling": {
+    "framework": "Tailwind CSS",
+    "config_file": "tailwind.config.ts",
+    "css_processor": "PostCSS (postcss.config.mjs)",
+    "design_tokens": "CSS custom properties (variables) prefixed with --",
+    "token_categories": [
+      "--radius-xl, --radius-lg - border radius",
+      "--surface, --bg-elevated - background colors",
+      "--text-primary, --text-secondary, --text-muted - text colors",
+      "--border-color - border/divider colors"
+    ],
+    "component_styling_approach": "Inline Tailwind classes in JSX",
+    "examples": [
+      "SettingsPanel: 'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md'",
+      "Modal content: 'w-full max-w-md rounded-[var(--radius-xl)] bg-[var(--surface)] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]'",
+      "Header: 'sticky top-0 z-40 border-b border-[var(--border-color)] bg-[var(--surface)]'",
+      "PinCard: 'group relative overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-elevated)] transition-all hover:shadow-lg'"
+    ],
+    "responsive_design": "Mobile-first with lg: breakpoint (e.g., 'grid-cols-1 lg:grid-cols-[1fr_340px]')",
+    "dark_mode": "CSS variables support dark theme via color values, no explicit dark: prefix detected"
+  },
+  "key_conventions": [
+    {
+      "category": "Component naming",
+      "rules": [
+        "PascalCase for React components (e.g., PinBoard, GitHubPanel, ClaudeTerminal)",
+        "Descriptive suffixes: Panel (sidebar features), Modal (dialogs), Frame (iframe wrappers), Card (list items), Chat (messaging UIs)",
+        "File names match component names (e.g., PinBoard.tsx)"
+      ]
+    },
+    {
+      "category": "Component organization",
+      "rules": [
+        "Feature-based: components grouped by domain (Pin, GitHub, Presets, Generate, Refinement, Settings)",
+        "Co-located: each component in src/components/ with single responsibility",
+        "Shared components: Header, AddPinModal, PinCard (used by multiple features)",
+        "Page-level components: Home (src/app/page.tsx) orchestrates feature components"
+      ]
+    },
+    {
+      "category": "File naming",
+      "rules": [
+        "React components: PascalCase.tsx (e.g., PinBoard.tsx)",
+        "Utilities: camelCase.ts (e.g., generate.ts, github.ts)",
+        "Config files: kebab-case or descriptive (next.config.ts, tailwind.config.ts, vitest.config.ts)",
+        "Test files: [subject].test.ts or [subject].integration.test.ts (co-located in src/lib/)"
+      ]
+    },
+    {
+      "category": "Hook/utility patterns",
+      "rules": [
+        "Session loading: loadSession() helper function in Home component for sessionStorage hydration",
+        "Callbacks: useCallback for event handlers passed to child components (e.g., handleSiteReady, handleFileChange)",
+        "Refs: useRef for mutable values (e.g., sessionIdRef in ClaudeTerminal, scrollRef for auto-scroll)",
+        "Effect hooks: useEffect for data fetching with cleanup (AbortController for fetch cancellation)"
+      ]
+    },
+    {
+      "category": "State management patterns",
+      "rules": [
+        "Props drilling: state passed down via props (no Context API or state library used)",
+        "Callback elevation: child events bubble up via callback props (onClose, onComplete, onError)",
+        "Ref object state: mutable session/scroll state stored in useRef (not triggering re-renders unnecessarily)",
+        "SessionStorage sync: bi-directional sync in useEffect for session persistence"
+      ]
+    },
+    {
+      "category": "Data flow patterns",
+      "rules": [
+        "Unidirectional: Home → child components (props down, callbacks up)",
+        "Event-driven generation: GeneratePanel triggers /api/generate/stream, ClaudeTerminal consumes SSE, completes via onComplete callback",
+        "Refinement session: sessionId passed to RefinementChat, used in POST /api/generate/refine requests",
+        "Live preview: PreviewFrame refreshes via iframeSrc update when siteDir or refreshTrigger change"
+      ]
+    },
+    {
+      "category": "Form patterns",
+      "rules": [
+        "Controlled inputs: useState for each form field (userPrompt, repoUrl, etc.)",
+        "Submit handlers: fetch POST request, set saving/loading state, handle errors with try-catch",
+        "Modal dialogs: state-based visibility (showModal boolean), open via button, close via onClose callback",
+        "No form libraries: plain React form handling without react-hook-form or Formik"
+      ]
+    },
+    {
+      "category": "Error handling",
+      "rules": [
+        "Try-catch for fetch: await fetch().then(...).catch(err => setError(err.message))",
+        "User-facing errors: display in component via error state string",
+        "Stream errors: onError callback prop invoked in ClaudeTerminal, propagated to parent",
+        "Health checks: SettingsPanel displays health.status.ok for each service"
+      ]
+    },
+    {
+      "category": "Testing",
+      "rules": [
+        "Unit tests: src/lib/*.test.ts (Vitest framework)",
+        "Integration tests: src/lib/*.integration.test.ts",
+        "Business logic: generate.ts heavily tested (parseReadmeSections, extractDependencies, inferProjectType, buildPrompt)",
+        "No component tests detected: focus on backend logic validation"
+      ]
+    },
+    {
+      "category": "API communication",
+      "rules": [
+        "Fetch-based: no axios, no Apollo, native fetch API with async-await",
+        "Content-Type: 'application/json' for POST/PUT requests",
+        "SSE parsing: line-buffered JSON events from /api/generate/stream",
+        "No request/response interceptors: error handling inline per fetch call"
+      ]
+    }
+  ],
+  "architectural_observations": {
+    "strengths": [
+      "Clear separation of concerns: pages, components, API routes, business logic",
+      "Minimal dependencies: leverages Next.js built-ins (API routes, SSR), Tailwind for styling, no state library bloat",
+      "Session management: sessionStorage for lightweight state persistence without backend sessions",
+      "Real-time capabilities: SSE streaming for long-running code generation with live UI updates",
+      "Modular components: reusable UI pieces (PinCard, Header, Modal wrappers) support multiple features"
+    ],
+    "potential_improvements": [
+      "Add React Context or Zustand for global state (provider config, pins, presets) to reduce prop drilling",
+      "Implement custom hooks: useFetch(), useSession(), useRefinement() to encapsulate fetch logic",
+      "Add component-level error boundaries for graceful failure handling",
+      "Use React Query or SWR for server state caching and automatic refetching",
+      "Add TypeScript types for API responses (currently implicit from fetch responses)",
+      "Implement loading skeletons instead of loading spinners for better UX",
+      "Add keyboard shortcuts and accessibility (ARIA labels) for settings/modals"
+    ],
+    "state_flow_diagram": "Home (orchestrator) → [PinBoard, GitHubPanel, PresetsPanel, GeneratePanel] (setup phase) → GeneratePanel → ClaudeTerminal (SSE stream) → onComplete → Home updates siteDir/sessionId → [PreviewFrame, RefinementChat] (refinement phase)",
+    "data_flow_summary": "Pins from /api/pins → PinBoard display. GitHub URL → /api/github → GitHubPanel parses. Presets from /api/presets. User prompt → /api/generate/stream (SSE) → ClaudeTerminal parses events → onComplete returns outputDir → PreviewFrame serves via /api/preview. Refinement messages → /api/generate/refine with sessionId."
+  }
+}
+```
+
+## Key Highlights
+
+### **Framework & Rendering**
+- **React 18 + Next.js 14 (App Router)** with hybrid rendering:
+  - `layout.tsx` server-rendered (metadata, global styles)
+  - `page.tsx` client-rendered (`"use client"`) for interactivity
+  - API routes handle both backend logic and frontend data fetching
+
+### **Component Architecture**
+- **12 main UI components** organized by feature domain:
+  - **Setup phase**: PinBoard, GitHubPanel, PresetsPanel, GeneratePanel (sidebar panels)
+  - **Generation phase**: ClaudeTerminal (real-time SSE streaming), PreviewFrame (iframe preview)
+  - **Refinement phase**: RefinementChat (iterative modifications)
+  - **Shared**: Header, SettingsPanel, PinCard, AddPinModal
+
+### **State Management**
+- **No centralized store** (no Redux/Zustand)
+- **Component-level useState** for local state + **sessionStorage** for session persistence
+- **Props drilling** for state propagation (acceptable due to shallow hierarchy)
+- **Callback-based events** for child→parent communication
+
+### **Data Fetching**
+- **Direct fetch()** calls in useEffect for initial data (pins, settings, presets)
+- **Server-Sent Events (SSE)** for real-time code generation streaming
+- **Form POST requests** for user actions (generate, refine, save settings)
+- **No caching layer** (each fetch is on-demand)
+
+### **Styling**
+- **Tailwind CSS** with CSS custom properties for theming (`--surface`, `--text-primary`, etc.)
+- **Responsive design** with mobile-first approach (`lg:` breakpoint for layout shift)
+- **Inline classes** (no CSS Modules or styled-components)
+
+### **Conventions**
+- PascalCase component names, feature-based organization
+- Session persistence via `sessionStorage` key `pinlaunch_session`
+- Unidirectional data flow: Home → children (props down, callbacks up)
+- Error handling via state + user-facing error strings
+- Minimal custom hooks, relying on React built-ins

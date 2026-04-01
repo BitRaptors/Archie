@@ -1,0 +1,380 @@
+```json
+{
+  "internal_communication": [
+    {
+      "type": "Direct Method Calls",
+      "platform": "backend",
+      "mechanism": "In-process TypeScript function calls between API routes and library modules",
+      "examples": [
+        "src/app/api/generate/stream/route.ts calls streamClaudeGeneration() from src/lib/generate.ts",
+        "src/app/api/github/route.ts calls getRepoContent() from src/lib/github.ts",
+        "src/app/api/settings/route.ts calls getDb() from src/lib/db.ts for SQLite queries"
+      ]
+    },
+    {
+      "type": "Database Access Layer",
+      "platform": "backend",
+      "mechanism": "Synchronous better-sqlite3 queries through src/lib/db.ts wrapper",
+      "examples": [
+        "src/app/api/generate/stream/route.ts queries pins, presets, and settings from SQLite",
+        "src/app/api/pins/route.ts performs CRUD operations on pins table",
+        "src/app/api/settings/route.ts reads/writes key-value settings"
+      ]
+    },
+    {
+      "type": "Component Props & State",
+      "platform": "frontend",
+      "mechanism": "React props drilling and useState hooks for component composition",
+      "examples": [
+        "src/app/page.tsx manages global UI state and passes data to PinBoard, GeneratePanel, RefinementChat",
+        "src/components/GeneratePanel.tsx receives userPrompt and passes to ClaudeTerminal",
+        "src/components/ClaudeTerminal.tsx receives onComplete callback to notify parent of results"
+      ]
+    },
+    {
+      "type": "Callback Functions",
+      "platform": "frontend",
+      "mechanism": "Parent-to-child function passing for event handling and result propagation",
+      "examples": [
+        "ClaudeTerminal.onComplete callback returns {previewUrl, fileCount, files, outputDir, sessionId}",
+        "ClaudeTerminal.onError callback propagates error messages to parent",
+        "ClaudeTerminal.onFileChange callback notifies parent of file generation events"
+      ]
+    },
+    {
+      "type": "Server-Sent Events (SSE)",
+      "platform": "cross-platform",
+      "mechanism": "Streaming JSON events from backend to frontend over HTTP",
+      "examples": [
+        "src/app/api/generate/stream/route.ts returns text/event-stream response with chunked JSON events",
+        "src/components/ClaudeTerminal.tsx consumes SSE stream via fetch('/api/generate/stream') with ReadableStream",
+        "Event types: 'system', 'assistant', 'tool_use', 'tool-result', 'done', 'error', 'result'",
+        "Stream parsing happens in ClaudeTerminal.tsx with handleEvent() logic mirrored in src/lib/stream-parsing.test.ts"
+      ]
+    },
+    {
+      "type": "Shared Test Utilities",
+      "platform": "backend",
+      "mechanism": "Duplicated helper functions in test files to validate stream parsing logic",
+      "examples": [
+        "src/lib/stream-parsing.test.ts mirrors ClaudeTerminal's handleEvent, handleToolUse, handleToolResult functions",
+        "TOOL_ICONS constant replicated in both ClaudeTerminal.tsx and stream-parsing.test.ts",
+        "formatBytes(), truncateCode(), extractFileName() utility functions duplicated for testing"
+      ]
+    }
+  ],
+  "external_communication": [
+    {
+      "type": "REST API - GitHub Integration",
+      "protocol": "HTTP/REST",
+      "direction": "backend-to-external",
+      "examples": [
+        "src/lib/github.ts uses Octokit (@octokit/rest) to fetch repository data",
+        "getRepoContent() retrieves README, package.json, file tree, repo metadata from GitHub API",
+        "Requires github_token from settings for authentication",
+        "Called from src/app/api/github/route.ts when user provides GitHub repo URL"
+      ]
+    },
+    {
+      "type": "REST API - Claude AI Generation",
+      "protocol": "HTTP/REST with Streaming",
+      "direction": "backend-to-external",
+      "examples": [
+        "src/lib/generate.ts calls Anthropic Claude API with streamClaudeGeneration()",
+        "Uses tool_use pattern with Claude tools: Write, Edit, Read, Bash, Glob, Grep",
+        "Streaming response returned as Server-Sent Events (SSE) to frontend",
+        "Authentication via ANTHROPIC_API_KEY environment variable"
+      ]
+    },
+    {
+      "type": "File System Operations",
+      "protocol": "Node.js fs module",
+      "direction": "backend-only",
+      "examples": [
+        "src/lib/generate.ts writes generated files to process.cwd()/output/{dirName}/",
+        "src/app/api/preview/[...path]/route.ts reads files from output directory for preview serving",
+        "src/app/api/screenshot/route.ts may interact with file system for image generation"
+      ]
+    },
+    {
+      "type": "Environment-based Configuration",
+      "protocol": "Process environment variables",
+      "direction": "backend-only",
+      "examples": [
+        "ANTHROPIC_API_KEY - Claude API authentication",
+        "DATABASE_PATH - SQLite database file location (optional override)",
+        "NODE_ENV - Development vs. production mode"
+      ]
+    }
+  ],
+  "third_party_integrations": [
+    {
+      "service": "Anthropic Claude AI",
+      "purpose": "Generate code and project files based on user prompts and pins",
+      "integration_point": "src/lib/generate.ts exports streamClaudeGeneration()",
+      "communication": "HTTP REST with streaming SSE response",
+      "authentication": "ANTHROPIC_API_KEY environment variable",
+      "frontend_visibility": "Yes - Claude Terminal (src/components/ClaudeTerminal.tsx) displays real-time generation progress"
+    },
+    {
+      "service": "GitHub API (via Octokit)",
+      "purpose": "Fetch repository metadata, README, and file structure for context",
+      "integration_point": "src/lib/github.ts exports getRepoContent()",
+      "communication": "HTTP REST API calls",
+      "authentication": "github_token stored in SQLite settings (optional)",
+      "frontend_visibility": "Yes - GitHubPanel (src/components/GitHubPanel.tsx) allows URL input and displays repo info"
+    },
+    {
+      "service": "SQLite Database (better-sqlite3)",
+      "purpose": "Persistent storage for pins, presets, and settings",
+      "integration_point": "src/lib/db.ts exports getDb()",
+      "communication": "In-process synchronous SQL queries",
+      "authentication": "File-system based (local database file)",
+      "frontend_visibility": "Indirect - data accessed via API routes"
+    },
+    {
+      "service": "Node.js File System",
+      "purpose": "Write generated project files to disk",
+      "integration_point": "src/lib/generate.ts uses fs module internally",
+      "communication": "Synchronous and asynchronous file operations",
+      "authentication": "Process-level permissions",
+      "frontend_visibility": "Indirect - files served via src/app/api/preview/[...path]/route.ts"
+    }
+  ],
+  "frontend_backend_contract": {
+    "protocol": "REST API with Server-Sent Events (SSE)",
+    "base_pattern": "Next.js API routes serve as backend; frontend fetches via native fetch() API",
+    "shared_types": true,
+    "type_sharing_mechanism": "TypeScript interfaces duplicated across frontend/backend (e.g., TerminalEntry, RepoContent)",
+    "type_sharing_note": "Types are not extracted to shared @types package; instead duplicated in test files and components",
+    "error_propagation": "HTTP status codes + JSON error objects; frontend catches via res.ok checks and .json() parsing",
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/api/generate/stream",
+        "request": {"userPrompt": "string"},
+        "response": "text/event-stream with JSON events",
+        "caller": "src/components/ClaudeTerminal.tsx",
+        "backend": "src/app/api/generate/stream/route.ts"
+      },
+      {
+        "method": "POST",
+        "path": "/api/github",
+        "request": {"repoUrl": "string"},
+        "response": "application/json RepoContent",
+        "caller": "src/components/GitHubPanel.tsx",
+        "backend": "src/app/api/github/route.ts"
+      },
+      {
+        "method": "GET",
+        "path": "/api/settings",
+        "request": "none",
+        "response": "application/json Record<string, string>",
+        "caller": "src/components/GitHubPanel.tsx, GeneratePanel.tsx",
+        "backend": "src/app/api/settings/route.ts"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/settings",
+        "request": "application/json Record<string, string>",
+        "response": "application/json success/error",
+        "caller": "src/components/GitHubPanel.tsx, SettingsPanel.tsx",
+        "backend": "src/app/api/settings/route.ts"
+      },
+      {
+        "method": "GET",
+        "path": "/api/pins",
+        "request": "none",
+        "response": "application/json Pin[]",
+        "caller": "src/components/PinBoard.tsx",
+        "backend": "src/app/api/pins/route.ts"
+      },
+      {
+        "method": "POST",
+        "path": "/api/pins",
+        "request": "application/json {url, title, description, thumbnail}",
+        "response": "application/json Pin",
+        "caller": "src/components/AddPinModal.tsx",
+        "backend": "src/app/api/pins/route.ts"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/pins/[id]",
+        "request": "none",
+        "response": "application/json success/error",
+        "caller": "src/components/PinCard.tsx",
+        "backend": "src/app/api/pins/[id]/route.ts"
+      },
+      {
+        "method": "GET",
+        "path": "/api/presets",
+        "request": "none",
+        "response": "application/json Preset[]",
+        "caller": "src/components/PresetsPanel.tsx",
+        "backend": "src/app/api/presets/route.ts"
+      },
+      {
+        "method": "GET",
+        "path": "/api/preview/[...path]",
+        "request": "none",
+        "response": "text/html (static file serve)",
+        "caller": "src/components/PreviewFrame.tsx",
+        "backend": "src/app/api/preview/[...path]/route.ts"
+      },
+      {
+        "method": "GET",
+        "path": "/api/health",
+        "request": "none",
+        "response": "application/json {status: 'ok'}",
+        "caller": "Health check endpoint (status monitoring)",
+        "backend": "src/app/api/health/route.ts"
+      }
+    ],
+    "error_handling_example": "GitHubPanel.tsx: `if (!res.ok) { setError(data.error || 'Failed to fetch repo'); }`",
+    "streaming_special_case": "POST /api/generate/stream uses ReadableStream with TextDecoder to parse SSE events in real-time"
+  },
+  "pattern_guidelines": [
+    {
+      "scenario": "Real-time progress updates during long-running operations",
+      "pattern": "Server-Sent Events (SSE) with JSON event streaming",
+      "rationale": "Claude code generation takes seconds to minutes; SSE allows showing progress without polling. Less overhead than WebSockets for unidirectional backend-to-frontend.",
+      "implementation": "src/app/api/generate/stream/route.ts streams events; src/components/ClaudeTerminal.tsx parses with TransformStream"
+    },
+    {
+      "scenario": "Passing callbacks from parent to child components",
+      "pattern": "React props with typed callback functions (onComplete, onError, onFileChange)",
+      "rationale": "Enables children to notify parents of results without introducing context bloat for single-level data flow.",
+      "implementation": "ClaudeTerminal receives callbacks; calls onComplete({previewUrl, fileCount, files, outputDir, sessionId})"
+    },
+    {
+      "scenario": "Sharing state between multiple components (pins, presets, settings)",
+      "pattern": "Fetch-on-mount in parent component (src/app/page.tsx), pass as props, or call API directly from child",
+      "rationale": "No global context or state management library; simple fetch API calls keep dependencies minimal.",
+      "tradeoff": "More API calls; no automatic re-sync if data changes elsewhere"
+    },
+    {
+      "scenario": "Type safety across frontend-backend boundary",
+      "pattern": "Manual TypeScript interface duplication (no shared types package)",
+      "rationale": "Simplicity for monolithic Next.js app; interfaces appear in component files and test files independently.",
+      "risk": "Type drift between frontend/backend if interfaces change without sync"
+    },
+    {
+      "scenario": "Testing stream parsing logic without HTTP dependency",
+      "pattern": "Mirror event handler functions in unit test file (stream-parsing.test.ts)",
+      "rationale": "Validates SSE parsing contract independently; caught bugs in truncateCode(), formatBytes() behavior.",
+      "limitation": "Duplicated code; no shared test utilities"
+    },
+    {
+      "scenario": "Generating files and serving previews",
+      "pattern": "Write to src/output/{sessionId}/ on backend, serve via /api/preview/[...path]/route.ts",
+      "rationale": "Decouples generation from preview; files persist for later access.",
+      "caller": "Frontend loads preview via <iframe src='/api/preview/{dirName}/'>"
+    },
+    {
+      "scenario": "Storing persistent configuration (GitHub token, repo URL, presets)",
+      "pattern": "SQLite database with key-value settings table; Settings API (GET/PUT)",
+      "rationale": "Lightweight; no external DB needed; survives server restart.",
+      "implementation": "src/app/api/settings/route.ts reads/writes to settings table via src/lib/db.ts"
+    },
+    {
+      "scenario": "Integrating external APIs (GitHub, Claude)",
+      "pattern": "Backend-only API calls wrapped in library modules (github.ts, generate.ts)",
+      "rationale": "Hides credentials from frontend; centralizes API logic; easier to swap implementations.",
+      "frontend_interaction": "Frontend calls backend API routes, never calls external APIs directly"
+    },
+    {
+      "scenario": "Displaying AI model output with tool usage visualization",
+      "pattern": "Parse SSE events into typed TerminalEntry objects; render with emoji icons for tool names",
+      "rationale": "Rich UI feedback; tool icons (Write ✏️, Edit ✂️, Read 👁, Bash ⚡) make tool execution visible.",
+      "implementation": "ClaudeTerminal.tsx handles events; mirrors parsing logic in stream-parsing.test.ts for validation"
+    }
+  ],
+  "communication_flow_diagrams": {
+    "user_generates_code": [
+      "User enters prompt in GeneratePanel → ClaudeTerminal.userPrompt prop updated",
+      "ClaudeTerminal useEffect triggers POST /api/generate/stream with {userPrompt}",
+      "Backend route (src/app/api/generate/stream/route.ts):",
+      "  1. Queries pins, presets, settings from SQLite (src/lib/db.ts)",
+      "  2. If github_repo set, calls getRepoContent() (src/lib/github.ts) → GitHub API",
+      "  3. Calls streamClaudeGeneration() (src/lib/generate.ts) → Anthropic Claude API",
+      "  4. Wraps response stream with previewUrl injection, returns SSE",
+      "Frontend ClaudeTerminal receives SSE stream:",
+      "  1. TextDecoder parses chunks into lines",
+      "  2. Lines parsed as JSON events (type: 'system', 'assistant', 'tool_use', etc.)",
+      "  3. handleEvent() creates TerminalEntry objects; setState to display in terminal UI",
+      "  4. On 'done' event, onComplete(result) callback fires with previewUrl",
+      "Parent component loads preview via <PreviewFrame src={previewUrl} />"
+    ],
+    "user_connects_github": [
+      "User enters GitHub repo URL in GitHubPanel",
+      "GitHubPanel.connect() calls POST /api/github with {repoUrl}",
+      "Backend route (src/app/api/github/route.ts):",
+      "  1. Calls getRepoContent() (src/lib/github.ts)",
+      "  2. Uses Octokit to fetch repo metadata, README, package.json from GitHub API",
+      "  3. Returns RepoContent JSON",
+      "Frontend GitHubPanel displays: name, description, language, stars, topics, README preview",
+      "Sidebar also saves repo URL via PUT /api/settings"
+    ],
+    "user_manages_pins": [
+      "User adds pin via AddPinModal → POST /api/pins with {url, title, description, thumbnail}",
+      "Backend route (src/app/api/pins/route.ts) inserts into SQLite pins table",
+      "Frontend PinBoard refreshes: GET /api/pins returns updated Pin[] array",
+      "Each pin rendered as PinCard with delete button",
+      "Delete click calls DELETE /api/pins/[id]",
+      "Backend deletes row; frontend removes from UI"
+    ],
+    "user_configures_presets": [
+      "User toggles preset in PresetsPanel",
+      "PUT /api/presets updates is_active flag in SQLite",
+      "Next generation request includes active presets via /api/generate/stream",
+      "Backend passes activePresets to Claude prompt builder in streamClaudeGeneration()"
+    ]
+  },
+  "api_contract_details": {
+    "request_response_format": "JSON for standard endpoints; event-stream (text/event-stream) for /api/generate/stream",
+    "authentication": "None; all endpoints accessible without auth (local-first design)",
+    "error_responses": {
+      "pattern": "HTTP status code + JSON {error: string} or {message: string}",
+      "example": "GitHubPanel catches: `if (!res.ok) { setError(data.error || 'Failed to fetch repo'); }`"
+    },
+    "sse_event_schema": {
+      "system_event": {"type": "system", "content": "string", "meta?": "string"},
+      "assistant_event": {"type": "assistant", "message": {content: [{type: string, ...}]}},
+      "tool_use_event": {"type": "tool_use", "block": {name: string, input: object, id: string}},
+      "tool_result_event": {"type": "user", "tool_use_result": {...}},
+      "done_event": {"type": "done", "fileCount": number, "files": string[], "previewUrl": string},
+      "error_event": {"type": "error", "message": string}
+    }
+  }
+}
+```
+
+---
+
+## Key Communication Insights
+
+### **Frontend-Backend Contract: REST + SSE Hybrid**
+- **Standard CRUD**: JSON REST (pins, settings, presets) with simple fetch() calls
+- **Long-running operations**: Server-Sent Events for code generation progress streaming
+- **No shared type package**: Interfaces duplicated across files (TerminalEntry, RepoContent) — potential sync risk
+
+### **Backend Internal Architecture**
+- **Layered design**: API routes → Library modules → External services
+- **No event bus or message queue**: Direct function calls (TypeScript); all code runs in single process
+- **Database**: SQLite via better-sqlite3, synchronous queries, no ORM
+
+### **Frontend State Management**
+- **Prop drilling pattern**: No Context API or Redux; state lives in `src/app/page.tsx` parent
+- **Direct API calls**: Each component calls `fetch()` independently; no centralized HTTP client
+- **Callback propagation**: Child results flow to parent via onComplete callbacks
+
+### **Third-Party Integration Pattern**
+All external APIs (Claude, GitHub) are **backend-only**; frontend never directly calls them:
+- **Claude**: Streamed via `/api/generate/stream` SSE endpoint
+- **GitHub**: Wrapped in `/api/github` REST endpoint
+- **Files**: Served via `/api/preview/[...path]` from generated output directory
+
+### **Testing & Code Quality**
+- **Stream parsing tested separately**: `src/lib/stream-parsing.test.ts` mirrors ClaudeTerminal event handlers
+- **Unit + integration tests**: `generate.test.ts`, `generate.integration.test.ts` validate code generation
+- **No E2E framework detected**: Appears to rely on unit/integration tests only
