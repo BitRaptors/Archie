@@ -10,14 +10,14 @@ Run the scanner to get the project map and health metrics:
 
 ```bash
 python3 .archie/scanner.py "$PWD"
-python3 .archie/measure_health.py "$PWD" > /tmp/archie_health.json 2>/dev/null
+python3 .archie/measure_health.py "$PWD" > .archie/health.json 2>/dev/null
 git log --oneline --since="7 days ago" --name-only 2>/dev/null | sort -u | head -50
 ```
 
 Now read:
 - `.archie/skeletons.json` — the full project map: every file's header, function/class signatures, line counts
 - `.archie/scan.json` — file tree, import graph, detected frameworks
-- `/tmp/archie_health.json` — erosion score, verbosity score, per-function complexity
+- `.archie/health.json` — erosion score, verbosity score, per-function complexity
 
 Also read if they exist (skip if not — that's normal):
 - `.archie/blueprint.json` — architectural decisions, component boundaries (from deep scan)
@@ -285,5 +285,5 @@ Print confirmation: `Adopted N rules, ignored M. Rules take effect immediately �
 ## Cleanup
 
 ```bash
-rm -f /tmp/archie_health.json
+rm -f .archie/health.json
 ```

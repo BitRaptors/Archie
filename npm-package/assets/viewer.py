@@ -99,17 +99,14 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(_load_json(archie_dir / "rules.json"))
 
         elif path == "/api/health":
-            # Try /tmp/archie_health.json first, then fall back to latest
-            # entry in health_history.json
-            tmp_health = Path("/tmp/archie_health.json")
-            if tmp_health.exists():
-                self._send_json(_load_json(tmp_health))
-            else:
+            # Read full health data saved by scan/deep-scan
+            data = _load_json(archie_dir / "health.json")
+            if not data:
+                # Fallback to history summary (no functions/waste detail)
                 history = _load_json(archie_dir / "health_history.json")
                 if isinstance(history, list) and history:
-                    self._send_json(history[-1])
-                else:
-                    self._send_json({})
+                    data = history[-1]
+            self._send_json(data or {})
 
         elif path == "/api/health-history":
             data = _load_json(archie_dir / "health_history.json")
@@ -389,7 +386,7 @@ let _dashboardChart = null;
 function renderDashboard() {
   const el = document.getElementById('tab-dashboard');
   if (!health || Object.keys(health).length === 0) {
-    el.innerHTML = '<p class="text-ink/40">No health data available. Run /archie-scan first.</p>';
+    el.innerHTML = '<div class="flex items-center justify-center h-64"><div class="text-center"><p class="text-ink/40 text-lg mb-2">No health data available</p><p class="text-ink/30 text-sm">Run <code class="text-teal">/archie-scan</code> for a quick health check or <code class="text-teal">/archie-deep-scan</code> for a full baseline.</p></div></div>';
     return;
   }
 
@@ -457,7 +454,7 @@ function renderDashboard() {
   html += '<div class="text-sm font-bold text-ink mb-4">Top Complex Functions</div>';
   const fns = (health.functions || []).slice().sort((a, b) => (b.cc || 0) - (a.cc || 0)).slice(0, 10);
   if (fns.length === 0) {
-    html += '<p class="text-xs text-ink/40">No function data available.</p>';
+    html += '<p class="text-xs text-ink/40">No function data. Run <code class="text-teal">/archie-scan</code> to analyze.</p>';
   } else {
     html += '<table class="w-full text-xs">';
     html += '<thead><tr>'
@@ -528,6 +525,54 @@ function renderDashboard() {
 
   html += '</div>';
   html += '</div>';  // close grid
+
+  // --- Drift Findings panel (from deep scan) ---
+  const driftCategories = [
+    { key: 'pattern_divergences', label: 'Pattern Divergences', color: '#ffb703' },
+    { key: 'naming_violations', label: 'Naming Violations', color: '#219ebc' },
+    { key: 'dependency_violations', label: 'Dependency Violations', color: '#fb8500' },
+    { key: 'structural_outliers', label: 'Structural Outliers', color: '#023047' },
+    { key: 'antipattern_clusters', label: 'Anti-pattern Clusters', color: '#fb8500' },
+    { key: 'deep_findings', label: 'Deep Architectural Findings (AI)', color: '#fb8500' }
+  ];
+  const allDriftFindings = [];
+  driftCategories.forEach(cat => {
+    (drift[cat.key] || []).forEach(f => allDriftFindings.push({ ...f, _category: cat.label, _color: cat.color }));
+  });
+
+  if (allDriftFindings.length > 0) {
+    html += '<div class="rounded-xl border border-papaya-400/60 bg-white p-5 mt-6">';
+    html += '<div class="text-sm font-bold text-ink mb-4">Drift Findings <span class="bg-brandy/10 text-brandy text-xs font-bold px-2 py-0.5 rounded-full ml-2">' + allDriftFindings.length + '</span></div>';
+
+    // Group by severity: errors first, then warnings
+    const errors = allDriftFindings.filter(f => f.severity === 'error');
+    const warns = allDriftFindings.filter(f => f.severity !== 'error');
+
+    function renderFinding(f) {
+      const sevBadge = f.severity === 'error'
+        ? '<span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-brandy/10 text-brandy">error</span>'
+        : '<span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-tangerine/10 text-tangerine">warn</span>';
+      const catBadge = '<span class="text-[10px] font-bold text-ink/30 uppercase tracking-wider ml-2">' + esc(f._category) + '</span>';
+      const file = f.file || f.folder || f.location || '';
+      const msg = f.message || f.finding || f.description || '';
+      const evidence = f.evidence || f.decision_or_pattern || '';
+      return '<div class="py-3 border-b border-papaya-100 last:border-0">'
+        + '<div class="flex items-center gap-2 mb-1">' + sevBadge + catBadge
+        + (file ? ' <code class="text-[10px] text-teal ml-auto">' + esc(file) + '</code>' : '') + '</div>'
+        + '<p class="text-xs text-ink">' + esc(msg) + '</p>'
+        + (evidence ? '<p class="text-[10px] text-ink/40 mt-1">Evidence: ' + esc(evidence) + '</p>' : '')
+        + '</div>';
+    }
+
+    errors.forEach(f => { html += renderFinding(f); });
+    warns.forEach(f => { html += renderFinding(f); });
+    html += '</div>';
+  } else if (drift && drift.summary) {
+    html += '<div class="rounded-xl border border-papaya-400/60 bg-white p-5 mt-6">';
+    html += '<div class="text-sm font-bold text-ink mb-2">Drift Findings</div>';
+    html += '<p class="text-xs text-ink/40">No drift findings. Run <code class="text-teal">/archie-deep-scan</code> for architectural drift analysis.</p>';
+    html += '</div>';
+  }
 
   el.innerHTML = html;
 
@@ -986,7 +1031,7 @@ function renderRules() {
   const ignored = (ignoredRules && ignoredRules.ignored) || [];
 
   if (ruleList.length === 0 && ignored.length === 0) {
-    container.innerHTML = '<p class="text-ink/40 text-sm">No rules adopted yet. Run <code class="text-teal">/archie-scan</code> to discover and adopt rules.</p>';
+    container.innerHTML = '<p class="text-ink/40 text-sm">No rules adopted yet. Run <code class="text-teal">/archie-scan</code> or <code class="text-teal">/archie-deep-scan</code> to discover and adopt rules.</p>';
     return;
   }
 
