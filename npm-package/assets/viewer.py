@@ -11,6 +11,7 @@ from __future__ import annotations
 import http.server
 import json
 import os
+import re
 import socket
 import sys
 import threading
@@ -64,10 +65,11 @@ def _collect_generated_files(root: Path) -> dict[str, str]:
         if p.exists():
             files[name] = _read_text(p)
     # Rule files
-        if rules_dir.is_dir():
-            for f in sorted(rules_dir.rglob("*")):
-                if f.is_file():
-                    files[str(f.relative_to(root))] = _read_text(f)
+    rules_dir = root / ".claude" / "rules"
+    if rules_dir.is_dir():
+        for f in sorted(rules_dir.rglob("*")):
+            if f.is_file():
+                files[str(f.relative_to(root))] = _read_text(f)
     return files
 
 
@@ -85,17 +87,100 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         root: Path = self.server.root  # type: ignore[attr-defined]
+        archie_dir = root / ".archie"
 
         if path == "/":
             self._send_html(HTML_PAGE)
+
         elif path == "/api/blueprint":
-            self._send_json(_load_json(root / ".archie" / "blueprint.json"))
+            self._send_json(_load_json(archie_dir / "blueprint.json"))
+
         elif path == "/api/rules":
-            self._send_json(_load_json(root / ".archie" / "rules.json"))
+            self._send_json(_load_json(archie_dir / "rules.json"))
+
+        elif path == "/api/health":
+            # Try /tmp/archie_health.json first, then fall back to latest
+            # entry in health_history.json
+            tmp_health = Path("/tmp/archie_health.json")
+            if tmp_health.exists():
+                self._send_json(_load_json(tmp_health))
+            else:
+                history = _load_json(archie_dir / "health_history.json")
+                if isinstance(history, list) and history:
+                    self._send_json(history[-1])
+                else:
+                    self._send_json({})
+
+        elif path == "/api/health-history":
+            data = _load_json(archie_dir / "health_history.json")
+            if not isinstance(data, list):
+                data = []
+            self._send_json(data)
+
+        elif path == "/api/scan-reports":
+            reports = []
+            if archie_dir.is_dir():
+                for f in sorted(archie_dir.glob("scan_report_*.md"), reverse=True):
+                    name = f.name
+                    # Extract date from scan_report_YYYY-MM-DD.md
+                    m = re.search(r"scan_report_(\d{4}-\d{2}-\d{2})\.md$", name)
+                    date_str = m.group(1) if m else ""
+                    reports.append({"filename": name, "date": date_str})
+            self._send_json(reports)
+
+        elif path.startswith("/api/scan-report/"):
+            filename = path[len("/api/scan-report/"):]
+            # Validate filename to prevent path traversal
+            if not re.match(r"^scan_report.*\.md$", filename) or "/" in filename or "\\" in filename:
+                self._send_error(400, "Invalid filename")
+                return
+            report_path = archie_dir / filename
+            if not report_path.exists():
+                self._send_error(404, "Report not found")
+                return
+            content = _read_text(report_path)
+            self._send_json({"filename": filename, "content": content})
+
+        elif path == "/api/function-complexity":
+            self._send_json(_load_json(archie_dir / "function_complexity.json"))
+
+        elif path == "/api/drift":
+            self._send_json(_load_json(archie_dir / "drift_report.json"))
+
         elif path == "/api/generated-files":
             self._send_json(_collect_generated_files(root))
+
         elif path == "/api/folder-claude-mds":
             self._send_json(_collect_folder_claude_mds(root))
+
+        elif path == "/api/ignored-rules":
+            self._send_json(_load_json(archie_dir / "ignored_rules.json"))
+
+        else:
+            self._send_error(404, "Not found")
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        root: Path = self.server.root  # type: ignore[attr-defined]
+
+        if path == "/api/rules":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                data = json.loads(body)
+            except (ValueError, json.JSONDecodeError):
+                self._send_error(400, "Invalid JSON")
+                return
+
+            if not isinstance(data, dict) or "rules" not in data or not isinstance(data["rules"], list):
+                self._send_error(400, "Body must have a 'rules' key with an array value")
+                return
+
+            rules_path = root / ".archie" / "rules.json"
+            rules_path.parent.mkdir(parents=True, exist_ok=True)
+            rules_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            self._send_json({"ok": True})
         else:
             self._send_error(404, "Not found")
 
@@ -125,428 +210,1192 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
 
 
 # ---------------------------------------------------------------------------
-# Embedded HTML — single-page app
+# Embedded HTML — single-page app (placeholder, filled in subsequent tasks)
 # ---------------------------------------------------------------------------
 
 HTML_PAGE = r"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Archie Blueprint Viewer</title>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"
-        onerror="window.marked={parse:function(t){return '<pre>'+t.replace(/</g,'&lt;')+'</pre>'}}"></script>
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"
-        onerror="window.mermaid={initialize:function(){},run:function(){}}"></script>
-<style>
-:root {
-  --bg: #1a1b26; --bg-card: #24283b; --bg-hover: #292e42;
-  --text: #a9b1d6; --text-dim: #565f89; --text-bright: #c0caf5;
-  --accent: #7aa2f7; --accent2: #9ece6a; --accent3: #e0af68;
-  --border: #3b4261; --error: #f7768e;
+<title>Archie Viewer</title>
+
+<script src="https://cdn.tailwindcss.com" onerror="document.body.innerHTML='<h1>Failed to load Tailwind CSS. Check your internet connection.</h1>'"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        ink: { DEFAULT: '#023047', 50: '#e6f0f5', 100: '#b3d1e0', 200: '#80b3cc', 300: '#4d94b8', 400: '#1a76a3', 500: '#023047', 600: '#022a3f', 700: '#012337', 800: '#011d2f', 900: '#011627', 950: '#000d17' },
+        teal: { DEFAULT: '#219ebc', 50: '#e8f5f8', 100: '#b8e1ea', 200: '#88cddc', 300: '#58b9ce', 400: '#38adc5', 500: '#219ebc', 600: '#1b8ea9', 700: '#167d96', 800: '#116d83', 900: '#0c5c70' },
+        papaya: { DEFAULT: '#8ecae6', 50: '#f5fafd', 100: '#daeef7', 200: '#bfe2f1', 300: '#a4d6eb', 400: '#8ecae6', 500: '#6bb8d9', 600: '#4aa6cc', 700: '#3494bf', 800: '#2382b2', 900: '#1870a5' },
+        tangerine: { DEFAULT: '#ffb703', 50: '#fff8e6', 100: '#ffebb3', 200: '#ffde80', 300: '#ffd14d', 400: '#ffc41a', 500: '#ffb703', 600: '#e6a503', 700: '#cc9202', 800: '#b38002', 900: '#996e01' },
+        brandy: { DEFAULT: '#fb8500', 50: '#fff3e6', 100: '#fdd9b3', 200: '#fcbf80', 300: '#fba54d', 400: '#fb8b1a', 500: '#fb8500', 600: '#e27800', 700: '#c96a00', 800: '#b05d00', 900: '#974f00' },
+      }
+    }
+  }
 }
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace; font-size:14px; }
-a { color:var(--accent); text-decoration:none; }
-a:hover { text-decoration:underline; }
+</script>
 
-.header { background:var(--bg-card); border-bottom:1px solid var(--border); padding:12px 24px; display:flex; align-items:center; gap:16px; }
-.header h1 { font-size:18px; color:var(--text-bright); font-weight:600; }
-.header .meta { color:var(--text-dim); font-size:12px; }
-.tabs { display:flex; gap:0; background:var(--bg-card); border-bottom:1px solid var(--border); padding:0 16px; }
-.tab { padding:10px 20px; cursor:pointer; color:var(--text-dim); border-bottom:2px solid transparent; transition:all .15s; font-size:13px; }
-.tab:hover { color:var(--text); background:var(--bg-hover); }
-.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
-.content { padding:20px 24px; max-width:1400px; margin:0 auto; }
-.hidden { display:none !important; }
+<script src="https://cdn.jsdelivr.net/npm/chart.js" onerror="console.warn('Chart.js failed to load — charts will be unavailable')"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" onerror="console.warn('marked.js failed to load — markdown rendering will be unavailable')"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" onerror="console.warn('mermaid failed to load — diagrams will be unavailable')"></script>
 
-.card { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; margin-bottom:16px; overflow:hidden; }
-.card summary, .card-header { padding:12px 16px; font-weight:600; color:var(--text-bright); cursor:pointer; display:flex; align-items:center; gap:8px; }
-.card summary:hover, .card-header:hover { background:var(--bg-hover); }
-.card-body { padding:16px; border-top:1px solid var(--border); }
-.badge { background:var(--accent); color:var(--bg); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
-.badge.green { background:var(--accent2); }
-.badge.yellow { background:var(--accent3); color:#1a1b26; }
-.badge.red { background:var(--error); }
+<style>
+  /* Scrollbar styling */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #8ecae640; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #8ecae680; }
 
-table { width:100%; border-collapse:collapse; font-size:13px; }
-th { text-align:left; padding:8px 12px; background:var(--bg); color:var(--text-dim); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
-td { padding:8px 12px; border-top:1px solid var(--border); vertical-align:top; }
-tr:hover td { background:var(--bg-hover); }
+  /* Prose markdown styling */
+  .prose-archie h1 { font-size: 1.5rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.75rem; }
+  .prose-archie h2 { font-size: 1.25rem; font-weight: 700; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+  .prose-archie h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
+  .prose-archie p { margin-bottom: 0.5rem; line-height: 1.6; }
+  .prose-archie ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+  .prose-archie ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+  .prose-archie li { margin-bottom: 0.25rem; }
+  .prose-archie code { background: #e6f0f5; padding: 0.15rem 0.35rem; border-radius: 0.25rem; font-size: 0.875em; }
+  .prose-archie pre { background: #011627; color: #e6f0f5; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 0.75rem; }
+  .prose-archie pre code { background: transparent; padding: 0; color: inherit; }
+  .prose-archie blockquote { border-left: 3px solid #8ecae6; padding-left: 1rem; color: #4d94b8; margin-bottom: 0.75rem; }
+  .prose-archie table { width: 100%; border-collapse: collapse; margin-bottom: 0.75rem; }
+  .prose-archie th, .prose-archie td { border: 1px solid #b3d1e0; padding: 0.4rem 0.75rem; text-align: left; }
+  .prose-archie th { background: #e6f0f5; font-weight: 600; }
 
-.split { display:flex; gap:0; height:calc(100vh - 140px); }
-.split .tree-panel { width:280px; min-width:200px; border-right:1px solid var(--border); overflow-y:auto; background:var(--bg-card); padding:8px 0; }
-.split .detail-panel { flex:1; overflow-y:auto; padding:20px; }
-.tree-item { padding:4px 12px; cursor:pointer; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
-.tree-item:hover { background:var(--bg-hover); }
-.tree-item.active { background:var(--bg-hover); color:var(--accent); border-left:2px solid var(--accent); }
-.tree-dir { padding:4px 12px; font-size:12px; color:var(--text-dim); font-weight:600; cursor:pointer; user-select:none; }
-.tree-dir:hover { color:var(--text); }
-.tree-dir::before { content:"▸ "; }
-.tree-dir.open::before { content:"▾ "; }
-.tree-children { padding-left:12px; }
-.tree-children.collapsed { display:none; }
+  /* Tab button states */
+  .tab-btn { color: rgba(2,48,71,0.4); border-color: transparent; cursor: pointer; background: none; }
+  .tab-btn:hover { color: rgba(2,48,71,0.6); }
+  .tab-btn.active { color: #219ebc; border-color: #219ebc; }
 
-pre.source { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:16px; overflow-x:auto; font-size:13px; line-height:1.5; color:var(--text-bright); white-space:pre; tab-size:4; }
-
-.md-content { line-height:1.7; }
-.md-content h1,.md-content h2,.md-content h3,.md-content h4 { color:var(--text-bright); margin:16px 0 8px; }
-.md-content h1 { font-size:20px; border-bottom:1px solid var(--border); padding-bottom:8px; }
-.md-content h2 { font-size:17px; }
-.md-content h3 { font-size:15px; }
-.md-content p { margin:8px 0; }
-.md-content ul,.md-content ol { margin:8px 0 8px 20px; }
-.md-content li { margin:4px 0; }
-.md-content code { background:var(--bg); padding:2px 6px; border-radius:3px; font-size:12px; }
-.md-content pre { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:12px; overflow-x:auto; margin:8px 0; }
-.md-content pre code { background:none; padding:0; }
-.md-content blockquote { border-left:3px solid var(--accent); padding-left:12px; color:var(--text-dim); margin:8px 0; }
-.md-content table { margin:8px 0; }
-
-.copy-btn { background:var(--bg); border:1px solid var(--border); color:var(--text-dim); padding:4px 10px; border-radius:4px; cursor:pointer; font-size:11px; }
-.copy-btn:hover { color:var(--text); border-color:var(--accent); }
-
-.sub-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:16px; flex-wrap:wrap; }
-.sub-tab { padding:6px 14px; cursor:pointer; color:var(--text-dim); border-bottom:2px solid transparent; font-size:12px; }
-.sub-tab:hover { color:var(--text); }
-.sub-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
-
-.empty { text-align:center; padding:60px 20px; color:var(--text-dim); }
-.empty h2 { color:var(--text); margin-bottom:8px; }
-
-.mermaid-container { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:20px; text-align:center; overflow-x:auto; }
-.mermaid-container svg { max-width:100%; }
+  /* Dark mode overrides */
+  .dark body, .dark .dark\:bg-ink-900 { background: #011627; }
+  .dark .prose-archie code { background: #022a3f; color: #daeef7; }
+  .dark .prose-archie th { background: #022a3f; }
+  .dark .prose-archie th, .dark .prose-archie td { border-color: #012337; }
+  .dark .prose-archie blockquote { color: #88cddc; }
+  .dark .tab-btn { color: rgba(218,238,247,0.4); }
+  .dark .tab-btn:hover { color: rgba(218,238,247,0.6); }
+  .dark .tab-btn.active { color: #219ebc; border-color: #219ebc; }
 </style>
 </head>
-<body>
 
-<div class="header">
-  <h1>Archie</h1>
-  <span id="repoName" class="meta"></span>
+<body class="bg-gradient-to-br from-papaya-50 via-white to-teal-50/10 min-h-screen dark:from-ink-900 dark:via-ink-950 dark:to-ink-900 dark:text-papaya-50">
+
+<!-- Header bar -->
+<div class="border-b bg-white/50 dark:bg-ink-800/50 px-8 py-4 flex items-center justify-between backdrop-blur-sm sticky top-0 z-20 dark:border-ink-600">
+  <div class="flex items-center gap-4">
+    <div class="p-2 rounded-2xl bg-white dark:bg-ink-800 border border-papaya-400 shadow-sm">
+      <span class="text-xl font-black text-teal">A</span>
+    </div>
+    <div>
+      <h1 class="text-xl font-bold tracking-tight text-ink dark:text-papaya-50">Archie</h1>
+      <p id="repoName" class="text-[10px] text-ink-300 dark:text-papaya-300 font-bold uppercase tracking-widest"></p>
+    </div>
+  </div>
+  <button id="darkToggle" class="p-2 rounded-lg hover:bg-papaya-300/20 text-ink/40 dark:text-papaya-50/40 text-lg" title="Toggle dark mode">&#x1F319;</button>
 </div>
 
-<div class="tabs" id="mainTabs">
-  <div class="tab active" data-tab="blueprint">Blueprint</div>
-  <div class="tab" data-tab="generated-files">Generated Files</div>
-  <div class="tab" data-tab="folder-tree">Folder CLAUDE.md</div>
-  <div class="tab" data-tab="rules">Rules</div>
+<!-- Tab bar -->
+<div class="flex items-center gap-8 border-b border-papaya-300 dark:border-ink-600 bg-white/30 dark:bg-ink-800/30 px-8 shrink-0">
+  <button class="tab-btn active py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="dashboard">Dashboard</button>
+  <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="reports">Scan Reports</button>
+  <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="blueprint">Blueprint</button>
+  <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="rules">Rules</button>
+  <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="files">Files</button>
 </div>
 
-<div id="tab-blueprint" class="content"></div>
-<div id="tab-generated-files" class="content hidden"></div>
-<div id="tab-folder-tree" class="hidden" style="padding:0;"></div>
-<div id="tab-rules" class="content hidden"></div>
+<!-- Tab content containers -->
+<div id="tab-dashboard" class="tab-content p-8 max-w-7xl mx-auto"></div>
+<div id="tab-reports" class="tab-content hidden"></div>
+<div id="tab-blueprint" class="tab-content hidden"></div>
+<div id="tab-rules" class="tab-content hidden p-8 max-w-5xl mx-auto"></div>
+<div id="tab-files" class="tab-content hidden"></div>
 
 <script>
-let blueprint = {}, rules = {}, generatedFiles = {}, folderMds = {};
+// ---------------------------------------------------------------------------
+// Global data stores
+// ---------------------------------------------------------------------------
+let health = {}, healthHistory = [], scanReports = [], blueprint = {},
+    rules = {}, ignoredRules = {}, generatedFiles = {}, folderMds = {},
+    functionComplexity = {}, drift = {};
 
-document.addEventListener('DOMContentLoaded', async () => {
-  if (window.mermaid && mermaid.initialize) {
-    mermaid.initialize({ startOnLoad: false, theme: 'dark', themeVariables: {
-      primaryColor: '#7aa2f7', primaryTextColor: '#c0caf5', lineColor: '#3b4261',
-      primaryBorderColor: '#3b4261', secondaryColor: '#24283b'
-    }});
-  }
-  const [bpRes, rulesRes, gfRes, fmRes] = await Promise.all([
-    fetch('/api/blueprint').then(r=>r.json()).catch(()=>({})),
-    fetch('/api/rules').then(r=>r.json()).catch(()=>({})),
-    fetch('/api/generated-files').then(r=>r.json()).catch(()=>({})),
-    fetch('/api/folder-claude-mds').then(r=>r.json()).catch(()=>({})),
-  ]);
-  blueprint=bpRes; rules=rulesRes; generatedFiles=gfRes; folderMds=fmRes;
-
-  const meta = blueprint.meta || {};
-  document.getElementById('repoName').textContent = meta.repository || '';
-  document.title = (meta.repository || 'Archie') + ' — Blueprint Viewer';
-
-  renderBlueprint();
-  renderGeneratedFiles();
-  renderFolderTree();
-  renderRules();
-  setupTabs();
+// ---------------------------------------------------------------------------
+// Tab switching
+// ---------------------------------------------------------------------------
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+    btn.classList.add('active');
+    const target = document.getElementById('tab-' + btn.dataset.tab);
+    if (target) target.classList.remove('hidden');
+    // Trigger render for the active tab
+    const renderers = {
+      dashboard: renderDashboard,
+      reports: renderReports,
+      blueprint: renderBlueprint,
+      rules: renderRules,
+      files: renderFiles
+    };
+    if (renderers[btn.dataset.tab]) renderers[btn.dataset.tab]();
+  });
 });
 
-function setupTabs() {
-  document.querySelectorAll('.tab').forEach(t => {
-    t.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-      t.classList.add('active');
-      const id = t.dataset.tab;
-      ['blueprint','generated-files','folder-tree','rules'].forEach(n => {
-        const el = document.getElementById('tab-'+n);
-        if (el) el.classList.toggle('hidden', n !== id);
-      });
-    });
-  });
+// ---------------------------------------------------------------------------
+// Dark mode toggle
+// ---------------------------------------------------------------------------
+const darkToggle = document.getElementById('darkToggle');
+darkToggle.addEventListener('click', () => {
+  document.documentElement.classList.toggle('dark');
+  darkToggle.innerHTML = document.documentElement.classList.contains('dark') ? '&#x2600;&#xFE0F;' : '&#x1F319;';
+});
+
+// ---------------------------------------------------------------------------
+// Data loading
+// ---------------------------------------------------------------------------
+async function fetchJSON(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    console.warn('Failed to fetch', url, e);
+    return null;
+  }
 }
 
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function renderMd(text) {
-  if (!text) return '';
-  try { return window.marked ? marked.parse(text) : '<pre>'+esc(text)+'</pre>'; }
-  catch { return '<pre>'+esc(text)+'</pre>'; }
+async function loadData() {
+  const [h, hh, sr, bp, r, ir, gf, fm, fc, dr] = await Promise.all([
+    fetchJSON('/api/health'),
+    fetchJSON('/api/health-history'),
+    fetchJSON('/api/scan-reports'),
+    fetchJSON('/api/blueprint'),
+    fetchJSON('/api/rules'),
+    fetchJSON('/api/ignored-rules'),
+    fetchJSON('/api/generated-files'),
+    fetchJSON('/api/folder-claude-mds'),
+    fetchJSON('/api/function-complexity'),
+    fetchJSON('/api/drift'),
+  ]);
+  health = h || {};
+  healthHistory = hh || [];
+  scanReports = sr || [];
+  blueprint = bp || {};
+  rules = r || {};
+  ignoredRules = ir || {};
+  generatedFiles = gf || {};
+  folderMds = fm || {};
+  functionComplexity = fc || {};
+  drift = dr || {};
+
+  // Set repo name
+  const repoNameEl = document.getElementById('repoName');
+  if (blueprint.meta && blueprint.meta.repository) {
+    repoNameEl.textContent = blueprint.meta.repository;
+  } else {
+    repoNameEl.textContent = window.location.host;
+  }
+
+  renderDashboard();
 }
-function detailsCard(title, body, open) {
-  return `<details class="card"${open?' open':''}><summary>${title}</summary><div class="card-body">${body}</div></details>`;
-}
 
-// --- Blueprint Tab ---
-function renderBlueprint() {
-  const el = document.getElementById('tab-blueprint');
-  if (!blueprint || !blueprint.meta) { el.innerHTML='<div class="empty"><h2>No Blueprint Found</h2><p>Run /archie-init first.</p></div>'; return; }
-  let html = '';
-
-  // Meta
-  const meta = blueprint.meta || {};
-  if (meta.executive_summary) {
-    html += detailsCard('Executive Summary', `<p>${esc(meta.executive_summary)}</p><p style="color:var(--text-dim);margin-top:8px;"><strong>Architecture:</strong> ${esc(meta.architecture_style||'')}</p>`, true);
+// ---------------------------------------------------------------------------
+// Render functions (placeholders — filled in tasks 3-7)
+// ---------------------------------------------------------------------------
+let _dashboardChart = null;
+function renderDashboard() {
+  const el = document.getElementById('tab-dashboard');
+  if (!health || Object.keys(health).length === 0) {
+    el.innerHTML = '<p class="text-ink/40 dark:text-papaya-50/40">No health data available. Run /archie-scan first.</p>';
+    return;
   }
 
-  // Components
-  const comps = (blueprint.components||{}).components || [];
-  if (comps.length) {
-    let tbody = comps.map(c => `<tr>
-      <td><strong>${esc(c.name)}</strong></td>
-      <td><code>${esc(c.location)}</code></td>
-      <td>${esc(c.responsibility)}</td>
-      <td>${(c.depends_on||[]).map(d=>'<code>'+esc(d)+'</code>').join(', ')}</td>
-    </tr>`).join('');
-    html += detailsCard(`Components <span class="badge">${comps.length}</span>`,
-      `<table><thead><tr><th>Name</th><th>Location</th><th>Responsibility</th><th>Dependencies</th></tr></thead><tbody>${tbody}</tbody></table>`, true);
+  // Helpers
+  const fmt = (v, d=2) => (v == null || isNaN(v)) ? '--' : Number(v).toFixed(d);
+  const fmtInt = v => (v == null || isNaN(v)) ? '--' : Number(v).toLocaleString();
+  const statusDot = (color) => '<span class="w-2 h-2 rounded-full inline-block ml-2" style="background:' + color + '"></span>';
+  const threshColor = (v, lo, hi) => v < lo ? '#10b981' : v <= hi ? '#ffb703' : '#fb8500';
+
+  // Compute deltas from healthHistory
+  const prev = (healthHistory && healthHistory.length >= 2) ? healthHistory[healthHistory.length - 2] : null;
+  const deltaStr = (cur, prevVal) => {
+    if (prev == null || prevVal == null || cur == null) return '';
+    const d = cur - prevVal;
+    if (Math.abs(d) < 0.0001) return '<span class="text-xs mt-2 text-ink/40 dark:text-papaya-50/40">no change</span>';
+    const sign = d > 0 ? '+' : '';
+    return '<span class="text-xs mt-2 text-ink/40 dark:text-papaya-50/40">' + sign + d.toFixed(3) + '</span>';
+  };
+  const locDelta = () => {
+    if (!prev || prev.total_loc == null || health.total_loc == null) return '';
+    const d = health.total_loc - prev.total_loc;
+    if (d === 0) return '<span class="text-xs mt-2 text-ink/40 dark:text-papaya-50/40">no change</span>';
+    const sign = d > 0 ? '+' : '';
+    const pct = prev.total_loc ? ((d / prev.total_loc) * 100).toFixed(1) : '0.0';
+    return '<span class="text-xs mt-2 text-ink/40 dark:text-papaya-50/40">' + sign + fmtInt(d) + ' (' + sign + pct + '%)</span>';
+  };
+
+  // Card builder
+  const card = (label, value, dotColor, delta) => {
+    return '<div class="rounded-xl border border-papaya-400/60 bg-white dark:bg-ink-800 dark:border-ink-600 p-5 shadow-sm flex-1 min-w-0">'
+      + '<div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">' + label + '</div>'
+      + '<div class="text-3xl font-black text-ink dark:text-papaya-50 mt-1">' + value + statusDot(dotColor) + '</div>'
+      + (delta ? '<div>' + delta + '</div>' : '')
+      + '</div>';
+  };
+
+  const erosion = health.erosion != null ? health.erosion : 0;
+  const gini = health.gini != null ? health.gini : 0;
+  const top20 = health.top20_share != null ? health.top20_share : 0;
+  const verbosity = health.verbosity != null ? health.verbosity : 0;
+  const loc = health.total_loc != null ? health.total_loc : 0;
+
+  // Top row cards
+  let html = '<div class="flex gap-4 mb-6 flex-wrap">';
+  html += card('Erosion', fmt(erosion), threshColor(erosion, 0.3, 0.5), deltaStr(erosion, prev && prev.erosion));
+  html += card('Gini', fmt(gini), threshColor(gini, 0.4, 0.6), deltaStr(gini, prev && prev.gini));
+  html += card('Top-20%', fmt(top20), threshColor(top20, 0.5, 0.7), deltaStr(top20, prev && prev.top20_share));
+  html += card('Verbosity', fmt(verbosity, 3), threshColor(verbosity, 0.05, 0.15), deltaStr(verbosity, prev && prev.verbosity));
+  html += card('LOC', fmtInt(loc), '#219ebc', locDelta());
+  html += '</div>';
+
+  // Trend chart
+  if (healthHistory && healthHistory.length > 0 && typeof Chart !== 'undefined') {
+    html += '<div class="rounded-3xl border border-papaya-400/60 bg-white/60 dark:bg-ink-800/60 dark:border-ink-600 p-6 shadow-inner mb-6">';
+    html += '<div class="text-sm font-bold text-ink dark:text-papaya-50 mb-4">Health Trend</div>';
+    html += '<canvas id="dashTrendChart" height="100"></canvas>';
+    html += '</div>';
   }
 
-  // Decisions
-  const dec = blueprint.decisions || {};
-  if (dec.architectural_style || (dec.key_decisions||[]).length) {
-    let body = '';
-    if (dec.architectural_style) {
-      const d = dec.architectural_style;
-      body += `<div style="margin-bottom:16px;padding:12px;background:var(--bg);border-radius:6px;">
-        <strong style="color:var(--accent);">${esc(d.title)}</strong><br>
-        <strong>Chosen:</strong> ${esc(d.chosen)}<br>
-        <strong>Rationale:</strong> ${esc(d.rationale)}<br>
-        ${(d.alternatives_rejected||[]).length?'<strong>Rejected:</strong> '+d.alternatives_rejected.map(a=>esc(a)).join(', '):''}
-      </div>`;
-    }
-    (dec.key_decisions||[]).forEach(d => {
-      body += `<div style="margin-bottom:8px;padding:8px 12px;border-left:3px solid var(--accent3);">
-        <strong>${esc(d.title)}</strong> — ${esc(d.chosen)}<br>
-        <span style="color:var(--text-dim)">${esc(d.rationale)}</span>
-      </div>`;
+  // Bottom panels
+  html += '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">';
+
+  // Left: Top Complex Functions
+  html += '<div class="rounded-xl border border-papaya-400/60 bg-white dark:bg-ink-800 dark:border-ink-600 p-5">';
+  html += '<div class="text-sm font-bold text-ink dark:text-papaya-50 mb-4">Top Complex Functions</div>';
+  const fns = (health.functions || []).slice().sort((a, b) => (b.cc || 0) - (a.cc || 0)).slice(0, 10);
+  if (fns.length === 0) {
+    html += '<p class="text-xs text-ink/40 dark:text-papaya-50/40">No function data available.</p>';
+  } else {
+    html += '<table class="w-full text-xs">';
+    html += '<thead><tr>'
+      + '<th class="text-left py-2 px-3 text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 border-b border-papaya-300/50">Function</th>'
+      + '<th class="text-left py-2 px-3 text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 border-b border-papaya-300/50">File</th>'
+      + '<th class="text-left py-2 px-3 text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 border-b border-papaya-300/50">Branching Complexity</th>'
+      + '</tr></thead><tbody>';
+    fns.forEach(fn => {
+      const cc = fn.cc || 0;
+      const ccColor = cc > 15 ? '#fb8500' : cc > 10 ? '#ffb703' : '#219ebc';
+      html += '<tr>'
+        + '<td class="py-2 px-3 border-b border-papaya-100 dark:border-ink-600 font-mono">' + (fn.name || '--') + '</td>'
+        + '<td class="py-2 px-3 border-b border-papaya-100 dark:border-ink-600 text-ink/60 dark:text-papaya-50/60 truncate max-w-[200px]" title="' + (fn.path || '') + '">' + (fn.path || '--') + '</td>'
+        + '<td class="py-2 px-3 border-b border-papaya-100 dark:border-ink-600 font-bold" style="color:' + ccColor + '">' + cc + '</td>'
+        + '</tr>';
     });
-    if ((dec.trade_offs||[]).length) {
-      body += '<h4 style="margin:12px 0 8px;">Trade-offs</h4>';
-      dec.trade_offs.forEach(t => { body += `<div style="margin-bottom:4px;">Accept: ${esc(t.accept)} → Benefit: ${esc(t.benefit)}</div>`; });
-    }
-    html += detailsCard(`Decisions <span class="badge">${(dec.key_decisions||[]).length}</span>`, body, false);
+    html += '</tbody></table>';
   }
+  html += '</div>';
 
-  // Communication
-  const comm = blueprint.communication || {};
-  if ((comm.patterns||[]).length || (comm.integrations||[]).length) {
-    let body = '';
-    (comm.patterns||[]).forEach(p => {
-      body += `<div style="margin-bottom:12px;"><strong style="color:var(--accent2);">${esc(p.name)}</strong><br>
-        <strong>When:</strong> ${esc(p.when_to_use)}<br>
-        <strong>How:</strong> ${esc(p.how_it_works)}</div>`;
+  // Right: Abstraction Waste
+  html += '<div class="rounded-xl border border-papaya-400/60 bg-white dark:bg-ink-800 dark:border-ink-600 p-5">';
+  html += '<div class="text-sm font-bold text-ink dark:text-papaya-50 mb-4">Abstraction Waste</div>';
+  const waste = health.waste || {};
+  const smcCount = waste.single_method_class_count || 0;
+  const tfCount = waste.tiny_function_count || 0;
+
+  html += '<div class="grid grid-cols-2 gap-4 mb-4">';
+  html += '<div><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">Single-Method Classes</div>'
+    + '<div class="text-3xl font-black text-ink dark:text-papaya-50 mt-1">' + smcCount + '</div></div>';
+  html += '<div><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">Tiny Functions</div>'
+    + '<div class="text-3xl font-black text-ink dark:text-papaya-50 mt-1">' + tfCount + '</div></div>';
+  html += '</div>';
+
+  // Single-method classes list
+  const smcList = waste.single_method_classes || [];
+  if (smcList.length > 0) {
+    html += '<details class="mb-3"><summary class="text-xs font-bold text-ink/60 dark:text-papaya-50/60 cursor-pointer">Single-Method Classes (' + smcList.length + ')</summary>';
+    html += '<ul class="mt-2 space-y-1">';
+    smcList.slice(0, 5).forEach(item => {
+      const name = typeof item === 'string' ? item : (item.name || item.class_name || '--');
+      const path = typeof item === 'string' ? '' : (item.path || item.file || '');
+      html += '<li class="text-xs text-ink/60 dark:text-papaya-50/60"><span class="font-mono">' + name + '</span>'
+        + (path ? ' <span class="text-ink/30 dark:text-papaya-50/30">' + path + '</span>' : '') + '</li>';
     });
-    if ((comm.integrations||[]).length) {
-      body += '<h4 style="margin:12px 0 8px;">Integrations</h4><table><thead><tr><th>Service</th><th>Purpose</th><th>Integration Point</th></tr></thead><tbody>';
-      body += (comm.integrations||[]).map(i=>`<tr><td>${esc(i.service)}</td><td>${esc(i.purpose)}</td><td><code>${esc(i.integration_point)}</code></td></tr>`).join('');
-      body += '</tbody></table>';
-    }
-    html += detailsCard('Communication', body, false);
+    if (smcList.length > 5) html += '<li class="text-xs text-ink/30 dark:text-papaya-50/30">... and ' + (smcList.length - 5) + ' more</li>';
+    html += '</ul></details>';
+  } else {
+    html += '<p class="text-xs text-ink/30 dark:text-papaya-50/30 mb-3">Single-method classes: None detected</p>';
   }
 
-  // Technology
-  const tech = blueprint.technology || {};
-  if ((tech.stack||[]).length) {
-    let body = '<table><thead><tr><th>Category</th><th>Name</th><th>Version</th><th>Purpose</th></tr></thead><tbody>';
-    body += (tech.stack||[]).map(s=>`<tr><td>${esc(s.category)}</td><td><strong>${esc(s.name)}</strong></td><td>${esc(s.version)}</td><td>${esc(s.purpose)}</td></tr>`).join('');
-    body += '</tbody></table>';
-    if (tech.run_commands && Object.keys(tech.run_commands).length) {
-      body += '<h4 style="margin:16px 0 8px;">Run Commands</h4>';
-      Object.entries(tech.run_commands).forEach(([k,v]) => {
-        body += `<div style="margin-bottom:4px;"><code style="color:var(--accent);">${esc(k)}</code>: <code>${esc(v)}</code></div>`;
-      });
-    }
-    html += detailsCard(`Technology <span class="badge">${(tech.stack||[]).length}</span>`, body, false);
+  // Tiny functions list
+  const tfList = waste.tiny_functions || [];
+  if (tfList.length > 0) {
+    html += '<details><summary class="text-xs font-bold text-ink/60 dark:text-papaya-50/60 cursor-pointer">Tiny Functions (' + tfList.length + ')</summary>';
+    html += '<ul class="mt-2 space-y-1">';
+    tfList.slice(0, 5).forEach(item => {
+      const name = typeof item === 'string' ? item : (item.name || '--');
+      const path = typeof item === 'string' ? '' : (item.path || item.file || '');
+      html += '<li class="text-xs text-ink/60 dark:text-papaya-50/60"><span class="font-mono">' + name + '</span>'
+        + (path ? ' <span class="text-ink/30 dark:text-papaya-50/30">' + path + '</span>' : '') + '</li>';
+    });
+    if (tfList.length > 5) html += '<li class="text-xs text-ink/30 dark:text-papaya-50/30">... and ' + (tfList.length - 5) + ' more</li>';
+    html += '</ul></details>';
+  } else {
+    html += '<p class="text-xs text-ink/30 dark:text-papaya-50/30">Tiny functions: None detected</p>';
   }
 
-  // Frontend
-  const fe = blueprint.frontend || {};
-  if (fe.framework) {
-    let body = `<p><strong>Framework:</strong> ${esc(fe.framework)} | <strong>Rendering:</strong> ${esc(fe.rendering_strategy)} | <strong>Styling:</strong> ${esc(fe.styling)}</p>`;
-    if ((fe.ui_components||[]).length) {
-      body += '<h4 style="margin:12px 0 8px;">UI Components</h4><table><thead><tr><th>Name</th><th>Location</th><th>Type</th><th>Description</th></tr></thead><tbody>';
-      body += fe.ui_components.map(c=>`<tr><td>${esc(c.name)}</td><td><code>${esc(c.location)}</code></td><td>${esc(c.component_type)}</td><td>${esc(c.description)}</td></tr>`).join('');
-      body += '</tbody></table>';
-    }
-    if (fe.state_management) {
-      body += `<h4 style="margin:12px 0 8px;">State Management</h4><p><strong>Approach:</strong> ${esc(fe.state_management.approach)}</p>`;
-    }
-    html += detailsCard('Frontend', body, false);
-  }
-
-  // Deployment
-  const dep = blueprint.deployment || {};
-  if (dep.runtime_environment || (dep.ci_cd||[]).length) {
-    let body = `<p><strong>Runtime:</strong> ${esc(dep.runtime_environment)}</p>`;
-    if ((dep.compute_services||[]).length) body += `<p><strong>Compute:</strong> ${dep.compute_services.map(s=>esc(s)).join(', ')}</p>`;
-    if (dep.container_runtime) body += `<p><strong>Container:</strong> ${esc(dep.container_runtime)}</p>`;
-    if ((dep.ci_cd||[]).length) body += `<p><strong>CI/CD:</strong> ${dep.ci_cd.map(s=>esc(s)).join(', ')}</p>`;
-    if ((dep.distribution||[]).length) body += `<p><strong>Distribution:</strong> ${dep.distribution.map(s=>esc(s)).join(', ')}</p>`;
-    html += detailsCard('Deployment', body, false);
-  }
-
-  // Pitfalls
-  const pitfalls = blueprint.pitfalls || [];
-  if (pitfalls.length) {
-    let body = pitfalls.map(p => `<div style="margin-bottom:12px;border-left:3px solid var(--error);padding:8px 12px;">
-      <strong style="color:var(--error);">${esc(p.area)}</strong><br>
-      ${esc(p.description)}<br>
-      <span style="color:var(--accent2);"><strong>Recommendation:</strong> ${esc(p.recommendation)}</span>
-    </div>`).join('');
-    html += detailsCard(`Pitfalls <span class="badge red">${pitfalls.length}</span>`, body, false);
-  }
-
-  // Implementation Guidelines
-  const ig = blueprint.implementation_guidelines || [];
-  if (ig.length) {
-    let body = '<table><thead><tr><th>Capability</th><th>Category</th><th>Libraries</th><th>Pattern</th></tr></thead><tbody>';
-    body += ig.map(g=>`<tr><td><strong>${esc(g.capability)}</strong></td><td>${esc(g.category)}</td><td>${(g.libraries||[]).map(l=>'<code>'+esc(l)+'</code>').join(', ')}</td><td>${esc(g.pattern_description)}</td></tr>`).join('');
-    body += '</tbody></table>';
-    html += detailsCard(`Implementation Guidelines <span class="badge">${ig.length}</span>`, body, false);
-  }
-
-  // Architecture Diagram
-  if (blueprint.architecture_diagram) {
-    let body = `<div class="mermaid-container"><pre class="mermaid">${esc(blueprint.architecture_diagram)}</pre></div>`;
-    html += detailsCard('Architecture Diagram', body, false);
-  }
+  html += '</div>';
+  html += '</div>';  // close grid
 
   el.innerHTML = html;
-  if (window.mermaid && mermaid.run) {
-    try { mermaid.run({ nodes: document.querySelectorAll('.mermaid') }); } catch {}
+
+  // Render Chart.js trend chart
+  if (healthHistory && healthHistory.length > 0 && typeof Chart !== 'undefined') {
+    const canvas = document.getElementById('dashTrendChart');
+    if (canvas) {
+      if (_dashboardChart) { _dashboardChart.destroy(); _dashboardChart = null; }
+      const labels = healthHistory.map(h => {
+        if (!h.timestamp) return '?';
+        const d = new Date(h.timestamp);
+        return String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      });
+      _dashboardChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'Erosion', data: healthHistory.map(h => h.erosion), borderColor: '#fb8500', backgroundColor: 'rgba(251,133,0,0.1)', yAxisID: 'y', tension: 0.3, pointRadius: 3, fill: false },
+            { label: 'Gini', data: healthHistory.map(h => h.gini), borderColor: '#023047', backgroundColor: 'rgba(2,48,71,0.1)', yAxisID: 'y', tension: 0.3, pointRadius: 3, fill: false },
+            { label: 'Verbosity', data: healthHistory.map(h => h.verbosity), borderColor: '#219ebc', backgroundColor: 'rgba(33,158,188,0.1)', yAxisID: 'y', tension: 0.3, pointRadius: 3, fill: false },
+            { label: 'LOC', data: healthHistory.map(h => h.total_loc), borderColor: '#ffb703', backgroundColor: 'rgba(255,183,3,0.15)', yAxisID: 'y1', tension: 0.3, pointRadius: 3, type: 'bar', borderWidth: 1 }
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            y: { type: 'linear', position: 'left', min: 0, max: 1, title: { display: true, text: 'Score (0-1)' },
+              ticks: { font: { size: 10 } } },
+            y1: { type: 'linear', position: 'right', title: { display: true, text: 'LOC' },
+              grid: { drawOnChartArea: false }, ticks: { font: { size: 10 } } }
+          },
+          plugins: { legend: { labels: { font: { size: 11 } } } }
+        }
+      });
+    }
   }
 }
 
-// --- Generated Files Tab (CLAUDE.md, AGENTS.md, rule files) ---
-function renderGeneratedFiles() {
-  const el = document.getElementById('tab-generated-files');
-  const keys = Object.keys(generatedFiles);
-  if (!keys.length) { el.innerHTML='<div class="empty"><h2>No Generated Files Found</h2></div>'; return; }
+function renderReports() {
+  const el = document.getElementById('tab-reports');
+  if (!scanReports || scanReports.length === 0) {
+    el.innerHTML = '<div class="flex items-center justify-center h-full"><p class="text-ink/40 dark:text-papaya-50/40 text-lg">No scan reports found. Run <code>/archie-scan</code> first.</p></div>';
+    return;
+  }
 
-  let subTabsHtml = '<div class="sub-tabs" id="gfSubTabs">';
-  keys.forEach((k,i) => { subTabsHtml += `<div class="sub-tab${i===0?' active':''}" data-key="${esc(k)}">${esc(k.split('/').pop())}</div>`; });
-  subTabsHtml += '</div>';
+  const reportCache = {};
+  let activeReport = null;
 
-  let panelsHtml = '';
-  keys.forEach((k,i) => {
-    const content = generatedFiles[k];
-    panelsHtml += `<div class="gf-panel${i>0?' hidden':''}" data-key="${esc(k)}">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <code style="color:var(--text-dim)">${esc(k)}</code>
-        <button class="copy-btn" onclick="navigator.clipboard.writeText(generatedFiles['${k.replace(/'/g,"\\'")}'])">Copy</button>
-      </div>
-      <div class="md-content">${renderMd(content)}</div>
-    </div>`;
+  function formatDate(dateStr) {
+    if (!dateStr) return 'Unknown';
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function buildSidebar() {
+    return scanReports.map((r, i) => {
+      const isActive = r.filename === activeReport;
+      const isLatest = i === 0;
+      const activeClasses = 'bg-teal/5 text-teal font-bold dark:bg-teal/10';
+      const inactiveClasses = 'text-ink/60 dark:text-papaya-50/60 hover:text-ink dark:hover:text-papaya-50 hover:bg-papaya-300/30 dark:hover:bg-ink-600/30 font-medium';
+      return '<button data-report="' + r.filename + '" class="block w-full text-left px-3 py-2.5 rounded-lg transition-all duration-200 cursor-pointer text-sm ' + (isActive ? activeClasses : inactiveClasses) + '">'
+        + formatDate(r.date)
+        + (isLatest ? ' <span class="bg-teal text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-2 uppercase">Latest</span>' : '')
+        + '</button>';
+    }).join('');
+  }
+
+  function renderLayout() {
+    el.innerHTML = '<div class="flex gap-6 h-[calc(100vh-140px)] p-8 max-w-7xl mx-auto">'
+      + '<div class="w-64 flex-shrink-0 overflow-y-auto pr-4">'
+        + '<div class="text-[11px] font-black text-ink/30 dark:text-papaya-50/30 uppercase tracking-[0.15em] px-3 mb-4">Scan History</div>'
+        + '<nav id="reports-nav">' + buildSidebar() + '</nav>'
+      + '</div>'
+      + '<div id="report-content" class="flex-1 overflow-y-auto bg-white/60 dark:bg-ink-800/60 border border-papaya-400/60 dark:border-ink-600 rounded-3xl shadow-inner p-10">'
+        + '<p class="text-ink/40 dark:text-papaya-50/40">Select a report...</p>'
+      + '</div>'
+    + '</div>';
+
+    el.querySelectorAll('[data-report]').forEach(btn => {
+      btn.addEventListener('click', () => selectReport(btn.getAttribute('data-report')));
+    });
+  }
+
+  function selectReport(filename) {
+    activeReport = filename;
+    document.getElementById('reports-nav').innerHTML = buildSidebar();
+    el.querySelectorAll('[data-report]').forEach(btn => {
+      btn.addEventListener('click', () => selectReport(btn.getAttribute('data-report')));
+    });
+
+    const contentEl = document.getElementById('report-content');
+
+    if (reportCache[filename]) {
+      contentEl.innerHTML = '<div class="prose-archie">' + (window.marked ? marked.parse(reportCache[filename]) : reportCache[filename]) + '</div>';
+      return;
+    }
+
+    contentEl.innerHTML = '<p class="text-ink/40 dark:text-papaya-50/40 animate-pulse">Loading report...</p>';
+
+    fetch('/api/scan-report/' + filename)
+      .then(r => r.json())
+      .then(data => {
+        reportCache[filename] = data.content;
+        if (activeReport === filename) {
+          contentEl.innerHTML = '<div class="prose-archie">' + (window.marked ? marked.parse(data.content) : data.content) + '</div>';
+        }
+      })
+      .catch(() => {
+        if (activeReport === filename) {
+          contentEl.innerHTML = '<p class="text-red-500">Failed to load report.</p>';
+        }
+      });
+  }
+
+  renderLayout();
+  selectReport(scanReports[0].filename);
+}
+
+function esc(s) { if (s == null) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+function renderBlueprint() {
+  const el = document.getElementById('tab-blueprint');
+  if (!blueprint || Object.keys(blueprint).length === 0) {
+    el.innerHTML = '<div class="flex items-center justify-center h-full"><p class="text-ink/40 dark:text-papaya-50/40 text-lg">No blueprint found. Run <code>/archie-deep-scan</code> first.</p></div>';
+    return;
+  }
+
+  // --- Section definitions ---
+  const sections = [];
+  const bp = blueprint;
+  const meta = bp.meta || {};
+  const comp = bp.components || {};
+  const dec = bp.decisions || {};
+  const comm = bp.communication || {};
+  const tech = bp.technology || {};
+  const fe = bp.frontend;
+  const dep = bp.deployment || {};
+  const pits = bp.pitfalls;
+  const impl = bp.implementation_guidelines;
+  const devRules = bp.development_rules;
+  const diagram = bp.architecture_diagram;
+
+  if (meta.executive_summary || meta.architecture_style) sections.push({ id: 'summary', label: 'Executive Summary' });
+  if (comp.components && comp.components.length) sections.push({ id: 'components', label: 'Components' });
+  if (dec.architectural_style || (dec.key_decisions && dec.key_decisions.length)) sections.push({ id: 'decisions', label: 'Decisions' });
+  if (dec.trade_offs && dec.trade_offs.length) sections.push({ id: 'tradeoffs', label: 'Trade-offs' });
+  if ((comm.patterns && comm.patterns.length) || (comm.integrations && comm.integrations.length)) sections.push({ id: 'communication', label: 'Communication' });
+  if (tech.stack && tech.stack.length) sections.push({ id: 'technology', label: 'Technology' });
+  if (fe && (fe.framework || fe.rendering_strategy || fe.styling)) sections.push({ id: 'frontend', label: 'Frontend' });
+  if (dep.runtime_environment || (dep.compute_services && dep.compute_services.length) || (dep.ci_cd && dep.ci_cd.length)) sections.push({ id: 'deployment', label: 'Deployment' });
+  if (pits && pits.length) sections.push({ id: 'pitfalls', label: 'Pitfalls' });
+  if (impl && impl.length) sections.push({ id: 'guidelines', label: 'Guidelines' });
+  if (devRules && devRules.length) sections.push({ id: 'devrules', label: 'Dev Rules' });
+  if (diagram) sections.push({ id: 'diagram', label: 'Diagram' });
+
+  let activeSection = sections.length > 0 ? sections[0].id : '';
+
+  // --- Table helpers ---
+  const th = (text) => '<th class="text-left py-2 px-3 text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 border-b border-papaya-300/50">' + esc(text) + '</th>';
+  const td = (text, extra) => '<td class="py-2 px-3 border-b border-papaya-100 dark:border-ink-600' + (extra ? ' ' + extra : '') + '">' + esc(text) + '</td>';
+
+  // --- Card builder ---
+  function bpCard(id, title, count, contentHtml) {
+    const countBadge = count != null ? ' <span class="bg-teal/10 text-teal text-xs font-bold px-2 py-0.5 rounded-full ml-2">' + count + '</span>' : '';
+    return '<div id="bp-' + id + '" class="mb-6">'
+      + '<div class="rounded-xl border border-papaya-400/60 dark:border-ink-600 bg-white dark:bg-ink-800 overflow-hidden">'
+        + '<div class="px-5 py-4 font-bold text-ink dark:text-papaya-50 flex items-center justify-between cursor-pointer hover:bg-papaya-50 dark:hover:bg-ink-700 transition-colors" onclick="this.nextElementSibling.classList.toggle(\'hidden\')">'
+          + '<span>' + esc(title) + countBadge + '</span>'
+          + '<span class="text-ink/30 text-xs">&#9660;</span>'
+        + '</div>'
+        + '<div class="px-5 py-4 border-t border-papaya-300/50 dark:border-ink-600">'
+          + contentHtml
+        + '</div>'
+      + '</div>'
+    + '</div>';
+  }
+
+  // --- Render sections ---
+  function renderSections() {
+    let html = '';
+
+    // Executive Summary
+    if (sections.find(s => s.id === 'summary')) {
+      let c = '';
+      if (meta.executive_summary) c += '<p class="text-sm text-ink/80 dark:text-papaya-50/80 leading-relaxed">' + esc(meta.executive_summary) + '</p>';
+      if (meta.architecture_style) c += '<div class="mt-3"><span class="bg-teal/10 text-teal text-xs font-bold px-2.5 py-1 rounded-full">' + esc(meta.architecture_style) + '</span></div>';
+      html += bpCard('summary', 'Executive Summary', null, c);
+    }
+
+    // Components
+    if (sections.find(s => s.id === 'components')) {
+      const comps = comp.components;
+      let c = '<table class="w-full text-xs"><thead><tr>' + th('Name') + th('Location') + th('Responsibility') + th('Dependencies') + '</tr></thead><tbody>';
+      comps.forEach(cm => {
+        const deps = (cm.depends_on || []).join(', ');
+        c += '<tr>' + td(cm.name || '--') + '<td class="py-2 px-3 border-b border-papaya-100 dark:border-ink-600 font-mono text-ink/60 dark:text-papaya-50/60">' + esc(cm.location || '--') + '</td>' + td(cm.responsibility || '--') + td(deps || '--') + '</tr>';
+      });
+      c += '</tbody></table>';
+      html += bpCard('components', 'Components', comps.length, c);
+    }
+
+    // Decisions
+    if (sections.find(s => s.id === 'decisions')) {
+      let c = '';
+      const as = dec.architectural_style;
+      if (as) {
+        c += '<div class="rounded-lg border border-teal/30 bg-teal/5 p-4 mb-4">';
+        c += '<div class="font-bold text-sm text-ink dark:text-papaya-50">' + esc(as.title || 'Architectural Style') + '</div>';
+        c += '<div class="text-sm text-teal font-bold mt-1">' + esc(as.chosen || '') + '</div>';
+        if (as.rationale) c += '<div class="text-xs text-ink/60 dark:text-papaya-50/60 mt-1">' + esc(as.rationale) + '</div>';
+        if (as.alternatives_rejected && as.alternatives_rejected.length) {
+          c += '<div class="text-xs text-ink/40 dark:text-papaya-50/40 mt-2">Rejected: ' + as.alternatives_rejected.map(a => esc(a)).join(', ') + '</div>';
+        }
+        c += '</div>';
+      }
+      const kd = dec.key_decisions || [];
+      kd.forEach(d => {
+        c += '<div class="border-l-[3px] border-tangerine pl-4 py-2 mb-3">';
+        c += '<div class="font-bold text-sm text-ink dark:text-papaya-50">' + esc(d.title || '') + '</div>';
+        c += '<div class="text-xs text-teal font-semibold mt-0.5">' + esc(d.chosen || '') + '</div>';
+        if (d.rationale) c += '<div class="text-xs text-ink/60 dark:text-papaya-50/60 mt-1">' + esc(d.rationale) + '</div>';
+        c += '</div>';
+      });
+      html += bpCard('decisions', 'Decisions', kd.length, c);
+    }
+
+    // Trade-offs
+    if (sections.find(s => s.id === 'tradeoffs')) {
+      const toffs = dec.trade_offs;
+      let c = '';
+      toffs.forEach(t => {
+        c += '<div class="mb-4 p-3 rounded-lg bg-papaya-100/50 dark:bg-ink-700/50">';
+        c += '<div class="text-sm"><span class="font-bold text-ink dark:text-papaya-50">Accept:</span> <span class="text-ink/80 dark:text-papaya-50/80">' + esc(t.accept || '') + '</span></div>';
+        c += '<div class="text-sm mt-1"><span class="font-bold text-teal">Benefit:</span> <span class="text-ink/80 dark:text-papaya-50/80">' + esc(t.benefit || '') + '</span></div>';
+        if (t.caused_by) c += '<div class="text-xs text-ink/50 dark:text-papaya-50/50 mt-1">Caused by: ' + esc(t.caused_by) + '</div>';
+        if (t.violation_signals && t.violation_signals.length) {
+          c += '<div class="mt-2 flex flex-wrap gap-1">';
+          t.violation_signals.forEach(vs => {
+            c += '<span class="bg-brandy/10 text-brandy text-[10px] font-bold px-2 py-0.5 rounded-full">' + esc(vs) + '</span>';
+          });
+          c += '</div>';
+        }
+        c += '</div>';
+      });
+      html += bpCard('tradeoffs', 'Trade-offs', toffs.length, c);
+    }
+
+    // Communication
+    if (sections.find(s => s.id === 'communication')) {
+      let c = '';
+      const pats = comm.patterns || [];
+      if (pats.length) {
+        c += '<div class="mb-4">';
+        c += '<div class="text-xs font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 mb-2">Patterns</div>';
+        pats.forEach(p => {
+          c += '<div class="mb-3 p-3 rounded-lg bg-papaya-100/30 dark:bg-ink-700/30">';
+          c += '<div class="font-bold text-sm text-ink dark:text-papaya-50">' + esc(p.name || '') + '</div>';
+          if (p.when_to_use) c += '<div class="text-xs text-ink/60 dark:text-papaya-50/60 mt-1"><span class="font-semibold">When:</span> ' + esc(p.when_to_use) + '</div>';
+          if (p.how_it_works) c += '<div class="text-xs text-ink/60 dark:text-papaya-50/60 mt-1"><span class="font-semibold">How:</span> ' + esc(p.how_it_works) + '</div>';
+          c += '</div>';
+        });
+        c += '</div>';
+      }
+      const ints = comm.integrations || [];
+      if (ints.length) {
+        c += '<div class="text-xs font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 mb-2">Integrations</div>';
+        c += '<table class="w-full text-xs"><thead><tr>' + th('Service') + th('Purpose') + th('Integration Point') + '</tr></thead><tbody>';
+        ints.forEach(ig => {
+          c += '<tr>' + td(ig.service || '--') + td(ig.purpose || '--') + td(ig.integration_point || '--') + '</tr>';
+        });
+        c += '</tbody></table>';
+      }
+      html += bpCard('communication', 'Communication', pats.length + ints.length, c);
+    }
+
+    // Technology
+    if (sections.find(s => s.id === 'technology')) {
+      let c = '<table class="w-full text-xs"><thead><tr>' + th('Category') + th('Name') + th('Version') + th('Purpose') + '</tr></thead><tbody>';
+      (tech.stack || []).forEach(s => {
+        c += '<tr>' + td(s.category || '--') + '<td class="py-2 px-3 border-b border-papaya-100 dark:border-ink-600 font-bold">' + esc(s.name || '--') + '</td>' + td(s.version || '--') + td(s.purpose || '--') + '</tr>';
+      });
+      c += '</tbody></table>';
+      const rc = tech.run_commands;
+      if (rc && Object.keys(rc).length) {
+        c += '<div class="mt-4"><div class="text-xs font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 mb-2">Run Commands</div>';
+        c += '<div class="font-mono text-xs bg-ink/5 dark:bg-ink-900 rounded-lg p-3 space-y-1">';
+        Object.entries(rc).forEach(([k, v]) => {
+          c += '<div><span class="text-teal font-bold">' + esc(k) + ':</span> <span class="text-ink/70 dark:text-papaya-50/70">' + esc(v) + '</span></div>';
+        });
+        c += '</div></div>';
+      }
+      html += bpCard('technology', 'Technology', (tech.stack || []).length, c);
+    }
+
+    // Frontend
+    if (sections.find(s => s.id === 'frontend')) {
+      let c = '<div class="grid grid-cols-2 gap-4 mb-4">';
+      if (fe.framework) c += '<div><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">Framework</div><div class="text-sm font-bold text-ink dark:text-papaya-50 mt-0.5">' + esc(fe.framework) + '</div></div>';
+      if (fe.rendering_strategy) c += '<div><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">Rendering</div><div class="text-sm font-bold text-ink dark:text-papaya-50 mt-0.5">' + esc(fe.rendering_strategy) + '</div></div>';
+      if (fe.styling) c += '<div><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">Styling</div><div class="text-sm font-bold text-ink dark:text-papaya-50 mt-0.5">' + esc(fe.styling) + '</div></div>';
+      if (fe.state_management) c += '<div><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">State Management</div><div class="text-sm font-bold text-ink dark:text-papaya-50 mt-0.5">' + esc(fe.state_management) + '</div></div>';
+      c += '</div>';
+      if (fe.ui_components && fe.ui_components.length) {
+        c += '<div class="text-xs font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 mb-2">UI Components</div>';
+        c += '<div class="flex flex-wrap gap-1.5">';
+        fe.ui_components.forEach(uc => {
+          c += '<span class="bg-teal/10 text-teal text-[10px] font-bold px-2 py-0.5 rounded-full">' + esc(typeof uc === 'string' ? uc : uc.name || uc) + '</span>';
+        });
+        c += '</div>';
+      }
+      html += bpCard('frontend', 'Frontend', null, c);
+    }
+
+    // Deployment
+    if (sections.find(s => s.id === 'deployment')) {
+      let c = '<div class="grid grid-cols-2 gap-4 mb-4">';
+      if (dep.runtime_environment) c += '<div><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">Runtime</div><div class="text-sm font-bold text-ink dark:text-papaya-50 mt-0.5">' + esc(dep.runtime_environment) + '</div></div>';
+      if (dep.container_runtime) c += '<div><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40">Container Runtime</div><div class="text-sm font-bold text-ink dark:text-papaya-50 mt-0.5">' + esc(dep.container_runtime) + '</div></div>';
+      c += '</div>';
+      if (dep.compute_services && dep.compute_services.length) {
+        c += '<div class="mt-3"><div class="text-xs font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 mb-1">Compute Services</div>';
+        c += '<div class="flex flex-wrap gap-1.5">';
+        dep.compute_services.forEach(cs => { c += '<span class="bg-teal/10 text-teal text-[10px] font-bold px-2 py-0.5 rounded-full">' + esc(cs) + '</span>'; });
+        c += '</div></div>';
+      }
+      if (dep.ci_cd && dep.ci_cd.length) {
+        c += '<div class="mt-3"><div class="text-xs font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 mb-1">CI/CD</div>';
+        c += '<div class="flex flex-wrap gap-1.5">';
+        dep.ci_cd.forEach(ci => { c += '<span class="bg-tangerine/10 text-tangerine text-[10px] font-bold px-2 py-0.5 rounded-full">' + esc(ci) + '</span>'; });
+        c += '</div></div>';
+      }
+      if (dep.distribution && dep.distribution.length) {
+        c += '<div class="mt-3"><div class="text-xs font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 mb-1">Distribution</div>';
+        c += '<div class="flex flex-wrap gap-1.5">';
+        dep.distribution.forEach(d => { c += '<span class="bg-ink/10 text-ink dark:bg-papaya-50/10 dark:text-papaya-50 text-[10px] font-bold px-2 py-0.5 rounded-full">' + esc(d) + '</span>'; });
+        c += '</div></div>';
+      }
+      html += bpCard('deployment', 'Deployment', null, c);
+    }
+
+    // Pitfalls
+    if (sections.find(s => s.id === 'pitfalls')) {
+      let c = '';
+      pits.forEach(p => {
+        c += '<div class="border-l-[3px] border-brandy pl-4 py-2 mb-3">';
+        c += '<div class="font-bold text-sm text-ink dark:text-papaya-50">' + esc(p.area || '') + '</div>';
+        c += '<div class="text-xs text-ink/70 dark:text-papaya-50/70 mt-1">' + esc(p.description || '') + '</div>';
+        if (p.recommendation) c += '<div class="text-xs text-teal mt-1">' + esc(p.recommendation) + '</div>';
+        if (p.stems_from && p.stems_from.length) c += '<div class="text-[10px] text-ink/40 dark:text-papaya-50/40 mt-1">Stems from: ' + p.stems_from.map(s => esc(s)).join(', ') + '</div>';
+        if (p.applies_to && p.applies_to.length) c += '<div class="text-[10px] text-ink/40 dark:text-papaya-50/40 mt-0.5">Applies to: ' + p.applies_to.map(a => esc(a)).join(', ') + '</div>';
+        c += '</div>';
+      });
+      html += bpCard('pitfalls', 'Pitfalls', pits.length, c);
+    }
+
+    // Implementation Guidelines
+    if (sections.find(s => s.id === 'guidelines')) {
+      let c = '<table class="w-full text-xs"><thead><tr>' + th('Capability') + th('Category') + th('Libraries') + th('Pattern') + '</tr></thead><tbody>';
+      impl.forEach(g => {
+        const libs = (g.libraries || []).join(', ');
+        c += '<tr>' + td(g.capability || '--') + td(g.category || '--') + td(libs || '--') + td(g.pattern_description || '--') + '</tr>';
+      });
+      c += '</tbody></table>';
+      html += bpCard('guidelines', 'Implementation Guidelines', impl.length, c);
+    }
+
+    // Dev Rules
+    if (sections.find(s => s.id === 'devrules')) {
+      let c = '<ul class="list-disc list-inside space-y-1 text-sm text-ink/80 dark:text-papaya-50/80">';
+      devRules.forEach(r => {
+        const ruleText = typeof r === 'string' ? r : (r.rule || '');
+        c += '<li>' + esc(ruleText) + '</li>';
+      });
+      c += '</ul>';
+      html += bpCard('devrules', 'Development Rules', devRules.length, c);
+    }
+
+    // Architecture Diagram
+    if (sections.find(s => s.id === 'diagram')) {
+      let c = '<pre class="mermaid">' + esc(diagram) + '</pre>';
+      html += bpCard('diagram', 'Architecture Diagram', null, c);
+    }
+
+    return html;
+  }
+
+  // --- Build sidebar ---
+  function buildBpSidebar() {
+    return sections.map(s => {
+      const isActive = s.id === activeSection;
+      const activeClasses = 'bg-teal/5 text-teal font-bold dark:bg-teal/10';
+      const inactiveClasses = 'text-ink/60 dark:text-papaya-50/60 hover:text-ink dark:hover:text-papaya-50 hover:bg-papaya-300/30 dark:hover:bg-ink-600/30 font-medium';
+      return '<button data-bpsection="' + s.id + '" class="block w-full text-left px-3 py-2.5 rounded-lg transition-all duration-200 cursor-pointer text-sm ' + (isActive ? activeClasses : inactiveClasses) + '">'
+        + esc(s.label) + '</button>';
+    }).join('');
+  }
+
+  // --- Layout ---
+  el.innerHTML = '<div class="flex gap-6 h-[calc(100vh-140px)] p-8 max-w-7xl mx-auto">'
+    + '<div class="w-64 flex-shrink-0 overflow-y-auto pr-4">'
+      + '<div class="text-[11px] font-black text-ink/30 dark:text-papaya-50/30 uppercase tracking-[0.15em] px-3 mb-4">SECTIONS</div>'
+      + '<nav id="bp-nav">' + buildBpSidebar() + '</nav>'
+    + '</div>'
+    + '<div id="blueprintContent" class="flex-1 overflow-y-auto bg-white/60 dark:bg-ink-800/60 border border-papaya-400/60 dark:border-ink-600 rounded-3xl shadow-inner p-8">'
+      + renderSections()
+    + '</div>'
+  + '</div>';
+
+  // --- Click handlers for sidebar nav ---
+  function attachBpNavHandlers() {
+    el.querySelectorAll('[data-bpsection]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sid = btn.getAttribute('data-bpsection');
+        activeSection = sid;
+        document.getElementById('bp-nav').innerHTML = buildBpSidebar();
+        attachBpNavHandlers();
+        const target = document.getElementById('bp-' + sid);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  }
+  attachBpNavHandlers();
+
+  // --- IntersectionObserver for active section tracking ---
+  const contentEl = document.getElementById('blueprintContent');
+  if (contentEl && typeof IntersectionObserver !== 'undefined') {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const sid = entry.target.id.replace('bp-', '');
+          if (sid !== activeSection) {
+            activeSection = sid;
+            document.getElementById('bp-nav').innerHTML = buildBpSidebar();
+            attachBpNavHandlers();
+          }
+        }
+      });
+    }, { root: contentEl, threshold: 0.3 });
+    sections.forEach(s => {
+      const secEl = document.getElementById('bp-' + s.id);
+      if (secEl) observer.observe(secEl);
+    });
+  }
+
+  // --- Mermaid rendering ---
+  if (diagram && typeof mermaid !== 'undefined') {
+    setTimeout(() => { try { mermaid.run({ nodes: document.querySelectorAll('.mermaid') }); } catch(e) {} }, 100);
+  }
+}
+
+function renderRules() {
+  const container = document.getElementById('tab-rules');
+  const ruleList = rules.rules || [];
+  const ignored = (ignoredRules && ignoredRules.ignored) || [];
+
+  if (ruleList.length === 0 && ignored.length === 0) {
+    container.innerHTML = '<p class="text-ink/40 dark:text-papaya-50/40 text-sm">No rules adopted yet. Run <code class="text-teal">/archie-scan</code> to discover and adopt rules.</p>';
+    return;
+  }
+
+  let html = '';
+
+  // Top bar: filters + add button
+  html += '<div class="flex items-center justify-between mb-6">';
+  html += '<div class="flex gap-2" id="ruleFilters">';
+  html += '<button class="filter-btn active px-3 py-1.5 rounded-lg text-xs font-bold bg-teal/10 text-teal border border-teal/20" data-filter="all">All</button>';
+  html += '<button class="filter-btn px-3 py-1.5 rounded-lg text-xs font-bold text-ink/40 hover:bg-papaya-300/20 border border-transparent" data-filter="error">Errors</button>';
+  html += '<button class="filter-btn px-3 py-1.5 rounded-lg text-xs font-bold text-ink/40 hover:bg-papaya-300/20 border border-transparent" data-filter="warn">Warnings</button>';
+  html += '</div>';
+  html += '<button onclick="showAddRuleForm()" class="px-4 py-2 rounded-xl bg-teal text-white font-bold text-sm shadow-lg shadow-teal/20 hover:bg-teal/90 transition-colors">+ Add Rule</button>';
+  html += '</div>';
+
+  // Add rule form (hidden)
+  html += '<div id="addRuleForm" class="hidden rounded-xl border border-teal/20 bg-teal/5 dark:bg-teal/10 p-5 mb-6">';
+  html += '<h3 class="text-sm font-bold text-ink dark:text-papaya-50 mb-4">Add New Rule</h3>';
+  html += '<div class="grid grid-cols-2 gap-4 mb-4">';
+  html += '<div>';
+  html += '<label class="text-[10px] font-bold uppercase tracking-widest text-ink/40 dark:text-papaya-50/40 block mb-1">ID</label>';
+  html += '<input id="newRuleId" class="w-full px-3 py-2 rounded-lg border border-papaya-400/60 dark:border-ink-600 bg-white dark:bg-ink-800 text-sm text-ink dark:text-papaya-50" placeholder="scan-006">';
+  html += '</div>';
+  html += '<div>';
+  html += '<label class="text-[10px] font-bold uppercase tracking-widest text-ink/40 block mb-1">Severity</label>';
+  html += '<select id="newRuleSeverity" class="w-full px-3 py-2 rounded-lg border border-papaya-400/60 dark:border-ink-600 bg-white dark:bg-ink-800 text-sm">';
+  html += '<option value="error">Error</option>';
+  html += '<option value="warn">Warning</option>';
+  html += '</select>';
+  html += '</div>';
+  html += '</div>';
+  html += '<div class="mb-4">';
+  html += '<label class="text-[10px] font-bold uppercase tracking-widest text-ink/40 block mb-1">Description</label>';
+  html += '<input id="newRuleDesc" class="w-full px-3 py-2 rounded-lg border border-papaya-400/60 dark:border-ink-600 bg-white dark:bg-ink-800 text-sm" placeholder="What is forbidden/required">';
+  html += '</div>';
+  html += '<div class="mb-4">';
+  html += '<label class="text-[10px] font-bold uppercase tracking-widest text-ink/40 block mb-1">Rationale</label>';
+  html += '<textarea id="newRuleRationale" rows="2" class="w-full px-3 py-2 rounded-lg border border-papaya-400/60 dark:border-ink-600 bg-white dark:bg-ink-800 text-sm" placeholder="Why \\u2014 the architectural reasoning"></textarea>';
+  html += '</div>';
+  html += '<div class="flex gap-2">';
+  html += '<button onclick="addRule()" class="px-4 py-2 rounded-lg bg-teal text-white font-bold text-sm">Save</button>';
+  html += '<button onclick="document.getElementById(\\x27addRuleForm\\x27).classList.add(\\x27hidden\\x27)" class="px-4 py-2 rounded-lg text-ink/40 hover:text-ink text-sm font-medium">Cancel</button>';
+  html += '</div>';
+  html += '</div>';
+
+  // Rule cards
+  html += '<div id="rulesList">';
+  ruleList.forEach((rule, i) => {
+    const sev = rule.severity || 'warn';
+    const enabled = rule.enabled !== false;
+    const src = rule.source || 'blueprint';
+    const scope = rule.applies_to || rule.file_pattern || '';
+    const id = rule.id || 'rule-' + i;
+    const desc = rule.description || '';
+    const rationale = rule.rationale || '';
+    const check = rule.check || '';
+
+    html += '<div class="rounded-xl border border-papaya-400/60 dark:border-ink-600 bg-white dark:bg-ink-800 p-4 mb-3 flex items-start gap-4 transition-all hover:shadow-md rule-card" data-severity="' + sev + '" data-rule-index="' + i + '">';
+
+    // Left: toggle + severity
+    html += '<div class="flex flex-col items-center gap-3 pt-1">';
+    html += '<label class="relative inline-flex items-center cursor-pointer">';
+    html += '<input type="checkbox" class="sr-only peer rule-toggle" data-index="' + i + '"' + (enabled ? ' checked' : '') + '>';
+    html += '<div class="w-9 h-5 bg-papaya-300/50 peer-focus:outline-none rounded-full peer peer-checked:bg-teal transition-colors"></div>';
+    html += '<div class="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 shadow-sm"></div>';
+    html += '</label>';
+    html += '<select class="rule-severity rounded-md border border-papaya-400/60 dark:border-ink-600 text-[10px] font-bold px-1.5 py-0.5 bg-transparent text-ink dark:text-papaya-50" data-index="' + i + '">';
+    html += '<option value="error"' + (sev === 'error' ? ' selected' : '') + '>error</option>';
+    html += '<option value="warn"' + (sev === 'warn' ? ' selected' : '') + '>warn</option>';
+    html += '</select>';
+    html += '</div>';
+
+    // Center: content
+    html += '<div class="flex-1 min-w-0">';
+    html += '<div class="text-[10px] font-bold text-ink/30 dark:text-papaya-50/30 uppercase tracking-wider">' + esc(id) + '</div>';
+    html += '<div class="font-bold text-ink dark:text-papaya-50 text-sm mt-1">' + esc(desc) + '</div>';
+    if (rationale) {
+      html += '<div class="text-xs text-ink/60 dark:text-papaya-50/60 mt-1 leading-relaxed">' + esc(rationale) + '</div>';
+    }
+    if (scope) {
+      html += '<span class="text-[10px] font-mono text-teal bg-teal/5 px-2 py-0.5 rounded mt-2 inline-block">' + esc(scope) + '</span>';
+    }
+    if (check) {
+      html += '<details class="mt-2">';
+      html += '<summary class="text-[10px] text-ink/30 cursor-pointer hover:text-ink/50">Mechanical check details</summary>';
+      html += '<div class="mt-1 text-[10px] text-ink/40 font-mono">';
+      html += 'check: ' + esc(check);
+      if (rule.forbidden_patterns && rule.forbidden_patterns.length) {
+        html += ', forbidden: ' + esc(rule.forbidden_patterns.join(', '));
+      }
+      if (rule.required_in_content && rule.required_in_content.length) {
+        html += ', required: ' + esc(rule.required_in_content.join(', '));
+      }
+      html += '</div>';
+      html += '</details>';
+    }
+    html += '</div>';
+
+    // Right: source badge + delete
+    html += '<div class="flex flex-col items-end gap-2">';
+    html += '<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-papaya-300/30 text-ink/40">' + esc(src) + '</span>';
+    html += '<button class="text-ink/20 hover:text-brandy text-xs" onclick="deleteRule(' + i + ')">\\u2715</button>';
+    html += '</div>';
+
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Ignored rules section
+  if (ignored.length > 0) {
+    html += '<div class="mt-8">';
+    html += '<div class="text-ink/40 dark:text-papaya-50/40 text-[11px] font-black uppercase tracking-[0.15em] cursor-pointer hover:text-ink dark:hover:text-papaya-50 mb-3" onclick="this.nextElementSibling.classList.toggle(\\x27hidden\\x27)">';
+    html += '\\u25b8 Ignored Rules (' + ignored.length + ')';
+    html += '</div>';
+    html += '<div class="hidden space-y-2">';
+    ignored.forEach((ir, idx) => {
+      html += '<div class="flex items-center justify-between px-3 py-2 rounded-lg bg-papaya-50 dark:bg-ink-700 text-xs">';
+      html += '<span class="text-ink/60 dark:text-papaya-50/60">' + esc(ir.id || '') + ' \\u2014 ' + esc(ir.description || '') + '</span>';
+      html += '<button onclick="unignoreRule(' + idx + ')" class="text-teal text-[10px] font-bold hover:underline">Restore</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+
+  // Event listeners: filter buttons
+  container.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.filter-btn').forEach(b => {
+        b.classList.remove('active', 'bg-teal/10', 'text-teal', 'border-teal/20');
+        b.classList.add('text-ink/40', 'border-transparent');
+      });
+      btn.classList.add('active', 'bg-teal/10', 'text-teal', 'border-teal/20');
+      btn.classList.remove('text-ink/40', 'border-transparent');
+      const filter = btn.dataset.filter;
+      container.querySelectorAll('.rule-card').forEach(card => {
+        if (filter === 'all' || card.dataset.severity === filter) {
+          card.style.display = '';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    });
   });
 
-  el.innerHTML = subTabsHtml + panelsHtml;
-  document.querySelectorAll('#gfSubTabs .sub-tab').forEach(st => {
-    st.addEventListener('click', () => {
-      document.querySelectorAll('#gfSubTabs .sub-tab').forEach(x=>x.classList.remove('active'));
-      st.classList.add('active');
-      document.querySelectorAll('.gf-panel').forEach(p=>p.classList.toggle('hidden', p.dataset.key!==st.dataset.key));
+  // Event listeners: toggle switches
+  container.querySelectorAll('.rule-toggle').forEach(toggle => {
+    toggle.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.dataset.index);
+      if (rules.rules && rules.rules[idx]) {
+        rules.rules[idx].enabled = e.target.checked;
+        saveRules();
+      }
+    });
+  });
+
+  // Event listeners: severity selects
+  container.querySelectorAll('.rule-severity').forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.dataset.index);
+      if (rules.rules && rules.rules[idx]) {
+        rules.rules[idx].severity = e.target.value;
+        saveRules();
+      }
     });
   });
 }
 
-// --- Folder CLAUDE.md Tree Tab ---
-function renderFolderTree() {
-  const el = document.getElementById('tab-folder-tree');
-  const keys = Object.keys(folderMds).sort();
-  if (!keys.length) { el.innerHTML='<div class="content"><div class="empty"><h2>No Per-Folder CLAUDE.md Files</h2><p>Run /archie-intent-layer first.</p></div></div>'; return; }
+function showAddRuleForm() {
+  document.getElementById('addRuleForm').classList.remove('hidden');
+  const ruleList = (rules.rules || []);
+  let maxNum = 0;
+  ruleList.forEach(r => { const m = (r.id||'').match(/scan-(\\d+)/); if (m) maxNum = Math.max(maxNum, parseInt(m[1])); });
+  document.getElementById('newRuleId').value = 'scan-' + String(maxNum + 1).padStart(3, '0');
+}
 
-  const tree = {};
-  keys.forEach(k => {
-    const parts = k.replace(/\/CLAUDE\.md$/, '').split('/');
-    let node = tree;
-    parts.forEach(p => { if (!node[p]) node[p] = {}; node = node[p]; });
-  });
+async function saveRules() {
+  try {
+    const res = await fetch('/api/rules', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(rules) });
+    if (res.ok) showToast('Rules saved', 'teal');
+    else showToast('Error saving rules', 'brandy');
+  } catch(e) { showToast('Error saving rules', 'brandy'); }
+}
 
-  function renderTreeNode(obj, prefix, depth) {
-    let html = '';
-    Object.keys(obj).sort().forEach(k => {
-      const fullKey = prefix ? prefix+'/'+k : k;
-      const mdKey = fullKey + '/CLAUDE.md';
-      const hasMd = keys.includes(mdKey);
-      const children = Object.keys(obj[k]);
-      if (children.length) {
-        html += `<div class="tree-dir open" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('collapsed')">${esc(k)}</div>`;
-        html += `<div class="tree-children">`;
-        if (hasMd) html += `<div class="tree-item" data-md="${esc(mdKey)}" style="padding-left:${(depth+1)*12}px">${esc(k)}/CLAUDE.md</div>`;
-        html += renderTreeNode(obj[k], fullKey, depth+1);
+function addRule() {
+  const id = document.getElementById('newRuleId').value.trim();
+  const desc = document.getElementById('newRuleDesc').value.trim();
+  const rationale = document.getElementById('newRuleRationale').value.trim();
+  const severity = document.getElementById('newRuleSeverity').value;
+  if (!id || !desc) { showToast('ID and description required', 'brandy'); return; }
+  if (!rules.rules) rules.rules = [];
+  rules.rules.push({ id, description: desc, rationale, severity, source: 'manual', enabled: true });
+  document.getElementById('addRuleForm').classList.add('hidden');
+  saveRules();
+  renderRules();
+}
+
+function deleteRule(index) {
+  if (!rules.rules) return;
+  rules.rules.splice(index, 1);
+  saveRules();
+  renderRules();
+}
+
+function showToast(message, color) {
+  const toast = document.createElement('div');
+  toast.className = 'fixed bottom-6 right-6 px-4 py-3 rounded-xl shadow-xl text-white text-sm font-bold z-50 transition-opacity duration-300';
+  toast.style.backgroundColor = color === 'teal' ? '#219ebc' : '#fb8500';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2000);
+}
+
+function unignoreRule(index) {
+  if (!ignoredRules || !ignoredRules.ignored) return;
+  const restored = ignoredRules.ignored.splice(index, 1)[0];
+  if (!restored) return;
+  if (!rules.rules) rules.rules = [];
+  rules.rules.push({ id: restored.id, description: restored.description || '', severity: 'warn', source: 'restored', enabled: true });
+  saveRules();
+  renderRules();
+}
+
+function renderFiles() {
+  const el = document.getElementById('tab-files');
+  const gfKeys = Object.keys(generatedFiles || {});
+  const fmKeys = Object.keys(folderMds || {});
+
+  if (gfKeys.length === 0 && fmKeys.length === 0) {
+    el.innerHTML = '<div class="flex items-center justify-center h-full"><p class="text-ink/40 dark:text-papaya-50/40 text-lg">No generated files found. Run <code>/archie-deep-scan</code> first.</p></div>';
+    return;
+  }
+
+  // Categorize generated files
+  const rootFiles = gfKeys.filter(k => k === 'CLAUDE.md' || k === 'AGENTS.md');
+  const ruleFiles = gfKeys.filter(k => k.startsWith('.claude/rules/'));
+
+  // Build directory tree for per-folder CLAUDE.md
+  function buildTree(paths) {
+    const tree = {};
+    paths.forEach(function(p) {
+      var parts = p.replace(/\/CLAUDE\.md$/, '').split('/');
+      var node = tree;
+      parts.forEach(function(part) {
+        if (!node[part]) node[part] = {};
+        node = node[part];
+      });
+      node._file = p;
+    });
+    return tree;
+  }
+
+  var activeFile = '';
+
+  // Determine first available file
+  if (rootFiles.indexOf('CLAUDE.md') !== -1) activeFile = 'CLAUDE.md';
+  else if (rootFiles.length > 0) activeFile = rootFiles[0];
+  else if (ruleFiles.length > 0) activeFile = ruleFiles[0];
+  else if (fmKeys.length > 0) activeFile = fmKeys[0];
+
+  function getFileContent(key) {
+    if (generatedFiles[key]) return generatedFiles[key];
+    if (folderMds[key]) return folderMds[key];
+    return '';
+  }
+
+  function navItem(key, label) {
+    var isActive = key === activeFile;
+    var activeClasses = 'bg-teal/5 text-teal font-bold dark:bg-teal/10';
+    var inactiveClasses = 'text-ink/60 dark:text-papaya-50/60 hover:text-ink dark:hover:text-papaya-50 hover:bg-papaya-300/30 dark:hover:bg-ink-600/30 font-medium';
+    return '<button data-filekey="' + esc(key) + '" class="block w-full text-left px-3 py-2 rounded-lg transition-all duration-200 cursor-pointer text-xs truncate ' + (isActive ? activeClasses : inactiveClasses) + '" title="' + esc(key) + '">'
+      + esc(label) + '</button>';
+  }
+
+  function renderTreeNode(node, depth) {
+    var html = '';
+    var sortedKeys = Object.keys(node).filter(function(k) { return k !== '_file'; }).sort();
+    sortedKeys.forEach(function(k) {
+      var child = node[k];
+      var childKeys = Object.keys(child).filter(function(ck) { return ck !== '_file'; });
+      if (child._file && childKeys.length === 0) {
+        // Leaf node
+        html += '<div class="ml-' + (depth > 0 ? '3' : '0') + '">' + navItem(child._file, k + '/CLAUDE.md') + '</div>';
+      } else {
+        // Directory node
+        html += '<div class="ml-' + (depth > 0 ? '3' : '0') + '">';
+        html += '<div class="px-3 py-1.5 text-xs font-bold text-ink/40 dark:text-papaya-50/40 cursor-pointer hover:text-ink dark:hover:text-papaya-50 flex items-center gap-1" onclick="this.querySelector(\'.arrow\').classList.toggle(\'rotate-90\'); this.nextElementSibling.classList.toggle(\'hidden\')">';
+        html += '<span class="arrow transition-transform duration-200 text-[10px]">&#9654;</span>';
+        html += '<span>' + esc(k) + '</span>';
         html += '</div>';
-      } else if (hasMd) {
-        html += `<div class="tree-item" data-md="${esc(mdKey)}" style="padding-left:${depth*12}px">${esc(k)}/CLAUDE.md</div>`;
+        html += '<div class="ml-3 hidden">';
+        if (child._file) {
+          html += navItem(child._file, 'CLAUDE.md');
+        }
+        html += renderTreeNode(child, depth + 1);
+        html += '</div>';
+        html += '</div>';
       }
     });
     return html;
   }
 
-  el.innerHTML = `<div class="split">
-    <div class="tree-panel" id="folderTreePanel">${renderTreeNode(tree, '', 0)}</div>
-    <div class="detail-panel" id="folderDetail"><div class="empty"><p>Select a folder to view its CLAUDE.md</p></div></div>
-  </div>`;
+  function buildSidebar() {
+    var html = '';
 
-  document.querySelectorAll('#folderTreePanel .tree-item').forEach(item => {
-    item.addEventListener('click', () => {
-      document.querySelectorAll('#folderTreePanel .tree-item').forEach(x=>x.classList.remove('active'));
-      item.classList.add('active');
-      const key = item.dataset.md;
-      const content = folderMds[key] || '';
-      document.getElementById('folderDetail').innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <code style="color:var(--text-dim)">${esc(key)}</code>
-        <button class="copy-btn" onclick="navigator.clipboard.writeText(folderMds['${key.replace(/'/g,"\\'")}'])">Copy</button>
-      </div><div class="md-content">${renderMd(content)}</div>`;
+    // Group 1: Root Files
+    if (rootFiles.length > 0) {
+      html += '<div class="text-[11px] font-black text-ink/30 dark:text-papaya-50/30 uppercase tracking-[0.15em] px-3 mb-2 mt-5">Root Files</div>';
+      rootFiles.forEach(function(k) { html += navItem(k, k); });
+    }
+
+    // Group 2: Rule Files
+    if (ruleFiles.length > 0) {
+      html += '<div class="text-[11px] font-black text-ink/30 dark:text-papaya-50/30 uppercase tracking-[0.15em] px-3 mb-2 mt-5">Rule Files</div>';
+      ruleFiles.forEach(function(k) {
+        var filename = k.split('/').pop();
+        html += navItem(k, filename);
+      });
+    }
+
+    // Group 3: Per-Folder CLAUDE.md
+    if (fmKeys.length > 0) {
+      html += '<div class="text-[11px] font-black text-ink/30 dark:text-papaya-50/30 uppercase tracking-[0.15em] px-3 mb-2 mt-5">Per-Folder CLAUDE.md</div>';
+      var tree = buildTree(fmKeys);
+      html += renderTreeNode(tree, 0);
+    }
+
+    return html;
+  }
+
+  function renderContent() {
+    var contentEl = document.getElementById('files-content');
+    if (!activeFile) {
+      contentEl.innerHTML = '<p class="text-ink/40 dark:text-papaya-50/40">Select a file...</p>';
+      return;
+    }
+    var raw = getFileContent(activeFile);
+    var rendered = window.marked ? marked.parse(raw) : esc(raw);
+    contentEl.innerHTML = '<div class="flex items-center justify-between mb-6">'
+      + '<code class="text-[10px] text-ink/40 dark:text-papaya-50/40">' + esc(activeFile) + '</code>'
+      + '<button id="files-copy-btn" class="px-3 py-1 rounded-lg border border-papaya-400/60 text-[10px] text-ink/40 hover:text-ink hover:border-teal dark:text-papaya-50/40 dark:hover:text-papaya-50 dark:border-ink-600 transition-colors">Copy</button>'
+      + '</div>'
+      + '<div class="prose-archie text-sm">' + rendered + '</div>';
+
+    document.getElementById('files-copy-btn').addEventListener('click', function() {
+      navigator.clipboard.writeText(raw).then(function() {
+        var btn = document.getElementById('files-copy-btn');
+        btn.textContent = 'Copied!';
+        btn.classList.add('text-teal', 'border-teal');
+        setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('text-teal', 'border-teal'); }, 1500);
+      });
     });
-  });
+  }
+
+  function attachFileNavHandlers() {
+    el.querySelectorAll('[data-filekey]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        activeFile = btn.getAttribute('data-filekey');
+        document.getElementById('files-nav').innerHTML = buildSidebar();
+        attachFileNavHandlers();
+        renderContent();
+      });
+    });
+  }
+
+  // Layout
+  el.innerHTML = '<div class="flex gap-6 h-[calc(100vh-140px)] p-8 max-w-7xl mx-auto">'
+    + '<div class="w-64 flex-shrink-0 overflow-y-auto pr-4">'
+      + '<nav id="files-nav">' + buildSidebar() + '</nav>'
+    + '</div>'
+    + '<div id="files-content" class="flex-1 overflow-y-auto bg-white/60 dark:bg-ink-800/60 border border-papaya-400/60 dark:border-ink-600 rounded-3xl shadow-inner p-10">'
+      + '<p class="text-ink/40 dark:text-papaya-50/40">Select a file...</p>'
+    + '</div>'
+  + '</div>';
+
+  attachFileNavHandlers();
+  if (activeFile) renderContent();
 }
 
-// --- Rules Tab ---
-function renderRules() {
-  const el = document.getElementById('tab-rules');
-  const ruleList = (rules.rules || []);
-  if (!ruleList.length) { el.innerHTML='<div class="empty"><h2>No Rules Found</h2></div>'; return; }
-
-  // Group by type
-  const byType = {};
-  ruleList.forEach(r => {
-    const t = r.type || 'other';
-    if (!byType[t]) byType[t] = [];
-    byType[t].push(r);
-  });
-
-  let html = `<p style="color:var(--text-dim);margin-bottom:16px;">${ruleList.length} rules extracted from blueprint</p>`;
-
-  Object.entries(byType).sort().forEach(([type, items]) => {
-    let body = '<table><thead><tr><th>ID</th><th>Severity</th><th>Description</th></tr></thead><tbody>';
-    body += items.map(r => {
-      const sevClass = r.severity === 'error' ? 'red' : r.severity === 'warning' ? 'yellow' : '';
-      return `<tr>
-        <td><code>${esc(r.id)}</code></td>
-        <td><span class="badge ${sevClass}">${esc(r.severity)}</span></td>
-        <td>${esc(r.description || r.rule || '')}</td>
-      </tr>`;
-    }).join('');
-    body += '</tbody></table>';
-    html += detailsCard(`${esc(type)} <span class="badge">${items.length}</span>`, body, false);
-  });
-
-  el.innerHTML = html;
+// ---------------------------------------------------------------------------
+// Initialize
+// ---------------------------------------------------------------------------
+if (typeof mermaid !== 'undefined') {
+  mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
 }
+
+document.addEventListener('DOMContentLoaded', loadData);
 </script>
 </body>
 </html>"""

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Archie health metrics — erosion + verbosity scoring.
+"""Archie health metrics — erosion, verbosity, complexity distribution, waste.
 
 Run: python3 measure_health.py /path/to/repo
 Reads .archie/skeletons.json and .archie/scan.json, writes JSON to stdout.
 
 Metrics based on the SlopCodeBench research paper:
-  - Erosion: fraction of complexity mass in high-CC functions
+  - Erosion: fraction of complexity mass in high-branching-complexity functions
   - Verbosity: duplicate-line ratio via line-hash detection
+  - Gini coefficient: inequality of complexity distribution across functions
+  - Top-20% share: fraction of total mass held by the heaviest 20% of functions
+  - Abstraction waste: single-use functions, trivial wrappers, single-method classes
 
 Zero dependencies beyond Python 3.9+ stdlib.
 """
@@ -127,6 +130,130 @@ def _erosion_score(functions: list[dict]) -> tuple[float, int]:
     if total_mass == 0:
         return 0.0, 0
     return round(heavy_mass / total_mass, 4), high_cc
+
+
+# ── Complexity distribution ──────────────────────────────────────────────
+
+def _gini_coefficient(functions: list[dict]) -> float:
+    """Gini coefficient of complexity mass distribution.
+
+    0 = perfectly equal (every function equally complex).
+    1 = maximally unequal (one function holds all complexity).
+    """
+    import math
+
+    masses = sorted(
+        cc * math.sqrt(max(sloc, 1))
+        for fn in functions
+        for cc, sloc in [(fn["cc"], fn["sloc"])]
+        if cc * math.sqrt(max(sloc, 1)) > 1e-9
+    )
+    n = len(masses)
+    if n == 0:
+        return 0.0
+    total = sum(masses)
+    if total == 0:
+        return 0.0
+    weighted = sum((i + 1) * v for i, v in enumerate(masses))
+    return round((2 * weighted - (n + 1) * total) / (n * total), 4)
+
+
+def _top20_share(functions: list[dict]) -> float:
+    """Fraction of total complexity mass held by the top 20% of functions.
+
+    0.20 = perfectly even. 0.90+ = a few functions dominate.
+    """
+    import math
+
+    masses = sorted(
+        (cc * math.sqrt(max(sloc, 1))
+         for fn in functions
+         for cc, sloc in [(fn["cc"], fn["sloc"])]),
+        reverse=True,
+    )
+    if not masses:
+        return 0.0
+    total = sum(masses)
+    if total == 0:
+        return 0.0
+    top_count = max(1, math.ceil(len(masses) * 0.2))
+    return round(sum(masses[:top_count]) / total, 4)
+
+
+# ── Abstraction waste ───────────────────────────────────────────────────
+
+def _detect_waste(skeletons: dict) -> dict:
+    """Detect abstraction waste from skeleton data.
+
+    Finds:
+      - Single-method classes: classes with only 1 method
+      - Tiny functions: functions with <= 2 SLOC (likely trivial wrappers)
+    """
+    single_method_classes: list[dict] = []
+    tiny_functions: list[dict] = []
+
+    for rel_path, info in skeletons.items():
+        symbols = info.get("symbols", [])
+        if not symbols:
+            continue
+
+        # Find classes and their methods
+        classes = [s for s in symbols if s.get("kind") in ("class",)]
+        methods = [s for s in symbols if s.get("kind") in ("method",)]
+        funcs = [s for s in symbols if s.get("kind") in ("func", "function")]
+
+        # Single-method classes: class has exactly 1 method
+        # Heuristic: methods between this class line and next class/end-of-file
+        all_sorted = sorted(symbols, key=lambda s: s.get("line", 0))
+        class_lines = [(c.get("name", "?"), c.get("line", 0)) for c in classes]
+
+        for ci, (cname, cline) in enumerate(class_lines):
+            # Find boundary: next class line or end of file
+            if ci + 1 < len(class_lines):
+                boundary = class_lines[ci + 1][1]
+            else:
+                boundary = info.get("line_count", 999999)
+
+            # Count methods in this class's range
+            class_methods = [
+                m for m in methods
+                if cline < m.get("line", 0) < boundary
+            ]
+            if len(class_methods) == 1:
+                single_method_classes.append({
+                    "path": rel_path,
+                    "class": cname,
+                    "method": class_methods[0].get("name", "?"),
+                    "line": cline,
+                })
+
+        # Tiny functions (likely trivial wrappers or one-liners)
+        for sym in funcs + methods:
+            line = sym.get("line", 0)
+            # Estimate SLOC: distance to next symbol or 0
+            idx = next(
+                (i for i, s in enumerate(all_sorted) if s.get("line", 0) == line),
+                None,
+            )
+            if idx is not None and idx + 1 < len(all_sorted):
+                end = all_sorted[idx + 1].get("line", line) - 1
+            else:
+                end = info.get("line_count", line)
+            sloc = max(end - line, 0)
+            if 0 < sloc <= 2:
+                tiny_functions.append({
+                    "path": rel_path,
+                    "name": sym.get("name", "?"),
+                    "line": line,
+                    "sloc": sloc,
+                })
+
+    return {
+        "single_method_classes": single_method_classes[:30],
+        "single_method_class_count": len(single_method_classes),
+        "tiny_functions": tiny_functions[:30],
+        "tiny_function_count": len(tiny_functions),
+    }
 
 
 # ── Verbosity score ──────────────────────────────────────────────────────
@@ -297,10 +424,15 @@ def main() -> None:
     # Compute function metrics
     functions = _compute_functions(repo, skeletons)
     erosion, high_cc_count = _erosion_score(functions)
+    gini = _gini_coefficient(functions)
+    top20 = _top20_share(functions)
 
     # Compute verbosity
     duplicates, dup_line_count, total_loc = _find_duplicates(repo, skeletons)
     verbosity = round(dup_line_count / total_loc, 4) if total_loc > 0 else 0.0
+
+    # Compute abstraction waste
+    waste = _detect_waste(skeletons)
 
     # Filter and sort functions for output
     reported_functions = sorted(
@@ -311,11 +443,14 @@ def main() -> None:
 
     result = {
         "erosion": erosion,
+        "gini": gini,
+        "top20_share": top20,
         "verbosity": verbosity,
         "total_functions": len(functions),
         "high_cc_functions": high_cc_count,
         "total_loc": total_loc,
         "duplicate_lines": dup_line_count,
+        "waste": waste,
         "functions": reported_functions,
         "duplicates": duplicates,
     }
@@ -325,9 +460,10 @@ def main() -> None:
 
     # Summary to stderr
     print(
-        f"Health: erosion={erosion} verbosity={verbosity}\n"
-        f"  {len(functions)} functions analyzed, {high_cc_count} with CC>{CC_THRESHOLD}\n"
-        f"  {total_loc} LOC, {dup_line_count} duplicate lines",
+        f"Health: erosion={erosion} gini={gini} top20={top20} verbosity={verbosity}\n"
+        f"  {len(functions)} functions analyzed, {high_cc_count} with branching complexity>{CC_THRESHOLD}\n"
+        f"  {total_loc} LOC, {dup_line_count} duplicate lines\n"
+        f"  Waste: {waste['single_method_class_count']} single-method classes, {waste['tiny_function_count']} tiny functions",
         file=sys.stderr,
     )
 

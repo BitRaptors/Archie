@@ -783,7 +783,7 @@ python3 -c "
 import json
 from datetime import datetime, timezone
 health = json.load(open('/tmp/archie_health.json'))
-entry = {'timestamp': datetime.now(timezone.utc).isoformat(), 'erosion': health['erosion'], 'verbosity': health['verbosity'], 'violations': 0, 'scan_type': 'deep'}
+entry = {'timestamp': datetime.now(timezone.utc).isoformat(), 'erosion': health['erosion'], 'gini': health.get('gini', 0), 'top20_share': health.get('top20_share', 0), 'verbosity': health['verbosity'], 'total_loc': health.get('total_loc', 0), 'violations': 0, 'scan_type': 'deep'}
 history_path = '$PROJECT_ROOT/.archie/health_history.json'
 try: history = json.load(open(history_path))
 except: history = []
@@ -826,7 +826,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their fo
 > Find **deep architectural violations** — problems that pattern matching cannot catch. For each finding, return:
 > - `folder`: the folder path
 > - `file`: the specific file
-> - `type`: one of `decision_violation`, `pattern_erosion`, `trade_off_undermined`, `pitfall_triggered`, `responsibility_leak`, `abstraction_bypass`
+> - `type`: one of `decision_violation`, `pattern_erosion`, `trade_off_undermined`, `pitfall_triggered`, `responsibility_leak`, `abstraction_bypass`, `semantic_duplication`
 > - `severity`: `error` or `warn`
 > - `decision_or_pattern`: which architectural decision, pattern, or pitfall this violates (reference by name from the blueprint)
 > - `evidence`: the specific code (function name, class, line pattern) that demonstrates the violation
@@ -839,6 +839,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their fo
 > 4. **Pitfall triggers** — code that falls into a documented pitfall (check `stems_from` chains)
 > 5. **Responsibility leaks** — a component doing work that belongs to another component
 > 6. **Abstraction bypass** — code reaching through a layer instead of using the intended interface
+> 7. **Semantic duplication** — functions/methods with different signatures but essentially the same logic. AI agents frequently copy-paste a function, tweak the name/parameters, and leave the body identical or near-identical. Look for: functions with similar names (e.g., `getText`/`getTexts`, `loadUser`/`fetchUser`), functions in different files that do the same thing with slightly different types, helper functions reimplemented instead of shared. For each, use type `semantic_duplication` and explain what's duplicated and which function should be the canonical one.
 >
 > Do NOT report: style/formatting/naming (the script handles those), generic best-practice violations not grounded in THIS project's blueprint, or issues already in the mechanical drift report.
 >
@@ -906,6 +907,15 @@ Synthesize from pitfalls, trade-offs, drift findings (both mechanical and deep),
 - What the risk is (one sentence)
 - Where it manifests (specific components/files/drift findings)
 - What to watch for going forward
+
+#### Part 6: Semantic Duplication
+
+From the deep findings, extract all `semantic_duplication` entries. Present them as a dedicated section:
+- Group by the canonical function (the one that should be kept/shared)
+- For each group: list the duplicates, which files they're in, and what differs (just the signature? types? minor logic?)
+- Count total semantic duplicates found
+
+If none found, say "No semantic duplication detected."
 
 **Health scores** from Phase 0 (erosion, verbosity) have been saved to `.archie/health_history.json` for trending. Run `/archie-scan` regularly to track how these metrics change over time.
 

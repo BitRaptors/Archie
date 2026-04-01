@@ -42,19 +42,30 @@ Read skeletons to understand file structure, imports, and signatures. If the arc
 
 From the health metrics, report each score with a **plain-language explanation** of what it means and whether it's good or bad:
 
-- **Erosion** (0 to 1): What fraction of the codebase's complexity is concentrated in a few god-functions. 0 = complexity evenly distributed (healthy). 1 = all complexity in a handful of functions (critical). Thresholds: <0.3 good, 0.3-0.5 moderate, >0.5 high — complexity is concentrating.
+- **Erosion** (0 to 1): What fraction of the codebase's complexity is concentrated in a few god-functions. Each function's "weight" is its branching complexity × √lines-of-code. Functions with branching complexity > 10 are considered heavy. 0 = complexity evenly distributed (healthy). 1 = all complexity in a handful of functions (critical). Thresholds: <0.3 good, 0.3-0.5 moderate, >0.5 high — complexity is concentrating.
+- **Gini** (0 to 1): How unevenly complexity is distributed across ALL functions, regardless of threshold. 0 = every function equally complex (healthy). 1 = one function holds all the complexity. Think of it like wealth inequality — but for code complexity. Thresholds: <0.4 good, 0.4-0.6 moderate, >0.6 high — complexity is very unevenly distributed.
+- **Top-20% share** (0.2 to 1): What fraction of total complexity mass is held by the top 20% of functions. 0.20 = perfectly even. Thresholds: <0.5 good, 0.5-0.7 moderate, >0.7 high — a small elite of functions dominates.
 - **Verbosity** (0 to 1): What fraction of code is duplicated or redundant. 0 = no duplication. Thresholds: <0.05 good, 0.05-0.15 moderate, >0.15 high — significant copy-paste debt.
-- **Functions analyzed**: total count, and how many have CC > 10 (complex) or CC > 15 (god-function territory).
+- **Abstraction waste**: Count of single-method classes and tiny functions (≤2 lines, likely trivial wrappers). These aren't inherently bad but signal over-abstraction when counts are high.
+- **LOC**: Total lines of code. Track growth — monotonic LOC increase without corresponding feature growth is a degradation signal.
+- **Functions analyzed**: total count, and how many have branching complexity > 10 (complex) or > 15 (god-function territory). Branching complexity counts the number of independent paths through a function — every `if`, `for`, `while`, `case`, `catch`, `&&`, `||` adds a path.
 - **Top complex functions**: list them, read any that look suspicious.
-- **Trend**: compare against previous scan if health_history.json exists.
+- **Trend**: compare against previous scan if health_history.json exists. Compare ALL metrics including LOC growth.
 
 Present health scores in this format:
 ```
 | Metric | Score | Meaning |
 |--------|-------|---------|
-| Erosion | 0.41 | Moderate — 41% of complexity mass in high-CC functions |
-| Verbosity | 0.003 | Good — minimal code duplication |
+| Erosion | 0.41 | Moderate — 41% of complexity mass in high-branching-complexity functions |
+| Gini | 0.65 | High — complexity very unevenly distributed across functions |
+| Top-20% share | 0.78 | High — top 20% of functions hold 78% of complexity |
+| Verbosity | 0.003 | Good — minimal code duplication (exact matches only) |
+| Abstraction waste | 5 + 12 | 5 single-method classes, 12 tiny functions |
+| LOC | 12,450 | +340 since last scan (+2.8%) |
+| Semantic duplication | — | Requires /archie-deep-scan |
 ```
+
+Note: Verbosity only detects exact line-for-line duplication. **Semantic duplication** — functions with different signatures but identical logic (e.g., `getText` vs `getTexts` with the same body) — requires AI analysis and is measured by `/archie-deep-scan`.
 
 ### 2c: Architectural analysis
 
@@ -141,7 +152,12 @@ Violated by: `feed/ProfileHelper.kt`
 ```
 
 Do NOT propose rules that appear in `.archie/ignored_rules.json`.
-Do NOT propose rules that already exist in `.archie/rules.json`.
+Do NOT re-propose rules that already exist in `.archie/rules.json` — but DO propose **new, deeper** rules that the existing set doesn't cover. Read the existing rules first, then look for gaps:
+- Existing rules cover the obvious? Look for **subtler invariants** — specific patterns within components, implicit contracts between modules, assumptions that aren't enforced.
+- Existing rules are structural? Propose **behavioral** rules — how data should flow, what side-effects are forbidden, which patterns must be used for specific operations.
+- Existing rules target broad layers? Propose **scoped** rules — constraints on specific files, functions, or component interactions you found during analysis.
+
+Every scan should find something new. If the codebase truly has no more rules to propose, say so — but only after genuinely digging deeper than the existing rules.
 
 ### 2e: Next task
 
@@ -178,11 +194,20 @@ Write to `.archie/scan_report_YYYY-MM-DD.md` (using the actual date). Also copy 
 | Metric | Current | Previous | Trend |
 |--------|---------|----------|-------|
 | Erosion | X.XX | X.XX | ⚠/✓ |
+| Gini | X.XX | X.XX | ⚠/✓ |
+| Top-20% share | X.XX | X.XX | ⚠/✓ |
 | Verbosity | X.XX | X.XX | ⚠/✓ |
+| LOC | N | N | +N (+N%) |
+
+### Abstraction Waste
+| Type | Count |
+|------|-------|
+| Single-method classes | N |
+| Tiny functions (≤2 lines) | N |
 
 ### Complex Functions
-| Function | File | CC |
-|----------|------|----|
+| Function | File | Branching complexity |
+|----------|------|---------------------|
 [top 5]
 
 ## Findings
@@ -206,12 +231,31 @@ Write to `.archie/scan_report_YYYY-MM-DD.md` (using the actual date). Also copy 
 
 Append health scores to `.archie/health_history.json`:
 ```json
-{"timestamp": "ISO-8601", "erosion": 0.00, "verbosity": 0.00, "scan_number": N, "scan_type": "fast"}
+{"timestamp": "ISO-8601", "erosion": 0.00, "gini": 0.00, "top20_share": 0.00, "verbosity": 0.00, "total_loc": 0, "scan_number": N, "scan_type": "fast"}
 ```
+
+Save per-function complexity snapshot to `.archie/function_complexity.json` — overwrite each scan:
+```json
+{"timestamp": "ISO-8601", "functions": [{"path": "...", "name": "...", "cc": N, "line": N}, ...]}
+```
+Include all functions with branching complexity > 5. If a previous `function_complexity.json` exists, compare: report functions whose branching complexity **increased** since the last scan. Present as:
+```
+### Complexity Trajectory
+| Function | File | Previous | Current | Change |
+|----------|------|----------|---------|--------|
+| parse_config | src/config.py | 8 | 14 | +6 |
+| handle_request | src/api.py | 12 | 19 | +7 |
+```
+If no previous snapshot exists, skip the trajectory section (first scan).
 
 ## Step 4: Present and process adoptions
 
-Print a summary (not the full report). Include health scores, finding count, the **numbered rules table** from section 2d, next task, and path to full report.
+Print the summary. Include:
+1. **Health scores** table (all metrics)
+2. **All findings** — list every finding with its file, what's wrong, and why it matters. Group by severity (errors first). This is the most valuable part of the scan — don't skip it or summarize it as a count.
+3. **Proposed rules** with the numbered checklist from section 2d
+4. **Next task**
+5. Path to full report
 
 The table already includes the adoption prompt:
 > **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
