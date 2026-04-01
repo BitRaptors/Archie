@@ -9,7 +9,7 @@ Archie — AI-powered architecture analysis and enforcement for coding agents. A
 ## Repository Layout
 
 - `archie/` — Python package (`archie-cli`): CLI commands, analysis engine, standalone scripts
-- `archie/standalone/` — Zero-dependency Python scripts (scanner, renderer, rules, validator, intent layer)
+- `archie/standalone/` — Zero-dependency Python scripts (scanner, renderer, validator, intent layer, health, drift, hooks)
 - `npm-package/` — NPM distribution (`npx archie`): copies scripts + Claude Code commands to target projects
 - `tests/` — Test suite (pytest)
 - `docs/` — Architecture documentation
@@ -25,9 +25,6 @@ python3 archie/standalone/scanner.py /path/to/project
 
 # Renderer — generate CLAUDE.md, AGENTS.md, rule files from blueprint
 python3 archie/standalone/renderer.py /path/to/project
-
-# Rules — extract enforcement rules from blueprint
-python3 archie/standalone/rules.py /path/to/project
 
 # Validator — check generated output against actual codebase
 python3 archie/standalone/validate.py all /path/to/project
@@ -46,10 +43,8 @@ python3 archie/standalone/intent_layer.py next-ready /path/to/project
 npx archie /path/to/project
 
 # Then in Claude Code on the target project:
-/archie-scan      # Fast architecture health check (1-3 min, run often)
+/archie-scan      # Architecture health check (1-3 min, run often)
 /archie-deep-scan # Comprehensive architecture baseline (15-20 min, run once)
-/archie-refresh   # Update after code changes
-/archie-enrich    # AI-enrich per-folder CLAUDE.md
 /archie-viewer    # Blueprint inspector
 ```
 
@@ -60,7 +55,7 @@ python -m pytest tests/ -v
 
 ## Two-Command Architecture
 
-- **`/archie-scan`** — Fast daily health check (1-3 min). Runs scanner, skeleton extraction, health metrics (erosion/verbosity), rule checking, and cycle detection. No AI agents needed.
+- **`/archie-scan`** — Architecture health check (1-3 min). Runs deterministic scanner for data gathering, then AI analyzes architecture like a senior architect: finds dependency violations, pattern drift, complexity hotspots, proposes enforceable rules.
 - **`/archie-deep-scan`** — Comprehensive baseline (15-20 min). Full 2-wave AI analysis producing blueprint, per-folder CLAUDE.md, rules, and health metrics. Run once, then use `/archie-scan` for incremental checks.
 
 ## Deep Scan Pipeline (2-Wave)
@@ -88,12 +83,14 @@ Blueprint JSON (`blueprint.json`) contains: `meta`, `architecture_rules`, `decis
 
 ## Rules System
 
-`rules.py` extracts 12 rule types from the blueprint (84+ rules):
-- **Structural:** file_placement, naming, dependency_direction, impact_radius
-- **Behavioral:** dev_rule, pattern_required, out_of_scope
-- **Deep architectural:** chain_violation, tradeoff_violation, pitfall_trace, pattern_extension, pitfall
+Rules come from two sources:
 
-Deep rules use Agent X's reasoning: violation_keywords per decision chain node, violation_signals per trade-off, full causal chains per pitfall.
+1. **Blueprint extraction** (`archie/rules/extractor.py`) — Deterministically extracts `file_placement` and `naming` rules from the blueprint.
+2. **AI-proposed rules** (`/archie-scan`) — The scan AI proposes rules with check types: `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, `file_naming`.
+
+Additionally, `platform_rules.json` provides predefined architectural checks installed with every project.
+
+The `/archie-deep-scan` Wave 2 (Opus reasoning) produces deeper architectural context in the blueprint: decision chains, trade-offs with violation signals, pitfalls with causal chains. These inform the AI's analysis during `/archie-scan` but are not extracted as mechanical check rules.
 
 ## File Sync
 
