@@ -11,6 +11,7 @@ Run the scanner to get the project map and health metrics:
 ```bash
 python3 .archie/scanner.py "$PWD"
 python3 .archie/measure_health.py "$PWD" > .archie/health.json 2>/dev/null
+python3 .archie/detect_cycles.py "$PWD" --full 2>/dev/null
 git log --oneline --since="7 days ago" --name-only 2>/dev/null | sort -u | head -50
 ```
 
@@ -18,6 +19,7 @@ Now read:
 - `.archie/skeletons.json` — the full project map: every file's header, function/class signatures, line counts
 - `.archie/scan.json` — file tree, import graph, detected frameworks
 - `.archie/health.json` — erosion score, verbosity score, per-function complexity
+- `.archie/dependency_graph.json` — resolved directory-level dependency graph with nodes, edges, cycles, and per-node metrics (in-degree, out-degree, file count, component membership)
 
 Also read if they exist (skip if not — that's normal):
 - `.archie/blueprint.json` — architectural decisions, component boundaries (from deep scan)
@@ -71,7 +73,11 @@ Note: Verbosity only detects exact line-for-line duplication. **Semantic duplica
 
 This is the core of the scan. Don't check regex patterns — **understand the architecture and find where it's breaking down.**
 
-**Dependency direction:** Read the import graph from scan.json. Trace the dependency flow between modules/packages. Are there layers? Do dependencies flow in one direction? Find violations — a UI component importing from the data layer, a domain model depending on a framework, a feature module importing from another feature module.
+**Dependency graph analysis:** Read `.archie/dependency_graph.json`. This gives you the resolved directory-level dependency graph with quantitative data. Analyze:
+- **Dependency magnets:** Directories with highest in-degree (many modules depend on them). These are stability bottlenecks — changes here ripple everywhere.
+- **Dependency direction:** Using the graph edges, trace the dependency flow between modules. Are there layers? Do dependencies flow in one direction? Find cross-component edges — these are potential layer violations.
+- **Tight coupling:** Edges with high weight (many imports between two directories) signal tight coupling.
+- **Hub analysis:** Directories with both high in-degree AND high out-degree are "god modules" that both depend on everything and are depended upon by everything.
 
 **Component responsibilities:** Look at the skeletons. Are there god-classes with too many methods? Files that mix concerns (a ViewModel that does network calls)? Read the suspicious ones to confirm.
 
@@ -79,7 +85,7 @@ This is the core of the scan. Don't check regex patterns — **understand the ar
 
 **Duplication / reimplementation:** Look for functions with the same or similar names in multiple files. AI agents do this constantly — they reimplement helpers instead of importing shared code. Check: are there `loadJson()`, `formatDate()`, `handleError()` style functions duplicated across files?
 
-**Circular dependencies:** Trace the import graph for cycles. If module A imports from B and B imports from A, explain what coupling this creates and why it matters.
+**Circular dependencies:** Check the `cycles` array in `dependency_graph.json`. For each cycle, explain what coupling it creates, which specific files create the cycle (from the evidence), and why it matters architecturally.
 
 **Blueprint violations (if blueprint.json exists):** If a deep scan was run before, the blueprint contains architectural decisions with violation keywords, trade-offs with violation signals, and pitfalls with causal chains. Check if current code violates any of these. Read files to verify.
 
@@ -272,7 +278,7 @@ Parse the user's reply:
 For each **adopted** rule:
 1. Read `.archie/rules.json` (create as `{"rules": []}` if missing)
 2. Append the rule's full JSON object (with `id`, `check`, `description`, `severity`, and all type-specific fields like `forbidden_patterns`, `applies_to`, `file_pattern`, etc.)
-3. Add `"source": "scan-adopted"` to each appended rule
+3. Add `"source": "scan-adopted", "confidence": 0.7` to each appended rule
 4. Write back. This is the same schema the deep scan uses — `check_rules.py` must be able to enforce it.
 
 For each **ignored** rule:

@@ -49,6 +49,8 @@ def extract_rules(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
             "id": f"placement-{idx}",
             "check": "file_placement",
             "severity": "warn",
+            "source": "blueprint",
+            "confidence": 1.0,
             "allowed_dirs": fpr.get("allowed_dirs", fpr.get("directories", [])),
             "keywords": _keywords_from_text(description),
         }
@@ -65,6 +67,8 @@ def extract_rules(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
             "id": f"naming-{idx}",
             "check": "naming",
             "severity": "warn",
+            "source": "blueprint",
+            "confidence": 1.0,
             "pattern": pattern,
             "keywords": _keywords_from_text(description),
         }
@@ -86,6 +90,8 @@ def extract_rules(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
             "id": f"layer-{layer_idx}",
             "check": "file_placement",
             "severity": "warn",
+            "source": "blueprint",
+            "confidence": 1.0,
             "allowed_dirs": [path],
             "keywords": _keywords_from_text(description),
         }

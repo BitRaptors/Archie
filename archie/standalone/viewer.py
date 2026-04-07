@@ -153,6 +153,9 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/ignored-rules":
             self._send_json(_load_json(archie_dir / "ignored_rules.json"))
 
+        elif path == "/api/dependency-graph":
+            self._send_json(_load_json(archie_dir / "dependency_graph.json"))
+
         else:
             self._send_error(404, "Not found")
 
@@ -237,6 +240,7 @@ tailwind.config = {
 <script src="https://cdn.jsdelivr.net/npm/chart.js" onerror="console.warn('Chart.js failed to load — charts will be unavailable')"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" onerror="console.warn('marked.js failed to load — markdown rendering will be unavailable')"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" onerror="console.warn('mermaid failed to load — diagrams will be unavailable')"></script>
+<script src="https://cdn.jsdelivr.net/npm/vis-network/standalone/umd/vis-network.min.js" onerror="console.warn('vis-network failed to load — dependency graph will be unavailable')"></script>
 
 <style>
   /* Scrollbar styling */
@@ -291,6 +295,7 @@ tailwind.config = {
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="blueprint">Blueprint</button>
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="rules">Rules</button>
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="files">Files</button>
+  <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="dependencies">Dependencies</button>
 </div>
 
 <!-- Tab content containers -->
@@ -299,6 +304,7 @@ tailwind.config = {
 <div id="tab-blueprint" class="tab-content hidden"></div>
 <div id="tab-rules" class="tab-content hidden p-8 max-w-5xl mx-auto"></div>
 <div id="tab-files" class="tab-content hidden"></div>
+<div id="tab-dependencies" class="tab-content hidden" style="height: calc(100vh - 140px)"></div>
 
 <script>
 // ---------------------------------------------------------------------------
@@ -306,7 +312,7 @@ tailwind.config = {
 // ---------------------------------------------------------------------------
 let health = {}, healthHistory = [], scanReports = [], blueprint = {},
     rules = {}, ignoredRules = {}, generatedFiles = {}, folderMds = {},
-    functionComplexity = {}, drift = {};
+    functionComplexity = {}, drift = {}, depGraph = {};
 
 // ---------------------------------------------------------------------------
 // Tab switching
@@ -324,7 +330,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       reports: renderReports,
       blueprint: renderBlueprint,
       rules: renderRules,
-      files: renderFiles
+      files: renderFiles,
+      dependencies: renderDependencies
     };
     if (renderers[btn.dataset.tab]) renderers[btn.dataset.tab]();
   });
@@ -345,7 +352,7 @@ async function fetchJSON(url) {
 }
 
 async function loadData() {
-  const [h, hh, sr, bp, r, ir, gf, fm, fc, dr] = await Promise.all([
+  const [h, hh, sr, bp, r, ir, gf, fm, fc, dr, dg] = await Promise.all([
     fetchJSON('/api/health'),
     fetchJSON('/api/health-history'),
     fetchJSON('/api/scan-reports'),
@@ -356,6 +363,7 @@ async function loadData() {
     fetchJSON('/api/folder-claude-mds'),
     fetchJSON('/api/function-complexity'),
     fetchJSON('/api/drift'),
+    fetchJSON('/api/dependency-graph'),
   ]);
   health = h || {};
   healthHistory = hh || [];
@@ -367,6 +375,7 @@ async function loadData() {
   folderMds = fm || {};
   functionComplexity = fc || {};
   drift = dr || {};
+  depGraph = dg || {};
 
   // Set repo name
   const repoNameEl = document.getElementById('repoName');
@@ -570,7 +579,7 @@ function renderDashboard() {
   } else if (drift && drift.summary) {
     html += '<div class="rounded-xl border border-papaya-400/60 bg-white p-5 mt-6">';
     html += '<div class="text-sm font-bold text-ink mb-2">Drift Findings</div>';
-    html += '<p class="text-xs text-ink/40">No drift findings. Run <code class="text-teal">/archie-deep-scan</code> for architectural drift analysis.</p>';
+    html += '<p class="text-xs text-ink/40">No drift findings. Drift detection requires a blueprint from <code class="text-teal">/archie-deep-scan</code>.</p>';
     html += '</div>';
   }
 
@@ -698,7 +707,22 @@ function esc(s) { if (s == null) return ''; const d = document.createElement('di
 function renderBlueprint() {
   const el = document.getElementById('tab-blueprint');
   if (!blueprint || Object.keys(blueprint).length === 0) {
-    el.innerHTML = '<div class="flex items-center justify-center h-full"><p class="text-ink/40 text-lg">No blueprint found. Run <code>/archie-deep-scan</code> first.</p></div>';
+    let hint = '<div class="flex items-center justify-center h-full"><div class="text-center max-w-md">';
+    hint += '<p class="text-ink/40 text-lg mb-3">Blueprint requires <code class="text-teal">/archie-deep-scan</code></p>';
+    hint += '<p class="text-ink/30 text-sm mb-4">The blueprint contains architectural decisions, component boundaries, trade-offs, and pitfalls — produced by the full multi-agent analysis.</p>';
+    const available = [];
+    if (health && Object.keys(health).length) available.push('Dashboard (health scores)');
+    if (scanReports && scanReports.length) available.push('Scan Reports');
+    if (rules && ((rules.rules && rules.rules.length) || (Array.isArray(rules) && rules.length))) available.push('Rules');
+    if (depGraph && depGraph.nodes && depGraph.nodes.length) available.push('Dependencies (graph)');
+    if (available.length) {
+      hint += '<p class="text-ink/40 text-sm">Available now from <code class="text-teal">/archie-scan</code>:</p>';
+      hint += '<ul class="text-ink/50 text-sm mt-1 text-left inline-block">';
+      available.forEach(a => { hint += '<li class="py-0.5">&#10003; ' + a + '</li>'; });
+      hint += '</ul>';
+    }
+    hint += '</div></div>';
+    el.innerHTML = hint;
     return;
   }
 
@@ -1133,6 +1157,12 @@ function renderRules() {
     // Right: source badge + delete
     html += '<div class="flex flex-col items-end gap-2">';
     html += '<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-papaya-300/30 text-ink/40">' + esc(src) + '</span>';
+    const conf = rule.confidence;
+    if (conf !== undefined && conf < 1.0) {
+      const pct = Math.round(conf * 100);
+      const confColor = pct >= 80 ? 'text-teal' : pct >= 50 ? 'text-tangerine' : 'text-brandy';
+      html += '<span class="text-[10px] font-bold ' + confColor + ' px-2 py-0.5 rounded-full bg-papaya-300/15">' + pct + '% conf</span>';
+    }
     html += '<button class="text-ink/20 hover:text-brandy text-xs" onclick="deleteRule(' + i + ')">&#10005;</button>';
     html += '</div>';
 
@@ -1263,7 +1293,21 @@ function renderFiles() {
   const fmKeys = Object.keys(folderMds || {});
 
   if (gfKeys.length === 0 && fmKeys.length === 0) {
-    el.innerHTML = '<div class="flex items-center justify-center h-full"><p class="text-ink/40 text-lg">No generated files found. Run <code>/archie-deep-scan</code> first.</p></div>';
+    let filesHint = '<div class="flex items-center justify-center h-full"><div class="text-center max-w-md">';
+    filesHint += '<p class="text-ink/40 text-lg mb-3">Generated files require <code class="text-teal">/archie-deep-scan</code></p>';
+    filesHint += '<p class="text-ink/30 text-sm mb-4">CLAUDE.md, AGENTS.md, and per-folder context files are produced by the full multi-agent analysis.</p>';
+    const filesAvailable = [];
+    if (health && Object.keys(health).length) filesAvailable.push('Dashboard');
+    if (scanReports && scanReports.length) filesAvailable.push('Scan Reports');
+    if (depGraph && depGraph.nodes && depGraph.nodes.length) filesAvailable.push('Dependencies');
+    if (filesAvailable.length) {
+      filesHint += '<p class="text-ink/40 text-sm">Check these tabs for scan results:</p>';
+      filesHint += '<ul class="text-ink/50 text-sm mt-1 text-left inline-block">';
+      filesAvailable.forEach(a => { filesHint += '<li class="py-0.5">&#10003; ' + a + '</li>'; });
+      filesHint += '</ul>';
+    }
+    filesHint += '</div></div>';
+    el.innerHTML = filesHint;
     return;
   }
 
@@ -1411,6 +1455,156 @@ function renderFiles() {
 
   attachFileNavHandlers();
   if (activeFile) renderContent();
+}
+
+// ---------------------------------------------------------------------------
+// Dependencies graph
+// ---------------------------------------------------------------------------
+let _depNetwork = null;
+
+function renderDependencies() {
+  const el = document.getElementById('tab-dependencies');
+  const nodes = (depGraph.nodes || []);
+  const edges = (depGraph.edges || []);
+  const cycles = (depGraph.cycles || []);
+  const stats = depGraph.stats || {};
+
+  if (!nodes.length) {
+    el.innerHTML = '<div class="flex items-center justify-center h-full">'
+      + '<div class="text-center">'
+      + '<div class="text-ink/30 text-lg font-bold mb-2">No dependency graph</div>'
+      + '<div class="text-ink/40 text-sm">Run <code class="bg-papaya-300/20 px-2 py-1 rounded">/archie-scan</code> to generate</div>'
+      + '</div></div>';
+    return;
+  }
+
+  // Archie brand palette for components
+  const palette = ['#023047','#219ebc','#fb8500','#ffb703','#8ecae6','#e76f51','#2a9d8f','#264653','#f4a261','#e9c46a'];
+  const compSet = [...new Set(nodes.map(n => n.component).filter(Boolean))].sort();
+  const compColor = {};
+  compSet.forEach((c, i) => { compColor[c] = palette[i % palette.length]; });
+  const defaultColor = '#94a3b8';
+
+  // Build vis.js datasets
+  const visNodes = new vis.DataSet(nodes.map(n => {
+    const bg = n.component ? compColor[n.component] : defaultColor;
+    const size = Math.max(12, Math.min(40, 8 + Math.log2(Math.max(n.fileCount, 1)) * 6));
+    return {
+      id: n.id, label: n.label, title: n.id,
+      size: size,
+      color: {
+        background: bg, border: n.inCycle ? '#dc2626' : bg,
+        highlight: { background: bg, border: '#023047' }
+      },
+      borderWidth: n.inCycle ? 3 : 1,
+      font: { size: 11, color: '#023047' },
+      _meta: n
+    };
+  }));
+
+  const visEdges = new vis.DataSet(edges.map((e, i) => ({
+    id: i, from: e.from, to: e.to,
+    arrows: 'to',
+    width: Math.max(1, Math.min(5, Math.log2(Math.max(e.weight, 1)) + 1)),
+    color: {
+      color: e.inCycle ? '#dc2626' : (e.crossComponent ? '#fb8500' : '#94a3b8'),
+      opacity: 0.7
+    },
+    dashes: e.crossComponent && !e.inCycle,
+    _meta: e
+  })));
+
+  // Layout
+  el.innerHTML = '<div class="flex h-full">'
+    + '<div id="dep-graph-container" class="flex-1 relative">'
+      + '<div id="dep-graph" class="w-full h-full"></div>'
+      + '<div id="dep-stats" class="absolute top-4 left-4 bg-white/90 backdrop-blur rounded-xl shadow px-4 py-2 text-xs text-ink/60">'
+        + stats.nodeCount + ' directories &middot; '
+        + stats.edgeCount + ' edges &middot; '
+        + stats.cycleCount + ' cycle' + (stats.cycleCount !== 1 ? 's' : '')
+      + '</div>'
+    + '</div>'
+    + '<div id="dep-sidebar" class="w-72 flex-shrink-0 border-l border-papaya-400/60 overflow-y-auto p-4 hidden">'
+      + '<div id="dep-detail"></div>'
+    + '</div>'
+  + '</div>';
+
+  // Legend
+  let legend = '<div class="absolute bottom-4 left-4 bg-white/90 backdrop-blur rounded-xl shadow px-4 py-3 text-[10px]">';
+  if (compSet.length) {
+    legend += '<div class="font-bold text-ink/40 uppercase tracking-wider mb-1">Components</div>';
+    compSet.forEach(c => {
+      legend += '<div class="flex items-center gap-1.5 mb-0.5">'
+        + '<span class="inline-block w-3 h-3 rounded-full" style="background:' + compColor[c] + '"></span>'
+        + '<span class="text-ink/60">' + esc(c) + '</span></div>';
+    });
+  }
+  if (stats.cycleCount > 0) {
+    legend += '<div class="flex items-center gap-1.5 mt-1"><span class="inline-block w-3 h-3 rounded-full border-2 border-red-500 bg-transparent"></span><span class="text-ink/60">In cycle</span></div>';
+  }
+  legend += '<div class="flex items-center gap-1.5 mt-1"><span class="inline-block w-6 border-t-2 border-dashed border-orange-400"></span><span class="text-ink/60">Cross-component</span></div>';
+  legend += '</div>';
+  document.getElementById('dep-graph-container').insertAdjacentHTML('beforeend', legend);
+
+  // Render vis.js network
+  if (typeof vis === 'undefined') {
+    document.getElementById('dep-graph').innerHTML = '<div class="flex items-center justify-center h-full text-ink/40">vis-network library failed to load</div>';
+    return;
+  }
+
+  const container = document.getElementById('dep-graph');
+  if (_depNetwork) { _depNetwork.destroy(); _depNetwork = null; }
+
+  _depNetwork = new vis.Network(container, { nodes: visNodes, edges: visEdges }, {
+    physics: {
+      solver: 'barnesHut',
+      barnesHut: { gravitationalConstant: -3000, springLength: 150, springConstant: 0.02, damping: 0.3 },
+      stabilization: { iterations: 150, fit: true }
+    },
+    interaction: { hover: true, tooltipDelay: 200 },
+    layout: { improvedLayout: true }
+  });
+
+  // Click handler — show node details in sidebar
+  _depNetwork.on('click', function(params) {
+    const sidebar = document.getElementById('dep-sidebar');
+    const detail = document.getElementById('dep-detail');
+    if (params.nodes.length === 0) { sidebar.classList.add('hidden'); return; }
+
+    const nodeId = params.nodes[0];
+    const node = visNodes.get(nodeId);
+    const meta = node._meta;
+
+    const incoming = edges.filter(e => e.to === nodeId);
+    const outgoing = edges.filter(e => e.from === nodeId);
+
+    let html = '<div class="text-xs">';
+    html += '<div class="font-bold text-ink text-sm mb-3">' + esc(meta.id) + '</div>';
+    if (meta.component) html += '<div class="mb-2"><span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full text-white" style="background:' + (compColor[meta.component] || defaultColor) + '">' + esc(meta.component) + '</span></div>';
+    html += '<div class="grid grid-cols-2 gap-2 mb-4">';
+    html += '<div class="bg-papaya-50 rounded-lg p-2 text-center"><div class="text-lg font-bold text-ink">' + meta.fileCount + '</div><div class="text-[10px] text-ink/40">files</div></div>';
+    html += '<div class="bg-papaya-50 rounded-lg p-2 text-center"><div class="text-lg font-bold text-ink">' + meta.inDegree + ' / ' + meta.outDegree + '</div><div class="text-[10px] text-ink/40">in / out</div></div>';
+    html += '</div>';
+    if (meta.inCycle) html += '<div class="mb-3 px-2 py-1 rounded bg-red-50 text-red-700 text-[10px] font-bold">Part of a circular dependency</div>';
+
+    if (incoming.length) {
+      html += '<div class="font-bold text-ink/40 uppercase tracking-wider text-[10px] mb-1">Depends on this (' + incoming.length + ')</div>';
+      incoming.sort((a,b) => b.weight - a.weight).forEach(e => {
+        html += '<div class="flex justify-between py-0.5 text-ink/70"><span>' + esc(e.from.split('/').pop()) + '</span><span class="text-ink/30">' + e.weight + '</span></div>';
+      });
+      html += '<div class="mb-3"></div>';
+    }
+    if (outgoing.length) {
+      html += '<div class="font-bold text-ink/40 uppercase tracking-wider text-[10px] mb-1">Imports from (' + outgoing.length + ')</div>';
+      outgoing.sort((a,b) => b.weight - a.weight).forEach(e => {
+        html += '<div class="flex justify-between py-0.5 text-ink/70"><span>' + esc(e.to.split('/').pop()) + '</span><span class="text-ink/30">' + e.weight + '</span></div>';
+      });
+    }
+    html += '</div>';
+
+    detail.innerHTML = html;
+    sidebar.classList.remove('hidden');
+  });
 }
 
 // ---------------------------------------------------------------------------

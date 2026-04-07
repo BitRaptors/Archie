@@ -58,6 +58,8 @@ def test_extract_rules_from_blueprint(_minimal_blueprint: dict) -> None:
     for rule in rules:
         assert "id" in rule
         assert rule["severity"] == "warn"
+        assert rule["source"] == "blueprint"
+        assert rule["confidence"] == 1.0
 
 
 def test_extract_rules_has_file_placement(_minimal_blueprint: dict) -> None:
