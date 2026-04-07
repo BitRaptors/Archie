@@ -452,6 +452,17 @@ function renderDashboard() {
   html += card('LOC', fmtInt(loc), '#219ebc', locDelta());
   html += '</div>';
 
+  // Metric legend
+  html += '<div class="rounded-xl border border-papaya-400/60 bg-white/60 p-4 mb-6 text-xs text-ink/60">';
+  html += '<div class="font-bold text-ink/80 mb-2 text-sm">What these metrics mean</div>';
+  html += '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">';
+  html += '<div><span class="font-bold text-ink/80">Erosion</span> — How many files break the expected structure (missing docs, inconsistent naming, no tests). Lower is better. <span class="text-teal">&lt;0.3 good</span>, <span class="text-tangerine">0.3–0.5 moderate</span>, <span class="text-brandy">&gt;0.5 high</span></div>';
+  html += '<div><span class="font-bold text-ink/80">Gini</span> — How unevenly code is distributed across files. A high Gini means a few files hold most of the code (god-files). <span class="text-teal">&lt;0.4 good</span>, <span class="text-tangerine">0.4–0.6 moderate</span>, <span class="text-brandy">&gt;0.6 high</span></div>';
+  html += '<div><span class="font-bold text-ink/80">Top-20%</span> — What share of total code lives in the largest 20% of files. High means code is concentrated in a few large files. <span class="text-teal">&lt;0.5 good</span>, <span class="text-tangerine">0.5–0.7 moderate</span>, <span class="text-brandy">&gt;0.7 high</span></div>';
+  html += '<div><span class="font-bold text-ink/80">Verbosity</span> — Ratio of comment lines to code lines. Very high means over-documented or commented-out code. <span class="text-teal">&lt;0.05 good</span>, <span class="text-tangerine">0.05–0.15 moderate</span>, <span class="text-brandy">&gt;0.15 high</span></div>';
+  html += '<div><span class="font-bold text-ink/80">LOC</span> — Total lines of code in the project (excluding blanks and comments). Not good or bad on its own — useful for tracking growth over time.</div>';
+  html += '</div></div>';
+
   // Trend chart
   if (healthHistory && healthHistory.length > 0 && typeof Chart !== 'undefined') {
     html += '<div class="rounded-3xl border border-papaya-400/60 bg-white/60 p-6 shadow-inner mb-6">';
@@ -735,7 +746,7 @@ function renderBlueprint() {
   const sections = [];
   const bp = blueprint;
   const meta = bp.meta || {};
-  const comp = bp.components || {};
+  const comp = Array.isArray(bp.components) ? { components: bp.components } : (bp.components || {});
   const dec = bp.decisions || {};
   const comm = bp.communication || {};
   const tech = bp.technology || {};
@@ -799,7 +810,7 @@ function renderBlueprint() {
       let c = '<table class="w-full text-xs"><thead><tr>' + th('Name') + th('Location') + th('Responsibility') + th('Dependencies') + '</tr></thead><tbody>';
       comps.forEach(cm => {
         const deps = (cm.depends_on || []).join(', ');
-        c += '<tr>' + td(cm.name || '--') + '<td class="py-2 px-3 border-b border-papaya-100 font-mono text-ink/60">' + esc(cm.location || '--') + '</td>' + td(cm.responsibility || '--') + td(deps || '--') + '</tr>';
+        c += '<tr>' + td(cm.name || '--') + '<td class="py-2 px-3 border-b border-papaya-100 font-mono text-ink/60">' + esc(cm.location || cm.path || '--') + '</td>' + td(cm.responsibility || cm.role || '--') + td(deps || '--') + '</tr>';
       });
       c += '</tbody></table>';
       html += bpCard('components', 'Components', comps.length, c);
@@ -812,8 +823,9 @@ function renderBlueprint() {
       if (as) {
         c += '<div class="rounded-lg border border-teal/30 bg-teal/5 p-4 mb-4">';
         c += '<div class="font-bold text-sm text-ink">' + esc(as.title || 'Architectural Style') + '</div>';
-        c += '<div class="text-sm text-teal font-bold mt-1">' + esc(as.chosen || '') + '</div>';
-        if (as.rationale) c += '<div class="text-xs text-ink/60 mt-1">' + esc(as.rationale) + '</div>';
+        c += '<div class="text-sm text-teal font-bold mt-1">' + esc(as.chosen || as.style || '') + '</div>';
+        if (as.rationale || as.details) c += '<div class="text-xs text-ink/60 mt-1">' + esc(as.rationale || as.details) + '</div>';
+        if (as.confidence) c += '<div class="text-xs text-ink/40 mt-1">Confidence: ' + as.confidence + '</div>';
         if (as.alternatives_rejected && as.alternatives_rejected.length) {
           c += '<div class="text-xs text-ink/40 mt-2">Rejected: ' + as.alternatives_rejected.map(a => esc(a)).join(', ') + '</div>';
         }
@@ -827,7 +839,7 @@ function renderBlueprint() {
         if (d.rationale) c += '<div class="text-xs text-ink/60 mt-1">' + esc(d.rationale) + '</div>';
         c += '</div>';
       });
-      html += bpCard('decisions', 'Decisions', kd.length, c);
+      html += bpCard('decisions', 'Decisions', kd.length + (dec.architectural_style ? 1 : 0), c);
     }
 
     // Trade-offs
@@ -948,10 +960,19 @@ function renderBlueprint() {
     if (sections.find(s => s.id === 'pitfalls')) {
       let c = '';
       pits.forEach(p => {
-        c += '<div class="border-l-[3px] border-brandy pl-4 py-2 mb-3">';
-        c += '<div class="font-bold text-sm text-ink">' + esc(p.area || '') + '</div>';
+        const sevColor = p.severity === 'error' ? 'brandy' : 'tangerine';
+        c += '<div class="border-l-[3px] border-' + sevColor + ' pl-4 py-2 mb-3">';
+        c += '<div class="font-bold text-sm text-ink">' + esc(p.title || p.area || '') + '</div>';
+        if (p.severity || p.confidence) {
+          c += '<div class="flex gap-2 mt-1">';
+          if (p.severity) c += '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-' + sevColor + '/10 text-' + sevColor + '">' + esc(p.severity) + '</span>';
+          if (p.confidence) c += '<span class="text-[10px] text-ink/40">confidence: ' + p.confidence + '</span>';
+          if (p.status) c += '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal/10 text-teal">' + esc(p.status) + '</span>';
+          c += '</div>';
+        }
         c += '<div class="text-xs text-ink/70 mt-1">' + esc(p.description || '') + '</div>';
         if (p.recommendation) c += '<div class="text-xs text-teal mt-1">' + esc(p.recommendation) + '</div>';
+        if (p.files && p.files.length) c += '<div class="text-[10px] text-ink/40 mt-1">Files: ' + p.files.map(f => esc(f)).join(', ') + '</div>';
         if (p.stems_from && p.stems_from.length) c += '<div class="text-[10px] text-ink/40 mt-1">Stems from: ' + p.stems_from.map(s => esc(s)).join(', ') + '</div>';
         if (p.applies_to && p.applies_to.length) c += '<div class="text-[10px] text-ink/40 mt-0.5">Applies to: ' + p.applies_to.map(a => esc(a)).join(', ') + '</div>';
         c += '</div>';
@@ -974,8 +995,10 @@ function renderBlueprint() {
     if (sections.find(s => s.id === 'devrules')) {
       let c = '<ul class="list-disc list-inside space-y-1 text-sm text-ink/80">';
       devRules.forEach(r => {
-        const ruleText = typeof r === 'string' ? r : (r.rule || '');
-        c += '<li>' + esc(ruleText) + '</li>';
+        const ruleText = typeof r === 'string' ? r : (r.rule || r.description || '');
+        c += '<li>' + esc(ruleText);
+        if (r.confidence) c += ' <span class="text-[10px] text-ink/40">(confidence: ' + r.confidence + ')</span>';
+        c += '</li>';
       });
       c += '</ul>';
       html += bpCard('devrules', 'Development Rules', devRules.length, c);

@@ -45,9 +45,11 @@ Read accumulated knowledge (skip any that don't exist — that's normal for earl
 
 ---
 
-## Phase 3: Parallel Analysis (3 agents, each can read source files)
+## Phase 3: Parallel Analysis (3 agents)
 
-Spawn 3 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`). Each agent receives all the data from Phase 2 and can read any source file to verify findings.
+Spawn 3 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`). Each agent receives all the data from Phase 2 and can read source files when needed.
+
+**EFFICIENCY RULE:** Agents read skeletons.json which contains every file's path, class/function signatures, imports, and first lines. This is sufficient for pattern detection, outlier finding, and most analysis. Agents should ONLY use the Read tool on source files when the skeleton genuinely lacks the information needed to make a judgment.
 
 **IMPORTANT:** Write each agent's output to a temp file so Phase 4 can read them all.
 
@@ -68,13 +70,13 @@ You are analyzing the ARCHITECTURE and DEPENDENCIES of a codebase. You have acce
 **Your job:**
 1. **Component analysis:** Identify all logical components. If a blueprint exists, compare — are there new components? Removed ones? Changed responsibilities? If no blueprint, infer components from directory structure and import patterns.
 
-2. **Dependency direction:** Using the dependency graph, trace the dependency flow. Are there layers? Do dependencies flow in one direction? Flag cross-component edges as potential violations. For each violation, READ the actual source file to verify — is it a real architectural violation or an acceptable exception?
+2. **Dependency direction:** Using the dependency graph, trace the dependency flow. Are there layers? Do dependencies flow in one direction? Flag cross-component edges as potential violations. Use the dependency graph and skeletons to judge violations. Only Read a source file if the skeleton doesn't show enough context to judge whether the import is a real violation or an acceptable exception (e.g., type-only import, test helper).
 
-3. **Dependency magnets:** Which directories have highest in-degree? These are stability bottlenecks. Read key files in these directories to understand what they provide and whether the coupling is justified.
+3. **Dependency magnets:** Which directories have highest in-degree? These are stability bottlenecks. The dependency graph shows what they provide — only read if the role is ambiguous from the skeleton.
 
-4. **Tight coupling:** Edges with high weight (many imports). Read files on both sides to understand why the coupling exists.
+4. **Tight coupling:** Edges with high weight (many imports). The import graph and skeletons show why coupling exists — only read if intent is unclear from the skeleton.
 
-5. **Circular dependencies:** For each cycle in the graph, read the evidence files. Explain what coupling it creates and why it matters.
+5. **Circular dependencies:** For each cycle in the graph, explain what coupling it creates and why it matters. Read a cycle participant only if the skeleton doesn't explain the coupling.
 
 6. **Architecture style:** Based on the dependency flow, component structure, and patterns you observe, what is the architecture style? How confident are you? If the blueprint already states one, do you agree based on current evidence?
 
@@ -118,9 +120,9 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
 
 2. **Trend analysis:** Compare against health_history.json. Are things improving or degrading? Which metrics moved most? Is LOC growth justified?
 
-3. **Complexity hotspots:** Identify functions with CC > 10. READ those functions in the source code. Are they genuinely complex? Could they be split? What would break? Compare against previous function_complexity.json — which functions got MORE complex?
+3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified. Compare against previous function_complexity.json — which functions got MORE complex?
 
-4. **Abstraction waste:** Single-method classes, tiny functions (<=2 lines). Read suspicious ones to determine if they're legitimate or over-engineering.
+4. **Abstraction waste:** Single-method classes, tiny functions (<=2 lines). Flag from skeletons. Only read if the skeleton is ambiguous about whether a single-method class is a legitimate abstraction.
 
 **Output:** Write to `/tmp/archie_agent_b_health.json`:
 ```json
@@ -153,13 +155,13 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 - `.archie/scan.json` — file tree, imports, frameworks
 
 **Your job:**
-1. **Pattern consistency:** Find patterns the codebase follows — base classes, naming conventions, file organization, import patterns. Then find the outliers that break them. READ the outlier files to understand if they're intentional exceptions or drift.
+1. **Pattern consistency:** Identify patterns and outliers from skeletons alone — the class hierarchy, function names, file organization, and import patterns are all visible in skeletons. Only Read an outlier source file if you cannot determine from the skeleton whether it's intentional (e.g., a comment, a different base class for a reason).
 
-2. **Duplication / reimplementation:** Look for functions with the same or similar names in multiple files. AI agents do this constantly — they reimplement helpers instead of importing shared code. READ suspicious duplicates to confirm.
+2. **Duplication / reimplementation:** Detect duplicate/similar function names from skeletons. AI agents do this constantly — they reimplement helpers instead of importing shared code. Only Read source files if the function signatures differ and you need to confirm whether they're true duplicates or just same-named but different.
 
-3. **Propose new rules:** Based on patterns found, propose architectural rules. Do NOT re-propose rules already in rules.json or proposed_rules.json. Look for DEEPER rules — subtler invariants, behavioral constraints, scoped rules for specific components.
+3. **Propose new rules:** Based on patterns found, propose architectural rules. No file reads needed — patterns come from skeletons. Do NOT re-propose rules already in rules.json or proposed_rules.json. Look for DEEPER rules — subtler invariants, behavioral constraints, scoped rules for specific components.
 
-4. **Validate existing rules:** Check if any adopted rules in rules.json are now violated by current code. Check if any proposed rules have become more or less valid since they were proposed (adjust confidence).
+4. **Validate existing rules:** Check from skeletons and scan data. Only Read a source file if you need to confirm a rule violation that isn't obvious from the skeleton. Check if any proposed rules have become more or less valid since they were proposed (adjust confidence).
 
 **Rule schema:**
 Required: `{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "error|warn", "confidence": 0.85}`
@@ -210,12 +212,18 @@ Now you are the **synthesis agent**. Your job is to merge the three agents' find
 
 Read the existing blueprint (or start with `{}` if none exists). Apply these evolution rules:
 
+**IMPORTANT: The blueprint must always use the canonical schema below. The viewer depends on these exact field names. Do NOT invent alternative field names.**
+
 **Components** (`blueprint.components`):
-- If Agent A found new components not in blueprint → add them with the agent's confidence
+Structure: `{"components": [{"name": "", "location": "", "responsibility": "", "depends_on": [], "confidence": 0.9}]}`
+- Map Agent A's output: `path` → `location`, `role` → `responsibility`
+- If Agent A found new components not in blueprint → add them
 - If Agent A found components that match existing ones → keep existing data, update confidence if Agent A's is higher
 - If a component in the blueprint no longer appears in Agent A's analysis → keep it but add `"status": "not_found_in_latest_scan"` (don't delete — it might be in an unscanned area)
 
 **Architecture style** (`blueprint.decisions.architectural_style`):
+Structure: `{"title": "Architectural Style", "chosen": "", "rationale": "", "confidence": 0.9, "alternatives_rejected": []}`
+- Map Agent A's output: `style` → `chosen`, `details`/`evidence` → `rationale`
 - If no blueprint → use Agent A's assessment
 - If blueprint exists and Agent A agrees → increase confidence (min of 1.0)
 - If blueprint exists and Agent A disagrees → keep blueprint's but add Agent A's assessment as `"alternative_assessment"` with reasoning. Don't overwrite the deep scan's analysis with a scan's inference.
@@ -226,9 +234,10 @@ Read the existing blueprint (or start with `{}` if none exists). Apply these evo
 - Add `"last_health_scan"` timestamp
 
 **Pitfalls** (`blueprint.pitfalls`):
-- Agent A's dependency violations → add as pitfalls with `"source": "scan-observed"`
-- Agent B's complexity hotspots → add as pitfalls with `"source": "scan-observed"`
-- Agent C's pattern violations → add as pitfalls with `"source": "scan-observed"`
+Structure: `[{"area": "", "description": "", "recommendation": "", "severity": "error|warn", "confidence": 0.9, "source": "scan-observed", "stems_from": [], "applies_to": [], "first_seen": "", "confirmed_in_scan": N}]`
+- Agent A's dependency violations → add as pitfalls. Map `title` → `area`.
+- Agent B's complexity hotspots → add as pitfalls
+- Agent C's pattern violations → add as pitfalls
 - Existing pitfalls from blueprint → keep. If a scan-observed pitfall matches an existing one, increase its confidence.
 - If a previously scan-observed pitfall is no longer found → mark `"status": "resolved"` with timestamp. Don't delete — the resolution is valuable knowledge.
 
@@ -238,6 +247,8 @@ Read the existing blueprint (or start with `{}` if none exists). Apply these evo
 - Agent C's rule confidence updates → apply to matching rules
 
 **Development rules** (`blueprint.development_rules`):
+Structure: `[{"rule": "", "severity": "warn|error", "confidence": 0.9, "source": "scan-inferred"}]`
+- Map Agent C's output: `description` → `rule`
 - Agent C's pattern findings with confidence >= 0.7 → add as development rules
 
 **Meta** (`blueprint.meta`):
@@ -272,9 +283,14 @@ The report should include:
 [5-10 lines from Agent A's analysis]
 
 ## Health Scores
-| Metric | Current | Previous | Trend |
-|--------|---------|----------|-------|
-[from Agent B]
+| Metric | Current | Previous | Trend | What it means |
+|--------|---------|----------|-------|---------------|
+| Erosion | | | | Files breaking expected structure (naming, docs, tests). <0.3 good, >0.5 high |
+| Gini | | | | Code distribution inequality. High = a few god-files hold most code. <0.4 good, >0.6 high |
+| Top-20% | | | | Share of code in the largest 20% of files. <0.5 good, >0.7 high |
+| Verbosity | | | | Comment-to-code ratio. High = over-documented or commented-out code. <0.05 good, >0.15 high |
+| LOC | | | | Total lines of code. Tracks growth over time |
+[Fill in Current, Previous, Trend from Agent B]
 
 ### Complexity Trajectory
 [functions that got more complex since last scan]
@@ -330,7 +346,12 @@ rm -f .archie/health.json
 ## Phase 5: Present Results and Process Adoptions
 
 Print the summary to the user. Include:
-1. **Health scores** table (all metrics with trend)
+1. **Health scores** table (all metrics with trend) and a **metric legend** explaining each one:
+   - **Erosion** — How many files break expected structure (naming, docs, tests). <0.3 good, 0.3–0.5 moderate, >0.5 high
+   - **Gini** — Code distribution inequality. High = a few god-files hold most code. <0.4 good, 0.4–0.6 moderate, >0.6 high
+   - **Top-20%** — Share of code in the largest 20% of files. <0.5 good, 0.5–0.7 moderate, >0.7 high
+   - **Verbosity** — Comment-to-code ratio. High = over-documented or commented-out code. <0.05 good, 0.05–0.15 moderate, >0.15 high
+   - **LOC** — Total lines of code. Tracks growth over time
 2. **Blueprint evolution** — what changed in the blueprint this scan (new components, updated confidence, resolved pitfalls, new rules inferred)
 3. **All findings** from all agents — ranked by severity. Group as NEW / RECURRING / RESOLVED. This is the most valuable part — don't skip or summarize as counts.
 4. **Proposed rules** with numbered checklist from Agent C
