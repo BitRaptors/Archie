@@ -114,8 +114,16 @@ Each rule should be something that can be **checked on every future code change*
 
 Required fields:
 ```json
-{"id": "scan-NNN", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning", "severity": "error|warn"}
+{"id": "scan-NNN", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning", "severity": "error|warn", "confidence": 0.85}
 ```
+
+The **`confidence`** field (0.0 to 1.0) is REQUIRED. You must assess how certain you are about each rule based on the evidence you found. Calibration:
+- **0.9-1.0** — Structural invariant verified in code. You found N files all following the same pattern with 0-1 exceptions. You read the files and confirmed it.
+- **0.7-0.9** — Strong pattern with some exceptions. Most files follow a convention but a few don't. The architectural intent is clear from the code structure.
+- **0.5-0.7** — Inferred from architecture but not directly verified in every case. The codebase structure suggests this rule but you haven't confirmed all usages. Or the rule is based on best practices applied to this specific codebase.
+- **0.3-0.5** — Speculative. Based on general best practices rather than specific codebase evidence. You think this should be a rule but the codebase doesn't strongly confirm it yet.
+
+Be honest. A wrong rule with high confidence is worse than a right rule with low confidence. If you only checked 3 files, don't claim 0.95.
 
 Optional mechanical fields (add ONLY when a meaningful regex exists):
 - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
@@ -126,10 +134,10 @@ Optional mechanical fields (add ONLY when a meaningful regex exists):
 
 Examples — most rules are rationale-only:
 ```json
-{"id": "scan-001", "description": "Feature modules must not import from each other", "rationale": "Independent deployment was a key trade-off. Cross-feature imports create hidden coupling that prevents releasing features independently.", "severity": "error"}
+{"id": "scan-001", "description": "Feature modules must not import from each other", "rationale": "Independent deployment was a key trade-off. Cross-feature imports create hidden coupling that prevents releasing features independently.", "severity": "error", "confidence": 0.92}
 ```
 ```json
-{"id": "scan-002", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. If it depends on UI, every UI refactor ripples through business logic.", "severity": "error", "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
+{"id": "scan-002", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. If it depends on UI, every UI refactor ripples through business logic.", "severity": "error", "confidence": 0.88, "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
 ```
 
 The **`rationale`** field is REQUIRED. Write 1-3 sentences tracing the constraint back to an architectural decision, trade-off, or pitfall. If a blueprint exists, reference specific decisions. If not, explain the reasoning from what you observed in the codebase.
@@ -271,7 +279,7 @@ The table already includes the adoption prompt:
 
 ```
 1. Read `.archie/proposed_rules.json` (create as `{"rules": []}` if missing)
-2. For each proposed rule, add `"source": "scan-proposed", "confidence": 0.7`
+2. For each proposed rule, add `"source": "scan-proposed"` (keep the AI-assigned confidence as-is)
 3. Append all proposed rules (skip if a rule with the same `id` already exists)
 4. Write back
 ```
@@ -287,7 +295,7 @@ Parse the user's reply:
 For each **adopted** rule:
 1. Read `.archie/rules.json` (create as `{"rules": []}` if missing)
 2. Append the rule's full JSON object (with `id`, `check`, `description`, `severity`, and all type-specific fields like `forbidden_patterns`, `applies_to`, `file_pattern`, etc.)
-3. Add `"source": "scan-adopted", "confidence": 0.7` to each appended rule
+3. Add `"source": "scan-adopted"` to each appended rule (keep the AI-assigned confidence)
 4. Write back. This is the same schema the deep scan uses — `check_rules.py` must be able to enforce it.
 
 For each **not adopted** rule:
