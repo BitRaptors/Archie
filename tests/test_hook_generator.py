@@ -6,6 +6,7 @@ import stat
 
 
 from archie.hooks.generator import generate_hooks, install_git_hook, install_hooks
+from archie.standalone.install_hooks import install as standalone_install
 
 
 # -------------------------------------------------------------------
@@ -137,3 +138,34 @@ def test_install_git_hook_preserves_existing(tmp_path):
 def test_install_git_hook_no_git_dir(tmp_path):
     result = install_git_hook(tmp_path)
     assert result is False
+
+
+# -------------------------------------------------------------------
+# 11. standalone install creates blueprint-nudge.sh
+# -------------------------------------------------------------------
+def test_standalone_install_creates_blueprint_nudge(tmp_path):
+    standalone_install(tmp_path)
+
+    nudge = tmp_path / ".claude" / "hooks" / "blueprint-nudge.sh"
+    assert nudge.exists()
+    assert nudge.stat().st_mode & stat.S_IXUSR
+    content = nudge.read_text()
+    assert "blueprint.json" in content
+    assert "[Archie]" in content
+
+
+# -------------------------------------------------------------------
+# 12. standalone install registers blueprint-nudge on PreToolUse Glob|Grep
+# -------------------------------------------------------------------
+def test_standalone_install_registers_blueprint_nudge(tmp_path):
+    standalone_install(tmp_path)
+
+    settings_path = tmp_path / ".claude" / "settings.local.json"
+    settings = json.loads(settings_path.read_text())
+
+    pre_tool = settings["hooks"]["PreToolUse"]
+    assert any(
+        entry.get("matcher") == "Glob|Grep"
+        and any(h.get("command") == ".claude/hooks/blueprint-nudge.sh" for h in entry.get("hooks", []))
+        for entry in pre_tool
+    )

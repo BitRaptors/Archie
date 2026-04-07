@@ -111,6 +111,7 @@ Use `PROJECT_NAME` as the basename of `PROJECT_ROOT` for namespacing temp files 
 
 ```bash
 python3 .archie/scanner.py "$PROJECT_ROOT"
+python3 .archie/detect_cycles.py "$PROJECT_ROOT" --full 2>/dev/null
 ```
 
 ```bash
@@ -122,6 +123,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 1
 **If START_STEP > 2, skip this step.**
 
 Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, top-level directories, and `frontend_ratio`.
+
+Also read `$PROJECT_ROOT/.archie/dependency_graph.json` if it exists — it provides the resolved directory-level dependency graph with node metrics (in-degree, out-degree, file count) and cycle data. Wave 1 agents can reference this for quantitative dependency analysis.
 
 **UI layer detection:** Only spawn the dedicated UI Layer agent if `frontend_ratio` >= 0.20 (20%+ of source files are UI/frontend). A small SwiftUI menubar or a minor React admin panel in an otherwise backend/CLI/library project does NOT warrant a dedicated UI agent — the Structure agent will cover it.
 
@@ -688,6 +691,12 @@ python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
 ```
 
 This single command: merges the Reasoning agent's output into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
+
+After finalize completes, regenerate the dependency graph (the blueprint now has component definitions, which enables cross-component edge detection):
+
+```bash
+python3 .archie/detect_cycles.py "$PROJECT_ROOT" --full 2>/dev/null
+```
 
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5

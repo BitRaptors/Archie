@@ -300,6 +300,157 @@ def tarjan_scc(graph: dict[str, set[str]]) -> list[list[str]]:
     return result
 
 
+# ── Full Dependency Graph ─────────────────────────────────────────────────
+
+def _find_component(dir_path: str, comp_map: dict[str, str]) -> str:
+    """Find the best-matching component for a directory by path prefix."""
+    best = ""
+    best_len = 0
+    for comp_path, comp_name in comp_map.items():
+        if dir_path.startswith(comp_path) and len(comp_path) > best_len:
+            best = comp_name
+            best_len = len(comp_path)
+    return best
+
+
+def _count_files_per_dir(file_tree: list[dict]) -> dict[str, int]:
+    """Count source files per directory."""
+    counts: dict[str, int] = defaultdict(int)
+    for f in file_tree:
+        parent = str(PurePosixPath(f["path"]).parent)
+        if parent == ".":
+            parent = "."
+        counts[parent] += 1
+    return dict(counts)
+
+
+def build_full_graph(root: Path) -> dict:
+    """Build the full dependency graph with nodes, edges, cycles, and stats.
+
+    Reads scan.json for the import graph and optionally blueprint.json for
+    component membership. Persists the result to .archie/dependency_graph.json.
+    """
+    scan_path = root / ".archie" / "scan.json"
+    if not scan_path.exists():
+        return {"nodes": [], "edges": [], "cycles": [], "stats": {
+            "nodeCount": 0, "edgeCount": 0, "cycleCount": 0}}
+
+    try:
+        scan = json.loads(scan_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {"nodes": [], "edges": [], "cycles": [], "stats": {
+            "nodeCount": 0, "edgeCount": 0, "cycleCount": 0}}
+
+    import_graph = scan.get("import_graph", {})
+    file_tree = scan.get("file_tree", [])
+
+    if not import_graph:
+        return {"nodes": [], "edges": [], "cycles": [], "stats": {
+            "nodeCount": 0, "edgeCount": 0, "cycleCount": 0}}
+
+    dir_graph, evidence = build_directory_graph(import_graph, file_tree)
+    sccs = tarjan_scc(dir_graph)
+
+    # Build component map from blueprint (if available)
+    comp_map: dict[str, str] = {}
+    bp_path = root / ".archie" / "blueprint.json"
+    if bp_path.exists():
+        try:
+            bp = json.loads(bp_path.read_text())
+            for comp in bp.get("components", {}).get("components", []):
+                cp = comp.get("path", "")
+                cn = comp.get("name", "")
+                if cp and cn:
+                    comp_map[cp] = cn
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Identify cycle directories
+    cycle_dirs: set[str] = set()
+    for scc in sccs:
+        cycle_dirs.update(scc)
+
+    # Count files per directory
+    file_counts = _count_files_per_dir(file_tree)
+
+    # Compute in-degree and out-degree
+    in_degree: dict[str, int] = defaultdict(int)
+    out_degree: dict[str, int] = defaultdict(int)
+    for from_dir, to_dirs in dir_graph.items():
+        out_degree[from_dir] = len(to_dirs)
+        for to_dir in to_dirs:
+            in_degree[to_dir] += 1
+
+    # Build nodes
+    all_dirs = set(dir_graph.keys())
+    for deps in dir_graph.values():
+        all_dirs.update(deps)
+
+    nodes = []
+    for d in sorted(all_dirs):
+        label = d.split("/")[-1] if "/" in d else d
+        nodes.append({
+            "id": d,
+            "label": label,
+            "component": _find_component(d, comp_map),
+            "inDegree": in_degree.get(d, 0),
+            "outDegree": out_degree.get(d, 0),
+            "inCycle": d in cycle_dirs,
+            "fileCount": file_counts.get(d, 0),
+        })
+
+    # Build edges
+    edges = []
+    for from_dir, to_dirs in dir_graph.items():
+        for to_dir in to_dirs:
+            from_comp = _find_component(from_dir, comp_map)
+            to_comp = _find_component(to_dir, comp_map)
+            ev_list = evidence.get((from_dir, to_dir), [])
+            edges.append({
+                "from": from_dir,
+                "to": to_dir,
+                "weight": len(ev_list),
+                "crossComponent": bool(
+                    from_comp and to_comp and from_comp != to_comp
+                ),
+                "inCycle": from_dir in cycle_dirs and to_dir in cycle_dirs,
+            })
+
+    # Build cycle output
+    cycles_out = []
+    for scc in sccs:
+        scc_set = set(scc)
+        seen: set[tuple[str, str]] = set()
+        cycle_evidence: list[dict] = []
+        for fd in scc:
+            for td in dir_graph.get(fd, set()):
+                if td in scc_set:
+                    for ev in evidence.get((fd, td), []):
+                        key = (ev["from_file"], ev["to_dir"])
+                        if key not in seen:
+                            seen.add(key)
+                            cycle_evidence.append(ev)
+        cycles_out.append({"directories": scc, "evidence": cycle_evidence})
+
+    result = {
+        "nodes": nodes,
+        "edges": edges,
+        "cycles": cycles_out,
+        "stats": {
+            "nodeCount": len(nodes),
+            "edgeCount": len(edges),
+            "cycleCount": len(sccs),
+        },
+    }
+
+    # Persist
+    out_path = root / ".archie" / "dependency_graph.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=2) + "\n")
+
+    return result
+
+
 # ── Output ────────────────────────────────────────────────────────────────
 
 def detect_cycles(root: Path) -> dict:
@@ -359,24 +510,37 @@ def detect_cycles(root: Path) -> dict:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python3 detect_cycles.py /path/to/repo", file=sys.stderr)
+        print("Usage: python3 detect_cycles.py /path/to/repo [--full]", file=sys.stderr)
         sys.exit(1)
 
-    root = Path(sys.argv[1]).resolve()
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    flags = {a for a in sys.argv[1:] if a.startswith("-")}
+    full_mode = "--full" in flags
+
+    root = Path(args[0]).resolve() if args else Path(".").resolve()
     if not root.is_dir():
         print(f"Error: {root} is not a directory", file=sys.stderr)
         sys.exit(1)
 
-    result = detect_cycles(root)
-
-    print(
-        f"Import graph: {result['directory_edges']} directory edges, "
-        f"{result['cycle_count']} cycle(s) detected",
-        file=sys.stderr,
-    )
-
-    json.dump(result, sys.stdout, indent=2)
-    print()  # trailing newline
+    if full_mode:
+        result = build_full_graph(root)
+        stats = result.get("stats", {})
+        print(
+            f"Dependency graph: {stats.get('nodeCount', 0)} directories, "
+            f"{stats.get('edgeCount', 0)} edges, "
+            f"{stats.get('cycleCount', 0)} cycle(s) "
+            f"-> .archie/dependency_graph.json",
+            file=sys.stderr,
+        )
+    else:
+        result = detect_cycles(root)
+        print(
+            f"Import graph: {result['directory_edges']} directory edges, "
+            f"{result['cycle_count']} cycle(s) detected",
+            file=sys.stderr,
+        )
+        json.dump(result, sys.stdout, indent=2)
+        print()  # trailing newline
 
 
 if __name__ == "__main__":

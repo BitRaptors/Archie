@@ -1,289 +1,371 @@
-# Archie Scan — Architecture Health Check
+# Archie Scan — Architecture Health Check with Compound Learning
 
-Analyze this project's architectural health. Behave like a senior architect reviewing a codebase — read what matters, understand the structure, find real problems.
+Analyze this project's architectural health using parallel agents. Each scan evolves the blueprint — knowledge compounds over time.
 
 **Prerequisites:** If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie` first.
 
-## Step 1: Gather context (scripts — seconds)
+---
 
-Run the scanner to get the project map and health metrics:
+## Phase 1: Data Gathering (parallel scripts, seconds)
+
+Run all three scripts simultaneously:
 
 ```bash
 python3 .archie/scanner.py "$PWD"
+```
+```bash
 python3 .archie/measure_health.py "$PWD" > .archie/health.json 2>/dev/null
+```
+```bash
+python3 .archie/detect_cycles.py "$PWD" --full 2>/dev/null
+```
+```bash
 git log --oneline --since="7 days ago" --name-only 2>/dev/null | sort -u | head -50
 ```
 
-Now read:
-- `.archie/skeletons.json` — the full project map: every file's header, function/class signatures, line counts
+---
+
+## Phase 2: Read All Existing Knowledge
+
+Read the fresh scan data:
+- `.archie/skeletons.json` — every file's header, function/class signatures, line counts
 - `.archie/scan.json` — file tree, import graph, detected frameworks
-- `.archie/health.json` — erosion score, verbosity score, per-function complexity
+- `.archie/health.json` — erosion, gini, verbosity, complexity per function
+- `.archie/dependency_graph.json` — resolved directory-level dependency graph
 
-Also read if they exist (skip if not — that's normal):
-- `.archie/blueprint.json` — architectural decisions, component boundaries (from deep scan)
-- `.archie/scan_report.md` — previous scan report for trending
+Read accumulated knowledge (skip any that don't exist — that's normal for early scans):
+- `.archie/blueprint.json` — the evolving architectural knowledge base
+- `.archie/scan_report.md` — previous scan's report (for trending and resolved/new findings)
 - `.archie/health_history.json` — historical health scores
-- `.archie/rules.json` — project-specific rules already adopted
-- `.archie/ignored_rules.json` — rules user previously rejected
+- `.archie/rules.json` — adopted enforcement rules
+- `.archie/proposed_rules.json` — rules discovered but not yet adopted
+- `.archie/function_complexity.json` — previous complexity snapshot
 
-## Step 2: Analyze the architecture
+**This is the compound learning input.** The agents below receive everything Archie has ever learned about this codebase.
 
-You are a senior architect reviewing this codebase. You have the complete project map (skeletons) and health metrics. Now **understand the architecture and find real problems.**
+---
 
-**You can and should read any source file** when you need to understand something the skeletons don't tell you. The skeletons are your map — they show what exists and where. When you see something suspicious (high complexity, unexpected import, unusual pattern), read the actual file to understand it.
+## Phase 3: Parallel Analysis (3 agents)
 
-### 2a: Architecture overview
+Spawn 3 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`). Each agent receives all the data from Phase 2 and can read source files when needed.
 
-Write a 5-10 line summary. What is this project? How is it organized? What are the key patterns? What are the main data flows?
+**EFFICIENCY RULE:** Agents read skeletons.json which contains every file's path, class/function signatures, imports, and first lines. This is sufficient for pattern detection, outlier finding, and most analysis. Agents should ONLY use the Read tool on source files when the skeleton genuinely lacks the information needed to make a judgment.
 
-Read skeletons to understand file structure, imports, and signatures. If the architecture isn't clear from skeletons alone, read a few key files (entry points, main config, DI setup).
+**IMPORTANT:** Write each agent's output to a temp file so Phase 4 can read them all.
 
-### 2b: Health assessment
+### Agent A: Architecture & Dependencies
 
-From the health metrics, report each score with a **plain-language explanation** of what it means and whether it's good or bad:
-
-- **Erosion** (0 to 1): What fraction of the codebase's complexity is concentrated in a few god-functions. Each function's "weight" is its branching complexity × √lines-of-code. Functions with branching complexity > 10 are considered heavy. 0 = complexity evenly distributed (healthy). 1 = all complexity in a handful of functions (critical). Thresholds: <0.3 good, 0.3-0.5 moderate, >0.5 high — complexity is concentrating.
-- **Gini** (0 to 1): How unevenly complexity is distributed across ALL functions, regardless of threshold. 0 = every function equally complex (healthy). 1 = one function holds all the complexity. Think of it like wealth inequality — but for code complexity. Thresholds: <0.4 good, 0.4-0.6 moderate, >0.6 high — complexity is very unevenly distributed.
-- **Top-20% share** (0.2 to 1): What fraction of total complexity mass is held by the top 20% of functions. 0.20 = perfectly even. Thresholds: <0.5 good, 0.5-0.7 moderate, >0.7 high — a small elite of functions dominates.
-- **Verbosity** (0 to 1): What fraction of code is duplicated or redundant. 0 = no duplication. Thresholds: <0.05 good, 0.05-0.15 moderate, >0.15 high — significant copy-paste debt.
-- **Abstraction waste**: Count of single-method classes and tiny functions (≤2 lines, likely trivial wrappers). These aren't inherently bad but signal over-abstraction when counts are high.
-- **LOC**: Total lines of code. Track growth — monotonic LOC increase without corresponding feature growth is a degradation signal.
-- **Functions analyzed**: total count, and how many have branching complexity > 10 (complex) or > 15 (god-function territory). Branching complexity counts the number of independent paths through a function — every `if`, `for`, `while`, `case`, `catch`, `&&`, `||` adds a path.
-- **Top complex functions**: list them, read any that look suspicious.
-- **Trend**: compare against previous scan if health_history.json exists. Compare ALL metrics including LOC growth.
-
-Present health scores in this format:
 ```
-| Metric | Score | Meaning |
-|--------|-------|---------|
-| Erosion | 0.41 | Moderate — 41% of complexity mass in high-branching-complexity functions |
-| Gini | 0.65 | High — complexity very unevenly distributed across functions |
-| Top-20% share | 0.78 | High — top 20% of functions hold 78% of complexity |
-| Verbosity | 0.003 | Good — minimal code duplication (exact matches only) |
-| Abstraction waste | 5 + 12 | 5 single-method classes, 12 tiny functions |
-| LOC | 12,450 | +340 since last scan (+2.8%) |
-| Semantic duplication | — | Requires /archie-deep-scan |
+Prompt for Agent A:
 ```
 
-Note: Verbosity only detects exact line-for-line duplication. **Semantic duplication** — functions with different signatures but identical logic (e.g., `getText` vs `getTexts` with the same body) — requires AI analysis and is measured by `/archie-deep-scan`.
+You are analyzing the ARCHITECTURE and DEPENDENCIES of a codebase. You have access to all scan data and the existing blueprint (if any).
 
-### 2c: Architectural analysis
+**Your inputs:**
+- `.archie/dependency_graph.json` — resolved directory-level graph with nodes (degree, component, file count), edges (weight, cross-component, cycles)
+- `.archie/skeletons.json` — every file's structure
+- `.archie/blueprint.json` — existing architectural knowledge (if any)
+- `.archie/scan.json` — import graph, frameworks
 
-This is the core of the scan. Don't check regex patterns — **understand the architecture and find where it's breaking down.**
+**Your job:**
+1. **Component analysis:** Identify all logical components. If a blueprint exists, compare — are there new components? Removed ones? Changed responsibilities? If no blueprint, infer components from directory structure and import patterns.
 
-**Dependency direction:** Read the import graph from scan.json. Trace the dependency flow between modules/packages. Are there layers? Do dependencies flow in one direction? Find violations — a UI component importing from the data layer, a domain model depending on a framework, a feature module importing from another feature module.
+2. **Dependency direction:** Using the dependency graph, trace the dependency flow. Are there layers? Do dependencies flow in one direction? Flag cross-component edges as potential violations. Use the dependency graph and skeletons to judge violations. Only Read a source file if the skeleton doesn't show enough context to judge whether the import is a real violation or an acceptable exception (e.g., type-only import, test helper).
 
-**Component responsibilities:** Look at the skeletons. Are there god-classes with too many methods? Files that mix concerns (a ViewModel that does network calls)? Read the suspicious ones to confirm.
+3. **Dependency magnets:** Which directories have highest in-degree? These are stability bottlenecks. The dependency graph shows what they provide — only read if the role is ambiguous from the skeleton.
 
-**Pattern consistency:** Does the codebase follow its own patterns? If 15 ViewModels extend BaseViewModel but 2 don't, that's drift. If all repositories use constructor injection except one that uses a service locator, that's erosion. The skeletons tell you this — same base class, same structure, same naming — except the outliers.
+4. **Tight coupling:** Edges with high weight (many imports). The import graph and skeletons show why coupling exists — only read if intent is unclear from the skeleton.
 
-**Duplication / reimplementation:** Look for functions with the same or similar names in multiple files. AI agents do this constantly — they reimplement helpers instead of importing shared code. Check: are there `loadJson()`, `formatDate()`, `handleError()` style functions duplicated across files?
+5. **Circular dependencies:** For each cycle in the graph, explain what coupling it creates and why it matters. Read a cycle participant only if the skeleton doesn't explain the coupling.
 
-**Circular dependencies:** Trace the import graph for cycles. If module A imports from B and B imports from A, explain what coupling this creates and why it matters.
+6. **Architecture style:** Based on the dependency flow, component structure, and patterns you observe, what is the architecture style? How confident are you? If the blueprint already states one, do you agree based on current evidence?
 
-**Blueprint violations (if blueprint.json exists):** If a deep scan was run before, the blueprint contains architectural decisions with violation keywords, trade-offs with violation signals, and pitfalls with causal chains. Check if current code violates any of these. Read files to verify.
+**Output:** Write a structured JSON report to `/tmp/archie_agent_a_arch.json`:
+```json
+{
+  "components": [{"name": "...", "path": "...", "role": "...", "confidence": 0.9}],
+  "architecture_style": {"style": "...", "confidence": 0.85, "evidence": "..."},
+  "dependency_violations": [{"from": "...", "to": "...", "severity": "error|warn", "description": "...", "verified_in_file": "...", "confidence": 0.9}],
+  "dependency_magnets": [{"directory": "...", "in_degree": N, "risk": "..."}],
+  "cycles": [{"directories": [...], "impact": "...", "evidence_files": [...]}],
+  "tight_coupling": [{"from": "...", "to": "...", "weight": N, "reason": "..."}]
+}
+```
 
-**For every finding: read the actual file to confirm it's real.** Don't report anything you haven't verified in the source code.
+```
+Save output: /tmp/archie_agent_a_arch.json
+```
 
-### 2d: Propose rules
+### Agent B: Health & Complexity
 
-Based on what you found, propose **architectural rules** — not refactoring tasks.
+```
+Prompt for Agent B:
+```
 
-Good rules (architectural invariants with reasoning):
-- "Domain layer must not import from presentation layer" — *because the domain is the stable core; if it depends on UI, every UI change ripples through business logic*
-- "All ViewModels must use constructor injection" — *because the testability decision chain requires ViewModels to be unit-testable without framework setup*
-- "Feature modules must not import from each other" — *because independent deployment was a key trade-off; cross-feature imports create hidden coupling*
+You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to health metrics, complexity data, and historical trends.
 
-Bad rules (these are tasks, not rules):
-- "Extract dialog boilerplate into base class"
-- "Move shared types to a model package"
+**Your inputs:**
+- `.archie/health.json` — current erosion, gini, verbosity, waste, function-level complexity
+- `.archie/health_history.json` — historical health scores (for trend analysis)
+- `.archie/function_complexity.json` — previous complexity snapshot (for trajectory)
+- `.archie/skeletons.json` — file structure
+- `.archie/blueprint.json` — existing architectural knowledge (if any)
 
-Each rule should be something that can be **checked on every future code change** — not a one-time refactoring.
+**Your job:**
+1. **Health assessment:** Report each metric with plain-language explanation. Thresholds:
+   - Erosion: <0.3 good, 0.3-0.5 moderate, >0.5 high
+   - Gini: <0.4 good, 0.4-0.6 moderate, >0.6 high
+   - Top-20% share: <0.5 good, 0.5-0.7 moderate, >0.7 high
+   - Verbosity: <0.05 good, 0.05-0.15 moderate, >0.15 high
 
-**Rules are enforced by the AI reviewer** (runs on every plan approval and pre-commit). The reviewer reads each rule's `rationale` and evaluates whether changes violate the *intent* — this is the primary enforcement channel.
+2. **Trend analysis:** Compare against health_history.json. Are things improving or degrading? Which metrics moved most? Is LOC growth justified?
 
-**Optionally**, if a rule can also be expressed as a regex pattern, add mechanical fields (`forbidden_patterns`, `required_in_content`, etc.) so the pre-edit hook can catch obvious violations instantly. Most architectural rules won't have this — that's fine.
+3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified. Compare against previous function_complexity.json — which functions got MORE complex?
+
+4. **Abstraction waste:** Single-method classes, tiny functions (<=2 lines). Flag from skeletons. Only read if the skeleton is ambiguous about whether a single-method class is a legitimate abstraction.
+
+**Output:** Write to `/tmp/archie_agent_b_health.json`:
+```json
+{
+  "health_scores": {"erosion": 0.31, "gini": 0.58, "top20_share": 0.72, "verbosity": 0.003, "total_loc": 9400},
+  "trend": {"direction": "improving|degrading|stable", "details": "..."},
+  "complexity_hotspots": [{"function": "...", "file": "...", "cc": N, "assessment": "...", "recommendation": "..."}],
+  "complexity_trajectory": [{"function": "...", "file": "...", "previous_cc": N, "current_cc": N}],
+  "abstraction_waste": {"single_method_classes": N, "tiny_functions": N, "notable": ["..."]}
+}
+```
+
+```
+Save output: /tmp/archie_agent_b_health.json
+```
+
+### Agent C: Rules & Patterns
+
+```
+Prompt for Agent C:
+```
+
+You are analyzing PATTERNS and discovering RULES in a codebase. You look for architectural invariants — things that should always be true.
+
+**Your inputs:**
+- `.archie/skeletons.json` — every file's structure
+- `.archie/rules.json` — currently adopted rules
+- `.archie/proposed_rules.json` — previously proposed rules (adopted or pending)
+- `.archie/blueprint.json` — existing architectural knowledge (if any)
+- `.archie/scan.json` — file tree, imports, frameworks
+
+**Your job:**
+1. **Pattern consistency:** Identify patterns and outliers from skeletons alone — the class hierarchy, function names, file organization, and import patterns are all visible in skeletons. Only Read an outlier source file if you cannot determine from the skeleton whether it's intentional (e.g., a comment, a different base class for a reason).
+
+2. **Duplication / reimplementation:** Detect duplicate/similar function names from skeletons. AI agents do this constantly — they reimplement helpers instead of importing shared code. Only Read source files if the function signatures differ and you need to confirm whether they're true duplicates or just same-named but different.
+
+3. **Propose new rules:** Based on patterns found, propose architectural rules. No file reads needed — patterns come from skeletons. Do NOT re-propose rules already in rules.json or proposed_rules.json. Look for DEEPER rules — subtler invariants, behavioral constraints, scoped rules for specific components.
+
+4. **Validate existing rules:** Check from skeletons and scan data. Only Read a source file if you need to confirm a rule violation that isn't obvious from the skeleton. Check if any proposed rules have become more or less valid since they were proposed (adjust confidence).
 
 **Rule schema:**
+Required: `{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "error|warn", "confidence": 0.85}`
 
-Required fields:
-```json
-{"id": "scan-NNN", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning", "severity": "error|warn"}
-```
+Confidence calibration:
+- 0.9-1.0: Verified invariant — N files follow pattern with 0-1 exceptions, you read the files.
+- 0.7-0.9: Strong pattern with some exceptions, clear architectural intent.
+- 0.5-0.7: Inferred from structure, not verified in every case.
+- 0.3-0.5: Speculative, based on best practices not specific evidence.
+
+Be honest. A wrong rule with high confidence is worse than a right rule with low confidence.
 
 Optional mechanical fields (add ONLY when a meaningful regex exists):
-- `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
-- `"applies_to"`: directory prefix scope
-- `"file_pattern"`: glob matched against filename
-- `"forbidden_patterns"`: regex patterns that violate the rule
-- `"required_in_content"`: strings that must appear in matching files
+- `"check"`: `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
+- `"applies_to"`, `"file_pattern"`, `"forbidden_patterns"`, `"required_in_content"`
 
-Examples — most rules are rationale-only:
+**Output:** Write to `/tmp/archie_agent_c_rules.json`:
 ```json
-{"id": "scan-001", "description": "Feature modules must not import from each other", "rationale": "Independent deployment was a key trade-off. Cross-feature imports create hidden coupling that prevents releasing features independently.", "severity": "error"}
-```
-```json
-{"id": "scan-002", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. If it depends on UI, every UI refactor ripples through business logic.", "severity": "error", "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
-```
-
-The **`rationale`** field is REQUIRED. Write 1-3 sentences tracing the constraint back to an architectural decision, trade-off, or pitfall. If a blueprint exists, reference specific decisions. If not, explain the reasoning from what you observed in the codebase.
-
-Use `id` prefix `scan-` with a 3-digit number (e.g., `scan-001`). Start numbering after the highest existing `scan-` id in `.archie/rules.json`.
-
-Present proposed rules as a **numbered checklist**. Keep the full JSON objects internally (you'll need them for adoption), but show the user a clean summary with the reasoning visible:
-
-```
-## Proposed Rules
-
-**1.** Domain layer must not import from presentation layer — `error`
-*Why:* The domain is the stable core. If it depends on UI, every UI refactor ripples through business logic, breaking the layered architecture.
-Violated by: `domain/service.py`, `domain/model.py`
-
-**2.** All ViewModels must use constructor injection — `warn`
-*Why:* The testability decision chain requires ViewModels to be unit-testable without framework setup. Service locator breaks this.
-Violated by: `UserViewModel.kt`
-
-**3.** Feature modules must not import from each other — `error`
-*Why:* Independent deployment was a key trade-off. Cross-feature imports create hidden coupling that prevents releasing features independently.
-Violated by: `feed/ProfileHelper.kt`
-
-> **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
-> Adopted rules take effect immediately — the AI reviewer enforces them on every plan, code change, and commit.
+{
+  "pattern_findings": [{"pattern": "...", "followers": N, "outliers": ["..."], "severity": "warn|error", "confidence": 0.85}],
+  "duplications": [{"function": "...", "locations": ["..."], "recommendation": "..."}],
+  "proposed_rules": [{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "...", "confidence": 0.85}],
+  "existing_rule_violations": [{"rule_id": "...", "violated_by": "...", "details": "..."}],
+  "rule_confidence_updates": [{"rule_id": "...", "old_confidence": 0.7, "new_confidence": 0.85, "reason": "..."}]
+}
 ```
 
-Do NOT propose rules that appear in `.archie/ignored_rules.json`.
-Do NOT re-propose rules that already exist in `.archie/rules.json` — but DO propose **new, deeper** rules that the existing set doesn't cover. Read the existing rules first, then look for gaps:
-- Existing rules cover the obvious? Look for **subtler invariants** — specific patterns within components, implicit contracts between modules, assumptions that aren't enforced.
-- Existing rules are structural? Propose **behavioral** rules — how data should flow, what side-effects are forbidden, which patterns must be used for specific operations.
-- Existing rules target broad layers? Propose **scoped** rules — constraints on specific files, functions, or component interactions you found during analysis.
+```
+Save output: /tmp/archie_agent_c_rules.json
+```
 
-Every scan should find something new. If the codebase truly has no more rules to propose, say so — but only after genuinely digging deeper than the existing rules.
+**Wait for all 3 agents to complete before proceeding to Phase 4.**
 
-### 2e: Next task
+---
 
-What's the single highest-impact thing to fix right now? Be specific:
-- **What**: the action
-- **Where**: exact file paths
-- **Why**: what improves
-- **How**: 2-3 sentence approach
+## Phase 4: Synthesis + Blueprint Evolution
 
-### 2f: Re-baseline check
+Read the outputs from all three agents:
+- `/tmp/archie_agent_a_arch.json`
+- `/tmp/archie_agent_b_health.json`
+- `/tmp/archie_agent_c_rules.json`
 
-Recommend `/archie-deep-scan` if:
-- No blueprint.json exists (first time — recommend deep scan for full baseline)
-- Erosion score increased >0.10 since last deep scan
-- Significant structural changes visible in the skeletons
+Also re-read `.archie/blueprint.json` (the current state of accumulated knowledge).
 
-## Step 3: Write the report
+Now you are the **synthesis agent**. Your job is to merge the three agents' findings with the existing blueprint to produce an evolved blueprint. This is where compound learning happens.
 
-Get the current date for the filename:
+### 4a: Evolve the Blueprint
+
+Read the existing blueprint (or start with `{}` if none exists). Apply these evolution rules:
+
+**IMPORTANT: The blueprint must always use the canonical schema below. The viewer depends on these exact field names. Do NOT invent alternative field names.**
+
+**Components** (`blueprint.components`):
+Structure: `{"components": [{"name": "", "location": "", "responsibility": "", "depends_on": [], "confidence": 0.9}]}`
+- Map Agent A's output: `path` → `location`, `role` → `responsibility`
+- If Agent A found new components not in blueprint → add them
+- If Agent A found components that match existing ones → keep existing data, update confidence if Agent A's is higher
+- If a component in the blueprint no longer appears in Agent A's analysis → keep it but add `"status": "not_found_in_latest_scan"` (don't delete — it might be in an unscanned area)
+
+**Architecture style** (`blueprint.decisions.architectural_style`):
+Structure: `{"title": "Architectural Style", "chosen": "", "rationale": "", "confidence": 0.9, "alternatives_rejected": []}`
+- Map Agent A's output: `style` → `chosen`, `details`/`evidence` → `rationale`
+- If no blueprint → use Agent A's assessment
+- If blueprint exists and Agent A agrees → increase confidence (min of 1.0)
+- If blueprint exists and Agent A disagrees → keep blueprint's but add Agent A's assessment as `"alternative_assessment"` with reasoning. Don't overwrite the deep scan's analysis with a scan's inference.
+
+**Health** (`blueprint.meta.health`):
+- Always update with Agent B's latest scores
+- Add `"trend"` from Agent B's trend analysis
+- Add `"last_health_scan"` timestamp
+
+**Pitfalls** (`blueprint.pitfalls`):
+Structure: `[{"area": "", "description": "", "recommendation": "", "severity": "error|warn", "confidence": 0.9, "source": "scan-observed", "stems_from": [], "applies_to": [], "first_seen": "", "confirmed_in_scan": N}]`
+- Agent A's dependency violations → add as pitfalls. Map `title` → `area`.
+- Agent B's complexity hotspots → add as pitfalls
+- Agent C's pattern violations → add as pitfalls
+- Existing pitfalls from blueprint → keep. If a scan-observed pitfall matches an existing one, increase its confidence.
+- If a previously scan-observed pitfall is no longer found → mark `"status": "resolved"` with timestamp. Don't delete — the resolution is valuable knowledge.
+
+**Architecture rules** (`blueprint.architecture_rules`):
+- Agent C's proposed rules that have confidence >= 0.8 → add to `architecture_rules` with `"source": "scan-inferred"`
+- Existing rules from deep scan → keep as-is (higher authority)
+- Agent C's rule confidence updates → apply to matching rules
+
+**Development rules** (`blueprint.development_rules`):
+Structure: `[{"rule": "", "severity": "warn|error", "confidence": 0.9, "source": "scan-inferred"}]`
+- Map Agent C's output: `description` → `rule`
+- Agent C's pattern findings with confidence >= 0.7 → add as development rules
+
+**Meta** (`blueprint.meta`):
+- Update `"last_scan"` timestamp
+- Update `"scan_count"` (increment)
+- Update `"confidence"` per section — each scan that confirms a section's data increases its confidence slightly (up to 1.0)
+- Set `"schema_version": "2.0.0"`
+
+**CRITICAL EVOLUTION RULES:**
+- **Never decrease confidence** on data that came from a deep scan unless you have strong contrary evidence from reading source files.
+- **Never delete** sections or entries that came from a deep scan. Mark them as stale if needed, but don't delete.
+- **Always add** new findings. Accumulate, don't replace.
+- **Resolved findings stay** in the blueprint with `"status": "resolved"` — they're part of the project's architectural history.
+
+Write the evolved blueprint to `.archie/blueprint.json`.
+
+### 4b: Write Scan Report
+
+Get the current date:
 ```bash
 date -u +"%Y-%m-%d"
 ```
 
-Write to `.archie/scan_report_YYYY-MM-DD.md` (using the actual date). Also copy to `.archie/scan_report.md` as the "latest" pointer. This keeps all reports for comparison.
+Write to `.archie/scan_report_YYYY-MM-DD.md` and copy to `.archie/scan_report.md`.
 
+The report should include:
 ```markdown
 # Archie Scan Report
 > Scan #N | YYYY-MM-DD | X files analyzed | Y changed in last 7 days
 
 ## Architecture Overview
-[5-10 lines]
+[5-10 lines from Agent A's analysis]
 
 ## Health Scores
-| Metric | Current | Previous | Trend |
-|--------|---------|----------|-------|
-| Erosion | X.XX | X.XX | ⚠/✓ |
-| Gini | X.XX | X.XX | ⚠/✓ |
-| Top-20% share | X.XX | X.XX | ⚠/✓ |
-| Verbosity | X.XX | X.XX | ⚠/✓ |
-| LOC | N | N | +N (+N%) |
+| Metric | Current | Previous | Trend | What it means |
+|--------|---------|----------|-------|---------------|
+| Erosion | | | | Files breaking expected structure (naming, docs, tests). <0.3 good, >0.5 high |
+| Gini | | | | Code distribution inequality. High = a few god-files hold most code. <0.4 good, >0.6 high |
+| Top-20% | | | | Share of code in the largest 20% of files. <0.5 good, >0.7 high |
+| Verbosity | | | | Comment-to-code ratio. High = over-documented or commented-out code. <0.05 good, >0.15 high |
+| LOC | | | | Total lines of code. Tracks growth over time |
+[Fill in Current, Previous, Trend from Agent B]
 
-### Abstraction Waste
-| Type | Count |
-|------|-------|
-| Single-method classes | N |
-| Tiny functions (≤2 lines) | N |
-
-### Complex Functions
-| Function | File | Branching complexity |
-|----------|------|---------------------|
-[top 5]
+### Complexity Trajectory
+[functions that got more complex since last scan]
 
 ## Findings
-[Ranked by impact. Each finding: what's wrong, which file, evidence from the code, why it matters]
+[ALL findings from agents A, B, C — ranked by severity then confidence]
+[Each finding: what's wrong, which file, evidence from the code, why it matters]
+[Mark which findings are NEW vs. RECURRING vs. RESOLVED since last scan]
+
+## Blueprint Evolution
+[What changed in the blueprint this scan — new components, updated confidence, resolved pitfalls, new rules added]
 
 ## Proposed Rules
-[Checkboxes — architectural invariants only]
+[from Agent C — numbered checklist with rationale and confidence]
 
 ## Next Task
-**What:** [action]
-**Where:** [files]
-**Why:** [impact]
-**How:** [approach]
-
-## Trend
-[Last 5 scans if history exists]
+**What:** [highest-impact action from across all three agents]
+**Where:** [exact file paths]
+**Why:** [what improves]
+**How:** [2-3 sentence approach]
 
 ## Recommendations
-[Re-baseline recommendation or "No deep scan needed"]
+[Re-baseline with /archie-deep-scan if: no deep scan ever, erosion increased >0.10, major structural changes]
 ```
 
-Append health scores to `.archie/health_history.json`. If the file doesn't exist, create it as `[]` first. Read the array, append the new entry, write back:
+### 4c: Update Satellite Files
+
+Append health scores to `.archie/health_history.json`:
 ```json
 {"timestamp": "ISO-8601", "erosion": 0.00, "gini": 0.00, "top20_share": 0.00, "verbosity": 0.00, "total_loc": 0, "scan_number": N, "scan_type": "fast"}
 ```
-Scan number N = length of the array after appending (i.e., first scan = 1). If no previous scans exist, the "Previous" column in health tables should show "—" and trend should show "first scan".
 
-Save per-function complexity snapshot to `.archie/function_complexity.json` — overwrite each scan:
-```json
-{"timestamp": "ISO-8601", "functions": [{"path": "...", "name": "...", "cc": N, "line": N}, ...]}
+Save per-function complexity snapshot to `.archie/function_complexity.json`.
+
+Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 ```
-Include all functions with branching complexity > 5. If a previous `function_complexity.json` exists, compare: report functions whose branching complexity **increased** since the last scan. Present as:
+1. Read existing proposed_rules.json (create as {"rules": []} if missing)
+2. Append new proposed rules with "source": "scan-proposed" (keep AI-assigned confidence)
+3. Skip if a rule with the same id already exists
+4. Update confidence on existing proposed rules if Agent C recommended changes
+5. Write back
 ```
-### Complexity Trajectory
-| Function | File | Previous | Current | Change |
-|----------|------|----------|---------|--------|
-| parse_config | src/config.py | 8 | 14 | +6 |
-| handle_request | src/api.py | 12 | 19 | +7 |
-```
-If no previous snapshot exists, skip the trajectory section (first scan).
 
-## Step 4: Present and process adoptions
-
-Print the summary. Include:
-1. **Health scores** table (all metrics)
-2. **All findings** — list every finding with its file, what's wrong, and why it matters. Group by severity (errors first). This is the most valuable part of the scan — don't skip it or summarize it as a count.
-3. **Proposed rules** with the numbered checklist from section 2d
-4. **Next task**
-5. Path to full report
-
-The table already includes the adoption prompt:
-> **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
-
-**Wait for the user's response.** Then process it:
-
-Parse the user's reply:
-- Numbers (e.g., `1, 3`) → adopt those rules
-- `all` → adopt every proposed rule
-- `none` → ignore every proposed rule
-- Mixed (e.g., `1, 3, ignore rest`) → adopt the named numbers, ignore the rest
-
-For each **adopted** rule:
-1. Read `.archie/rules.json` (create as `{"rules": []}` if missing)
-2. Append the rule's full JSON object (with `id`, `check`, `description`, `severity`, and all type-specific fields like `forbidden_patterns`, `applies_to`, `file_pattern`, etc.)
-3. Add `"source": "scan-adopted"` to each appended rule
-4. Write back. This is the same schema the deep scan uses — `check_rules.py` must be able to enforce it.
-
-For each **ignored** rule:
-1. Read `.archie/ignored_rules.json` (create as `{"ignored": []}` if missing)
-2. Append each ignored rule's `id` and `description`
-3. Write back.
-
-Print confirmation: `Adopted N rules, ignored M. Rules take effect immediately — the AI reviewer will enforce them on every plan, code change, and commit.`
-
-## Cleanup
+### 4d: Clean up temp files
 
 ```bash
+rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
 rm -f .archie/health.json
 ```
+
+---
+
+## Phase 5: Present Results and Process Adoptions
+
+Print the summary to the user. Include:
+1. **Health scores** table (all metrics with trend) and a **metric legend** explaining each one:
+   - **Erosion** — How many files break expected structure (naming, docs, tests). <0.3 good, 0.3–0.5 moderate, >0.5 high
+   - **Gini** — Code distribution inequality. High = a few god-files hold most code. <0.4 good, 0.4–0.6 moderate, >0.6 high
+   - **Top-20%** — Share of code in the largest 20% of files. <0.5 good, 0.5–0.7 moderate, >0.7 high
+   - **Verbosity** — Comment-to-code ratio. High = over-documented or commented-out code. <0.05 good, 0.05–0.15 moderate, >0.15 high
+   - **LOC** — Total lines of code. Tracks growth over time
+2. **Blueprint evolution** — what changed in the blueprint this scan (new components, updated confidence, resolved pitfalls, new rules inferred)
+3. **All findings** from all agents — ranked by severity. Group as NEW / RECURRING / RESOLVED. This is the most valuable part — don't skip or summarize as counts.
+4. **Proposed rules** with numbered checklist from Agent C
+5. **Next task**
+6. Path to full report
+
+The rule adoption prompt:
+> **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
+> Adopted rules take effect immediately. Skipped rules remain in `/archie-viewer` → Rules tab.
+
+**Wait for the user's response.** Then process:
+
+- Numbers → adopt those rules into `.archie/rules.json` with `"source": "scan-adopted"` (keep AI confidence)
+- `all` → adopt every proposed rule
+- `none` → skip (rules stay in proposed_rules.json)
+
+Print confirmation: `Adopted N rules, skipped M (available in /archie-viewer → Rules tab). Scan #N complete — blueprint evolved.`

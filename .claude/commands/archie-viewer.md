@@ -2,7 +2,9 @@
 
 Open the blueprint viewer in your browser to inspect all generated artifacts.
 
-**Prerequisites:** Requires `.archie/blueprint.json`. Run `/archie-init` first.
+**Prerequisites:** Requires `.archie/viewer.py`. If it doesn't exist, tell the user to run `npx archie` first.
+
+The viewer works with whatever data exists — it does NOT require a deep scan. After just `/archie-scan`, it shows health scores, scan reports, rules, and the dependency graph. Tabs that need deep scan data (Blueprint, Files) show what's available and what needs `/archie-deep-scan`.
 
 ## Launch
 

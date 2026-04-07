@@ -91,6 +91,7 @@ for r in rules:
     check = r.get("check", "")
     desc = r.get("description", "")
     sev = r.get("severity", "warn")
+    conf = r.get("confidence", 1.0)
     bucket = errors if sev == "error" else warns
 
     if check == "forbidden_import":
@@ -99,7 +100,7 @@ for r in rules:
             for pat in r.get("forbidden_patterns", []):
                 try:
                     if re.search(pat, content):
-                        bucket.append(desc)
+                        bucket.append((desc, conf))
                         break
                 except re.error:
                     pass
@@ -109,7 +110,7 @@ for r in rules:
         if file_pat and fnmatch.fnmatch(filename, file_pat) and content:
             required = r.get("required_in_content", [])
             if required and not any(req in content for req in required):
-                bucket.append(desc)
+                bucket.append((desc, conf))
 
     elif check == "forbidden_content":
         applies_to = r.get("applies_to", "")
@@ -117,7 +118,7 @@ for r in rules:
             for pat in r.get("forbidden_patterns", []):
                 try:
                     if re.search(pat, content):
-                        bucket.append(desc)
+                        bucket.append((desc, conf))
                         break
                 except re.error:
                     pass
@@ -128,7 +129,7 @@ for r in rules:
             for pat in r.get("forbidden_patterns", []):
                 try:
                     if re.search(pat, content):
-                        bucket.append(desc)
+                        bucket.append((desc, conf))
                         break
                 except re.error:
                     pass
@@ -140,14 +141,16 @@ for r in rules:
             if file_pat:
                 try:
                     if not re.match(file_pat, filename):
-                        bucket.append(desc)
+                        bucket.append((desc, conf))
                 except re.error:
                     pass
 
-for w in warns[:5]:
-    print(f"[Archie] Warning: {w}")
-for e in errors:
-    print(f"[Archie] BLOCKED: {e}")
+for w, c in warns[:5]:
+    tag = f" (confidence {int(c * 100)}%)" if c < 1.0 else ""
+    print(f"[Archie] Warning{tag}: {w}")
+for e, c in errors:
+    tag = f" (confidence {int(c * 100)}%)" if c < 1.0 else ""
+    print(f"[Archie] BLOCKED{tag}: {e}")
 if errors:
     sys.exit(2)
 PYEOF
@@ -177,6 +180,42 @@ python3 "$PROJECT_ROOT/.archie/arch_review.py" diff "$PROJECT_ROOT"
 '''
 
 
+BLUEPRINT_NUDGE_HOOK = r'''#!/usr/bin/env bash
+# Archie blueprint nudge — reminds the AI about project architecture before searching.
+# Fires on Glob|Grep (PreToolUse) so the agent reads architecture context before
+# exploring the codebase. Inspired by Graphify's always-on hook pattern.
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+BLUEPRINT="$PROJECT_ROOT/.archie/blueprint.json"
+[ ! -f "$BLUEPRINT" ] && exit 0
+# Only nudge once per session — create a marker file
+MARKER="/tmp/.archie_nudge_$$"
+[ -f "$MARKER" ] && exit 0
+touch "$MARKER"
+python3 -c "
+import json, os
+bp_path = os.path.join('$PROJECT_ROOT', '.archie', 'blueprint.json')
+try:
+    with open(bp_path) as f:
+        bp = json.load(f)
+    comps = bp.get('components', {}).get('components', [])
+    names = [c.get('name', '') for c in comps[:5] if c.get('name')]
+    style = bp.get('decisions', {}).get('architectural_style', {})
+    ptype = style.get('style', '') if isinstance(style, dict) else str(style)
+    parts = []
+    if ptype:
+        parts.append(ptype)
+    if names:
+        parts.append('Components: ' + ', '.join(names))
+    if parts:
+        print('[Archie] ' + ' | '.join(parts))
+        print('[Archie] Read .archie/blueprint.json for architecture context before searching.')
+except Exception:
+    pass
+" 2>/dev/null
+exit 0
+'''
+
+
 def _add_hook(hooks_list: list, matcher: str, command: str):
     """Add a hook entry if not already present."""
     if not any(
@@ -199,6 +238,7 @@ def install(project_root: Path) -> None:
         ("pre-validate.sh", PRE_VALIDATE_HOOK),
         ("post-plan-review.sh", POST_PLAN_HOOK),
         ("pre-commit-review.sh", PRE_COMMIT_HOOK),
+        ("blueprint-nudge.sh", BLUEPRINT_NUDGE_HOOK),
     ]:
         path = hook_dir / name
         path.write_text(content)
@@ -221,6 +261,8 @@ def install(project_root: Path) -> None:
     _add_hook(pre_tool, "Write|Edit|MultiEdit", ".claude/hooks/pre-validate.sh")
     _add_hook(pre_tool, "Bash", ".claude/hooks/pre-commit-review.sh")
     _add_hook(post_tool, "ExitPlanMode", ".claude/hooks/post-plan-review.sh")
+
+    _add_hook(pre_tool, "Glob|Grep", ".claude/hooks/blueprint-nudge.sh")
 
     hooks["PreToolUse"] = pre_tool
     hooks["PostToolUse"] = post_tool
@@ -280,4 +322,5 @@ if __name__ == "__main__":
     root = Path(sys.argv[1]).resolve()
     install(root)
     print("Installed .claude/hooks/pre-validate.sh", file=sys.stderr)
+    print("Installed .claude/hooks/blueprint-nudge.sh", file=sys.stderr)
     print("Registered hooks in .claude/settings.local.json", file=sys.stderr)

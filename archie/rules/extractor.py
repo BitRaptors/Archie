@@ -40,6 +40,11 @@ def extract_rules(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
     """
     rules: list[dict[str, Any]] = []
 
+    # Read per-section confidence from blueprint meta (AI-assigned during deep scan)
+    meta_conf = blueprint.get("meta", {}).get("confidence", {})
+    arch_conf = meta_conf.get("architecture_rules", 1.0)
+    comp_conf = meta_conf.get("components", 1.0)
+
     arch_rules = blueprint.get("architecture_rules", {})
 
     # --- file_placement_rules ---
@@ -49,6 +54,8 @@ def extract_rules(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
             "id": f"placement-{idx}",
             "check": "file_placement",
             "severity": "warn",
+            "source": "blueprint",
+            "confidence": arch_conf,
             "allowed_dirs": fpr.get("allowed_dirs", fpr.get("directories", [])),
             "keywords": _keywords_from_text(description),
         }
@@ -65,6 +72,8 @@ def extract_rules(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
             "id": f"naming-{idx}",
             "check": "naming",
             "severity": "warn",
+            "source": "blueprint",
+            "confidence": arch_conf,
             "pattern": pattern,
             "keywords": _keywords_from_text(description),
         }
@@ -86,6 +95,8 @@ def extract_rules(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
             "id": f"layer-{layer_idx}",
             "check": "file_placement",
             "severity": "warn",
+            "source": "blueprint",
+            "confidence": comp_conf,
             "allowed_dirs": [path],
             "keywords": _keywords_from_text(description),
         }
