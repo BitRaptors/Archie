@@ -153,6 +153,9 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/ignored-rules":
             self._send_json(_load_json(archie_dir / "ignored_rules.json"))
 
+        elif path == "/api/proposed-rules":
+            self._send_json(_load_json(archie_dir / "proposed_rules.json"))
+
         elif path == "/api/dependency-graph":
             self._send_json(_load_json(archie_dir / "dependency_graph.json"))
 
@@ -312,7 +315,7 @@ tailwind.config = {
 // ---------------------------------------------------------------------------
 let health = {}, healthHistory = [], scanReports = [], blueprint = {},
     rules = {}, ignoredRules = {}, generatedFiles = {}, folderMds = {},
-    functionComplexity = {}, drift = {}, depGraph = {};
+    functionComplexity = {}, drift = {}, depGraph = {}, proposedRules = {};
 
 // ---------------------------------------------------------------------------
 // Tab switching
@@ -352,7 +355,7 @@ async function fetchJSON(url) {
 }
 
 async function loadData() {
-  const [h, hh, sr, bp, r, ir, gf, fm, fc, dr, dg] = await Promise.all([
+  const [h, hh, sr, bp, r, ir, gf, fm, fc, dr, dg, pr] = await Promise.all([
     fetchJSON('/api/health'),
     fetchJSON('/api/health-history'),
     fetchJSON('/api/scan-reports'),
@@ -364,6 +367,7 @@ async function loadData() {
     fetchJSON('/api/function-complexity'),
     fetchJSON('/api/drift'),
     fetchJSON('/api/dependency-graph'),
+    fetchJSON('/api/proposed-rules'),
   ]);
   health = h || {};
   healthHistory = hh || [];
@@ -376,6 +380,7 @@ async function loadData() {
   functionComplexity = fc || {};
   drift = dr || {};
   depGraph = dg || {};
+  proposedRules = pr || {};
 
   // Set repo name
   const repoNameEl = document.getElementById('repoName');
@@ -1053,9 +1058,14 @@ function renderRules() {
   const container = document.getElementById('tab-rules');
   const ruleList = rules.rules || [];
   const ignored = (ignoredRules && ignoredRules.ignored) || [];
+  const proposed = (proposedRules && proposedRules.rules) || [];
 
-  if (ruleList.length === 0 && ignored.length === 0) {
-    container.innerHTML = '<p class="text-ink/40 text-sm">No rules adopted yet. Run <code class="text-teal">/archie-scan</code> or <code class="text-teal">/archie-deep-scan</code> to discover and adopt rules.</p>';
+  // Filter proposed rules to only show ones not already adopted
+  const adoptedIds = new Set(ruleList.map(r => r.id));
+  const pendingProposed = proposed.filter(r => !adoptedIds.has(r.id));
+
+  if (ruleList.length === 0 && ignored.length === 0 && pendingProposed.length === 0) {
+    container.innerHTML = '<p class="text-ink/40 text-sm">No rules found. Run <code class="text-teal">/archie-scan</code> to discover architectural rules.</p>';
     return;
   }
 
@@ -1170,6 +1180,56 @@ function renderRules() {
   });
   html += '</div>';
 
+  // Proposed rules section (not yet adopted)
+  if (pendingProposed.length > 0) {
+    html += '<div class="mt-8">';
+    html += '<div class="text-ink/40 text-[11px] font-black uppercase tracking-[0.15em] mb-3">';
+    html += '&#9670; Proposed Rules (' + pendingProposed.length + ') &#8212; <span class="font-normal normal-case tracking-normal">discovered by /archie-scan, not yet adopted</span>';
+    html += '</div>';
+    html += '<div class="space-y-3">';
+    pendingProposed.forEach((rule, idx) => {
+      const sev = rule.severity || 'warn';
+      const desc = rule.description || '';
+      const rationale = rule.rationale || '';
+      const rid = rule.id || 'proposed-' + idx;
+      const scope = rule.applies_to || rule.file_pattern || '';
+      const conf = rule.confidence;
+
+      html += '<div class="rounded-xl border-2 border-dashed border-papaya-400/40 bg-papaya-50/50 p-4 flex items-start gap-4">';
+
+      // Left: severity badge
+      html += '<div class="flex flex-col items-center gap-2 pt-1">';
+      html += '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded border ' + (sev === 'error' ? 'border-brandy/30 text-brandy' : 'border-tangerine/30 text-tangerine') + '">' + sev + '</span>';
+      html += '</div>';
+
+      // Center: content
+      html += '<div class="flex-1 min-w-0">';
+      html += '<div class="text-[10px] font-bold text-ink/30 uppercase tracking-wider">' + esc(rid) + '</div>';
+      html += '<div class="font-bold text-ink/70 text-sm mt-1">' + esc(desc) + '</div>';
+      if (rationale) {
+        html += '<div class="text-xs text-ink/50 mt-1 leading-relaxed italic">' + esc(rationale) + '</div>';
+      }
+      if (scope) {
+        html += '<span class="text-[10px] font-mono text-teal/70 bg-teal/5 px-2 py-0.5 rounded mt-2 inline-block">' + esc(scope) + '</span>';
+      }
+      html += '</div>';
+
+      // Right: adopt button + confidence
+      html += '<div class="flex flex-col items-end gap-2">';
+      html += '<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-tangerine/10 text-tangerine">proposed</span>';
+      if (conf !== undefined && conf < 1.0) {
+        const pct = Math.round(conf * 100);
+        html += '<span class="text-[10px] font-bold text-ink/30 px-2 py-0.5">' + pct + '% conf</span>';
+      }
+      html += '<button onclick="adoptProposedRule(' + idx + ')" class="px-3 py-1 rounded-lg bg-teal text-white text-[10px] font-bold hover:bg-teal/90 transition-colors">Adopt</button>';
+      html += '</div>';
+
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+  }
+
   // Ignored rules section
   if (ignored.length > 0) {
     html += '<div class="mt-8">';
@@ -1283,6 +1343,19 @@ function unignoreRule(index) {
   if (!restored) return;
   if (!rules.rules) rules.rules = [];
   rules.rules.push({ id: restored.id, description: restored.description || '', severity: 'warn', source: 'restored', enabled: true });
+  saveRules();
+  renderRules();
+}
+
+function adoptProposedRule(index) {
+  const proposed = (proposedRules && proposedRules.rules) || [];
+  const adoptedIds = new Set((rules.rules || []).map(r => r.id));
+  const pending = proposed.filter(r => !adoptedIds.has(r.id));
+  const rule = pending[index];
+  if (!rule) return;
+  if (!rules.rules) rules.rules = [];
+  const adopted = Object.assign({}, rule, { source: 'scan-adopted', enabled: true });
+  rules.rules.push(adopted);
   saveRules();
   renderRules();
 }

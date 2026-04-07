@@ -267,13 +267,22 @@ Print the summary. Include:
 The table already includes the adoption prompt:
 > **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
 
+**Before waiting for user response:** Save ALL proposed rules to `.archie/proposed_rules.json` so the viewer can display them. This file stores every rule the scan has ever proposed, regardless of adoption status.
+
+```
+1. Read `.archie/proposed_rules.json` (create as `{"rules": []}` if missing)
+2. For each proposed rule, add `"source": "scan-proposed", "confidence": 0.7`
+3. Append all proposed rules (skip if a rule with the same `id` already exists)
+4. Write back
+```
+
 **Wait for the user's response.** Then process it:
 
 Parse the user's reply:
 - Numbers (e.g., `1, 3`) → adopt those rules
 - `all` → adopt every proposed rule
-- `none` → ignore every proposed rule
-- Mixed (e.g., `1, 3, ignore rest`) → adopt the named numbers, ignore the rest
+- `none` → skip adoption (rules remain in proposed_rules.json for later review in the viewer)
+- Mixed (e.g., `1, 3, ignore rest`) → adopt the named numbers, skip the rest
 
 For each **adopted** rule:
 1. Read `.archie/rules.json` (create as `{"rules": []}` if missing)
@@ -281,12 +290,10 @@ For each **adopted** rule:
 3. Add `"source": "scan-adopted", "confidence": 0.7` to each appended rule
 4. Write back. This is the same schema the deep scan uses — `check_rules.py` must be able to enforce it.
 
-For each **ignored** rule:
-1. Read `.archie/ignored_rules.json` (create as `{"ignored": []}` if missing)
-2. Append each ignored rule's `id` and `description`
-3. Write back.
+For each **not adopted** rule:
+- No action needed — the rule is already in `proposed_rules.json` and can be adopted later via the viewer (`/archie-viewer` → Rules tab).
 
-Print confirmation: `Adopted N rules, ignored M. Rules take effect immediately — the AI reviewer will enforce them on every plan, code change, and commit.`
+Print confirmation: `Adopted N rules, skipped M (available in /archie-viewer → Rules tab). Rules take effect immediately — the AI reviewer will enforce them on every plan, code change, and commit.`
 
 ## Cleanup
 
