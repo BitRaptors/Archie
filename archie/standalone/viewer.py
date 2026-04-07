@@ -1634,8 +1634,13 @@ function renderDependencies() {
       barnesHut: { gravitationalConstant: -3000, springLength: 150, springConstant: 0.02, damping: 0.3 },
       stabilization: { iterations: 150, fit: true }
     },
-    interaction: { hover: true, tooltipDelay: 200 },
+    interaction: { hover: true, tooltipDelay: 200, hideEdgesOnDrag: true },
     layout: { improvedLayout: true }
+  });
+
+  // Freeze layout after stabilization so dragging nodes stays put
+  _depNetwork.once('stabilizationIterationsDone', function() {
+    _depNetwork.setOptions({ physics: { enabled: false } });
   });
 
   // Click handler — show node details in sidebar

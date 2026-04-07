@@ -155,17 +155,17 @@ def test_standalone_install_creates_blueprint_nudge(tmp_path):
 
 
 # -------------------------------------------------------------------
-# 12. standalone install registers UserPromptSubmit hook
+# 12. standalone install registers blueprint-nudge on PreToolUse Glob|Grep
 # -------------------------------------------------------------------
-def test_standalone_install_registers_user_prompt_submit(tmp_path):
+def test_standalone_install_registers_blueprint_nudge(tmp_path):
     standalone_install(tmp_path)
 
     settings_path = tmp_path / ".claude" / "settings.local.json"
     settings = json.loads(settings_path.read_text())
 
-    assert "UserPromptSubmit" in settings["hooks"]
-    user_prompt_hooks = settings["hooks"]["UserPromptSubmit"]
+    pre_tool = settings["hooks"]["PreToolUse"]
     assert any(
-        any(h.get("command") == ".claude/hooks/blueprint-nudge.sh" for h in entry.get("hooks", []))
-        for entry in user_prompt_hooks
+        entry.get("matcher") == "Glob|Grep"
+        and any(h.get("command") == ".claude/hooks/blueprint-nudge.sh" for h in entry.get("hooks", []))
+        for entry in pre_tool
     )
