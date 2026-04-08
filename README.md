@@ -169,6 +169,12 @@ docs/                Architecture documentation
 .claude/skills/      Developer assistance skills
 ```
 
+## Kudos for Inspiration
+
+- **[Cartographer](https://github.com/kingbootoshi/cartographer)** by [@kingbootoshi](https://github.com/kingbootoshi)
+- **[Graphify](https://github.com/safishamsi/graphify)** by [@safishamsi](https://github.com/safishamsi)
+- **[SlopCodeBench](https://arxiv.org/abs/2603.24755)**
+
 ## License
 
 MIT
