@@ -21,9 +21,12 @@ Comprehensive technical documentation covering system architecture, analysis pip
 13. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
 14. [CLI Reference](#cli-reference)
 15. [Data Flow](#data-flow)
-16. [Error Handling and Resilience](#error-handling-and-resilience)
-17. [Testing](#testing)
-18. [File Sync Protocol](#file-sync-protocol)
+16. [Compound Learning](#compound-learning)
+17. [Drift Detection](#drift-detection)
+18. [Cycle Detection](#cycle-detection)
+19. [Error Handling and Resilience](#error-handling-and-resilience)
+20. [Testing](#testing)
+21. [File Sync Protocol](#file-sync-protocol)
 
 ---
 
@@ -43,8 +46,8 @@ The core workflow:
 
 Archie has two user-facing modes:
 
-- **`/archie-scan`** — Architecture health check (1-3 min). Runs deterministic scanner for data gathering, then AI acts as a senior architect: analyzes dependencies, finds pattern drift, identifies complexity hotspots, proposes enforceable rules. Single AI session, no subagent spawning.
-- **`/archie-deep-scan`** — Comprehensive baseline (15-20 min). Full 2-wave multi-agent analysis (3-4 Sonnet agents + Opus reasoning). Produces complete blueprint and all outputs.
+- **`/archie-scan`** — Architecture health check (1-3 min). Runs deterministic scanner for data gathering, then AI acts as a senior architect: analyzes dependencies, finds pattern drift, identifies complexity hotspots, proposes enforceable rules. Each scan builds on prior knowledge — blueprint confidence grows with repeated confirmation. Single AI session, no subagent spawning.
+- **`/archie-deep-scan`** — Comprehensive baseline (15-20 min). Full 2-wave multi-agent analysis (3-4 Sonnet agents + Opus reasoning). Produces complete blueprint and all outputs. Supports `--incremental` (changed files only, 3-6 min), `--continue` (resume interrupted run), and `--from N` (resume from step N). Auto-detects monorepos and offers parallel sub-project analysis.
 
 ---
 
@@ -325,7 +328,7 @@ The `archie init` CLI command runs Wave 1 only (Sonnet subagents). It generates 
 
 ### pip-installed hooks (`hooks/generator.py`)
 
-Two hook scripts are generated and installed in `.claude/hooks/`:
+Two hook scripts are generated and installed in `.claude/hooks/` (for the pip-installed path):
 
 **`inject-context.sh`** (UserPromptSubmit)
 - Reads session JSON from stdin, extracts user prompt
@@ -346,7 +349,7 @@ Also installs a **git post-commit hook** that runs `archie refresh` in backgroun
 
 ### Standalone hooks (`standalone/install_hooks.py`)
 
-The standalone installer (run by `npx @bitraptors/archie`) generates more comprehensive hooks:
+The standalone installer (run by `npx @bitraptors/archie`) generates four hooks:
 
 **`pre-validate.sh`** (PreToolUse, matcher: `Write|Edit|MultiEdit`)
 - Checks `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, and `file_naming` rules
@@ -359,6 +362,11 @@ The standalone installer (run by `npx @bitraptors/archie`) generates more compre
 
 **`post-plan-review.sh`** (PostToolUse, matcher: `ExitPlanMode`)
 - Triggers an architectural review of the plan via `arch_review.py`
+
+**`blueprint-nudge.sh`** (PreToolUse, matcher: `Glob|Grep`)
+- Always-on architectural reminder (inspired by Graphify's pattern)
+- Fires before code exploration to remind the agent about project architecture
+- Prints architecture style, component names, and suggests reading the blueprint
 
 Hooks are registered in `.claude/settings.local.json`:
 
@@ -373,6 +381,10 @@ Hooks are registered in `.claude/settings.local.json`:
       {
         "matcher": "Bash",
         "hooks": [{"type": "command", "command": ".claude/hooks/pre-commit-review.sh"}]
+      },
+      {
+        "matcher": "Glob|Grep",
+        "hooks": [{"type": "command", "command": ".claude/hooks/blueprint-nudge.sh"}]
       }
     ],
     "PostToolUse": [
@@ -437,7 +449,12 @@ AI-proposed rules include a `rationale` field explaining the architectural reaso
 
 ### Platform rules (`platform_rules.json`)
 
-Pre-built architectural checks installed with every project via `npx @bitraptors/archie`. These cover common anti-patterns across languages and frameworks.
+Pre-built architectural checks (40+ rules) installed with every project via `npx @bitraptors/archie`. Coverage includes:
+- **Universal** — God-functions, growing complexity, monster files, empty catches, disabled tests, TODO/HACK markers, hardcoded secrets, debug breakpoints
+- **Android** — Layer violations (ViewModel/Context, Fragment/network), lifecycle (GlobalScope.launch), DI anti-patterns (service locator)
+- **Swift** — Force unwraps, force try, view-layer network access
+- **TypeScript** — Components fetching data, `any` type, React DOM manipulation, array index keys
+- **Python** — Bare except, eval/exec, mutable defaults, star imports, TYPE_CHECKING guards
 
 ### Severity management
 
@@ -507,14 +524,13 @@ The `archie/standalone/` directory contains self-contained Python scripts (8500+
 
 `npx @bitraptors/archie /path/to/project` performs:
 
-1. Create `.claude/commands/` and `.archie/` directories in the target project
-2. Copy 3 slash commands (archie-scan.md, archie-deep-scan.md, archie-viewer.md)
-3. Copy 16 standalone Python scripts to `.archie/`
-4. Copy `platform_rules.json` (predefined architectural checks)
-5. Remove obsolete files from previous installs (e.g., `rules.py`, `enrich.py`, old slash commands)
-6. Update `.gitignore` with specific entries: `.archie/scan.json`, `.archie/skeletons.json`, `.archie/stats.jsonl`, `.archie/scan_report.md`, `.archie/scan_history/`, `.archie/health_history.json`, `.archie/ignored_rules.json`, `.archie/observations.json`, `.archie/drift_history/`, `.archie/enrichments/`, `.archie/enrich_state.json`, `.archie/enrich_batches.json`
-7. Run `python3 install_hooks.py` to set up hooks and permissions in `.claude/settings.local.json`
-8. Print installation summary
+1. Clean previous install — removes old `.py` scripts from `.archie/`, old slash commands from `.claude/commands/`, old hooks from `.claude/hooks/`, and hook config from `.claude/settings.local.json`
+2. Create `.claude/commands/` and `.archie/` directories in the target project
+3. Copy 3 slash commands (archie-scan.md, archie-deep-scan.md, archie-viewer.md)
+4. Copy 16 standalone Python scripts to `.archie/`
+5. Copy `platform_rules.json` (predefined architectural checks)
+6. Run `python3 install_hooks.py` to set up 4 hooks, permissions, and `.gitignore` entries in `.claude/settings.local.json`
+7. Print installation summary
 
 ### Assets (`npm-package/assets/`)
 
@@ -530,7 +546,7 @@ Exact copies of canonical files. See [File Sync Protocol](#file-sync-protocol) f
 |---------|------|---------|
 | `/archie-scan` | `archie-scan.md` | Architecture health check: deterministic data gathering (scanner, health metrics), then AI analyzes architecture like a senior architect — finds dependency violations, pattern drift, complexity hotspots, proposes rules with rationale. Single AI session, no subagent spawning. |
 | `/archie-deep-scan` | `archie-deep-scan.md` | Comprehensive baseline: full 2-wave multi-agent analysis. Wave 1: 3-4 parallel Sonnet agents gather facts. Wave 2: Opus reasoning produces decision chains, trade-offs, pitfalls. Supports `--incremental` and `--from N` for resume. |
-| `/archie-viewer` | `archie-viewer.md` | Interactive blueprint inspection via `viewer.py`. Search components, view rules, inspect relationships. |
+| `/archie-viewer` | `archie-viewer.md` | Interactive blueprint inspection via `viewer.py`. Six tabs: Dashboard (health scores), Scan Reports (history), Blueprint (architecture data), Rules (adopted + proposed), Files (per-file analysis), Dependencies (graph visualization). |
 
 ### Skills (`.claude/skills/`)
 
@@ -766,6 +782,67 @@ Step 4: Present findings, process rule adoptions
     |-- Append adopted rules to .archie/rules.json
     |-- Record ignored rules in .archie/ignored_rules.json
 ```
+
+---
+
+## Compound Learning
+
+Each `/archie-scan` reads all accumulated knowledge before analyzing:
+
+- `.archie/blueprint.json` — Evolving architectural knowledge base
+- `.archie/health_history.json` — Timestamped health snapshots for trend detection
+- `.archie/rules.json` — Previously adopted rules (scan won't override deep-baseline rules)
+- `.archie/proposed_rules.json` — Pending rules with AI confidence scores (0-1)
+- `.archie/function_complexity.json` — Previous complexity snapshot for comparison
+
+After analysis, findings are merged back:
+- Blueprint confidence increases with repeated confirmation across scans
+- Resolved pitfalls are marked with timestamps but preserved as architectural history
+- Health scores are appended to history for trend analysis (improving/degrading/stable)
+- All data items track provenance: `deep-baseline`, `scan-observed`, `scan-adopted`, `scan-inferred`
+
+The blueprint evolves incrementally rather than being rebuilt from scratch.
+
+---
+
+## Drift Detection
+
+Deep scans include two-phase drift detection:
+
+### Phase 1: Mechanical drift (`standalone/drift.py`)
+
+Deterministic analysis that detects:
+- Pattern outliers (files that don't match established patterns)
+- File size and complexity violations
+- Dependency direction breaches
+- Structural anomalies
+
+### Phase 2: Deep AI drift
+
+An agent reads the blueprint, mechanical drift report, and generated CLAUDE.md files to identify architectural drift categories:
+
+| Category | What it detects |
+|----------|----------------|
+| `decision_violation` | Code that contradicts a recorded architectural decision |
+| `pattern_erosion` | Gradual drift away from established patterns |
+| `trade_off_undermined` | Changes that undermine accepted trade-offs |
+| `pitfall_triggered` | Known pitfalls that have materialized in code |
+| `responsibility_leak` | Logic placed in the wrong component/layer |
+| `abstraction_bypass` | Direct access that skips established abstractions |
+| `semantic_duplication` | Reimplementation of existing functionality |
+
+Violations are grounded with specific `violation_signals` from the blueprint's trade-off and decision chain data.
+
+---
+
+## Cycle Detection
+
+Every scan runs Tarjan's strongly connected components algorithm (`standalone/detect_cycles.py`) on the import graph. Output includes:
+- Each cycle with the participating files
+- File-level evidence showing which import creates each cycle
+- Results stored in `.archie/dependency_graph.json`
+
+Both `/archie-scan` and `/archie-deep-scan` run cycle detection.
 
 ---
 
