@@ -31,6 +31,212 @@ Run `/archie-deep-scan` once to establish a baseline. Then use `/archie-scan` fo
 
 There is also `/archie-viewer` for interactive blueprint inspection (6 tabs: Dashboard, Scan Reports, Blueprint, Rules, Files, Dependencies).
 
+### `/archie-scan` in action
+
+![archie-scan demo](docs/assets/archie-scan-demo.gif)
+
+<details>
+<summary>Example scan output</summary>
+
+```
+Archie Scan #2 Complete
+
+Health Scores
+
+┌───────────┬─────────┬──────────┬────────┬──────────┐
+│  Metric   │ Current │ Previous │ Trend  │  Status  │
+├───────────┼─────────┼──────────┼────────┼──────────┤
+│ Erosion   │ 0.87    │ 0.87     │ Stable │ CRITICAL │
+├───────────┼─────────┼──────────┼────────┼──────────┤
+│ Gini      │ 0.8852  │ 0.8852   │ Stable │ HIGH     │
+├───────────┼─────────┼──────────┼────────┼──────────┤
+│ Top-20%   │ 0.9216  │ 0.9216   │ Stable │ HIGH     │
+├───────────┼─────────┼──────────┼────────┼──────────┤
+│ Verbosity │ 0.0103  │ 0.0103   │ Stable │ GOOD     │
+├───────────┼─────────┼──────────┼────────┼──────────┤
+│ LOC       │ 122,290 │ 122,290  │ Stable │ -        │
+└───────────┴─────────┴──────────┴────────┴──────────┘
+
+Blueprint Evolution
+
+- Components: 25 -> 27 (+Context Types, +Debug Component)
+- Pitfalls: 12 -> 18 (6 new from deeper analysis)
+- Architecture rules: 0 -> 2 (async tools, ApiClient singleton)
+- Development rules: 8 -> 14 (6 new pattern-based rules)
+- 8 rule confidences updated based on verified evidence
+
+All Findings (20 total)
+
+RECURRING - Error (8):
+1. Renderer Mega-Cycle — 11-dir cycle, entire renderer layer entangled (0.92)
+2. API/Models Circular Dependency — models import ApiClient (0.95)
+3. ProjectScreen God Component — CC=365, 1420 SLOC (0.95)
+4. Compatibility Hooks Debt — ~2000 SLOC, 8 dirs depend on it (0.92)
+5. Bare except: Clauses — 15 instances in 8 files (0.99)
+6. Inline Pydantic Models — 27 in projects_router, 8 duplicates (0.95)
+7. Hardcoded Supabase Credentials — JWT in AuthContext.tsx (0.99)
+8. Electron Process Boundary — main imports renderer context (0.85)
+
+NEW - Error (1):
+9. ApiClient Singleton Violation — new ApiClient() in EnvironmentMcpTab.tsx (0.93)
+
+RECURRING - Warning (5):
+10. Backend Utils-Tools coupling (weight=24) (0.80)
+11. Inconsistent imports — 40 absolute from src. across 14 files (0.97)
+12. Duplicated JSON/HTML extraction (0.85)
+13. Repeated step_logger guards (0.88)
+14. Tool naming — TOOL_ID only in 10/22 files (0.85)
+
+NEW - Warning (5):
+15. Memory Services — 8 identical methods in 2 services, no base class (0.95)
+16. Duplicated utilities — 7 functions duplicated across files (0.90)
+17. settings_loader.py — 7+ high-CC functions, 2000+ lines (0.90)
+18. graph.py — 8 high-CC LangGraph step functions (0.87)
+19. Test stubs — 4 tests with no assertions (0.88)
+
+Proposed Rules
+
+┌─────┬───────────────────────────────────────────────────────────────┬──────────┬────────────┐
+│  #  │                             Rule                              │ Severity │ Confidence │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 1   │ scan-013: Tool entry functions must be async                  │ error    │ 0.99       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 2   │ scan-014: Tool files must init logger                         │ warn     │ 0.97       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 3   │ scan-015: Feature components use PascalCase                   │ warn     │ 0.82       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 4   │ scan-016: ApiClient accessed only via getInstance()           │ error    │ 0.93       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 5   │ scan-017: LangGraph steps named <verb>_<noun>_step            │ warn     │ 0.87       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 6   │ scan-018: FastAPI dependency factories follow get_<service>() │ warn     │ 0.90       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 7   │ scan-019: Memory services must share a base class             │ warn     │ 0.95       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 8   │ scan-020: Date utilities centralized in dateUtils.ts only     │ warn     │ 0.90       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 9   │ scan-021: TOOL_ID constant must be named exactly TOOL_ID      │ warn     │ 0.83       │
+├─────┼───────────────────────────────────────────────────────────────┼──────────┼────────────┤
+│ 10  │ scan-022: No inline Pydantic models in routers                │ error    │ 0.91       │
+└─────┴───────────────────────────────────────────────────────────────┴──────────┴────────────┘
+
+Next Task
+
+What: Refactor ProjectScreen god component (CC=365, 1420 SLOC)
+Where: frontend/src/renderer/screens/project.tsx
+Why: Highest complexity in the codebase, disproportionate impact on all red metrics
+
+Full report: .archie/scan_report_2026-04-08.md
+```
+
+</details>
+
+### `/archie-deep-scan` in action
+
+![archie-deep-scan demo](docs/assets/archie-deep-scan-demo.gif)
+
+<details>
+<summary>Example deep scan output</summary>
+
+```
+Archie Deep Scan — Complete Assessment
+
+Part 1: What Was Generated
+
+┌──────────────────────────────┬──────────┬─────────┐
+│           Artefact           │ Frontend │ Backend │
+├──────────────────────────────┼──────────┼─────────┤
+│ Blueprint sections           │ 13       │ 13      │
+├──────────────────────────────┼──────────┼─────────┤
+│ Components discovered        │ 11       │ 9       │
+├──────────────────────────────┼──────────┼─────────┤
+│ Enforcement rules            │ 32       │ 31      │
+├──────────────────────────────┼──────────┼─────────┤
+│ Per-folder CLAUDE.md files   │ 54       │ 442     │
+├──────────────────────────────┼──────────┼─────────┤
+│ Rule files in .claude/rules/ │ 6        │ 6       │
+├──────────────────────────────┼──────────┼─────────┤
+│ Total source files scanned   │ 228      │ 972     │
+├──────────────────────────────┼──────────┼─────────┤
+│ Dependencies mapped          │ 118      │ 358     │
+└──────────────────────────────┴──────────┴─────────┘
+
+Part 2: Architecture Summary
+
+Architecture style: Electron desktop application (frontend) + Python FastAPI
+backend with LangGraph-based multi-agent AI orchestration.
+
+Key components:
+- Electron Main Process — Window lifecycle, backend spawning, IPC, auto-updates
+- React Renderer — SPA with 7 nested Context providers, Shadcn UI, Tailwind CSS
+- API Layer — FastAPI routers for REST + WebSocket real-time communication
+- Agent System — Planner/Executor/Validator/Corrector pipeline via LangGraph
+- Tool Registry — 20+ pluggable async tools (browser, LLM, file I/O, MCP)
+- Persistence — Local filesystem with UUID-based project directories
+- WebSocket Service — Unified singleton connection with ~60fps message batching
+
+Part 3: Architecture Health Assessment
+
+┌─────────────────┬──────────────────────────────────────────┬──────────────────────────────────────────┐
+│    Dimension    │                 Frontend                  │                 Backend                  │
+├─────────────────┼──────────────────────────────────────────┼──────────────────────────────────────────┤
+│ Separation of   │ Weak — Layout does data fetching,        │ Adequate — Clear module boundaries but   │
+│ concerns        │ compat hooks own CRUD operations         │ graph nodes reach into persistence       │
+├─────────────────┼──────────────────────────────────────────┼──────────────────────────────────────────┤
+│ Dependency      │ Weak — Preload exposes raw ipcRenderer,  │ Weak — Utils imports from DI layer,      │
+│ direction       │ components bypass ApiClient singleton    │ tools import DI factories directly       │
+├─────────────────┼──────────────────────────────────────────┼──────────────────────────────────────────┤
+│ Pattern         │ Adequate — Most contexts follow          │ Adequate — Tool pattern consistent but   │
+│ consistency     │ useReducer, AuthContext uses useState    │ DI bypass in 3 tools                    │
+├─────────────────┼──────────────────────────────────────────┼──────────────────────────────────────────┤
+│ Testability     │ Adequate — Singleton provides seams but  │ Weak — Tools directly call DI factories │
+│                 │ raw IPC creates hard-to-mock paths       │ making them untestable in isolation      │
+└─────────────────┴──────────────────────────────────────────┴──────────────────────────────────────────┘
+
+Health metrics:
+
+┌────────────────────────────┬──────────────┬─────────────────┐
+│           Metric           │   Frontend   │     Backend     │
+├────────────────────────────┼──────────────┼─────────────────┤
+│ Erosion (complexity)       │ 0.95 (high)  │ 0.69 (moderate) │
+├────────────────────────────┼──────────────┼─────────────────┤
+│ Gini (code concentration)  │ 0.92         │ 0.76            │
+├────────────────────────────┼──────────────┼─────────────────┤
+│ Top 20% file share         │ 96.9%        │ 81.5%           │
+├────────────────────────────┼──────────────┼─────────────────┤
+│ Verbosity (exact clones)   │ 1.0%         │ 1.1%            │
+├────────────────────────────┼──────────────┼─────────────────┤
+│ Total LoC                  │ 76,903       │ 45,261          │
+├────────────────────────────┼──────────────┼─────────────────┤
+│ High cyclomatic complexity │ 74 functions │ 124 functions   │
+└────────────────────────────┴──────────────┴─────────────────┘
+
+Part 4: Architectural Drift
+
+Errors (must fix):
+- Raw ipcRenderer exposed in preload — bypasses security model
+- WebSocket stale closure — handlers read initial empty state forever
+- Duplicate startup_event handlers — session cleanup silently dropped
+- API key logged in plaintext on every startup
+- Circular import: settings_loader ↔ dependencies.py
+- Validator hardcodes LLM creation instead of injection
+
+Part 5: Top Risks & Recommendations
+
+1. IPC Security Hole — Raw ipcRenderer passthrough makes preload bridge meaningless
+2. API Key Exposure — Full OpenAI key logged to file on every cold start
+3. Stale WebSocket State — All real-time mapping uses stale data
+4. Circular Dependencies — Fragile dependency web across layers
+5. Duplicate Startup Handler — Session cleanup never runs
+
+Part 6: Semantic Duplication
+
+3 groups found: placeholder resolver duplicated in executor.py,
+dual WebSocketMappingService instances, sidebar state in two contexts.
+```
+
+</details>
+
 ### Deep Scan Advanced Modes
 
 | Flag | What it does |
