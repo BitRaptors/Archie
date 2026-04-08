@@ -19,14 +19,13 @@ Comprehensive technical documentation covering system architecture, analysis pip
 11. [NPM Package — Distribution](#npm-package--distribution)
 12. [Claude Code Integration](#claude-code-integration)
 13. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
-14. [CLI Reference](#cli-reference)
-15. [Data Flow](#data-flow)
-16. [Compound Learning](#compound-learning)
-17. [Drift Detection](#drift-detection)
-18. [Cycle Detection](#cycle-detection)
-19. [Error Handling and Resilience](#error-handling-and-resilience)
-20. [Testing](#testing)
-21. [File Sync Protocol](#file-sync-protocol)
+14. [Data Flow](#data-flow)
+15. [Compound Learning](#compound-learning)
+16. [Drift Detection](#drift-detection)
+17. [Cycle Detection](#cycle-detection)
+18. [Error Handling and Resilience](#error-handling-and-resilience)
+19. [Testing](#testing)
+20. [File Sync Protocol](#file-sync-protocol)
 
 ---
 
@@ -39,7 +38,7 @@ The core workflow:
 1. **Scan** — Deterministic local analysis of the repository (file tree, imports, frameworks, hashing, token counting). Pure Python, no AI.
 2. **Plan** — Group scanned files into token-budgeted subagent assignments using bin-packing.
 3. **Analyze** — Spawn Claude Code subagents (Sonnet) to gather architectural facts.
-4. **Reason** — A reasoning agent (Opus) reads all fact-gathering output and produces deep architectural analysis: decision chains, trade-offs, pitfalls. *(This step runs within `/archie-deep-scan`; the `archie init` CLI saves the coordinator prompt but does not execute it.)*
+4. **Reason** — A reasoning agent (Opus) reads all fact-gathering output and produces deep architectural analysis: decision chains, trade-offs, pitfalls.
 5. **Merge** — Combine partial blueprints from all subagents into a single `StructuredBlueprint`.
 6. **Render** — Deterministic JSON-to-Markdown generation of CLAUDE.md, AGENTS.md, per-folder context, rule files.
 7. **Enforce** — Install Claude Code hooks that validate every file write against extracted rules.
@@ -55,19 +54,15 @@ Archie has two user-facing modes:
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| Language | Python 3.11+ (pip package) / 3.9+ (standalone scripts) | Type hints, dataclasses, pathlib |
-| CLI | Click | Command routing, options, arguments |
-| Data models | Pydantic v2 | Schema validation for RawScan |
-| Token counting | tiktoken (cl100k_base) | Budget management for subagent assignments |
+| Language | Python 3.9+ (standalone scripts) | Type hints, dataclasses, pathlib |
 | AI agents | Claude Code CLI (`claude -p`) | Subagent execution via subprocess |
-| Viewer server | FastAPI + Uvicorn (optional) | Blueprint dashboard (requires `pip install archie-cli[serve]`) |
 | NPM installer | Node.js 18+ | `npx @bitraptors/archie` distribution |
 | Testing | pytest | 22 test files, 2700+ LOC |
 | Linting | Ruff | Python linting and formatting |
 
 ### Dependency philosophy
 
-Standalone scripts (copied to target projects via `npx @bitraptors/archie`) have **zero pip dependencies** — Python 3.9+ stdlib only. The `archie-cli` pip package adds three dependencies: `click` (CLI), `tiktoken` (token counting), `pydantic` (validation). The optional `serve` extra adds `fastapi` and `uvicorn`.
+Standalone scripts (copied to target projects via `npx @bitraptors/archie`) have **zero pip dependencies** — Python 3.9+ stdlib only.
 
 ---
 
@@ -318,38 +313,13 @@ Combines N partial blueprints into one:
 
 Post-merge enrichment fills `meta.platforms` from framework signals, generates `quick_reference.where_to_put_code` from file placement rules, and timestamps with `analyzed_at`.
 
-### Note on the 2-wave pipeline
-
-The `archie init` CLI command runs Wave 1 only (Sonnet subagents). It generates and saves the Wave 2 coordinator prompt to `.archie/coordinator_prompt.md` but does not execute it. The full 2-wave pipeline (Wave 1 + Wave 2 Opus reasoning) runs within the `/archie-deep-scan` slash command, which orchestrates the complete pipeline including the reasoning step.
-
 ---
 
 ## Hooks — Real-Time Enforcement
 
-### pip-installed hooks (`hooks/generator.py`)
+### Hooks (`standalone/install_hooks.py`)
 
-Two hook scripts are generated and installed in `.claude/hooks/` (for the pip-installed path):
-
-**`inject-context.sh`** (UserPromptSubmit)
-- Reads session JSON from stdin, extracts user prompt
-- Loads `.archie/rules.json`
-- Matches rules against prompt keywords (severity=error rules always included)
-- Prints matched rules to stdout (injected into Claude's context)
-- Fails open: exits 0 if rules file is missing
-
-**`pre-validate.sh`** (PreToolUse, matcher: `Write|Edit|MultiEdit`)
-- Reads tool call info from stdin JSON (tool_name, file_path)
-- Checks file against `file_placement` rules (allowed_dirs) and `naming` rules (pattern regex)
-- Logs violations to `.archie/stats.jsonl`
-- Exits 2 (blocking) for severity=error violations
-- Exits 0 (advisory) for severity=warn violations
-- Fails open: exits 0 if rules file is missing
-
-Also installs a **git post-commit hook** that runs `archie refresh` in background.
-
-### Standalone hooks (`standalone/install_hooks.py`)
-
-The standalone installer (run by `npx @bitraptors/archie`) generates four hooks:
+The installer (`npx @bitraptors/archie`) generates four hooks:
 
 **`pre-validate.sh`** (PreToolUse, matcher: `Write|Edit|MultiEdit`)
 - Checks `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, and `file_naming` rules
@@ -399,15 +369,6 @@ Hooks are registered in `.claude/settings.local.json`:
 
 The standalone installer also sets up **permissions** in `settings.local.json` — an `allow` list covering archie script execution, git commands, temp files, reading/writing `.archie/` data, per-folder CLAUDE.md, and subagent spawning.
 
-### Enforcement module (`hooks/enforcement.py`)
-
-Python API for rule validation (used by `archie check` and tests):
-
-```python
-def check_pre_validate(file_path: str, rules: list[dict]) -> dict:
-    """Returns {"pass": bool, "warnings": [...], "errors": [...]}"""
-```
-
 ---
 
 ## Rules — Extraction and Management
@@ -445,7 +406,7 @@ The scan AI proposes architectural rules with rationale, using additional check 
 | `architectural_constraint` | Blocks content patterns in files matching a glob |
 | `file_naming` | Enforces filename patterns in specific directories |
 
-AI-proposed rules include a `rationale` field explaining the architectural reasoning. Users adopt them interactively (by number) during the scan.
+AI-proposed rules include a `rationale` field explaining the architectural reasoning. Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by Claude Code during scans.
 
 ### Platform rules (`platform_rules.json`)
 
@@ -458,12 +419,7 @@ Pre-built architectural checks (40+ rules) installed with every project via `npx
 
 ### Severity management
 
-```bash
-archie promote <rule-id>   # warn -> error (blocks code changes)
-archie demote <rule-id>    # error -> warn (advisory only)
-```
-
-Rules are stored in `.archie/rules.json` as `{"rules": [...]}`.
+Rule severity can be changed from `/archie-viewer` (Rules tab) or by Claude Code during scans. Rules are stored in `.archie/rules.json` as `{"rules": [...]}`.
 
 ---
 
@@ -612,122 +568,11 @@ Note: The `/archie-deep-scan` Wave 2 (Opus reasoning) may add additional fields 
 
 ---
 
-## CLI Reference
-
-```
-archie init [PATH] [--local-only]
-    Analyze repo and generate blueprint + rules + hooks.
-    --local-only: skip AI subagents, save prompts for manual execution.
-    Pipeline order: scan -> plan -> generate prompts -> install hooks ->
-                    run subagents -> merge -> render -> extract rules.
-    If claude CLI is not found (and not --local-only), prints error and
-    saves empty rules. Does NOT fall back to local-only mode.
-
-archie refresh [PATH] [--deep]
-    Rescan and report changes since last scan.
-    --deep: generate targeted refresh prompt for changed files.
-
-archie status [--path PATH]
-    Show blueprint freshness, rule counts, health scores.
-
-archie rules [PATH]
-    List all architecture rules with severity.
-
-archie promote RULE_ID [PATH]
-    Promote rule from warn to error (blocks code changes).
-
-archie demote RULE_ID [PATH]
-    Demote rule from error to warn (advisory only).
-
-archie check [--files FILE...] [--path PATH]
-    Check files against rules. Exit 0 = pass, 1 = violations.
-    Default: checks files from git diff.
-
-archie serve [--port PORT] [--path PATH]
-    Start FastAPI viewer server (requires archie-cli[serve]).
-    Default port: 8000.
-```
-
----
-
 ## Data Flow
-
-### Full Pipeline (`archie init`)
-
-```
-archie init /path/to/repo
-    |
-    v
-1. engine/scan.py: run_scan()
-    |-- scanner.py: scan_directory()          -> file_tree
-    |-- dependencies.py: collect_dependencies() -> dependencies
-    |-- frameworks.py: detect_frameworks()      -> framework_signals
-    |-- hasher.py: hash_files()                 -> file_hashes
-    |-- hasher.py: count_tokens()               -> token_counts
-    |-- imports.py: build_import_graph()        -> import_graph
-    |-- detect entry points                     -> entry_points
-    |-- collect config patterns                 -> config_patterns
-    |-- build directory structure               -> directory_structure
-    v
-   RawScan (persisted to .archie/scan.json)
-    |
-    v
-2. coordinator/planner.py: plan_subagent_groups()
-    v
-   SubagentAssignment[] (token-budgeted groups)
-    |
-    v
-3. Generate and save prompts
-    |-- coordinator_prompt.md (for Wave 2, saved but not executed by CLI)
-    |-- subagent_N_prompt.md (one per group)
-    v
-4. hooks/generator.py: install_hooks() + install_git_hook()
-    |-- .claude/hooks/inject-context.sh
-    |-- .claude/hooks/pre-validate.sh
-    |-- .claude/settings.local.json
-    |-- .git/hooks/post-commit
-    v
-5. coordinator/runner.py: run_subagents()       FOR EACH group:
-    |-- build_subagent_prompt()                   build prompt with RawScan context
-    |-- subprocess: claude -p --model sonnet      spawn Claude CLI
-    |-- parse JSON envelope                       extract blueprint dict
-    v
-   list[dict] (partial blueprints)
-    |
-    v
-6. coordinator/merger.py: merge_subagent_outputs()
-    |-- deep merge dicts
-    |-- deduplicate lists
-    |-- enrich meta, quick_reference
-    v
-   StructuredBlueprint dict -> .archie/blueprint.json
-    |
-    v
-7. renderer: CLAUDE.md, AGENTS.md, .claude/rules/*.md, per-folder CLAUDE.md
-    |
-    v
-8. rules/extractor.py: extract_rules() -> .archie/rules.json
-```
 
 ### Hook Execution (during editing)
 
 ```
-User types prompt in Claude Code
-    |
-    v
-UserPromptSubmit hook fires (pip-installed path only)
-    |
-    v
-inject-context.sh
-    |-- Read session JSON from stdin
-    |-- Extract user prompt
-    |-- Load .archie/rules.json
-    |-- Match rules by keyword + include all severity=error rules
-    |-- Print matched rules (injected into context)
-    v
-Claude generates code with rule awareness
-    |
-    v
 Claude calls Write/Edit/MultiEdit
     |
     v
@@ -774,13 +619,11 @@ Step 3: Write outputs
     |-- .archie/health_history.json (append health scores)
     |-- .archie/function_complexity.json (complexity snapshot)
     v
-Step 4: Present findings, process rule adoptions
+Step 4: Present findings, save proposed rules
     |-- Show health scores table
     |-- List all findings with evidence
-    |-- Show proposed rules as numbered checklist
-    |-- Wait for user to adopt (1,3 / all / none)
-    |-- Append adopted rules to .archie/rules.json
-    |-- Record ignored rules in .archie/ignored_rules.json
+    |-- Save proposed rules to .archie/proposed_rules.json
+    |-- Rules can be adopted from /archie-viewer (Rules tab) or by Claude Code
 ```
 
 ---
@@ -850,16 +693,11 @@ Both `/archie-scan` and `/archie-deep-scan` run cycle detection.
 
 | Scenario | Behavior |
 |----------|----------|
-| `claude` CLI not found (not `--local-only`) | Prints error message, saves empty rules, and returns. Does NOT fall back to local-only mode. |
-| `claude` CLI not found (`--local-only`) | Skips subagents. Extracts rules from existing blueprint if available, otherwise saves empty rules. |
-| Subagent times out (>600s) | Skipped. Remaining subagents continue. |
-| Subagent returns invalid JSON | Skipped with warning. Three extraction strategies tried: direct parse, code block extraction, brace matching. |
-| Subagent returns non-zero exit | Skipped. Error logged. |
-| All subagents fail | Warning printed, empty rules saved. |
 | Rules file missing | Hooks exit 0 silently (fail open). |
-| Blueprint file missing | Status command reports "no blueprint found." |
-| Merge with empty inputs | Gracefully produces empty blueprint with timestamps. |
+| Blueprint file missing | Scan proceeds without prior knowledge — starts fresh. |
 | File I/O errors during scan | Individual files skipped with try/except. Scan continues. |
+| Deep scan agent fails | Skipped. Remaining agents continue. Three JSON extraction strategies tried: direct parse, code block extraction, brace matching. |
+| Deep scan interrupted | Use `--continue` to resume from where it stopped. |
 
 ---
 

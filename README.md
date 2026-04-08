@@ -117,7 +117,7 @@ Rules come from three sources:
 
 1. **Blueprint extraction** (`rules/extractor.py`) — Deterministically extracts `file_placement` and `naming` rules from the blueprint's `architecture_rules` and `components` sections.
 
-2. **AI-proposed rules** (`/archie-scan`) — The scan AI proposes architectural rules with deep rationale tracing back to decision chains and trade-offs. Each rule includes a confidence score (0-1). Users adopt them interactively during the scan. Source tracking distinguishes `deep-baseline`, `scan-adopted`, and `scan-inferred` rules.
+2. **AI-proposed rules** (`/archie-scan`) — The scan AI proposes architectural rules with deep rationale tracing back to decision chains and trade-offs. Each rule includes a confidence score (0-1). Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by Claude Code during scans. Source tracking distinguishes `deep-baseline`, `scan-adopted`, and `scan-inferred` rules.
 
 3. **Platform rules** (`platform_rules.json`) — 40+ predefined architectural checks installed with every project, covering:
    - **Universal** — God-functions, growing complexity, empty catches, disabled tests, hardcoded secrets
@@ -126,11 +126,7 @@ Rules come from three sources:
    - **TypeScript** — Components fetching data, `any` type, React DOM manipulation, array index keys
    - **Python** — Bare except, eval/exec, mutable defaults, star imports
 
-Each rule has a severity (`warn` for advisory, `error` for blocking) that you can change:
-```bash
-archie promote <rule-id>   # warn -> error
-archie demote <rule-id>    # error -> warn
-```
+Each rule has a severity (`warn` for advisory, `error` for blocking). Severity can be changed from `/archie-viewer` or by Claude Code during scans.
 
 ## Health Metrics
 
@@ -150,26 +146,8 @@ Each scan compares current scores against history to detect trends (improving, d
 ## Requirements
 
 - **Python 3.9+** for standalone scripts (installed via `npx @bitraptors/archie`, stdlib only)
-- **Python 3.11+** for the `archie-cli` pip package
 - **Node.js 18+** for `npx @bitraptors/archie` installer
 - **Claude Code** for `/archie-scan` and `/archie-deep-scan`
-
-## CLI (pip install)
-
-```bash
-pip install archie-cli
-```
-
-| Command | What it does |
-|---------|-------------|
-| `archie init [PATH]` | Full pipeline: scan, plan, prompts, hooks, run subagents, merge, render, extract rules |
-| `archie refresh [PATH]` | Rescan and report changes since last scan (`--deep` for targeted refresh prompt) |
-| `archie status [--path PATH]` | Blueprint freshness, rule counts, health scores |
-| `archie rules [PATH]` | List all architecture rules with severity |
-| `archie check [--files ...]` | Check files against rules (exit 0 = pass, 1 = violations; default: git diff) |
-| `archie promote <rule-id>` | Promote rule from warn to error (blocks code changes) |
-| `archie demote <rule-id>` | Demote rule from error to warn (advisory only) |
-| `archie serve [--port PORT]` | Start blueprint viewer server (requires `archie-cli[serve]`) |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentation.
 
