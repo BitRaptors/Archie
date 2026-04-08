@@ -260,7 +260,7 @@ Deep scan auto-detects sub-projects (via Gradle, package.json, pyproject.toml, e
 | `.archie/health_history.json` | Timestamped health snapshots for trend analysis |
 | `.archie/dependency_graph.json` | Resolved dependency graph with cycle detection |
 | `.archie/function_complexity.json` | Per-function cyclomatic complexity snapshot |
-| `.archie/scan_report.md` | Latest scan report (also dated copies in `scan_history/`) |
+| `.archie/scan_report.md` | Latest scan report (all reports preserved in `.archie/scan_history/`) |
 | `CLAUDE.md` | Root architecture context for Claude Code |
 | `AGENTS.md` | Multi-agent guidance with decision chains |
 | Per-folder `CLAUDE.md` | Directory-level context with patterns, anti-patterns, code examples |
