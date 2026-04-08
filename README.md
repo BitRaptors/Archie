@@ -36,7 +36,7 @@ There is also `/archie-viewer` for interactive blueprint inspection (6 tabs: Das
 ![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
 <details>
-<summary>Example scan output</summary>
+<summary>Example scan output (this is the actual agent summary — the underlying blueprint is much richer)</summary>
 
 ```
 Archie Scan #2 Complete
@@ -136,7 +136,7 @@ Full report: .archie/scan_report_2026-04-08.md
 ![archie-deep-scan demo](docs/assets/archie-deep-scan-demo.gif)
 
 <details>
-<summary>Example deep scan output</summary>
+<summary>Example deep scan output (this is the actual agent summary — the underlying blueprint is much richer)</summary>
 
 ```
 Archie Deep Scan — Complete Assessment
