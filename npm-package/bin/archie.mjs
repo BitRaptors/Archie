@@ -109,24 +109,7 @@ for (const dataFile of ["platform_rules.json"]) {
   }
 }
 
-// 4. Update .gitignore
-const gitignorePath = join(projectRoot, ".gitignore");
-try {
-  let content = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
-  let added = false;
-  for (const entry of [".archie/scan.json", ".archie/skeletons.json", ".archie/stats.jsonl", ".archie/scan_report.md", ".archie/scan_history/", ".archie/health_history.json", ".archie/ignored_rules.json", ".archie/observations.json", ".archie/drift_history/", ".archie/enrichments/", ".archie/enrich_state.json", ".archie/enrich_batches.json"]) {
-    if (!content.includes(entry)) {
-      content += `\n${entry}`;
-      added = true;
-    }
-  }
-  if (added) {
-    writeFileSync(gitignorePath, content.trimEnd() + "\n");
-    console.log(`  ${GREEN}✓${RESET} .gitignore updated`);
-  }
-} catch { /* not critical */ }
-
-// 5. Check Python and run install_hooks.py (sets up hooks + permissions)
+// 4. Check Python and run install_hooks.py (sets up hooks + permissions)
 let hasPython = false;
 try {
   execSync("python3 --version", { stdio: "ignore" });

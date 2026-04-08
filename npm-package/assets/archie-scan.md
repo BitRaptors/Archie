@@ -2,7 +2,7 @@
 
 Analyze this project's architectural health using parallel agents. Each scan evolves the blueprint — knowledge compounds over time.
 
-**Prerequisites:** If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie` first.
+**Prerequisites:** If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` first.
 
 ---
 

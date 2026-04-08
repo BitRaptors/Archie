@@ -58,13 +58,13 @@ Archie has two user-facing modes:
 | Token counting | tiktoken (cl100k_base) | Budget management for subagent assignments |
 | AI agents | Claude Code CLI (`claude -p`) | Subagent execution via subprocess |
 | Viewer server | FastAPI + Uvicorn (optional) | Blueprint dashboard (requires `pip install archie-cli[serve]`) |
-| NPM installer | Node.js 18+ | `npx archie` distribution |
+| NPM installer | Node.js 18+ | `npx @bitraptors/archie` distribution |
 | Testing | pytest | 22 test files, 2700+ LOC |
 | Linting | Ruff | Python linting and formatting |
 
 ### Dependency philosophy
 
-Standalone scripts (copied to target projects via `npx archie`) have **zero pip dependencies** — Python 3.9+ stdlib only. The `archie-cli` pip package adds three dependencies: `click` (CLI), `tiktoken` (token counting), `pydantic` (validation). The optional `serve` extra adds `fastapi` and `uvicorn`.
+Standalone scripts (copied to target projects via `npx @bitraptors/archie`) have **zero pip dependencies** — Python 3.9+ stdlib only. The `archie-cli` pip package adds three dependencies: `click` (CLI), `tiktoken` (token counting), `pydantic` (validation). The optional `serve` extra adds `fastapi` and `uvicorn`.
 
 ---
 
@@ -121,7 +121,7 @@ archie/
     _common.py                  # Shared utilities (JSON loading, error handling)
 
 npm-package/
-  bin/archie.mjs                # npx archie entry point
+  bin/archie.mjs                # npx @bitraptors/archie entry point
   assets/                       # Copies of standalone scripts + slash commands + platform_rules.json
   package.json
 
@@ -346,7 +346,7 @@ Also installs a **git post-commit hook** that runs `archie refresh` in backgroun
 
 ### Standalone hooks (`standalone/install_hooks.py`)
 
-The standalone installer (run by `npx archie`) generates more comprehensive hooks:
+The standalone installer (run by `npx @bitraptors/archie`) generates more comprehensive hooks:
 
 **`pre-validate.sh`** (PreToolUse, matcher: `Write|Edit|MultiEdit`)
 - Checks `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, and `file_naming` rules
@@ -437,7 +437,7 @@ AI-proposed rules include a `rationale` field explaining the architectural reaso
 
 ### Platform rules (`platform_rules.json`)
 
-Pre-built architectural checks installed with every project via `npx archie`. These cover common anti-patterns across languages and frameworks.
+Pre-built architectural checks installed with every project via `npx @bitraptors/archie`. These cover common anti-patterns across languages and frameworks.
 
 ### Severity management
 
@@ -478,7 +478,7 @@ python3 archie/standalone/renderer.py /path/to/project
 
 ## Standalone Scripts
 
-The `archie/standalone/` directory contains self-contained Python scripts (8500+ LOC total) that run without importing from the main archie package. These are exported to target projects via `npx archie`.
+The `archie/standalone/` directory contains self-contained Python scripts (8500+ LOC total) that run without importing from the main archie package. These are exported to target projects via `npx @bitraptors/archie`.
 
 | Script | LOC | Purpose |
 |--------|-----|---------|
@@ -505,7 +505,7 @@ The `archie/standalone/` directory contains self-contained Python scripts (8500+
 
 ### Installer (`npm-package/bin/archie.mjs`)
 
-`npx archie /path/to/project` performs:
+`npx @bitraptors/archie /path/to/project` performs:
 
 1. Create `.claude/commands/` and `.archie/` directories in the target project
 2. Copy 3 slash commands (archie-scan.md, archie-deep-scan.md, archie-viewer.md)

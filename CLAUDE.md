@@ -10,7 +10,7 @@ Archie — AI-powered architecture analysis and enforcement for coding agents. A
 
 - `archie/` — Python package (`archie-cli`): CLI commands, analysis engine, standalone scripts
 - `archie/standalone/` — Zero-dependency Python scripts (scanner, renderer, validator, intent layer, health, drift, hooks)
-- `npm-package/` — NPM distribution (`npx archie`): copies scripts + Claude Code commands to target projects
+- `npm-package/` — NPM distribution (`npx @bitraptors/archie`): copies scripts + Claude Code commands to target projects
 - `tests/` — Test suite (pytest)
 - `docs/` — Architecture documentation
 - `landing/` — Landing page
@@ -40,7 +40,7 @@ python3 archie/standalone/intent_layer.py next-ready /path/to/project
 ### NPM Package
 ```bash
 # Install Archie into a project (copies scripts + commands)
-npx archie /path/to/project
+npx @bitraptors/archie /path/to/project
 
 # Then in Claude Code on the target project:
 /archie-scan      # Architecture health check (1-3 min, run often)

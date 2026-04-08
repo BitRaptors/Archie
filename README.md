@@ -9,7 +9,7 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 ## Install
 
 ```bash
-npx archie /path/to/your/project
+npx @bitraptors/archie /path/to/your/project
 ```
 
 This copies Archie's standalone scripts and Claude Code commands into your project, installs enforcement hooks, and sets up permissions. Then open your project in Claude Code.
@@ -63,7 +63,7 @@ There is also `/archie-viewer` for interactive blueprint inspection.
 
 ### Real-Time Enforcement
 
-Once installed via `npx archie`, three hooks are registered:
+Once installed via `npx @bitraptors/archie`, three hooks are registered:
 
 - **PreToolUse (Write|Edit|MultiEdit)** — Before every file write, checks against `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, and `file_naming` rules. Violations are blocked (error) or warned (warn).
 - **PreToolUse (Bash)** — Before git commits, triggers an architectural review of the diff.
@@ -102,9 +102,9 @@ archie demote <rule-id>    # error -> warn
 
 ## Requirements
 
-- **Python 3.9+** for standalone scripts (installed via `npx archie`, stdlib only)
+- **Python 3.9+** for standalone scripts (installed via `npx @bitraptors/archie`, stdlib only)
 - **Python 3.11+** for the `archie-cli` pip package
-- **Node.js 18+** for `npx archie` installer
+- **Node.js 18+** for `npx @bitraptors/archie` installer
 - **Claude Code** for `/archie-scan` and `/archie-deep-scan`
 
 ## CLI (pip install)
@@ -128,7 +128,7 @@ archie/              Python package (CLI, engine, coordinator, hooks, renderer)
   renderer/          Output generation (CLAUDE.md, per-folder context)
   rules/             Rule extraction and management
   standalone/        Zero-dependency scripts (copied to target projects via npm)
-npm-package/         NPM distribution (npx archie)
+npm-package/         NPM distribution (npx @bitraptors/archie)
 tests/               Pytest suite (22 files, 2700+ LOC)
 docs/                Architecture documentation
 .claude/commands/    Slash commands (archie-scan, archie-deep-scan, archie-viewer)

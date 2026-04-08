@@ -8,7 +8,7 @@ Run a comprehensive architecture analysis. Produces full blueprint, per-folder C
 - `/archie-deep-scan --from N` — resume from step N (runs N through 9)
 - `/archie-deep-scan --continue` — resume from where the last run stopped
 
-**Prerequisites:** Run `npx archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx archie` and try again.
+**Prerequisites:** Run `npx @bitraptors/archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` and try again.
 
 **IMPORTANT: Do NOT write inline Python scripts or bash one-liners. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown.**
 
