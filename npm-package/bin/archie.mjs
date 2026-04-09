@@ -41,10 +41,24 @@ function parseArgs(argv) {
   return { projectRoot: resolve(positional[0] || "."), target };
 }
 
+function resolveTarget(target) {
+  if (target !== "auto") return target;
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  const hasClaude = home && existsSync(join(home, ".claude"));
+  const hasCodex = home && existsSync(join(home, ".codex"));
+  if (hasClaude && hasCodex) return "both";
+  if (hasCodex) return "codex";
+  if (hasClaude) return "claude";
+  console.log(`  ${DIM}⚠ no Claude or Codex CLI detected; defaulting to --target=claude${RESET}`);
+  return "claude";
+}
+
 const { projectRoot, target } = parseArgs(process.argv);
+const resolvedTarget = resolveTarget(target);
 
 console.log("");
 console.log(`${BOLD}${CYAN}  Archie${RESET} — architecture enforcement for AI coding agents`);
+console.log(`  ${DIM}target: ${resolvedTarget}${RESET}`);
 console.log("");
 
 // 1. Create directories

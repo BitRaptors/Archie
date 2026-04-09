@@ -38,3 +38,46 @@ def test_installer_rejects_unknown_target(tmp_path: Path) -> None:
     result = _run_installer(tmp_path, target="blah")
     assert result.returncode != 0
     assert "target" in (result.stderr + result.stdout).lower()
+
+
+def _fake_home(tmp_path: Path, *, has_claude: bool, has_codex: bool) -> dict:
+    """Return an env dict with HOME pointing at a fake home with optional .claude / .codex dirs."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    if has_claude:
+        (fake_home / ".claude").mkdir()
+    if has_codex:
+        (fake_home / ".codex").mkdir()
+    env = os.environ.copy()
+    env["HOME"] = str(fake_home)
+    return env
+
+
+def test_installer_auto_detects_codex_only(tmp_path: Path) -> None:
+    """With only ~/.codex, --target=auto should resolve to codex."""
+    project = tmp_path / "project"
+    project.mkdir()
+    env = _fake_home(tmp_path, has_claude=False, has_codex=True)
+    result = _run_installer(project, target="auto", env=env)
+    assert result.returncode == 0, f"installer failed: {result.stderr}"
+    assert "codex" in (result.stdout + result.stderr).lower()
+
+
+def test_installer_auto_detects_claude_only(tmp_path: Path) -> None:
+    """With only ~/.claude, --target=auto should resolve to claude."""
+    project = tmp_path / "project"
+    project.mkdir()
+    env = _fake_home(tmp_path, has_claude=True, has_codex=False)
+    result = _run_installer(project, target="auto", env=env)
+    assert result.returncode == 0
+    # Existing Claude assets should land
+    assert (project / ".claude" / "commands" / "archie-scan.md").exists()
+
+
+def test_installer_auto_detects_both(tmp_path: Path) -> None:
+    """With both ~/.claude and ~/.codex, --target=auto should install both."""
+    project = tmp_path / "project"
+    project.mkdir()
+    env = _fake_home(tmp_path, has_claude=True, has_codex=True)
+    result = _run_installer(project, target="auto", env=env)
+    assert result.returncode == 0
