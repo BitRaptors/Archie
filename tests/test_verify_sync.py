@@ -65,6 +65,18 @@ def test_verify_sync_detects_prompt_content_drift(tmp_path: Path) -> None:
     assert "OUT OF SYNC" in result.stdout or "scan_analyzer" in result.stdout
 
 
+def test_codex_scan_skill_exists_and_resolves() -> None:
+    """The Codex archie-scan SKILL.md must exist and reference only valid prompts."""
+    skill = REPO_ROOT / "npm-package" / "assets" / "codex" / "skills" / "archie-scan" / "SKILL.md"
+    assert skill.exists(), f"Missing Codex skill: {skill}"
+
+    content = skill.read_text()
+    assert content.startswith("---"), "SKILL.md must have YAML frontmatter"
+    assert "name: archie-scan" in content
+    assert "description:" in content
+    assert ".archie/prompts/scan_analyzer.md" in content, "SKILL.md must reference the scan analyzer prompt"
+
+
 def test_verify_sync_detects_unresolved_prompt_reference(tmp_path: Path) -> None:
     """If a connector references a prompt file that doesn't exist, verify_sync must fail."""
     shutil.copytree(
