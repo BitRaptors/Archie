@@ -10,15 +10,22 @@ incremental scan — for the comprehensive baseline, use `archie-deep-scan` inst
 
 ## Steps
 
-1. **Run the deterministic scanner.** This populates `.archie/scan.json` with the
-   file tree, framework detection, and basic metrics. No AI involved.
+1. **Run the deterministic data-gathering scripts.** These populate `.archie/`
+   with everything the analysis step needs. No AI involved. Run all three:
 
    ```bash
    python3 .archie/scanner.py "$PWD"
+   python3 .archie/measure_health.py "$PWD" > .archie/health.json 2>/dev/null
+   python3 .archie/detect_cycles.py "$PWD" --full 2>/dev/null
    ```
 
-   If the command fails or `.archie/scanner.py` doesn't exist, stop and tell the
-   user to run `npx @bitraptors/archie .` first.
+   `scanner.py` writes both `.archie/scan.json` and `.archie/skeletons.json`.
+   `measure_health.py` writes its JSON output to stdout — the redirect captures
+   it into `.archie/health.json`. `detect_cycles.py` writes
+   `.archie/dependency_graph.json` directly.
+
+   If any of these commands fails or the scripts don't exist in `.archie/`, stop
+   and tell the user to run `npx @bitraptors/archie .` first.
 
 2. **Read the scan analyzer prompt and follow it.** Your full instructions for the
    analysis step live in a shared prompt file:
@@ -28,9 +35,24 @@ incremental scan — for the comprehensive baseline, use `archie-deep-scan` inst
    ```
 
    Read that file in full, then perform the analysis it describes. Your inputs are:
-   - `.archie/scan.json` (always exists after step 1)
-   - `.archie/blueprint.json` (only if a prior deep-scan has run)
-   - `.archie/dependency_graph.json` (only if scanner produced one)
+
+   Always present after step 1 (required):
+   - `.archie/scan.json` — file tree, import graph, frameworks
+   - `.archie/skeletons.json` — every file's header, imports, class/function
+     signatures (this is the primary reading surface — prefer it over reading
+     full source files)
+   - `.archie/health.json` — erosion, gini, verbosity, per-function complexity
+   - `.archie/dependency_graph.json` — directory-level graph with cycles, degrees,
+     cross-component edges
+
+   Accumulated state from prior runs (optional — may be missing on early scans):
+   - `.archie/blueprint.json` — accumulated architectural baseline (from a prior
+     `archie-deep-scan`)
+   - `.archie/scan_report.md` — last scan report
+   - `.archie/health_history.json` — health trend over time
+   - `.archie/function_complexity.json` — per-function complexity history
+   - `.archie/rules.json` — adopted rules
+   - `.archie/proposed_rules.json` — rules from prior scans not yet adopted
 
    Produce the JSON output described in the prompt and save it to
    `.archie/scan_analysis.json`.
