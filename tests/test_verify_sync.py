@@ -63,3 +63,31 @@ def test_verify_sync_detects_prompt_content_drift(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "OUT OF SYNC" in result.stdout or "scan_analyzer" in result.stdout
+
+
+def test_verify_sync_detects_unresolved_prompt_reference(tmp_path: Path) -> None:
+    """If a connector references a prompt file that doesn't exist, verify_sync must fail."""
+    shutil.copytree(
+        REPO_ROOT,
+        tmp_path / "repo",
+        ignore=shutil.ignore_patterns("__pycache__", ".git", "node_modules", ".venv", "venv"),
+    )
+    repo_copy = tmp_path / "repo"
+
+    # Inject a bad reference into a SKILL.md
+    skill_md = repo_copy / "npm-package" / "assets" / "codex" / "skills" / "archie-scan" / "SKILL.md"
+    skill_md.parent.mkdir(parents=True, exist_ok=True)
+    if skill_md.exists():
+        # Append a bad reference to the existing file
+        skill_md.write_text(skill_md.read_text() + "\nReference: .archie/prompts/nonexistent.md\n")
+    else:
+        # SKILL.md doesn't exist yet (Task 7's job). Simulate one with frontmatter and a bad reference.
+        skill_md.write_text("---\nname: archie-scan\n---\nReference: .archie/prompts/nonexistent.md\n")
+
+    result = subprocess.run(
+        [sys.executable, str(repo_copy / "scripts" / "verify_sync.py")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "nonexistent.md" in result.stdout, f"Should report unresolved reference: {result.stdout}"
