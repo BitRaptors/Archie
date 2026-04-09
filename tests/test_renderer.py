@@ -37,3 +37,26 @@ def test_render_outputs_returns_file_map(tmp_path: Path) -> None:
     # Should have at least one rule file path
     claude_rule_paths = [k for k in result if k.startswith(".claude/rules/")]
     assert len(claude_rule_paths) > 0, "No .claude/rules/ entries in file map"
+
+
+def test_render_outputs_codex_target_omits_claude_md(tmp_path: Path) -> None:
+    """render_outputs with target='codex' should NOT write CLAUDE.md."""
+    render_outputs(MINIMAL_BLUEPRINT, tmp_path, target="codex")
+    claude_md = tmp_path / "CLAUDE.md"
+    agents_md = tmp_path / "AGENTS.md"
+    assert not claude_md.exists(), "CLAUDE.md should not be created with target=codex"
+    assert agents_md.exists(), "AGENTS.md should still be created with target=codex"
+
+
+def test_render_outputs_claude_target_writes_both(tmp_path: Path) -> None:
+    """render_outputs with target='claude' (default) should write both CLAUDE.md and AGENTS.md."""
+    render_outputs(MINIMAL_BLUEPRINT, tmp_path)  # default target
+    assert (tmp_path / "CLAUDE.md").exists()
+    assert (tmp_path / "AGENTS.md").exists()
+
+
+def test_render_outputs_both_target_writes_both(tmp_path: Path) -> None:
+    """render_outputs with target='both' should write both files."""
+    render_outputs(MINIMAL_BLUEPRINT, tmp_path, target="both")
+    assert (tmp_path / "CLAUDE.md").exists()
+    assert (tmp_path / "AGENTS.md").exists()

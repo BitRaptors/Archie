@@ -887,8 +887,14 @@ def generate_agents_md(bp: dict) -> str:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
-def generate_all(bp: dict) -> dict:
+def generate_all(bp: dict, target: str = "claude") -> dict:
     """Generate all output files from a blueprint dict.
+
+    Args:
+        bp: The parsed blueprint.
+        target: 'claude' (default), 'codex', or 'both'.
+                'claude' and 'both' write CLAUDE.md + AGENTS.md.
+                'codex' writes only AGENTS.md.
 
     Returns {path: content} for every output file.
     """
@@ -908,10 +914,10 @@ def generate_all(bp: dict) -> dict:
         if result is not None:
             rule_files.append(result)
 
-    files = {
-        "CLAUDE.md": generate_claude_md(bp),
-        "AGENTS.md": generate_agents_md(bp),
-    }
+    files: dict = {}
+    if target in ("claude", "both"):
+        files["CLAUDE.md"] = generate_claude_md(bp)
+    files["AGENTS.md"] = generate_agents_md(bp)
 
     for rf in rule_files:
         topic = rf["topic"]
