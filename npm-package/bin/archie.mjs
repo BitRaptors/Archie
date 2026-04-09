@@ -151,6 +151,29 @@ function installClaude(projectRoot) {
   }
 }
 
+function installCodex(projectRoot) {
+  const codexSkillsDir = join(projectRoot, ".agents", "skills");
+  mkdirSync(codexSkillsDir, { recursive: true });
+
+  const CODEX_SKILLS_SRC = join(ASSETS, "codex", "skills");
+  if (!existsSync(CODEX_SKILLS_SRC)) {
+    console.log(`  ${DIM}⚠ no codex skills found in package assets${RESET}`);
+    return;
+  }
+
+  for (const skillName of readdirSync(CODEX_SKILLS_SRC)) {
+    const srcDir = join(CODEX_SKILLS_SRC, skillName);
+    const srcSkill = join(srcDir, "SKILL.md");
+    if (!existsSync(srcSkill)) continue;
+
+    const destDir = join(codexSkillsDir, skillName);
+    mkdirSync(destDir, { recursive: true });
+    const destSkill = join(destDir, "SKILL.md");
+    writeFileSync(destSkill, readFileSync(srcSkill, "utf8"));
+    console.log(`  ${GREEN}✓${RESET} .agents/skills/${skillName}/SKILL.md`);
+  }
+}
+
 const { projectRoot, target } = parseArgs(process.argv);
 const resolvedTarget = resolveTarget(target);
 
@@ -163,7 +186,9 @@ installSharedAssets(projectRoot);
 if (resolvedTarget === "claude" || resolvedTarget === "both") {
   installClaude(projectRoot);
 }
-// installCodex is added in Task 11
+if (resolvedTarget === "codex" || resolvedTarget === "both") {
+  installCodex(projectRoot);
+}
 
 const archieDir = join(projectRoot, ".archie");
 
@@ -191,9 +216,15 @@ console.log("");
 console.log(`${BOLD}  Installed!${RESET}`);
 console.log("");
 console.log(`  Next steps:`);
-console.log(`  1. Open this project in ${BOLD}Claude Code${RESET}`);
-console.log(`  2. Run ${BOLD}/archie-scan${RESET} for a fast architecture health check (1-3 min)`);
-console.log(`  3. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
+if (resolvedTarget === "codex" || resolvedTarget === "both") {
+  console.log(`  • Open this project in ${BOLD}Codex CLI${RESET}`);
+  console.log(`  • Run ${BOLD}$archie-scan${RESET} for an architecture health check`);
+}
+if (resolvedTarget === "claude" || resolvedTarget === "both") {
+  console.log(`  • Open this project in ${BOLD}Claude Code${RESET}`);
+  console.log(`  • Run ${BOLD}/archie-scan${RESET} for a fast architecture health check (1-3 min)`);
+  console.log(`  • Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
+}
 console.log("");
 
 console.log(`  ${DIM}What gets generated:${RESET}`);

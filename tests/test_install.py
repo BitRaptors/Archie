@@ -81,3 +81,44 @@ def test_installer_auto_detects_both(tmp_path: Path) -> None:
     env = _fake_home(tmp_path, has_claude=True, has_codex=True)
     result = _run_installer(project, target="auto", env=env)
     assert result.returncode == 0
+
+
+def test_installer_codex_target_writes_skill_md(tmp_path: Path) -> None:
+    """--target=codex must write the archie-scan SKILL.md to .agents/skills/archie-scan/."""
+    project = tmp_path / "project"
+    project.mkdir()
+    result = _run_installer(project, target="codex")
+    assert result.returncode == 0, f"installer failed: {result.stderr}"
+
+    skill = project / ".agents" / "skills" / "archie-scan" / "SKILL.md"
+    assert skill.exists(), f"missing: {skill}"
+    content = skill.read_text()
+    assert "name: archie-scan" in content
+    assert ".archie/prompts/scan_analyzer.md" in content
+
+
+def test_installer_codex_target_writes_shared_prompts(tmp_path: Path) -> None:
+    """--target=codex must also write .archie/prompts/scan_analyzer.md."""
+    project = tmp_path / "project"
+    project.mkdir()
+    _run_installer(project, target="codex")
+    prompt = project / ".archie" / "prompts" / "scan_analyzer.md"
+    assert prompt.exists(), f"missing: {prompt}"
+
+
+def test_installer_codex_target_skips_claude_assets(tmp_path: Path) -> None:
+    """--target=codex must NOT install Claude command files."""
+    project = tmp_path / "project"
+    project.mkdir()
+    _run_installer(project, target="codex")
+    claude_cmd = project / ".claude" / "commands" / "archie-scan.md"
+    assert not claude_cmd.exists(), "Claude command should not be installed for --target=codex"
+
+
+def test_installer_both_target_installs_both(tmp_path: Path) -> None:
+    """--target=both must install both Claude and Codex assets."""
+    project = tmp_path / "project"
+    project.mkdir()
+    _run_installer(project, target="both")
+    assert (project / ".claude" / "commands" / "archie-scan.md").exists()
+    assert (project / ".agents" / "skills" / "archie-scan" / "SKILL.md").exists()
