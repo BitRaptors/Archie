@@ -16,7 +16,32 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
 
-const projectRoot = resolve(process.argv[2] || ".");
+// Parse CLI args: archie.mjs <project_root> [--target=auto|claude|codex|both]
+function parseArgs(argv) {
+  const positional = [];
+  let target = "auto";
+  for (const arg of argv.slice(2)) {
+    if (arg.startsWith("--target=")) {
+      target = arg.slice("--target=".length);
+    } else if (arg === "--target") {
+      console.error("ERROR: --target requires a value, e.g. --target=codex");
+      process.exit(2);
+    } else if (arg.startsWith("--")) {
+      console.error(`ERROR: unknown flag ${arg}`);
+      process.exit(2);
+    } else {
+      positional.push(arg);
+    }
+  }
+  const validTargets = new Set(["auto", "claude", "codex", "both"]);
+  if (!validTargets.has(target)) {
+    console.error(`ERROR: invalid --target=${target}. Must be one of: auto, claude, codex, both.`);
+    process.exit(2);
+  }
+  return { projectRoot: resolve(positional[0] || "."), target };
+}
+
+const { projectRoot, target } = parseArgs(process.argv);
 
 console.log("");
 console.log(`${BOLD}${CYAN}  Archie${RESET} — architecture enforcement for AI coding agents`);
