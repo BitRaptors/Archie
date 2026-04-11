@@ -109,6 +109,28 @@ for (const dataFile of ["platform_rules.json"]) {
   }
 }
 
+// 3c. Copy .archieignore (only if it doesn't exist — user may have customized)
+const archieignoreSrc = join(ASSETS, "archieignore.default");
+const archieignoreDest = join(projectRoot, ".archieignore");
+if (!existsSync(archieignoreDest) && existsSync(archieignoreSrc)) {
+  writeFileSync(archieignoreDest, readFileSync(archieignoreSrc, "utf8"));
+  console.log(`  ${GREEN}✓${RESET} .archieignore (default patterns)`);
+}
+
+// 3d. Add .gitignore entries for Archie scripts (idempotent)
+const gitignorePath = join(projectRoot, ".gitignore");
+const archieGitignoreBlock = `\n# Archie (installed scripts — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n`;
+
+let gitignoreContent = "";
+if (existsSync(gitignorePath)) {
+  gitignoreContent = readFileSync(gitignorePath, "utf8");
+}
+
+if (!gitignoreContent.includes("# Archie")) {
+  writeFileSync(gitignorePath, gitignoreContent + archieGitignoreBlock);
+  console.log(`  ${GREEN}✓${RESET} .gitignore updated (Archie scripts ignored)`);
+}
+
 // 4. Check Python and run install_hooks.py (sets up hooks + permissions)
 let hasPython = false;
 try {
