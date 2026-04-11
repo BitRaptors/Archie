@@ -150,6 +150,9 @@ def _build_architecture_rule(bp: dict):
                     lines.append(f"- **Key interfaces:** {', '.join(iface_strs)}")
                 elif isinstance(key_ifaces[0], str):
                     lines.append(f"- **Key interfaces:** {', '.join(f'`{i}`' for i in key_ifaces)}")
+                else:
+                    print(f"Warning: unexpected {type(key_ifaces[0]).__name__} in key_interfaces, coercing", file=sys.stderr)
+                    lines.append(f"- **Key interfaces:** {', '.join(f'`{str(i)}`' for i in key_ifaces)}")
             lines.append("")
 
     # File Placement
