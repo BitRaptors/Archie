@@ -25,10 +25,15 @@ SOURCE_EXTENSIONS = {
 SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
     ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "dist", "build", ".next", ".nuxt", ".svelte-kit",
+    "dist", "build", ".build", ".next", ".nuxt", ".svelte-kit",
     "coverage", ".nyc_output", ".turbo", ".parcel-cache",
-    "vendor", "Pods", ".gradle", ".idea", ".vscode",
+    "vendor", "Pods", "DerivedData", ".gradle", ".idea", ".vscode",
     ".archie", ".claude",
+    ".devenv",       # Nix devenv
+    ".swiftpm",      # Swift PM cache
+    ".pub-cache",    # Dart/Flutter
+    ".dart_tool",    # Dart
+    ".ccache",       # C/C++ compiler cache
 }
 
 # ── IgnoreMatcher ─────────────────────────────────────────────────────────

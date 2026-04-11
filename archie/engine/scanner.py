@@ -19,6 +19,7 @@ SKIP_DIRS: set[str] = {
     ".ruff_cache",
     "dist",
     "build",
+    ".build",
     ".next",
     ".nuxt",
     ".svelte-kit",
@@ -28,9 +29,17 @@ SKIP_DIRS: set[str] = {
     ".parcel-cache",
     "vendor",
     "Pods",
+    "DerivedData",
     ".gradle",
     ".idea",
     ".vscode",
+    ".archie",
+    ".claude",
+    ".devenv",       # Nix devenv
+    ".swiftpm",      # Swift PM cache
+    ".pub-cache",    # Dart/Flutter
+    ".dart_tool",    # Dart
+    ".ccache",       # C/C++ compiler cache
 }
 
 SKIP_EXTENSIONS: set[str] = {

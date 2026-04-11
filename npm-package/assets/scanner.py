@@ -18,16 +18,10 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-# ── Configuration ──────────────────────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import IgnoreMatcher, SKIP_DIRS  # noqa: E402
 
-SKIP_DIRS = {
-    ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
-    ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "dist", "build", ".build", ".next", ".nuxt", ".svelte-kit",
-    "coverage", ".nyc_output", ".turbo", ".parcel-cache",
-    "vendor", "Pods", "DerivedData", ".gradle", ".idea", ".vscode",
-    ".archie", ".claude",
-}
+# ── Configuration ──────────────────────────────────────────────────────────
 
 SKIP_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp", ".bmp",
@@ -253,15 +247,25 @@ def detect_subprojects(root: Path) -> list[dict]:
 
 # ── File Scanner ───────────────────────────────────────────────────────────
 
-def scan_files(root: Path) -> list[dict]:
+def scan_files(root: Path, matcher: IgnoreMatcher | None = None) -> list[dict]:
     entries = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        rel_dir = os.path.relpath(dirpath, root)
+        if rel_dir == ".":
+            rel_dir = ""
+
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in SKIP_DIRS  # hardcoded fallback
+            and not (matcher and matcher.should_skip_dir(d, rel_dir))
+        ]
         for fname in filenames:
             ext = os.path.splitext(fname)[1].lower()
             if ext in SKIP_EXTENSIONS:
                 continue
             if fname.startswith(".") and fname not in ALLOWED_DOTFILES:
+                continue
+            if matcher and matcher.should_skip_file(fname, rel_dir):
                 continue
             full = Path(dirpath) / fname
             try:
@@ -752,7 +756,8 @@ def collect_configs(root: Path) -> dict[str, str]:
 def run_scan(repo_path: str) -> dict:
     root = Path(repo_path).resolve()
 
-    files = scan_files(root)
+    matcher = IgnoreMatcher(root)
+    files = scan_files(root, matcher=matcher)
     deps = parse_dependencies(root)
     frameworks = detect_frameworks(files, deps)
     hashes = hash_files(root, files)

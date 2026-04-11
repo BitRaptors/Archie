@@ -1,11 +1,16 @@
 """Tests for IgnoreMatcher — .archieignore + .gitignore pattern matching."""
 from __future__ import annotations
 
+import json
 import os
+import sys
 
 import pytest
 
 from archie.standalone._common import IgnoreMatcher
+
+# Allow importing scanner.py as a module (it uses `from _common import ...`)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "archie", "standalone"))
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -246,3 +251,89 @@ class TestWildcardPatterns:
         m = IgnoreMatcher(tmp_path)
         assert m.should_skip_dir("build", "")
         assert m.should_skip_dir("build", "deep/nested")
+
+
+# ── Scanner integration tests ────────────────────────────────────────────
+
+
+class TestScannerIgnoreIntegration:
+    """Verify that scanner.run_scan() respects .archieignore patterns."""
+
+    def test_archieignore_excludes_dir_from_scan(self, tmp_path):
+        """Directories listed in .archieignore should be absent from scan results."""
+        from archie.standalone.scanner import run_scan
+
+        # Create project structure
+        _write(tmp_path / "src" / "main.py", "print('hello')\n")
+        _write(tmp_path / "src" / "utils.py", "pass\n")
+        _write(tmp_path / "generated" / "output.py", "# auto\n")
+        _write(tmp_path / "generated" / "models.py", "# auto\n")
+        _write(tmp_path / ".archieignore", "generated/\n")
+
+        result = run_scan(str(tmp_path))
+        paths = [f["path"] for f in result["file_tree"]]
+
+        # src/ files should be present
+        assert any("main.py" in p for p in paths)
+        assert any("utils.py" in p for p in paths)
+        # generated/ files should be excluded
+        assert not any("generated" in p for p in paths)
+
+    def test_archieignore_excludes_files_by_extension(self, tmp_path):
+        """File glob patterns in .archieignore should exclude matching files."""
+        from archie.standalone.scanner import run_scan
+
+        _write(tmp_path / "app.py", "print('app')\n")
+        _write(tmp_path / "debug.log", "some log\n")
+        _write(tmp_path / "error.log", "some error\n")
+        _write(tmp_path / ".archieignore", "*.log\n")
+
+        result = run_scan(str(tmp_path))
+        paths = [f["path"] for f in result["file_tree"]]
+
+        assert "app.py" in paths
+        assert "debug.log" not in paths
+        assert "error.log" not in paths
+
+    def test_archieignore_negation_keeps_file(self, tmp_path):
+        """Negation patterns (!) should un-ignore specific files."""
+        from archie.standalone.scanner import run_scan
+
+        _write(tmp_path / "a.dat", "data\n")
+        _write(tmp_path / "b.dat", "data\n")
+        _write(tmp_path / "keep.dat", "important\n")
+        _write(tmp_path / ".archieignore", "*.dat\n!keep.dat\n")
+
+        result = run_scan(str(tmp_path))
+        paths = [f["path"] for f in result["file_tree"]]
+
+        assert "a.dat" not in paths
+        assert "b.dat" not in paths
+        assert "keep.dat" in paths
+
+    def test_skip_dirs_still_works_without_archieignore(self, tmp_path):
+        """SKIP_DIRS fallback should still prune node_modules etc."""
+        from archie.standalone.scanner import run_scan
+
+        _write(tmp_path / "index.js", "console.log()\n")
+        _write(tmp_path / "node_modules" / "pkg" / "index.js", "module.exports={}\n")
+
+        result = run_scan(str(tmp_path))
+        paths = [f["path"] for f in result["file_tree"]]
+
+        assert "index.js" in paths
+        assert not any("node_modules" in p for p in paths)
+
+    def test_gitignore_patterns_respected(self, tmp_path):
+        """Patterns from .gitignore should also be respected by scanner."""
+        from archie.standalone.scanner import run_scan
+
+        _write(tmp_path / "app.py", "print('hi')\n")
+        _write(tmp_path / "tmp_output" / "result.py", "# tmp\n")
+        _write(tmp_path / ".gitignore", "tmp_output/\n")
+
+        result = run_scan(str(tmp_path))
+        paths = [f["path"] for f in result["file_tree"]]
+
+        assert "app.py" in paths
+        assert not any("tmp_output" in p for p in paths)
