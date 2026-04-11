@@ -6,6 +6,28 @@ Analyze this project's architectural health using parallel agents. Each scan evo
 
 ---
 
+## Phase 0: Scope Detection (monorepo/workspace check)
+
+Before scanning, detect if this is a multi-project repository:
+
+```bash
+python3 .archie/scanner.py "$PWD" --detect-subprojects
+```
+
+If sub-projects are detected, present the user with a choice:
+
+> I detected N sub-project(s) in this repo: [list names and types].
+> Would you like to:
+> 1. **Scan the entire repository** — unified architecture view across all projects
+> 2. **Scan only [current directory name]** — focused on this package/module
+> 3. **Scan a specific sub-project** — [list options with paths]
+
+If the user chooses a sub-project, `cd` to that directory before running Phase 1. The `.archie/` directory will be created at the chosen scope level.
+
+If no sub-projects are detected (or only 1 root wrapper), skip this phase and proceed normally.
+
+---
+
 ## Phase 1: Data Gathering (parallel scripts, seconds)
 
 Run all three scripts simultaneously:
