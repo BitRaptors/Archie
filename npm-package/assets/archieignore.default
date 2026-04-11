@@ -13,6 +13,10 @@ venv/
 vendor/
 Pods/
 .devenv/
+.swiftpm/
+.pub-cache/
+.dart_tool/
+.ccache/
 
 # Build outputs
 dist/
