@@ -16,14 +16,30 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
 
-const projectRoot = resolve(process.argv[2] || ".");
+const args = process.argv.slice(2);
+let projectRootArg = ".";
+let commandsDirArg = null;
+
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === "--commands-dir" && i + 1 < args.length) {
+    commandsDirArg = args[i + 1];
+    i++;
+  } else if (!args[i].startsWith("--")) {
+    projectRootArg = args[i];
+  }
+}
+
+const projectRoot = resolve(projectRootArg);
 
 console.log("");
 console.log(`${BOLD}${CYAN}  Archie${RESET} — architecture enforcement for AI coding agents`);
 console.log("");
 
 // 1. Create directories
-const claudeCommands = join(projectRoot, ".claude", "commands");
+const claudeCommands = commandsDirArg
+  ? join(projectRoot, commandsDirArg)
+  : join(projectRoot, ".claude", "commands");
+const commandsDirRel = commandsDirArg || ".claude/commands";
 const archieDir = join(projectRoot, ".archie");
 mkdirSync(claudeCommands, { recursive: true });
 mkdirSync(archieDir, { recursive: true });
@@ -84,7 +100,7 @@ for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md"])
   const dest = join(claudeCommands, cmd);
   if (existsSync(src)) {
     writeFileSync(dest, readFileSync(src, "utf8"));
-    console.log(`  ${GREEN}✓${RESET} .claude/commands/${cmd}`);
+    console.log(`  ${GREEN}✓${RESET} ${commandsDirRel}/${cmd}`);
   }
 }
 
@@ -158,6 +174,7 @@ console.log(`  Next steps:`);
 console.log(`  1. Open this project in ${BOLD}Claude Code${RESET}`);
 console.log(`  2. Run ${BOLD}/archie-scan${RESET} for a fast architecture health check (1-3 min)`);
 console.log(`  3. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
+console.log(`  ${DIM}Usage: npx @bitraptors/archie [path] [--commands-dir dir]${RESET}`);
 console.log("");
 
 console.log(`  ${DIM}What gets generated:${RESET}`);
