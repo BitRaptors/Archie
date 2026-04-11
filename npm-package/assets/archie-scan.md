@@ -62,7 +62,7 @@ Prompt for Agent A:
 You are analyzing the ARCHITECTURE and DEPENDENCIES of a codebase. You have access to all scan data and the existing blueprint (if any).
 
 **Your inputs:**
-- `.archie/dependency_graph.json` — resolved directory-level graph with nodes (degree, component, file count), edges (weight, cross-component, cycles)
+- `.archie/dependency_graph.json` — resolved directory-level graph. Node schema: `{id, label, component, inDegree, outDegree, inCycle, fileCount}` — use `id` for directory path, NOT `path`. Edge schema: `{source, target, weight, crossComponent}`. Do NOT write ad-hoc Python to analyze this data — use it directly in your analysis.
 - `.archie/skeletons.json` — every file's structure
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
 - `.archie/scan.json` — import graph, frameworks

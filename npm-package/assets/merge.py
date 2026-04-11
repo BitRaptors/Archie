@@ -100,6 +100,9 @@ def _unwrap_conversation_envelope(text: str) -> str | None:
                 content_parts.append(block["text"])
             elif isinstance(block, str):
                 content_parts.append(block)
+            else:
+                print(f"Warning: unexpected {type(block).__name__} in message content, coercing", file=sys.stderr)
+                content_parts.append(str(block))
 
     return "\n".join(content_parts) if content_parts else None
 
