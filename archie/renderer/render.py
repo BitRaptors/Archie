@@ -4,7 +4,11 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def render_outputs(blueprint_dict: dict, project_root: Path) -> dict[str, str]:
+def render_outputs(
+    blueprint_dict: dict,
+    project_root: Path,
+    target: str = "claude",
+) -> dict[str, str]:
     """Render all output files from a blueprint dict.
 
     Returns a dict of {relative_path: content} for all generated files.
@@ -13,9 +17,9 @@ def render_outputs(blueprint_dict: dict, project_root: Path) -> dict[str, str]:
     from archie.standalone.renderer import generate_all
     from archie.renderer.intent_layer import generate_folder_context
 
-    files: dict[str, str] = generate_all(blueprint_dict)
+    files: dict[str, str] = generate_all(blueprint_dict, target=target)
 
-    # Per-folder CLAUDE.md files
+    # Per-folder CLAUDE.md files (intent layer) — unchanged for PR 1, target switching is PR 4
     scan_path = project_root / ".archie" / "scan.json"
     if scan_path.exists():
         folder_files = generate_folder_context(blueprint_dict, scan_path)

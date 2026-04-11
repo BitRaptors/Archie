@@ -887,8 +887,14 @@ def generate_agents_md(bp: dict) -> str:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
-def generate_all(bp: dict) -> dict:
+def generate_all(bp: dict, target: str = "claude") -> dict:
     """Generate all output files from a blueprint dict.
+
+    Args:
+        bp: The parsed blueprint.
+        target: 'claude' (default), 'codex', or 'both'.
+                'claude' and 'both' write CLAUDE.md + AGENTS.md.
+                'codex' writes only AGENTS.md.
 
     Returns {path: content} for every output file.
     """
@@ -908,10 +914,10 @@ def generate_all(bp: dict) -> dict:
         if result is not None:
             rule_files.append(result)
 
-    files = {
-        "CLAUDE.md": generate_claude_md(bp),
-        "AGENTS.md": generate_agents_md(bp),
-    }
+    files: dict = {}
+    if target in ("claude", "both"):
+        files["CLAUDE.md"] = generate_claude_md(bp)
+    files["AGENTS.md"] = generate_agents_md(bp)
 
     for rf in rule_files:
         topic = rf["topic"]
@@ -925,11 +931,21 @@ def generate_all(bp: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 renderer.py /path/to/project", file=sys.stderr)
-        sys.exit(1)
+    import argparse
 
-    project_root = Path(sys.argv[1]).resolve()
+    parser = argparse.ArgumentParser(
+        description="Render Archie blueprint to context files.",
+    )
+    parser.add_argument("project_root", help="Path to the project root")
+    parser.add_argument(
+        "--target",
+        choices=["claude", "codex", "both"],
+        default="claude",
+        help="Which target's context files to render (default: claude)",
+    )
+    args = parser.parse_args()
+
+    project_root = Path(args.project_root).resolve()
     blueprint_path = project_root / ".archie" / "blueprint.json"
 
     if not blueprint_path.exists():
@@ -937,7 +953,7 @@ def main():
         sys.exit(1)
 
     bp = json.loads(blueprint_path.read_text())
-    files = generate_all(bp)
+    files = generate_all(bp, target=args.target)
 
     # Write all files
     for rel_path, content in files.items():

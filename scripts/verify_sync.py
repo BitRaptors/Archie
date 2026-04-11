@@ -23,6 +23,9 @@ STANDALONE = ROOT / "archie" / "standalone"
 ASSETS = ROOT / "npm-package" / "assets"
 COMMANDS = ROOT / ".claude" / "commands"
 ARCHIE_MJS = ROOT / "npm-package" / "bin" / "archie.mjs"
+PROMPTS = ROOT / "archie" / "prompts"
+ASSETS_PROMPTS = ROOT / "npm-package" / "assets" / "prompts"
+CODEX_SKILLS_DIR = ROOT / "npm-package" / "assets" / "codex" / "skills"
 
 SKIP_FILES = {"__init__.py", "__pycache__"}
 
@@ -68,6 +71,30 @@ def main():
     for name in sorted(standalone_jsons & asset_jsons):
         if (STANDALONE / name).read_text() != (ASSETS / name).read_text():
             errors.append(f"OUT OF SYNC: {name} differs between archie/standalone/ and npm-package/assets/")
+
+    # 3c. Check: prompts
+    if PROMPTS.exists():
+        canonical_prompts = {f.name for f in PROMPTS.glob("*.md")}
+        asset_prompts = {f.name for f in ASSETS_PROMPTS.glob("*.md")} if ASSETS_PROMPTS.exists() else set()
+
+        for name in sorted(canonical_prompts - asset_prompts):
+            errors.append(f"MISSING ASSET: archie/prompts/{name} has no copy in npm-package/assets/prompts/")
+        for name in sorted(asset_prompts - canonical_prompts):
+            errors.append(f"ORPHAN ASSET: npm-package/assets/prompts/{name} has no canonical in archie/prompts/")
+        for name in sorted(canonical_prompts & asset_prompts):
+            if (PROMPTS / name).read_text() != (ASSETS_PROMPTS / name).read_text():
+                errors.append(f"OUT OF SYNC: prompts/{name} differs between archie/prompts/ and npm-package/assets/prompts/")
+
+    # 3d. Check: every .archie/prompts/<file> reference in connector files resolves
+    canonical_prompts = {f.name for f in PROMPTS.glob("*.md")} if PROMPTS.exists() else set()
+
+    if CODEX_SKILLS_DIR.exists():
+        prompt_ref_pattern = re.compile(r"\.archie/prompts/([a-zA-Z0-9_\-]+\.md)")
+        for skill_md in CODEX_SKILLS_DIR.rglob("SKILL.md"):
+            referenced = set(prompt_ref_pattern.findall(skill_md.read_text()))
+            for prompt_name in sorted(referenced - canonical_prompts):
+                rel = skill_md.relative_to(ROOT)
+                errors.append(f"UNRESOLVED REFERENCE: {rel} references .archie/prompts/{prompt_name} which does not exist")
 
     # 4. Check: every command .md should have an asset copy
     for name in sorted(command_mds - asset_mds):
