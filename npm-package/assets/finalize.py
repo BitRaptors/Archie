@@ -120,14 +120,38 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
     print(f"\nFinalized: {root}", file=sys.stderr)
 
 
+def normalize_only(root: Path):
+    """Read blueprint.json, normalize it, write it back. Idempotent."""
+    archie_dir = root / ".archie"
+    bp_path = archie_dir / "blueprint.json"
+    if not bp_path.exists():
+        print("Error: .archie/blueprint.json not found", file=sys.stderr)
+        sys.exit(1)
+
+    bp = json.loads(bp_path.read_text())
+
+    sys.path.insert(0, str(_SCRIPT_DIR))
+    from _common import normalize_blueprint  # noqa: E402
+    normalize_blueprint(bp)
+
+    bp_path.write_text(json.dumps(bp, indent=2))
+
+    comp_count = len(bp.get("components", {}).get("components", []))
+    print(f"Normalized blueprint.json ({comp_count} components)", file=sys.stderr)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python3 finalize.py /path/to/project [agent_x_output.json]", file=sys.stderr)
         print("  Or:  python3 finalize.py /path/to/project --patch incremental_reasoning.json", file=sys.stderr)
+        print("  Or:  python3 finalize.py /path/to/project --normalize-only", file=sys.stderr)
         sys.exit(1)
 
     project_root = Path(sys.argv[1]).resolve()
-    if len(sys.argv) > 2 and sys.argv[2] == "--patch":
+
+    if len(sys.argv) > 2 and sys.argv[2] == "--normalize-only":
+        normalize_only(project_root)
+    elif len(sys.argv) > 2 and sys.argv[2] == "--patch":
         agent_x = sys.argv[3] if len(sys.argv) > 3 else None
         finalize(project_root, agent_x, patch_mode=True)
     else:

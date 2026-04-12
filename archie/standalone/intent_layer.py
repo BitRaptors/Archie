@@ -1083,6 +1083,102 @@ def cmd_merge(root: Path):
 
 
 # ---------------------------------------------------------------------------
+# inspect subcommand
+# ---------------------------------------------------------------------------
+
+def cmd_inspect(root: Path, filename: str, query: str | None = None):
+    """Print human-readable summary (stderr) + raw JSON (stdout) for .archie/ files."""
+    filepath = root / ".archie" / filename
+    if not filepath.exists():
+        print(f"Error: {filename} not found in .archie/", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        data = json.loads(filepath.read_text())
+    except (json.JSONDecodeError, ValueError):
+        print(f"Error: {filename} contains invalid JSON", file=sys.stderr)
+        sys.exit(1)
+
+    # --query mode: extract and print value only
+    if query:
+        # Parse query: .key.subkey or .key|length
+        has_length = query.endswith("|length")
+        path = query.rstrip("|length") if has_length else query
+        parts = [p for p in path.split(".") if p]
+
+        obj = data
+        for p in parts:
+            if isinstance(obj, dict) and p in obj:
+                obj = obj[p]
+            else:
+                print(f"Error: key '{p}' not found", file=sys.stderr)
+                sys.exit(1)
+
+        if has_length:
+            if isinstance(obj, (list, dict)):
+                print(len(obj))
+            else:
+                print(f"Error: value is not a list or dict", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(json.dumps(obj) if isinstance(obj, (dict, list)) else obj)
+        return
+
+    # Summary mode: file-specific summary to stderr, full JSON to stdout
+    basename = filename.lower()
+    if basename == "scan.json" and isinstance(data, dict):
+        fc = data.get("total_files", "?")
+        fr = data.get("frontend_ratio", "?")
+        fw = len(data.get("frameworks", []))
+        print(f"Scan: {fc} files, frontend_ratio={fr}, {fw} frameworks", file=sys.stderr)
+    elif basename == "blueprint.json" and isinstance(data, dict):
+        comps = data.get("components", [])
+        if isinstance(comps, dict):
+            comps = comps.get("components", [])
+        nc = len(comps) if isinstance(comps, list) else 0
+        nd = len(data.get("decisions", []))
+        np = len(data.get("pitfalls", []))
+        style = data.get("meta", {}).get("architecture_style", "")
+        summary = f"Blueprint: {nc} components, {nd} decisions, {np} pitfalls"
+        if style:
+            summary += f", style={style}"
+        print(summary, file=sys.stderr)
+    elif basename == "dependency_graph.json" and isinstance(data, dict):
+        nodes = data.get("nodes", [])
+        edges = data.get("edges", [])
+        cycles = data.get("cycles", [])
+        # top 3 by in-degree
+        in_deg: dict[str, int] = {}
+        for e in edges:
+            t = e.get("to", "")
+            in_deg[t] = in_deg.get(t, 0) + 1
+        top3 = sorted(in_deg, key=lambda k: in_deg[k], reverse=True)[:3]
+        summary = f"Graph: {len(nodes)} nodes, {len(edges)} edges, {len(cycles)} cycles"
+        if top3:
+            summary += f" | top in-degree: {', '.join(top3)}"
+        print(summary, file=sys.stderr)
+    elif basename == "health.json" and isinstance(data, dict):
+        e = data.get("erosion_index", "?")
+        g = data.get("gini", "?")
+        v = data.get("verbosity", "?")
+        loc = data.get("total_loc", "?")
+        print(f"Health: erosion={e}, gini={g}, verbosity={v}, loc={loc}", file=sys.stderr)
+    elif basename == "health_history.json":
+        entries = data if isinstance(data, list) else data.get("history", data)
+        count = len(entries) if isinstance(entries, (list, dict)) else "?"
+        print(f"History: {count} entries", file=sys.stderr)
+    else:
+        # Generic summary
+        if isinstance(data, list):
+            print(f"{filename}: {len(data)} items", file=sys.stderr)
+        elif isinstance(data, dict):
+            keys = ", ".join(list(data.keys())[:10])
+            print(f"{filename}: {len(data)} keys: {keys}", file=sys.stderr)
+
+    print(json.dumps(data, indent=2))
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -1099,6 +1195,7 @@ if __name__ == "__main__":
         print("  python3 intent_layer.py reset-state /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py merge /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs|save-baseline|detect-changes> [step|mode]", file=sys.stderr)
+        print("  python3 intent_layer.py inspect /path/to/repo <filename> [--query .key.path]", file=sys.stderr)
         sys.exit(1)
 
     subcmd = sys.argv[1]
@@ -1182,6 +1279,17 @@ if __name__ == "__main__":
         cmd_deep_scan_state(root, action, step_arg)
     elif subcmd == "merge":
         cmd_merge(root)
+    elif subcmd == "inspect":
+        if len(sys.argv) < 4:
+            print("Usage: inspect /path/to/repo <filename> [--query .key.path]", file=sys.stderr)
+            sys.exit(1)
+        fname = sys.argv[3]
+        q = None
+        if "--query" in sys.argv:
+            qi = sys.argv.index("--query")
+            if qi + 1 < len(sys.argv):
+                q = sys.argv[qi + 1]
+        cmd_inspect(root, fname, q)
     else:
         print(f"Error: unknown subcommand '{subcmd}'", file=sys.stderr)
         sys.exit(1)
