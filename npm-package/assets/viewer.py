@@ -123,21 +123,7 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/scan-reports":
             reports = []
             if archie_dir.is_dir():
-                # Check scan_report_*.md in .archie/ (legacy format)
-                for f in sorted(archie_dir.glob("scan_report_*.md"), reverse=True):
-                    name = f.name
-                    m = re.search(r"scan_report_(\d{4}-\d{2}-\d{2})\.md$", name)
-                    date_str = m.group(1) if m else ""
-                    reports.append({"filename": name, "date": date_str})
-                # Check scan_report.md (current format, no date suffix)
-                sr = archie_dir / "scan_report.md"
-                if sr.exists() and not any(r["filename"] == "scan_report.md" for r in reports):
-                    # Try to extract date from file content
-                    content = _read_text(sr)
-                    dm = re.search(r"(\d{4}-\d{2}-\d{2})", content)
-                    date_str = dm.group(1) if dm else ""
-                    reports.insert(0, {"filename": "scan_report.md", "date": date_str})
-                # Check scan_history/ directory
+                # Primary: scan_history/ directory (one file per scan)
                 history_dir = archie_dir / "scan_history"
                 if history_dir.is_dir():
                     for f in sorted(history_dir.glob("*.md"), reverse=True):
@@ -145,6 +131,21 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
                         m = re.search(r"(\d{4}-\d{2}-\d{2})", f.name)
                         date_str = m.group(1) if m else ""
                         reports.append({"filename": name, "date": date_str})
+                # Legacy: scan_report_*.md in .archie/ (older format)
+                if not reports:
+                    for f in sorted(archie_dir.glob("scan_report_*.md"), reverse=True):
+                        name = f.name
+                        m = re.search(r"scan_report_(\d{4}-\d{2}-\d{2})\.md$", name)
+                        date_str = m.group(1) if m else ""
+                        reports.append({"filename": name, "date": date_str})
+                # Fallback: scan_report.md (no history dir, no dated files)
+                if not reports:
+                    sr = archie_dir / "scan_report.md"
+                    if sr.exists():
+                        content = _read_text(sr)
+                        dm = re.search(r"(\d{4}-\d{2}-\d{2})", content)
+                        date_str = dm.group(1) if dm else ""
+                        reports.append({"filename": "scan_report.md", "date": date_str})
             self._send_json(reports)
 
         elif path.startswith("/api/scan-report/"):
