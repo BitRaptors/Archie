@@ -679,6 +679,13 @@ function renderReports() {
 
   function formatDate(dateStr) {
     if (!dateStr) return 'Unknown';
+    // Check if date includes time (e.g., "2026-04-12 15:23 UTC")
+    const timeMatch = dateStr.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})/);
+    if (timeMatch) {
+      const d = new Date(timeMatch[1] + 'T' + timeMatch[2] + ':' + timeMatch[3] + ':00Z');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }) + ' UTC';
+    }
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
