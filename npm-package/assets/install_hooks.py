@@ -281,6 +281,7 @@ def install(project_root: Path) -> None:
         "Bash(git *)",
         "Bash(test *)",
         "Bash(cp *)",
+        "Bash(ls *)",
         "Bash(wc *)",
         "Bash(cat *)",
         "Bash(echo *)",
