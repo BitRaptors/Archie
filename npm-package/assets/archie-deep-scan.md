@@ -846,6 +846,7 @@ mkdir -p "$PROJECT_ROOT/.archie/enrichments"
    ```bash
    python3 .archie/intent_layer.py suggest-batches "$PROJECT_ROOT" <ready1> <ready2> ...
    ```
+   Output is JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `batch_id`) to reference batches. Do NOT write ad-hoc Python to inspect this — use the output directly.
 
    d. For each batch, generate the prompt and spawn a subagent:
    ```bash
