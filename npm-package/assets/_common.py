@@ -260,6 +260,42 @@ def _load_json(path: Path) -> dict | list:
     return {}
 
 
+def normalize_blueprint(bp: dict) -> dict:
+    """Normalize blueprint to canonical schema. Safe to call multiple times.
+
+    Ensures:
+    - Dict sections (meta, components, decisions, etc.) are dicts
+    - components is always {"components": [...], ...} (wraps plain list)
+    - List sections (pitfalls, implementation_guidelines, etc.) are lists
+    - architecture_diagram exists as string
+    """
+    # Sections that must be dicts
+    for key in ("meta", "architecture_rules", "decisions",
+                "communication", "quick_reference", "technology", "frontend",
+                "deployment"):
+        val = bp.get(key)
+        if not isinstance(val, dict):
+            bp[key] = {} if val is None else {}
+
+    # Components: can arrive as list or {"components": [...]}
+    comps = bp.get("components")
+    if isinstance(comps, list):
+        bp["components"] = {"components": comps}
+    elif not isinstance(comps, dict):
+        bp["components"] = {"components": []}
+    elif "components" not in comps:
+        bp["components"]["components"] = []
+
+    # Sections that must be lists
+    for key in ("pitfalls", "implementation_guidelines", "development_rules"):
+        val = bp.get(key)
+        if not isinstance(val, list):
+            bp[key] = []
+
+    bp.setdefault("architecture_diagram", "")
+    return bp
+
+
 def _read_file(path: str) -> str | None:
     """Read a file, returning None on failure."""
     try:

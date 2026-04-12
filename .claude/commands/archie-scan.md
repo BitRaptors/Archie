@@ -287,6 +287,17 @@ Structure: `[{"rule": "", "severity": "warn|error", "confidence": 0.9, "source":
 
 Write the evolved blueprint to `.archie/blueprint.json`.
 
+Then normalize it to ensure canonical schema:
+```bash
+python3 -c "
+import json, sys; sys.path.insert(0, '.archie')
+from _common import normalize_blueprint
+bp = json.loads(open('.archie/blueprint.json').read())
+normalize_blueprint(bp)
+open('.archie/blueprint.json', 'w').write(json.dumps(bp, indent=2))
+"
+```
+
 ### 4b: Write Scan Report
 
 Get the current date/time and scan number from the blueprint (`meta.scan_count`):

@@ -66,21 +66,9 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
             print(f"  Warning: {agent_x_file} not found, skipping merge", file=sys.stderr)
 
     # ── 2. Deterministic normalize ─────────────────────────────────────────
-    for key in ("meta", "architecture_rules", "decisions", "components",
-                "communication", "quick_reference", "technology", "frontend",
-                "deployment"):
-        if key not in bp or not isinstance(bp.get(key), dict):
-            bp[key] = bp.get(key, {})
-            if not isinstance(bp[key], dict):
-                bp[key] = {}
-
-    for key in ("pitfalls", "implementation_guidelines", "development_rules"):
-        if key not in bp or not isinstance(bp.get(key), list):
-            bp[key] = bp.get(key, [])
-            if not isinstance(bp[key], list):
-                bp[key] = []
-
-    bp.setdefault("architecture_diagram", "")
+    sys.path.insert(0, str(_SCRIPT_DIR))
+    from _common import normalize_blueprint  # noqa: E402
+    normalize_blueprint(bp)
 
     bp_path = archie_dir / "blueprint.json"
     bp_path.write_text(json.dumps(bp, indent=2))
