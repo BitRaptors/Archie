@@ -96,8 +96,12 @@ def _unwrap_conversation_envelope(text: str) -> str | None:
             continue
         msg = record.get("message", {})
         for block in msg.get("content", []):
-            if isinstance(block, dict) and block.get("type") == "text":
-                content_parts.append(block["text"])
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    content_parts.append(block["text"])
+                elif "text" in block:
+                    content_parts.append(block["text"])
+                # Skip tool_use, tool_result, etc. — expected envelope types
             elif isinstance(block, str):
                 content_parts.append(block)
 

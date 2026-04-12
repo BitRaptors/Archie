@@ -4,6 +4,37 @@ Analyze this project's architectural health using parallel agents. Each scan evo
 
 **Prerequisites:** If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` first.
 
+**CRITICAL CONSTRAINT: Never write inline Python.**
+Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
+- Normalize blueprint: `python3 .archie/finalize.py "$PWD" --normalize-only`
+- Append health history: `python3 .archie/measure_health.py "$PWD" --append-history --scan-type fast`
+- Inspect any JSON file: `python3 .archie/intent_layer.py inspect "$PWD" <filename>`
+- Query a specific field: `python3 .archie/intent_layer.py inspect "$PWD" scan.json --query .frontend_ratio`
+
+If you need data not covered by these commands, proceed without it or ask the user. NEVER improvise Python.
+
+---
+
+## Phase 0: Scope Detection (monorepo/workspace check)
+
+Before scanning, detect if this is a multi-project repository:
+
+```bash
+python3 .archie/scanner.py "$PWD" --detect-subprojects
+```
+
+If sub-projects are detected, present the user with a choice:
+
+> I detected N sub-project(s) in this repo: [list names and types].
+> Would you like to:
+> 1. **Scan the entire repository** — unified architecture view across all projects
+> 2. **Scan only [current directory name]** — focused on this package/module
+> 3. **Scan a specific sub-project** — [list options with paths]
+
+If the user chooses a sub-project, `cd` to that directory before running Phase 1. The `.archie/` directory will be created at the chosen scope level.
+
+If no sub-projects are detected (or only 1 root wrapper), skip this phase and proceed normally.
+
 ---
 
 ## Phase 1: Data Gathering (parallel scripts, seconds)
@@ -62,7 +93,7 @@ Prompt for Agent A:
 You are analyzing the ARCHITECTURE and DEPENDENCIES of a codebase. You have access to all scan data and the existing blueprint (if any).
 
 **Your inputs:**
-- `.archie/dependency_graph.json` — resolved directory-level graph with nodes (degree, component, file count), edges (weight, cross-component, cycles)
+- `.archie/dependency_graph.json` — resolved directory-level graph. Node schema: `{id, label, component, inDegree, outDegree, inCycle, fileCount}` — use `id` for directory path, NOT `path`. Edge schema: `{source, target, weight, crossComponent}`. Do NOT write ad-hoc Python to analyze this data — use it directly in your analysis.
 - `.archie/skeletons.json` — every file's structure
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
 - `.archie/scan.json` — import graph, frameworks
@@ -265,11 +296,16 @@ Structure: `[{"rule": "", "severity": "warn|error", "confidence": 0.9, "source":
 
 Write the evolved blueprint to `.archie/blueprint.json`.
 
+Then normalize it to ensure canonical schema:
+```bash
+python3 .archie/finalize.py "$PWD" --normalize-only
+```
+
 ### 4b: Write Scan Report
 
-Get the current date and scan number from the blueprint (`meta.scan_count`):
+Get the current date/time and scan number from the blueprint (`meta.scan_count`):
 ```bash
-date -u +"%Y-%m-%d"
+date -u +"%Y-%m-%dT%H%M"
 ```
 
 Create the scan history directory if it doesn't exist:
@@ -277,12 +313,12 @@ Create the scan history directory if it doesn't exist:
 mkdir -p .archie/scan_history
 ```
 
-Write to `.archie/scan_history/scan_NNN_YYYY-MM-DD.md` (where NNN is the zero-padded scan number, e.g., `scan_003_2026-04-08.md`) and copy to `.archie/scan_report.md` (latest pointer).
+Write to `.archie/scan_history/scan_NNN_YYYY-MM-DDTHHMM.md` (where NNN is the zero-padded scan number, e.g., `scan_003_2026-04-08T1423.md`) and copy to `.archie/scan_report.md` (latest pointer).
 
 The report should include:
 ```markdown
 # Archie Scan Report
-> Scan #N | YYYY-MM-DD | X files analyzed | Y changed in last 7 days
+> Scan #N | YYYY-MM-DD HH:MM UTC | X files analyzed | Y changed in last 7 days
 
 ## Architecture Overview
 [5-10 lines from Agent A's analysis]
@@ -323,9 +359,9 @@ The report should include:
 
 ### 4c: Update Satellite Files
 
-Append health scores to `.archie/health_history.json`:
-```json
-{"timestamp": "ISO-8601", "erosion": 0.00, "gini": 0.00, "top20_share": 0.00, "verbosity": 0.00, "total_loc": 0, "scan_number": N, "scan_type": "fast"}
+Append health scores to history:
+```bash
+python3 .archie/measure_health.py "$PWD" --append-history --scan-type fast
 ```
 
 Save per-function complexity snapshot to `.archie/function_complexity.json`.

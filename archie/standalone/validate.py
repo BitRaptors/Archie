@@ -129,6 +129,7 @@ def check_paths(root: Path) -> list[dict]:
             elif isinstance(kf, str):
                 path = kf
             else:
+                print(f"Warning: unexpected {type(kf).__name__} in key_files, skipping", file=sys.stderr)
                 continue
             if path and not (root / path).exists():
                 errors.append({
@@ -206,6 +207,8 @@ def check_methods(root: Path) -> list[dict]:
 
         for iface in interfaces:
             if not isinstance(iface, dict):
+                if not isinstance(iface, str):
+                    print(f"Warning: unexpected {type(iface).__name__} in key_interfaces, skipping", file=sys.stderr)
                 continue
             claimed_methods = set(iface.get("methods", []))
             if not claimed_methods:
@@ -280,6 +283,7 @@ def check_file_descriptions(root: Path) -> list[dict]:
                 path = kf
                 purpose = ""
             else:
+                print(f"Warning: unexpected {type(kf).__name__} in key_files, skipping", file=sys.stderr)
                 continue
             if not path:
                 continue
@@ -312,6 +316,7 @@ def check_file_descriptions(root: Path) -> list[dict]:
                     path = kf
                     purpose = ""
                 else:
+                    print(f"Warning: unexpected {type(kf).__name__} in key_files, skipping", file=sys.stderr)
                     continue
                 if not path:
                     continue

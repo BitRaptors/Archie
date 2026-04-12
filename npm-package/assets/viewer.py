@@ -104,12 +104,18 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
             if not data:
                 # Fallback to history summary (no functions/waste detail)
                 history = _load_json(archie_dir / "health_history.json")
+                # Handle both formats: plain list or {"history": [...]}
+                if isinstance(history, dict):
+                    history = history.get("history", [])
                 if isinstance(history, list) and history:
                     data = history[-1]
             self._send_json(data or {})
 
         elif path == "/api/health-history":
             data = _load_json(archie_dir / "health_history.json")
+            # Handle both formats: plain list or {"history": [...]}
+            if isinstance(data, dict):
+                data = data.get("history", [])
             if not isinstance(data, list):
                 data = []
             self._send_json(data)
@@ -117,18 +123,41 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/scan-reports":
             reports = []
             if archie_dir.is_dir():
-                for f in sorted(archie_dir.glob("scan_report_*.md"), reverse=True):
-                    name = f.name
-                    # Extract date from scan_report_YYYY-MM-DD.md
-                    m = re.search(r"scan_report_(\d{4}-\d{2}-\d{2})\.md$", name)
-                    date_str = m.group(1) if m else ""
-                    reports.append({"filename": name, "date": date_str})
+                # Primary: scan_history/ directory (one file per scan)
+                history_dir = archie_dir / "scan_history"
+                if history_dir.is_dir():
+                    for f in sorted(history_dir.glob("*.md"), reverse=True):
+                        name = f"scan_history/{f.name}"
+                        # New format: scan_NNN_YYYY-MM-DDTHHMM.md
+                        m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})", f.name)
+                        if m:
+                            date_str = f"{m.group(1)} {m.group(2)}:{m.group(3)} UTC"
+                        else:
+                            # Old format: scan_NNN_YYYY-MM-DD.md
+                            m = re.search(r"(\d{4}-\d{2}-\d{2})", f.name)
+                            date_str = m.group(1) if m else ""
+                        reports.append({"filename": name, "date": date_str})
+                # Legacy: scan_report_*.md in .archie/ (older format)
+                if not reports:
+                    for f in sorted(archie_dir.glob("scan_report_*.md"), reverse=True):
+                        name = f.name
+                        m = re.search(r"scan_report_(\d{4}-\d{2}-\d{2})\.md$", name)
+                        date_str = m.group(1) if m else ""
+                        reports.append({"filename": name, "date": date_str})
+                # Fallback: scan_report.md (no history dir, no dated files)
+                if not reports:
+                    sr = archie_dir / "scan_report.md"
+                    if sr.exists():
+                        content = _read_text(sr)
+                        dm = re.search(r"(\d{4}-\d{2}-\d{2})", content)
+                        date_str = dm.group(1) if dm else ""
+                        reports.append({"filename": "scan_report.md", "date": date_str})
             self._send_json(reports)
 
         elif path.startswith("/api/scan-report/"):
             filename = path[len("/api/scan-report/"):]
             # Validate filename to prevent path traversal
-            if not re.match(r"^scan_report.*\.md$", filename) or "/" in filename or "\\" in filename:
+            if not re.match(r"^(scan_history/)?scan[\w_\-]*\.md$", filename) or ".." in filename or "\\" in filename:
                 self._send_error(400, "Invalid filename")
                 return
             report_path = archie_dir / filename
@@ -650,6 +679,13 @@ function renderReports() {
 
   function formatDate(dateStr) {
     if (!dateStr) return 'Unknown';
+    // Check if date includes time (e.g., "2026-04-12 15:23 UTC")
+    const timeMatch = dateStr.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})/);
+    if (timeMatch) {
+      const d = new Date(timeMatch[1] + 'T' + timeMatch[2] + ':' + timeMatch[3] + ':00Z');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }) + ' UTC';
+    }
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
@@ -1176,11 +1212,13 @@ function renderRules() {
       html += '<summary class="text-[10px] text-ink/30 cursor-pointer hover:text-ink/50">Mechanical check details</summary>';
       html += '<div class="mt-1 text-[10px] text-ink/40 font-mono">';
       html += 'check: ' + esc(check);
-      if (rule.forbidden_patterns && rule.forbidden_patterns.length) {
-        html += ', forbidden: ' + esc(rule.forbidden_patterns.join(', '));
+      if (rule.forbidden_patterns) {
+        const fp = Array.isArray(rule.forbidden_patterns) ? rule.forbidden_patterns : [rule.forbidden_patterns];
+        html += ', forbidden: ' + esc(fp.join(', '));
       }
-      if (rule.required_in_content && rule.required_in_content.length) {
-        html += ', required: ' + esc(rule.required_in_content.join(', '));
+      if (rule.required_in_content) {
+        const ric = Array.isArray(rule.required_in_content) ? rule.required_in_content : [rule.required_in_content];
+        html += ', required: ' + esc(ric.join(', '));
       }
       html += '</div>';
       html += '</details>';

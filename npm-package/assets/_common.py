@@ -7,7 +7,9 @@ Zero dependencies beyond Python 3.9+ stdlib.
 from __future__ import annotations
 
 import ast
+import fnmatch
 import json
+import os
 import re
 from pathlib import Path
 
@@ -23,11 +25,214 @@ SOURCE_EXTENSIONS = {
 SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
     ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "dist", "build", ".next", ".nuxt", ".svelte-kit",
+    "dist", "build", ".build", ".next", ".nuxt", ".svelte-kit",
     "coverage", ".nyc_output", ".turbo", ".parcel-cache",
-    "vendor", "Pods", ".gradle", ".idea", ".vscode",
+    "vendor", "Pods", "DerivedData", ".gradle", ".idea", ".vscode",
     ".archie", ".claude",
+    ".devenv",       # Nix devenv
+    ".swiftpm",      # Swift PM cache
+    ".pub-cache",    # Dart/Flutter
+    ".dart_tool",    # Dart
+    ".ccache",       # C/C++ compiler cache
 }
+
+# ── IgnoreMatcher ─────────────────────────────────────────────────────────
+
+
+class _IgnorePattern:
+    """A single parsed gitignore-style pattern."""
+
+    __slots__ = ("pattern", "is_dir_only", "is_rooted", "is_negation", "scope")
+
+    def __init__(self, raw: str, scope: str = ""):
+        """Parse a raw gitignore line into a structured pattern.
+
+        Args:
+            raw: The pattern string (already stripped of comments/blanks).
+            scope: Relative directory scope (empty string for root-level files).
+        """
+        self.scope = scope
+        self.is_negation = raw.startswith("!")
+        if self.is_negation:
+            raw = raw[1:]
+
+        self.is_dir_only = raw.endswith("/")
+        if self.is_dir_only:
+            raw = raw.rstrip("/")
+
+        # A pattern is "rooted" if it contains a / (after stripping trailing /)
+        # or starts with /. Leading / is removed after marking as rooted.
+        self.is_rooted = raw.startswith("/") or "/" in raw
+        if raw.startswith("/"):
+            raw = raw[1:]
+
+        # Strip leading **/ — it means "match at any depth" (same as unrooted)
+        if raw.startswith("**/"):
+            raw = raw[3:]
+            self.is_rooted = False
+
+        self.pattern = raw
+
+    def _matches_path(self, name: str, rel_parent: str) -> bool:
+        """Check whether this pattern matches the given name under rel_parent."""
+        # If the pattern is scoped (from a nested .gitignore), the rel_parent
+        # must be equal to or nested under the scope.
+        if self.scope:
+            if rel_parent != self.scope and not rel_parent.startswith(self.scope + "/"):
+                return False
+
+        if self.is_rooted:
+            # Rooted patterns match relative to their scope.
+            if self.scope:
+                # Remove scope prefix to get path relative to .gitignore dir
+                if rel_parent == self.scope:
+                    check_path = name
+                elif rel_parent.startswith(self.scope + "/"):
+                    sub = rel_parent[len(self.scope) + 1:]
+                    check_path = sub + "/" + name
+                else:
+                    return False
+            else:
+                check_path = (rel_parent + "/" + name) if rel_parent else name
+            return fnmatch.fnmatch(check_path, self.pattern)
+        else:
+            # Unrooted: match the basename at any depth
+            return fnmatch.fnmatch(name, self.pattern)
+
+    def matches_dir(self, dirname: str, rel_parent: str) -> bool:
+        """Check if this pattern matches a directory."""
+        # File-only patterns (not dir_only) with a glob like *.ext
+        # should not match directories. But plain names without glob
+        # can match dirs even without trailing /.
+        return self._matches_path(dirname, rel_parent)
+
+    def matches_file(self, filename: str, rel_parent: str) -> bool:
+        """Check if this pattern matches a file."""
+        if self.is_dir_only:
+            return False
+        return self._matches_path(filename, rel_parent)
+
+
+def _parse_ignore_file(path: Path, scope: str = "") -> list[_IgnorePattern]:
+    """Parse a gitignore-format file into a list of _IgnorePattern objects."""
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    patterns: list[_IgnorePattern] = []
+    for line in text.splitlines():
+        line = line.rstrip()
+        if not line or line.startswith("#"):
+            continue
+        patterns.append(_IgnorePattern(line, scope=scope))
+    return patterns
+
+
+def _collect_nested_gitignores(root: Path) -> list[_IgnorePattern]:
+    """Walk the tree and collect patterns from nested .gitignore files.
+
+    Root .gitignore is excluded (handled separately). Each nested
+    .gitignore's patterns are scoped to its directory.
+    """
+    patterns: list[_IgnorePattern] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Skip .git and other VCS dirs
+        dirnames[:] = [d for d in dirnames if d not in (".git",)]
+        rel = os.path.relpath(dirpath, root)
+        if rel == ".":
+            continue  # root .gitignore handled separately
+        if ".gitignore" in filenames:
+            scope = rel.replace(os.sep, "/")
+            patterns.extend(
+                _parse_ignore_file(Path(dirpath) / ".gitignore", scope=scope)
+            )
+    return patterns
+
+
+class IgnoreMatcher:
+    """Merge .archieignore + .gitignore patterns for file/directory filtering.
+
+    Usage with os.walk::
+
+        matcher = IgnoreMatcher(project_root)
+        for root, dirs, files in os.walk(project_root):
+            rel = os.path.relpath(root, project_root)
+            if rel == ".":
+                rel = ""
+            dirs[:] = [d for d in dirs if not matcher.should_skip_dir(d, rel)]
+            files = [f for f in files if not matcher.should_skip_file(f, rel)]
+    """
+
+    def __init__(self, root: str | Path):
+        root = Path(root)
+        self._root = root
+        self._patterns: list[_IgnorePattern] = []
+
+        # .archieignore takes priority and is always loaded
+        archieignore = root / ".archieignore"
+        self._patterns.extend(_parse_ignore_file(archieignore))
+
+        # .gitignore at root
+        gitignore = root / ".gitignore"
+        self._patterns.extend(_parse_ignore_file(gitignore))
+
+        # Nested .gitignore files
+        self._patterns.extend(_collect_nested_gitignores(root))
+
+    def _check(self, name: str, rel_parent: str, is_dir: bool) -> bool:
+        """Evaluate patterns in order — last matching pattern wins (git semantics)."""
+        matched = False
+        for pat in self._patterns:
+            if is_dir:
+                hit = pat.matches_dir(name, rel_parent)
+            else:
+                hit = pat.matches_file(name, rel_parent)
+            if hit:
+                matched = not pat.is_negation
+        return matched
+
+    def should_skip_dir(self, dirname: str, parent_rel: str) -> bool:
+        """Should this directory be pruned during os.walk?
+
+        Args:
+            dirname: The directory basename (e.g. "node_modules").
+            parent_rel: The relative path from project root to the parent
+                        directory (e.g. "" for root, "src/pkg" for nested).
+        """
+        return self._check(dirname, parent_rel, is_dir=True)
+
+    def should_skip_file(self, filename: str, parent_rel: str) -> bool:
+        """Should this file be skipped during os.walk?
+
+        Args:
+            filename: The file basename (e.g. "main.py").
+            parent_rel: The relative path from project root to the parent
+                        directory.
+        """
+        return self._check(filename, parent_rel, is_dir=False)
+
+    def is_ignored(self, rel_path: str) -> bool:
+        """Convenience: check if a relative path is ignored.
+
+        For directories, checks as a directory. For files, checks as a file.
+        If the path exists under root and is a directory, it's treated as a dir.
+        Otherwise treated as a file.
+        """
+        rel_path = rel_path.replace(os.sep, "/")
+        parts = rel_path.rsplit("/", 1)
+        if len(parts) == 2:
+            parent, name = parts
+        else:
+            parent, name = "", parts[0]
+
+        # Determine if it's a directory
+        full = self._root / rel_path
+        is_dir = full.is_dir()
+
+        return self._check(name, parent, is_dir=is_dir)
+
 
 # Regex decision-point patterns for non-Python languages.
 # NOTE: bare ``else`` is intentionally excluded — it is NOT a decision point
@@ -53,6 +258,42 @@ def _load_json(path: Path) -> dict | list:
         except (json.JSONDecodeError, OSError):
             pass
     return {}
+
+
+def normalize_blueprint(bp: dict) -> dict:
+    """Normalize blueprint to canonical schema. Safe to call multiple times.
+
+    Ensures:
+    - Dict sections (meta, components, decisions, etc.) are dicts
+    - components is always {"components": [...], ...} (wraps plain list)
+    - List sections (pitfalls, implementation_guidelines, etc.) are lists
+    - architecture_diagram exists as string
+    """
+    # Sections that must be dicts
+    for key in ("meta", "architecture_rules", "decisions",
+                "communication", "quick_reference", "technology", "frontend",
+                "deployment"):
+        val = bp.get(key)
+        if not isinstance(val, dict):
+            bp[key] = {} if val is None else {}
+
+    # Components: can arrive as list or {"components": [...]}
+    comps = bp.get("components")
+    if isinstance(comps, list):
+        bp["components"] = {"components": comps}
+    elif not isinstance(comps, dict):
+        bp["components"] = {"components": []}
+    elif "components" not in comps:
+        bp["components"]["components"] = []
+
+    # Sections that must be lists
+    for key in ("pitfalls", "implementation_guidelines", "development_rules"):
+        val = bp.get(key)
+        if not isinstance(val, list):
+            bp[key] = []
+
+    bp.setdefault("architecture_diagram", "")
+    return bp
 
 
 def _read_file(path: str) -> str | None:

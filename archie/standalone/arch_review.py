@@ -41,6 +41,11 @@ def _get_blueprint_context(root: Path) -> str:
                 title = d.get("title", "")
                 chosen = d.get("chosen", "")
                 parts.append(f"- **{title}**: {chosen}")
+            elif isinstance(d, str):
+                parts.append(f"- {d}")
+            else:
+                print(f"Warning: unexpected {type(d).__name__} in key_decisions, coercing", file=sys.stderr)
+                parts.append(f"- {str(d)}")
 
     # Trade-offs with violation signals
     trade_offs = decisions.get("trade_offs", [])
@@ -52,6 +57,11 @@ def _get_blueprint_context(root: Path) -> str:
                 signals = t.get("violation_signals", [])
                 if signals:
                     parts.append(f"- {accept} — signals: {', '.join(signals[:5])}")
+            elif isinstance(t, str):
+                parts.append(f"- {t}")
+            else:
+                print(f"Warning: unexpected {type(t).__name__} in trade_offs, coercing", file=sys.stderr)
+                parts.append(f"- {str(t)}")
 
     # Decision chain
     chain = decisions.get("decision_chain", {})
@@ -69,6 +79,9 @@ def _get_blueprint_context(root: Path) -> str:
                 parts.append(f"- {r.get('rule', '')}")
             elif isinstance(r, str):
                 parts.append(f"- {r}")
+            else:
+                print(f"Warning: unexpected {type(r).__name__} in development_rules, coercing", file=sys.stderr)
+                parts.append(f"- {str(r)}")
 
     # Component boundaries
     comps = bp.get("components", {})
@@ -81,6 +94,11 @@ def _get_blueprint_context(root: Path) -> str:
                 loc = c.get("location", "")
                 deps = c.get("depends_on", [])
                 parts.append(f"- **{name}** ({loc}) depends on: {', '.join(deps) if deps else 'none'}")
+            elif isinstance(c, str):
+                parts.append(f"- {c}")
+            else:
+                print(f"Warning: unexpected {type(c).__name__} in components, coercing", file=sys.stderr)
+                parts.append(f"- {str(c)}")
 
     return "\n".join(parts)
 

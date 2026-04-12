@@ -281,6 +281,7 @@ def install(project_root: Path) -> None:
         "Bash(git *)",
         "Bash(test *)",
         "Bash(cp *)",
+        "Bash(ls *)",
         "Bash(wc *)",
         "Bash(cat *)",
         "Bash(echo *)",
@@ -288,6 +289,7 @@ def install(project_root: Path) -> None:
         "Bash(mkdir *)",
         "Bash(date *)",
         "Bash(rm -f /tmp/archie_*)",
+        "Bash(rm -f .archie/health.json)",
         # Temp files for agent output
         "Write(//tmp/archie_*)",
         "Read(//tmp/archie_*)",

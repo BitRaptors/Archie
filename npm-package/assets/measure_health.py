@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -410,6 +411,65 @@ def main() -> None:
 
     repo = Path(sys.argv[1]).resolve()
     archie_dir = repo / ".archie"
+
+    # --append-history: read health.json, append entry to health_history.json, exit
+    if "--append-history" in sys.argv:
+        health_path = archie_dir / "health.json"
+        if not health_path.exists():
+            print(f"Error: {health_path} not found. Run measure_health first.", file=sys.stderr)
+            sys.exit(1)
+
+        with open(health_path, "r", encoding="utf-8") as f:
+            health = json.load(f)
+
+        # Determine scan type
+        scan_type = "deep"
+        if "--scan-type" in sys.argv:
+            idx = sys.argv.index("--scan-type")
+            if idx + 1 < len(sys.argv):
+                scan_type = sys.argv[idx + 1]
+
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "erosion": health.get("erosion"),
+            "gini": health.get("gini"),
+            "top20_share": health.get("top20_share"),
+            "verbosity": health.get("verbosity"),
+            "total_loc": health.get("total_loc"),
+            "scan_type": scan_type,
+        }
+
+        history_path = archie_dir / "health_history.json"
+        if history_path.exists():
+            with open(history_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            # Handle both list and dict formats
+            if isinstance(raw, list):
+                history = raw
+            elif isinstance(raw, dict) and "history" in raw:
+                history = raw["history"]
+            else:
+                history = []
+        else:
+            history = []
+
+        history.append(entry)
+
+        with open(history_path, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
+            f.write("\n")
+
+        # JSON entry to stdout
+        json.dump(entry, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+
+        # Summary to stderr
+        print(
+            f"Health history: appended entry #{len(history)} "
+            f"(erosion={entry['erosion']} gini={entry['gini']} scan_type={scan_type})",
+            file=sys.stderr,
+        )
+        sys.exit(0)
 
     skel_path = archie_dir / "skeletons.json"
     scan_path = archie_dir / "scan.json"

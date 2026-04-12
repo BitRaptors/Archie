@@ -10,7 +10,14 @@ Run a comprehensive architecture analysis. Produces full blueprint, per-folder C
 
 **Prerequisites:** Run `npx @bitraptors/archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` and try again.
 
-**IMPORTANT: Do NOT write inline Python scripts or bash one-liners. Every step uses a pre-installed script from `.archie/`. Just run the bash commands shown.**
+**CRITICAL CONSTRAINT: Never write inline Python.**
+Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
+- Normalize blueprint: `python3 .archie/finalize.py "$PROJECT_ROOT" --normalize-only`
+- Append health history: `python3 .archie/measure_health.py "$PROJECT_ROOT" --append-history --scan-type deep`
+- Inspect any JSON file: `python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" <filename>`
+- Query a specific field: `python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" scan.json --query .frontend_ratio`
+
+If you need data not covered by these commands, proceed without it or ask the user. NEVER improvise Python.
 
 ## Preamble: Determine starting step
 
@@ -62,6 +69,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
 **For every step below:**
 - If the step number < START_STEP, skip it entirely.
 - If SCAN_MODE is not set, it defaults to "full" (all existing behavior unchanged).
+- **Do NOT ask the user any questions during execution. Do NOT offer to skip, reduce scope, or present alternatives for any step. Execute every step fully as documented.**
 
 ## Detect sub-projects
 
@@ -806,6 +814,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 
 This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
 
+**Execute this step fully. Do NOT ask the user whether to run, skip, or reduce scope. Do NOT offer alternatives. Run all batches as instructed below.**
+
 ### If SCAN_MODE = "incremental":
 
 Only re-enrich folders containing changed files + their parent chain. Unchanged folders keep their existing CLAUDE.md.
@@ -846,6 +856,7 @@ mkdir -p "$PROJECT_ROOT/.archie/enrichments"
    ```bash
    python3 .archie/intent_layer.py suggest-batches "$PROJECT_ROOT" <ready1> <ready2> ...
    ```
+   Output is JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `batch_id`) to reference batches. Do NOT write ad-hoc Python to inspect this — use the output directly.
 
    d. For each batch, generate the prompt and spawn a subagent:
    ```bash
@@ -903,18 +914,7 @@ python3 .archie/measure_health.py "$PROJECT_ROOT" > "$PROJECT_ROOT/.archie/healt
 Save health scores to history for trending:
 
 ```bash
-python3 -c "
-import json
-from datetime import datetime, timezone
-health = json.load(open('$PROJECT_ROOT/.archie/health.json'))
-entry = {'timestamp': datetime.now(timezone.utc).isoformat(), 'erosion': health['erosion'], 'gini': health.get('gini', 0), 'top20_share': health.get('top20_share', 0), 'verbosity': health['verbosity'], 'total_loc': health.get('total_loc', 0), 'violations': 0, 'scan_type': 'deep'}
-history_path = '$PROJECT_ROOT/.archie/health_history.json'
-try: history = json.load(open(history_path))
-except: history = []
-history.append(entry)
-open(history_path, 'w').write(json.dumps(history, indent=2))
-print(f'Health: erosion={health[\"erosion\"]:.4f} verbosity={health[\"verbosity\"]:.4f}')
-"
+python3 .archie/measure_health.py "$PROJECT_ROOT" --append-history --scan-type deep
 ```
 
 ### Phase 1: Mechanical drift scan
