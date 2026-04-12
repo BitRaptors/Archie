@@ -4,6 +4,15 @@ Analyze this project's architectural health using parallel agents. Each scan evo
 
 **Prerequisites:** If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` first.
 
+**CRITICAL CONSTRAINT: Never write inline Python.**
+Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
+- Normalize blueprint: `python3 .archie/finalize.py "$PWD" --normalize-only`
+- Append health history: `python3 .archie/measure_health.py "$PWD" --append-history --scan-type fast`
+- Inspect any JSON file: `python3 .archie/intent_layer.py inspect "$PWD" <filename>`
+- Query a specific field: `python3 .archie/intent_layer.py inspect "$PWD" scan.json --query .frontend_ratio`
+
+If you need data not covered by these commands, proceed without it or ask the user. NEVER improvise Python.
+
 ---
 
 ## Phase 0: Scope Detection (monorepo/workspace check)
@@ -289,13 +298,7 @@ Write the evolved blueprint to `.archie/blueprint.json`.
 
 Then normalize it to ensure canonical schema:
 ```bash
-python3 -c "
-import json, sys; sys.path.insert(0, '.archie')
-from _common import normalize_blueprint
-bp = json.loads(open('.archie/blueprint.json').read())
-normalize_blueprint(bp)
-open('.archie/blueprint.json', 'w').write(json.dumps(bp, indent=2))
-"
+python3 .archie/finalize.py "$PWD" --normalize-only
 ```
 
 ### 4b: Write Scan Report
@@ -356,9 +359,9 @@ The report should include:
 
 ### 4c: Update Satellite Files
 
-Append health scores to `.archie/health_history.json`:
-```json
-{"timestamp": "ISO-8601", "erosion": 0.00, "gini": 0.00, "top20_share": 0.00, "verbosity": 0.00, "total_loc": 0, "scan_number": N, "scan_type": "fast"}
+Append health scores to history:
+```bash
+python3 .archie/measure_health.py "$PWD" --append-history --scan-type fast
 ```
 
 Save per-function complexity snapshot to `.archie/function_complexity.json`.
