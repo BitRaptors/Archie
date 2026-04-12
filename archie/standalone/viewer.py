@@ -1212,11 +1212,13 @@ function renderRules() {
       html += '<summary class="text-[10px] text-ink/30 cursor-pointer hover:text-ink/50">Mechanical check details</summary>';
       html += '<div class="mt-1 text-[10px] text-ink/40 font-mono">';
       html += 'check: ' + esc(check);
-      if (rule.forbidden_patterns && rule.forbidden_patterns.length) {
-        html += ', forbidden: ' + esc(rule.forbidden_patterns.join(', '));
+      if (rule.forbidden_patterns) {
+        const fp = Array.isArray(rule.forbidden_patterns) ? rule.forbidden_patterns : [rule.forbidden_patterns];
+        html += ', forbidden: ' + esc(fp.join(', '));
       }
-      if (rule.required_in_content && rule.required_in_content.length) {
-        html += ', required: ' + esc(rule.required_in_content.join(', '));
+      if (rule.required_in_content) {
+        const ric = Array.isArray(rule.required_in_content) ? rule.required_in_content : [rule.required_in_content];
+        html += ', required: ' + esc(ric.join(', '));
       }
       html += '</div>';
       html += '</details>';
