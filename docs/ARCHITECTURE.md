@@ -146,6 +146,10 @@ tests/                          # 22 test files, 2740 LOC
   test_serve_command.py         # CLI: serve
   test_check_command.py         # CLI: check
   test_refresh_e2e.py           # E2E: full refresh workflow
+  test_ignore_patterns.py       # IgnoreMatcher: .archieignore + .gitignore merge
+  test_health_append.py         # measure_health.py --append-history
+  test_normalize.py             # finalize.py --normalize-only
+  test_inspect.py               # intent_layer.py inspect subcommand
 
 .claude/
   commands/                     # Slash commands for Claude Code
@@ -242,7 +246,7 @@ class RawScan(BaseModel):
 
 | Step | Module | What it does |
 |------|--------|-------------|
-| 1 | `scanner.py` | Walk directory tree, skip `.git`, `node_modules`, `__pycache__`, `.venv`, build dirs, binary extensions |
+| 1 | `scanner.py` | Walk directory tree using `IgnoreMatcher` (`.archieignore` + `.gitignore` patterns, with `SKIP_DIRS` fallback). Skips vendored, cache, build, and binary files |
 | 2 | `dependencies.py` | Parse `requirements.txt`, `package.json`, `go.mod`, `Cargo.toml`, `pyproject.toml` |
 | 3 | `frameworks.py` | Match dependencies against known frameworks (React, FastAPI, Django, Express, etc.) with confidence scores and evidence |
 | 4 | `hasher.py` | SHA256 hash of every source file |
@@ -457,20 +461,20 @@ The `archie/standalone/` directory contains self-contained Python scripts (8500+
 |--------|-----|---------|
 | `scanner.py` | 851 | File tree, import graph, framework detection, skeleton extraction |
 | `renderer.py` | 953 | Blueprint JSON to CLAUDE.md, AGENTS.md, rule files |
-| `intent_layer.py` | 1187 | Per-folder CLAUDE.md via DAG scheduling + AI enrichment |
+| `intent_layer.py` | 1310 | Per-folder CLAUDE.md via DAG scheduling + AI enrichment. `inspect` subcommand for JSON file inspection |
 | `viewer.py` | 1470 | Interactive CLI blueprint inspector |
 | `drift.py` | 708 | Detect architectural drift since last scan |
 | `validate.py` | 524 | Cross-reference blueprint against actual codebase |
 | `check_rules.py` | 509 | Check files against rules (for CI pipelines) |
-| `measure_health.py` | 472 | Calculate erosion, gini, verbosity, top-20%, waste scores |
+| `measure_health.py` | 480 | Calculate erosion, gini, verbosity, top-20%, waste scores. `--append-history` flag for health history management |
 | `detect_cycles.py` | 383 | Find cycles in the import graph |
 | `merge.py` | 301 | Merge blueprint sections from multiple sources |
 | `install_hooks.py` | 283 | Install Claude Code hooks + permissions + register in settings.local.json |
 | `arch_review.py` | 263 | Architectural review checklist for plans and diffs |
 | `refresh.py` | 196 | File change detection (hash comparison) |
 | `extract_output.py` | 164 | Extract specific sections from blueprint |
-| `finalize.py` | 147 | Post-processing (clean up, normalize) |
-| `_common.py` | 112 | Shared utilities (JSON loading, error handling) |
+| `finalize.py` | 160 | Post-processing (clean up, `--normalize-only` for canonical schema enforcement) |
+| `_common.py` | 320 | Shared utilities (JSON loading, error handling, `IgnoreMatcher` for `.archieignore`+`.gitignore`, `normalize_blueprint()`) |
 
 ---
 
@@ -478,15 +482,17 @@ The `archie/standalone/` directory contains self-contained Python scripts (8500+
 
 ### Installer (`npm-package/bin/archie.mjs`)
 
-`npx @bitraptors/archie /path/to/project` performs:
+`npx @bitraptors/archie /path/to/project [--commands-dir dir]` performs:
 
-1. Clean previous install — removes old `.py` scripts from `.archie/`, old slash commands from `.claude/commands/`, old hooks from `.claude/hooks/`, and hook config from `.claude/settings.local.json`
-2. Create `.claude/commands/` and `.archie/` directories in the target project
-3. Copy 3 slash commands (archie-scan.md, archie-deep-scan.md, archie-viewer.md)
+1. Clean previous install — removes old `.py` scripts from `.archie/`, old slash commands from commands dir, old hooks from `.claude/hooks/`, and hook config from `.claude/settings.local.json`
+2. Create commands directory (default `.claude/commands/`) and `.archie/` directories in the target project
+3. Copy 3 slash commands (archie-scan.md, archie-deep-scan.md, archie-viewer.md) to commands dir
 4. Copy 16 standalone Python scripts to `.archie/`
 5. Copy `platform_rules.json` (predefined architectural checks)
-6. Run `python3 install_hooks.py` to set up 4 hooks, permissions, and `.gitignore` entries in `.claude/settings.local.json`
-7. Print installation summary
+6. Deliver `.archieignore` with default ignore patterns (only if not already present — preserves user customizations)
+7. Append `.gitignore` entries for installed tooling (scripts, commands, hooks, platform_rules, settings — idempotent, handles upgrade from older versions)
+8. Run `python3 install_hooks.py` to set up 4 hooks + 27 permissions in `.claude/settings.local.json`
+9. Print installation summary
 
 ### Assets (`npm-package/assets/`)
 
@@ -689,6 +695,39 @@ Both `/archie-scan` and `/archie-deep-scan` run cycle detection.
 
 ---
 
+## Ignore System
+
+The scanner uses `IgnoreMatcher` (in `_common.py`) to determine which files and directories to skip:
+
+1. **`.archieignore`** — Gitignore-format patterns delivered by the installer. Covers dependencies (`node_modules/`, `vendor/`, `.devenv/`), build outputs, IDE files, caches, and binary formats. Patterns without leading `/` match at any depth.
+2. **`.gitignore`** — Merged with `.archieignore` (union). Nested `.gitignore` files are scoped to their directory.
+3. **`SKIP_DIRS`** — Hardcoded fallback safety net in `_common.py` (30+ directories including `.devenv`, `.swiftpm`, `.pub-cache`, `.dart_tool`, `.ccache`).
+
+All three layers are combined during `os.walk()` — ignored directories are pruned in-place so their entire subtrees are never visited.
+
+## Blueprint Normalization
+
+`normalize_blueprint()` in `_common.py` enforces the canonical schema:
+- Dict sections (`meta`, `components`, `decisions`, etc.) are ensured to be dicts
+- `components` arriving as a plain list is wrapped into `{"components": [...]}`
+- List sections (`pitfalls`, `development_rules`, etc.) are ensured to be lists
+
+Both pipelines use it: deep-scan via `finalize.py`, fast scan via `finalize.py --normalize-only`.
+
+## No Inline Python Constraint
+
+Scan templates include a "CRITICAL CONSTRAINT: Never write inline Python" block that forbids `python3 -c "..."` during scans. Every operation has a dedicated CLI command:
+
+| Command | Replaces |
+|---------|----------|
+| `measure_health.py --append-history --scan-type fast\|deep` | Inline Python health history append |
+| `finalize.py --normalize-only` | Inline Python blueprint normalization |
+| `intent_layer.py inspect <file> [--query .key]` | Ad-hoc JSON inspection |
+
+This prevents crashes from Claude guessing wrong field names (e.g., `batch_id` vs `id`, `path` vs `id`).
+
+---
+
 ## Error Handling and Resilience
 
 | Scenario | Behavior |
@@ -717,7 +756,7 @@ python -m pytest --cov=archie tests/
 
 ### Test organization
 
-Tests mirror the package structure. Each module has a corresponding `test_*.py` file. 22 test files, 2740 LOC total. Tests use:
+Tests mirror the package structure. Each module has a corresponding `test_*.py` file. 26 test files, 3400+ LOC total. Tests use:
 
 - **Fixtures** — Common test repos (temp directories with known file structures)
 - **Mocking** — Subprocess calls mocked for runner tests, file system mocked where needed

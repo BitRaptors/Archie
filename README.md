@@ -16,9 +16,15 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 npx @bitraptors/archie /path/to/your/project
 ```
 
-This copies Archie's standalone scripts and Claude Code commands into your project, installs enforcement hooks, configures permissions, and sets up `.gitignore` entries. Then open your project in Claude Code.
+This copies Archie's standalone scripts and Claude Code commands into your project, installs enforcement hooks, configures permissions, delivers `.archieignore` (ignore patterns for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code.
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
+
+**Options:**
+```bash
+npx @bitraptors/archie /path/to/project --commands-dir .agents/skills
+```
+Use `--commands-dir` to install command files to a custom directory (default: `.claude/commands/`).
 
 ## Two Commands
 
@@ -318,7 +324,13 @@ There is also `/archie-viewer` for interactive blueprint inspection (6 tabs: Das
 
 ### Monorepo Support
 
-Deep scan auto-detects sub-projects (via Gradle, package.json, pyproject.toml, etc.) and offers parallel or sequential analysis. Each sub-project gets its own blueprint.
+Both scan commands auto-detect sub-projects (via Gradle, package.json, pyproject.toml, etc.) and present a scope selection: scan the entire repository, the current package, or a specific sub-project. Each scope gets its own `.archie/` directory.
+
+### Ignore Patterns
+
+Archie uses `.archieignore` (delivered with sensible defaults) merged with `.gitignore` to determine what to scan. Patterns use gitignore syntax — directory patterns like `node_modules/` match at any depth. The default `.archieignore` covers dependencies, caches, build outputs, IDE files, and binary formats.
+
+Claude can edit `.archieignore` on demand if you ask to include or exclude specific paths.
 
 ## What It Generates
 
@@ -331,7 +343,8 @@ Deep scan auto-detects sub-projects (via Gradle, package.json, pyproject.toml, e
 | `.archie/health_history.json` | Timestamped health snapshots for trend analysis |
 | `.archie/dependency_graph.json` | Resolved dependency graph with cycle detection |
 | `.archie/function_complexity.json` | Per-function cyclomatic complexity snapshot |
-| `.archie/scan_report.md` | Latest scan report (all reports preserved in `.archie/scan_history/`) |
+| `.archie/scan_report.md` | Latest scan report (all reports preserved in `.archie/scan_history/` with timestamps) |
+| `.archieignore` | Scanning ignore patterns (merged with `.gitignore`) |
 | `CLAUDE.md` | Root architecture context for Claude Code |
 | `AGENTS.md` | Multi-agent guidance with decision chains |
 | Per-folder `CLAUDE.md` | Directory-level context with patterns, anti-patterns, code examples |
@@ -342,7 +355,7 @@ Deep scan auto-detects sub-projects (via Gradle, package.json, pyproject.toml, e
 
 ### Deep Scan Pipeline (2-Wave)
 
-1. **Scanner** — Deterministic local analysis: file tree, import graph, framework detection, token counting, file hashing, skeleton extraction (class/function signatures for efficient AI context). Pure Python, no AI.
+1. **Scanner** — Deterministic local analysis: file tree, import graph, framework detection, token counting, file hashing, skeleton extraction (class/function signatures for efficient AI context). Respects `.archieignore` + `.gitignore` patterns. Pure Python, no AI.
 
 2. **Wave 1** (parallel) — 3-4 Sonnet agents gather facts simultaneously:
    - **Structure agent** — Components, layers, file placement rules
@@ -422,9 +435,11 @@ Each scan compares current scores against history to detect trends (improving, d
 
 ## Requirements
 
-- **Python 3.9+** for standalone scripts (installed via `npx @bitraptors/archie`, stdlib only)
+- **Python 3.9+** for standalone scripts (installed via `npx @bitraptors/archie`, stdlib only, zero pip dependencies)
 - **Node.js 18+** for `npx @bitraptors/archie` installer
 - **Claude Code** for `/archie-scan` and `/archie-deep-scan`
+
+The scan templates use only pre-installed CLI commands — no inline Python is generated during scans. Available commands include `--append-history`, `--normalize-only`, and `inspect` for JSON inspection.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentation.
 
@@ -440,7 +455,7 @@ archie/              Python package (CLI, engine, coordinator, hooks, renderer)
   rules/             Rule extraction and management
   standalone/        Zero-dependency scripts (copied to target projects via npm)
 npm-package/         NPM distribution (npx @bitraptors/archie)
-tests/               Pytest suite (22 files, 2700+ LOC)
+tests/               Pytest suite (26 files, 3400+ LOC)
 docs/                Architecture documentation
 .claude/commands/    Slash commands (archie-scan, archie-deep-scan, archie-viewer)
 .claude/skills/      Developer assistance skills
