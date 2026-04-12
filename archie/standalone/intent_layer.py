@@ -1113,7 +1113,7 @@ def cmd_inspect(root: Path, filename: str, query: str | None = None):
     if query:
         # Parse query: .key.subkey or .key|length
         has_length = query.endswith("|length")
-        path = query.rstrip("|length") if has_length else query
+        path = query[:-len("|length")] if has_length else query
         parts = [p for p in path.split(".") if p]
 
         obj = data
@@ -1121,8 +1121,9 @@ def cmd_inspect(root: Path, filename: str, query: str | None = None):
             if isinstance(obj, dict) and p in obj:
                 obj = obj[p]
             else:
-                print(f"Error: key '{p}' not found", file=sys.stderr)
-                sys.exit(1)
+                # Key not found — return null, not error
+                print("null")
+                return
 
         if has_length:
             if isinstance(obj, (list, dict)):
