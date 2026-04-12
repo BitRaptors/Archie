@@ -69,6 +69,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
 **For every step below:**
 - If the step number < START_STEP, skip it entirely.
 - If SCAN_MODE is not set, it defaults to "full" (all existing behavior unchanged).
+- **Do NOT ask the user any questions during execution. Do NOT offer to skip, reduce scope, or present alternatives for any step. Execute every step fully as documented.**
 
 ## Detect sub-projects
 
@@ -812,6 +813,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 **If START_STEP > 7, skip this step.**
 
 This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
+
+**Execute this step fully. Do NOT ask the user whether to run, skip, or reduce scope. Do NOT offer alternatives. Run all batches as instructed below.**
 
 ### If SCAN_MODE = "incremental":
 
