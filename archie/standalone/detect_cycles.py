@@ -357,7 +357,12 @@ def build_full_graph(root: Path) -> dict:
     if bp_path.exists():
         try:
             bp = json.loads(bp_path.read_text())
-            for comp in bp.get("components", {}).get("components", []):
+            comps = bp.get("components", [])
+            if isinstance(comps, dict):
+                comps = comps.get("components", [])
+            if not isinstance(comps, list):
+                comps = []
+            for comp in comps:
                 cp = comp.get("path", "")
                 cn = comp.get("name", "")
                 if cp and cn:
