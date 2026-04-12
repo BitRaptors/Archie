@@ -529,6 +529,16 @@ def cmd_suggest_batches(root: Path, ready_folders: list[str]):
             batches.append(current_batch)
 
     result = [{"id": f"w{i}", "folders": b} for i, b in enumerate(batches)]
+
+    # Summary to stderr
+    total_folders = sum(len(b["folders"]) for b in result)
+    print(f"Batches: {len(result)} batches, {total_folders} folders total", file=sys.stderr)
+    for b in result:
+        preview = ", ".join(b["folders"][:3])
+        if len(b["folders"]) > 3:
+            preview += f", ... (+{len(b['folders']) - 3} more)"
+        print(f"  {b['id']}: {len(b['folders'])} folders ({preview})", file=sys.stderr)
+
     print(json.dumps(result))
 
 
