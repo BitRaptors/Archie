@@ -104,12 +104,18 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
             if not data:
                 # Fallback to history summary (no functions/waste detail)
                 history = _load_json(archie_dir / "health_history.json")
+                # Handle both formats: plain list or {"history": [...]}
+                if isinstance(history, dict):
+                    history = history.get("history", [])
                 if isinstance(history, list) and history:
                     data = history[-1]
             self._send_json(data or {})
 
         elif path == "/api/health-history":
             data = _load_json(archie_dir / "health_history.json")
+            # Handle both formats: plain list or {"history": [...]}
+            if isinstance(data, dict):
+                data = data.get("history", [])
             if not isinstance(data, list):
                 data = []
             self._send_json(data)
@@ -117,18 +123,30 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/scan-reports":
             reports = []
             if archie_dir.is_dir():
+                # Check scan_report_*.md in .archie/ (legacy format)
                 for f in sorted(archie_dir.glob("scan_report_*.md"), reverse=True):
                     name = f.name
-                    # Extract date from scan_report_YYYY-MM-DD.md
                     m = re.search(r"scan_report_(\d{4}-\d{2}-\d{2})\.md$", name)
                     date_str = m.group(1) if m else ""
                     reports.append({"filename": name, "date": date_str})
+                # Check scan_report.md (current format, no date suffix)
+                sr = archie_dir / "scan_report.md"
+                if sr.exists() and not any(r["filename"] == "scan_report.md" for r in reports):
+                    reports.insert(0, {"filename": "scan_report.md", "date": "latest"})
+                # Check scan_history/ directory
+                history_dir = archie_dir / "scan_history"
+                if history_dir.is_dir():
+                    for f in sorted(history_dir.glob("*.md"), reverse=True):
+                        name = f"scan_history/{f.name}"
+                        m = re.search(r"(\d{4}-\d{2}-\d{2})", f.name)
+                        date_str = m.group(1) if m else ""
+                        reports.append({"filename": name, "date": date_str})
             self._send_json(reports)
 
         elif path.startswith("/api/scan-report/"):
             filename = path[len("/api/scan-report/"):]
             # Validate filename to prevent path traversal
-            if not re.match(r"^scan_report.*\.md$", filename) or "/" in filename or "\\" in filename:
+            if not re.match(r"^(scan_history/)?scan[_\-\d]*\.md$", filename) or ".." in filename or "\\" in filename:
                 self._send_error(400, "Invalid filename")
                 return
             report_path = archie_dir / filename
