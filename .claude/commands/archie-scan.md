@@ -289,9 +289,9 @@ Write the evolved blueprint to `.archie/blueprint.json`.
 
 ### 4b: Write Scan Report
 
-Get the current date and scan number from the blueprint (`meta.scan_count`):
+Get the current date/time and scan number from the blueprint (`meta.scan_count`):
 ```bash
-date -u +"%Y-%m-%d"
+date -u +"%Y-%m-%dT%H%M"
 ```
 
 Create the scan history directory if it doesn't exist:
@@ -299,12 +299,12 @@ Create the scan history directory if it doesn't exist:
 mkdir -p .archie/scan_history
 ```
 
-Write to `.archie/scan_history/scan_NNN_YYYY-MM-DD.md` (where NNN is the zero-padded scan number, e.g., `scan_003_2026-04-08.md`) and copy to `.archie/scan_report.md` (latest pointer).
+Write to `.archie/scan_history/scan_NNN_YYYY-MM-DDTHHMM.md` (where NNN is the zero-padded scan number, e.g., `scan_003_2026-04-08T1423.md`) and copy to `.archie/scan_report.md` (latest pointer).
 
 The report should include:
 ```markdown
 # Archie Scan Report
-> Scan #N | YYYY-MM-DD | X files analyzed | Y changed in last 7 days
+> Scan #N | YYYY-MM-DD HH:MM UTC | X files analyzed | Y changed in last 7 days
 
 ## Architecture Overview
 [5-10 lines from Agent A's analysis]

@@ -128,8 +128,14 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
                 if history_dir.is_dir():
                     for f in sorted(history_dir.glob("*.md"), reverse=True):
                         name = f"scan_history/{f.name}"
-                        m = re.search(r"(\d{4}-\d{2}-\d{2})", f.name)
-                        date_str = m.group(1) if m else ""
+                        # New format: scan_NNN_YYYY-MM-DDTHHMM.md
+                        m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})", f.name)
+                        if m:
+                            date_str = f"{m.group(1)} {m.group(2)}:{m.group(3)} UTC"
+                        else:
+                            # Old format: scan_NNN_YYYY-MM-DD.md
+                            m = re.search(r"(\d{4}-\d{2}-\d{2})", f.name)
+                            date_str = m.group(1) if m else ""
                         reports.append({"filename": name, "date": date_str})
                 # Legacy: scan_report_*.md in .archie/ (older format)
                 if not reports:
