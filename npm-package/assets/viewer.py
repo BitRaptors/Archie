@@ -132,7 +132,11 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
                 # Check scan_report.md (current format, no date suffix)
                 sr = archie_dir / "scan_report.md"
                 if sr.exists() and not any(r["filename"] == "scan_report.md" for r in reports):
-                    reports.insert(0, {"filename": "scan_report.md", "date": "latest"})
+                    # Try to extract date from file content
+                    content = _read_text(sr)
+                    dm = re.search(r"(\d{4}-\d{2}-\d{2})", content)
+                    date_str = dm.group(1) if dm else ""
+                    reports.insert(0, {"filename": "scan_report.md", "date": date_str})
                 # Check scan_history/ directory
                 history_dir = archie_dir / "scan_history"
                 if history_dir.is_dir():
@@ -146,7 +150,7 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path.startswith("/api/scan-report/"):
             filename = path[len("/api/scan-report/"):]
             # Validate filename to prevent path traversal
-            if not re.match(r"^(scan_history/)?scan[_\-\d]*\.md$", filename) or ".." in filename or "\\" in filename:
+            if not re.match(r"^(scan_history/)?scan[\w_\-]*\.md$", filename) or ".." in filename or "\\" in filename:
                 self._send_error(400, "Invalid filename")
                 return
             report_path = archie_dir / filename
