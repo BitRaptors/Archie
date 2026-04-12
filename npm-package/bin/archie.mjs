@@ -135,16 +135,21 @@ if (!existsSync(archieignoreDest) && existsSync(archieignoreSrc)) {
 
 // 3d. Add .gitignore entries for Archie scripts (idempotent)
 const gitignorePath = join(projectRoot, ".gitignore");
-const archieGitignoreBlock = `\n# Archie (installed scripts — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n`;
+const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/hooks/\n.claude/settings.local.json\n`;
 
 let gitignoreContent = "";
 if (existsSync(gitignorePath)) {
   gitignoreContent = readFileSync(gitignorePath, "utf8");
 }
 
-if (!gitignoreContent.includes("# Archie")) {
+if (gitignoreContent.includes("# Archie")) {
+  // Replace existing Archie block (upgrade path)
+  gitignoreContent = gitignoreContent.replace(/\n?# Archie[^\n]*\n(?:[^\n#]*\n)*/m, archieGitignoreBlock);
+  writeFileSync(gitignorePath, gitignoreContent);
+  console.log(`  ${GREEN}✓${RESET} .gitignore updated (Archie section refreshed)`);
+} else {
   writeFileSync(gitignorePath, gitignoreContent + archieGitignoreBlock);
-  console.log(`  ${GREEN}✓${RESET} .gitignore updated (Archie scripts ignored)`);
+  console.log(`  ${GREEN}✓${RESET} .gitignore updated (Archie tooling ignored)`);
 }
 
 // 4. Check Python and run install_hooks.py (sets up hooks + permissions)
