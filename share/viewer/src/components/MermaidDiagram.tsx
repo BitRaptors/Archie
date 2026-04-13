@@ -25,14 +25,20 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
             theme: 'base',
             themeVariables: {
               background: 'transparent',
-              primaryColor: '#CEEEF6',
-              primaryTextColor: '#023047',
-              primaryBorderColor: '#219EBC',
-              lineColor: '#219EBC',
-              secondaryColor: '#FFB703',
-              tertiaryColor: '#FB8500',
-              fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+              primaryColor: '#CEEEF6',      // teal-50
+              primaryTextColor: '#023047',  // ink
+              primaryBorderColor: '#219EBC', // teal
+              lineColor: '#219EBC',         // teal
+              secondaryColor: '#FFB703',    // tangerine
+              tertiaryColor: '#FB8500',     // brandy
+              fontFamily: 'Outfit, Inter, ui-sans-serif, system-ui, sans-serif',
               fontSize: '14px',
+              mainBkg: '#FFFFFF',
+              nodeBorder: '#219EBC',
+              clusterBkg: '#E8F4FA',        // papaya-50
+              clusterBorder: '#8ECAE6',     // papaya
+              titleColor: '#023047',
+              edgeLabelBackground: '#FFFFFF',
             },
             securityLevel: 'loose',
             suppressErrorUI: true,

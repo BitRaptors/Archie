@@ -92,6 +92,18 @@
   @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40 transition-colors;
 }
 
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-ink/5 rounded-full hover:bg-ink/10 transition-colors;
+}
+
 /* Hide Mermaid Error Leakage and persistings */
 div[id^="d-mermaid"],
 div[id*="mermaid-error"],

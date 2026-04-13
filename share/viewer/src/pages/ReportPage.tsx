@@ -1,20 +1,20 @@
-import { useEffect, useState } from 'react'
+
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Copy, Check, ExternalLink, ChevronRight } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, FileText, AlertTriangle, HelpCircle } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
+import { parseNavigation, generateId, filterReportSections } from '@/lib/toc'
+import * as Sections from '@/components/ReportSections'
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
-
-type Any = any
 
 export default function ReportPage() {
   const { token } = useParams<{ token: string }>()
@@ -22,6 +22,11 @@ export default function ReportPage() {
   const [createdAt, setCreatedAt] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [activeSection, setActiveSection] = useState('')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+
+  const contentRef = useRef<HTMLDivElement>(null)
+  const scrollingToRef = useRef(false)
 
   useEffect(() => {
     if (!token) return
@@ -33,6 +38,75 @@ export default function ReportPage() {
       .catch((e) => setError(e.message))
   }, [token])
 
+  const bp = bundle?.blueprint || {}
+  const meta = bp.meta || {}
+  const diagram: string = typeof bp.architecture_diagram === 'string' ? bp.architecture_diagram : bp.architecture_diagram?.mermaid || ''
+  
+  const filteredReport = useMemo(() => {
+    if (!bundle?.scan_report) return ''
+    return filterReportSections(bundle.scan_report, ['Findings', 'Next task', 'Next steps', 'Rules', 'Architecture Rules', 'Guidelines'])
+  }, [bundle?.scan_report])
+
+  const toc = useMemo(() => {
+    if (!filteredReport) return []
+    return parseNavigation(filteredReport)
+  }, [filteredReport])
+
+  // Scroll sync logic
+  useEffect(() => {
+    const container = contentRef.current
+    if (!container || toc.length === 0) return
+
+    const handleScroll = () => {
+      if (scrollingToRef.current) return
+      
+      const elements = container.querySelectorAll('[id]')
+      let current = ''
+      const offset = 150
+      
+      for (const el of Array.from(elements)) {
+        // Only track elements that are direct children of the content container or are headings inside the findings section
+        const isTopLevel = el.parentElement === container || el.parentElement?.parentElement === container
+        const isHeading = el.tagName === 'H2' || el.tagName === 'H3'
+        
+        if (!isTopLevel && !isHeading) continue
+
+        const rect = el.getBoundingClientRect()
+        if (rect.top <= offset) {
+          current = el.id
+        }
+      }
+      if (current) setActiveSection(current)
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [toc])
+
+  const scrollToSection = (id: string) => {
+    const element = document.getElementById(id)
+    if (!element) return
+    
+    scrollingToRef.current = true
+    setActiveSection(id)
+    setIsSidebarOpen(false)
+
+    const offset = 100
+    const bodyRect = document.body.getBoundingClientRect().top
+    const elementRect = element.getBoundingClientRect().top
+    const elementPosition = elementRect - bodyRect
+    const offsetPosition = elementPosition - offset
+
+    window.scrollTo({
+      top: offsetPosition,
+      behavior: 'smooth'
+    })
+
+    setTimeout(() => {
+      scrollingToRef.current = false
+    }, 800)
+  }
+
   const copyInstall = async () => {
     await navigator.clipboard.writeText(INSTALL_CMD)
     setCopied(true)
@@ -41,17 +115,21 @@ export default function ReportPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8">
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle>Report not found</CardTitle>
+      <div className="min-h-screen flex items-center justify-center p-8 bg-gradient-to-br from-papaya-50 to-teal-50/20">
+        <Card className="max-w-md border-brandy/20 shadow-2xl shadow-brandy/5 rounded-3xl overflow-hidden">
+          <CardHeader className="bg-brandy/5 border-b border-brandy/10 p-8">
+            <div className="w-12 h-12 rounded-2xl bg-brandy/10 flex items-center justify-center mb-4">
+               <AlertTriangle className="text-brandy w-6 h-6" />
+            </div>
+            <CardTitle className="text-ink decoration-brandy underline-offset-4 decoration-2">Report Expired or Invalid</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground mb-4">
-              This shared blueprint may have been removed, or the URL is incorrect.
+          <CardContent className="p-8">
+            <p className="text-ink/60 mb-8 leading-relaxed">
+              We couldn't find the blueprint you're looking for. It may have been deleted or the link might be broken.
             </p>
-            <Link to="/" className="text-teal hover:underline">
-              ← Back home
+            <Link to="/" className="inline-flex items-center gap-2 font-bold text-teal hover:text-teal-700 transition-colors group">
+              <ChevronRight className="w-4 h-4 rotate-180 group-hover:-translate-x-1 transition-transform" />
+              Return to Archie
             </Link>
           </CardContent>
         </Card>
@@ -61,922 +139,568 @@ export default function ReportPage() {
 
   if (!bundle) {
     return (
-      <div className="min-h-screen p-8 space-y-4 max-w-5xl mx-auto">
-        <Skeleton className="h-10 w-1/2" />
-        <Skeleton className="h-4 w-3/4" />
-        <Skeleton className="h-64 w-full" />
+      <div className="min-h-screen bg-white">
+        <div className="fixed inset-y-0 left-0 w-64 border-r border-papaya-300 hidden lg:block p-8 space-y-6">
+           <Skeleton className="h-8 w-32 rounded-lg" />
+           <div className="space-y-4 pt-8">
+             <Skeleton className="h-4 w-full" />
+             <Skeleton className="h-4 w-4/5" />
+             <Skeleton className="h-4 w-full" />
+             <Skeleton className="h-4 w-3/4" />
+           </div>
+        </div>
+        <div className="lg:ml-64 p-8 md:p-12 lg:p-20 space-y-12 max-w-5xl">
+          <header className="space-y-4">
+             <Skeleton className="h-4 w-24" />
+             <Skeleton className="h-12 w-3/4" />
+             <Skeleton className="h-6 w-1/2" />
+          </header>
+          <Skeleton className="h-[400px] w-full rounded-3xl" />
+          <div className="grid grid-cols-3 gap-6">
+             <Skeleton className="h-32 rounded-2xl" />
+             <Skeleton className="h-32 rounded-2xl" />
+             <Skeleton className="h-32 rounded-2xl" />
+          </div>
+        </div>
       </div>
     )
   }
 
-  const bp = bundle.blueprint || {}
-  const meta = bp.meta || {}
-  const componentsList: Any[] = bp.components?.components || []
-  const decisions = bp.decisions || {}
-  const keyDecisions: Any[] = decisions.key_decisions || []
-  const tradeOffs: Any[] = decisions.trade_offs || []
-  const outOfScope: Any[] = decisions.out_of_scope || []
-  const archStyleObj = decisions.architectural_style
+  const componentsList = bp.components?.components || []
+  const keyDecisions = bp.decisions?.key_decisions || []
+  const tradeOffs = bp.decisions?.trade_offs || []
+  const pitfalls = Array.isArray(bp.pitfalls) ? bp.pitfalls : []
   const archRules = bp.architecture_rules || {}
-  const filePlacement: Any[] = archRules.file_placement_rules || []
-  const naming: Any[] = archRules.naming_conventions || []
-  const tech = bp.technology || {}
-  const techStack: Any[] = Array.isArray(tech.stack) ? tech.stack : []
-  const runCommands: Record<string, string> = tech.run_commands && typeof tech.run_commands === 'object' ? tech.run_commands : {}
-  const communication = bp.communication || {}
-  const pitfalls: Any[] = Array.isArray(bp.pitfalls) ? bp.pitfalls : []
-  const implGuidelines: Any[] = Array.isArray(bp.implementation_guidelines) ? bp.implementation_guidelines : []
-  const devRules: Any[] = Array.isArray(bp.development_rules) ? bp.development_rules : []
+  const filePlacement = archRules.file_placement_rules || []
+  const naming = archRules.naming_conventions || []
+  const technology = bp.technology || {}
+  const stack = Array.isArray(technology.stack) ? technology.stack : []
+  const runCommands = technology.run_commands || {}
   const deployment = bp.deployment || {}
-  const diagram: string = typeof bp.architecture_diagram === 'string' ? bp.architecture_diagram : bp.architecture_diagram?.mermaid || ''
+  const implementationGuidelines = [
+    ...(bp.decisions?.implementation_guidelines || []),
+    ...(bp.guidelines || []),
+    ...(archRules.guidelines || [])
+  ]
+  const developmentRules = [
+    ...(archRules.development_rules || []),
+    ...(bp.development_rules || [])
+  ]
+  const communications = [
+    ...(bp.communications || []),
+    ...(archRules.communications || [])
+  ]
 
   return (
-    <div className="min-h-screen">
-      <div className="max-w-5xl mx-auto p-6 md:p-10 space-y-8">
-        <header className="space-y-3">
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <Link to="/" className={cn('hover:underline', theme.brand.title)}>
-              Archie
-            </Link>
-            <span>/</span>
-            <span>shared blueprint</span>
-            {createdAt && (
-              <span className="ml-auto text-xs">
-                {new Date(createdAt).toLocaleDateString()}
-              </span>
+    <div className="min-h-screen bg-gradient-to-br from-papaya-50 via-white to-teal-50/10 text-ink scroll-smooth">
+      {/* Mobile Header */}
+      <header className="lg:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-papaya-300 px-6 py-4 flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-teal flex items-center justify-center">
+            <Activity className="text-white w-5 h-5" />
+          </div>
+          <span className="font-black tracking-tight text-xl">Archie</span>
+        </Link>
+        <button onClick={() => setIsSidebarOpen(true)} className="p-2 -mr-2">
+          <Menu className="w-6 h-6" />
+        </button>
+      </header>
+
+      {/* Sidebar Navigation */}
+      <aside 
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 w-72 bg-white/50 backdrop-blur-2xl border-r border-papaya-300 transition-transform duration-300 lg:translate-x-0 overflow-hidden flex flex-col",
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <div className="p-8 flex items-center justify-between shrink-0">
+          <Link to="/" className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal shadow-lg shadow-teal/20 flex items-center justify-center">
+               <Activity className="text-white w-6 h-6" />
+            </div>
+            <div>
+              <span className="font-black tracking-tight text-2xl block leading-none">Archie</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-teal/40 mt-1 block">Blueprint Viewer</span>
+            </div>
+          </Link>
+          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 -mr-2 text-ink/40 hover:text-ink">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+          {/* Main Sections */}
+          <div className="space-y-1">
+            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Core Analysis</p>
+            <NavButton 
+              active={activeSection === 'summary'} 
+              onClick={() => scrollToSection('summary')} 
+              icon={Info} 
+              label="Executive Summary" 
+            />
+            <NavButton 
+              active={activeSection === 'health'} 
+              onClick={() => scrollToSection('health')} 
+              icon={Activity} 
+              label="System Health" 
+            />
+            {diagram && (
+               <NavButton 
+                active={activeSection === 'diagram'} 
+                onClick={() => scrollToSection('diagram')} 
+                icon={Layout} 
+                label="Arch Diagram" 
+              />
+            )}
+            {componentsList.length > 0 && (
+              <NavButton 
+                active={activeSection === 'components'} 
+                onClick={() => scrollToSection('components')} 
+                icon={Database} 
+                label={`Components (${componentsList.length})`} 
+              />
             )}
           </div>
-          <h1 className="text-3xl md:text-4xl font-bold">
-            {meta.repository || 'Architecture Blueprint'}
-          </h1>
-          {Array.isArray(meta.platforms) && meta.platforms.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {meta.platforms.map((p: string) => (
-                <Badge key={p} className={theme.active.badge}>
-                  {p}
-                </Badge>
-              ))}
-            </div>
-          )}
-          {meta.executive_summary && (
-            <div className="prose prose-sm max-w-none mt-4">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{meta.executive_summary}</ReactMarkdown>
-            </div>
-          )}
-          {meta.architecture_style && (
-            <details className="mt-2 group">
-              <summary className="cursor-pointer text-sm font-medium text-teal hover:underline inline-flex items-center gap-1">
-                <ChevronRight className="w-4 h-4 group-open:rotate-90 transition-transform" />
-                Architecture style
-              </summary>
-              <div className="prose prose-sm max-w-none mt-2 text-muted-foreground">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{meta.architecture_style}</ReactMarkdown>
-              </div>
-            </details>
-          )}
-        </header>
-
-        {bundle.scan_meta && <ScanOverview scanMeta={bundle.scan_meta} />}
-
-        {bundle.scan_report && <ScanReportSection markdown={bundle.scan_report} />}
-
-        {bundle.health && <HealthSection health={bundle.health} />}
-
-        {diagram && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Architecture diagram</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MermaidDiagram chart={diagram} />
-              <details className="mt-4 text-xs">
-                <summary className="cursor-pointer text-muted-foreground">View source</summary>
-                <pre className={cn('mt-2 p-3 rounded overflow-x-auto', theme.console.bg, theme.console.text)}>
-                  {diagram}
-                </pre>
-              </details>
-            </CardContent>
-          </Card>
-        )}
-
-        {archStyleObj && <ArchitecturalStyle style={archStyleObj} />}
-
-        {componentsList.length > 0 && <ComponentsSection components={componentsList} />}
-
-        {keyDecisions.length > 0 && <KeyDecisionsSection decisions={keyDecisions} />}
-
-        {tradeOffs.length > 0 && <TradeOffsSection tradeoffs={tradeOffs} />}
-
-        {outOfScope.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Out of scope</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="text-sm space-y-1 list-disc pl-5 text-muted-foreground">
-                {outOfScope.map((item: Any, i: number) => (
-                  <li key={i}>{typeof item === 'string' ? item : item.item || JSON.stringify(item)}</li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        )}
-
-        {pitfalls.length > 0 && <PitfallsSection pitfalls={pitfalls} />}
-
-        {(bundle.rules_adopted || bundle.rules_proposed) && (
-          <RulesSection adopted={bundle.rules_adopted} proposed={bundle.rules_proposed} />
-        )}
-
-        {(filePlacement.length > 0 || naming.length > 0) && (
-          <ArchRulesSection filePlacement={filePlacement} naming={naming} />
-        )}
-
-        {(techStack.length > 0 || Object.keys(runCommands).length > 0) && (
-          <TechnologySection stack={techStack} runCommands={runCommands} />
-        )}
-
-        {(communication.patterns || communication.integrations) && (
-          <CommunicationSection communication={communication} />
-        )}
-
-        {implGuidelines.length > 0 && <ImplementationGuidelinesSection items={implGuidelines} />}
-
-        {devRules.length > 0 && <DevelopmentRulesSection rules={devRules} />}
-
-        {Object.keys(deployment).length > 0 && <DeploymentSection deployment={deployment} />}
-
-        <footer className={cn('border-t mt-12 pt-8 pb-12 text-center', theme.surface.dividerStrong)}>
-          <h3 className={cn('text-lg font-semibold mb-2', theme.brand.title)}>
-            Get this for your codebase
-          </h3>
-          <p className="text-muted-foreground mb-4">
-            Senior-architect-level analysis of your own codebase. Takes 3 minutes.
-          </p>
-          <div
-            className={cn(
-              'rounded-lg p-4 font-mono text-sm inline-flex items-center gap-3',
-              theme.console.bg,
-              theme.console.text
-            )}
-          >
-            <code>{INSTALL_CMD}</code>
-            <button onClick={copyInstall} className="hover:opacity-80 transition-opacity" title="Copy">
-              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            </button>
-          </div>
-          <div className="mt-4">
-            <a
-              href="https://github.com/BitRaptors/Archie"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-teal"
-            >
-              Learn more <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: Any }) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground uppercase tracking-wide">{label}</div>
-      <div className="text-xl font-semibold mt-1">{value ?? '—'}</div>
-    </div>
-  )
-}
-
-function ScanOverview({ scanMeta }: { scanMeta: Any }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Scan overview</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-          <Stat label="Files" value={scanMeta.total_files?.toLocaleString?.() ?? scanMeta.total_files} />
-          <Stat
-            label="Frontend ratio"
-            value={`${Math.round((scanMeta.frontend_ratio || 0) * 100)}%`}
-          />
-          <Stat label="Subprojects" value={scanMeta.subprojects?.length ?? 0} />
-        </div>
-        {Array.isArray(scanMeta.frameworks) && scanMeta.frameworks.length > 0 && (
-          <div className="mt-4">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Frameworks</div>
-            <div className="flex flex-wrap gap-2">
-              {scanMeta.frameworks.map((f: Any, i: number) => (
-                <Badge key={i} variant="outline">
-                  {f.name}
-                  {f.version ? ` ${f.version}` : ''}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
-        {Array.isArray(scanMeta.subprojects) && scanMeta.subprojects.length > 0 && (
-          <div className="mt-4">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Subprojects</div>
-            <div className="flex flex-wrap gap-2">
-              {scanMeta.subprojects.map((s: Any, i: number) => (
-                <Badge key={i} variant="outline">
-                  {s.name}
-                  {s.type ? ` · ${s.type}` : ''}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function HealthSection({ health }: { health: Any }) {
-  const erosionPct = Math.round((health.erosion || 0) * 100)
-  const giniPct = Math.round((health.gini || 0) * 100)
-  const top20Pct = Math.round((health.top20_share || 0) * 100)
-  const verbosityPct = Math.round((health.verbosity || 0) * 100)
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Health</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <HealthBar label="Erosion" value={erosionPct} inverted />
-        <HealthBar label="Concentration (Gini)" value={giniPct} inverted />
-        <HealthBar label="Top-20% share" value={top20Pct} inverted />
-        <HealthBar label="Verbosity" value={verbosityPct} inverted />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm pt-2 border-t">
-          <Stat label="LOC" value={health.total_loc?.toLocaleString() ?? '—'} />
-          <Stat label="Functions" value={health.total_functions ?? '—'} />
-          <Stat label="High-CC" value={health.high_cc_functions ?? '—'} />
-          <Stat label="Duplicate lines" value={health.duplicate_lines ?? '—'} />
-        </div>
-        {Array.isArray(health.top_high_cc) && health.top_high_cc.length > 0 && (
-          <div className="pt-2">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
-              Top high-complexity functions
-            </div>
-            <div className="text-sm space-y-1">
-              {health.top_high_cc.map((f: Any, i: number) => (
-                <div key={i} className="flex items-start gap-2 font-mono text-xs">
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      'shrink-0 text-xs',
-                      f.cc >= 20 ? 'border-brandy text-brandy' : 'border-tangerine text-tangerine-800'
-                    )}
-                  >
-                    CC {f.cc}
-                  </Badge>
-                  <span className="truncate">
-                    <span className="font-semibold">{f.name}</span>{' '}
-                    <span className="text-muted-foreground">
-                      {f.path}
-                      {f.line ? `:${f.line}` : ''}
-                    </span>
-                    {f.sloc ? <span className="text-muted-foreground"> · {f.sloc} sloc</span> : null}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {Array.isArray(health.top_duplicates) && health.top_duplicates.length > 0 && (
-          <div className="pt-2">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
-              Largest duplicate blocks
-            </div>
-            <ul className="text-sm space-y-1">
-              {health.top_duplicates.map((d: Any, i: number) => (
-                <li key={i} className="text-xs">
-                  <Badge variant="outline" className="mr-2">{d.lines} lines</Badge>
-                  <span className="font-mono text-muted-foreground">
-                    {(d.locations || []).join(', ')}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function ScanReportSection({ markdown }: { markdown: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Scan report</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="prose prose-sm max-w-none prose-headings:scroll-mt-20 prose-table:text-sm">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function HealthBar({ label, value, inverted }: { label: string; value: number; inverted?: boolean }) {
-  const good = inverted ? value < 30 : value >= 70
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1">
-        <span>{label}</span>
-        <span className={good ? 'text-teal font-medium' : 'text-brandy font-medium'}>{value}%</span>
-      </div>
-      <Progress value={value} />
-    </div>
-  )
-}
-
-function ArchitecturalStyle({ style }: { style: Any }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{style.title || 'Architectural style'}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        {style.chosen && (
-          <div>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Chosen</div>
-            <p>{style.chosen}</p>
-          </div>
-        )}
-        {style.rationale && (
-          <div>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Rationale</div>
-            <p className="text-muted-foreground">{style.rationale}</p>
-          </div>
-        )}
-        {Array.isArray(style.alternatives_rejected) && style.alternatives_rejected.length > 0 && (
-          <div>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
-              Alternatives rejected
-            </div>
-            <ul className="list-disc pl-5 text-muted-foreground space-y-1">
-              {style.alternatives_rejected.map((a: string, i: number) => (
-                <li key={i}>{a}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function ComponentsSection({ components }: { components: Any[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Components ({components.length})</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {components.map((c: Any, i: number) => (
-          <details key={i} className="border-l-2 border-teal pl-4 pb-2 group">
-            <summary className="cursor-pointer">
-              <div className="inline-flex items-center gap-2 flex-wrap">
-                <ChevronRight className="w-4 h-4 inline group-open:rotate-90 transition-transform" />
-                <span className="font-semibold">{c.name}</span>
-                {c.platform && (
-                  <Badge variant="outline" className="text-xs">
-                    {c.platform}
-                  </Badge>
-                )}
-                {c.location && (
-                  <code className="text-xs text-muted-foreground">{c.location}</code>
-                )}
-              </div>
-            </summary>
-            <div className="mt-2 space-y-2 text-sm ml-6">
-              {c.responsibility && <p className="text-muted-foreground">{c.responsibility}</p>}
-              {Array.isArray(c.key_files) && c.key_files.length > 0 && (
-                <FieldList
-                  label="Key files"
-                  items={c.key_files.map((kf: Any) =>
-                    typeof kf === 'string' ? kf : `${kf.file}${kf.description ? ` — ${kf.description}` : ''}`
-                  )}
+          {/* Deep Dive (Decisions, Trade-offs, Pitfalls) */}
+          {(keyDecisions.length > 0 || tradeOffs.length > 0 || pitfalls.length > 0) && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Strategic Insight</p>
+              {keyDecisions.length > 0 && (
+                <NavButton 
+                  active={activeSection === 'decisions'} 
+                  onClick={() => scrollToSection('decisions')} 
+                  icon={Shield} 
+                  label="Key Decisions" 
                 />
               )}
-              {Array.isArray(c.depends_on) && c.depends_on.length > 0 && (
-                <FieldList label="Depends on" items={c.depends_on} mono />
+              {tradeOffs.length > 0 && (
+                <NavButton 
+                  active={activeSection === 'tradeoffs'} 
+                  onClick={() => scrollToSection('tradeoffs')} 
+                  icon={Activity} 
+                  label="Trade-offs" 
+                />
               )}
-              {Array.isArray(c.exposes_to) && c.exposes_to.length > 0 && (
-                <FieldList label="Exposes to" items={c.exposes_to} mono />
-              )}
-              {Array.isArray(c.key_interfaces) && c.key_interfaces.length > 0 && (
-                <FieldList label="Key interfaces" items={c.key_interfaces} mono />
-              )}
-            </div>
-          </details>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
-function FieldList({ label, items, mono }: { label: string; items: Any[]; mono?: boolean }) {
-  return (
-    <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">{label}</div>
-      <ul className="list-disc pl-5 space-y-0.5">
-        {items.map((it: Any, i: number) => (
-          <li key={i} className={mono ? 'font-mono text-xs' : ''}>
-            {typeof it === 'string' ? it : JSON.stringify(it)}
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function KeyDecisionsSection({ decisions }: { decisions: Any[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Key decisions</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        {decisions.map((d: Any, i: number) => (
-          <div key={i} className="pb-4 border-b last:border-b-0 last:pb-0">
-            <h3 className="font-semibold">{d.title}</h3>
-            {d.chosen && <p className="text-sm mt-1">{d.chosen}</p>}
-            {d.rationale && (
-              <p className="text-sm text-muted-foreground mt-2">
-                <strong className="text-foreground">Why:</strong> {d.rationale}
-              </p>
-            )}
-            <div className="grid md:grid-cols-2 gap-3 mt-3 text-sm">
-              {d.forced_by && (
-                <div>
-                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Forced by:</span>
-                  <p>{d.forced_by}</p>
-                </div>
-              )}
-              {d.enables && (
-                <div>
-                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Enables:</span>
-                  <p>{d.enables}</p>
-                </div>
+              {pitfalls.length > 0 && (
+                <NavButton 
+                  active={activeSection === 'pitfalls'} 
+                  onClick={() => scrollToSection('pitfalls')} 
+                  icon={AlertTriangle} 
+                  label="Pitfalls" 
+                />
               )}
             </div>
-            {Array.isArray(d.alternatives_rejected) && d.alternatives_rejected.length > 0 && (
-              <div className="mt-3">
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">Rejected alternatives:</span>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {d.alternatives_rejected.map((a: string, j: number) => (
-                    <Badge key={j} variant="outline" className="text-xs">
-                      {a}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
+          )}
 
-function TradeOffsSection({ tradeoffs }: { tradeoffs: Any[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Trade-offs</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {tradeoffs.map((t: Any, i: number) => (
-          <div key={i} className="pb-4 border-b last:border-b-0 last:pb-0 text-sm">
-            {t.accept && (
-              <p>
-                <strong>Accept:</strong> {t.accept}
-              </p>
-            )}
-            {t.benefit && (
-              <p className="mt-1 text-muted-foreground">
-                <strong className="text-foreground">Benefit:</strong> {t.benefit}
-              </p>
-            )}
-            {t.caused_by && (
-              <p className="mt-1 text-muted-foreground">
-                <strong className="text-foreground">Caused by:</strong> {t.caused_by}
-              </p>
-            )}
-            {Array.isArray(t.violation_signals) && t.violation_signals.length > 0 && (
-              <div className="mt-2">
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">Violation signals:</span>
-                <ul className="list-disc pl-5 mt-1 space-y-0.5 text-xs font-mono">
-                  {t.violation_signals.map((s: string, j: number) => (
-                    <li key={j}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
-function PitfallsSection({ pitfalls }: { pitfalls: Any[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Pitfalls</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {pitfalls.map((p: Any, i: number) => (
-          <div key={i} className="pb-4 border-b last:border-b-0 last:pb-0 text-sm">
-            <div className="flex items-center gap-2 flex-wrap">
-              {p.area && <Badge variant="outline">{p.area}</Badge>}
-              {p.title && <h3 className="font-semibold">{p.title}</h3>}
-            </div>
-            {p.description && <p className="mt-2">{p.description}</p>}
-            {p.recommendation && (
-              <p className="mt-2 text-muted-foreground">
-                <strong className="text-foreground">Recommendation:</strong> {p.recommendation}
-              </p>
-            )}
-            {Array.isArray(p.stems_from) && p.stems_from.length > 0 && (
-              <div className="mt-2">
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">Stems from:</span>
-                <ul className="list-disc pl-5 mt-1 space-y-0.5">
-                  {p.stems_from.map((s: string, j: number) => (
-                    <li key={j}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {Array.isArray(p.applies_to) && p.applies_to.length > 0 && (
-              <div className="mt-2">
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">Applies to:</span>
-                <ul className="list-disc pl-5 mt-1 space-y-0.5 text-xs font-mono">
-                  {p.applies_to.map((a: string, j: number) => (
-                    <li key={j}>{a}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
-function ArchRulesSection({ filePlacement, naming }: { filePlacement: Any[]; naming: Any[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Architecture rules</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        {filePlacement.length > 0 && (
-          <div>
-            <h4 className="font-medium mb-2">File placement</h4>
-            <ul className="text-sm space-y-2">
-              {filePlacement.map((r: Any, i: number) => (
-                <li key={i} className="border-l-2 border-papaya pl-3">
-                  {r.component_type && (
-                    <Badge variant="outline" className="text-xs mr-2">
-                      {r.component_type}
-                    </Badge>
-                  )}
-                  {r.location && <code className="text-xs">{r.location}</code>}
-                  {r.description && <p className="text-muted-foreground mt-1">{r.description}</p>}
-                  {r.naming_pattern && (
-                    <p className="text-xs font-mono mt-1">pattern: {r.naming_pattern}</p>
-                  )}
-                  {r.example && <p className="text-xs text-muted-foreground font-mono mt-1">e.g. {r.example}</p>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {naming.length > 0 && (
-          <div>
-            <h4 className="font-medium mb-2">Naming conventions</h4>
-            <ul className="text-sm space-y-2">
-              {naming.map((r: Any, i: number) => (
-                <li key={i} className="border-l-2 border-papaya pl-3">
-                  {r.scope && <strong>{r.scope}: </strong>}
-                  <code className="text-xs">{r.pattern}</code>
-                  {r.description && <p className="text-muted-foreground mt-1">{r.description}</p>}
-                  {Array.isArray(r.examples) && r.examples.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {r.examples.map((e: string, j: number) => (
-                        <code key={j} className="text-xs bg-muted px-1 rounded">
-                          {e}
-                        </code>
+          {/* Audit Findings from scan_report */}
+          {toc.length > 0 && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Audit Report</p>
+              {/* Finding Section Root */}
+              <NavButton 
+                active={activeSection === 'findings'} 
+                onClick={() => scrollToSection('findings')} 
+                icon={FileText} 
+                label="Detailed Findings" 
+              />
+              {/* Sub-headings */}
+              {toc.map((s) => (
+                <div key={s.id} className="space-y-1">
+                  <button
+                    onClick={() => scrollToSection(s.id)}
+                    className={cn(
+                      "block w-full text-left py-1.5 pl-12 text-xs transition-colors",
+                      activeSection === s.id ? "text-teal font-bold" : "text-ink/40 hover:text-ink/60"
+                    )}
+                  >
+                    {s.title}
+                  </button>
+                  {s.items.length > 0 && (
+                    <div className="pl-16 space-y-1 border-l border-papaya-300 ml-12">
+                      {s.items.map((it) => (
+                        <button
+                          key={it.id}
+                          onClick={() => scrollToSection(it.id)}
+                          className={cn(
+                            "block w-full text-left py-1 text-[10px] transition-colors",
+                            activeSection === it.id ? "text-teal font-semibold" : "text-ink/30 hover:text-ink/50"
+                          )}
+                        >
+                          {it.title}
+                        </button>
                       ))}
                     </div>
                   )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function TechnologySection({ stack, runCommands }: { stack: Any[]; runCommands: Record<string, string> }) {
-  const grouped: Record<string, Any[]> = {}
-  stack.forEach((s) => {
-    const cat = s.category || 'other'
-    if (!grouped[cat]) grouped[cat] = []
-    grouped[cat].push(s)
-  })
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Technology</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {Object.entries(grouped).map(([cat, items]) => (
-          <div key={cat}>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">{cat}</div>
-            <div className="flex flex-wrap gap-2">
-              {items.map((s: Any, i: number) => (
-                <Badge key={i} variant="outline" title={s.purpose || ''}>
-                  {s.name}
-                  {s.version ? ` ${s.version}` : ''}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        ))}
-        {Object.keys(runCommands).length > 0 && (
-          <div>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">Run commands</div>
-            <div className={cn('rounded p-3 font-mono text-xs space-y-1 overflow-x-auto', theme.console.bg, theme.console.text)}>
-              {Object.entries(runCommands).map(([k, v]) => (
-                <div key={k}>
-                  <span className="opacity-60">{k}:</span> {v}
                 </div>
               ))}
             </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
+          )}
 
-function CommunicationSection({ communication }: { communication: Any }) {
-  const patterns: Any[] = Array.isArray(communication.patterns) ? communication.patterns : []
-  const integrations: Any[] = Array.isArray(communication.integrations) ? communication.integrations : []
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Communication</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        {patterns.length > 0 && (
-          <div>
-            <h4 className="font-medium mb-2">Patterns</h4>
-            <ul className="space-y-2">
-              {patterns.map((p: Any, i: number) => (
-                <li key={i} className="border-l-2 border-teal pl-3">
-                  {p.name && <strong>{p.name}</strong>}
-                  {p.description && <p className="text-muted-foreground mt-1">{p.description}</p>}
-                  {p.when_to_use && (
-                    <p className="text-muted-foreground mt-1">
-                      <em>When:</em> {p.when_to_use}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
+          {/* Standards & Guidelines */}
+          <div className="space-y-1">
+            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Standards & Ops</p>
+            {implementationGuidelines.length > 0 && (
+                <NavButton 
+                  active={activeSection === 'guidelines'} 
+                  onClick={() => scrollToSection('guidelines')} 
+                  icon={Info} 
+                  label="Guidelines" 
+                />
+            )}
+            {developmentRules.length > 0 && (
+                <NavButton 
+                  active={activeSection === 'devrules'} 
+                  onClick={() => scrollToSection('devrules')} 
+                  icon={Shield} 
+                  label="Dev Rules" 
+                />
+            )}
+            {(filePlacement.length > 0 || naming.length > 0) && (
+              <NavButton 
+                active={activeSection === 'archrules'} 
+                onClick={() => scrollToSection('archrules')} 
+                icon={HelpCircle} 
+                label="Arch Rules" 
+              />
+            )}
+            {communications.length > 0 && (
+                <NavButton 
+                  active={activeSection === 'communications'} 
+                  onClick={() => scrollToSection('communications')} 
+                  icon={Activity} 
+                  label="Communications" 
+                />
+            )}
+            {stack.length > 0 && (
+              <NavButton 
+                active={activeSection === 'technology'} 
+                onClick={() => scrollToSection('technology')} 
+                icon={Zap} 
+                label="Tech Stack" 
+              />
+            )}
+            {(deployment.strategy || deployment.platform || (Array.isArray(deployment.infrastructure) && deployment.infrastructure.length > 0)) && (
+              <NavButton 
+                active={activeSection === 'deployment'} 
+                onClick={() => scrollToSection('deployment')} 
+                icon={Rocket} 
+                label="Deployment" 
+              />
+            )}
           </div>
-        )}
-        {integrations.length > 0 && (
-          <div>
-            <h4 className="font-medium mb-2">Integrations</h4>
-            <ul className="space-y-2">
-              {integrations.map((it: Any, i: number) => (
-                <li key={i} className="border-l-2 border-tangerine pl-3">
-                  {it.name && <strong>{it.name}</strong>}
-                  {it.purpose && <p className="text-muted-foreground mt-1">{it.purpose}</p>}
-                  {it.type && <Badge variant="outline" className="text-xs mt-1">{it.type}</Badge>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
+        </nav>
 
-function ImplementationGuidelinesSection({ items }: { items: Any[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Implementation guidelines ({items.length})</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {items.map((g: Any, i: number) => (
-          <details key={i} className="border-l-2 border-papaya pl-3 pb-2 group">
-            <summary className="cursor-pointer">
-              <div className="inline-flex items-center gap-2 flex-wrap">
-                <ChevronRight className="w-4 h-4 inline group-open:rotate-90 transition-transform" />
-                <span className="font-semibold text-sm">{g.capability || g.category}</span>
-                {g.category && g.capability && (
-                  <Badge variant="outline" className="text-xs">{g.category}</Badge>
+        <div className="p-8 bg-papaya-300/10 border-t border-papaya-300/40">
+           <a 
+             href="https://github.com/BitRaptors/Archie" 
+             target="_blank" 
+             className="flex items-center justify-between text-ink/40 hover:text-ink transition-colors group"
+           >
+             <span className="text-xs font-bold uppercase tracking-widest">Open Source</span>
+             <Github className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+           </a>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="lg:ml-72 flex flex-col min-h-screen">
+        <div className="flex-1 p-6 md:p-12 lg:p-20 xl:p-24 space-y-32 max-w-6xl w-full mx-auto" ref={contentRef}>
+          
+          {/* Hero Section */}
+          <section id="summary" className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 text-ink/30 font-black uppercase tracking-[0.3em] text-[10px]">
+                <span className="w-8 h-px bg-current" />
+                <span>Blueprint Analysis</span>
+                {createdAt && (
+                  <span className="ml-auto opacity-60 font-mono tracking-tighter normal-case text-[11px]">
+                    {new Date(createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                  </span>
                 )}
               </div>
-            </summary>
-            <div className="mt-2 space-y-2 text-sm ml-6">
-              {g.pattern_description && <p className="text-muted-foreground">{g.pattern_description}</p>}
-              {g.usage_example && (
-                <pre className={cn('rounded p-2 text-xs overflow-x-auto', theme.console.bg, theme.console.text)}>
-                  {g.usage_example}
-                </pre>
-              )}
-              {Array.isArray(g.tips) && g.tips.length > 0 && (
-                <FieldList label="Tips" items={g.tips} />
-              )}
-              {Array.isArray(g.libraries) && g.libraries.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {g.libraries.map((l: string, j: number) => (
-                    <Badge key={j} variant="outline" className="text-xs">{l}</Badge>
-                  ))}
+              <h1 className="text-5xl md:text-6xl lg:text-7xl font-black tracking-tight leading-[0.95] text-ink">
+                {meta.repository || 'The Blueprint'}
+              </h1>
+              <div className="flex flex-wrap gap-2 pt-2">
+                {Array.isArray(meta.platforms) && meta.platforms.map((p: string) => (
+                  <Badge key={p} className="bg-white/80 backdrop-blur-sm border-papaya-400 text-ink/60 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest shadow-sm">
+                    {p}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            {meta.executive_summary && (
+              <div className="relative group">
+                <div className="absolute -inset-4 bg-teal/5 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <div className="relative prose prose-lg max-w-none text-ink/70 leading-relaxed prose-strong:text-ink prose-strong:font-black prose-p:mb-6 first-letter:text-5xl first-letter:font-black first-letter:mr-3 first-letter:float-left first-letter:text-teal font-serif">
+                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{meta.executive_summary}</ReactMarkdown>
                 </div>
-              )}
-              {Array.isArray(g.key_files) && g.key_files.length > 0 && (
-                <FieldList label="Key files" items={g.key_files} mono />
-              )}
-            </div>
-          </details>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
-function DevelopmentRulesSection({ rules }: { rules: Any[] }) {
-  const byCategory: Record<string, Any[]> = {}
-  rules.forEach((r) => {
-    const cat = r.category || 'other'
-    if (!byCategory[cat]) byCategory[cat] = []
-    byCategory[cat].push(r)
-  })
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Development rules ({rules.length})</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        {Object.entries(byCategory).map(([cat, items]) => (
-          <div key={cat}>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">{cat}</div>
-            <ul className="space-y-2">
-              {items.map((r: Any, i: number) => (
-                <li key={i} className="border-l-2 border-teal pl-3">
-                  <p>{r.rule}</p>
-                  {r.source && (
-                    <code className="text-xs text-muted-foreground">{r.source}</code>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
-function DeploymentSection({ deployment }: { deployment: Any }) {
-  const entries = Object.entries(deployment).filter(([, v]) => {
-    if (v == null) return false
-    if (Array.isArray(v) && v.length === 0) return false
-    if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) return false
-    return true
-  })
-  if (entries.length === 0) return null
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Deployment</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        {entries.map(([k, v]) => (
-          <div key={k}>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
-              {k.replace(/_/g, ' ')}
-            </div>
-            <DeploymentValue value={v} />
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
-function DeploymentValue({ value }: { value: Any }) {
-  if (typeof value === 'string') return <p className="text-muted-foreground">{value}</p>
-  if (Array.isArray(value)) {
-    return (
-      <ul className="list-disc pl-5 text-muted-foreground space-y-1">
-        {value.map((v, i) => (
-          <li key={i}>
-            {typeof v === 'string' ? v : v.name || JSON.stringify(v)}
-            {typeof v === 'object' && v.description && (
-              <span className="text-xs"> — {v.description}</span>
+              </div>
             )}
-          </li>
-        ))}
-      </ul>
-    )
-  }
-  if (typeof value === 'object') {
-    return (
-      <ul className="list-disc pl-5 text-muted-foreground space-y-1">
-        {Object.entries(value).map(([k, v]) => (
-          <li key={k}>
-            <strong>{k}:</strong>{' '}
-            {typeof v === 'string' ? v : Array.isArray(v) ? v.join(', ') : JSON.stringify(v)}
-          </li>
-        ))}
-      </ul>
-    )
-  }
-  return <p>{String(value)}</p>
+
+            {bundle.scan_meta && (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-12">
+                 <Sections.Stat 
+                   label="Total Files" 
+                   value={bundle.scan_meta.total_files?.toLocaleString?.() ?? bundle.scan_meta.total_files} 
+                   icon={FileText}
+                 />
+                 <Sections.Stat 
+                   label="Frontend Ratio" 
+                   value={`${Math.round((bundle.scan_meta.frontend_ratio || 0) * 100)}%`} 
+                   icon={Layout}
+                 />
+                 <Sections.Stat 
+                   label="Sub-Projects" 
+                   value={bundle.scan_meta.subprojects?.length ?? 0} 
+                   icon={Database}
+                 />
+              </div>
+            )}
+          </section>
+
+             {/* Health Section */}
+          {bundle.health && (
+            <section id="health" className="space-y-8 scroll-mt-24">
+              <Sections.SectionHeader title="System Health" icon={Activity} />
+              <div className={cn("p-10 rounded-3xl border overflow-hidden relative group", theme.surface.panel)}>
+                <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity pointer-events-none">
+                   <Activity className="w-64 h-64 -mr-20 -mt-20" />
+                </div>
+                <div className="grid lg:grid-cols-2 gap-16 relative">
+                  <div className="space-y-8">
+                    <Sections.HealthBar label="Architectural Erosion" value={Math.round((bundle.health.erosion || 0) * 100)} inverted />
+                    <Sections.HealthBar label="Logic Concentration (Gini)" value={Math.round((bundle.health.gini || 0) * 100)} inverted />
+                    <Sections.HealthBar label="Workload Verbosity" value={Math.round((bundle.health.verbosity || 0) * 100)} inverted />
+                  </div>
+                  <div className="grid grid-cols-2 gap-8 content-start">
+                    <Sections.Stat label="Total LOC" value={bundle.health.total_loc?.toLocaleString() ?? '—'} />
+                    <Sections.Stat label="Functions" value={bundle.health.total_functions ?? '—'} />
+                    <Sections.Stat label="High Complexity" value={bundle.health.high_cc_functions ?? '—'} />
+                    <Sections.Stat label="Duplicate Lines" value={bundle.health.duplicate_lines ?? '—'} />
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Architecture Diagram */}
+          {diagram && (
+            <section id="diagram" className="space-y-8 scroll-mt-24">
+              <Sections.SectionHeader title="Architecture Diagram" icon={Layout} />
+              <div className={cn("p-10 rounded-3xl border shadow-2xl shadow-ink/5 bg-white/50 backdrop-blur-md overflow-hidden relative", theme.surface.panel)}>
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(45,161,176,0.03),transparent)] pointer-events-none" />
+                <div className="relative">
+                  <MermaidDiagram chart={diagram} />
+                </div>
+                <details className="mt-12 group overflow-hidden">
+                  <summary className="list-none cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-ink/5 rounded-xl text-[10px] font-black uppercase tracking-widest text-ink/40 hover:text-ink hover:bg-ink/10 transition-all">
+                    <Database className="w-3.5 h-3.5" />
+                    <span>Scale Logic (Mermaid Source)</span>
+                  </summary>
+                  <div className="mt-4 p-8 rounded-2xl font-mono text-xs overflow-x-auto ring-1 ring-white/10 shadow-inner bg-ink text-papaya-300">
+                    <pre>{diagram}</pre>
+                  </div>
+                </details>
+              </div>
+            </section>
+          )}
+
+          {/* Components Section */}
+          {componentsList.length > 0 && (
+            <section id="components" className="scroll-mt-24">
+              <Sections.ComponentsSection components={componentsList} />
+            </section>
+          )}
+
+          {/* Decisions & Tradeoffs */}
+          {keyDecisions.length > 0 && (
+            <section id="decisions" className="scroll-mt-24">
+              <Sections.KeyDecisionsSection decisions={keyDecisions} />
+            </section>
+          )}
+
+          {tradeOffs.length > 0 && (
+            <section id="tradeoffs" className="scroll-mt-24">
+              <Sections.TradeOffsSection tradeoffs={tradeOffs} />
+            </section>
+          )}
+
+          {/* Pitfalls */}
+          {pitfalls.length > 0 && (
+            <section id="pitfalls" className="scroll-mt-24">
+              <Sections.PitfallsSection pitfalls={pitfalls} />
+            </section>
+          )}
+
+          {/* Audit Report */}
+          {filteredReport && (
+            <section id="findings" className="space-y-8 scroll-mt-24">
+              <Sections.SectionHeader title="Detailed Audit Findings" icon={FileText} />
+              <div className={cn("p-10 md:p-16 rounded-[40px] border shadow-2xl shadow-ink/5 relative overflow-hidden", theme.surface.panel)}>
+                <div className="absolute top-0 right-0 p-12 opacity-[0.03] pointer-events-none">
+                  <FileText className="w-64 h-64 -mr-20 -mt-20" />
+                </div>
+                <div className="relative prose prose-lg prose-ink max-w-none 
+                  prose-headings:font-black prose-headings:tracking-tight prose-headings:text-ink
+                  prose-h2:text-3xl prose-h2:mt-16 prose-h2:mb-8 prose-h2:pb-4 prose-h2:border-b prose-h2:border-papaya-400/30
+                  prose-h3:text-xl prose-h3:text-teal prose-h3:mt-10
+                  prose-p:text-ink/70 prose-p:leading-relaxed
+                  prose-strong:text-ink prose-strong:font-black
+                  prose-code:bg-ink/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-ink/80 prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                  prose-ul:list-disc prose-ul:pl-6
+                  prose-blockquote:border-l-4 prose-blockquote:border-teal/30 prose-blockquote:bg-teal/5 prose-blockquote:px-6 prose-blockquote:py-1 prose-blockquote:rounded-r-2xl prose-blockquote:italic
+                ">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h2: ({ children }) => {
+                        const id = generateId(String(children));
+                        return <h2 id={id} className="scroll-mt-24">{children}</h2>;
+                      },
+                      h3: ({ children }) => {
+                        const id = generateId(String(children));
+                        return <h3 id={id} className="scroll-mt-24">{children}</h3>;
+                      }
+                    }}
+                  >
+                    {filteredReport}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Technical Standards */}
+          {(filePlacement.length > 0 || naming.length > 0) && (
+            <section id="archrules" className="scroll-mt-24">
+              <Sections.ArchRulesSection filePlacement={filePlacement} naming={naming} />
+            </section>
+          )}
+
+          {developmentRules.length > 0 && (
+            <section id="devrules" className="scroll-mt-24">
+              <Sections.DevelopmentRulesSection rules={developmentRules} />
+            </section>
+          )}
+
+          {implementationGuidelines.length > 0 && (
+            <section id="guidelines" className="scroll-mt-24">
+              <Sections.ImplementationGuidelinesSection items={implementationGuidelines} />
+            </section>
+          )}
+
+          {communications.length > 0 && (
+            <section id="communications" className="scroll-mt-24">
+              <Sections.CommunicationsSection communications={communications} />
+            </section>
+          )}
+
+          {stack.length > 0 && (
+             <section id="technology" className="scroll-mt-24">
+               <Sections.TechnologySection stack={stack} runCommands={runCommands} />
+             </section>
+          )}
+
+          {Object.keys(deployment).length > 0 && (deployment.strategy || deployment.platform || (Array.isArray(deployment.infrastructure) && deployment.infrastructure.length > 0)) && (
+            <section id="deployment" className="scroll-mt-24">
+               <Sections.DeploymentSection deployment={deployment} />
+            </section>
+          )}
+
+          {/* Conversion Footer */}
+          <footer className="pt-20 pb-32">
+             <div className="relative group">
+                <div className="absolute -inset-1 bg-gradient-to-r from-teal to-tangerine rounded-[40px] blur opacity-10 group-hover:opacity-20 transition-opacity duration-1000" />
+                <div className="relative p-12 md:p-20 rounded-[38px] bg-white border border-papaya-400 shadow-2xl shadow-ink/5 text-center space-y-8 overflow-hidden">
+                  <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
+                    <Activity className="w-96 h-96 -mr-48 -mt-48" />
+                  </div>
+                  
+                  <div className="space-y-4 relative">
+                    <div className="w-20 h-20 rounded-3xl bg-teal/10 flex items-center justify-center mx-auto mb-10 shadow-inner border border-teal/20">
+                       <Activity className="text-teal w-10 h-10" />
+                    </div>
+                    <h3 className="text-4xl md:text-5xl font-black tracking-tighter text-ink leading-tight">
+                      Archie knows your <br className="hidden md:block" /> codebase like a Senior Architect.
+                    </h3>
+                    <p className="text-xl text-ink/60 max-w-2xl mx-auto font-medium">
+                      Understand complexity, enforce standards, and guide AI agents with precision.
+                      Get started in 3 minutes.
+                    </p>
+                  </div>
+
+                  <div className="relative pt-8 max-w-lg mx-auto">
+                    <div className={cn(
+                      'rounded-2xl p-6 font-mono text-sm flex items-center justify-between gap-4 shadow-2xl transition-all group/cmd',
+                      theme.console.bg,
+                      theme.console.text
+                    )}>
+                      <code className="truncate text-teal-100">{INSTALL_CMD}</code>
+                      <button 
+                        onClick={copyInstall} 
+                        className="p-3 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all shrink-0 active:scale-90"
+                        title="Copy"
+                      >
+                        {copied ? <Check className="w-5 h-5 text-teal" /> : <Copy className="w-5 h-5" />}
+                      </button>
+                    </div>
+                    {copied && (
+                      <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-teal text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg animate-in fade-in zoom-in duration-300">
+                         Copied to Keyboard
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-12 flex flex-col md:flex-row items-center justify-center gap-8">
+                    <a
+                      href="https://github.com/BitRaptors/Archie"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-[0.2em] text-ink/40 hover:text-teal transition-all group"
+                    >
+                      <span>Explore GitHub</span>
+                      <ExternalLink className="w-4 h-4 group-hover:-translate-y-1 group-hover:translate-x-1 transition-transform" />
+                    </a>
+                    <div className="w-1 h-1 rounded-full bg-ink/10 hidden md:block" />
+                    <Link
+                      to="/"
+                      className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-[0.2em] text-ink/40 hover:text-ink transition-all"
+                    >
+                      Documentation
+                    </Link>
+                  </div>
+                </div>
+             </div>
+          </footer>
+        </div>
+      </main>
+    </div>
+  )
 }
 
-function RulesSection({ adopted, proposed }: { adopted?: Any; proposed?: Any }) {
-  const adoptedRules = adopted?.rules || []
-  const proposedRules = proposed?.rules || []
+function NavButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: any; label: string }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Rules</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {adoptedRules.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <h4 className="font-medium">Adopted</h4>
-              <Badge className={theme.active.badge}>{adoptedRules.length}</Badge>
-            </div>
-            <ul className="text-sm space-y-2">
-              {adoptedRules.map((r: Any, i: number) => (
-                <li key={i} className="flex gap-2">
-                  <Badge variant="outline" className="text-xs shrink-0">
-                    {r.id}
-                  </Badge>
-                  <span>{r.description}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {proposedRules.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <h4 className="font-medium">Proposed</h4>
-              <Badge
-                variant="secondary"
-                className="bg-tangerine-50 text-tangerine-800 border-tangerine-200"
-              >
-                {proposedRules.length}
-              </Badge>
-            </div>
-            <ul className="text-sm space-y-2">
-              {proposedRules.map((r: Any, i: number) => (
-                <li key={i} className="flex gap-2">
-                  <Badge variant="outline" className="text-xs shrink-0">
-                    {r.id}
-                  </Badge>
-                  <span>
-                    {r.description}
-                    {r.confidence != null && (
-                      <span className="text-muted-foreground ml-2">
-                        ({Math.round(r.confidence * 100)}% confidence)
-                      </span>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <button 
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-4 w-full px-4 py-3 rounded-2xl text-sm font-bold transition-all duration-300 group",
+        active 
+          ? "bg-teal/10 text-teal shadow-inner ring-1 ring-teal/20" 
+          : "text-ink/60 hover:text-ink hover:bg-papaya-300/30"
+      )}
+    >
+      <div className={cn(
+        "p-2 rounded-xl transition-all duration-500",
+        active ? "bg-teal text-white shadow-lg shadow-teal/30 scale-110" : "bg-ink/5 group-hover:bg-ink/10 text-ink/30 group-hover:text-ink/60"
+      )}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <span className="truncate">{label}</span>
+      {active && (
+        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-teal animate-pulse shadow-[0_0_8px_rgba(45,161,176,0.5)]" />
+      )}
+    </button>
   )
 }
