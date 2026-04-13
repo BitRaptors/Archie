@@ -14,6 +14,7 @@ import remarkGfm from 'remark-gfm'
 
 import type { Finding } from '@/lib/findings'
 import { severityColor } from '@/lib/findings'
+import { AutoCode, codeInlineClassName } from '@/lib/autocode'
 
 export function FindingsList({ findings, truncate }: { findings: Finding[]; truncate?: boolean }) {
   return (
@@ -37,7 +38,7 @@ export function FindingsList({ findings, truncate }: { findings: Finding[]; trun
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2 flex-wrap">
-              <h3 className="font-bold text-ink">{f.title}</h3>
+              <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
               {f.group && (
                 <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
                   {f.group}
@@ -51,7 +52,7 @@ export function FindingsList({ findings, truncate }: { findings: Finding[]; trun
                   truncate && 'line-clamp-3'
                 )}
               >
-                {f.description}
+                <AutoCode text={f.description} />
               </p>
             )}
           </div>
@@ -145,7 +146,7 @@ export function ComponentsSection({ components }: { components: any[] }) {
                         )}
                       </div>
                       {c.location && (
-                        <code className="text-[10px] text-ink/40 font-mono mt-1 block truncate">
+                        <code className={cn(codeInlineClassName, "mt-1 block truncate text-[10px]")}>
                           {c.location}
                         </code>
                       )}
@@ -157,7 +158,7 @@ export function ComponentsSection({ components }: { components: any[] }) {
               <div className="px-6 pb-6 pt-2 border-t border-papaya-400/30 bg-white/30 backdrop-blur-sm space-y-6">
                 {c.responsibility && (
                    <div className="prose prose-sm max-w-none text-ink/70 leading-relaxed italic">
-                     {c.responsibility}
+                     <AutoCode text={c.responsibility} />
                    </div>
                 )}
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -200,18 +201,18 @@ export function TradeOffsSection({ tradeoffs }: { tradeoffs: any[] }) {
           <div key={i} className={cn("p-6 rounded-3xl border transition-all hover:bg-white/50", theme.surface.panel)}>
             {t.accept && (
               <p className="text-lg font-bold text-ink mb-2">
-                {t.accept}
+                <AutoCode text={t.accept} />
               </p>
             )}
             {t.benefit && (
               <div className="flex gap-2 items-start text-sm text-ink/70 mb-3">
                 <Zap className="w-4 h-4 text-tangerine shrink-0 mt-0.5" />
-                <p><strong className="text-ink">Benefit:</strong> {t.benefit}</p>
+                <p><strong className="text-ink">Benefit:</strong> <AutoCode text={t.benefit} /></p>
               </div>
             )}
             {t.caused_by && (
               <p className="text-xs text-ink/40 italic pl-6 border-l-2 border-papaya-400">
-                Started by: {t.caused_by}
+                Started by: <AutoCode text={t.caused_by} />
               </p>
             )}
             {Array.isArray(t.violation_signals) && t.violation_signals.length > 0 && (
@@ -219,7 +220,7 @@ export function TradeOffsSection({ tradeoffs }: { tradeoffs: any[] }) {
                 <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest block mb-2">Violation signals</span>
                 <div className="flex flex-wrap gap-2">
                   {t.violation_signals.map((s: string, j: number) => (
-                    <code key={j} className="text-[10px] bg-ink/5 px-2 py-1 rounded-md text-ink/60 font-mono italic">
+                    <code key={j} className={cn(codeInlineClassName, "text-[10px] italic")}>
                       {s}
                     </code>
                   ))}
@@ -245,11 +246,11 @@ export function PitfallsSection({ pitfalls }: { pitfalls: any[] }) {
               <div className="w-1 h-1 rounded-full bg-brandy/50" />
               <h3 className="font-bold text-ink truncate">{p.title}</h3>
             </div>
-            {p.description && <p className="text-sm text-ink/70 leading-relaxed mb-4 flex-1">{p.description}</p>}
+            {p.description && <p className="text-sm text-ink/70 leading-relaxed mb-4 flex-1"><AutoCode text={p.description} /></p>}
             {p.recommendation && (
               <div className="bg-teal/5 border border-teal/10 rounded-2xl p-4">
                 <span className="text-[9px] font-extrabold text-teal/40 uppercase tracking-[0.2em] block mb-1">Recommendation</span>
-                <p className="text-sm font-semibold text-teal-900 leading-tight">{p.recommendation}</p>
+                <p className="text-sm font-semibold text-teal-900 leading-tight"><AutoCode text={p.recommendation} /></p>
               </div>
             )}
           </div>
@@ -268,26 +269,26 @@ export function KeyDecisionsSection({ decisions }: { decisions: any[] }) {
           <div key={i} className={cn("p-8 rounded-3xl border transition-all hover:shadow-xl", theme.surface.panel)}>
             <div className="flex items-center gap-2 mb-4">
               <div className="w-2 h-2 rounded-full bg-tangerine" />
-              <h3 className="font-bold text-xl text-ink leading-none">{d.title}</h3>
+              <h3 className="font-bold text-xl text-ink leading-none"><AutoCode text={d.title} /></h3>
             </div>
-            {d.chosen && <p className="text-lg text-ink font-medium mb-4">{d.chosen}</p>}
+            {d.chosen && <p className="text-lg text-ink font-medium mb-4"><AutoCode text={d.chosen} /></p>}
             {d.rationale && (
               <div className="bg-white/50 border border-papaya-400 p-4 rounded-2xl mb-6">
                 <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest block mb-2">Rationale</span>
-                <p className="text-sm text-ink/70 leading-relaxed">{d.rationale}</p>
+                <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={d.rationale} /></p>
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {d.forced_by && (
                 <div>
                   <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest block mb-1">Forced by</span>
-                  <p className="text-sm font-semibold text-ink/80">{d.forced_by}</p>
+                  <p className="text-sm font-semibold text-ink/80"><AutoCode text={d.forced_by} /></p>
                 </div>
               )}
               {d.enables && (
                 <div>
                   <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest block mb-1">Enables</span>
-                  <p className="text-sm font-semibold text-ink/80">{d.enables}</p>
+                  <p className="text-sm font-semibold text-ink/80"><AutoCode text={d.enables} /></p>
                 </div>
               )}
             </div>
@@ -327,15 +328,17 @@ export function TechnologySection({ stack, runCommands }: { stack: any[]; runCom
               <span className="ml-auto text-[10px] font-mono text-ink/20">{items.length}</span>
             </div>
             
-            <div className="flex flex-wrap gap-2 mt-auto">
+            <div className="flex flex-wrap gap-2 mt-auto min-w-0">
               {items.map((s: any, i: number) => (
                 <div 
                   key={i} 
-                  className="px-3 py-1.5 rounded-xl bg-white/60 border border-papaya-300 shadow-sm flex items-center gap-2 transition-all hover:border-teal/30 hover:bg-white"
+                  className="max-w-full min-w-0 px-3 py-1.5 rounded-xl bg-white/60 border border-papaya-300 shadow-sm flex flex-wrap items-center gap-x-2 gap-y-1 transition-all hover:border-teal/30 hover:bg-white"
                 >
-                  <span className="text-xs font-bold text-ink/80">{s.name}</span>
+                  <span className="min-w-0 max-w-full text-xs font-bold text-ink/80 break-words [overflow-wrap:anywhere]">
+                    {s.name}
+                  </span>
                   {s.version && (
-                    <span className="text-[10px] font-mono text-ink/30 border-l border-papaya-300 pl-2">
+                    <span className="shrink-0 text-[10px] font-mono text-ink/30 border-l border-papaya-300 pl-2">
                       {s.version}
                     </span>
                   )}
@@ -431,13 +434,13 @@ export function ArchRulesSection({ filePlacement, naming }: { filePlacement: any
                           {r.component_type}
                         </Badge>
                       )}
-                      {r.location && <code className="text-xs font-mono text-ink/60">{r.location}</code>}
+                      {r.location && <code className={cn(codeInlineClassName, "text-xs")}>{r.location}</code>}
                     </div>
-                    {r.description && <p className="text-sm text-ink/70">{r.description}</p>}
+                    {r.description && <p className="text-sm text-ink/70"><AutoCode text={r.description} /></p>}
                     {r.naming_pattern && (
                       <div className="mt-2 flex items-center gap-2">
                          <span className="text-[9px] font-black uppercase text-ink/30">Pattern</span>
-                         <code className="text-xs bg-ink/5 px-2 py-0.5 rounded text-ink/50">{r.naming_pattern}</code>
+                         <code className={cn(codeInlineClassName, "text-xs")}>{r.naming_pattern}</code>
                       </div>
                     )}
                   </div>
@@ -455,13 +458,13 @@ export function ArchRulesSection({ filePlacement, naming }: { filePlacement: any
                 <div key={i} className="space-y-2">
                    <div className="flex items-center gap-2">
                      <span className="text-sm font-bold text-ink">{r.scope}</span>
-                     <code className="text-[10px] bg-tangerine/10 text-tangerine-600 px-2 py-0.5 rounded font-mono">{r.pattern}</code>
+                     <code className={cn(codeInlineClassName, "text-[10px]")}>{r.pattern}</code>
                    </div>
-                   {r.description && <p className="text-sm text-ink/60">{r.description}</p>}
+                   {r.description && <p className="text-sm text-ink/60"><AutoCode text={r.description} /></p>}
                    {Array.isArray(r.examples) && r.examples.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {r.examples.map((e: string, j: number) => (
-                        <code key={j} className="text-[10px] bg-ink/5 px-2 py-1 rounded text-ink/40">
+                        <code key={j} className={cn(codeInlineClassName, "text-[10px]")}>
                           {e}
                         </code>
                       ))}
@@ -517,7 +520,7 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                 <div className="p-8 space-y-6">
                   {description && (
                     <div className="prose prose-sm max-w-none text-ink/70 leading-relaxed italic border-l-2 border-teal/20 pl-6">
-                      {typeof description === 'string' ? description : JSON.stringify(description)}
+                      <AutoCode text={typeof description === 'string' ? description : JSON.stringify(description)} />
                     </div>
                   )}
 
@@ -527,7 +530,7 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                       {g.tips.map((tip: any, j: number) => (
                         <div key={j} className="flex items-start gap-3 text-sm text-ink/80">
                           <div className="w-1.5 h-1.5 rounded-full bg-teal mt-2 shrink-0" />
-                          <span>{typeof tip === 'string' ? tip : JSON.stringify(tip)}</span>
+                          <span><AutoCode text={typeof tip === 'string' ? tip : JSON.stringify(tip)} /></span>
                         </div>
                       ))}
                     </div>
@@ -566,9 +569,9 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                             {j + 1}
                           </div>
                           <div className="text-sm text-ink/80 font-medium">
-                            {typeof step === 'string' ? step : step.title || step.content || JSON.stringify(step)}
+                            <AutoCode text={typeof step === 'string' ? step : step.title || step.content || JSON.stringify(step)} />
                             {step.description && (
-                              <p className="mt-1 text-xs text-ink/40 font-normal leading-relaxed">{step.description}</p>
+                              <p className="mt-1 text-xs text-ink/40 font-normal leading-relaxed"><AutoCode text={step.description} /></p>
                             )}
                           </div>
                         </div>
@@ -589,7 +592,7 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                     <div className="pt-4 border-t border-papaya-400/20">
                        <div className="flex gap-2 text-xs text-ink/50">
                          <Info className="w-3.5 h-3.5 shrink-0" />
-                         <p>{typeof g.rationale[0] === 'string' ? g.rationale.join(' ') : JSON.stringify(g.rationale)}</p>
+                         <p><AutoCode text={typeof g.rationale[0] === 'string' ? g.rationale.join(' ') : JSON.stringify(g.rationale)} /></p>
                        </div>
                     </div>
                   )}
@@ -614,7 +617,7 @@ export function DevelopmentRulesSection({ rules }: { rules: any[] }) {
                <Shield className="w-4 h-4" />
              </div>
              <div className="text-sm text-ink/80 leading-relaxed font-medium">
-               {typeof r === 'string' ? r : r.rule || JSON.stringify(r)}
+               <AutoCode text={typeof r === 'string' ? r : r.rule || JSON.stringify(r)} />
              </div>
           </div>
         ))}
@@ -642,7 +645,7 @@ export function CommunicationsSection({ communications }: { communications: any[
             </div>
             
             <div className="space-y-4">
-              {c.description && <p className="text-sm text-ink/70 leading-relaxed">{c.description}</p>}
+              {c.description && <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={c.description} /></p>}
               
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-papaya-400/20">
                 {c.sender && (
@@ -664,7 +667,7 @@ export function CommunicationsSection({ communications }: { communications: any[
                   <span className="text-[9px] font-black uppercase text-ink/30 block mb-2">Signals</span>
                   <div className="flex flex-wrap gap-2">
                     {c.signals.map((s: string, j: number) => (
-                      <code key={j} className="text-[10px] bg-ink/5 px-2 py-1 rounded-md text-ink/50 font-mono">
+                      <code key={j} className={cn(codeInlineClassName, "text-[10px]")}>
                         {s}
                       </code>
                     ))}

@@ -3,8 +3,10 @@ import { useEffect, useState, useRef, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
 import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
+import { autoBacktick } from '@/lib/autocode'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -464,7 +466,7 @@ export default function ReportPage() {
               <div className="relative group">
                 <div className="absolute -inset-4 bg-teal/5 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 <div className="relative prose prose-lg max-w-none text-ink/70 leading-relaxed prose-strong:text-ink prose-strong:font-black prose-p:mb-6 first-letter:text-5xl first-letter:font-black first-letter:mr-3 first-letter:float-left first-letter:text-teal font-serif">
-                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{meta.executive_summary}</ReactMarkdown>
+                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{autoBacktick(meta.executive_summary)}</ReactMarkdown>
                 </div>
               </div>
             )}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
 import {
   Activity,
   AlertTriangle,
@@ -10,6 +11,7 @@ import {
   Layout,
 } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
+import { autoBacktick, AutoCode } from '@/lib/autocode'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
 import { Card, CardContent } from '@/components/ui/card'
@@ -157,7 +159,7 @@ export default function CoverPage() {
 
           {meta.executive_summary && (
             <div className="prose prose-lg max-w-none text-ink/70 leading-relaxed prose-strong:text-ink prose-strong:font-black prose-p:mb-6 first-letter:text-5xl first-letter:font-black first-letter:mr-3 first-letter:float-left first-letter:text-teal font-serif">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{meta.executive_summary}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{autoBacktick(meta.executive_summary)}</ReactMarkdown>
             </div>
           )}
         </section>
@@ -237,20 +239,22 @@ export default function CoverPage() {
             <Sections.SectionHeader title="Architecture" icon={Layout} />
             <div className={cn('p-10 rounded-3xl border space-y-6', theme.surface.panel)}>
               {archStyle?.title && (
-                <h3 className="text-2xl font-black text-ink leading-tight">{archStyle.title}</h3>
+                <h3 className="text-2xl font-black text-ink leading-tight">
+                  <AutoCode text={archStyle.title} />
+                </h3>
               )}
               {archStyle?.chosen && (
-                <p className="text-ink/70 leading-relaxed">{archStyle.chosen}</p>
+                <p className="text-ink/70 leading-relaxed"><AutoCode text={archStyle.chosen} /></p>
               )}
               {!archStyle && meta.architecture_style && (
-                <p className="text-ink/70 leading-relaxed">{meta.architecture_style}</p>
+                <p className="text-ink/70 leading-relaxed"><AutoCode text={meta.architecture_style} /></p>
               )}
               {archStyle?.rationale && (
                 <div className="pt-4 border-t border-papaya-400/20">
                   <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-2">
                     Rationale
                   </div>
-                  <p className="text-sm text-ink/60 leading-relaxed">{archStyle.rationale}</p>
+                  <p className="text-sm text-ink/60 leading-relaxed"><AutoCode text={archStyle.rationale} /></p>
                 </div>
               )}
             </div>
