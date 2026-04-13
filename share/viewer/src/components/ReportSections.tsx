@@ -104,16 +104,16 @@ export function HealthBar({ label, value, inverted }: { label: string; value: nu
 
 export function FieldList({ label, items, mono }: { label: string; items: any[]; mono?: boolean }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 min-w-0">
       <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mb-1">{label}</div>
       <ul className="space-y-1.5">
         {items.map((it: any, i: number) => (
           <li key={i} className={cn(
             "flex items-start gap-2 text-sm",
-            mono ? 'font-mono text-xs text-ink/80' : 'text-ink/70'
+            mono ? 'font-mono text-[11px] text-ink/80' : 'text-ink/70'
           )}>
             <div className="mt-1.5 w-1 h-1 rounded-full bg-teal shrink-0" />
-            <span>{typeof it === 'string' ? it : JSON.stringify(it)}</span>
+            <span className="break-words overflow-hidden [word-break:break-word]">{typeof it === 'string' ? it : JSON.stringify(it)}</span>
           </li>
         ))}
       </ul>
@@ -162,18 +162,24 @@ export function ComponentsSection({ components }: { components: any[] }) {
                 )}
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                   {Array.isArray(c.key_files) && c.key_files.length > 0 && (
-                    <FieldList
-                      label="Key files"
-                      items={c.key_files.map((kf: any) =>
-                        typeof kf === 'string' ? kf : `${kf.file}${kf.description ? ` — ${kf.description}` : ''}`
-                      )}
-                    />
+                    <div className="min-w-0 overflow-hidden">
+                      <FieldList
+                        label="Key files"
+                        items={c.key_files.map((kf: any) =>
+                          typeof kf === 'string' ? kf : `${kf.file}${kf.description ? ` — ${kf.description}` : ''}`
+                        )}
+                      />
+                    </div>
                   )}
                   {Array.isArray(c.depends_on) && c.depends_on.length > 0 && (
-                    <FieldList label="Depends on" items={c.depends_on} mono />
+                    <div className="min-w-0 overflow-hidden">
+                      <FieldList label="Depends on" items={c.depends_on} mono />
+                    </div>
                   )}
                    {Array.isArray(c.exposes_to) && c.exposes_to.length > 0 && (
-                    <FieldList label="Exposes to" items={c.exposes_to} mono />
+                    <div className="min-w-0 overflow-hidden">
+                      <FieldList label="Exposes to" items={c.exposes_to} mono />
+                    </div>
                   )}
                 </div>
               </div>
