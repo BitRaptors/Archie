@@ -178,6 +178,7 @@ export default function ReportPage() {
   const runCommands = technology.run_commands || {}
   const deployment = bp.deployment || {}
   const implementationGuidelines = [
+    ...(bp.implementation_guidelines || []),
     ...(bp.decisions?.implementation_guidelines || []),
     ...(bp.guidelines || []),
     ...(archRules.guidelines || [])
@@ -186,9 +187,25 @@ export default function ReportPage() {
     ...(archRules.development_rules || []),
     ...(bp.development_rules || [])
   ]
+  // Blueprint exposes `communication` (singular) as an object with
+  // `patterns[]` and `integrations[]`. Flatten into the array shape the
+  // CommunicationsSection expects ({ type, protocol, description, ... }).
+  const commObj = bp.communication || {}
   const communications = [
     ...(bp.communications || []),
-    ...(archRules.communications || [])
+    ...(archRules.communications || []),
+    ...((commObj.patterns || []).map((p: any) => ({
+      type: p.name || 'Pattern',
+      protocol: 'pattern',
+      description: [p.description, p.when_to_use && `When: ${p.when_to_use}`]
+        .filter(Boolean)
+        .join(' '),
+    }))),
+    ...((commObj.integrations || []).map((i: any) => ({
+      type: i.name || 'Integration',
+      protocol: i.type || 'integration',
+      description: i.purpose,
+    }))),
   ]
 
   return (
@@ -439,25 +456,6 @@ export default function ReportPage() {
               </div>
             )}
 
-            {bundle.scan_meta && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-12">
-                 <Sections.Stat 
-                   label="Total Files" 
-                   value={bundle.scan_meta.total_files?.toLocaleString?.() ?? bundle.scan_meta.total_files} 
-                   icon={FileText}
-                 />
-                 <Sections.Stat 
-                   label="Frontend Ratio" 
-                   value={`${Math.round((bundle.scan_meta.frontend_ratio || 0) * 100)}%`} 
-                   icon={Layout}
-                 />
-                 <Sections.Stat 
-                   label="Sub-Projects" 
-                   value={bundle.scan_meta.subprojects?.length ?? 0} 
-                   icon={Database}
-                 />
-              </div>
-            )}
           </section>
 
              {/* Health Section */}

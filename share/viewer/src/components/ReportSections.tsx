@@ -426,19 +426,123 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
   return (
     <section className="space-y-4">
       <SectionHeader title="Implementation Guidelines" icon={Info} />
-      <div className="grid gap-4">
-        {items.map((g: any, i: number) => (
-          <div key={i} className={cn("p-6 rounded-2xl border flex flex-col transition-all hover:bg-white/50", theme.surface.panel)}>
-             <div className="flex items-center gap-3 mb-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-teal" />
-                <h4 className="font-bold text-ink">{g.capability || g.category}</h4>
+      <div className="grid gap-6">
+        {items.map((g: any, i: number) => {
+          const description = g.guideline || g.description || g.content || g.pattern_description
+          const code = g.code || g.usage_example
+          const hasContent =
+            description ||
+            code ||
+            (Array.isArray(g.steps) && g.steps.length > 0) ||
+            (Array.isArray(g.tips) && g.tips.length > 0) ||
+            (Array.isArray(g.libraries) && g.libraries.length > 0) ||
+            (Array.isArray(g.key_files) && g.key_files.length > 0) ||
+            (Array.isArray(g.rationale) && g.rationale.length > 0);
+          
+          return (
+            <div key={i} className={cn("rounded-3xl border overflow-hidden transition-all hover:shadow-xl", theme.surface.panel)}>
+              <div className={cn(
+                "p-6 flex items-center justify-between bg-white/40",
+                hasContent && "border-b border-papaya-400/20"
+              )}>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-teal/10 text-teal">
+                    <Zap className="w-4 h-4" />
+                  </div>
+                  <h3 className="font-bold text-lg text-ink leading-tight">{g.capability || g.category || g.title || 'Guideline'}</h3>
+                </div>
                 {g.category && g.capability && (
-                  <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest text-ink/30">{g.category}</Badge>
+                  <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-ink/30 border-papaya-400">
+                    {g.category}
+                  </Badge>
                 )}
-             </div>
-             {g.guideline && <p className="text-sm text-ink/70 pl-4.5">{g.guideline}</p>}
-          </div>
-        ))}
+              </div>
+
+              {hasContent && (
+                <div className="p-8 space-y-6">
+                  {description && (
+                    <div className="prose prose-sm max-w-none text-ink/70 leading-relaxed italic border-l-2 border-teal/20 pl-6">
+                      {typeof description === 'string' ? description : JSON.stringify(description)}
+                    </div>
+                  )}
+
+                  {Array.isArray(g.tips) && g.tips.length > 0 && (
+                    <div className="grid gap-2">
+                      <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] mb-1">Tips</span>
+                      {g.tips.map((tip: any, j: number) => (
+                        <div key={j} className="flex items-start gap-3 text-sm text-ink/80">
+                          <div className="w-1.5 h-1.5 rounded-full bg-teal mt-2 shrink-0" />
+                          <span>{typeof tip === 'string' ? tip : JSON.stringify(tip)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {Array.isArray(g.libraries) && g.libraries.length > 0 && (
+                    <div>
+                      <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] block mb-2">Libraries</span>
+                      <div className="flex flex-wrap gap-2">
+                        {g.libraries.map((lib: any, j: number) => (
+                          <Badge key={j} variant="outline" className="text-xs border-papaya-400">
+                            {typeof lib === 'string' ? lib : lib.name || JSON.stringify(lib)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {Array.isArray(g.key_files) && g.key_files.length > 0 && (
+                    <div>
+                      <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] block mb-2">Key Files</span>
+                      <ul className="space-y-1 text-xs font-mono text-ink/60">
+                        {g.key_files.map((f: any, j: number) => (
+                          <li key={j} className="truncate">{typeof f === 'string' ? f : f.file || f.path || JSON.stringify(f)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {Array.isArray(g.steps) && g.steps.length > 0 && (
+                    <div className="grid gap-3">
+                      <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] mb-1">Execution Steps</span>
+                      {g.steps.map((step: any, j: number) => (
+                        <div key={j} className="flex items-start gap-4 p-4 rounded-2xl bg-white/50 border border-papaya-400 group/step transition-colors hover:border-teal/30">
+                          <div className="w-6 h-6 rounded-full bg-teal/10 text-teal flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">
+                            {j + 1}
+                          </div>
+                          <div className="text-sm text-ink/80 font-medium">
+                            {typeof step === 'string' ? step : step.title || step.content || JSON.stringify(step)}
+                            {step.description && (
+                              <p className="mt-1 text-xs text-ink/40 font-normal leading-relaxed">{step.description}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {code && (
+                    <div className="space-y-2">
+                      <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Example Implementation</span>
+                      <div className={cn("p-6 rounded-2xl font-mono text-xs overflow-x-auto border border-white/20 shadow-inner", theme.console.bg, theme.console.text)}>
+                        <pre><code>{code}</code></pre>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {Array.isArray(g.rationale) && g.rationale.length > 0 && (
+                    <div className="pt-4 border-t border-papaya-400/20">
+                       <div className="flex gap-2 text-xs text-ink/50">
+                         <Info className="w-3.5 h-3.5 shrink-0" />
+                         <p>{typeof g.rationale[0] === 'string' ? g.rationale.join(' ') : JSON.stringify(g.rationale)}</p>
+                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   )
