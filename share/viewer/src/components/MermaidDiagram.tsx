@@ -42,24 +42,20 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
 
         const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-        let cleanChart = chart.trim()
-        if (!cleanChart) return
+        const original = chart.trim()
+        if (!original) return
 
-        // Quote node labels that contain characters mermaid chokes on (<br/>, =, +, /, (), :, comma).
-        // Matches `Word[content]` and wraps content in quotes unless already quoted.
-        // Leaves `[[x]]`, `[(x)]`, `[/x/]` (special shapes) alone by requiring a word-char prefix.
-        cleanChart = cleanChart.replace(
+        // Aggressive quoting: wraps `Word[label]` content in quotes if it has
+        // mermaid-unfriendly chars. Used only as a fallback if the original fails.
+        const quoted = original.replace(
           /(\b[\w.-]+)\[((?!")[^\]]*)\]/g,
           (m, id, label) => {
-            // Skip if label already looks quoted or is empty
             if (!label || label.startsWith('"')) return m
-            // Only quote if label contains a problematic char
             if (!/[<>/+=():,&]/.test(label)) return m
-            // Escape any embedded quotes
-            const safe = label.replace(/"/g, '#quot;')
-            return `${id}["${safe}"]`
+            return `${id}["${label.replace(/"/g, '#quot;')}"]`
           }
         )
+        let cleanChart = original
 
         // Function to perform render and catch internal Mermaid UI injection
         const doRender = async (cid: string, code: string) => {
@@ -87,9 +83,9 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
             setError(null)
           }
         } catch (renderErr: any) {
-          // Retry with original chart if quoted one failed
+          // Original failed — try with aggressive label quoting
           try {
-            const rendered = await doRender(id + '-retry', chart.trim())
+            const rendered = await doRender(id + '-retry', quoted)
             if (!cancelled) {
               setSvg(rendered)
               setError(null)
