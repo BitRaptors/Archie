@@ -45,8 +45,21 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
         let cleanChart = chart.trim()
         if (!cleanChart) return
 
-        // Heuristic: If we see something like [Text / More], wrap in quotes: ["Text / More"]
-        cleanChart = cleanChart.replace(/\[([^\]]*\/[^\]]*)\]/g, '["$1"]')
+        // Quote node labels that contain characters mermaid chokes on (<br/>, =, +, /, (), :, comma).
+        // Matches `Word[content]` and wraps content in quotes unless already quoted.
+        // Leaves `[[x]]`, `[(x)]`, `[/x/]` (special shapes) alone by requiring a word-char prefix.
+        cleanChart = cleanChart.replace(
+          /(\b[\w.-]+)\[((?!")[^\]]*)\]/g,
+          (m, id, label) => {
+            // Skip if label already looks quoted or is empty
+            if (!label || label.startsWith('"')) return m
+            // Only quote if label contains a problematic char
+            if (!/[<>/+=():,&]/.test(label)) return m
+            // Escape any embedded quotes
+            const safe = label.replace(/"/g, '#quot;')
+            return `${id}["${safe}"]`
+          }
+        )
 
         // Function to perform render and catch internal Mermaid UI injection
         const doRender = async (cid: string, code: string) => {
@@ -118,7 +131,7 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
   return (
     <div
       ref={containerRef}
-      className="my-4 overflow-hidden w-full flex justify-center [&>svg]:max-w-full [&>svg]:h-auto bg-white/30 rounded-xl p-4 border border-papaya-300/30 shadow-sm"
+      className="my-4 overflow-x-auto w-full flex justify-center [&>svg]:max-w-full [&>svg]:h-auto [&>svg]:min-h-[200px] bg-white/30 rounded-xl p-4 border border-papaya-300/30 shadow-sm"
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   )
