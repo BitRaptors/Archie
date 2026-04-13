@@ -53,36 +53,49 @@ export default function ReportPage() {
     return rankFindings(extractFindings(bundle.scan_report))
   }, [bundle?.scan_report])
 
-  // Scroll sync logic
+  // Scroll sync logic — re-attach after bundle loads so contentRef.current exists
   useEffect(() => {
+    if (!bundle) return
     const container = contentRef.current
     if (!container) return
 
+    // Collect top-level tracked IDs: sections directly in content, and the
+    // nested `#pitfalls` div inside the Problems section plus `#try-archie`
+    // footer. Rebuilt once per load to avoid querySelector churn on scroll.
+    const TRACKED_IDS = [
+      'summary',
+      'health',
+      'diagram',
+      'archrules',
+      'devrules',
+      'decisions',
+      'tradeoffs',
+      'guidelines',
+      'communications',
+      'components',
+      'technology',
+      'deployment',
+      'problems',
+      'pitfalls',
+      'try-archie',
+    ]
+
     const handleScroll = () => {
       if (scrollingToRef.current) return
-      
-      const elements = container.querySelectorAll('[id]')
-      let current = ''
       const offset = 150
-      
-      for (const el of Array.from(elements)) {
-        // Only track elements that are direct children of the content container or are headings inside the findings section
-        const isTopLevel = el.parentElement === container || el.parentElement?.parentElement === container
-        const isHeading = el.tagName === 'H2' || el.tagName === 'H3'
-        
-        if (!isTopLevel && !isHeading) continue
-
-        const rect = el.getBoundingClientRect()
-        if (rect.top <= offset) {
-          current = el.id
-        }
+      let current = ''
+      for (const id of TRACKED_IDS) {
+        const el = document.getElementById(id)
+        if (!el) continue
+        if (el.getBoundingClientRect().top <= offset) current = id
       }
-      if (current) setActiveSection(current)
+      if (current && current !== activeSection) setActiveSection(current)
     }
 
+    handleScroll()
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
+  }, [bundle])
 
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id)
