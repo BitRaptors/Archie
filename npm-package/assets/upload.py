@@ -21,6 +21,10 @@ UPLOAD_URL = os.environ.get(
     "ARCHIE_UPLOAD_URL",
     "https://chlmyhkjnirrcrjdsvrc.supabase.co/functions/v1/upload",
 )
+VIEWER_URL = os.environ.get(
+    "ARCHIE_VIEWER_URL",
+    "https://archie-share.vercel.app",
+).rstrip("/")
 
 
 def _read_json(path: Path) -> dict | None:
@@ -103,7 +107,10 @@ def upload(bundle: dict) -> str | None:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read().decode("utf-8"))
-            return result.get("url")
+            token = result.get("token")
+            if not token:
+                return None
+            return f"{VIEWER_URL}/r/{token}"
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         print(f"Upload failed (HTTP {e.code}): {body}", file=sys.stderr)

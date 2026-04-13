@@ -60,13 +60,10 @@ Deno.serve(async (req) => {
 
     if (error) throw error;
 
-    return new Response(
-      JSON.stringify({ token, url: `${Deno.env.get("VIEWER_URL") || ""}/r/${token}` }),
-      {
-        status: 201,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return new Response(JSON.stringify({ token }), {
+      status: 201,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (err) {
     return new Response(JSON.stringify({ error: "Upload failed" }), {
       status: 500,
