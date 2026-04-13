@@ -138,6 +138,8 @@ export default function ReportPage() {
 
         {bundle.scan_meta && <ScanOverview scanMeta={bundle.scan_meta} />}
 
+        {bundle.scan_report && <ScanReportSection markdown={bundle.scan_report} />}
+
         {bundle.health && <HealthSection health={bundle.health} />}
 
         {diagram && (
@@ -315,6 +317,68 @@ function HealthSection({ health }: { health: Any }) {
           <Stat label="Functions" value={health.total_functions ?? '—'} />
           <Stat label="High-CC" value={health.high_cc_functions ?? '—'} />
           <Stat label="Duplicate lines" value={health.duplicate_lines ?? '—'} />
+        </div>
+        {Array.isArray(health.top_high_cc) && health.top_high_cc.length > 0 && (
+          <div className="pt-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+              Top high-complexity functions
+            </div>
+            <div className="text-sm space-y-1">
+              {health.top_high_cc.map((f: Any, i: number) => (
+                <div key={i} className="flex items-start gap-2 font-mono text-xs">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'shrink-0 text-xs',
+                      f.cc >= 20 ? 'border-brandy text-brandy' : 'border-tangerine text-tangerine-800'
+                    )}
+                  >
+                    CC {f.cc}
+                  </Badge>
+                  <span className="truncate">
+                    <span className="font-semibold">{f.name}</span>{' '}
+                    <span className="text-muted-foreground">
+                      {f.path}
+                      {f.line ? `:${f.line}` : ''}
+                    </span>
+                    {f.sloc ? <span className="text-muted-foreground"> · {f.sloc} sloc</span> : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {Array.isArray(health.top_duplicates) && health.top_duplicates.length > 0 && (
+          <div className="pt-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+              Largest duplicate blocks
+            </div>
+            <ul className="text-sm space-y-1">
+              {health.top_duplicates.map((d: Any, i: number) => (
+                <li key={i} className="text-xs">
+                  <Badge variant="outline" className="mr-2">{d.lines} lines</Badge>
+                  <span className="font-mono text-muted-foreground">
+                    {(d.locations || []).join(', ')}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ScanReportSection({ markdown }: { markdown: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Scan report</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="prose prose-sm max-w-none prose-headings:scroll-mt-20 prose-table:text-sm">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         </div>
       </CardContent>
     </Card>

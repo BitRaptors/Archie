@@ -2,8 +2,8 @@
 """Archie share — upload blueprint bundle for sharing.
 
 Run: python3 upload.py /path/to/project
-Reads: .archie/blueprint.json, .archie/health.json (optional), .archie/scan.json (optional),
-       .archie/rules.json (optional), .archie/proposed_rules.json (optional)
+Reads from .archie/: blueprint.json (required), health.json, scan.json, rules.json,
+                     proposed_rules.json, scan_report.md (all optional).
 Prints: shareable URL on success, warning on failure.
 
 Zero dependencies beyond Python 3.9+ stdlib.
@@ -55,6 +55,19 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
+def _read_text(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        return path.read_text()
+    except OSError:
+        return None
+
+
+TOP_N_HIGH_CC = 20
+TOP_N_DUPLICATES = 10
+
+
 def _strip_scan_meta(scan: dict) -> dict:
     return {
         "total_files": len(scan.get("file_tree", [])),
@@ -72,6 +85,12 @@ def _strip_scan_meta(scan: dict) -> dict:
 
 
 def _strip_health(health: dict) -> dict:
+    functions = health.get("functions") or []
+    top_cc = sorted(functions, key=lambda f: f.get("cc", 0), reverse=True)[:TOP_N_HIGH_CC]
+
+    duplicates = health.get("duplicates") or []
+    top_dupes = sorted(duplicates, key=lambda d: d.get("lines", 0), reverse=True)[:TOP_N_DUPLICATES]
+
     return {
         "erosion": health.get("erosion"),
         "gini": health.get("gini"),
@@ -81,6 +100,23 @@ def _strip_health(health: dict) -> dict:
         "high_cc_functions": health.get("high_cc_functions"),
         "total_loc": health.get("total_loc"),
         "duplicate_lines": health.get("duplicate_lines"),
+        "top_high_cc": [
+            {
+                "path": f.get("path"),
+                "name": f.get("name"),
+                "cc": f.get("cc"),
+                "sloc": f.get("sloc"),
+                "line": f.get("line"),
+            }
+            for f in top_cc
+        ],
+        "top_duplicates": [
+            {
+                "lines": d.get("lines"),
+                "locations": d.get("locations") or d.get("files") or [],
+            }
+            for d in top_dupes
+        ],
     }
 
 
@@ -109,6 +145,10 @@ def build_bundle(project_root: Path) -> dict:
     proposed = _read_json(archie_dir / "proposed_rules.json")
     if proposed:
         bundle["rules_proposed"] = proposed
+
+    scan_report = _read_text(archie_dir / "scan_report.md")
+    if scan_report:
+        bundle["scan_report"] = scan_report
 
     return bundle
 

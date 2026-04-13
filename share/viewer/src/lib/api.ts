@@ -8,6 +8,7 @@ export interface Bundle {
   scan_meta?: any
   rules_adopted?: any
   rules_proposed?: any
+  scan_report?: string
 }
 
 export interface ReportResponse {

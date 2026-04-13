@@ -46,12 +46,15 @@ def test_build_bundle_includes_all(mock_archie_dir):
     archie.joinpath("proposed_rules.json").write_text(json.dumps({
         "rules": [{"id": "p1", "description": "Use barrel exports", "confidence": 0.7}]
     }))
+    archie.joinpath("scan_report.md").write_text("# Scan\n\n## Findings\n- thing one")
     bundle = build_bundle(mock_archie_dir)
     assert "blueprint" in bundle
     assert "health" in bundle
     assert "scan_meta" in bundle
     assert "rules_adopted" in bundle
     assert "rules_proposed" in bundle
+    assert "scan_report" in bundle
+    assert "## Findings" in bundle["scan_report"]
     assert bundle["blueprint"]["meta"]["repository"] == "test/repo"
     assert len(bundle["rules_adopted"]["rules"]) == 1
     assert len(bundle["rules_proposed"]["rules"]) == 1
@@ -75,17 +78,28 @@ def test_build_bundle_missing_blueprint(tmp_path):
         build_bundle(tmp_path)
 
 
-def test_strip_health_drops_functions():
+def test_strip_health_keeps_top_cc_and_dupes():
     health = {
         "erosion": 0.1,
         "gini": 0.5,
-        "functions": [{"path": "big.py", "cc": 50}],
-        "duplicates": [{"file_a": "a.py"}],
+        "functions": [
+            {"path": "a.py", "name": "small", "cc": 3, "sloc": 5, "line": 1},
+            {"path": "b.py", "name": "huge", "cc": 50, "sloc": 200, "line": 10},
+            {"path": "c.py", "name": "medium", "cc": 12, "sloc": 40, "line": 5},
+        ],
+        "duplicates": [
+            {"lines": 30, "locations": ["x.py:1", "y.py:1"]},
+            {"lines": 10, "locations": ["a.py", "b.py"]},
+        ],
     }
     stripped = _strip_health(health)
     assert "functions" not in stripped
     assert "duplicates" not in stripped
     assert stripped["erosion"] == 0.1
+    assert stripped["top_high_cc"][0]["name"] == "huge"
+    assert stripped["top_high_cc"][0]["cc"] == 50
+    assert len(stripped["top_high_cc"]) == 3
+    assert stripped["top_duplicates"][0]["lines"] == 30
 
 
 def test_strip_scan_meta_drops_file_tree():
