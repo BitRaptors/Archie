@@ -21,10 +21,29 @@ UPLOAD_URL = os.environ.get(
     "ARCHIE_UPLOAD_URL",
     "https://chlmyhkjnirrcrjdsvrc.supabase.co/functions/v1/upload",
 )
-VIEWER_URL = os.environ.get(
-    "ARCHIE_VIEWER_URL",
-    "https://archie-share.vercel.app",
-).rstrip("/")
+PROD_VIEWER_URL = "https://archie-share.vercel.app"
+LOCAL_VIEWER_URL = "http://localhost:5173"
+
+
+def _detect_viewer_url() -> str:
+    """Resolve the viewer host. Precedence:
+    1. ARCHIE_VIEWER_URL env var (explicit override)
+    2. Local dev server on :5173 if it responds and identifies as Archie
+    3. Production default
+    """
+    override = os.environ.get("ARCHIE_VIEWER_URL")
+    if override:
+        return override.rstrip("/")
+
+    try:
+        with urllib.request.urlopen(LOCAL_VIEWER_URL, timeout=0.3) as resp:
+            body = resp.read(4096).decode("utf-8", errors="replace")
+            if "Archie" in body:
+                return LOCAL_VIEWER_URL
+    except (urllib.error.URLError, OSError, TimeoutError):
+        pass
+
+    return PROD_VIEWER_URL
 
 
 def _read_json(path: Path) -> dict | None:
@@ -110,7 +129,7 @@ def upload(bundle: dict) -> str | None:
             token = result.get("token")
             if not token:
                 return None
-            return f"{VIEWER_URL}/r/{token}"
+            return f"{_detect_viewer_url()}/r/{token}"
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         print(f"Upload failed (HTTP {e.code}): {body}", file=sys.stderr)
