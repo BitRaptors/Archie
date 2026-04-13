@@ -21,7 +21,7 @@ UPLOAD_URL = os.environ.get(
     "ARCHIE_UPLOAD_URL",
     "https://chlmyhkjnirrcrjdsvrc.supabase.co/functions/v1/upload",
 )
-PROD_VIEWER_URL = "https://archie-share.vercel.app"
+PROD_VIEWER_URL = "https://archie-viewer.vercel.app"
 LOCAL_VIEWER_URL = "http://localhost:5173"
 
 
