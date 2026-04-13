@@ -60,8 +60,13 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
         // Function to perform render and catch internal Mermaid UI injection
         const doRender = async (cid: string, code: string) => {
           // Passing a dummy container helps Mermaid NOT to inject into body
+          // Must be visible (not display:none) so mermaid can measure text widths.
+          // Position off-screen instead.
           const tempDiv = document.createElement('div');
-          tempDiv.style.display = 'none';
+          tempDiv.style.position = 'absolute';
+          tempDiv.style.left = '-99999px';
+          tempDiv.style.top = '0';
+          tempDiv.style.visibility = 'hidden';
           document.body.appendChild(tempDiv);
 
           try {
