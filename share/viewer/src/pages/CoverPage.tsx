@@ -8,8 +8,6 @@ import {
   ChevronRight,
   FileText,
   Layout,
-  Shield,
-  Zap,
 } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -22,7 +20,6 @@ import {
   extractFindings,
   pickTopFindings,
   rankFindings,
-  severityColor,
   type Finding,
 } from '@/lib/findings'
 
@@ -133,6 +130,9 @@ export default function CoverPage() {
             <div className="flex items-center gap-3 text-ink/30 font-black uppercase tracking-[0.3em] text-[10px]">
               <span className="w-8 h-px bg-current" />
               <span>Architecture Blueprint</span>
+              <Badge className="bg-tangerine/10 border-tangerine/30 text-tangerine-800 px-2 py-0.5 text-[9px] rounded-full tracking-widest">
+                Preview
+              </Badge>
             </div>
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-black tracking-tight leading-[0.95] text-ink">
               {meta.repository || 'The Blueprint'}
@@ -261,53 +261,22 @@ export default function CoverPage() {
         {topFindings.length > 0 && (
           <section className="space-y-8">
             <Sections.SectionHeader title="Architectural Problems" icon={AlertTriangle} />
-            <div className="grid gap-4">
-              {topFindings.map((f, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    'p-6 rounded-2xl border flex gap-4 transition-all hover:shadow-lg',
-                    theme.surface.panel
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'shrink-0 h-8 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest',
-                      severityColor(f.severity)
-                    )}
-                  >
-                    {f.severity === 'error' ? <Shield className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
-                    {f.severity}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2 flex-wrap">
-                      <h3 className="font-bold text-ink">{f.title}</h3>
-                      {f.group && (
-                        <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
-                          {f.group}
-                        </Badge>
-                      )}
-                    </div>
-                    {f.description && (
-                      <p className="text-sm text-ink/60 mt-1 leading-relaxed line-clamp-3">
-                        {f.description}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {findings.length > topFindings.length && (
-                <p className="text-sm text-ink/40 text-center pt-2">
-                  Showing {topFindings.length} of {findings.length} findings. Full list in the detailed
-                  report.
-                </p>
-              )}
-            </div>
+            <Sections.FindingsList findings={topFindings} truncate />
+            {findings.length > topFindings.length && (
+              <p className="text-sm text-ink/40 text-center pt-2">
+                Showing {topFindings.length} of {findings.length} findings. Full list in the detailed
+                report.
+              </p>
+            )}
           </section>
         )}
 
         {/* CTA — view full report */}
-        <section className="pt-8">
+        <section className="pt-8 space-y-6">
+          <p className="text-center text-sm text-ink/40">
+            This is a preview. The detailed report includes every component, rule, decision, and
+            finding in the blueprint.
+          </p>
           <Link
             to={`/r/${token}/details`}
             className={cn(

@@ -12,6 +12,55 @@ import ReactMarkdown from 'react-markdown'
 // @ts-ignore
 import remarkGfm from 'remark-gfm'
 
+import type { Finding } from '@/lib/findings'
+import { severityColor } from '@/lib/findings'
+
+export function FindingsList({ findings, truncate }: { findings: Finding[]; truncate?: boolean }) {
+  return (
+    <div className="grid gap-4">
+      {findings.map((f, i) => (
+        <div
+          key={i}
+          className={cn(
+            'p-6 rounded-2xl border flex gap-4 transition-all hover:shadow-lg',
+            theme.surface.panel
+          )}
+        >
+          <div
+            className={cn(
+              'shrink-0 h-8 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest',
+              severityColor(f.severity)
+            )}
+          >
+            {f.severity === 'error' ? <Shield className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+            {f.severity}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <h3 className="font-bold text-ink">{f.title}</h3>
+              {f.group && (
+                <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
+                  {f.group}
+                </Badge>
+              )}
+            </div>
+            {f.description && (
+              <p
+                className={cn(
+                  'text-sm text-ink/60 mt-1 leading-relaxed',
+                  truncate && 'line-clamp-3'
+                )}
+              >
+                {f.description}
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function SectionHeader({ title, icon: Icon }: { title: string; icon: any }) {
   return (
     <div className="flex items-center gap-3 mb-6 px-1">

@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, FileText, AlertTriangle, HelpCircle } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
@@ -11,8 +11,9 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
-import { parseNavigation, generateId, filterReportSections } from '@/lib/toc'
+import { filterReportSections } from '@/lib/toc'
 import * as Sections from '@/components/ReportSections'
+import { extractFindings, rankFindings } from '@/lib/findings'
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
@@ -47,15 +48,15 @@ export default function ReportPage() {
     return filterReportSections(bundle.scan_report, ['Findings', 'Next task', 'Next steps', 'Rules', 'Architecture Rules', 'Guidelines'])
   }, [bundle?.scan_report])
 
-  const toc = useMemo(() => {
-    if (!filteredReport) return []
-    return parseNavigation(filteredReport)
-  }, [filteredReport])
+  const findings = useMemo(() => {
+    if (!bundle?.scan_report) return []
+    return rankFindings(extractFindings(bundle.scan_report))
+  }, [bundle?.scan_report])
 
   // Scroll sync logic
   useEffect(() => {
     const container = contentRef.current
-    if (!container || toc.length === 0) return
+    if (!container) return
 
     const handleScroll = () => {
       if (scrollingToRef.current) return
@@ -81,7 +82,7 @@ export default function ReportPage() {
 
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [toc])
+  }, [])
 
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id)
@@ -246,164 +247,163 @@ export default function ReportPage() {
         </div>
 
         <nav className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-          {/* Main Sections */}
+          {/* Overview */}
           <div className="space-y-1">
-            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Core Analysis</p>
-            <NavButton 
-              active={activeSection === 'summary'} 
-              onClick={() => scrollToSection('summary')} 
-              icon={Info} 
-              label="Executive Summary" 
+            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Overview</p>
+            <NavButton
+              active={activeSection === 'summary'}
+              onClick={() => scrollToSection('summary')}
+              icon={Info}
+              label="Executive Summary"
             />
-            <NavButton 
-              active={activeSection === 'health'} 
-              onClick={() => scrollToSection('health')} 
-              icon={Activity} 
-              label="System Health" 
-            />
-            {diagram && (
-               <NavButton 
-                active={activeSection === 'diagram'} 
-                onClick={() => scrollToSection('diagram')} 
-                icon={Layout} 
-                label="Arch Diagram" 
+            {bundle.health && (
+              <NavButton
+                active={activeSection === 'health'}
+                onClick={() => scrollToSection('health')}
+                icon={Activity}
+                label="System Health"
               />
             )}
-            {componentsList.length > 0 && (
-              <NavButton 
-                active={activeSection === 'components'} 
-                onClick={() => scrollToSection('components')} 
-                icon={Database} 
-                label={`Components (${componentsList.length})`} 
+            {diagram && (
+              <NavButton
+                active={activeSection === 'diagram'}
+                onClick={() => scrollToSection('diagram')}
+                icon={Layout}
+                label="Architecture Diagram"
               />
             )}
           </div>
-          {/* Deep Dive (Decisions, Trade-offs, Pitfalls) */}
-          {(keyDecisions.length > 0 || tradeOffs.length > 0 || pitfalls.length > 0) && (
+
+          {/* Rules */}
+          {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0) && (
             <div className="space-y-1">
-              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Strategic Insight</p>
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
+              {(filePlacement.length > 0 || naming.length > 0) && (
+                <NavButton
+                  active={activeSection === 'archrules'}
+                  onClick={() => scrollToSection('archrules')}
+                  icon={HelpCircle}
+                  label="Architecture Rules"
+                />
+              )}
+              {developmentRules.length > 0 && (
+                <NavButton
+                  active={activeSection === 'devrules'}
+                  onClick={() => scrollToSection('devrules')}
+                  icon={Shield}
+                  label="Development Rules"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Design */}
+          {(keyDecisions.length > 0 || tradeOffs.length > 0) && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Design</p>
               {keyDecisions.length > 0 && (
-                <NavButton 
-                  active={activeSection === 'decisions'} 
-                  onClick={() => scrollToSection('decisions')} 
-                  icon={Shield} 
-                  label="Key Decisions" 
+                <NavButton
+                  active={activeSection === 'decisions'}
+                  onClick={() => scrollToSection('decisions')}
+                  icon={Shield}
+                  label="Key Decisions"
                 />
               )}
               {tradeOffs.length > 0 && (
-                <NavButton 
-                  active={activeSection === 'tradeoffs'} 
-                  onClick={() => scrollToSection('tradeoffs')} 
-                  icon={Activity} 
-                  label="Trade-offs" 
-                />
-              )}
-              {pitfalls.length > 0 && (
-                <NavButton 
-                  active={activeSection === 'pitfalls'} 
-                  onClick={() => scrollToSection('pitfalls')} 
-                  icon={AlertTriangle} 
-                  label="Pitfalls" 
+                <NavButton
+                  active={activeSection === 'tradeoffs'}
+                  onClick={() => scrollToSection('tradeoffs')}
+                  icon={Activity}
+                  label="Trade-offs"
                 />
               )}
             </div>
           )}
 
-          {/* Audit Findings from scan_report */}
-          {toc.length > 0 && (
+          {/* Practice */}
+          {(implementationGuidelines.length > 0 || communications.length > 0) && (
             <div className="space-y-1">
-              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Audit Report</p>
-              {/* Finding Section Root */}
-              <NavButton 
-                active={activeSection === 'findings'} 
-                onClick={() => scrollToSection('findings')} 
-                icon={FileText} 
-                label="Detailed Findings" 
-              />
-              {/* Sub-headings */}
-              {toc.map((s) => (
-                <div key={s.id} className="space-y-1">
-                  <button
-                    onClick={() => scrollToSection(s.id)}
-                    className={cn(
-                      "block w-full text-left py-1.5 pl-12 text-xs transition-colors",
-                      activeSection === s.id ? "text-teal font-bold" : "text-ink/40 hover:text-ink/60"
-                    )}
-                  >
-                    {s.title}
-                  </button>
-                  {s.items.length > 0 && (
-                    <div className="pl-16 space-y-1 border-l border-papaya-300 ml-12">
-                      {s.items.map((it) => (
-                        <button
-                          key={it.id}
-                          onClick={() => scrollToSection(it.id)}
-                          className={cn(
-                            "block w-full text-left py-1 text-[10px] transition-colors",
-                            activeSection === it.id ? "text-teal font-semibold" : "text-ink/30 hover:text-ink/50"
-                          )}
-                        >
-                          {it.title}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Practice</p>
+              {implementationGuidelines.length > 0 && (
+                <NavButton
+                  active={activeSection === 'guidelines'}
+                  onClick={() => scrollToSection('guidelines')}
+                  icon={Info}
+                  label="Implementation Guidelines"
+                />
+              )}
+              {communications.length > 0 && (
+                <NavButton
+                  active={activeSection === 'communications'}
+                  onClick={() => scrollToSection('communications')}
+                  icon={Activity}
+                  label="Communications"
+                />
+              )}
             </div>
           )}
 
-          {/* Standards & Guidelines */}
+          {/* Inventory */}
+          {(componentsList.length > 0 || stack.length > 0) && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Inventory</p>
+              {componentsList.length > 0 && (
+                <NavButton
+                  active={activeSection === 'components'}
+                  onClick={() => scrollToSection('components')}
+                  icon={Database}
+                  label={`Components (${componentsList.length})`}
+                />
+              )}
+              {stack.length > 0 && (
+                <NavButton
+                  active={activeSection === 'technology'}
+                  onClick={() => scrollToSection('technology')}
+                  icon={Zap}
+                  label="Technology Stack"
+                />
+              )}
+              {(deployment.strategy || deployment.platform || (Array.isArray(deployment.infrastructure) && deployment.infrastructure.length > 0)) && (
+                <NavButton
+                  active={activeSection === 'deployment'}
+                  onClick={() => scrollToSection('deployment')}
+                  icon={Rocket}
+                  label="Deployment"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Risks — merged Findings + Pitfalls */}
+          {(filteredReport || pitfalls.length > 0) && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Risks</p>
+              <NavButton
+                active={activeSection === 'problems'}
+                onClick={() => scrollToSection('problems')}
+                icon={AlertTriangle}
+                label="Architectural Problems"
+              />
+              {pitfalls.length > 0 && (
+                <NavButton
+                  active={activeSection === 'pitfalls'}
+                  onClick={() => scrollToSection('pitfalls')}
+                  icon={Shield}
+                  label="Pitfalls"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Get started */}
           <div className="space-y-1">
-            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Standards & Ops</p>
-            {implementationGuidelines.length > 0 && (
-                <NavButton 
-                  active={activeSection === 'guidelines'} 
-                  onClick={() => scrollToSection('guidelines')} 
-                  icon={Info} 
-                  label="Guidelines" 
-                />
-            )}
-            {developmentRules.length > 0 && (
-                <NavButton 
-                  active={activeSection === 'devrules'} 
-                  onClick={() => scrollToSection('devrules')} 
-                  icon={Shield} 
-                  label="Dev Rules" 
-                />
-            )}
-            {(filePlacement.length > 0 || naming.length > 0) && (
-              <NavButton 
-                active={activeSection === 'archrules'} 
-                onClick={() => scrollToSection('archrules')} 
-                icon={HelpCircle} 
-                label="Arch Rules" 
-              />
-            )}
-            {communications.length > 0 && (
-                <NavButton 
-                  active={activeSection === 'communications'} 
-                  onClick={() => scrollToSection('communications')} 
-                  icon={Activity} 
-                  label="Communications" 
-                />
-            )}
-            {stack.length > 0 && (
-              <NavButton 
-                active={activeSection === 'technology'} 
-                onClick={() => scrollToSection('technology')} 
-                icon={Zap} 
-                label="Tech Stack" 
-              />
-            )}
-            {(deployment.strategy || deployment.platform || (Array.isArray(deployment.infrastructure) && deployment.infrastructure.length > 0)) && (
-              <NavButton 
-                active={activeSection === 'deployment'} 
-                onClick={() => scrollToSection('deployment')} 
-                icon={Rocket} 
-                label="Deployment" 
-              />
-            )}
+            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Get Started</p>
+            <NavButton
+              active={activeSection === 'try-archie'}
+              onClick={() => scrollToSection('try-archie')}
+              icon={Rocket}
+              label="Try Archie"
+            />
           </div>
         </nav>
 
@@ -505,110 +505,86 @@ export default function ReportPage() {
             </section>
           )}
 
-          {/* Components Section */}
-          {componentsList.length > 0 && (
-            <section id="components" className="scroll-mt-24">
-              <Sections.ComponentsSection components={componentsList} />
-            </section>
-          )}
-
-          {/* Decisions & Tradeoffs */}
-          {keyDecisions.length > 0 && (
-            <section id="decisions" className="scroll-mt-24">
-              <Sections.KeyDecisionsSection decisions={keyDecisions} />
-            </section>
-          )}
-
-          {tradeOffs.length > 0 && (
-            <section id="tradeoffs" className="scroll-mt-24">
-              <Sections.TradeOffsSection tradeoffs={tradeOffs} />
-            </section>
-          )}
-
-          {/* Pitfalls */}
-          {pitfalls.length > 0 && (
-            <section id="pitfalls" className="scroll-mt-24">
-              <Sections.PitfallsSection pitfalls={pitfalls} />
-            </section>
-          )}
-
-          {/* Audit Report */}
-          {filteredReport && (
-            <section id="findings" className="space-y-8 scroll-mt-24">
-              <Sections.SectionHeader title="Detailed Audit Findings" icon={FileText} />
-              <div className={cn("p-10 md:p-16 rounded-[40px] border shadow-2xl shadow-ink/5 relative overflow-hidden", theme.surface.panel)}>
-                <div className="absolute top-0 right-0 p-12 opacity-[0.03] pointer-events-none">
-                  <FileText className="w-64 h-64 -mr-20 -mt-20" />
-                </div>
-                <div className="relative prose prose-lg prose-ink max-w-none 
-                  prose-headings:font-black prose-headings:tracking-tight prose-headings:text-ink
-                  prose-h2:text-3xl prose-h2:mt-16 prose-h2:mb-8 prose-h2:pb-4 prose-h2:border-b prose-h2:border-papaya-400/30
-                  prose-h3:text-xl prose-h3:text-teal prose-h3:mt-10
-                  prose-p:text-ink/70 prose-p:leading-relaxed
-                  prose-strong:text-ink prose-strong:font-black
-                  prose-code:bg-ink/5 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-ink/80 prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                  prose-ul:list-disc prose-ul:pl-6
-                  prose-blockquote:border-l-4 prose-blockquote:border-teal/30 prose-blockquote:bg-teal/5 prose-blockquote:px-6 prose-blockquote:py-1 prose-blockquote:rounded-r-2xl prose-blockquote:italic
-                ">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      h2: ({ children }) => {
-                        const id = generateId(String(children));
-                        return <h2 id={id} className="scroll-mt-24">{children}</h2>;
-                      },
-                      h3: ({ children }) => {
-                        const id = generateId(String(children));
-                        return <h3 id={id} className="scroll-mt-24">{children}</h3>;
-                      }
-                    }}
-                  >
-                    {filteredReport}
-                  </ReactMarkdown>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {/* Technical Standards */}
+          {/* 4. Architecture Rules */}
           {(filePlacement.length > 0 || naming.length > 0) && (
             <section id="archrules" className="scroll-mt-24">
               <Sections.ArchRulesSection filePlacement={filePlacement} naming={naming} />
             </section>
           )}
 
+          {/* 5. Development Rules */}
           {developmentRules.length > 0 && (
             <section id="devrules" className="scroll-mt-24">
               <Sections.DevelopmentRulesSection rules={developmentRules} />
             </section>
           )}
 
+          {/* 6. Key Decisions */}
+          {keyDecisions.length > 0 && (
+            <section id="decisions" className="scroll-mt-24">
+              <Sections.KeyDecisionsSection decisions={keyDecisions} />
+            </section>
+          )}
+
+          {/* 7. Trade-offs */}
+          {tradeOffs.length > 0 && (
+            <section id="tradeoffs" className="scroll-mt-24">
+              <Sections.TradeOffsSection tradeoffs={tradeOffs} />
+            </section>
+          )}
+
+          {/* 8. Implementation Guidelines */}
           {implementationGuidelines.length > 0 && (
             <section id="guidelines" className="scroll-mt-24">
               <Sections.ImplementationGuidelinesSection items={implementationGuidelines} />
             </section>
           )}
 
+          {/* 9. Communications */}
           {communications.length > 0 && (
             <section id="communications" className="scroll-mt-24">
               <Sections.CommunicationsSection communications={communications} />
             </section>
           )}
 
-          {stack.length > 0 && (
-             <section id="technology" className="scroll-mt-24">
-               <Sections.TechnologySection stack={stack} runCommands={runCommands} />
-             </section>
+          {/* 10. Components */}
+          {componentsList.length > 0 && (
+            <section id="components" className="scroll-mt-24">
+              <Sections.ComponentsSection components={componentsList} />
+            </section>
           )}
 
+          {/* 11. Technology Stack */}
+          {stack.length > 0 && (
+            <section id="technology" className="scroll-mt-24">
+              <Sections.TechnologySection stack={stack} runCommands={runCommands} />
+            </section>
+          )}
+
+          {/* Deployment (kept — not in user's spec but still useful if present) */}
           {Object.keys(deployment).length > 0 && (deployment.strategy || deployment.platform || (Array.isArray(deployment.infrastructure) && deployment.infrastructure.length > 0)) && (
             <section id="deployment" className="scroll-mt-24">
-               <Sections.DeploymentSection deployment={deployment} />
+              <Sections.DeploymentSection deployment={deployment} />
+            </section>
+          )}
+
+          {/* 12. Architectural Problems + Pitfalls — merged, end of page */}
+          {(findings.length > 0 || pitfalls.length > 0) && (
+            <section id="problems" className="space-y-12 scroll-mt-24">
+              <Sections.SectionHeader title="Architectural Problems" icon={AlertTriangle} />
+
+              {findings.length > 0 && <Sections.FindingsList findings={findings} />}
+
+              {pitfalls.length > 0 && (
+                <div id="pitfalls" className="scroll-mt-24">
+                  <Sections.PitfallsSection pitfalls={pitfalls} />
+                </div>
+              )}
             </section>
           )}
 
           {/* Conversion Footer */}
-          <footer className="pt-20 pb-32">
+          <footer id="try-archie" className="pt-20 pb-32 scroll-mt-24">
              <div className="relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-teal to-tangerine rounded-[40px] blur opacity-10 group-hover:opacity-20 transition-opacity duration-1000" />
                 <div className="relative p-12 md:p-20 rounded-[38px] bg-white border border-papaya-400 shadow-2xl shadow-ink/5 text-center space-y-8 overflow-hidden">
