@@ -665,7 +665,7 @@ Tell the Reasoning agent:
 > - **libraries**: Libraries used with versions (from tech stack)
 > - **pattern_description**: Architecture pattern, main service/class, data flow
 > - **key_files**: Actual file paths (MUST exist in file_tree)
-> - **usage_example**: Brief code snippet (max 1 line)
+> - **usage_example**: Realistic code snippet. A single line is fine when the pattern genuinely is one-line (`logger.track(Event.X)`). Multi-line (typically 3-10 lines) when clarity demands it — use real newlines, not `;` chains. Show the full pattern a developer would actually write.
 > - **tips**: Gotchas specific to this implementation
 >
 > Return JSON:
