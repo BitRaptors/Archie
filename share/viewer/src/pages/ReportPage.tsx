@@ -461,7 +461,7 @@ export default function ReportPage() {
                 )}
               </div>
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-black tracking-tight leading-[0.95] text-ink">
-                {formatBlueprintTitle(meta.repository)}
+                {formatBlueprintTitle({ ...meta, executiveSummary: meta.executive_summary })}
               </h1>
               <div className="flex flex-wrap gap-2 pt-2">
                 {Array.isArray(meta.platforms) && meta.platforms.map((p: string) => (
