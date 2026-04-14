@@ -15,25 +15,86 @@ If you need data not covered by these commands, proceed without it or ask the us
 
 ---
 
-## Phase 0: Scope Detection (monorepo/workspace check)
+## Phase 0: Resolve scope
 
-Before scanning, detect if this is a multi-project repository:
+Every run needs to know whether to scan the root, a specific workspace, or a set of workspaces. The choice is persisted in `.archie/archie_config.json` so we ask at most once per project.
+
+### Step A: Read existing config
+
+```bash
+python3 .archie/intent_layer.py scan-config "$PWD" read
+```
+
+- **Exit 0** → config exists. Parse `scope`, `workspaces`, `monorepo_type` from the JSON. Skip to Step D.
+- **Exit 1** → config missing. Go to Step B.
+
+If the user invoked the command with `--reconfigure`, skip Step A entirely and go to Step B (forcing a fresh prompt).
+
+### Step B: Detect monorepo type + subprojects
 
 ```bash
 python3 .archie/scanner.py "$PWD" --detect-subprojects
 ```
 
-If sub-projects are detected, present the user with a choice:
+Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 
-> I detected N sub-project(s) in this repo: [list names and types].
-> Would you like to:
-> 1. **Scan the entire repository** — unified architecture view across all projects
-> 2. **Scan only [current directory name]** — focused on this package/module
-> 3. **Scan a specific sub-project** — [list options with paths]
+- **0 or 1 non-wrapper subprojects** → Not a monorepo (or a monorepo with only one real package). Write config as `single`:
 
-If the user chooses a sub-project, `cd` to that directory before running Phase 1. The `.archie/` directory will be created at the chosen scope level.
+  ```bash
+  echo '{"scope":"single","monorepo_type":"<detected-type>","workspaces":[]}' \
+    | python3 .archie/intent_layer.py scan-config "$PWD" write
+  ```
 
-If no sub-projects are detected (or only 1 root wrapper), skip this phase and proceed normally.
+  Skip to Step D.
+
+- **2+ non-wrapper subprojects** → Go to Step C.
+
+### Step C: Interactive scope prompt
+
+Present the user with:
+
+> Found **N workspaces** in this **{monorepo_type}** monorepo:
+> 1. {name} ({type}) — {path}
+> 2. {name} ({type}) — {path}
+> ...
+>
+> **How do you want to analyze it?**
+>
+> - **whole** — One unified blueprint treating the monorepo as one product. Workspaces become components; cross-workspace imports become the primary architecture view. Fastest.
+> - **per-package** — One blueprint per workspace you pick. Deep detail per package, no product-level view.
+> - **hybrid** — Whole blueprint at root + per-workspace blueprints for specific workspaces. Most comprehensive, slowest.
+> - **single** — Ignore the workspaces and scan the whole tree as if it were one project. Only use this for small monorepos.
+
+Wait for the user's answer.
+
+- If `whole` or `single` → `WORKSPACES=[]`
+- If `per-package` or `hybrid` → ask which workspaces to include. Accept comma-separated numbers (`1,3,5`) or `all`. Resolve to paths relative to `$PWD`.
+
+Persist the choice:
+
+```bash
+echo '{"scope":"<chosen>","monorepo_type":"<detected-type>","workspaces":[<array>]}' \
+  | python3 .archie/intent_layer.py scan-config "$PWD" write
+```
+
+### Step D: Validate
+
+```bash
+python3 .archie/intent_layer.py scan-config "$PWD" validate
+```
+
+- **Exit 0** → proceed with the rest of the pipeline.
+- **Exit 1** → a workspace was removed/renamed. Print the drift message and instruct the user to re-run with `--reconfigure`. Stop execution.
+
+Expose `SCOPE`, `WORKSPACES`, and `MONOREPO_TYPE` for the rest of the run.
+
+### Execution plan based on SCOPE
+
+- **SCOPE=single or whole** — Run Phases 1-6 once with `PROJECT_ROOT="$PWD"`. For `whole`, apply the workspace-aware addendum in Phase 3 so components represent workspaces.
+- **SCOPE=per-package** — For each path in `WORKSPACES`, set `PROJECT_ROOT="$PWD/<path>"` and run Phases 1-6. Produce one scan_report per workspace.
+- **SCOPE=hybrid** — Pass 1 with `PROJECT_ROOT="$PWD"` (whole semantics); Pass 2 iterates `WORKSPACES`. Each pass writes its own blueprint, health, and scan_report in its `PROJECT_ROOT/.archie/`.
+
+After all passes finish, print a summary if >1 blueprint was touched: "Updated N blueprints. Errors: X total. See <paths>."
 
 ---
 
@@ -70,7 +131,6 @@ Read accumulated knowledge (skip any that don't exist — that's normal for earl
 - `.archie/health_history.json` — historical health scores
 - `.archie/rules.json` — adopted enforcement rules
 - `.archie/proposed_rules.json` — rules discovered but not yet adopted
-- `.archie/function_complexity.json` — previous complexity snapshot
 
 **This is the compound learning input.** The agents below receive everything Archie has ever learned about this codebase.
 
@@ -138,7 +198,6 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
 **Your inputs:**
 - `.archie/health.json` — current erosion, gini, verbosity, waste, function-level complexity
 - `.archie/health_history.json` — historical health scores (for trend analysis)
-- `.archie/function_complexity.json` — previous complexity snapshot (for trajectory)
 - `.archie/skeletons.json` — file structure
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
 
@@ -151,7 +210,7 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
 
 2. **Trend analysis:** Compare against health_history.json. Are things improving or degrading? Which metrics moved most? Is LOC growth justified?
 
-3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified. Compare against previous function_complexity.json — which functions got MORE complex?
+3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified.
 
 4. **Abstraction waste:** Single-method classes, tiny functions (<=2 lines). Flag from skeletons. Only read if the skeleton is ambiguous about whether a single-method class is a legitimate abstraction.
 
@@ -219,6 +278,15 @@ Optional mechanical fields (add ONLY when a meaningful regex exists):
   "rule_confidence_updates": [{"rule_id": "...", "old_confidence": 0.7, "new_confidence": 0.85, "reason": "..."}]
 }
 ```
+
+#### Workspace-aware addendum (only when `SCOPE === "whole"`)
+
+If the current scope is `whole`, `PROJECT_ROOT` is a workspace monorepo (`MONOREPO_TYPE={type}`). The blueprint's `components` section treats each workspace as a top-level component, and `blueprint.workspace_topology` (if present) captures the inter-workspace dependency graph. When analyzing drift and findings, pay special attention to:
+
+- Cross-workspace imports that create cycles in the workspace dependency graph → always severity `error`
+- Shared/library packages (e.g., `packages/*`) that import from application packages (e.g., `apps/*`) → inverted dependency flow, severity `error`
+- Workspaces with very high fan-in (top 20% of `in_degree`) that keep growing — flag as "dependency magnet at risk"
+- Reference components by **workspace name** (from `package.json`), not by path, in findings
 
 ```
 Save output: /tmp/archie_agent_c_rules.json
@@ -364,8 +432,6 @@ Append health scores to history:
 python3 .archie/measure_health.py "$PWD" --append-history --scan-type fast
 ```
 
-Save per-function complexity snapshot to `.archie/function_complexity.json`.
-
 Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 ```
 1. Read existing proposed_rules.json (create as {"rules": []} if missing)
@@ -379,8 +445,9 @@ Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 
 ```bash
 rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
-rm -f .archie/health.json
 ```
+
+Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
 
 ---
 
