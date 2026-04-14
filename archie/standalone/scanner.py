@@ -136,6 +136,66 @@ def _primary_type(types: set[str]) -> str:
     return sorted(types)[0]
 
 
+def detect_monorepo_type(root: Path) -> str:
+    """Classify the monorepo build system by checking signal files.
+
+    Returns one of: "bun-workspaces", "npm-workspaces", "pnpm", "turborepo",
+    "nx", "lerna", "cargo", "gradle", or "none". First match wins.
+
+    Signals checked in priority order so that tools layered on top
+    (turborepo/nx over bun/pnpm) are reported by their outer layer.
+    """
+    root = root.resolve()
+
+    def has(name: str) -> bool:
+        return (root / name).exists()
+
+    def read_json(name: str) -> dict:
+        try:
+            return json.loads((root / name).read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def read_text(name: str) -> str:
+        try:
+            return (root / name).read_text()
+        except OSError:
+            return ""
+
+    # Higher-level orchestrators first — they wrap other workspace systems.
+    if has("turbo.json"):
+        return "turborepo"
+    if has("nx.json") or has("workspace.json"):
+        return "nx"
+    if has("lerna.json"):
+        return "lerna"
+
+    # JS workspace flavours
+    if has("pnpm-workspace.yaml") or has("pnpm-workspace.yml"):
+        return "pnpm"
+
+    pkg = read_json("package.json")
+    has_workspaces = bool(pkg.get("workspaces"))
+    if has_workspaces:
+        # Bun signalled by bun.lock or bunfig.toml
+        if has("bun.lock") or has("bun.lockb") or has("bunfig.toml"):
+            return "bun-workspaces"
+        return "npm-workspaces"
+
+    # Cargo workspace
+    cargo = read_text("Cargo.toml")
+    if cargo and "[workspace]" in cargo:
+        return "cargo"
+
+    # Gradle multi-project (settings.gradle or settings.gradle.kts declares `include`)
+    for settings_name in ("settings.gradle", "settings.gradle.kts"):
+        settings = read_text(settings_name)
+        if settings and re.search(r"\binclude\b", settings):
+            return "gradle"
+
+    return "none"
+
+
 def detect_subprojects(root: Path) -> list[dict]:
     """Detect independent sub-projects in a monorepo by build file signals.
 
@@ -816,11 +876,12 @@ if __name__ == "__main__":
     if detect_only:
         # Fast mode: only detect sub-projects, no full scan
         subprojects = detect_subprojects(Path(repo))
+        monorepo_type = detect_monorepo_type(Path(repo))
         non_wrapper = [s for s in subprojects if not s["is_root_wrapper"]]
-        print(f"Detected {len(non_wrapper)} sub-project(s)", file=sys.stderr)
+        print(f"Detected {len(non_wrapper)} sub-project(s) (monorepo_type={monorepo_type})", file=sys.stderr)
         for sp in non_wrapper:
             print(f"  {sp['name']} ({sp['type']}) — {sp['path']}", file=sys.stderr)
-        json.dump({"subprojects": subprojects}, sys.stdout, indent=2)
+        json.dump({"monorepo_type": monorepo_type, "subprojects": subprojects}, sys.stdout, indent=2)
         sys.exit(0)
 
     scan = run_scan(repo)

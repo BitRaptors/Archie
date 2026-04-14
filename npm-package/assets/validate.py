@@ -465,6 +465,50 @@ def check_component_verbs(root: Path) -> list[dict]:
 # CLI
 # ---------------------------------------------------------------------------
 
+def check_workspace_topology(root: Path) -> list[dict]:
+    """Validate blueprint.workspace_topology (when present).
+
+    Ensures every edge endpoint maps to a known workspace member name, and
+    that each member's path exists on disk. Skipped entirely when no
+    workspace_topology exists.
+    """
+    errors: list[dict] = []
+    blueprint = _load_json(root / ".archie" / "blueprint.json")
+    wt = blueprint.get("workspace_topology") or {}
+    if not wt:
+        return errors
+
+    members = wt.get("members") or []
+    member_names = {m.get("name") for m in members if m.get("name")}
+
+    for m in members:
+        name = m.get("name")
+        path = m.get("path")
+        if path and not (root / path).is_dir():
+            errors.append({
+                "check": "workspace_exists",
+                "file": "blueprint.json",
+                "claim": f"workspace_topology.members['{name}'].path",
+                "status": "FAIL",
+                "detail": f"Workspace directory does not exist: {path}",
+            })
+
+    for e in (wt.get("edges") or []):
+        for side in ("from", "to"):
+            endpoint = e.get(side)
+            if endpoint and endpoint not in member_names:
+                errors.append({
+                    "check": "workspace_edge_endpoint",
+                    "file": "blueprint.json",
+                    "claim": f"workspace_topology.edges[{side}]",
+                    "status": "FAIL",
+                    "detail": f"Edge references unknown workspace: {endpoint}",
+                })
+                break
+
+    return errors
+
+
 def _print_results(errors: list[dict]):
     fails = [e for e in errors if e["status"] == "FAIL"]
     warns = [e for e in errors if e["status"] == "WARNING"]
@@ -503,6 +547,7 @@ if __name__ == "__main__":
         "files": ("File description collisions", check_file_descriptions),
         "pitfalls": ("Pitfall grounding", check_pitfalls),
         "verbs": ("Component verbs", check_component_verbs),
+        "workspace": ("Workspace topology", check_workspace_topology),
     }
 
     if subcmd == "all":

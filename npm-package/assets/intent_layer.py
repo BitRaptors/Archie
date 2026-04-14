@@ -298,6 +298,120 @@ def cmd_reset_state(root: Path):
 _DEEP_SCAN_STATE_FILE = "deep_scan_state.json"
 
 
+def _config_path(root: Path) -> Path:
+    return root / ".archie" / "archie_config.json"
+
+
+def cmd_scan_config(root: Path, action: str):
+    """Manage .archie/archie_config.json — the persisted scope + monorepo metadata.
+
+    Actions:
+      read       — print existing config JSON to stdout, exit 1 if missing
+      write      — stdin JSON merged into config; requires schema_version, scope, monorepo_type
+      validate   — exit 0 if config matches reality, 1 if drift or missing
+
+    Config shape:
+      {
+        "schema_version": 1,
+        "scope": "single" | "whole" | "per-package" | "hybrid",
+        "workspaces": ["apps/webui", ...],
+        "monorepo_type": "bun-workspaces" | ... | "none",
+        "reconfigured_at": "ISO-8601 UTC"
+      }
+    """
+    path = _config_path(root)
+    existing: dict = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+
+    if action == "read":
+        if not path.exists():
+            print(f"No scan-config at {path}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(existing, indent=2))
+        return
+
+    if action == "write":
+        try:
+            payload = json.loads(sys.stdin.read())
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON on stdin: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if not isinstance(payload, dict):
+            print("Config must be a JSON object", file=sys.stderr)
+            sys.exit(1)
+
+        allowed_scopes = {"single", "whole", "per-package", "hybrid"}
+        scope = payload.get("scope")
+        if scope not in allowed_scopes:
+            print(f"scope must be one of {sorted(allowed_scopes)}", file=sys.stderr)
+            sys.exit(1)
+
+        workspaces = payload.get("workspaces")
+        if workspaces is None:
+            workspaces = existing.get("workspaces", [])
+        if not isinstance(workspaces, list):
+            print("workspaces must be an array", file=sys.stderr)
+            sys.exit(1)
+        if scope in ("per-package", "hybrid") and len(workspaces) == 0:
+            print(f"scope={scope} requires non-empty workspaces[]", file=sys.stderr)
+            sys.exit(1)
+
+        monorepo_type = payload.get("monorepo_type", existing.get("monorepo_type", "none"))
+        if not isinstance(monorepo_type, str):
+            print("monorepo_type must be a string", file=sys.stderr)
+            sys.exit(1)
+
+        # Merge preserving unknown keys (forward-compat)
+        from datetime import datetime, timezone
+        merged = {**existing}
+        merged.update(payload)
+        merged["schema_version"] = 1
+        merged["scope"] = scope
+        merged["workspaces"] = list(workspaces)
+        merged["monorepo_type"] = monorepo_type
+        merged["reconfigured_at"] = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(merged, indent=2) + "\n")
+        tmp.replace(path)
+        print(json.dumps(merged, indent=2))
+        return
+
+    if action == "validate":
+        if not path.exists():
+            print(f"No scan-config at {path}", file=sys.stderr)
+            sys.exit(1)
+
+        scope = existing.get("scope")
+        if scope not in {"single", "whole", "per-package", "hybrid"}:
+            print(f"Invalid scope in config: {scope}", file=sys.stderr)
+            sys.exit(1)
+
+        # Check each listed workspace exists
+        missing = []
+        for ws in existing.get("workspaces", []):
+            if not (root / ws).is_dir():
+                missing.append(ws)
+        if missing:
+            print(
+                "Workspace drift detected — the following workspaces no longer exist:\n  "
+                + "\n  ".join(missing)
+                + "\nRun the command with --reconfigure to rebuild the scope config.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return
+
+    print(f"Unknown scan-config action: {action}", file=sys.stderr)
+    sys.exit(1)
+
+
 def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
     """Manage deep scan state for resume capability.
 
@@ -1206,6 +1320,7 @@ if __name__ == "__main__":
         print("  python3 intent_layer.py reset-state /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py merge /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs|save-baseline|detect-changes> [step|mode]", file=sys.stderr)
+        print("  python3 intent_layer.py scan-config /path/to/repo <read|write|validate>  (write reads JSON from stdin)", file=sys.stderr)
         print("  python3 intent_layer.py inspect /path/to/repo <filename> [--query .key.path]", file=sys.stderr)
         sys.exit(1)
 
@@ -1288,6 +1403,12 @@ if __name__ == "__main__":
             except ValueError:
                 step_arg = None
         cmd_deep_scan_state(root, action, step_arg)
+    elif subcmd == "scan-config":
+        action = sys.argv[3] if len(sys.argv) > 3 else ""
+        if action not in {"read", "write", "validate"}:
+            print("Usage: scan-config /path/to/repo <read|write|validate>", file=sys.stderr)
+            sys.exit(1)
+        cmd_scan_config(root, action)
     elif subcmd == "merge":
         cmd_merge(root)
     elif subcmd == "inspect":

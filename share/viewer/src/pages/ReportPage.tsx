@@ -68,6 +68,7 @@ export default function ReportPage() {
       'summary',
       'health',
       'diagram',
+      'workspace-topology',
       'archrules',
       'devrules',
       'decisions',
@@ -285,6 +286,14 @@ export default function ReportPage() {
                 onClick={() => scrollToSection('diagram')}
                 icon={Layout}
                 label="Architecture Diagram"
+              />
+            )}
+            {bp.workspace_topology && (
+              <NavButton
+                active={activeSection === 'workspace-topology'}
+                onClick={() => scrollToSection('workspace-topology')}
+                icon={Database}
+                label="Workspace Topology"
               />
             )}
           </div>
@@ -517,6 +526,13 @@ export default function ReportPage() {
                   </div>
                 </details>
               </div>
+            </section>
+          )}
+
+          {/* 3b. Workspace Topology (monorepo whole-mode blueprints only) */}
+          {bp.workspace_topology && (
+            <section id="workspace-topology" className="scroll-mt-24">
+              <Sections.WorkspaceTopologySection topology={bp.workspace_topology} />
             </section>
           )}
 

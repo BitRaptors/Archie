@@ -16,6 +16,116 @@ import type { Finding } from '@/lib/findings'
 import { severityColor } from '@/lib/findings'
 import { AutoCode, codeInlineClassName } from '@/lib/autocode'
 
+export function WorkspaceTopologySection({ topology }: { topology: any }) {
+  const members: any[] = Array.isArray(topology?.members) ? topology.members : []
+  const edges: any[] = Array.isArray(topology?.edges) ? topology.edges : []
+  const cycles: any[] = Array.isArray(topology?.cycles) ? topology.cycles : []
+  const magnets: any[] = Array.isArray(topology?.dependency_magnets) ? topology.dependency_magnets : []
+  const type: string = topology?.type || 'workspace'
+
+  const apps = members.filter((m) => (m.role || '').toLowerCase() === 'app')
+  const libs = members.filter((m) => ['lib', 'library'].includes((m.role || '').toLowerCase()))
+  const other = members.filter((m) => !apps.includes(m) && !libs.includes(m))
+
+  return (
+    <section className="space-y-4">
+      <SectionHeader title={`Workspace Topology (${type}, ${members.length})`} icon={Database} />
+      <div className={cn('p-8 rounded-3xl border space-y-6', theme.surface.panel)}>
+        {edges.length > 0 && (
+          <div className="grid md:grid-cols-[1fr,auto] gap-6 items-start">
+            <div className="space-y-4">
+              {apps.length > 0 && (
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-2">Apps</div>
+                  <div className="flex flex-wrap gap-2">
+                    {apps.map((m, i) => (
+                      <Badge key={i} className="bg-teal/10 border-teal/20 text-teal">
+                        {m.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {libs.length > 0 && (
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-2">Shared libraries</div>
+                  <div className="flex flex-wrap gap-2">
+                    {libs.map((m, i) => (
+                      <Badge key={i} variant="outline" className="border-papaya-400">
+                        {m.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {other.length > 0 && (
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-2">Other</div>
+                  <div className="flex flex-wrap gap-2">
+                    {other.map((m, i) => (
+                      <Badge key={i} variant="outline">
+                        {m.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="text-xs text-ink/40 min-w-[140px]">
+              <div className="flex justify-between">
+                <span>Edges</span>
+                <strong className="text-ink/70">{edges.length}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Cycles</span>
+                <strong className={cycles.length > 0 ? 'text-brandy' : 'text-ink/70'}>
+                  {cycles.length}
+                </strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Magnets</span>
+                <strong className="text-ink/70">{magnets.length}</strong>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {cycles.length > 0 && (
+          <div className="border-l-4 border-brandy bg-brandy/5 p-4 rounded-r-xl">
+            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brandy mb-2">
+              Cross-workspace cycles detected
+            </div>
+            <ul className="text-sm space-y-1">
+              {cycles.map((c, i) => (
+                <li key={i} className="font-mono text-ink/80">
+                  {Array.isArray(c) ? c.join(' → ') : String(c)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {magnets.length > 0 && (
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-2">
+              Dependency magnets
+            </div>
+            <ul className="text-sm space-y-1">
+              {magnets.map((m, i) => (
+                <li key={i}>
+                  <code className="font-mono text-ink/70">{m.name}</code>
+                  <span className="text-ink/40 ml-2">in_degree = {m.in_degree ?? '?'}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+
 export function FindingsList({ findings, truncate }: { findings: Finding[]; truncate?: boolean }) {
   return (
     <div className="grid gap-4">

@@ -561,6 +561,67 @@ def generate_claude_md(bp: dict) -> str:
         lines.append("```")
         lines.append("")
 
+    # Workspace Topology (monorepo whole-mode blueprints)
+    wt = bp.get("workspace_topology") or {}
+    if wt and (wt.get("members") or wt.get("edges")):
+        ws_type = wt.get("type", "workspace")
+        members = wt.get("members") or []
+        edges = wt.get("edges") or []
+        cycles = wt.get("cycles") or []
+        magnets = wt.get("dependency_magnets") or []
+        lines.append(f"## Workspace Topology ({ws_type}, {len(members)} workspaces)")
+        lines.append("")
+        if edges:
+            lines.append("```mermaid")
+            lines.append("graph LR")
+            # Group members by role if available so mermaid node shapes hint at it
+            for m in members:
+                name = m.get("name", "")
+                role = (m.get("role") or "").lower()
+                if not name:
+                    continue
+                safe = name.replace('"', "'")
+                if role == "app":
+                    lines.append(f'  {safe}(["{safe}"])')
+                elif role == "lib":
+                    lines.append(f'  {safe}["{safe}"]')
+                else:
+                    lines.append(f'  {safe}("{safe}")')
+            for e in edges:
+                frm, to = e.get("from"), e.get("to")
+                if frm and to:
+                    count = e.get("count")
+                    label = f"|{count}|" if count else ""
+                    lines.append(f"  {frm} --> {label}{to}")
+            lines.append("```")
+            lines.append("")
+        if members:
+            apps = [m for m in members if (m.get("role") or "").lower() == "app"]
+            libs = [m for m in members if (m.get("role") or "").lower() in ("lib", "library")]
+            other = [m for m in members if m not in apps and m not in libs]
+            if apps:
+                lines.append("**Apps:** " + ", ".join(f"`{m.get('name')}`" for m in apps))
+            if libs:
+                lines.append("**Shared libraries:** " + ", ".join(f"`{m.get('name')}`" for m in libs))
+            if other:
+                lines.append("**Other:** " + ", ".join(f"`{m.get('name')}`" for m in other))
+            lines.append("")
+        if cycles:
+            lines.append("**Cycles detected:**")
+            for c in cycles:
+                path = " → ".join(c) if isinstance(c, list) else str(c)
+                lines.append(f"- `{path}`")
+            lines.append("")
+        elif members:
+            lines.append("_No cross-workspace cycles detected._")
+            lines.append("")
+        if magnets:
+            lines.append("**Dependency magnets** (high fan-in workspaces):")
+            for m in magnets:
+                lines.append(f"- `{m.get('name')}` (in_degree = {m.get('in_degree', '?')})")
+            lines.append("")
+
+
     # Commands
     run_commands = _get(bp, "technology", "run_commands", default={}) or {}
     if run_commands:

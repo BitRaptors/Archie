@@ -209,7 +209,14 @@ export default function CoverPage() {
                         label="Files"
                         value={scanMeta.total_files?.toLocaleString?.() ?? scanMeta.total_files ?? '—'}
                       />
-                      <Sections.Stat label="Subprojects" value={scanMeta.subprojects?.length ?? 0} />
+                      {bp.workspace_topology ? (
+                        <Sections.Stat
+                          label={`Workspaces (${bp.workspace_topology.type || 'monorepo'})`}
+                          value={bp.workspace_topology.members?.length ?? scanMeta.subprojects?.length ?? 0}
+                        />
+                      ) : (
+                        <Sections.Stat label="Subprojects" value={scanMeta.subprojects?.length ?? 0} />
+                      )}
                     </>
                   )}
                 </div>

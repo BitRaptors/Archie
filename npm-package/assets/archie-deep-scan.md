@@ -71,41 +71,91 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
 - If SCAN_MODE is not set, it defaults to "full" (all existing behavior unchanged).
 - **Do NOT ask the user any questions during execution. Do NOT offer to skip, reduce scope, or present alternatives for any step. Execute every step fully as documented.**
 
-## Detect sub-projects
+## Phase 0: Resolve scope
+
+Every run needs to know whether to scan the root, a specific workspace, or a set of workspaces. The choice is persisted in `.archie/archie_config.json` so we ask at most once per project.
+
+### Step A: Read existing config
+
+```bash
+python3 .archie/intent_layer.py scan-config "$PWD" read
+```
+
+- **Exit 0** → config exists. Parse `scope`, `workspaces`, `monorepo_type` from the JSON. Skip to Step D.
+- **Exit 1** → config missing. Go to Step B.
+
+If the user invoked the command with `--reconfigure`, skip Step A entirely and go to Step B.
+
+### Step B: Detect monorepo type + subprojects
 
 ```bash
 python3 .archie/scanner.py "$PWD" --detect-subprojects
 ```
 
-Read the JSON output. Count non-wrapper sub-projects (where `is_root_wrapper` is false).
+Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 
-- **If 0-1 non-wrapper sub-projects:** This is a single-project repo. Set `PROJECT_ROOT="$PWD"` and go to Step 1.
-- **If 2+ non-wrapper sub-projects:** This is a monorepo. Go to Project selection below.
+- **0 or 1 non-wrapper subprojects** → Not a monorepo. Write config as `single`:
 
-## Project selection (monorepo only)
+  ```bash
+  echo '{"scope":"single","monorepo_type":"<detected-type>","workspaces":[]}' \
+    | python3 .archie/intent_layer.py scan-config "$PWD" write
+  ```
 
-Present the detected sub-projects to the user as a numbered list:
+  Skip to Step D.
 
-> Found N sub-projects:
-> 1. name (type) — path
-> 2. name (type) — path
+- **2+ non-wrapper subprojects** → Go to Step C.
+
+### Step C: Interactive scope prompt
+
+Present the user with:
+
+> Found **N workspaces** in this **{monorepo_type}** monorepo:
+> 1. {name} ({type}) — {path}
+> 2. {name} ({type}) — {path}
 > ...
 >
-> Options:
-> - **all** — Analyze all sub-projects
-> - **1,3** — Analyze specific projects (comma-separated numbers)
+> **How do you want to analyze it?**
+>
+> - **whole** — One unified blueprint treating the monorepo as one product. Workspaces become components; cross-workspace imports become the primary architecture view. Fastest.
+> - **per-package** — One blueprint per workspace you pick. Deep detail per package, no product-level view.
+> - **hybrid** — Whole blueprint at root + per-workspace blueprints for specific workspaces. Most comprehensive, slowest.
+> - **single** — Ignore the workspaces and scan the whole tree as if it were one project. Only use this for small monorepos.
 
-Wait for the user's response. Build a list of selected sub-project paths.
+Wait for the user's answer.
 
-Then ask:
+- If `whole` or `single` → `WORKSPACES=[]`
+- If `per-package` or `hybrid` → ask which workspaces to include. Accept comma-separated numbers (`1,3,5`) or `all`. Resolve to paths relative to `$PWD`.
 
-> Run selected projects in **parallel** (faster, more agents) or **sequential** (one at a time)?
+If `per-package` or `hybrid`, also ask:
 
-**Parallel mode:** For each selected sub-project, spawn a separate background Agent (Agent tool, `run_in_background: true`) that runs the full pipeline (Steps 1-7) with `PROJECT_ROOT="$PWD/<subproject_path>"`. Use the project name in the agent name (e.g., "Archie: gasztroterkepek-android"). Namespace temp files with the project name: `/tmp/archie_sub1_<name>.json`. Wait for all agents to complete, then go to Step 8.
+> Run the selected workspaces in **parallel** (faster, more agents) or **sequential** (one at a time)?
 
-**Sequential mode:** For each selected sub-project, set `PROJECT_ROOT="$PWD/<subproject_path>"` and run Steps 1-7 in order. Repeat for the next project. Then go to Step 8.
+Persist the chosen config (parallel/sequential lives only in the run itself, not in the config file):
 
-**IMPORTANT:** The `.archie/*.py` scripts are installed at the REPO ROOT. Always reference them as `.archie/scanner.py` etc. from the repo root. But pass `PROJECT_ROOT` (the sub-project path) as the first argument to each script. This is how the scripts know which directory to analyze.
+```bash
+echo '{"scope":"<chosen>","monorepo_type":"<detected-type>","workspaces":[<array>]}' \
+  | python3 .archie/intent_layer.py scan-config "$PWD" write
+```
+
+### Step D: Validate
+
+```bash
+python3 .archie/intent_layer.py scan-config "$PWD" validate
+```
+
+- **Exit 0** → proceed.
+- **Exit 1** → workspace drift. Instruct the user to re-run with `--reconfigure`. Stop.
+
+Expose `SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`.
+
+### Execution plan based on SCOPE
+
+- **SCOPE=single** — Set `PROJECT_ROOT="$PWD"` and run Steps 1-9 once. No monorepo awareness.
+- **SCOPE=whole** — Set `PROJECT_ROOT="$PWD"` and run Steps 1-9 once, applying the workspace-aware addendum in the Structure agent (Step 3) so each workspace is a top-level component, and the Wave 2 reasoning agent populates `blueprint.workspace_topology`.
+- **SCOPE=per-package** — For each path in `WORKSPACES`, set `PROJECT_ROOT="$PWD/<path>"` and run Steps 1-9. Parallel mode spawns one background Agent per workspace (temp files namespaced as `/tmp/archie_sub1_<name>.json`). Sequential mode runs them one after another. After all finish, go to Step 8 / 9 each within its own `PROJECT_ROOT`.
+- **SCOPE=hybrid** — Pass 1: run Steps 1-9 at `PROJECT_ROOT="$PWD"` with whole-mode semantics. Pass 2: iterate `WORKSPACES` per-package. Each pass writes its own blueprint under `PROJECT_ROOT/.archie/`.
+
+**IMPORTANT:** The `.archie/*.py` scripts are installed at the REPO ROOT. Always reference them as `.archie/scanner.py` etc. from the repo root. Pass `PROJECT_ROOT` as the first argument when it is not `$PWD`.
 
 ---
 
@@ -179,6 +229,28 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 
 > **CRITICAL INSTRUCTIONS:**
 > You are analyzing a codebase to understand its architecture. Your goal is to OBSERVE and DESCRIBE what exists, NOT to categorize it into known patterns.
+>
+> **Workspace-aware addendum (only when `SCOPE === "whole"`):**
+> This is a workspace monorepo (`MONOREPO_TYPE={type}`, N workspaces under paths `<workspaces>`). Treat each workspace member as a top-level component in `components.components`:
+> - `name` = workspace `name` from its `package.json` (or equivalent for Cargo/Gradle)
+> - `location` = workspace directory path relative to `$PROJECT_ROOT`
+> - `platform` = inferred from workspace contents (frontend/backend/shared/etc.)
+> - `responsibility` = inferred from package `description` + entry points
+> - `depends_on` = other workspace members it imports (read its `package.json` dependencies, filter to workspace names)
+>
+> Additionally produce a top-level `workspace_topology` field:
+> ```json
+> "workspace_topology": {
+>   "type": "{MONOREPO_TYPE}",
+>   "members": [{"name": "...", "path": "...", "role": "app|lib|tool"}],
+>   "edges": [{"from": "name-a", "to": "name-b", "count": 3}],
+>   "cycles": [["a", "b", "a"]],
+>   "dependency_magnets": [{"name": "shared", "in_degree": 8}]
+> }
+> ```
+>
+> Surface cross-workspace import cycles as `pitfalls` with severity `error`. Surface workspaces with very high fan-in (top quartile of in_degree) as `dependency_magnets`. Reference workspace members by **name** (not path) in all cross-references.
+
 >
 > **DO NOT:**
 > - Assume this is a "layered architecture", "MVC", "Clean Architecture", or any specific pattern
