@@ -22,26 +22,16 @@ UPLOAD_URL = os.environ.get(
     "https://chlmyhkjnirrcrjdsvrc.supabase.co/functions/v1/upload",
 )
 PROD_VIEWER_URL = "https://archie-viewer.vercel.app"
-LOCAL_VIEWER_URL = "http://localhost:5173"
 
 
 def _detect_viewer_url() -> str:
     """Resolve the viewer host. Precedence:
     1. ARCHIE_VIEWER_URL env var (explicit override)
-    2. Local dev server on :5173 if it responds and identifies as Archie
-    3. Production default
+    2. Production default
     """
     override = os.environ.get("ARCHIE_VIEWER_URL")
     if override:
         return override.rstrip("/")
-
-    try:
-        with urllib.request.urlopen(LOCAL_VIEWER_URL, timeout=0.3) as resp:
-            body = resp.read(4096).decode("utf-8", errors="replace")
-            if "Archie" in body:
-                return LOCAL_VIEWER_URL
-    except (urllib.error.URLError, OSError, TimeoutError):
-        pass
 
     return PROD_VIEWER_URL
 
