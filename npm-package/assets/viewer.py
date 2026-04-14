@@ -343,7 +343,7 @@ tailwind.config = {
 // ---------------------------------------------------------------------------
 let health = {}, healthHistory = [], scanReports = [], blueprint = {},
     rules = {}, ignoredRules = {}, generatedFiles = {}, folderMds = {},
-    functionComplexity = {}, drift = {}, depGraph = {}, proposedRules = {};
+    drift = {}, depGraph = {}, proposedRules = {};
 
 // ---------------------------------------------------------------------------
 // Tab switching
@@ -384,7 +384,7 @@ async function fetchJSON(url) {
 }
 
 async function loadData() {
-  const [h, hh, sr, bp, r, ir, gf, fm, fc, dr, dg, pr] = await Promise.all([
+  const [h, hh, sr, bp, r, ir, gf, fm, dr, dg, pr] = await Promise.all([
     fetchJSON('/api/health'),
     fetchJSON('/api/health-history'),
     fetchJSON('/api/scan-reports'),
@@ -393,7 +393,6 @@ async function loadData() {
     fetchJSON('/api/ignored-rules'),
     fetchJSON('/api/generated-files'),
     fetchJSON('/api/folder-claude-mds'),
-    fetchJSON('/api/function-complexity'),
     fetchJSON('/api/drift'),
     fetchJSON('/api/dependency-graph'),
     fetchJSON('/api/proposed-rules'),
@@ -406,7 +405,6 @@ async function loadData() {
   ignoredRules = ir || {};
   generatedFiles = gf || {};
   folderMds = fm || {};
-  functionComplexity = fc || {};
   drift = dr || {};
   depGraph = dg || {};
   proposedRules = pr || {};
