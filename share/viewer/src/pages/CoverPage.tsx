@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { autoBacktick, AutoCode } from '@/lib/autocode'
+import { formatBlueprintTitle } from '@/lib/blueprintTitle'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
 import { Card, CardContent } from '@/components/ui/card'
@@ -137,7 +138,7 @@ export default function CoverPage() {
               </Badge>
             </div>
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-black tracking-tight leading-[0.95] text-ink">
-              {meta.repository || 'The Blueprint'}
+              {formatBlueprintTitle(meta.repository)}
             </h1>
             <div className="flex flex-wrap gap-2 pt-2">
               {Array.isArray(meta.platforms) &&

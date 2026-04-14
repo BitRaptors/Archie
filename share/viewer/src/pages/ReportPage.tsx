@@ -7,6 +7,7 @@ import rehypeHighlight from 'rehype-highlight'
 import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
+import { formatBlueprintTitle } from '@/lib/blueprintTitle'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -460,7 +461,7 @@ export default function ReportPage() {
                 )}
               </div>
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-black tracking-tight leading-[0.95] text-ink">
-                {meta.repository || 'The Blueprint'}
+                {formatBlueprintTitle(meta.repository)}
               </h1>
               <div className="flex flex-wrap gap-2 pt-2">
                 {Array.isArray(meta.platforms) && meta.platforms.map((p: string) => (

@@ -30,6 +30,7 @@ node_modules/
 out/
 .npm
 .eslintcache
+.vercel/
 
 # Environment Files
 .env
