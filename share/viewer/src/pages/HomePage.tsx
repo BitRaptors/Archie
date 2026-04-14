@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Copy, Check, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { theme } from '@/lib/theme'
+import { GhostLogo } from '@/components/GhostLogo'
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
@@ -17,6 +18,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-8">
       <div className="max-w-2xl w-full text-center space-y-6">
+        <GhostLogo size={72} className="mx-auto" />
         <h1 className={cn('text-5xl font-bold', theme.brand.title)}>Archie</h1>
         <p className="text-xl text-muted-foreground">
           Senior-architect-level analysis of any codebase — shareable via URL.

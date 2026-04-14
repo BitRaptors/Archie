@@ -18,6 +18,7 @@ import { theme } from '@/lib/theme'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { GhostLogo } from '@/components/GhostLogo'
 import * as Sections from '@/components/ReportSections'
 import {
   extractFindings,
@@ -109,9 +110,7 @@ export default function CoverPage() {
       <header className="sticky top-0 z-40 bg-white/60 backdrop-blur-xl border-b border-papaya-300 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-teal flex items-center justify-center">
-              <Activity className="text-white w-5 h-5" />
-            </div>
+            <GhostLogo size={32} className="shrink-0" />
             <span className="font-black tracking-tight text-xl">Archie</span>
           </Link>
           {createdAt && (
