@@ -14,6 +14,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
+import { GhostLogo } from '@/components/GhostLogo'
 import { filterReportSections } from '@/lib/toc'
 import * as Sections from '@/components/ReportSections'
 import { extractFindings, rankFindings } from '@/lib/findings'
@@ -231,9 +232,7 @@ export default function ReportPage() {
       {/* Mobile Header */}
       <header className="lg:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-papaya-300 px-6 py-4 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-teal flex items-center justify-center">
-            <Activity className="text-white w-5 h-5" />
-          </div>
+          <GhostLogo size={32} className="shrink-0" />
           <span className="font-black tracking-tight text-xl">Archie</span>
         </Link>
         <button onClick={() => setIsSidebarOpen(true)} className="p-2 -mr-2">
@@ -250,9 +249,7 @@ export default function ReportPage() {
       >
         <div className="p-8 flex items-center justify-between shrink-0">
           <Link to="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal shadow-lg shadow-teal/20 flex items-center justify-center">
-               <Activity className="text-white w-6 h-6" />
-            </div>
+            <GhostLogo size={40} className="shrink-0 drop-shadow-lg" />
             <div>
               <span className="font-black tracking-tight text-2xl block leading-none">Archie</span>
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-teal/40 mt-1 block">Blueprint Viewer</span>
