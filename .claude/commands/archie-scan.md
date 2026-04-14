@@ -131,7 +131,6 @@ Read accumulated knowledge (skip any that don't exist — that's normal for earl
 - `.archie/health_history.json` — historical health scores
 - `.archie/rules.json` — adopted enforcement rules
 - `.archie/proposed_rules.json` — rules discovered but not yet adopted
-- `.archie/function_complexity.json` — previous complexity snapshot
 
 **This is the compound learning input.** The agents below receive everything Archie has ever learned about this codebase.
 
@@ -199,7 +198,6 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
 **Your inputs:**
 - `.archie/health.json` — current erosion, gini, verbosity, waste, function-level complexity
 - `.archie/health_history.json` — historical health scores (for trend analysis)
-- `.archie/function_complexity.json` — previous complexity snapshot (for trajectory)
 - `.archie/skeletons.json` — file structure
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
 
@@ -212,7 +210,7 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
 
 2. **Trend analysis:** Compare against health_history.json. Are things improving or degrading? Which metrics moved most? Is LOC growth justified?
 
-3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified. Compare against previous function_complexity.json — which functions got MORE complex?
+3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified.
 
 4. **Abstraction waste:** Single-method classes, tiny functions (<=2 lines). Flag from skeletons. Only read if the skeleton is ambiguous about whether a single-method class is a legitimate abstraction.
 
@@ -434,8 +432,6 @@ Append health scores to history:
 python3 .archie/measure_health.py "$PWD" --append-history --scan-type fast
 ```
 
-Save per-function complexity snapshot to `.archie/function_complexity.json`.
-
 Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 ```
 1. Read existing proposed_rules.json (create as {"rules": []} if missing)
@@ -449,8 +445,9 @@ Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 
 ```bash
 rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
-rm -f .archie/health.json
 ```
+
+Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
 
 ---
 

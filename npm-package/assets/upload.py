@@ -123,6 +123,23 @@ def build_bundle(project_root: Path) -> dict:
     health = _read_json(archie_dir / "health.json")
     if health:
         bundle["health"] = _strip_health(health)
+    else:
+        history = _read_json(archie_dir / "health_history.json")
+        if isinstance(history, list) and history:
+            latest = history[-1]
+            bundle["health"] = {
+                "erosion": latest.get("erosion"),
+                "gini": latest.get("gini"),
+                "top20_share": latest.get("top20_share"),
+                "verbosity": latest.get("verbosity"),
+                "total_loc": latest.get("total_loc"),
+                "total_functions": None,
+                "high_cc_functions": None,
+                "duplicate_lines": None,
+                "top_high_cc": [],
+                "top_duplicates": [],
+                "_source": "history_fallback",
+            }
 
     scan = _read_json(archie_dir / "scan.json")
     if scan:

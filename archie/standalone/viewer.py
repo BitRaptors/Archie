@@ -167,9 +167,6 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
             content = _read_text(report_path)
             self._send_json({"filename": filename, "content": content})
 
-        elif path == "/api/function-complexity":
-            self._send_json(_load_json(archie_dir / "function_complexity.json"))
-
         elif path == "/api/drift":
             self._send_json(_load_json(archie_dir / "drift_report.json"))
 
