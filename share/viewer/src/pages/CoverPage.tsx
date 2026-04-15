@@ -225,6 +225,22 @@ export default function CoverPage() {
                   )}
                 </div>
               </div>
+              {(health?.cc_distribution || health?.mass) && (
+                <div className="mt-8 pt-8 border-t border-papaya-400/30 grid md:grid-cols-2 gap-6">
+                  {health?.cc_distribution && (
+                    <Sections.CCDistribution distribution={health.cc_distribution} compact />
+                  )}
+                  {health?.mass && (
+                    <Sections.MassConcentration
+                      mass={health.mass}
+                      totalFunctions={health.total_functions}
+                      highCcFunctions={health.high_cc_functions}
+                      distribution={health.cc_distribution}
+                    />
+                  )}
+                </div>
+              )}
+
               {Array.isArray(scanMeta?.frameworks) && scanMeta.frameworks.length > 0 && (
                 <div className="mt-8 pt-8 border-t border-papaya-400/30">
                   <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-3">

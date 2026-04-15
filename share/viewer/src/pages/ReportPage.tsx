@@ -505,6 +505,36 @@ export default function ReportPage() {
                   </div>
                 </div>
               </div>
+
+              {/* CC distribution + mass concentration + top-N — the 'why is erosion 86%' story */}
+              {(bundle.health.cc_distribution || bundle.health.mass || (bundle.health.top_high_cc || []).length > 0) && (
+                <div className="grid lg:grid-cols-2 gap-8">
+                  {bundle.health.cc_distribution && (
+                    <div className={cn("p-8 rounded-3xl border space-y-4", theme.surface.panel)}>
+                      <Sections.CCDistribution distribution={bundle.health.cc_distribution} />
+                    </div>
+                  )}
+                  {bundle.health.mass && (
+                    <div className={cn("p-8 rounded-3xl border", theme.surface.panel)}>
+                      <Sections.MassConcentration
+                        mass={bundle.health.mass}
+                        totalFunctions={bundle.health.total_functions}
+                        highCcFunctions={bundle.health.high_cc_functions}
+                        distribution={bundle.health.cc_distribution}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {Array.isArray(bundle.health.top_high_cc) && bundle.health.top_high_cc.length > 0 && (
+                <div className={cn("p-8 rounded-3xl border", theme.surface.panel)}>
+                  <Sections.TopHighCCList
+                    items={bundle.health.top_high_cc}
+                    totalMass={bundle.health.mass?.total}
+                  />
+                </div>
+              )}
             </section>
           )}
 

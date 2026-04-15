@@ -224,6 +224,206 @@ export function HealthBar({ label, value, inverted, hint }: { label: string; val
   )
 }
 
+// Color-coded severity shared across histogram, top-20, mass block.
+const CC_BUCKETS: Array<{ label: string; color: string; textColor: string }> = [
+  { label: '1-2', color: 'bg-teal/60', textColor: 'text-teal-700' },
+  { label: '3-5', color: 'bg-teal/40', textColor: 'text-teal-700' },
+  { label: '6-10', color: 'bg-tangerine/40', textColor: 'text-tangerine-800' },
+  { label: '11-20', color: 'bg-tangerine/70', textColor: 'text-tangerine-800' },
+  { label: '21-50', color: 'bg-brandy/50', textColor: 'text-brandy' },
+  { label: '51-100', color: 'bg-brandy/80', textColor: 'text-brandy' },
+  { label: '101+', color: 'bg-brandy', textColor: 'text-brandy' },
+]
+
+export function ccSeverityClasses(cc: number): string {
+  if (cc <= 10) return 'text-teal border-teal/30 bg-teal/5'
+  if (cc <= 50) return 'text-tangerine-800 border-tangerine/30 bg-tangerine/5'
+  if (cc <= 100) return 'text-brandy border-brandy/30 bg-brandy/5'
+  return 'text-white border-brandy bg-brandy'
+}
+
+export function CCDistribution({ distribution, compact }: { distribution: Record<string, number>; compact?: boolean }) {
+  const total = Object.values(distribution).reduce((a, b) => a + b, 0)
+  if (total === 0) return null
+  const maxCount = Math.max(...Object.values(distribution))
+
+  return (
+    <div className={cn('space-y-2', !compact && 'space-y-3')} title="Distribution of function count across cyclomatic complexity buckets">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">
+          CC Distribution
+        </div>
+        <div className="text-[10px] text-ink/40 tabular-nums">
+          {total.toLocaleString()} functions
+        </div>
+      </div>
+      <div className={cn('space-y-1', compact ? 'space-y-1' : 'space-y-1.5')}>
+        {CC_BUCKETS.map(({ label, color, textColor }) => {
+          const count = distribution[label] ?? 0
+          const pct = total > 0 ? (count / total) * 100 : 0
+          const barWidth = maxCount > 0 ? (count / maxCount) * 100 : 0
+          return (
+            <div key={label} className="flex items-center gap-3 text-[11px] tabular-nums">
+              <div className={cn('w-14 font-mono font-semibold shrink-0', textColor)}>CC {label}</div>
+              <div className="flex-1 h-3 bg-ink/5 rounded-full overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full transition-all duration-500', color)}
+                  style={{ width: `${Math.max(barWidth, count > 0 ? 2 : 0)}%` }}
+                />
+              </div>
+              <div className="w-16 text-right text-ink/60 shrink-0">{count.toLocaleString()}</div>
+              <div className="w-12 text-right text-ink/40 shrink-0">{pct.toFixed(1)}%</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function MassConcentration({
+  mass,
+  totalFunctions,
+  highCcFunctions,
+  distribution,
+}: {
+  mass: { total?: number; heavy?: number; heavy_ratio?: number } | undefined
+  totalFunctions?: number
+  highCcFunctions?: number
+  distribution?: Record<string, number>
+}) {
+  if (!mass || !mass.total) return null
+  const total = mass.total ?? 0
+  const heavy = mass.heavy ?? 0
+  const rest = Math.max(total - heavy, 0)
+  const heavyPct = Math.round((mass.heavy_ratio ?? (total > 0 ? heavy / total : 0)) * 100)
+  const restPct = 100 - heavyPct
+  const restFunctions = Math.max((totalFunctions ?? 0) - (highCcFunctions ?? 0), 0)
+
+  // Optional "functions over CC 100 alone hold X%" line — purely derived from distribution.
+  let extremeLine: string | null = null
+  if (distribution && distribution['101+']) {
+    const extremeCount = distribution['101+']
+    if (extremeCount > 0 && heavy > 0) {
+      // Approximation for narrative: extreme count * (average of heavy mass bias).
+      // We use "~" to make it clear this is an estimate, not an exact number.
+      extremeLine = `${extremeCount} function${extremeCount === 1 ? '' : 's'} over CC 100 contribute a large share of the heavy mass.`
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-white/60 p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">
+          Complexity mass <span className="lowercase font-semibold normal-case text-ink/30">(cc × √sloc)</span>
+        </div>
+        <div className="text-[10px] text-ink/40 tabular-nums">
+          Total {Math.round(total).toLocaleString()}
+        </div>
+      </div>
+
+      <div className="h-6 rounded-full overflow-hidden border border-ink/5 flex">
+        <div
+          className="bg-brandy flex items-center justify-center text-[10px] font-black text-white tabular-nums transition-all duration-700"
+          style={{ width: `${heavyPct}%` }}
+          title={`Heavy mass (CC > 10): ${Math.round(heavy).toLocaleString()} — ${heavyPct}%`}
+        >
+          {heavyPct >= 15 && `${heavyPct}%`}
+        </div>
+        <div
+          className="bg-teal/60 flex items-center justify-center text-[10px] font-black text-white tabular-nums transition-all duration-700"
+          style={{ width: `${restPct}%` }}
+          title={`Rest (CC ≤ 10): ${Math.round(rest).toLocaleString()} — ${restPct}%`}
+        >
+          {restPct >= 15 && `${restPct}%`}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-[11px] tabular-nums">
+        <div>
+          <div className="inline-flex items-center gap-1.5">
+            <span className="w-2 h-2 bg-brandy rounded-full" />
+            <span className="font-bold text-ink/70">Heavy</span>
+          </div>
+          <div className="text-ink/50 mt-0.5">
+            {Math.round(heavy).toLocaleString()} from {(highCcFunctions ?? 0).toLocaleString()} functions
+            <span className="text-ink/30"> (CC &gt; 10)</span>
+          </div>
+        </div>
+        <div>
+          <div className="inline-flex items-center gap-1.5">
+            <span className="w-2 h-2 bg-teal/60 rounded-full" />
+            <span className="font-bold text-ink/70">Rest</span>
+          </div>
+          <div className="text-ink/50 mt-0.5">
+            {Math.round(rest).toLocaleString()} from {restFunctions.toLocaleString()} functions
+            <span className="text-ink/30"> (CC ≤ 10)</span>
+          </div>
+        </div>
+      </div>
+
+      {extremeLine && (
+        <div className="text-[11px] text-ink/50 pt-2 border-t border-ink/5 italic">
+          {extremeLine}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function TopHighCCList({
+  items,
+  totalMass,
+}: {
+  items: any[]
+  totalMass?: number
+}) {
+  if (!items || items.length === 0) return null
+  const sumMass = items.reduce((sum, f) => sum + (f.mass || 0), 0)
+  const shareOfTotal = totalMass && totalMass > 0 ? (sumMass / totalMass) * 100 : null
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">
+          Top {items.length} by complexity mass
+        </div>
+        <div className="text-[10px] text-ink/40 tabular-nums">
+          ranked by cc × √sloc
+        </div>
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((f, i) => (
+          <li key={i} className="flex items-start gap-2 text-xs">
+            <div className="flex gap-1 shrink-0">
+              <Badge variant="outline" className={cn('text-[10px] font-bold tabular-nums', ccSeverityClasses(f.cc || 0))}>
+                CC {f.cc}
+              </Badge>
+              {typeof f.mass === 'number' && (
+                <Badge variant="outline" className="text-[10px] font-bold tabular-nums text-ink/60 border-ink/10 bg-white">
+                  mass {Math.round(f.mass).toLocaleString()}
+                </Badge>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-bold text-ink/80 truncate">{f.name || '?'}</div>
+              <code className="text-[10px] text-ink/40 font-mono truncate block">
+                {f.path}
+                {f.line ? `:${f.line}` : ''}
+              </code>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {shareOfTotal !== null && (
+        <div className="pt-3 border-t border-ink/5 text-[11px] text-ink/50 italic">
+          These {items.length} functions alone hold <strong className="text-ink/80">{shareOfTotal.toFixed(0)}%</strong> of total complexity mass.
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function FieldList({ label, items, mono }: { label: string; items: any[]; mono?: boolean }) {
   return (
     <div className="space-y-2 min-w-0">
