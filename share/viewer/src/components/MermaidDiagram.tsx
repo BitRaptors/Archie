@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { Minus, Plus, RotateCcw } from 'lucide-react'
+import { getNextDiagramZoom, type DiagramZoomAction } from '@/lib/diagramZoom'
 
 interface MermaidDiagramProps {
   chart: string
@@ -11,6 +13,7 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [svg, setSvg] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
 
   useEffect(() => {
     let cancelled = false
@@ -118,6 +121,17 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
     return () => { cancelled = true }
   }, [chart])
 
+  const updateZoom = (action: DiagramZoomAction) => {
+    setZoom((current) => getNextDiagramZoom(current, action))
+  }
+
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey && !event.metaKey) return
+
+    event.preventDefault()
+    updateZoom(event.deltaY < 0 ? 'in' : 'out')
+  }
+
   if (error) {
     return (
       <div className="border border-amber-200 bg-amber-50 rounded-lg p-4 my-4">
@@ -136,10 +150,50 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="my-4 overflow-x-auto w-full flex justify-center [&>svg]:max-w-full [&>svg]:h-auto [&>svg]:min-h-[200px] bg-white/30 rounded-xl p-4 border border-papaya-300/30 shadow-sm"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    <div className="my-4 overflow-hidden bg-white/30 rounded-xl border border-papaya-300/30 shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-papaya-300/30 px-3 py-2">
+        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/35">
+          Zoom {Math.round(zoom * 100)}%
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => updateZoom('out')}
+            className="h-8 w-8 rounded-md border border-papaya-300 bg-white/70 text-ink/60 hover:text-ink hover:bg-white transition-colors flex items-center justify-center"
+            aria-label="Zoom out"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => updateZoom('reset')}
+            className="h-8 px-2 rounded-md border border-papaya-300 bg-white/70 text-[10px] font-black uppercase tracking-widest text-ink/50 hover:text-ink hover:bg-white transition-colors inline-flex items-center gap-1"
+            aria-label="Reset zoom"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset
+          </button>
+          <button
+            type="button"
+            onClick={() => updateZoom('in')}
+            className="h-8 w-8 rounded-md border border-papaya-300 bg-white/70 text-ink/60 hover:text-ink hover:bg-white transition-colors flex items-center justify-center"
+            aria-label="Zoom in"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      <div
+        ref={containerRef}
+        onWheel={handleWheel}
+        className="w-full max-h-[70vh] overflow-auto p-4 overscroll-contain"
+      >
+        <div
+          className="mx-auto [&_svg]:!w-full [&_svg]:!max-w-none [&_svg]:!h-auto [&_svg]:min-h-[200px]"
+          style={{ width: `${zoom * 100}%`, minWidth: `${zoom * 100}%` }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+    </div>
   )
 }

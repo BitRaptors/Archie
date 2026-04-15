@@ -21,6 +21,7 @@ export function GhostLogo({ className = '', size = 32 }: GhostLogoProps) {
     const handlePointerMove = (event: PointerEvent) => {
       const rect = ref.current?.getBoundingClientRect()
       if (!rect) return
+      if (rect.width === 0 || rect.height === 0) return
 
       setCursor({
         x: ((event.clientX - rect.left) / rect.width) * VIEWBOX_SIZE,
