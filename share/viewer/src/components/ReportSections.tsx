@@ -195,22 +195,78 @@ export function Stat({ label, value, icon: Icon }: { label: string; value: any; 
   )
 }
 
-export function HealthBar({ label, value, inverted, hint }: { label: string; value: number; inverted?: boolean; hint?: string }) {
+export function HintPopover({
+  hint,
+  direction,
+  target,
+}: {
+  hint: string
+  direction?: 'lower' | 'higher'
+  target?: string
+}) {
+  const ariaLabel = [
+    direction ? `${direction === 'lower' ? 'Lower' : 'Higher'} is better` : '',
+    target ? `(target ${target})` : '',
+    hint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return (
+    <span className="relative inline-flex group/hint">
+      <button
+        type="button"
+        tabIndex={0}
+        aria-label={ariaLabel}
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-ink/10 text-ink/40 hover:bg-ink/20 hover:text-ink/60 focus:bg-teal/20 focus:text-teal focus:outline-none text-[10px] font-black cursor-help transition-colors"
+      >
+        ?
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 rounded-xl bg-ink text-papaya-100 text-[11px] leading-relaxed font-normal shadow-2xl opacity-0 invisible translate-y-1 transition-all duration-150 z-50 group-hover/hint:opacity-100 group-hover/hint:visible group-hover/hint:translate-y-0 group-focus-within/hint:opacity-100 group-focus-within/hint:visible group-focus-within/hint:translate-y-0 overflow-hidden"
+      >
+        {direction && (
+          <span className={cn(
+            'block px-3 pt-3 pb-2 border-b border-white/10 text-[10px] font-black uppercase tracking-[0.15em] inline-flex items-center gap-1.5',
+            direction === 'lower' ? 'text-teal-300' : 'text-tangerine-200'
+          )}>
+            <span className="text-sm leading-none">{direction === 'lower' ? '↓' : '↑'}</span>
+            <span>{direction === 'lower' ? 'Lower is better' : 'Higher is better'}</span>
+            {target && (
+              <span className="text-white/50 font-medium tracking-normal normal-case">· target {target}</span>
+            )}
+          </span>
+        )}
+        <span className="block px-3 py-3 text-papaya-100/90">{hint}</span>
+        <span className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-[5px] border-transparent border-t-ink" />
+      </span>
+    </span>
+  )
+}
+
+export function HealthBar({
+  label,
+  value,
+  inverted,
+  hint,
+  direction,
+  target,
+}: {
+  label: string
+  value: number
+  inverted?: boolean
+  hint?: string
+  direction?: 'lower' | 'higher'
+  target?: string
+}) {
   const good = inverted ? value < 30 : value >= 70
   return (
-    <div className="space-y-2" title={hint || undefined}>
+    <div className="space-y-2">
       <div className="flex justify-between items-end gap-2">
         <span className="text-sm font-semibold text-ink/70 inline-flex items-center gap-1.5">
           {label}
-          {hint && (
-            <span
-              className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-ink/10 text-ink/40 text-[9px] font-black cursor-help"
-              title={hint}
-              aria-label={hint}
-            >
-              ?
-            </span>
-          )}
+          {hint && <HintPopover hint={hint} direction={direction} target={target} />}
         </span>
         <span className={cn("text-lg font-bold tabular-nums", good ? 'text-teal' : 'text-brandy')}>{value}%</span>
       </div>
@@ -420,6 +476,88 @@ export function TopHighCCList({
           These {items.length} functions alone hold <strong className="text-ink/80">{shareOfTotal.toFixed(0)}%</strong> of total complexity mass.
         </div>
       )}
+    </div>
+  )
+}
+
+export function DuplicationCard({
+  verbosity,
+  totalLoc,
+  duplicateLines,
+  semanticCount,
+  semanticSource,
+}: {
+  verbosity: number            // 0..1 textual ratio
+  totalLoc?: number
+  duplicateLines?: number
+  semanticCount: number | null  // null if we couldn't determine
+  semanticSource: 'structured' | 'heuristic' | 'unknown'
+}) {
+  const textualPct = Math.round((verbosity || 0) * 100)
+  const textualGood = textualPct < 5
+  const semanticGood = semanticCount !== null && semanticCount === 0
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1.5">
+        <span className="text-sm font-semibold text-ink/70">Code Duplication</span>
+        <HintPopover
+          direction="lower"
+          target="0 semantic, <5% textual"
+          hint="Two measures side by side. Textual duplication catches literal copy-paste (line-identical blocks). Semantic reimplementations are near-twin functions — same logic, different names or signatures — found by the scan's AI analysis. AI-written codebases typically have low textual duplication but hidden semantic duplication."
+        />
+      </div>
+
+      {/* Textual */}
+      <div className="space-y-1.5">
+        <div className="flex items-end justify-between gap-2">
+          <div className="text-xs text-ink/50 uppercase tracking-[0.15em] font-black">Textual</div>
+          <div className={cn("text-lg font-bold tabular-nums", textualGood ? 'text-teal' : 'text-brandy')}>
+            {textualPct}%
+          </div>
+        </div>
+        <div className="h-2 rounded-full bg-ink/5 overflow-hidden border border-ink/5">
+          <div
+            className={cn("h-full transition-all duration-1000", textualGood ? 'bg-teal' : 'bg-brandy')}
+            style={{ width: `${textualPct}%` }}
+          />
+        </div>
+        {(duplicateLines != null && totalLoc != null) && (
+          <div className="text-[11px] text-ink/40 tabular-nums">
+            {duplicateLines.toLocaleString()} duplicate lines of {totalLoc.toLocaleString()} total LOC
+          </div>
+        )}
+      </div>
+
+      {/* Semantic */}
+      <div className="space-y-1.5 pt-2 border-t border-ink/5">
+        <div className="flex items-end justify-between gap-2">
+          <div className="text-xs text-ink/50 uppercase tracking-[0.15em] font-black inline-flex items-center gap-1.5">
+            Semantic
+          </div>
+          <div className={cn("text-lg font-bold tabular-nums", semanticCount === null ? 'text-ink/30' : (semanticGood ? 'text-teal' : 'text-brandy'))}>
+            {semanticCount === null ? '—' : semanticCount.toLocaleString()}
+          </div>
+        </div>
+        <div className="text-[11px] text-ink/50 leading-snug">
+          {semanticCount === null ? (
+            'Not yet analyzed — run /archie-scan to detect near-twin functions.'
+          ) : semanticCount === 0 ? (
+            'No near-twin functions detected by AI analysis.'
+          ) : (
+            <>
+              <strong className="text-ink/80">{semanticCount}</strong> reimplementation
+              {semanticCount === 1 ? '' : 's'} found — near-twin function
+              {semanticCount === 1 ? '' : 's'} with same logic under different names.
+            </>
+          )}
+        </div>
+        {semanticSource === 'heuristic' && semanticCount !== null && (
+          <div className="text-[10px] text-ink/30 italic">
+            Derived from scan report text (older bundle). Re-scan for a precise count.
+          </div>
+        )}
+      </div>
     </div>
   )
 }

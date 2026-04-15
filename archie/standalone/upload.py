@@ -166,6 +166,13 @@ def build_bundle(project_root: Path) -> dict:
     if scan_report:
         bundle["scan_report"] = scan_report
 
+    # Structured semantic duplications from Agent C — "near-twin" functions,
+    # reimplementations, same logic under different names. Distinct from
+    # health.json's textual duplicates (which are line-identical copy-paste).
+    sem = _read_json(archie_dir / "semantic_duplications.json")
+    if sem and isinstance(sem.get("duplications"), list):
+        bundle["semantic_duplications"] = sem["duplications"]
+
     return bundle
 
 

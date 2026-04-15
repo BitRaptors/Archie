@@ -17,7 +17,7 @@ import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { GhostLogo } from '@/components/GhostLogo'
 import { filterReportSections } from '@/lib/toc'
 import * as Sections from '@/components/ReportSections'
-import { extractFindings, rankFindings } from '@/lib/findings'
+import { countSemanticDuplications, extractFindings, rankFindings } from '@/lib/findings'
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
@@ -56,6 +56,17 @@ export default function ReportPage() {
     if (!bundle?.scan_report) return []
     return rankFindings(extractFindings(bundle.scan_report))
   }, [bundle?.scan_report])
+
+  // Semantic duplication — prefer structured field, fall back to heuristic
+  const semantic = useMemo<{ count: number | null; source: 'structured' | 'heuristic' | 'unknown' }>(() => {
+    if (Array.isArray(bundle?.semantic_duplications)) {
+      return { count: bundle!.semantic_duplications!.length, source: 'structured' }
+    }
+    if (bundle?.scan_report && findings.length > 0) {
+      return { count: countSemanticDuplications(findings), source: 'heuristic' }
+    }
+    return { count: null, source: 'unknown' }
+  }, [bundle, findings])
 
   // Scroll sync logic — re-attach after bundle loads so contentRef.current exists
   useEffect(() => {
@@ -491,11 +502,18 @@ export default function ReportPage() {
                 <div className="grid lg:grid-cols-2 gap-16 relative">
                   <div className="space-y-8">
                     <Sections.HealthBar label="Architectural Erosion" value={Math.round((bundle.health.erosion || 0) * 100)} inverted
-                      hint="Share of total complexity mass (cc × √sloc) held by functions with CC > 10. High = a few complex functions dominate." />
+                      direction="lower" target="<30%"
+                      hint="Share of total complexity mass (cc × √sloc) held by functions with CC > 10. High means a few complex functions dominate — hard to test, hard to change." />
                     <Sections.HealthBar label="Logic Concentration (Gini)" value={Math.round((bundle.health.gini || 0) * 100)} inverted
-                      hint="Inequality of complexity distribution. 0 = evenly spread, 1 = one function holds everything. >0.6 means heavy concentration." />
-                    <Sections.HealthBar label="Workload Verbosity" value={Math.round((bundle.health.verbosity || 0) * 100)} inverted
-                      hint="Duplicated lines divided by total LOC. Low (<5%) is healthy; indicates minimal copy-paste." />
+                      direction="lower" target="<40%"
+                      hint="How unevenly complexity is spread across functions. 0 = perfectly even, 1 = one function holds everything. High means a few god-functions dominate the codebase." />
+                    <Sections.DuplicationCard
+                      verbosity={bundle.health.verbosity || 0}
+                      totalLoc={bundle.health.total_loc}
+                      duplicateLines={bundle.health.duplicate_lines}
+                      semanticCount={semantic.count}
+                      semanticSource={semantic.source}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-8 content-start">
                     <Sections.Stat label="Total LOC" value={bundle.health.total_loc?.toLocaleString() ?? '—'} />

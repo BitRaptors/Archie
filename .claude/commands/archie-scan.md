@@ -441,6 +441,15 @@ Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 5. Write back
 ```
 
+Save Agent C's semantic duplications to `.archie/semantic_duplications.json`:
+```
+1. Read /tmp/archie_agent_c_rules.json and extract the `duplications` array (each entry: {function, locations[], recommendation})
+2. Write to .archie/semantic_duplications.json as {"duplications": [...], "scanned_at": "<ISO UTC>"}
+3. Overwrite on every scan — this is a snapshot of the current state, not append-only
+```
+
+This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric.
+
 ### 4d: Clean up temp files
 
 ```bash

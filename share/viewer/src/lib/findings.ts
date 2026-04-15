@@ -111,6 +111,18 @@ export function pickTopFindings(
   return [...errors.slice(0, errorSlots), ...nonErrors.slice(0, fillSlots)]
 }
 
+/** Heuristic count of findings that describe semantic duplication /
+ * reimplementation. Best-effort keyword match over scan_report.md's
+ * Findings section — used as a fallback when the bundle doesn't carry
+ * a structured semantic_duplications array (older scans). */
+const SEMANTIC_DUPE_RX = /\b(duplicat|reimplement|near[- ]?dup|near[- ]?twin|similar function)\b/i
+
+export function countSemanticDuplications(findings: Finding[]): number {
+  return findings.filter(
+    (f) => SEMANTIC_DUPE_RX.test(f.title) || SEMANTIC_DUPE_RX.test(f.description),
+  ).length
+}
+
 export function severityColor(sev: FindingSeverity): string {
   if (sev === 'error') return 'text-brandy border-brandy/30 bg-brandy/5'
   if (sev === 'warn') return 'text-tangerine-800 border-tangerine/30 bg-tangerine/5'

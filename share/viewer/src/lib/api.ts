@@ -2,6 +2,12 @@ const SUPABASE_FUNCTIONS_URL =
   import.meta.env.VITE_SUPABASE_FUNCTIONS_URL ||
   'https://chlmyhkjnirrcrjdsvrc.supabase.co/functions/v1'
 
+export interface SemanticDuplication {
+  function?: string
+  locations?: string[]
+  recommendation?: string
+}
+
 export interface Bundle {
   blueprint: any
   health?: any
@@ -9,6 +15,7 @@ export interface Bundle {
   rules_adopted?: any
   rules_proposed?: any
   scan_report?: string
+  semantic_duplications?: SemanticDuplication[]
 }
 
 export interface ReportResponse {
