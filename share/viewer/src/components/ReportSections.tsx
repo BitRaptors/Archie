@@ -6,6 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
 // @ts-ignore
 import { Progress } from './ui/progress'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
@@ -13,7 +15,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import type { Finding } from '@/lib/findings'
-import { severityColor } from '@/lib/findings'
+import { isSemanticDupFinding, severityColor } from '@/lib/findings'
 import { AutoCode, codeInlineClassName } from '@/lib/autocode'
 
 export function WorkspaceTopologySection({ topology }: { topology: any }) {
@@ -126,7 +128,15 @@ export function WorkspaceTopologySection({ topology }: { topology: any }) {
 }
 
 
-export function FindingsList({ findings, truncate }: { findings: Finding[]; truncate?: boolean }) {
+export function FindingsList({
+  findings,
+  truncate,
+  semanticFunctionNames,
+}: {
+  findings: Finding[]
+  truncate?: boolean
+  semanticFunctionNames?: string[]
+}) {
   return (
     <div className="grid gap-4">
       {findings.map((f, i) => (
@@ -149,6 +159,11 @@ export function FindingsList({ findings, truncate }: { findings: Finding[]; trun
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2 flex-wrap">
               <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
+              {isSemanticDupFinding(f, { functionNames: semanticFunctionNames }) && (
+                <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest">
+                  Semantic Dup
+                </Badge>
+              )}
               {f.group && (
                 <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
                   {f.group}
@@ -204,6 +219,10 @@ export function HintPopover({
   direction?: 'lower' | 'higher'
   target?: string
 }) {
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
   const ariaLabel = [
     direction ? `${direction === 'lower' ? 'Lower' : 'Higher'} is better` : '',
     target ? `(target ${target})` : '',
@@ -212,35 +231,82 @@ export function HintPopover({
     .filter(Boolean)
     .join(' ')
 
+  // Recompute position whenever the popup is shown — handles scroll/resize by
+  // re-showing only (cheap; we could also re-compute on scroll but the popover
+  // is usually brief enough that one snapshot suffices).
+  useEffect(() => {
+    if (!open) return
+    const update = () => {
+      const rect = btnRef.current?.getBoundingClientRect()
+      if (!rect) return
+      // Viewport-relative — `position: fixed` below matches this frame.
+      setPos({
+        top: rect.top,
+        left: rect.left + rect.width / 2,
+      })
+    }
+    update()
+    const handle = () => setOpen(false)
+    // Dismiss the popup on scroll/resize so stale coordinates aren't shown.
+    window.addEventListener('scroll', handle, true)
+    window.addEventListener('resize', handle)
+    return () => {
+      window.removeEventListener('scroll', handle, true)
+      window.removeEventListener('resize', handle)
+    }
+  }, [open])
+
+  const popover =
+    open && pos
+      ? createPortal(
+          <span
+            role="tooltip"
+            className="fixed w-72 rounded-xl bg-ink text-papaya-100 text-[11px] leading-relaxed font-normal shadow-2xl overflow-hidden pointer-events-none z-[100]"
+            style={{
+              top: pos.top - 8,
+              left: pos.left,
+              transform: 'translate(-50%, -100%)',
+            }}
+          >
+            {direction && (
+              <span
+                className={cn(
+                  'block px-3 pt-3 pb-2 border-b border-white/10 text-[10px] font-black uppercase tracking-[0.15em] inline-flex items-center gap-1.5',
+                  direction === 'lower' ? 'text-teal-300' : 'text-tangerine-200',
+                )}
+              >
+                <span className="text-sm leading-none">{direction === 'lower' ? '↓' : '↑'}</span>
+                <span>{direction === 'lower' ? 'Lower is better' : 'Higher is better'}</span>
+                {target && (
+                  <span className="text-white/50 font-medium tracking-normal normal-case">
+                    · target {target}
+                  </span>
+                )}
+              </span>
+            )}
+            <span className="block px-3 py-3 text-papaya-100/90">{hint}</span>
+            <span className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-[5px] border-transparent border-t-ink" />
+          </span>,
+          document.body,
+        )
+      : null
+
   return (
-    <span className="relative inline-flex group/hint">
+    <span className="relative inline-flex">
       <button
+        ref={btnRef}
         type="button"
         tabIndex={0}
         aria-label={ariaLabel}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
         className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-ink/10 text-ink/40 hover:bg-ink/20 hover:text-ink/60 focus:bg-teal/20 focus:text-teal focus:outline-none text-[10px] font-black cursor-help transition-colors"
       >
         ?
       </button>
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 rounded-xl bg-ink text-papaya-100 text-[11px] leading-relaxed font-normal shadow-2xl opacity-0 invisible translate-y-1 transition-all duration-150 z-50 group-hover/hint:opacity-100 group-hover/hint:visible group-hover/hint:translate-y-0 group-focus-within/hint:opacity-100 group-focus-within/hint:visible group-focus-within/hint:translate-y-0 overflow-hidden"
-      >
-        {direction && (
-          <span className={cn(
-            'block px-3 pt-3 pb-2 border-b border-white/10 text-[10px] font-black uppercase tracking-[0.15em] inline-flex items-center gap-1.5',
-            direction === 'lower' ? 'text-teal-300' : 'text-tangerine-200'
-          )}>
-            <span className="text-sm leading-none">{direction === 'lower' ? '↓' : '↑'}</span>
-            <span>{direction === 'lower' ? 'Lower is better' : 'Higher is better'}</span>
-            {target && (
-              <span className="text-white/50 font-medium tracking-normal normal-case">· target {target}</span>
-            )}
-          </span>
-        )}
-        <span className="block px-3 py-3 text-papaya-100/90">{hint}</span>
-        <span className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-[5px] border-transparent border-t-ink" />
-      </span>
+      {popover}
     </span>
   )
 }
@@ -486,12 +552,14 @@ export function DuplicationCard({
   duplicateLines,
   semanticCount,
   semanticSource,
+  detailsHref,
 }: {
   verbosity: number            // 0..1 textual ratio
   totalLoc?: number
   duplicateLines?: number
   semanticCount: number | null  // null if we couldn't determine
   semanticSource: 'structured' | 'heuristic' | 'unknown'
+  detailsHref?: string          // when present, renders a "View all → Architectural Problems" anchor
 }) {
   const textualPct = Math.round((verbosity || 0) * 100)
   const textualGood = textualPct < 5
@@ -556,6 +624,27 @@ export function DuplicationCard({
           <div className="text-[10px] text-ink/30 italic">
             Derived from scan report text (older bundle). Re-scan for a precise count.
           </div>
+        )}
+
+        {detailsHref && semanticCount !== null && semanticCount > 0 && (
+          <a
+            href={detailsHref}
+            onClick={(e) => {
+              const id = detailsHref.replace(/^#/, '')
+              const el = document.getElementById(id)
+              if (el) {
+                e.preventDefault()
+                const offset = 100
+                const top = el.getBoundingClientRect().top + window.scrollY - offset
+                window.scrollTo({ top, behavior: 'smooth' })
+                history.replaceState(null, '', detailsHref)
+              }
+            }}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal hover:text-teal-700 transition-colors pt-1 group/dup-link"
+          >
+            View each in Architectural Problems
+            <ChevronRight className="w-3 h-3 transition-transform group-hover/dup-link:translate-x-0.5" />
+          </a>
         )}
       </div>
     </div>

@@ -513,6 +513,7 @@ export default function ReportPage() {
                       duplicateLines={bundle.health.duplicate_lines}
                       semanticCount={semantic.count}
                       semanticSource={semantic.source}
+                      detailsHref="#problems"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-8 content-start">
@@ -653,7 +654,18 @@ export default function ReportPage() {
             <section id="problems" className="space-y-12 scroll-mt-24">
               <Sections.SectionHeader title="Architectural Problems" icon={AlertTriangle} />
 
-              {findings.length > 0 && <Sections.FindingsList findings={findings} />}
+              {findings.length > 0 && (
+                <Sections.FindingsList
+                  findings={findings}
+                  semanticFunctionNames={
+                    Array.isArray(bundle.semantic_duplications)
+                      ? bundle.semantic_duplications
+                          .map((d: any) => d.function)
+                          .filter((x: any): x is string => typeof x === 'string')
+                      : undefined
+                  }
+                />
+              )}
 
               {pitfalls.length > 0 && (
                 <div id="pitfalls" className="scroll-mt-24">

@@ -218,6 +218,7 @@ export default function CoverPage() {
                       duplicateLines={health.duplicate_lines}
                       semanticCount={semanticCount}
                       semanticSource={semanticSource}
+                      /* Cover stays compact — details list only appears on the detail page */
                     />
                   </div>
                 )}
