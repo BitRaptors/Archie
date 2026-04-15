@@ -195,18 +195,29 @@ export function Stat({ label, value, icon: Icon }: { label: string; value: any; 
   )
 }
 
-export function HealthBar({ label, value, inverted }: { label: string; value: number; inverted?: boolean }) {
+export function HealthBar({ label, value, inverted, hint }: { label: string; value: number; inverted?: boolean; hint?: string }) {
   const good = inverted ? value < 30 : value >= 70
   return (
-    <div className="space-y-2">
-      <div className="flex justify-between items-end">
-        <span className="text-sm font-semibold text-ink/70">{label}</span>
+    <div className="space-y-2" title={hint || undefined}>
+      <div className="flex justify-between items-end gap-2">
+        <span className="text-sm font-semibold text-ink/70 inline-flex items-center gap-1.5">
+          {label}
+          {hint && (
+            <span
+              className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-ink/10 text-ink/40 text-[9px] font-black cursor-help"
+              title={hint}
+              aria-label={hint}
+            >
+              ?
+            </span>
+          )}
+        </span>
         <span className={cn("text-lg font-bold tabular-nums", good ? 'text-teal' : 'text-brandy')}>{value}%</span>
       </div>
       <div className="h-2 rounded-full bg-ink/5 overflow-hidden border border-ink/5">
-         <div 
-           className={cn("h-full transition-all duration-1000", good ? 'bg-teal' : 'bg-brandy')} 
-           style={{ width: `${value}%` }} 
+         <div
+           className={cn("h-full transition-all duration-1000", good ? 'bg-teal' : 'bg-brandy')}
+           style={{ width: `${value}%` }}
          />
       </div>
     </div>

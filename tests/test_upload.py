@@ -82,10 +82,12 @@ def test_strip_health_keeps_top_cc_and_dupes():
     health = {
         "erosion": 0.1,
         "gini": 0.5,
+        "cc_distribution": {"1-2": 100, "3-5": 50, "6-10": 20, "11-20": 10, "21-50": 5, "51-100": 1, "101+": 0},
+        "mass": {"total": 1234.5, "heavy": 987.6, "heavy_ratio": 0.8},
         "functions": [
-            {"path": "a.py", "name": "small", "cc": 3, "sloc": 5, "line": 1},
-            {"path": "b.py", "name": "huge", "cc": 50, "sloc": 200, "line": 10},
-            {"path": "c.py", "name": "medium", "cc": 12, "sloc": 40, "line": 5},
+            {"path": "a.py", "name": "small", "cc": 3, "sloc": 5, "line": 1, "mass": 6.7},
+            {"path": "b.py", "name": "huge", "cc": 50, "sloc": 200, "line": 10, "mass": 707.1},
+            {"path": "c.py", "name": "medium", "cc": 12, "sloc": 40, "line": 5, "mass": 75.9},
         ],
         "duplicates": [
             {"lines": 30, "locations": ["x.py:1", "y.py:1"]},
@@ -98,8 +100,30 @@ def test_strip_health_keeps_top_cc_and_dupes():
     assert stripped["erosion"] == 0.1
     assert stripped["top_high_cc"][0]["name"] == "huge"
     assert stripped["top_high_cc"][0]["cc"] == 50
+    assert stripped["top_high_cc"][0]["mass"] == 707.1
     assert len(stripped["top_high_cc"]) == 3
     assert stripped["top_duplicates"][0]["lines"] == 30
+    # New: distribution + mass totals pass through
+    assert stripped["cc_distribution"]["6-10"] == 20
+    assert stripped["mass"]["heavy_ratio"] == 0.8
+
+
+def test_strip_health_works_without_mass_field():
+    """Older health.json (no mass annotation) should still produce a valid bundle."""
+    health = {
+        "erosion": 0.1,
+        "functions": [
+            {"path": "a.py", "name": "big", "cc": 40, "sloc": 100, "line": 1},
+            {"path": "b.py", "name": "small", "cc": 5, "sloc": 10, "line": 2},
+        ],
+    }
+    stripped = _strip_health(health)
+    # Ranking falls back to cc — 'big' first
+    assert stripped["top_high_cc"][0]["name"] == "big"
+    assert stripped["top_high_cc"][0]["mass"] is None
+    # New fields default to None without crashing
+    assert stripped["cc_distribution"] is None
+    assert stripped["mass"] is None
 
 
 def test_strip_scan_meta_drops_file_tree():

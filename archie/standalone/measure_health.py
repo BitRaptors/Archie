@@ -112,7 +112,12 @@ def _compute_functions(repo: Path, skeletons: dict) -> list[dict]:
 
 
 def _erosion_score(functions: list[dict]) -> tuple[float, int]:
-    """Compute erosion = heavy_mass / total_mass. Returns (score, high_cc_count)."""
+    """Compute erosion = heavy_mass / total_mass. Returns (score, high_cc_count).
+
+    Also annotates every function dict in-place with `mass` = cc * sqrt(max(sloc, 1))
+    so downstream code (output rendering, cc_distribution, top-N selection by mass)
+    can reuse the computation.
+    """
     import math
 
     total_mass = 0.0
@@ -123,6 +128,7 @@ def _erosion_score(functions: list[dict]) -> tuple[float, int]:
         cc = fn["cc"]
         sloc = fn["sloc"]
         mass = cc * math.sqrt(max(sloc, 1))
+        fn["mass"] = round(mass, 2)
         total_mass += mass
         if cc > CC_THRESHOLD:
             heavy_mass += mass
@@ -131,6 +137,40 @@ def _erosion_score(functions: list[dict]) -> tuple[float, int]:
     if total_mass == 0:
         return 0.0, 0
     return round(heavy_mass / total_mass, 4), high_cc
+
+
+def _cc_distribution(functions: list[dict]) -> dict:
+    """Count functions across fixed CC buckets. Covers ALL functions, not just
+    reported ones — the scalar metrics are already distribution-based, and this
+    gives stakeholders the histogram behind them."""
+    buckets = {"1-2": 0, "3-5": 0, "6-10": 0, "11-20": 0, "21-50": 0, "51-100": 0, "101+": 0}
+    for fn in functions:
+        cc = fn.get("cc", 0)
+        if cc <= 2:     buckets["1-2"] += 1
+        elif cc <= 5:   buckets["3-5"] += 1
+        elif cc <= 10:  buckets["6-10"] += 1
+        elif cc <= 20:  buckets["11-20"] += 1
+        elif cc <= 50:  buckets["21-50"] += 1
+        elif cc <= 100: buckets["51-100"] += 1
+        else:           buckets["101+"] += 1
+    return buckets
+
+
+def _mass_totals(functions: list[dict]) -> dict:
+    """Surface the totals that erosion/gini/top20 are computed from.
+    Relies on `mass` having been written onto each fn by _erosion_score."""
+    total = 0.0
+    heavy = 0.0
+    for fn in functions:
+        m = fn.get("mass", 0.0)
+        total += m
+        if fn.get("cc", 0) > CC_THRESHOLD:
+            heavy += m
+    return {
+        "total": round(total, 2),
+        "heavy": round(heavy, 2),
+        "heavy_ratio": round(heavy / total, 4) if total > 0 else 0.0,
+    }
 
 
 # ── Complexity distribution ──────────────────────────────────────────────
@@ -483,9 +523,11 @@ def main() -> None:
 
     # Compute function metrics
     functions = _compute_functions(repo, skeletons)
-    erosion, high_cc_count = _erosion_score(functions)
+    erosion, high_cc_count = _erosion_score(functions)   # annotates fn["mass"]
     gini = _gini_coefficient(functions)
     top20 = _top20_share(functions)
+    cc_distribution = _cc_distribution(functions)
+    mass_totals = _mass_totals(functions)
 
     # Compute verbosity
     duplicates, dup_line_count, total_loc = _find_duplicates(repo, skeletons)
@@ -510,6 +552,8 @@ def main() -> None:
         "high_cc_functions": high_cc_count,
         "total_loc": total_loc,
         "duplicate_lines": dup_line_count,
+        "cc_distribution": cc_distribution,
+        "mass": mass_totals,
         "waste": waste,
         "functions": reported_functions,
         "duplicates": duplicates,

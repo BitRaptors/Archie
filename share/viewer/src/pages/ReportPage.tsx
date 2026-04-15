@@ -490,9 +490,12 @@ export default function ReportPage() {
                 </div>
                 <div className="grid lg:grid-cols-2 gap-16 relative">
                   <div className="space-y-8">
-                    <Sections.HealthBar label="Architectural Erosion" value={Math.round((bundle.health.erosion || 0) * 100)} inverted />
-                    <Sections.HealthBar label="Logic Concentration (Gini)" value={Math.round((bundle.health.gini || 0) * 100)} inverted />
-                    <Sections.HealthBar label="Workload Verbosity" value={Math.round((bundle.health.verbosity || 0) * 100)} inverted />
+                    <Sections.HealthBar label="Architectural Erosion" value={Math.round((bundle.health.erosion || 0) * 100)} inverted
+                      hint="Share of total complexity mass (cc × √sloc) held by functions with CC > 10. High = a few complex functions dominate." />
+                    <Sections.HealthBar label="Logic Concentration (Gini)" value={Math.round((bundle.health.gini || 0) * 100)} inverted
+                      hint="Inequality of complexity distribution. 0 = evenly spread, 1 = one function holds everything. >0.6 means heavy concentration." />
+                    <Sections.HealthBar label="Workload Verbosity" value={Math.round((bundle.health.verbosity || 0) * 100)} inverted
+                      hint="Duplicated lines divided by total LOC. Low (<5%) is healthy; indicates minimal copy-paste." />
                   </div>
                   <div className="grid grid-cols-2 gap-8 content-start">
                     <Sections.Stat label="Total LOC" value={bundle.health.total_loc?.toLocaleString() ?? '—'} />

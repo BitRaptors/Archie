@@ -176,21 +176,25 @@ export default function CoverPage() {
                       label="Architectural Erosion"
                       value={Math.round((health.erosion || 0) * 100)}
                       inverted
+                      hint="Share of total complexity mass (cc × √sloc) held by functions with CC > 10. High = a few complex functions dominate."
                     />
                     <Sections.HealthBar
                       label="Logic Concentration (Gini)"
                       value={Math.round((health.gini || 0) * 100)}
                       inverted
+                      hint="Inequality of complexity distribution. 0 = evenly spread, 1 = one function holds everything. >0.6 means heavy concentration."
                     />
                     <Sections.HealthBar
                       label="Top-20% Share"
                       value={Math.round((health.top20_share || 0) * 100)}
                       inverted
+                      hint="Complexity mass held by the biggest 20% of functions. 20% = perfectly even; 90%+ means the top fifth carries almost all the logic."
                     />
                     <Sections.HealthBar
                       label="Verbosity"
                       value={Math.round((health.verbosity || 0) * 100)}
                       inverted
+                      hint="Duplicated lines divided by total LOC. Low (<5%) is healthy; indicates minimal copy-paste."
                     />
                   </div>
                 )}
