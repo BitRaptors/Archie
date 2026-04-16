@@ -167,9 +167,6 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
             content = _read_text(report_path)
             self._send_json({"filename": filename, "content": content})
 
-        elif path == "/api/function-complexity":
-            self._send_json(_load_json(archie_dir / "function_complexity.json"))
-
         elif path == "/api/drift":
             self._send_json(_load_json(archie_dir / "drift_report.json"))
 
@@ -328,6 +325,7 @@ tailwind.config = {
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="rules">Rules</button>
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="files">Files</button>
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="dependencies">Dependencies</button>
+  <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="workspace">Workspace</button>
 </div>
 
 <!-- Tab content containers -->
@@ -337,6 +335,7 @@ tailwind.config = {
 <div id="tab-rules" class="tab-content hidden p-8 max-w-5xl mx-auto"></div>
 <div id="tab-files" class="tab-content hidden"></div>
 <div id="tab-dependencies" class="tab-content hidden" style="height: calc(100vh - 140px)"></div>
+<div id="tab-workspace" class="tab-content hidden p-8 max-w-7xl mx-auto"></div>
 
 <script>
 // ---------------------------------------------------------------------------
@@ -344,7 +343,7 @@ tailwind.config = {
 // ---------------------------------------------------------------------------
 let health = {}, healthHistory = [], scanReports = [], blueprint = {},
     rules = {}, ignoredRules = {}, generatedFiles = {}, folderMds = {},
-    functionComplexity = {}, drift = {}, depGraph = {}, proposedRules = {};
+    drift = {}, depGraph = {}, proposedRules = {};
 
 // ---------------------------------------------------------------------------
 // Tab switching
@@ -363,7 +362,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       blueprint: renderBlueprint,
       rules: renderRules,
       files: renderFiles,
-      dependencies: renderDependencies
+      dependencies: renderDependencies,
+      workspace: renderWorkspace
     };
     if (renderers[btn.dataset.tab]) renderers[btn.dataset.tab]();
   });
@@ -384,7 +384,7 @@ async function fetchJSON(url) {
 }
 
 async function loadData() {
-  const [h, hh, sr, bp, r, ir, gf, fm, fc, dr, dg, pr] = await Promise.all([
+  const [h, hh, sr, bp, r, ir, gf, fm, dr, dg, pr] = await Promise.all([
     fetchJSON('/api/health'),
     fetchJSON('/api/health-history'),
     fetchJSON('/api/scan-reports'),
@@ -393,7 +393,6 @@ async function loadData() {
     fetchJSON('/api/ignored-rules'),
     fetchJSON('/api/generated-files'),
     fetchJSON('/api/folder-claude-mds'),
-    fetchJSON('/api/function-complexity'),
     fetchJSON('/api/drift'),
     fetchJSON('/api/dependency-graph'),
     fetchJSON('/api/proposed-rules'),
@@ -406,7 +405,6 @@ async function loadData() {
   ignoredRules = ir || {};
   generatedFiles = gf || {};
   folderMds = fm || {};
-  functionComplexity = fc || {};
   drift = dr || {};
   depGraph = dg || {};
   proposedRules = pr || {};
@@ -1744,6 +1742,100 @@ function renderDependencies() {
     detail.innerHTML = html;
     sidebar.classList.remove('hidden');
   });
+}
+
+// ---------------------------------------------------------------------------
+// Workspace Topology tab
+// ---------------------------------------------------------------------------
+function renderWorkspace() {
+  const el = document.getElementById('tab-workspace');
+  const wt = (blueprint && blueprint.workspace_topology) || null;
+
+  if (!wt || (!wt.members && !wt.edges)) {
+    el.innerHTML = '<div class="flex items-center justify-center h-64"><div class="text-center max-w-md">'
+      + '<p class="text-ink/40 text-lg mb-2">No workspace topology available</p>'
+      + '<p class="text-ink/30 text-sm">This view shows up only after running <code class="text-teal">/archie-deep-scan</code> '
+      + 'in <code>whole</code> mode on a workspace monorepo. For single projects this is expected.</p>'
+      + '</div></div>';
+    return;
+  }
+
+  const members = Array.isArray(wt.members) ? wt.members : [];
+  const edges = Array.isArray(wt.edges) ? wt.edges : [];
+  const cycles = Array.isArray(wt.cycles) ? wt.cycles : [];
+  const magnets = Array.isArray(wt.dependency_magnets) ? wt.dependency_magnets : [];
+  const wsType = wt.type || 'workspace';
+
+  const apps = members.filter(m => (m.role || '').toLowerCase() === 'app');
+  const libs = members.filter(m => ['lib', 'library'].includes((m.role || '').toLowerCase()));
+  const other = members.filter(m => !apps.includes(m) && !libs.includes(m));
+
+  // Build mermaid diagram
+  let mermaidSrc = 'graph LR\n';
+  for (const m of members) {
+    if (!m.name) continue;
+    const safe = String(m.name).replace(/"/g, "'");
+    const role = (m.role || '').toLowerCase();
+    if (role === 'app') mermaidSrc += '  ' + safe + '(["' + safe + '"])\n';
+    else if (role === 'lib' || role === 'library') mermaidSrc += '  ' + safe + '["' + safe + '"]\n';
+    else mermaidSrc += '  ' + safe + '("' + safe + '")\n';
+  }
+  for (const e of edges) {
+    if (!e.from || !e.to) continue;
+    const label = e.count ? '|' + e.count + '|' : '';
+    mermaidSrc += '  ' + e.from + ' --> ' + label + e.to + '\n';
+  }
+
+  const groupHtml = (label, list) => {
+    if (!list.length) return '';
+    return '<div class="mb-3">'
+      + '<div class="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-2">' + label + '</div>'
+      + '<div class="flex flex-wrap gap-2">'
+      + list.map(m => '<span class="px-3 py-1 rounded-full bg-papaya-50 border border-papaya-300 text-xs font-bold">' + esc(m.name) + '</span>').join('')
+      + '</div></div>';
+  };
+
+  let html = '<h2 class="text-2xl font-black mb-2">Workspace Topology</h2>'
+    + '<p class="text-ink/50 mb-6">' + esc(wsType) + ' · ' + members.length + ' workspace' + (members.length !== 1 ? 's' : '') + '</p>'
+    + '<div class="bg-white rounded-2xl border border-papaya-300 p-6 mb-6">'
+    + '  <div class="grid grid-cols-3 gap-4 text-center text-sm mb-4">'
+    + '    <div><div class="text-2xl font-black">' + edges.length + '</div><div class="text-ink/40 text-xs uppercase tracking-widest">Edges</div></div>'
+    + '    <div><div class="text-2xl font-black ' + (cycles.length > 0 ? 'text-brandy' : '') + '">' + cycles.length + '</div><div class="text-ink/40 text-xs uppercase tracking-widest">Cycles</div></div>'
+    + '    <div><div class="text-2xl font-black">' + magnets.length + '</div><div class="text-ink/40 text-xs uppercase tracking-widest">Magnets</div></div>'
+    + '  </div>'
+    + groupHtml('Apps', apps)
+    + groupHtml('Shared libraries', libs)
+    + groupHtml('Other', other)
+    + '</div>';
+
+  if (edges.length > 0) {
+    html += '<div class="bg-white rounded-2xl border border-papaya-300 p-6 mb-6">'
+      + '<h3 class="text-lg font-bold mb-4">Dependency Graph</h3>'
+      + '<pre class="mermaid">' + esc(mermaidSrc) + '</pre>'
+      + '</div>';
+  }
+
+  if (cycles.length > 0) {
+    html += '<div class="bg-brandy/5 border-l-4 border-brandy rounded-r-xl p-6 mb-6">'
+      + '<div class="text-xs font-black uppercase tracking-[0.2em] text-brandy mb-3">Cross-workspace cycles</div>'
+      + '<ul class="space-y-1 font-mono text-sm">'
+      + cycles.map(c => '<li>' + esc(Array.isArray(c) ? c.join(' → ') : String(c)) + '</li>').join('')
+      + '</ul></div>';
+  }
+
+  if (magnets.length > 0) {
+    html += '<div class="bg-white rounded-2xl border border-papaya-300 p-6">'
+      + '<h3 class="text-lg font-bold mb-4">Dependency magnets</h3>'
+      + '<ul class="space-y-2 text-sm">'
+      + magnets.map(m => '<li><code class="font-mono">' + esc(m.name) + '</code> <span class="text-ink/40 ml-2">in_degree = ' + (m.in_degree != null ? m.in_degree : '?') + '</span></li>').join('')
+      + '</ul></div>';
+  }
+
+  el.innerHTML = html;
+
+  if (typeof mermaid !== 'undefined') {
+    setTimeout(() => { try { mermaid.run({ nodes: el.querySelectorAll('.mermaid') }); } catch(e) {} }, 100);
+  }
 }
 
 // ---------------------------------------------------------------------------

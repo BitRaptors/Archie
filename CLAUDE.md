@@ -76,6 +76,7 @@ python -m pytest tests/ -v
 5. **Render** — Deterministic JSON→Markdown (CLAUDE.md, AGENTS.md, rule files)
 6. **Validate** — Cross-reference output against actual codebase
 7. **Intent Layer** — AI-generated per-folder CLAUDE.md via bottom-up DAG
+8. **Scan report** — Phase 4 of Step 9 writes `.archie/scan_report.md` with ranked findings in the same format `/archie-scan` emits (so `/archie-share` and future trend runs pick it up immediately after a deep scan)
 
 ## Key Data Model
 
