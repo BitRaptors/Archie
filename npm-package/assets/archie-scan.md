@@ -375,16 +375,27 @@ Save output: /tmp/archie_agent_c.json
 
 ## Phase 4: Synthesis + Blueprint Evolution
 
-Read the outputs from all three agents:
-- `/tmp/archie_agent_a.json`
-- `/tmp/archie_agent_b.json`
-- `/tmp/archie_agent_c.json`
+### 4a: Aggregate findings → semantic_findings.json
 
-Also re-read `.archie/blueprint.json` (the current state of accumulated knowledge).
+Before synthesizing the blueprint, extract the findings from each agent's output into per-source files in `.archie/`, then invoke the aggregator. This produces the unified `semantic_findings.json` consumed by the viewer and the next scan (dedupe by signature, quality gate, lifecycle diff against the prior run).
 
-Now you are the **synthesis agent**. Your job is to merge the three agents' findings with the existing blueprint to produce an evolved blueprint. This is where compound learning happens.
+```bash
+python3 .archie/extract_output.py findings /tmp/archie_agent_a.json "$PROJECT_ROOT/.archie/semantic_findings_fast_a.json"
+python3 .archie/extract_output.py findings /tmp/archie_agent_b.json "$PROJECT_ROOT/.archie/semantic_findings_fast_b.json"
+python3 .archie/extract_output.py findings /tmp/archie_agent_c.json "$PROJECT_ROOT/.archie/semantic_findings_fast_c.json"
+python3 .archie/aggregate_findings.py "$PROJECT_ROOT"
+```
 
-### 4a: Evolve the Blueprint
+The aggregator reads every `semantic_findings_*.json` source it knows about in `.archie/`, merges by signature, applies the quality gate, computes `lifecycle_status` against the prior `semantic_findings.json`, and writes the canonical result back to `.archie/semantic_findings.json`.
+
+### 4b: Evolve the Blueprint
+
+Read the inputs to synthesis:
+- `.archie/semantic_findings.json` — the aggregated, gated, lifecycle-tagged canonical findings from 4a (primary input for findings + rules reasoning)
+- `/tmp/archie_agent_a.json`, `/tmp/archie_agent_b.json`, `/tmp/archie_agent_c.json` — raw per-agent output (use for `pattern_observations`, `health_scores`, `trend`, `proposed_rules`, `rule_confidence_updates` — fields the aggregator does NOT carry)
+- `.archie/blueprint.json` — current state of accumulated knowledge
+
+Now you are the **synthesis agent**. Your job is to merge the aggregated findings + the per-agent auxiliary fields with the existing blueprint to produce an evolved blueprint. This is where compound learning happens.
 
 Read the existing blueprint (or start with `{}` if none exists). Apply these evolution rules:
 
@@ -446,7 +457,7 @@ Then normalize it to ensure canonical schema:
 python3 .archie/finalize.py "$PWD" --normalize-only
 ```
 
-### 4b: Write Scan Report
+### 4c: Write Scan Report
 
 Get the current date/time and scan number from the blueprint (`meta.scan_count`):
 ```bash
@@ -502,7 +513,7 @@ The report should include:
 [Re-baseline with /archie-deep-scan if: no deep scan ever, erosion increased >0.10, major structural changes]
 ```
 
-### 4c: Update Satellite Files
+### 4d: Update Satellite Files
 
 Append health scores to history:
 ```bash
@@ -518,16 +529,21 @@ Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 5. Write back
 ```
 
-Save Agent C's semantic duplications to `.archie/semantic_duplications.json`:
+Derive the legacy `.archie/semantic_duplications.json` snapshot from the aggregated findings (for `/archie-share` + old-viewer backward compat):
 ```
-1. Read /tmp/archie_agent_c.json and extract the `duplications` array (each entry: {function, locations[], recommendation})
-2. Write to .archie/semantic_duplications.json as {"duplications": [...], "scanned_at": "<ISO UTC>"}
-3. Overwrite on every scan — this is a snapshot of the current state, not append-only
+1. Read .archie/semantic_findings.json (the aggregator's canonical output from 4a)
+2. Filter `findings` where `type == "semantic_duplication"` — this replaces the previous "read Agent C's duplications array" flow; duplications now live inside the findings stream tagged with that type
+3. For each matching finding, map to the legacy entry shape: {function, locations, recommendation}
+   - function: derive from the finding's first location (e.g. "path/to/file.ts::symbol") or from `pattern_description` — whichever reads cleanest
+   - locations: `scope.locations` (list of "file:line" strings)
+   - recommendation: `fix_direction`
+4. Write to .archie/semantic_duplications.json as {"duplications": [...], "scanned_at": "<ISO UTC>"}
+5. Overwrite on every scan — this is a snapshot of the current state, not append-only
 ```
 
-This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric.
+This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric. The canonical source of truth is now `semantic_findings.json`; this legacy file exists only so the current `/archie-share` upload path and the current viewer keep working during the transition.
 
-### 4d: Clean up temp files
+### 4e: Clean up temp files
 
 ```bash
 rm -f /tmp/archie_agent_a.json /tmp/archie_agent_b.json /tmp/archie_agent_c.json
