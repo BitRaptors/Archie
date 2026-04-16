@@ -148,6 +148,51 @@ def test_quality_gate_keeps_localized_with_single_location():
     assert len(kept) == 1
 
 
+def test_quality_gate_normalizes_category_case():
+    """Agent output sometimes emits SYSTEMIC or Systemic — must normalize."""
+    findings = [{
+        "category": "SYSTEMIC",
+        "type": "fragmentation",
+        "pattern_description": "auth enforcement scattered",
+        "scope": {"components_affected": ["handlers"], "locations": ["a", "b", "c"]},
+        "root_cause": "no shared middleware",
+        "fix_direction": "extract authGuard",
+        "blast_radius": 3,
+    }]
+    kept = apply_quality_gate(findings)
+    assert len(kept) == 1
+    assert kept[0]["category"] == "systemic"
+
+
+def test_quality_gate_normalizes_mixed_case_category():
+    findings = [{
+        "category": "Systemic",
+        "type": "fragmentation",
+        "pattern_description": "x",
+        "scope": {"components_affected": ["a"], "locations": ["a", "b", "c"]},
+        "root_cause": "...",
+        "fix_direction": "...",
+        "blast_radius": 2,
+    }]
+    kept = apply_quality_gate(findings)
+    assert len(kept) == 1
+    assert kept[0]["category"] == "systemic"
+
+
+def test_quality_gate_unknown_category_defaults_to_localized():
+    """Garbage category value degrades to localized — not dropped on that alone."""
+    findings = [{
+        "category": "wat",
+        "type": "dependency_violation",
+        "scope": {"components_affected": ["a"], "locations": ["x:1"]},
+        "root_cause": "...",
+        "fix_direction": "...",
+    }]
+    kept = apply_quality_gate(findings)
+    assert len(kept) == 1
+    assert kept[0]["category"] == "localized"
+
+
 def test_quality_gate_keeps_systemic_with_all_required_fields():
     # All systemic requirements met: pattern_description, exactly-3 locations (boundary),
     # root_cause, fix_direction, blast_radius populated.

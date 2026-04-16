@@ -79,7 +79,17 @@ def apply_quality_gate(findings: list) -> list:
     """
     kept = []
     for f in findings:
-        if f.get("category") == "systemic":
+        # Agents sometimes emit SYSTEMIC or Systemic. Normalize to lowercase
+        # so the category check (and every downstream consumer, including the
+        # viewer) sees a stable value. Unknown categories degrade to localized
+        # rather than being dropped — the per-category gate below decides fate.
+        raw_cat = f.get("category", "")
+        category = raw_cat.lower() if isinstance(raw_cat, str) else "localized"
+        if category not in ("systemic", "localized"):
+            category = "localized"
+        f = {**f, "category": category}
+
+        if category == "systemic":
             if not f.get("pattern_description"):
                 continue
             locations = f.get("scope", {}).get("locations", []) or []

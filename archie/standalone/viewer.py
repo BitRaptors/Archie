@@ -838,8 +838,12 @@ function renderSemanticFindings(sfData) {
   const findings = (sfData && sfData.findings) || [];
   if (findings.length === 0) return null;
 
-  const systemic = findings.filter(f => f.category === 'systemic' && f.lifecycle_status !== 'resolved' && f.source !== 'mechanical');
-  const localized = findings.filter(f => f.category === 'localized' && f.lifecycle_status !== 'resolved' && f.source !== 'mechanical');
+  // Normalize category case client-side — agent output is sometimes SYSTEMIC
+  // or Systemic. The aggregator now lowercases on write, but older bundles
+  // predate that fix, so the viewer keeps a belt-and-braces guard.
+  const catOf = (f) => (f.category || '').toLowerCase();
+  const systemic = findings.filter(f => catOf(f) === 'systemic' && f.lifecycle_status !== 'resolved' && f.source !== 'mechanical');
+  const localized = findings.filter(f => catOf(f) === 'localized' && f.lifecycle_status !== 'resolved' && f.source !== 'mechanical');
   const resolved = findings.filter(f => f.lifecycle_status === 'resolved');
   const mechanical = findings.filter(f => f.source === 'mechanical' && f.lifecycle_status !== 'resolved');
 
