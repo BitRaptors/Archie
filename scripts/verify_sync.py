@@ -100,6 +100,11 @@ def main():
         if canonical != asset:
             errors.append(f"OUT OF SYNC: {name} differs between .claude/commands/ and npm-package/assets/")
 
+    # 8. Check viewer_dist exists in npm-package
+    viewer_dist = ASSETS / "viewer_dist" / "index.html"
+    if not viewer_dist.exists():
+        errors.append(f"Missing: npm-package/assets/viewer_dist/index.html — run: python3 scripts/pack_viewer_dist.py")
+
     # Report
     if errors:
         print(f"SYNC CHECK FAILED — {len(errors)} issue(s):\n")

@@ -173,6 +173,75 @@ def build_bundle(project_root: Path) -> dict:
     if sem and isinstance(sem.get("duplications"), list):
         bundle["semantic_duplications"] = sem["duplications"]
 
+    # --- NEW: viewer-originated fields ---
+
+    # Scan reports (historical)
+    scan_history_dir = archie_dir / "scan_history"
+    scan_reports = []
+    if scan_history_dir.is_dir():
+        for f in sorted(scan_history_dir.glob("*.md"), reverse=True):
+            scan_reports.append({
+                "filename": f.name,
+                "date": f.name.replace("scan_report_", "").replace(".md", ""),
+                "content": f.read_text(encoding="utf-8", errors="replace"),
+            })
+    # Legacy scan_report_*.md in archie_dir
+    for f in sorted(archie_dir.glob("scan_report_*.md"), reverse=True):
+        scan_reports.append({
+            "filename": f.name,
+            "date": f.name.replace("scan_report_", "").replace(".md", ""),
+            "content": f.read_text(encoding="utf-8", errors="replace"),
+        })
+    if scan_reports:
+        bundle["scan_reports"] = scan_reports
+
+    # Dependency graph
+    dep_graph_path = archie_dir / "dependency_graph.json"
+    if dep_graph_path.exists():
+        bundle["dependency_graph"] = json.loads(dep_graph_path.read_text(encoding="utf-8"))
+
+    # Generated files (CLAUDE.md, AGENTS.md, .claude/rules/*)
+    generated_files = {}
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        p = project_root / name
+        if p.exists():
+            generated_files[name] = p.read_text(encoding="utf-8", errors="replace")
+    rules_dir = project_root / ".claude" / "rules"
+    if rules_dir.is_dir():
+        for f in sorted(rules_dir.rglob("*")):
+            if f.is_file():
+                generated_files[str(f.relative_to(project_root))] = f.read_text(encoding="utf-8", errors="replace")
+    if generated_files:
+        bundle["generated_files"] = generated_files
+
+    # Folder CLAUDE.md files
+    skip_dirs = {".git", "node_modules", ".venv", "__pycache__", ".archie", "dist", "build"}
+    folder_mds = {}
+    for claude_md in project_root.rglob("CLAUDE.md"):
+        if any(part in skip_dirs for part in claude_md.parts):
+            continue
+        rel = str(claude_md.relative_to(project_root))
+        if rel == "CLAUDE.md":
+            continue
+        folder_mds[rel] = claude_md.read_text(encoding="utf-8", errors="replace")
+    if folder_mds:
+        bundle["folder_claude_mds"] = folder_mds
+
+    # Ignored rules
+    ignored_path = archie_dir / "ignored_rules.json"
+    if ignored_path.exists():
+        bundle["ignored_rules"] = json.loads(ignored_path.read_text(encoding="utf-8"))
+
+    # Drift report
+    drift_path = archie_dir / "drift_report.json"
+    if drift_path.exists():
+        bundle["drift_report"] = json.loads(drift_path.read_text(encoding="utf-8"))
+
+    # Health history
+    history_path = archie_dir / "health_history.json"
+    if history_path.exists():
+        bundle["health_history"] = json.loads(history_path.read_text(encoding="utf-8"))
+
     return bundle
 
 
