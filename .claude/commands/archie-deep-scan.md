@@ -408,6 +408,13 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 8. Pattern Selection Guide
 > For common scenarios in this codebase, which pattern should be used and why?
 >
+> ### 9. Pattern observations (for Wave 2 to synthesize)
+> While cataloging patterns, note cross-file anomalies — things that feel inconsistent, fragmented, or missing an abstraction.
+>
+> For each: `{type, evidence_locations, note}`. Types in your domain: `fragmentation_signal` (same job done N ways), `missing_abstraction_signal` (copy-paste), `pattern_outlier` (1-2 files deviating from an otherwise-consistent pattern), `inconsistency_signal` (feature built one way in X, another in Y).
+>
+> These are observations for Wave 2, not finished findings.
+>
 > Return JSON:
 > ```json
 > {
@@ -425,7 +432,8 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >   "quick_reference": {
 >     "pattern_selection": {"scenario": "pattern"},
 >     "error_mapping": [{"error": "", "status_code": 0, "description": ""}]
->   }
+>   },
+>   "pattern_observations": [{"type": "", "evidence_locations": [], "note": ""}]
 > }
 > ```
 
