@@ -319,3 +319,38 @@ def update_state(state: dict, hp: int) -> dict:
 
     state["last_hp"] = hp
     return state
+
+
+# ── CLI Entry Point ───────────────────────────────────────────────────────────
+
+def main() -> None:
+    """CLI: python3 buddy.py <project_root> [--compact]"""
+    if len(sys.argv) < 2:
+        print("Usage: python3 buddy.py <project_root> [--compact]", file=sys.stderr)
+        sys.exit(1)
+
+    project_root = Path(sys.argv[1]).resolve()
+    compact = "--compact" in sys.argv
+
+    archie_dir = project_root / ".archie"
+
+    hp, mood = calculate_hp(project_root)
+    violations = _count_violations(archie_dir) if archie_dir.exists() else 0
+    scan_age = _scan_age_text(archie_dir) if archie_dir.exists() else "soha"
+
+    # Load and update state
+    state = load_state(archie_dir)
+    state = update_state(state, hp)
+    if archie_dir.exists():
+        save_state(archie_dir, state)
+
+    if compact:
+        print(render_compact(hp, mood))
+    else:
+        print(render_full(hp, mood, violations, scan_age, state["streak"]))
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
