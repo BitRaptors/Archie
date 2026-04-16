@@ -103,3 +103,70 @@ def calculate_hp(project_root: Path) -> tuple[int, str]:
         mood = "dead"
 
     return hp, mood
+
+
+# ── Mood & Personality ────────────────────────────────────────────────────────
+
+def mood_from_hp(hp: int) -> str:
+    """Map HP to mood string."""
+    if hp >= 80:
+        return "confident"
+    if hp >= 50:
+        return "skeptical"
+    if hp >= 20:
+        return "sick"
+    return "dead"
+
+
+def eyes_for_mood(mood: str) -> tuple[str, str]:
+    """Return (left_eye, right_eye) characters for a mood."""
+    return {
+        "confident": ("◕", "◕"),
+        "skeptical": ("¬", "¬"),
+        "sick":      ("◔", "◔"),
+        "dead":      ("×", "×"),
+        "unborn":    ("·", "·"),
+    }.get(mood, ("◉", "◉"))
+
+
+MESSAGES: dict[str, list[str]] = {
+    "confident": [
+        "Egy violation sincs. Unatkozom.",
+        "Szinte gyanúsan jó ez az architektúra.",
+        "Na EZ egy codebase. Majdnem meghatódtam.",
+        "Nincs dolgom. Mehetek aludni?",
+        "Clean architecture. Kezdek feleslegesnek érezni magam.",
+    ],
+    "skeptical": [
+        "Lassan rohadni kezd ez a codebase. Csak szólok.",
+        "Aha, 'majd refaktorálom'. Persze.",
+        "Nem akarom tudni mi lesz jövő héten.",
+        "Ez még működik, de ne húzd meg az ördög farkát.",
+        "Láttam már rosszabbat. De láttam jobbat is.",
+    ],
+    "sick": [
+        "Fizikailag rosszul vagyok ettől a coupling-tól.",
+        "Ez a circular dependency az én személyes pokol-köröm.",
+        "Segítség. Valaki. Bárki.",
+        "Futtass egy scant... ha mersz.",
+        "Már a szemem is rángatózik ettől a kódtól.",
+    ],
+    "dead": [
+        "Hivatalosan is halott vagyok. Gratulálok.",
+        "Ennél egy /dev/null is jobb architektúra.",
+        "A szellem szellemet adott.",
+        "RIP Archie. Cause of death: technical debt.",
+        "Ha ez production-ben van, akkor részvétem.",
+    ],
+    "unborn": [
+        "Futtass egy /archie-deep-scan-t, hogy megszülessek.",
+        "Helló? Van itt valaki? Sötét van.",
+        "Még nem létezem. Scannelj és életre kelek!",
+    ],
+}
+
+
+def get_message(mood: str) -> str:
+    """Return a random sarcastic message for the given mood."""
+    messages = MESSAGES.get(mood, MESSAGES["unborn"])
+    return random.choice(messages)
