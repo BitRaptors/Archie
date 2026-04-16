@@ -1568,7 +1568,22 @@ function renderFiles() {
     el.querySelectorAll('[data-filekey]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         activeFile = btn.getAttribute('data-filekey');
-        document.getElementById('files-nav').innerHTML = buildSidebar();
+        // Save expanded folder state before rebuilding sidebar
+        var nav = document.getElementById('files-nav');
+        var expanded = [];
+        nav.querySelectorAll('.arrow.rotate-90').forEach(function(arrow) {
+          var label = arrow.parentElement.querySelector('span:last-child');
+          if (label) expanded.push(label.textContent);
+        });
+        nav.innerHTML = buildSidebar();
+        // Restore expanded folder state
+        nav.querySelectorAll('.arrow').forEach(function(arrow) {
+          var label = arrow.parentElement.querySelector('span:last-child');
+          if (label && expanded.indexOf(label.textContent) !== -1) {
+            arrow.classList.add('rotate-90');
+            arrow.parentElement.nextElementSibling.classList.remove('hidden');
+          }
+        });
         attachFileNavHandlers();
         renderContent();
       });
