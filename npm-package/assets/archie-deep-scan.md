@@ -670,14 +670,8 @@ python3 .archie/extract_output.py findings /tmp/archie_sub1_$PROJECT_NAME.json /
 python3 .archie/extract_output.py findings /tmp/archie_sub2_$PROJECT_NAME.json /tmp/_wave1_patt_f.json
 
 # Concatenate into one wave1 findings file
-python3 -c "
-import json
-from pathlib import Path
-struct = json.loads(Path('/tmp/_wave1_struct_f.json').read_text())
-patt = json.loads(Path('/tmp/_wave1_patt_f.json').read_text())
-combined = {'findings': struct.get('findings', []) + patt.get('findings', [])}
-Path('$PROJECT_ROOT/.archie/semantic_findings_wave1.json').write_text(json.dumps(combined, indent=2))
-"
+python3 .archie/extract_output.py concat-findings "$PROJECT_ROOT/.archie/semantic_findings_wave1.json" /tmp/_wave1_struct_f.json /tmp/_wave1_patt_f.json
+
 rm -f /tmp/_wave1_struct_f.json /tmp/_wave1_patt_f.json
 ```
 

@@ -6,10 +6,11 @@ Uses merge.extract_json_from_text to handle conversation envelopes, code fences,
 and AI escape issues.
 
 Subcommands:
-  rules        <input_file> <output_path>   — extract rules JSON from agent output
-  deep-drift   <input_file> <report_path>   — extract deep findings, merge into drift report
-  recent-files <scan_json>                  — print source file paths from scan.json
-  findings     <input_path> <output_path>   — extract findings array from agent output
+  rules            <input_file> <output_path>     — extract rules JSON from agent output
+  deep-drift       <input_file> <report_path>     — extract deep findings, merge into drift report
+  recent-files     <scan_json>                    — print source file paths from scan.json
+  findings         <input_path> <output_path>     — extract findings array from agent output
+  concat-findings  <output_path> <in1> [<in2> …]  — merge multiple findings files into one
 
 Zero dependencies beyond Python 3.9+ stdlib + sibling merge.py.
 """
@@ -142,6 +143,29 @@ def extract_findings(input_path: str, output_path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# concat-findings — merge multiple {"findings": [...]} files into one
+# ---------------------------------------------------------------------------
+
+def concat_findings(input_paths: list, output_path: str) -> None:
+    """Concatenate findings from multiple {'findings': [...]} JSON files into one."""
+    combined: list = []
+    for p in input_paths:
+        path = Path(p)
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        findings = data.get("findings", []) if isinstance(data, dict) else []
+        if isinstance(findings, list):
+            combined.extend(findings)
+    Path(output_path).write_text(
+        json.dumps({"findings": combined}, indent=2), encoding="utf-8"
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -152,6 +176,7 @@ if __name__ == "__main__":
         print("  python3 extract_output.py deep-drift <input_file> <report_path>", file=sys.stderr)
         print("  python3 extract_output.py recent-files <scan_json>", file=sys.stderr)
         print("  python3 extract_output.py findings <input_path> <output_path>", file=sys.stderr)
+        print("  python3 extract_output.py concat-findings <output_path> <in1> [<in2> ...]", file=sys.stderr)
         sys.exit(1)
 
     subcmd = sys.argv[1]
@@ -179,6 +204,15 @@ if __name__ == "__main__":
             print("Usage: extract_output.py findings <input_path> <output_path>", file=sys.stderr)
             sys.exit(1)
         extract_findings(sys.argv[2], sys.argv[3])
+
+    elif subcmd == "concat-findings":
+        if len(sys.argv) < 4:
+            print(
+                "Usage: extract_output.py concat-findings <output_path> <in1> [<in2> ...]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        concat_findings(sys.argv[3:], sys.argv[2])
 
     else:
         print(f"Unknown subcommand: {subcmd}", file=sys.stderr)
