@@ -134,6 +134,22 @@ def test_quality_gate_keeps_localized_with_single_location():
     }]
     kept = apply_quality_gate(findings)
     assert len(kept) == 1
+
+def test_quality_gate_keeps_systemic_with_all_required_fields():
+    # All systemic requirements met: pattern_description, exactly-3 locations (boundary),
+    # root_cause, fix_direction, blast_radius populated.
+    findings = [{
+        "category": "systemic",
+        "type": "fragmentation",
+        "pattern_description": "auth enforcement scattered across handlers",
+        "scope": {"components_affected": ["handlers"], "locations": ["h1.ts:3", "h2.ts:5", "h3.ts:7"]},
+        "root_cause": "no shared auth middleware; each handler reimplements validate()",
+        "fix_direction": "extract authGuard middleware; migrate handlers h1 → h2 → h3",
+        "blast_radius": 3
+    }]
+    kept = apply_quality_gate(findings)
+    assert len(kept) == 1
+    assert kept[0]["type"] == "fragmentation"
 ```
 
 **Step 4: Write test for merge + dedupe across sources.**
@@ -150,11 +166,15 @@ def test_merge_dedupes_by_signature_keeps_canonical():
     assert sigs.count("wave2") == 1
 
 def test_merge_never_downgrades_severity():
-    wave2 = [{"type": "cycle", "scope": {"components_affected": ["a"]}, "severity": "error", "source": "wave2"}]
-    mech = [{"type": "cycle", "scope": {"components_affected": ["a"]}, "severity": "warn", "source": "mechanical"}]
+    # Winner (wave2, canonical) has LOWER severity than loser (mechanical, draft).
+    # Aggregator must promote the merged entry to the loser's higher severity.
+    wave2 = [{"type": "cycle", "scope": {"components_affected": ["a"]}, "severity": "warn", "source": "wave2"}]
+    mech = [{"type": "cycle", "scope": {"components_affected": ["a"]}, "severity": "error", "source": "mechanical"}]
     merged = merge_sources(wave1=[], wave2=wave2, phase2=[], mechanical=mech)
     assert len(merged) == 1
     assert merged[0]["severity"] == "error"
+    # The winning source is still wave2 — only severity is promoted, not ownership.
+    assert merged[0]["source"] == "wave2"
 ```
 
 **Step 5: Run tests and confirm they fail (module doesn't exist yet)**
