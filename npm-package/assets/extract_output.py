@@ -9,6 +9,7 @@ Subcommands:
   rules        <input_file> <output_path>   — extract rules JSON from agent output
   deep-drift   <input_file> <report_path>   — extract deep findings, merge into drift report
   recent-files <scan_json>                  — print source file paths from scan.json
+  findings     <input_path> <output_path>   — extract findings array from agent output
 
 Zero dependencies beyond Python 3.9+ stdlib + sibling merge.py.
 """
@@ -128,6 +129,19 @@ def cmd_recent_files(scan_json: str):
 
 
 # ---------------------------------------------------------------------------
+# findings — extract bare findings array from agent output
+# ---------------------------------------------------------------------------
+
+def extract_findings(input_path: str, output_path: str) -> None:
+    """Read agent output JSON, write bare {"findings": [...]} to output_path."""
+    data = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    findings = data.get("findings", []) if isinstance(data, dict) else []
+    Path(output_path).write_text(
+        json.dumps({"findings": findings}, indent=2), encoding="utf-8"
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -137,6 +151,7 @@ if __name__ == "__main__":
         print("  python3 extract_output.py rules <input_file> <output_path>", file=sys.stderr)
         print("  python3 extract_output.py deep-drift <input_file> <report_path>", file=sys.stderr)
         print("  python3 extract_output.py recent-files <scan_json>", file=sys.stderr)
+        print("  python3 extract_output.py findings <input_path> <output_path>", file=sys.stderr)
         sys.exit(1)
 
     subcmd = sys.argv[1]
@@ -158,6 +173,12 @@ if __name__ == "__main__":
             print("Usage: extract_output.py recent-files <scan_json>", file=sys.stderr)
             sys.exit(1)
         cmd_recent_files(sys.argv[2])
+
+    elif subcmd == "findings":
+        if len(sys.argv) < 4:
+            print("Usage: extract_output.py findings <input_path> <output_path>", file=sys.stderr)
+            sys.exit(1)
+        extract_findings(sys.argv[2], sys.argv[3])
 
     else:
         print(f"Unknown subcommand: {subcmd}", file=sys.stderr)
