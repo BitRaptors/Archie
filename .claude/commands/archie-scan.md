@@ -159,32 +159,35 @@ You are analyzing the ARCHITECTURE and DEPENDENCIES of a codebase. You have acce
 - `.archie/scan.json` — import graph, frameworks
 
 **Your job:**
-1. **Component analysis:** Identify all logical components. If a blueprint exists, compare — are there new components? Removed ones? Changed responsibilities? If no blueprint, infer components from directory structure and import patterns.
 
-2. **Dependency direction:** Using the dependency graph, trace the dependency flow. Are there layers? Do dependencies flow in one direction? Flag cross-component edges as potential violations. Use the dependency graph and skeletons to judge violations. Only Read a source file if the skeleton doesn't show enough context to judge whether the import is a real violation or an acceptable exception (e.g., type-only import, test helper).
+Emit findings per `.claude/commands/_shared/semantic_findings_spec.md` — follow the schema, severity rubric, and quality gate exactly. Your domain is **architecture and dependencies**. Produce two kinds of output:
 
-3. **Dependency magnets:** Which directories have highest in-degree? These are stability bottlenecks. The dependency graph shows what they provide — only read if the role is ambiguous from the skeleton.
+1. **pattern_observations** (for Wave 2 or fast-scan synthesis to consume): raw cross-file anomalies in your domain — dep-graph magnets, cycles crossing layers, inverted dependencies, workspace-boundary violations. These are NOT finished findings; they're signals. Each observation: `{type, evidence_locations, note}`.
 
-4. **Tight coupling:** Edges with high weight (many imports). The import graph and skeletons show why coupling exists — only read if intent is unclear from the skeleton.
+2. **findings** in your domain:
+   - **Systemic** (category: systemic): `god_component`, `boundary_violation`. Each with ≥3 evidence locations, pattern_description, root_cause, fix_direction, blast_radius.
+   - **Localized** (category: localized): `dependency_violation`, `cycle`, `pattern_divergence` (where the pattern is dependency-shaped). Each with a single location, root_cause, fix_direction.
 
-5. **Circular dependencies:** For each cycle in the graph, explain what coupling it creates and why it matters. Read a cycle participant only if the skeleton doesn't explain the coupling.
+All findings MUST carry `synthesis_depth: "draft"` and `source: "fast_agent_a"`.
 
-6. **Architecture style:** Based on the dependency flow, component structure, and patterns you observe, what is the architecture style? How confident are you? If the blueprint already states one, do you agree based on current evidence?
+Do NOT emit count caps. Emit every finding you can substantiate with concrete evidence. Drop any finding that can't pass the quality gate.
 
-**Output:** Write a structured JSON report to `/tmp/archie_agent_a_arch.json`:
+**Efficiency rule:** read skeletons.json + dep_graph.json first. Only Read source files when the skeleton is genuinely insufficient to judge.
+
+**Output:** Write to `/tmp/archie_agent_a.json`:
+
 ```json
 {
-  "components": [{"name": "...", "path": "...", "role": "...", "confidence": 0.9}],
-  "architecture_style": {"style": "...", "confidence": 0.85, "evidence": "..."},
-  "dependency_violations": [{"from": "...", "to": "...", "severity": "error|warn", "description": "...", "verified_in_file": "...", "confidence": 0.9}],
-  "dependency_magnets": [{"directory": "...", "in_degree": N, "risk": "..."}],
-  "cycles": [{"directories": [...], "impact": "...", "evidence_files": [...]}],
-  "tight_coupling": [{"from": "...", "to": "...", "weight": N, "reason": "..."}]
+  "pattern_observations": [{"type": "", "evidence_locations": [], "note": ""}],
+  "findings": [
+    /* See semantic_findings_spec.md for the full finding schema.
+       Omit pattern_description for localized findings. */
+  ]
 }
 ```
 
 ```
-Save output: /tmp/archie_agent_a_arch.json
+Save output: /tmp/archie_agent_a.json
 ```
 
 ### Agent B: Health & Complexity
@@ -299,7 +302,7 @@ Save output: /tmp/archie_agent_c_rules.json
 ## Phase 4: Synthesis + Blueprint Evolution
 
 Read the outputs from all three agents:
-- `/tmp/archie_agent_a_arch.json`
+- `/tmp/archie_agent_a.json`
 - `/tmp/archie_agent_b_health.json`
 - `/tmp/archie_agent_c_rules.json`
 
@@ -453,7 +456,7 @@ This is what `/archie-share` surfaces as "N semantic reimplementations" alongsid
 ### 4d: Clean up temp files
 
 ```bash
-rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
+rm -f /tmp/archie_agent_a.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
 ```
 
 Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
