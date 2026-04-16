@@ -172,13 +172,14 @@ def build_bundle(archie_dir: Path) -> dict:
         bundle["semantic_duplications"] = sem["duplications"]
 
     # v2 bundle: canonical semantic findings (cycles, layering, duplication,
-    # drift — folded together). When present, drift_report is redundant since
-    # mechanical findings are already included via source: "mechanical".
-    bundle["bundle_version"] = "v2"
-
+    # drift — folded together). Only tag bundle_version when semantic_findings
+    # is actually present; without it the bundle is v1-shaped and consumers
+    # that key off bundle_version would otherwise look up a field that isn't
+    # there.
     semantic_findings = _read_json(archie_dir / "semantic_findings.json")
     if semantic_findings:
         bundle["semantic_findings"] = semantic_findings
+        bundle["bundle_version"] = "v2"
         # When semantic_findings exists, drift_report is redundant (folded in).
         # Keep scan_report (legacy viewer fallback).
 

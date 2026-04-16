@@ -15,9 +15,24 @@ def _make_project(tmp_path: Path, files: dict) -> Path:
 
 
 def test_bundle_includes_bundle_version_v2(tmp_path):
-    project = _make_project(tmp_path, {"blueprint.json": {"meta": {}}})
+    project = _make_project(tmp_path, {
+        "blueprint.json": {"meta": {}},
+        "semantic_findings.json": {"findings": []},
+    })
     bundle = upload.build_bundle(project / ".archie")
     assert bundle.get("bundle_version") == "v2"
+
+
+def test_bundle_unversioned_when_no_semantic_findings(tmp_path):
+    """Old-style bundle without semantic_findings — no bundle_version key.
+
+    A v1-shaped bundle MUST NOT claim to be v2. Consumers key off
+    bundle_version to decide which fields to expect; lying here makes them
+    look up semantic_findings that isn't there.
+    """
+    project = _make_project(tmp_path, {"blueprint.json": {"meta": {}}})
+    bundle = upload.build_bundle(project / ".archie")
+    assert "bundle_version" not in bundle
 
 
 def test_bundle_includes_semantic_findings_when_present(tmp_path):
