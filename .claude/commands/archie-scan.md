@@ -250,36 +250,27 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 - `.archie/scan.json` — file tree, imports, frameworks
 
 **Your job:**
-1. **Pattern consistency:** Identify patterns and outliers from skeletons alone — the class hierarchy, function names, file organization, and import patterns are all visible in skeletons. Only Read an outlier source file if you cannot determine from the skeleton whether it's intentional (e.g., a comment, a different base class for a reason).
 
-2. **Duplication / reimplementation:** Detect duplicate/similar function names from skeletons. AI agents do this constantly — they reimplement helpers instead of importing shared code. Only Read source files if the function signatures differ and you need to confirm whether they're true duplicates or just same-named but different.
+Emit findings per `.claude/commands/_shared/semantic_findings_spec.md`. Your domain is **rules, patterns, and duplication**. Produce:
 
-3. **Propose new rules:** Based on patterns found, propose architectural rules. No file reads needed — patterns come from skeletons. Do NOT re-propose rules already in rules.json or proposed_rules.json. Look for DEEPER rules — subtler invariants, behavioral constraints, scoped rules for specific components.
+1. **findings**:
+   - **Systemic**: `fragmentation` (same job done N different ways — e.g., 5 handlers each implement auth differently), `missing_abstraction` (copy-paste without helper), `inconsistency` (feature built one way in component X and another way in component Y). Each with ≥3 evidence locations.
+   - **Localized**: `pattern_divergence` (outlier that breaks a pattern 0.7+ confident), `semantic_duplication` (near-twin functions), `rule_violation` (code breaking an adopted rule from `.archie/rules.json`).
 
-4. **Validate existing rules:** Check from skeletons and scan data. Only Read a source file if you need to confirm a rule violation that isn't obvious from the skeleton. Check if any proposed rules have become more or less valid since they were proposed (adjust confidence).
+2. **proposed_rules** (existing — preserve): new rules discovered in this scan, per the existing rule schema with `{id, description, rationale, severity, confidence}`.
 
-**Rule schema:**
-Required: `{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "error|warn", "confidence": 0.85}`
+3. **rule_confidence_updates** (existing — preserve): adjustments to previously-proposed rule confidence.
 
-Confidence calibration:
-- 0.9-1.0: Verified invariant — N files follow pattern with 0-1 exceptions, you read the files.
-- 0.7-0.9: Strong pattern with some exceptions, clear architectural intent.
-- 0.5-0.7: Inferred from structure, not verified in every case.
-- 0.3-0.5: Speculative, based on best practices not specific evidence.
+All findings MUST carry `synthesis_depth: "draft"` and `source: "fast_agent_c"`.
 
-Be honest. A wrong rule with high confidence is worse than a right rule with low confidence.
+Be honest about systemic vs localized: if ≥3 locations exhibit the same problem, it's systemic; a single outlier is localized.
 
-Optional mechanical fields (add ONLY when a meaningful regex exists):
-- `"check"`: `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
-- `"applies_to"`, `"file_pattern"`, `"forbidden_patterns"`, `"required_in_content"`
+**Output:** Write to `/tmp/archie_agent_c.json`:
 
-**Output:** Write to `/tmp/archie_agent_c_rules.json`:
 ```json
 {
-  "pattern_findings": [{"pattern": "...", "followers": N, "outliers": ["..."], "severity": "warn|error", "confidence": 0.85}],
-  "duplications": [{"function": "...", "locations": ["..."], "recommendation": "..."}],
-  "proposed_rules": [{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "...", "confidence": 0.85}],
-  "existing_rule_violations": [{"rule_id": "...", "violated_by": "...", "details": "..."}],
+  "findings": [ /* per semantic_findings_spec.md */ ],
+  "proposed_rules": [{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "error|warn", "confidence": 0.85}],
   "rule_confidence_updates": [{"rule_id": "...", "old_confidence": 0.7, "new_confidence": 0.85, "reason": "..."}]
 }
 ```
@@ -294,7 +285,7 @@ If the current scope is `whole`, `PROJECT_ROOT` is a workspace monorepo (`MONORE
 - Reference components by **workspace name** (from `package.json`), not by path, in findings
 
 ```
-Save output: /tmp/archie_agent_c_rules.json
+Save output: /tmp/archie_agent_c.json
 ```
 
 **Wait for all 3 agents to complete before proceeding to Phase 4.**
@@ -306,7 +297,7 @@ Save output: /tmp/archie_agent_c_rules.json
 Read the outputs from all three agents:
 - `/tmp/archie_agent_a.json`
 - `/tmp/archie_agent_b.json`
-- `/tmp/archie_agent_c_rules.json`
+- `/tmp/archie_agent_c.json`
 
 Also re-read `.archie/blueprint.json` (the current state of accumulated knowledge).
 
@@ -448,7 +439,7 @@ Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 
 Save Agent C's semantic duplications to `.archie/semantic_duplications.json`:
 ```
-1. Read /tmp/archie_agent_c_rules.json and extract the `duplications` array (each entry: {function, locations[], recommendation})
+1. Read /tmp/archie_agent_c.json and extract the `duplications` array (each entry: {function, locations[], recommendation})
 2. Write to .archie/semantic_duplications.json as {"duplications": [...], "scanned_at": "<ISO UTC>"}
 3. Overwrite on every scan — this is a snapshot of the current state, not append-only
 ```
@@ -458,7 +449,7 @@ This is what `/archie-share` surfaces as "N semantic reimplementations" alongsid
 ### 4d: Clean up temp files
 
 ```bash
-rm -f /tmp/archie_agent_a.json /tmp/archie_agent_b.json /tmp/archie_agent_c_rules.json
+rm -f /tmp/archie_agent_a.json /tmp/archie_agent_b.json /tmp/archie_agent_c.json
 ```
 
 Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
