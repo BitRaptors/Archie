@@ -734,7 +734,12 @@ Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. N
 
 Tell the Reasoning agent:
 
-> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read key source files: entry points, main configs, core abstractions.
+> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents. Also read:
+> - `$PROJECT_ROOT/.archie/skeletons.json` — for cross-file pattern spotting
+> - `$PROJECT_ROOT/.archie/health.json` — for contextual CC interpretation
+> - `$PROJECT_ROOT/.archie/drift_report.json` — mechanical drift (produced by Step 9 Phase 1; SKIP this read on first-pass Wave 2; it will exist only on `--from 9` re-runs)
+> - `$PROJECT_ROOT/.archie/semantic_findings.json` — prior scan's findings, for the upgrade pass (SKIP if file doesn't exist)
+> - Key source files: entry points, main configs, core abstractions
 >
 > With the COMPLETE picture of what was built and how, produce deep architectural reasoning:
 >
@@ -788,6 +793,38 @@ Tell the Reasoning agent:
 > - **usage_example**: Realistic code snippet. A single line is fine when the pattern genuinely is one-line (`logger.track(Event.X)`). Multi-line (typically 3-10 lines) when clarity demands it — use real newlines, not `;` chains. Show the full pattern a developer would actually write.
 > - **tips**: Gotchas specific to this implementation
 >
+> ### 9. Semantic Findings (canonical)
+>
+> Produce canonical-tier Semantic Findings per `.claude/commands/_shared/semantic_findings_spec.md`. You are the primary producer of systemic findings in deep-scan — the Wave 1 agents fed you `pattern_observations` (in `blueprint_raw.json`); your job is to synthesize those observations + the blueprint you just built + targeted code reads into substantiated findings.
+>
+> **Systemic findings you produce** (canonical depth — deep root_cause with history, sequenced fix_direction):
+> - `fragmentation`, `god_component`, `split_brain`, `erosion`, `missing_abstraction`, `inconsistency`, `boundary_violation`, `responsibility_diffusion`, `trajectory_degradation`.
+>
+> **Localized findings you produce**:
+> - `decision_violation` (code contradicting a key_decision)
+> - `trade_off_undermined` (matching a `violation_signals` entry)
+> - `pitfall_triggered` (matching a `stems_from` chain)
+> - `responsibility_leak` (component doing another's work)
+> - `abstraction_bypass` (reaching through a layer)
+> - `complexity_hotspot` (when health.json CC warrants contextual interpretation beyond Agent B's shallow read)
+>
+> No count cap. Emit every finding you can substantiate. Quality gate: each systemic requires ≥3 evidence locations + mechanistic root_cause + actionable fix_direction.
+>
+> All findings you emit carry `synthesis_depth: "canonical"` and `source: "wave2"`.
+>
+> Before emitting, Read the spec file and follow §1 (schema), §2 (quality gate), §3 (severity rubric), §4 (taxonomy).
+>
+> ### 10. Upgrade pass (for drafts from prior scans)
+>
+> If you read `$PROJECT_ROOT/.archie/semantic_findings.json` successfully, process the entries in it:
+>
+> - For each entry with `synthesis_depth: "draft"` AND `lifecycle_status: "recurring"` that is NOT already in your Step 9 output (check by `type + sorted(components_affected)` signature):
+>   1. Re-evaluate with canonical-tier reasoning: does it still hold against the current blueprint + code?
+>   2. If yes: enrich `root_cause` (make it mechanistic with history context) and `fix_direction` (sequence the steps; reference decisions). Flip `synthesis_depth` to `"canonical"`. Keep the same `id`.
+>   3. If no longer substantiated: drop it (the aggregator will mark it `resolved` via diff).
+>
+> Emit upgraded drafts in the same findings list, with `source: "wave2"` but preserved `id`.
+>
 > Return JSON:
 > ```json
 > {
@@ -802,7 +839,8 @@ Tell the Reasoning agent:
 >   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
 >   "implementation_guidelines": [
 >     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
->   ]
+>   ],
+>   "findings": [ /* canonical systemic + localized + upgraded drafts */ ]
 > }
 > ```
 
@@ -812,6 +850,10 @@ After the Reasoning agent completes, save its output and finalize:
 
 ```
 Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's output
+```
+
+```bash
+python3 .archie/extract_output.py findings /tmp/archie_sub_x_$PROJECT_NAME.json "$PROJECT_ROOT/.archie/semantic_findings_wave2.json"
 ```
 
 ```bash
