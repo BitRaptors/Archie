@@ -8,6 +8,12 @@ export interface SemanticDuplication {
   recommendation?: string
 }
 
+export interface ScanReport {
+  filename: string
+  date: string
+  content: string
+}
+
 export interface Bundle {
   blueprint: any
   health?: any
@@ -16,6 +22,15 @@ export interface Bundle {
   rules_proposed?: any
   scan_report?: string
   semantic_duplications?: SemanticDuplication[]
+  // Viewer-originated fields
+  scan_reports?: ScanReport[]
+  dependency_graph?: any
+  generated_files?: Record<string, string>
+  folder_claude_mds?: Record<string, string>
+  ignored_rules?: any[]
+  proposed_rules?: any[]
+  drift_report?: any
+  health_history?: any[]
 }
 
 export interface ReportResponse {
