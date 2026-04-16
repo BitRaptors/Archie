@@ -5,7 +5,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle } from 'lucide-react'
-import { fetchReport, type Bundle } from '@/lib/api'
+import { loadBundle, isLocalMode } from '@/lib/data'
+import type { Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
 import { formatBlueprintTitle } from '@/lib/blueprintTitle'
 import { cn } from '@/lib/utils'
@@ -34,8 +35,8 @@ export default function ReportPage() {
   const scrollingToRef = useRef(false)
 
   useEffect(() => {
-    if (!token) return
-    fetchReport(token)
+    if (!isLocalMode() && !token) return
+    loadBundle(token ?? null)
       .then((r) => {
         setBundle(r.bundle)
         setCreatedAt(r.created_at)
