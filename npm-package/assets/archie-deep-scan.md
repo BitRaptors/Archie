@@ -305,6 +305,21 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 6. Framework Usage
 > Catalog external frameworks/libraries from import statements. For each, note the framework name and usage scope.
 >
+> ### 7. Pattern observations (for Wave 2 to synthesize)
+> While reading the files, note raw anomalies in your domain. These are NOT finished findings — Wave 2 will contextualize them.
+>
+> For each observation: `{type, evidence_locations, note}`. Types in your domain: `dep_magnet`, `layer_cycle`, `inverted_dependency`, `workspace_boundary_crossed`, `high_fan_in_rising`.
+>
+> Example:
+> ```json
+> {"type": "dep_magnet", "evidence_locations": ["packages/shared"], "note": "fan-in 22 across auth/storage/UI/logging — unrelated domains"}
+> ```
+>
+> ### 8. Localized findings (your domain)
+> Emit findings per `.claude/commands/_shared/semantic_findings_spec.md`. Your domain is architecture and dependencies — emit only `dependency_violation` and `cycle` types as Localized findings. Do NOT emit systemic findings (those are Wave 2's job). All findings you emit carry `synthesis_depth: "draft"` and `source: "wave1_structure"`.
+>
+> Before emitting, verify each finding against the quality gate in §2 of the spec — dropped candidates are better than padded ones.
+>
 > Return JSON:
 > ```json
 > {
@@ -326,7 +341,11 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >     "naming_conventions": [
 >       {"scope": "", "pattern": "", "examples": [], "description": ""}
 >     ]
->   }
+>   },
+>   "pattern_observations": [{"type": "", "evidence_locations": [], "note": ""}],
+>   "findings": [
+>     /* localized findings in architecture/dependency domain; see spec for schema */
+>   ]
 > }
 > ```
 
@@ -389,6 +408,13 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 8. Pattern Selection Guide
 > For common scenarios in this codebase, which pattern should be used and why?
 >
+> ### 9. Pattern observations (for Wave 2 to synthesize)
+> While cataloging patterns, note cross-file anomalies — things that feel inconsistent, fragmented, or missing an abstraction.
+>
+> For each: `{type, evidence_locations, note}`. Types in your domain: `fragmentation_signal` (same job done N ways), `missing_abstraction_signal` (copy-paste), `pattern_outlier` (1-2 files deviating from an otherwise-consistent pattern), `inconsistency_signal` (feature built one way in X, another in Y).
+>
+> These are observations for Wave 2, not finished findings.
+>
 > Return JSON:
 > ```json
 > {
@@ -406,7 +432,8 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >   "quick_reference": {
 >     "pattern_selection": {"scenario": "pattern"},
 >     "error_mapping": [{"error": "", "status_code": 0, "description": ""}]
->   }
+>   },
+>   "pattern_observations": [{"type": "", "evidence_locations": [], "note": ""}]
 > }
 > ```
 
@@ -634,6 +661,27 @@ Write /tmp/archie_sub2_$PROJECT_NAME.json with Patterns agent's COMPLETE output 
 Write /tmp/archie_sub3_$PROJECT_NAME.json with Technology agent's COMPLETE output text
 Write /tmp/archie_sub4_$PROJECT_NAME.json with UI Layer agent's COMPLETE output text (if spawned)
 ```
+
+After Wave 1 outputs are saved, extract findings from Structure + Patterns agents (Technology does not produce findings):
+
+```bash
+# Extract findings from Structure (sub1) and Patterns (sub2) outputs
+python3 .archie/extract_output.py findings /tmp/archie_sub1_$PROJECT_NAME.json /tmp/_wave1_struct_f.json
+python3 .archie/extract_output.py findings /tmp/archie_sub2_$PROJECT_NAME.json /tmp/_wave1_patt_f.json
+
+# Concatenate into one wave1 findings file
+python3 -c "
+import json
+from pathlib import Path
+struct = json.loads(Path('/tmp/_wave1_struct_f.json').read_text())
+patt = json.loads(Path('/tmp/_wave1_patt_f.json').read_text())
+combined = {'findings': struct.get('findings', []) + patt.get('findings', [])}
+Path('$PROJECT_ROOT/.archie/semantic_findings_wave1.json').write_text(json.dumps(combined, indent=2))
+"
+rm -f /tmp/_wave1_struct_f.json /tmp/_wave1_patt_f.json
+```
+
+The `semantic_findings_wave1.json` file is read by the aggregator in Step 9 Phase 3.
 
 Then merge:
 
