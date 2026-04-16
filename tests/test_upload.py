@@ -47,7 +47,7 @@ def test_build_bundle_includes_all(mock_archie_dir):
         "rules": [{"id": "p1", "description": "Use barrel exports", "confidence": 0.7}]
     }))
     archie.joinpath("scan_report.md").write_text("# Scan\n\n## Findings\n- thing one")
-    bundle = build_bundle(mock_archie_dir)
+    bundle = build_bundle(mock_archie_dir / ".archie")
     assert "blueprint" in bundle
     assert "health" in bundle
     assert "scan_meta" in bundle
@@ -64,7 +64,7 @@ def test_build_bundle_blueprint_only(tmp_path):
     archie = tmp_path / ".archie"
     archie.mkdir()
     archie.joinpath("blueprint.json").write_text(json.dumps({"meta": {}}))
-    bundle = build_bundle(tmp_path)
+    bundle = build_bundle(archie)
     assert "blueprint" in bundle
     assert "health" not in bundle
     assert "scan_meta" not in bundle
@@ -73,9 +73,10 @@ def test_build_bundle_blueprint_only(tmp_path):
 
 
 def test_build_bundle_missing_blueprint(tmp_path):
-    (tmp_path / ".archie").mkdir()
+    archie = tmp_path / ".archie"
+    archie.mkdir()
     with pytest.raises(SystemExit):
-        build_bundle(tmp_path)
+        build_bundle(archie)
 
 
 def test_strip_health_keeps_top_cc_and_dupes():
