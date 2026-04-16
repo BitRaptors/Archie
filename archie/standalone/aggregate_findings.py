@@ -173,13 +173,25 @@ def merge_sources(wave1, wave2, phase2, mechanical) -> list:
 # ── CLI ──────────────────────────────────────────────────────────────────
 
 def _load(path: Path) -> list:
-    """Load a findings list from disk, tolerating absent files and dict wrappers."""
+    """Load a findings list from disk, tolerating absent files and dict wrappers.
+
+    Agent-written JSON is occasionally malformed, and the `findings` key is
+    occasionally non-list (null, dict, string). Both must not crash the whole
+    aggregation — degrade to an empty list so other sources can still merge.
+    """
     if not path.exists():
         return []
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"warning: could not read {path.name}: {e}", file=sys.stderr)
+        return []
     if isinstance(data, list):
         return data
-    return data.get("findings", []) if isinstance(data, dict) else []
+    if isinstance(data, dict):
+        findings = data.get("findings", [])
+        return findings if isinstance(findings, list) else []
+    return []
 
 
 def main():

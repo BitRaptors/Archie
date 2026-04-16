@@ -7,6 +7,7 @@ merge_sources. Task 3 implements the module; these tests pin down its shape.
 from __future__ import annotations
 
 from archie.standalone.aggregate_findings import (
+    _load,
     apply_quality_gate,
     compute_lifecycle,
     finding_signature,
@@ -199,3 +200,25 @@ def test_merge_never_downgrades_severity():
     assert merged[0]["severity"] == "error"
     # The winning source is still wave2 — only severity is promoted, not ownership.
     assert merged[0]["source"] == "wave2"
+
+
+# ---------------------------------------------------------------------------
+# _load robustness — malformed JSON + non-list findings
+# ---------------------------------------------------------------------------
+
+
+def test_load_returns_empty_for_missing_file(tmp_path):
+    assert _load(tmp_path / "nonexistent.json") == []
+
+
+def test_load_returns_empty_for_malformed_json(tmp_path):
+    p = tmp_path / "bad.json"
+    p.write_text("{not valid json", encoding="utf-8")
+    assert _load(p) == []
+
+
+def test_load_returns_empty_for_non_list_findings(tmp_path):
+    for bad in ['{"findings": null}', '{"findings": {"k": "v"}}', '{"findings": "oops"}']:
+        p = tmp_path / "in.json"
+        p.write_text(bad, encoding="utf-8")
+        assert _load(p) == []
