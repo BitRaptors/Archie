@@ -853,6 +853,10 @@ Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's output
 ```
 
 ```bash
+python3 .archie/extract_output.py findings /tmp/archie_sub_x_$PROJECT_NAME.json "$PROJECT_ROOT/.archie/semantic_findings_wave2.json"
+```
+
+```bash
 python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
 ```
 
