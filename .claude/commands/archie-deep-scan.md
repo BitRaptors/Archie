@@ -1085,59 +1085,41 @@ python3 .archie/measure_health.py "$PROJECT_ROOT" --append-history --scan-type d
 python3 .archie/drift.py "$PROJECT_ROOT"
 ```
 
-### Phase 2: Deep architectural drift (AI)
+### Phase 2: Narrow findings agent (semantic_duplication + pattern_erosion)
+
+Wave 1/2 already produced most findings as byproducts of their existing reads. Phase 2 covers only what they can't: function-level near-twin detection (requires cross-file scanning) and pattern erosion vs per-folder CLAUDE.md (requires Intent Layer output, only available here).
 
 Identify files to analyze:
 ```bash
 git -C "$PROJECT_ROOT" log --name-only --pretty=format: --since="30 days ago" -- '*.kt' '*.java' '*.swift' '*.ts' '*.tsx' '*.py' '*.go' '*.rs' | sort -u | head -100
 ```
-If that returns nothing (new repo or no recent changes), use all source files from the scan:
+Fallback if empty: use all source files from `python3 .archie/extract_output.py recent-files "$PROJECT_ROOT/.archie/scan.json"`.
+
+Spawn a Sonnet subagent (`model: "sonnet"`) with:
+
+> You are a narrow findings agent. Emit Semantic Findings per `.claude/commands/_shared/semantic_findings_spec.md`. You only produce two types:
+>
+> 1. **`semantic_duplication`** (localized) — functions in different files with different signatures but essentially the same logic. AI agents frequently copy-paste a function, tweak the name/parameters, and leave the body identical or near-identical. Scan `.archie/skeletons.json` for functions with similar names (e.g., `getText`/`getTexts`, `loadUser`/`fetchUser`, `formatDate` in multiple files). Read suspicious pairs to confirm. For each confirmed duplicate group, emit one finding with category: localized, type: semantic_duplication, 1 canonical location + evidence listing duplicates, fix_direction specifying which function should be shared.
+>
+> 2. **`pattern_erosion`** (localized) — code in a folder that violates the patterns documented in that folder's CLAUDE.md. Read the folder's CLAUDE.md (if it exists; skip silently if missing), then read the files in the folder that changed recently. If a file deviates from a documented pattern, emit category: localized, type: pattern_erosion, location: the specific file, root_cause: which pattern is violated and how, fix_direction: how to conform.
+>
+> Do NOT emit systemic findings — those are Wave 2's job. Do NOT emit dependency_violation, cycle, complexity_hotspot, decision_violation, etc. — those come from Wave 1/2.
+>
+> All findings you emit carry `synthesis_depth: "draft"` and `source: "phase2"`.
+>
+> Before emitting, Read the spec file and follow §1 (schema), §2 (quality gate), §3 (severity rubric), §4 (taxonomy).
+>
+> Return JSON: `{"findings": [...]}`.
+
+Save the findings:
+
+```
+Write /tmp/archie_phase2_findings.json with the agent's COMPLETE output text
+```
+
 ```bash
-python3 .archie/extract_output.py recent-files "$PROJECT_ROOT/.archie/scan.json"
-```
-
-For each file (batch into groups of ~15), collect:
-- The file's content
-- Its folder's CLAUDE.md **if it exists** (per-folder patterns, anti-patterns — these were generated in Step 7, but may be missing if Step 7 was skipped or partially completed)
-- Its parent folder's CLAUDE.md **if it exists**
-
-Read `$PROJECT_ROOT/.archie/blueprint.json` — specifically `decisions.key_decisions`, `decisions.decision_chain`, `decisions.trade_offs` (with `violation_signals`), `pitfalls` (with `stems_from`), `communication.patterns`, `development_rules`.
-
-Read `$PROJECT_ROOT/.archie/drift_report.json` (mechanical findings from Phase 1).
-
-Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their folder CLAUDE.md files, and the blueprint context. Tell it:
-
-> You are an architecture reviewer. You have the project's architectural blueprint (decisions, trade-offs, pitfalls, patterns), per-folder CLAUDE.md files describing expected patterns, mechanical drift findings (already detected), and source files to review.
->
-> Find **deep architectural violations** — problems that pattern matching cannot catch. For each finding, return:
-> - `folder`: the folder path
-> - `file`: the specific file
-> - `type`: one of `decision_violation`, `pattern_erosion`, `trade_off_undermined`, `pitfall_triggered`, `responsibility_leak`, `abstraction_bypass`, `semantic_duplication`
-> - `severity`: `error` or `warn`
-> - `decision_or_pattern`: which architectural decision, pattern, or pitfall this violates (reference by name from the blueprint)
-> - `evidence`: the specific code (function name, class, line pattern) that demonstrates the violation
-> - `message`: one sentence explaining what's wrong and why it matters
->
-> Focus on:
-> 1. **Decision violations** — code that contradicts a key architectural decision
-> 2. **Pattern erosion** — code that doesn't follow the patterns described in its folder's CLAUDE.md
-> 3. **Trade-off undermining** — code that works against an accepted trade-off (check `violation_signals`)
-> 4. **Pitfall triggers** — code that falls into a documented pitfall (check `stems_from` chains)
-> 5. **Responsibility leaks** — a component doing work that belongs to another component
-> 6. **Abstraction bypass** — code reaching through a layer instead of using the intended interface
-> 7. **Semantic duplication** — functions/methods with different signatures but essentially the same logic. AI agents frequently copy-paste a function, tweak the name/parameters, and leave the body identical or near-identical. Look for: functions with similar names (e.g., `getText`/`getTexts`, `loadUser`/`fetchUser`), functions in different files that do the same thing with slightly different types, helper functions reimplemented instead of shared. For each, use type `semantic_duplication` and explain what's duplicated and which function should be the canonical one.
->
-> Do NOT report: style/formatting/naming (the script handles those), generic best-practice violations not grounded in THIS project's blueprint, or issues already in the mechanical drift report.
->
-> Return JSON: `{"deep_findings": [...]}`
-
-Save the deep findings:
-```
-Write /tmp/archie_deep_drift.json with the agent's COMPLETE output text
-```
-```bash
-python3 .archie/extract_output.py deep-drift /tmp/archie_deep_drift.json "$PROJECT_ROOT/.archie/drift_report.json"
-rm -f /tmp/archie_deep_drift.json
+python3 .archie/extract_output.py findings /tmp/archie_phase2_findings.json "$PROJECT_ROOT/.archie/semantic_findings_phase2.json"
+rm -f /tmp/archie_phase2_findings.json
 ```
 
 ### Phase 3: Present the combined assessment
