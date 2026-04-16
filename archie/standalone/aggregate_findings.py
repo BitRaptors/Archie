@@ -197,6 +197,101 @@ def _load(path: Path) -> list:
     return []
 
 
+# ── Drift-report adapter ─────────────────────────────────────────────────
+
+# Each drift.py category maps to a Semantic Findings `type`. Drift entries are
+# always localized (single-folder or single-file scope) and mechanically
+# generated, so `category`/`source`/`synthesis_depth` are fixed at the call
+# site — only the type varies per category.
+_DRIFT_TYPE_MAP = {
+    "pattern_divergences": "pattern_divergence",
+    "naming_violations": "pattern_divergence",
+    "dependency_violations": "dependency_violation",
+    "structural_outliers": "pattern_divergence",
+    "antipattern_clusters": "pattern_divergence",
+}
+
+
+def _drift_entry_locations(entry: dict) -> list:
+    """Pull location hints off a drift entry into a flat list.
+
+    drift.py is not uniform: dependency_violations carry `file`, pattern/
+    structural findings carry `folder`, naming_violations carry a
+    `violating_files` array. Adapter flattens all of those so the downstream
+    Semantic Findings consumer sees one shape.
+    """
+    locs: list = []
+    viol = entry.get("violating_files")
+    if isinstance(viol, list):
+        locs.extend([v for v in viol if isinstance(v, str) and v])
+    for key in ("file", "folder", "path"):
+        val = entry.get(key)
+        if isinstance(val, str) and val and val not in locs:
+            locs.append(val)
+    return locs
+
+
+def _adapt_mechanical(path: Path) -> list:
+    """Adapt drift.py's categorized-arrays shape into Semantic Findings.
+
+    drift.py writes `{pattern_divergences: [...], naming_violations: [...], ...}`
+    rather than the canonical `{findings: [...]}` envelope. This adapter
+    flattens those category arrays into a list of findings tagged
+    source=mechanical, synthesis_depth=draft, category=localized — the shape
+    the merge/gate/lifecycle pipeline expects.
+    """
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"warning: could not read {path.name}: {e}", file=sys.stderr)
+        return []
+    if not isinstance(data, dict):
+        return []
+
+    findings = []
+    for drift_key, type_name in _DRIFT_TYPE_MAP.items():
+        entries = data.get(drift_key, [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            severity = entry.get("severity", "info")
+            if severity not in ("error", "warn", "info"):
+                severity = "info"
+            locations = _drift_entry_locations(entry)
+            # drift.py uses `message` for human-readable text; fall back to
+            # `description` if a future producer writes that key instead.
+            description = (
+                entry.get("message")
+                or entry.get("description")
+                or f"{drift_key.replace('_', ' ')} detected"
+            )
+            fix_direction = (
+                entry.get("recommendation")
+                or entry.get("fix")
+                or f"Review and address: {description}"
+            )
+            findings.append({
+                "category": "localized",
+                "type": type_name,
+                "severity": severity,
+                "scope": {
+                    "kind": "single_file" if len(locations) <= 1 else "multi_file",
+                    "components_affected": [],
+                    "locations": locations,
+                },
+                "evidence": description,
+                "root_cause": description,
+                "fix_direction": fix_direction,
+                "synthesis_depth": "draft",
+                "source": "mechanical",
+            })
+    return findings
+
+
 def main():
     project_root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd()
     archie_dir = project_root / ".archie"
@@ -209,7 +304,11 @@ def main():
     fast_a = _load(archie_dir / "semantic_findings_fast_a.json")
     fast_b = _load(archie_dir / "semantic_findings_fast_b.json")
     fast_c = _load(archie_dir / "semantic_findings_fast_c.json")
-    mechanical = _load(archie_dir / "drift_report.json")
+    # drift_report.json uses a categorized-arrays shape (pattern_divergences,
+    # naming_violations, dependency_violations, ...) rather than the canonical
+    # `{findings: [...]}` envelope. _adapt_mechanical flattens it; _load would
+    # silently return [] and we'd lose every mechanical finding.
+    mechanical = _adapt_mechanical(archie_dir / "drift_report.json")
     prior = _load(archie_dir / "semantic_findings.json")
 
     # fast_agent_* share SOURCE_RANK 2 with wave1_*, so threading them through

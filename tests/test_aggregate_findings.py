@@ -6,7 +6,10 @@ merge_sources. Task 3 implements the module; these tests pin down its shape.
 """
 from __future__ import annotations
 
+import json
+
 from archie.standalone.aggregate_findings import (
+    _adapt_mechanical,
     _load,
     apply_quality_gate,
     compute_lifecycle,
@@ -222,3 +225,135 @@ def test_load_returns_empty_for_non_list_findings(tmp_path):
         p = tmp_path / "in.json"
         p.write_text(bad, encoding="utf-8")
         assert _load(p) == []
+
+
+# ---------------------------------------------------------------------------
+# _adapt_mechanical — flatten drift.py's categorized-arrays shape
+# ---------------------------------------------------------------------------
+
+
+def test_adapt_mechanical_missing_file_returns_empty(tmp_path):
+    assert _adapt_mechanical(tmp_path / "nope.json") == []
+
+
+def test_adapt_mechanical_malformed_returns_empty(tmp_path):
+    p = tmp_path / "drift_report.json"
+    p.write_text("{not valid json", encoding="utf-8")
+    assert _adapt_mechanical(p) == []
+
+
+def test_adapt_mechanical_flattens_drift_categorized_arrays(tmp_path):
+    """drift.py writes a categorized-arrays dict; aggregator must flatten it.
+
+    Each entry becomes a Semantic Finding tagged source=mechanical,
+    synthesis_depth=draft, category=localized.
+    """
+    drift_shape = {
+        "pattern_divergences": [
+            {
+                "type": "pattern_divergence",
+                "folder": "services/auth",
+                "message": "Siblings mostly use repository pattern but this folder does not",
+                "severity": "warn",
+            }
+        ],
+        "naming_violations": [
+            {
+                "type": "naming_violation",
+                "convention": "snake_case",
+                "scope": "utils",
+                "violating_files": ["utils/BadName.py", "utils/AnotherBad.py"],
+                "count": 2,
+                "severity": "info",
+            }
+        ],
+        "dependency_violations": [
+            {
+                "type": "dependency_violation",
+                "from_component": "api",
+                "to_component": "db",
+                "file": "api/handlers/user.py",
+                "import": "db.models",
+                "message": "api imports from db but does not declare it as a dependency",
+                "severity": "warn",
+            }
+        ],
+        "structural_outliers": [
+            {
+                "type": "structural_outlier",
+                "folder": "modules/legacy",
+                "message": "Has 200 files — significantly more than sibling average",
+                "severity": "info",
+            }
+        ],
+        "antipattern_clusters": [
+            {
+                "type": "antipattern_cluster",
+                "folder": "services/god",
+                "count": 8,
+                "anti_patterns": ["god_object", "copy_paste"],
+                "message": "Has 8 anti-patterns — high-risk area",
+                "severity": "warn",
+            }
+        ],
+        "summary": {"total_findings": 5},
+    }
+    path = tmp_path / "drift_report.json"
+    path.write_text(json.dumps(drift_shape))
+
+    findings = _adapt_mechanical(path)
+    assert len(findings) == 5
+    assert all(f["source"] == "mechanical" for f in findings)
+    assert all(f["synthesis_depth"] == "draft" for f in findings)
+    assert all(f["category"] == "localized" for f in findings)
+    # Each severity must land in the known enum.
+    for f in findings:
+        assert f["severity"] in ("error", "warn", "info")
+        assert "scope" in f and "locations" in f["scope"]
+        assert f.get("root_cause")
+        assert f.get("fix_direction")
+
+
+def test_adapt_mechanical_naming_violation_uses_violating_files_as_locations(tmp_path):
+    """naming_violation entries carry a list of files under violating_files,
+    not a single `file`. Adapter must surface them in scope.locations."""
+    drift_shape = {
+        "pattern_divergences": [],
+        "naming_violations": [{
+            "type": "naming_violation",
+            "convention": "camelCase",
+            "scope": "components",
+            "violating_files": ["components/bad_name.ts", "components/another_bad.ts"],
+            "count": 2,
+            "severity": "info",
+        }],
+        "dependency_violations": [],
+        "structural_outliers": [],
+        "antipattern_clusters": [],
+    }
+    path = tmp_path / "drift_report.json"
+    path.write_text(json.dumps(drift_shape))
+
+    findings = _adapt_mechanical(path)
+    assert len(findings) == 1
+    locs = findings[0]["scope"]["locations"]
+    assert "components/bad_name.ts" in locs
+    assert "components/another_bad.ts" in locs
+
+
+def test_adapt_mechanical_tolerates_malformed_entries(tmp_path):
+    """Non-dict entries inside category arrays must be skipped, not crash."""
+    drift_shape = {
+        "pattern_divergences": [None, "oops", {"folder": "ok", "message": "real finding", "severity": "warn"}],
+        "naming_violations": "not a list",
+        "dependency_violations": [],
+        "structural_outliers": [],
+        "antipattern_clusters": [],
+    }
+    path = tmp_path / "drift_report.json"
+    path.write_text(json.dumps(drift_shape))
+
+    findings = _adapt_mechanical(path)
+    # Only the valid dict entry survives.
+    assert len(findings) == 1
+    assert findings[0]["source"] == "mechanical"
