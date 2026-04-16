@@ -1122,9 +1122,24 @@ python3 .archie/extract_output.py findings /tmp/archie_phase2_findings.json "$PR
 rm -f /tmp/archie_phase2_findings.json
 ```
 
-### Phase 3: Present the combined assessment
+### Phase 3: Aggregate + present combined assessment
 
-Read `$PROJECT_ROOT/.archie/blueprint.json` and `$PROJECT_ROOT/.archie/drift_report.json` (now contains both mechanical and deep findings). This is the final output — make it valuable.
+Invoke the aggregator to merge all findings sources with lifecycle + quality gate:
+
+```bash
+python3 .archie/aggregate_findings.py "$PROJECT_ROOT"
+```
+
+This reads:
+- `.archie/semantic_findings_wave1.json` (Wave 1 Structure + Patterns findings)
+- `.archie/semantic_findings_wave2.json` (Wave 2 canonical systemic + localized + upgraded drafts)
+- `.archie/semantic_findings_phase2.json` (narrow agent: semantic_duplication + pattern_erosion)
+- `.archie/drift_report.json` (mechanical findings from Phase 1)
+- `.archie/semantic_findings.json` (prior scan's findings, for lifecycle diff — if exists)
+
+...and writes the canonical merged output to `.archie/semantic_findings.json`.
+
+Now read `$PROJECT_ROOT/.archie/blueprint.json` and `$PROJECT_ROOT/.archie/semantic_findings.json` for presentation. This is the final output — make it valuable.
 
 #### Part 1: What was generated
 
@@ -1155,114 +1170,121 @@ Rate and explain each dimension (use these exact labels: Strong / Adequate / Wea
 
 Base every rating on actual evidence from the blueprint and drift findings — reference specific components, patterns, or findings. If the blueprint lacks data for a dimension, say "Not assessed" rather than guessing.
 
-#### Part 4: Architectural Drift
+#### Part 4: Top Risks & Recommendations
 
-Present ALL findings — mechanical and deep together, organized by severity (errors first).
-
-**Deep architectural findings** (from AI analysis):
-- For each: the file, which decision/pattern it violates, the evidence, and why it matters
-- Group related findings (e.g., multiple files violating the same decision)
-
-**Mechanical findings** (from script):
-- Pattern divergences, dependency violations, naming violations, structural outliers, anti-pattern clusters
-- For each: what diverged, why it matters, suggested action
-
-If 0 findings, say so — that's a positive signal.
-
-#### Part 5: Top Risks & Recommendations
-
-Synthesize from pitfalls, trade-offs, drift findings (both mechanical and deep), and your observations. List the **3-5 most important architectural risks**, ordered by impact:
+Synthesize from pitfalls, trade-offs, the systemic findings in `semantic_findings.json`, and your observations. List the **3-5 most important architectural risks**, ordered by impact:
 - What the risk is (one sentence)
-- Where it manifests (specific components/files/drift findings)
+- Where it manifests (specific components/files/finding ids)
 - What to watch for going forward
 
-#### Part 6: Semantic Duplication
+Full per-finding detail belongs in Phase 4's `scan_report.md` — this section is just the narrative top-of-stack.
 
-**This is a critical section.** The mechanical verbosity score (0-1) only catches exact line-for-line clones. AI agents frequently create near-identical functions with slightly different names, signatures, or types — the verbosity metric completely misses these.
+**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only); the `semantic_duplication` findings in `semantic_findings.json` (type `semantic_duplication` under Localized Findings in `scan_report.md`) are the AI-powered complement. Run `/archie-scan` regularly to track how these metrics change over time.
 
-Present the `semantic_duplication` findings from the deep drift analysis. If the drift agent found none, **do your own quick check now**: scan the skeletons for functions with similar names (e.g., `getText`/`getTexts`, `loadUser`/`fetchUser`, `formatDate` in multiple files, `handleError` reimplemented per-module). Read suspicious pairs and confirm whether the logic is duplicated.
+### Phase 4: Write `.archie/scan_report.md`
 
-For each confirmed duplicate group:
-- The canonical function (the one that should be the shared version)
-- The duplicates: which files, what differs (just the signature? types? minor logic?)
-- Whether they could be consolidated
+The Phase 3 synthesis above is valuable but ephemeral — it only exists in chat output. `/archie-share` (and future trending runs of `/archie-scan`) need the findings on disk.
 
-Present in the health table as:
-```
-| Semantic duplication | N groups found | See Part 6 for details |
-```
+Read `$PROJECT_ROOT/.archie/semantic_findings.json` (aggregator output from Phase 3) and `$PROJECT_ROOT/.archie/blueprint.json`. Also read `$PROJECT_ROOT/.archie/health.json` and `$PROJECT_ROOT/.archie/health_history.json` for the Executive Summary's health score + trend.
 
-If genuinely none found after checking, say "No semantic duplication detected after AI analysis."
-
-**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only) — the semantic duplication analysis in Part 6 above is the AI-powered complement. Run `/archie-scan` regularly to track how these metrics change over time.
-
-### Phase 4: Persist findings to `.archie/scan_report.md`
-
-The Phase 3 synthesis above is valuable but ephemeral — it only exists in the chat output. `/archie-share` (and future trending runs of `/archie-scan`) need the findings on disk. Write the same content to `.archie/scan_report.md` in the format `/archie-scan` produces.
-
-Check whether a prior scan report exists (for resolved/new/recurring classification):
-```bash
-test -f "$PROJECT_ROOT/.archie/scan_report.md" && echo "PRIOR_REPORT_EXISTS" || echo "FIRST_BASELINE"
-```
-
-If `FIRST_BASELINE` (no prior scan_report.md): all findings are tagged **NEW (baseline)**. If `PRIOR_REPORT_EXISTS`: compare against the prior file's Findings section and classify each as **NEW**, **RECURRING**, or **RESOLVED**.
-
-Read `$PROJECT_ROOT/.archie/health.json` for precise numeric values and `$PROJECT_ROOT/.archie/health_history.json` to compute trends (previous run values vs. current).
-
-Write `$PROJECT_ROOT/.archie/scan_report.md` with this exact structure (use the Write tool, do NOT shell-heredoc):
+Write `$PROJECT_ROOT/.archie/scan_report.md` with this **exact** structure (use the Write tool, do NOT shell-heredoc). This layout is shared with `/archie-scan`; deep-scan and fast-scan produce structurally identical reports.
 
 ```markdown
-# Archie Scan Report
-> Deep scan baseline | <today's date in YYYY-MM-DD HH:MM UTC> | <total_functions> functions / <total_loc> LOC analyzed | baseline run
+# Scan Report — <repo name>
 
-## Architecture Overview
+## Executive Summary
+- Health score: X.XX (trend: ↑ / ↓ / → vs previous scan from `health_history.json`)
+- Systemic findings: N total (new: X, recurring: Y, worsening: Z, resolved: W)
+- Top 3 systemic findings by severity × blast_radius:
+  1. [severity] type — component name (blast: N)
+  2. [severity] type — component name (blast: N)
+  3. [severity] type — component name (blast: N)
 
-<2-3 paragraphs from Part 2: architecture style, key components, most important decisions. Prose, not bullets.>
+## Systemic Findings (N)
 
-## Health Scores
+<For each finding where `category == "systemic"` AND `lifecycle_status != "resolved"`, render with the full expanded treatment below. Order by severity (error > warn > info) then `blast_radius` descending.>
 
-| Metric | Current | Previous | Trend | What it means |
-|--------|--------:|---------:|------:|---------------|
-| Erosion    | <erosion>    | <prev or "—"> | <up/down/flat> | <one-liner interpretation> |
-| Gini       | <gini>       | <prev or "—"> | <trend> | <one-liner> |
-| Top-20%    | <top20>      | <prev or "—"> | <trend> | <one-liner> |
-| Verbosity  | <verbosity>  | <prev or "—"> | <trend> | <one-liner> |
-| LOC        | <total_loc>  | <prev or "—"> | <trend> | <one-liner> |
+### [severity · lifecycle] type — component name
+**Pattern:** <pattern_description — one sentence>
+**Evidence:**
+- location1 — short why
+- location2 — short why
+- (more...)
+**Root cause:** <root_cause>
+**Fix direction:** <fix_direction>
+**Severity:** <severity> — blast_radius: N (delta: +K / -K / 0)
+**Blueprint anchor:** <blueprint_anchor if present, else omit line>
 
-<one paragraph summarizing what the numbers say together>
+## Localized Findings (M)
 
-### Complexity Trajectory
-<short list of the top 5-8 high-CC functions from health.json with file:line and CC values, and what they suggest about risk concentration>
+<Compact tables grouped by `type`. Only emit a subsection if at least one finding of that type exists. Use these exact table schemas.>
 
-## Findings
+### Dependency violations (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+| error | path/file:line | short detail | short fix |
 
-Ranked by severity, grouped by novelty.
+### Cycles (k)
+| Sev | Modules | Evidence | Fix |
+|---|---|---|---|
 
-### NEW (first observed this scan)
-<numbered list of findings — each: **[severity] Title.** Description. Confidence N.>
+### Complexity hotspots (k)
+| Sev | Function | CC | Location | Why | Fix |
+|---|---|---:|---|---|---|
 
-### RECURRING (previously documented, still present)
-<only if prior report exists; otherwise omit this subsection>
+### Pattern divergences (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
 
-### RESOLVED
-<only if prior report exists; otherwise omit. "None" if nothing resolved.>
+### Rule violations (k)
+| Sev | Rule | Location | Evidence | Fix |
+|---|---|---|---|---|
 
-## Proposed Rules
+### Semantic duplications (k)
+| Sev | Canonical | Duplicates | Fix |
+|---|---|---|---|
 
-<Any new rules proposed by Step 6 synthesis that are not yet in rules.json. Reference proposed_rules.json.>
+### Pattern erosion (k)
+| Sev | File | Violated pattern | Fix |
+|---|---|---|---|
+
+### Decision violations (k)
+| Sev | Decision | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Trade-offs undermined (k)
+| Sev | Trade-off | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Pitfalls triggered (k)
+| Sev | Pitfall | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Responsibility leaks (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+### Abstraction bypasses (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+## Resolved Findings (W)
+
+<Compressed list of findings where `lifecycle_status == "resolved"`. Group by `type`. Omit the section entirely if W == 0.>
+
+## Mechanical Findings (p)
+
+<Findings where `source == "mechanical"` — output of `drift.py` that AI analysis didn't subsume. Keep compact (1 line per item: severity, type, location, one-line detail). Omit the section if p == 0.>
 ```
 
-Sources for Findings:
-- `drift_report.json` — mechanical and deep drift findings from Phase 1 and 2
-- `blueprint.json` — `pitfalls` (each causal chain becomes a finding), `decisions.trade_offs` with violated `violation_signals` (if any appear in drift_report)
-- Top complexity offenders from `health.json` (only if CC ≥ 15 or a cluster — don't list every high-CC function as a finding)
+**Rendering rules:**
 
-Severity mapping:
-- `error` — decision violations, inverted dependencies, cycles across architectural boundaries
-- `warn` — pattern erosion, god-objects, pitfalls currently manifesting, trade-offs actively undermined
-- `info` — structural observations (dependency magnets, high fan-in nodes) that aren't currently broken
-
-Confidence: carry forward from drift findings when available; otherwise use 0.8-0.95 for findings grounded in direct code reading, lower for inferred ones.
+- Order within Systemic Findings: severity (error > warn > info), then `blast_radius` descending.
+- Within each Localized table, order by severity then by location string for stable diffs.
+- "component name" in the Top-3 summary and Systemic headings comes from `scope.components_affected[0]` if present, else derived from the first location.
+- `blast_radius_delta` renders as `+K` (worsening), `-K` (improving), or `0` (unchanged). Omit parentheses if the finding is new and delta is 0.
+- When the aggregator produces zero findings in a section, include the heading only if the section has a count in parentheses (so `## Systemic Findings (0)` stays; empty Localized subsections are omitted).
+- `blueprint_anchor` lines: include only when the field is non-null.
 
 Verify the write:
 ```bash
