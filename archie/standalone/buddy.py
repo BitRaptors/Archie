@@ -251,3 +251,71 @@ def render_compact(hp: int, mood: str) -> str:
         f" █ ╌╌╌╌╌╌╌╌╌╌╌ █\n"
         f" ▀█▄▀ ▀█▄▀ ▀█▄▀"
     )
+
+
+# ── State Persistence ─────────────────────────────────────────────────────────
+
+def default_state() -> dict:
+    """Return a fresh buddy state dict."""
+    return {
+        "last_interaction": None,
+        "last_hp": 0,
+        "streak": 0,
+        "total_scans": 0,
+        "best_hp": 0,
+        "achievements": [],
+    }
+
+
+def load_state(archie_dir: Path) -> dict:
+    """Load buddy.json or return default state."""
+    f = archie_dir / "buddy.json"
+    if not f.exists():
+        return default_state()
+    try:
+        data = json.loads(f.read_text(errors="replace"))
+        # Merge with defaults for forward-compatibility
+        state = default_state()
+        state.update(data)
+        return state
+    except (json.JSONDecodeError, OSError):
+        return default_state()
+
+
+def save_state(archie_dir: Path, state: dict) -> None:
+    """Write buddy state to .archie/buddy.json."""
+    archie_dir.mkdir(parents=True, exist_ok=True)
+    f = archie_dir / "buddy.json"
+    f.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n")
+
+
+def update_state(state: dict, hp: int) -> dict:
+    """Update state with current HP, track achievements and streaks."""
+    now = datetime.now(timezone.utc).isoformat()
+
+    # First scan achievement
+    if state["total_scans"] == 0 and "first_scan" not in state["achievements"]:
+        state["achievements"].append("first_scan")
+
+    state["total_scans"] += 1
+    state["best_hp"] = max(state["best_hp"], hp)
+    state["last_interaction"] = now
+
+    # Comeback achievement
+    if state.get("last_hp", 0) < 20 and hp >= 80 and "comeback" not in state["achievements"]:
+        state["achievements"].append("comeback")
+
+    # Clean scan achievements
+    if hp >= 80:
+        state["streak"] += 1
+        if state["streak"] >= 3 and "clean_streak_3" not in state["achievements"]:
+            state["achievements"].append("clean_streak_3")
+        if state["streak"] >= 7 and "clean_streak_7" not in state["achievements"]:
+            state["achievements"].append("clean_streak_7")
+        if hp == 100 and "first_clean" not in state["achievements"]:
+            state["achievements"].append("first_clean")
+    else:
+        state["streak"] = 0
+
+    state["last_hp"] = hp
+    return state
