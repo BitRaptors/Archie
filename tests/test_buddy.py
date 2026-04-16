@@ -132,3 +132,59 @@ def test_render_full_unborn():
     output = buddy.render_full(hp=0, mood="unborn", violations=0,
                                scan_age_text="soha", streak=0)
     assert "·" in output  # unborn eyes
+
+
+def test_load_state_missing_file():
+    """Missing buddy.json returns default state."""
+    with tempfile.TemporaryDirectory() as tmp:
+        state = buddy.load_state(Path(tmp) / ".archie")
+        assert state["streak"] == 0
+        assert state["total_scans"] == 0
+        assert state["best_hp"] == 0
+        assert state["achievements"] == []
+
+
+def test_save_and_load_state():
+    """State round-trips through JSON."""
+    with tempfile.TemporaryDirectory() as tmp:
+        archie = Path(tmp) / ".archie"
+        archie.mkdir()
+        state = buddy.default_state()
+        state["streak"] = 5
+        state["best_hp"] = 90
+        buddy.save_state(archie, state)
+
+        loaded = buddy.load_state(archie)
+        assert loaded["streak"] == 5
+        assert loaded["best_hp"] == 90
+
+
+def test_update_state_tracks_best_hp():
+    """update_state should record new best HP."""
+    state = buddy.default_state()
+    state["best_hp"] = 50
+    updated = buddy.update_state(state, hp=80)
+    assert updated["best_hp"] == 80
+
+
+def test_update_state_keeps_best_hp():
+    """update_state should not lower best HP."""
+    state = buddy.default_state()
+    state["best_hp"] = 95
+    updated = buddy.update_state(state, hp=60)
+    assert updated["best_hp"] == 95
+
+
+def test_achievement_first_scan():
+    """First interaction unlocks first_scan achievement."""
+    state = buddy.default_state()
+    updated = buddy.update_state(state, hp=50)
+    assert "first_scan" in updated["achievements"]
+
+
+def test_achievement_comeback():
+    """HP jumping from <20 to >=80 unlocks comeback."""
+    state = buddy.default_state()
+    state["last_hp"] = 15
+    updated = buddy.update_state(state, hp=85)
+    assert "comeback" in updated["achievements"]
