@@ -170,6 +170,9 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/drift":
             self._send_json(_load_json(archie_dir / "drift_report.json"))
 
+        elif path == "/api/semantic-findings":
+            self._send_json(_load_json(archie_dir / "semantic_findings.json"))
+
         elif path == "/api/generated-files":
             self._send_json(_collect_generated_files(root))
 
@@ -343,7 +346,7 @@ tailwind.config = {
 // ---------------------------------------------------------------------------
 let health = {}, healthHistory = [], scanReports = [], blueprint = {},
     rules = {}, ignoredRules = {}, generatedFiles = {}, folderMds = {},
-    drift = {}, depGraph = {}, proposedRules = {};
+    drift = {}, depGraph = {}, proposedRules = {}, semanticFindings = {};
 
 // ---------------------------------------------------------------------------
 // Tab switching
@@ -384,7 +387,7 @@ async function fetchJSON(url) {
 }
 
 async function loadData() {
-  const [h, hh, sr, bp, r, ir, gf, fm, dr, dg, pr] = await Promise.all([
+  const [h, hh, sr, bp, r, ir, gf, fm, dr, dg, pr, sf] = await Promise.all([
     fetchJSON('/api/health'),
     fetchJSON('/api/health-history'),
     fetchJSON('/api/scan-reports'),
@@ -396,6 +399,7 @@ async function loadData() {
     fetchJSON('/api/drift'),
     fetchJSON('/api/dependency-graph'),
     fetchJSON('/api/proposed-rules'),
+    fetchJSON('/api/semantic-findings'),
   ]);
   health = h || {};
   healthHistory = hh || [];
@@ -408,6 +412,8 @@ async function loadData() {
   drift = dr || {};
   depGraph = dg || {};
   proposedRules = pr || {};
+  semanticFindings = sf || {findings: []};
+  window.semanticFindings = semanticFindings;
 
   // Set repo name
   const repoNameEl = document.getElementById('repoName');
@@ -578,7 +584,11 @@ function renderDashboard() {
   html += '</div>';
   html += '</div>';  // close grid
 
-  // --- Drift Findings panel (from deep scan) ---
+  // --- Semantic Findings panel (new) or legacy Drift Findings panel (fallback) ---
+  const semanticHTML = renderSemanticFindings(window.semanticFindings);
+  if (semanticHTML) {
+    html += semanticHTML;
+  } else {
   const driftCategories = [
     { key: 'pattern_divergences', label: 'Pattern Divergences', color: '#ffb703' },
     { key: 'naming_violations', label: 'Naming Violations', color: '#219ebc' },
@@ -625,6 +635,7 @@ function renderDashboard() {
     html += '<p class="text-xs text-ink/40">No drift findings. Drift detection requires a blueprint from <code class="text-teal">/archie-deep-scan</code>.</p>';
     html += '</div>';
   }
+  }  // end fallback (no semantic_findings.json)
 
   el.innerHTML = html;
 
@@ -753,6 +764,137 @@ function renderReports() {
 }
 
 function esc(s) { if (s == null) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+// ---------------------------------------------------------------------------
+// Semantic Findings panel (preferred over legacy drift panel when available)
+// ---------------------------------------------------------------------------
+function groupFindingsBy(arr, key) {
+  return arr.reduce((acc, item) => {
+    const k = item[key] || 'other';
+    (acc[k] = acc[k] || []).push(item);
+    return acc;
+  }, {});
+}
+
+function renderSystemicCard(f) {
+  const sevColor = ({error: '#d62828', warn: '#fb8500', info: '#808080'})[f.severity] || '#808080';
+  const lifecycle = (f.lifecycle_status || '').toUpperCase();
+  const lifecycleBadge = lifecycle
+    ? '<span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-ink/5 text-ink/70 ml-2">' + esc(lifecycle) + '</span>'
+    : '';
+  const depthBadge = f.synthesis_depth === 'draft'
+    ? '<span class="text-[10px] uppercase px-1.5 py-0.5 rounded border border-dashed border-ink/30 text-ink/50 ml-2">provisional</span>'
+    : '';
+  const components = ((f.scope && f.scope.components_affected) || []).map(esc).join(', ');
+  const locations = ((f.scope && f.scope.locations) || []);
+  const delta = f.blast_radius_delta;
+  const deltaStr = (delta !== undefined && delta !== null && delta !== 0)
+    ? ' <span class="text-ink/40">(Δ ' + (delta > 0 ? '+' : '') + esc(delta) + ')</span>'
+    : '';
+  const blast = (f.blast_radius !== undefined && f.blast_radius !== null) ? f.blast_radius : 0;
+
+  let html = '<details class="mb-4 border-l-4 pl-4 py-2 bg-papaya-50/40" style="border-color: ' + sevColor + '">';
+  html += '<summary class="cursor-pointer text-sm font-semibold text-ink">';
+  html += '<span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded mr-2" style="background-color: ' + sevColor + '22; color: ' + sevColor + '">' + esc(f.severity || '') + '</span>';
+  html += esc(f.type || '');
+  html += lifecycleBadge;
+  html += depthBadge;
+  if (components) html += ' <span class="text-ink/60 font-normal"> — ' + components + '</span>';
+  html += '</summary>';
+  html += '<div class="mt-3 text-xs text-ink/80 space-y-2">';
+  if (f.pattern_description) html += '<p><span class="font-semibold">Pattern:</span> ' + esc(f.pattern_description) + '</p>';
+  if (locations.length) {
+    html += '<div><span class="font-semibold">Evidence:</span><ul class="ml-4 mt-1 list-disc text-ink/70">';
+    locations.forEach(l => { html += '<li><code class="text-teal">' + esc(l) + '</code></li>'; });
+    html += '</ul></div>';
+  }
+  if (f.root_cause) html += '<p><span class="font-semibold">Root cause:</span> ' + esc(f.root_cause) + '</p>';
+  if (f.fix_direction) html += '<p><span class="font-semibold">Fix direction:</span> ' + esc(f.fix_direction) + '</p>';
+  html += '<p><span class="font-semibold">Blast radius:</span> ' + esc(blast) + deltaStr + '</p>';
+  if (f.blueprint_anchor) html += '<p><span class="font-semibold">Blueprint:</span> <code class="text-teal">' + esc(f.blueprint_anchor) + '</code></p>';
+  html += '</div></details>';
+  return html;
+}
+
+function renderLocalizedTable(type, items) {
+  let html = '<div class="mb-4"><div class="text-xs font-semibold text-ink/70 mb-1">' + esc(type) + ' <span class="text-ink/40">(' + items.length + ')</span></div>';
+  html += '<table class="text-xs w-full border-collapse"><thead><tr class="text-left text-ink/50 border-b border-papaya-200">';
+  html += '<th class="py-1 pr-2">Sev</th><th class="py-1 pr-2">Location</th><th class="py-1 pr-2">Evidence</th><th class="py-1">Fix</th>';
+  html += '</tr></thead><tbody>';
+  items.forEach(f => {
+    const loc = ((f.scope && f.scope.locations) || [])[0] || '';
+    html += '<tr class="border-b border-papaya-100 last:border-0">';
+    html += '<td class="py-1 pr-2 align-top">' + esc(f.severity || '') + '</td>';
+    html += '<td class="py-1 pr-2 align-top"><code class="text-teal">' + esc(loc) + '</code></td>';
+    html += '<td class="py-1 pr-2 align-top">' + esc(f.evidence || f.pattern_description || '') + '</td>';
+    html += '<td class="py-1 align-top">' + esc(f.fix_direction || '') + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderSemanticFindings(sfData) {
+  const findings = (sfData && sfData.findings) || [];
+  if (findings.length === 0) return null;
+
+  const systemic = findings.filter(f => f.category === 'systemic' && f.lifecycle_status !== 'resolved' && f.source !== 'mechanical');
+  const localized = findings.filter(f => f.category === 'localized' && f.lifecycle_status !== 'resolved' && f.source !== 'mechanical');
+  const resolved = findings.filter(f => f.lifecycle_status === 'resolved');
+  const mechanical = findings.filter(f => f.source === 'mechanical' && f.lifecycle_status !== 'resolved');
+
+  const sevRank = {error: 3, warn: 2, info: 1};
+  systemic.sort((a, b) => ((sevRank[b.severity] || 0) - (sevRank[a.severity] || 0))
+    || ((b.blast_radius || 0) - (a.blast_radius || 0)));
+
+  let html = '<div class="rounded-xl border border-papaya-400/60 bg-white p-5 mt-6">';
+  html += '<div class="text-sm font-bold text-ink mb-4">Semantic Findings — Systemic <span class="bg-brandy/10 text-brandy text-xs font-bold px-2 py-0.5 rounded-full ml-2">' + systemic.length + '</span></div>';
+
+  if (systemic.length === 0) {
+    html += '<p class="text-xs text-ink/40 mb-4">No active systemic findings.</p>';
+  } else {
+    systemic.forEach(f => { html += renderSystemicCard(f); });
+  }
+
+  html += '<div class="text-sm font-bold text-ink mt-6 mb-4">Localized <span class="bg-slate-500/10 text-ink/70 text-xs font-bold px-2 py-0.5 rounded-full ml-2">' + localized.length + '</span></div>';
+  if (localized.length === 0) {
+    html += '<p class="text-xs text-ink/40 mb-4">No active localized findings.</p>';
+  } else {
+    const byType = groupFindingsBy(localized, 'type');
+    Object.keys(byType).sort().forEach(type => {
+      html += renderLocalizedTable(type, byType[type]);
+    });
+  }
+
+  if (resolved.length > 0) {
+    html += '<details class="mt-6"><summary class="text-xs font-bold text-ink/60 cursor-pointer">Resolved (' + resolved.length + ')</summary>';
+    html += '<ul class="text-xs text-ink/60 mt-2 space-y-1">';
+    resolved.forEach(f => {
+      const comps = ((f.scope && f.scope.components_affected) || []).map(esc).join(', ');
+      html += '<li>' + esc(f.type || '') + (comps ? ' — ' + comps : '') + '</li>';
+    });
+    html += '</ul></details>';
+  }
+
+  if (mechanical.length > 0) {
+    html += '<details class="mt-4"><summary class="text-xs font-bold text-ink/60 cursor-pointer">Mechanical (' + mechanical.length + ')</summary>';
+    html += '<table class="text-xs w-full mt-2 border-collapse"><thead><tr class="text-left text-ink/50 border-b border-papaya-200">';
+    html += '<th class="py-1 pr-2">Sev</th><th class="py-1 pr-2">Location</th><th class="py-1">Evidence</th>';
+    html += '</tr></thead><tbody>';
+    mechanical.forEach(f => {
+      const loc = ((f.scope && f.scope.locations) || [])[0] || '';
+      html += '<tr class="border-b border-papaya-100 last:border-0">';
+      html += '<td class="py-1 pr-2 align-top">' + esc(f.severity || '') + '</td>';
+      html += '<td class="py-1 pr-2 align-top"><code class="text-teal">' + esc(loc) + '</code></td>';
+      html += '<td class="py-1 align-top">' + esc(f.evidence || '') + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></details>';
+  }
+
+  html += '</div>';
+  return html;
+}
 
 function renderBlueprint() {
   const el = document.getElementById('tab-blueprint');

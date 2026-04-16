@@ -159,32 +159,67 @@ You are analyzing the ARCHITECTURE and DEPENDENCIES of a codebase. You have acce
 - `.archie/scan.json` — import graph, frameworks
 
 **Your job:**
-1. **Component analysis:** Identify all logical components. If a blueprint exists, compare — are there new components? Removed ones? Changed responsibilities? If no blueprint, infer components from directory structure and import patterns.
 
-2. **Dependency direction:** Using the dependency graph, trace the dependency flow. Are there layers? Do dependencies flow in one direction? Flag cross-component edges as potential violations. Use the dependency graph and skeletons to judge violations. Only Read a source file if the skeleton doesn't show enough context to judge whether the import is a real violation or an acceptable exception (e.g., type-only import, test helper).
+Emit findings per `.claude/commands/_shared/semantic_findings_spec.md` — follow the schema, severity rubric, and quality gate exactly. Your domain is **architecture and dependencies**.
 
-3. **Dependency magnets:** Which directories have highest in-degree? These are stability bottlenecks. The dependency graph shows what they provide — only read if the role is ambiguous from the skeleton.
+Before emitting any findings, Read the spec file and follow §1 (schema), §2 (quality gate), §3 (severity rubric), §4 (taxonomy).
 
-4. **Tight coupling:** Edges with high weight (many imports). The import graph and skeletons show why coupling exists — only read if intent is unclear from the skeleton.
+Produce two kinds of output:
 
-5. **Circular dependencies:** For each cycle in the graph, explain what coupling it creates and why it matters. Read a cycle participant only if the skeleton doesn't explain the coupling.
+1. **pattern_observations** (for Wave 2 or fast-scan synthesis to consume): raw cross-file anomalies in your domain — dep-graph magnets, cycles crossing layers, inverted dependencies, workspace-boundary violations. These are NOT finished findings; they're signals. Each observation: `{type, evidence_locations, note}`.
 
-6. **Architecture style:** Based on the dependency flow, component structure, and patterns you observe, what is the architecture style? How confident are you? If the blueprint already states one, do you agree based on current evidence?
+2. **findings** in your domain:
+   - **Systemic** (category: systemic): `god_component`, `boundary_violation`. Each with ≥3 evidence locations, pattern_description, root_cause, fix_direction, blast_radius.
+   - **Localized** (category: localized): `dependency_violation`, `cycle`, `pattern_divergence` (where the pattern is dependency-shaped). Each with a single location, root_cause, fix_direction.
 
-**Output:** Write a structured JSON report to `/tmp/archie_agent_a_arch.json`:
+All findings MUST carry `synthesis_depth: "draft"` and `source: "fast_agent_a"`.
+
+Do NOT emit count caps. Emit every finding you can substantiate with concrete evidence.
+
+**Efficiency rule:** read skeletons.json + dep_graph.json first. Only Read source files when the skeleton is genuinely insufficient to judge.
+
+Before emitting, verify each finding against the quality gate in §2 of the spec — dropped candidates are better than padded ones.
+
+**Output:** Write to `/tmp/archie_agent_a.json`:
+
 ```json
 {
-  "components": [{"name": "...", "path": "...", "role": "...", "confidence": 0.9}],
-  "architecture_style": {"style": "...", "confidence": 0.85, "evidence": "..."},
-  "dependency_violations": [{"from": "...", "to": "...", "severity": "error|warn", "description": "...", "verified_in_file": "...", "confidence": 0.9}],
-  "dependency_magnets": [{"directory": "...", "in_degree": N, "risk": "..."}],
-  "cycles": [{"directories": [...], "impact": "...", "evidence_files": [...]}],
-  "tight_coupling": [{"from": "...", "to": "...", "weight": N, "reason": "..."}]
+  "pattern_observations": [
+    {"type": "dep_magnet", "evidence_locations": ["packages/shared"], "note": "fan-in 22 across unrelated domains"}
+  ],
+  "findings": [
+    {
+      "category": "systemic",
+      "type": "god_component",
+      "severity": "error",
+      "scope": {"kind": "system_wide", "components_affected": ["packages/shared"], "locations": ["apps/webui/src/auth.ts:14", "apps/electron/src/storage.ts:3", "apps/webui/src/ui/Button.tsx:1"]},
+      "pattern_description": "shared/ accumulates responsibilities from 7 unrelated domains",
+      "evidence": "22 consumers import from packages/shared across auth, storage, UI, logging",
+      "root_cause": "every cross-cutting util was added to shared without domain boundary; decision D.3 treated shared as primitives but actual usage crosses domains",
+      "fix_direction": "split into packages/{auth, storage, ui-primitives, logging}; migrate per-domain starting with auth",
+      "blueprint_anchor": "decision:D.3",
+      "blast_radius": 22,
+      "synthesis_depth": "draft",
+      "source": "fast_agent_a"
+    },
+    {
+      "category": "localized",
+      "type": "dependency_violation",
+      "severity": "error",
+      "scope": {"kind": "single_file", "components_affected": ["apps/webui"], "locations": ["apps/webui/src/app.ts:42"]},
+      "evidence": "apps/webui imports from apps/electron/src/shared (inverted)",
+      "root_cause": "shared helper never extracted to packages/; apps reach sideways instead",
+      "fix_direction": "extract to packages/shared-ui or duplicate the helper in webui",
+      "blueprint_anchor": null,
+      "synthesis_depth": "draft",
+      "source": "fast_agent_a"
+    }
+  ]
 }
 ```
 
 ```
-Save output: /tmp/archie_agent_a_arch.json
+Save output: /tmp/archie_agent_a.json
 ```
 
 ### Agent B: Health & Complexity
@@ -202,31 +237,51 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
 
 **Your job:**
-1. **Health assessment:** Report each metric with plain-language explanation. Thresholds:
-   - Erosion: <0.3 good, 0.3-0.5 moderate, >0.5 high
-   - Gini: <0.4 good, 0.4-0.6 moderate, >0.6 high
-   - Top-20% share: <0.5 good, 0.5-0.7 moderate, >0.7 high
-   - Verbosity: <0.05 good, 0.05-0.15 moderate, >0.15 high
 
-2. **Trend analysis:** Compare against health_history.json. Are things improving or degrading? Which metrics moved most? Is LOC growth justified?
+Emit findings per `.claude/commands/_shared/semantic_findings_spec.md`. Your domain is **health and complexity**.
 
-3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified.
+Before emitting any findings, Read the spec file and follow §1 (schema), §2 (quality gate), §3 (severity rubric), §4 (taxonomy).
 
-4. **Abstraction waste:** Single-method classes, tiny functions (<=2 lines). Flag from skeletons. Only read if the skeleton is ambiguous about whether a single-method class is a legitimate abstraction.
+Produce:
 
-**Output:** Write to `/tmp/archie_agent_b_health.json`:
+1. **health_scores** (existing — preserve): a summary of erosion, gini, top20_share, verbosity, total_loc for the viewer's Health tab.
+
+2. **trend**: direction + details, comparing against health_history.json. Unchanged shape.
+
+3. **findings** in your domain:
+   - **Localized**: `complexity_hotspot` for functions with CC ≥ 10 (severity per the spec's CC rubric: ≥50 error, 25-49 warn, 10-24 info), `abstraction_bypass` where a single-method class or tiny function obscures structure.
+   - **Systemic** (only when substantiated): `trajectory_degradation` when ≥3 hotspots are all worsening over history. If you spot copy-paste or a repeated helper shape, leave it for Agent C's `missing_abstraction`/`fragmentation` — do not emit here.
+
+All findings MUST carry `synthesis_depth: "draft"` and `source: "fast_agent_b"`.
+
+For each complexity_hotspot, `root_cause` must be mechanistic — NOT "high CC" but "conflates auth validation with request parsing". Use skeletons first; Read the source only when CC signature is insufficient.
+
+Before emitting, verify each finding against the quality gate in §2 of the spec — dropped candidates are better than padded ones.
+
+**Output:** Write to `/tmp/archie_agent_b.json`:
+
 ```json
 {
   "health_scores": {"erosion": 0.31, "gini": 0.58, "top20_share": 0.72, "verbosity": 0.003, "total_loc": 9400},
-  "trend": {"direction": "improving|degrading|stable", "details": "..."},
-  "complexity_hotspots": [{"function": "...", "file": "...", "cc": N, "assessment": "...", "recommendation": "..."}],
-  "complexity_trajectory": [{"function": "...", "file": "...", "previous_cc": N, "current_cc": N}],
-  "abstraction_waste": {"single_method_classes": N, "tiny_functions": N, "notable": ["..."]}
+  "trend": {"direction": "degrading", "details": "top-20 share grew 0.64 → 0.72 over 3 scans"},
+  "findings": [
+    {
+      "category": "localized",
+      "type": "complexity_hotspot",
+      "severity": "error",
+      "scope": {"kind": "single_file", "components_affected": ["apps/electron"], "locations": ["apps/electron/src/AppShell.tsx:45:render"]},
+      "evidence": "AppShell.render has CC=669; combines layout + routing + state wiring + providers",
+      "root_cause": "organic accretion: render grew to serve as god-function for startup; no extraction ever happened",
+      "fix_direction": "split into AppLayout + AppRouter + AppProviders (three components, each <CC 50)",
+      "synthesis_depth": "draft",
+      "source": "fast_agent_b"
+    }
+  ]
 }
 ```
 
 ```
-Save output: /tmp/archie_agent_b_health.json
+Save output: /tmp/archie_agent_b.json
 ```
 
 ### Agent C: Rules & Patterns
@@ -245,36 +300,58 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 - `.archie/scan.json` — file tree, imports, frameworks
 
 **Your job:**
-1. **Pattern consistency:** Identify patterns and outliers from skeletons alone — the class hierarchy, function names, file organization, and import patterns are all visible in skeletons. Only Read an outlier source file if you cannot determine from the skeleton whether it's intentional (e.g., a comment, a different base class for a reason).
 
-2. **Duplication / reimplementation:** Detect duplicate/similar function names from skeletons. AI agents do this constantly — they reimplement helpers instead of importing shared code. Only Read source files if the function signatures differ and you need to confirm whether they're true duplicates or just same-named but different.
+Emit findings per `.claude/commands/_shared/semantic_findings_spec.md`. Your domain is **rules, patterns, and duplication**.
 
-3. **Propose new rules:** Based on patterns found, propose architectural rules. No file reads needed — patterns come from skeletons. Do NOT re-propose rules already in rules.json or proposed_rules.json. Look for DEEPER rules — subtler invariants, behavioral constraints, scoped rules for specific components.
+Before emitting any findings, Read the spec file and follow §1 (schema), §2 (quality gate), §3 (severity rubric), §4 (taxonomy).
 
-4. **Validate existing rules:** Check from skeletons and scan data. Only Read a source file if you need to confirm a rule violation that isn't obvious from the skeleton. Check if any proposed rules have become more or less valid since they were proposed (adjust confidence).
+Produce:
 
-**Rule schema:**
-Required: `{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "error|warn", "confidence": 0.85}`
+1. **findings**:
+   - **Systemic**: `fragmentation` (same job done N different ways — e.g., 5 handlers each implement auth differently), `missing_abstraction` (copy-paste without helper), `inconsistency` (feature built one way in component X and another way in component Y). Each with ≥3 evidence locations.
+   - **Localized**: `pattern_divergence` (outlier that breaks a pattern 0.7+ confident), `semantic_duplication` (near-twin functions), `rule_violation` (code breaking an adopted rule from `.archie/rules.json`).
 
-Confidence calibration:
-- 0.9-1.0: Verified invariant — N files follow pattern with 0-1 exceptions, you read the files.
-- 0.7-0.9: Strong pattern with some exceptions, clear architectural intent.
-- 0.5-0.7: Inferred from structure, not verified in every case.
-- 0.3-0.5: Speculative, based on best practices not specific evidence.
+2. **proposed_rules** (existing — preserve): new rules discovered in this scan, per the existing rule schema with `{id, description, rationale, severity, confidence}`.
 
-Be honest. A wrong rule with high confidence is worse than a right rule with low confidence.
+3. **rule_confidence_updates** (existing — preserve): adjustments to previously-proposed rule confidence.
 
-Optional mechanical fields (add ONLY when a meaningful regex exists):
-- `"check"`: `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
-- `"applies_to"`, `"file_pattern"`, `"forbidden_patterns"`, `"required_in_content"`
+All findings MUST carry `synthesis_depth: "draft"` and `source: "fast_agent_c"`.
 
-**Output:** Write to `/tmp/archie_agent_c_rules.json`:
+Be honest about systemic vs localized: if ≥3 locations exhibit the same problem, it's systemic; a single outlier is localized.
+
+Before emitting, verify each finding against the quality gate in §2 of the spec — dropped candidates are better than padded ones.
+
+**Output:** Write to `/tmp/archie_agent_c.json`:
+
 ```json
 {
-  "pattern_findings": [{"pattern": "...", "followers": N, "outliers": ["..."], "severity": "warn|error", "confidence": 0.85}],
-  "duplications": [{"function": "...", "locations": ["..."], "recommendation": "..."}],
-  "proposed_rules": [{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "...", "confidence": 0.85}],
-  "existing_rule_violations": [{"rule_id": "...", "violated_by": "...", "details": "..."}],
+  "findings": [
+    {
+      "category": "systemic",
+      "type": "fragmentation",
+      "severity": "error",
+      "scope": {"kind": "cross_component", "components_affected": ["handlers"], "locations": ["handlers/orders.ts:23", "handlers/users.ts:15", "handlers/reports.ts:41", "handlers/admin.ts:12"]},
+      "pattern_description": "auth enforcement is done inline in each handler with divergent policies",
+      "evidence": "4 handlers each validate session differently; no shared middleware",
+      "root_cause": "first handler copy-pasted as pattern; subsequent handlers added domain checks inline rather than extending a shared guard",
+      "fix_direction": "extract authGuard({scope?, role?, allowServiceToken?}) middleware; migrate admin → reports → users → orders",
+      "blast_radius": 4,
+      "synthesis_depth": "draft",
+      "source": "fast_agent_c"
+    },
+    {
+      "category": "localized",
+      "type": "rule_violation",
+      "severity": "warn",
+      "scope": {"kind": "single_file", "components_affected": ["apps/api"], "locations": ["apps/api/src/handlers/orders.ts:12"]},
+      "evidence": "handler imports from internal/ — breaks rule scan-042 (handlers must not depend on internal/)",
+      "root_cause": "quick import while adding order history; missed during review",
+      "fix_direction": "route through the orders service layer or widen the rule",
+      "synthesis_depth": "draft",
+      "source": "fast_agent_c"
+    }
+  ],
+  "proposed_rules": [{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "error|warn", "confidence": 0.85}],
   "rule_confidence_updates": [{"rule_id": "...", "old_confidence": 0.7, "new_confidence": 0.85, "reason": "..."}]
 }
 ```
@@ -289,7 +366,7 @@ If the current scope is `whole`, `PROJECT_ROOT` is a workspace monorepo (`MONORE
 - Reference components by **workspace name** (from `package.json`), not by path, in findings
 
 ```
-Save output: /tmp/archie_agent_c_rules.json
+Save output: /tmp/archie_agent_c.json
 ```
 
 **Wait for all 3 agents to complete before proceeding to Phase 4.**
@@ -298,16 +375,27 @@ Save output: /tmp/archie_agent_c_rules.json
 
 ## Phase 4: Synthesis + Blueprint Evolution
 
-Read the outputs from all three agents:
-- `/tmp/archie_agent_a_arch.json`
-- `/tmp/archie_agent_b_health.json`
-- `/tmp/archie_agent_c_rules.json`
+### 4a: Aggregate findings → semantic_findings.json
 
-Also re-read `.archie/blueprint.json` (the current state of accumulated knowledge).
+Before synthesizing the blueprint, extract the findings from each agent's output into per-source files in `.archie/`, then invoke the aggregator. This produces the unified `semantic_findings.json` consumed by the viewer and the next scan (dedupe by signature, quality gate, lifecycle diff against the prior run).
 
-Now you are the **synthesis agent**. Your job is to merge the three agents' findings with the existing blueprint to produce an evolved blueprint. This is where compound learning happens.
+```bash
+python3 .archie/extract_output.py findings /tmp/archie_agent_a.json "$PROJECT_ROOT/.archie/semantic_findings_fast_a.json"
+python3 .archie/extract_output.py findings /tmp/archie_agent_b.json "$PROJECT_ROOT/.archie/semantic_findings_fast_b.json"
+python3 .archie/extract_output.py findings /tmp/archie_agent_c.json "$PROJECT_ROOT/.archie/semantic_findings_fast_c.json"
+python3 .archie/aggregate_findings.py "$PROJECT_ROOT"
+```
 
-### 4a: Evolve the Blueprint
+The aggregator reads every `semantic_findings_*.json` source it knows about in `.archie/`, merges by signature, applies the quality gate, computes `lifecycle_status` against the prior `semantic_findings.json`, and writes the canonical result back to `.archie/semantic_findings.json`.
+
+### 4b: Evolve the Blueprint
+
+Read the inputs to synthesis:
+- `.archie/semantic_findings.json` — the aggregated, gated, lifecycle-tagged canonical findings from 4a (primary input for findings + rules reasoning)
+- `/tmp/archie_agent_a.json`, `/tmp/archie_agent_b.json`, `/tmp/archie_agent_c.json` — raw per-agent output (use for `pattern_observations`, `health_scores`, `trend`, `proposed_rules`, `rule_confidence_updates` — fields the aggregator does NOT carry)
+- `.archie/blueprint.json` — current state of accumulated knowledge
+
+Now you are the **synthesis agent**. Your job is to merge the aggregated findings + the per-agent auxiliary fields with the existing blueprint to produce an evolved blueprint. This is where compound learning happens.
 
 Read the existing blueprint (or start with `{}` if none exists). Apply these evolution rules:
 
@@ -369,7 +457,7 @@ Then normalize it to ensure canonical schema:
 python3 .archie/finalize.py "$PWD" --normalize-only
 ```
 
-### 4b: Write Scan Report
+### 4c: Write Scan Report
 
 Get the current date/time and scan number from the blueprint (`meta.scan_count`):
 ```bash
@@ -381,51 +469,110 @@ Create the scan history directory if it doesn't exist:
 mkdir -p .archie/scan_history
 ```
 
-Write to `.archie/scan_history/scan_NNN_YYYY-MM-DDTHHMM.md` (where NNN is the zero-padded scan number, e.g., `scan_003_2026-04-08T1423.md`) and copy to `.archie/scan_report.md` (latest pointer).
+Read `$PROJECT_ROOT/.archie/semantic_findings.json` (from 4a), `$PROJECT_ROOT/.archie/blueprint.json`, `$PROJECT_ROOT/.archie/health.json`, and `$PROJECT_ROOT/.archie/health_history.json` for health trend.
 
-The report should include:
+Write the report to `.archie/scan_history/scan_NNN_YYYY-MM-DDTHHMM.md` (where NNN is the zero-padded scan number, e.g., `scan_003_2026-04-08T1423.md`) and copy to `.archie/scan_report.md` (latest pointer).
+
+Use this **exact** structure — this layout is shared with `/archie-deep-scan`; deep-scan and fast-scan produce structurally identical reports. The data provenance differs (fast-scan has no Wave 2 canonical findings — all entries will be `synthesis_depth: draft`) but the rendering is the same.
+
 ```markdown
-# Archie Scan Report
-> Scan #N | YYYY-MM-DD HH:MM UTC | X files analyzed | Y changed in last 7 days
+# Scan Report — <repo name>
 
-## Architecture Overview
-[5-10 lines from Agent A's analysis]
+## Executive Summary
+- Health score: X.XX (trend: ↑ / ↓ / → vs previous scan from `health_history.json`)
+- Systemic findings: N total (new: X, recurring: Y, worsening: Z, resolved: W)
+- Top 3 systemic findings by severity × blast_radius:
+  1. [severity] type — component name (blast: N)
+  2. [severity] type — component name (blast: N)
+  3. [severity] type — component name (blast: N)
 
-## Health Scores
-| Metric | Current | Previous | Trend | What it means |
-|--------|---------|----------|-------|---------------|
-| Erosion | | | | Files breaking expected structure (naming, docs, tests). <0.3 good, >0.5 high |
-| Gini | | | | Code distribution inequality. High = a few god-files hold most code. <0.4 good, >0.6 high |
-| Top-20% | | | | Share of code in the largest 20% of files. <0.5 good, >0.7 high |
-| Verbosity | | | | Comment-to-code ratio. High = over-documented or commented-out code. <0.05 good, >0.15 high |
-| LOC | | | | Total lines of code. Tracks growth over time |
-[Fill in Current, Previous, Trend from Agent B]
+## Systemic Findings (N)
 
-### Complexity Trajectory
-[functions that got more complex since last scan]
+<For each finding where `category == "systemic"` AND `lifecycle_status != "resolved"`, render with the full expanded treatment below. Order by severity (error > warn > info) then `blast_radius` descending.>
 
-## Findings
-[ALL findings from agents A, B, C — ranked by severity then confidence]
-[Each finding: what's wrong, which file, evidence from the code, why it matters]
-[Mark which findings are NEW vs. RECURRING vs. RESOLVED since last scan]
+### [severity · lifecycle] type — component name
+**Pattern:** <pattern_description — one sentence>
+**Evidence:**
+- location1 — short why
+- location2 — short why
+- (more...)
+**Root cause:** <root_cause>
+**Fix direction:** <fix_direction>
+**Severity:** <severity> — blast_radius: N (delta: +K / -K / 0)
+**Blueprint anchor:** <blueprint_anchor if present, else omit line>
 
-## Blueprint Evolution
-[What changed in the blueprint this scan — new components, updated confidence, resolved pitfalls, new rules added]
+## Localized Findings (M)
 
-## Proposed Rules
-[from Agent C — numbered checklist with rationale and confidence]
+<Compact tables grouped by `type`. Only emit a subsection if at least one finding of that type exists. Use these exact table schemas.>
 
-## Next Task
-**What:** [highest-impact action from across all three agents]
-**Where:** [exact file paths]
-**Why:** [what improves]
-**How:** [2-3 sentence approach]
+### Dependency violations (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+| error | path/file:line | short detail | short fix |
 
-## Recommendations
-[Re-baseline with /archie-deep-scan if: no deep scan ever, erosion increased >0.10, major structural changes]
+### Cycles (k)
+| Sev | Modules | Evidence | Fix |
+|---|---|---|---|
+
+### Complexity hotspots (k)
+| Sev | Function | CC | Location | Why | Fix |
+|---|---|---:|---|---|---|
+
+### Pattern divergences (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+### Rule violations (k)
+| Sev | Rule | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Semantic duplications (k)
+| Sev | Canonical | Duplicates | Fix |
+|---|---|---|---|
+
+### Pattern erosion (k)
+| Sev | File | Violated pattern | Fix |
+|---|---|---|---|
+
+### Decision violations (k)
+| Sev | Decision | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Trade-offs undermined (k)
+| Sev | Trade-off | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Pitfalls triggered (k)
+| Sev | Pitfall | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Responsibility leaks (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+### Abstraction bypasses (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+## Resolved Findings (W)
+
+<Compressed list of findings where `lifecycle_status == "resolved"`. Group by `type`. Omit the section entirely if W == 0.>
+
+## Mechanical Findings (p)
+
+<Findings where `source == "mechanical"` — output of `drift.py` that AI analysis didn't subsume. Keep compact (1 line per item: severity, type, location, one-line detail). Omit the section if p == 0.>
 ```
 
-### 4c: Update Satellite Files
+**Rendering rules:**
+
+- Order within Systemic Findings: severity (error > warn > info), then `blast_radius` descending.
+- Within each Localized table, order by severity then by location string for stable diffs.
+- "component name" in the Top-3 summary and Systemic headings comes from `scope.components_affected[0]` if present, else derived from the first location.
+- `blast_radius_delta` renders as `+K` (worsening), `-K` (improving), or `0` (unchanged). Omit parentheses if the finding is new and delta is 0.
+- When the aggregator produces zero findings in a section, include the heading only if the section has a count in parentheses (so `## Systemic Findings (0)` stays; empty Localized subsections are omitted).
+- `blueprint_anchor` lines: include only when the field is non-null.
+
+### 4d: Update Satellite Files
 
 Append health scores to history:
 ```bash
@@ -441,19 +588,24 @@ Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 5. Write back
 ```
 
-Save Agent C's semantic duplications to `.archie/semantic_duplications.json`:
+Derive the legacy `.archie/semantic_duplications.json` snapshot from the aggregated findings (for `/archie-share` + old-viewer backward compat):
 ```
-1. Read /tmp/archie_agent_c_rules.json and extract the `duplications` array (each entry: {function, locations[], recommendation})
-2. Write to .archie/semantic_duplications.json as {"duplications": [...], "scanned_at": "<ISO UTC>"}
-3. Overwrite on every scan — this is a snapshot of the current state, not append-only
+1. Read .archie/semantic_findings.json (the aggregator's canonical output from 4a)
+2. Filter `findings` where `type == "semantic_duplication"` — this replaces the previous "read Agent C's duplications array" flow; duplications now live inside the findings stream tagged with that type
+3. For each matching finding, map to the legacy entry shape: {function, locations, recommendation}
+   - function: derive from the finding's first location (e.g. "path/to/file.ts::symbol") or from `pattern_description` — whichever reads cleanest
+   - locations: `scope.locations` (list of "file:line" strings)
+   - recommendation: `fix_direction`
+4. Write to .archie/semantic_duplications.json as {"duplications": [...], "scanned_at": "<ISO UTC>"}
+5. Overwrite on every scan — this is a snapshot of the current state, not append-only
 ```
 
-This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric.
+This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric. The canonical source of truth is now `semantic_findings.json`; this legacy file exists only so the current `/archie-share` upload path and the current viewer keep working during the transition.
 
-### 4d: Clean up temp files
+### 4e: Clean up temp files
 
 ```bash
-rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
+rm -f /tmp/archie_agent_a.json /tmp/archie_agent_b.json /tmp/archie_agent_c.json
 ```
 
 Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.

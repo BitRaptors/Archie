@@ -119,9 +119,7 @@ def _strip_health(health: dict) -> dict:
     }
 
 
-def build_bundle(project_root: Path) -> dict:
-    archie_dir = project_root / ".archie"
-
+def build_bundle(archie_dir: Path) -> dict:
     blueprint = _read_json(archie_dir / "blueprint.json")
     if blueprint is None:
         print("Error: .archie/blueprint.json not found. Run /archie-scan first.", file=sys.stderr)
@@ -173,6 +171,17 @@ def build_bundle(project_root: Path) -> dict:
     if sem and isinstance(sem.get("duplications"), list):
         bundle["semantic_duplications"] = sem["duplications"]
 
+    # v2 bundle: canonical semantic findings (cycles, layering, duplication,
+    # drift — folded together). When present, drift_report is redundant since
+    # mechanical findings are already included via source: "mechanical".
+    bundle["bundle_version"] = "v2"
+
+    semantic_findings = _read_json(archie_dir / "semantic_findings.json")
+    if semantic_findings:
+        bundle["semantic_findings"] = semantic_findings
+        # When semantic_findings exists, drift_report is redundant (folded in).
+        # Keep scan_report (legacy viewer fallback).
+
     return bundle
 
 
@@ -208,7 +217,7 @@ def main():
         sys.exit(1)
 
     project_root = Path(sys.argv[1]).resolve()
-    bundle = build_bundle(project_root)
+    bundle = build_bundle(project_root / ".archie")
 
     print("Uploading blueprint...", file=sys.stderr)
     url = upload(bundle)

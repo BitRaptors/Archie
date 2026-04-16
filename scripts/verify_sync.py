@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parent.parent
 STANDALONE = ROOT / "archie" / "standalone"
 ASSETS = ROOT / "npm-package" / "assets"
 COMMANDS = ROOT / ".claude" / "commands"
+SHARED_COMMANDS = COMMANDS / "_shared"
+SHARED_ASSETS = ASSETS / "_shared"
 ARCHIE_MJS = ROOT / "npm-package" / "bin" / "archie.mjs"
 
 SKIP_FILES = {"__init__.py", "__pycache__"}
@@ -100,6 +102,19 @@ def main():
         if canonical != asset:
             errors.append(f"OUT OF SYNC: {name} differs between .claude/commands/ and npm-package/assets/")
 
+    # 8. Check: _shared/*.md fragments mirror between canonical and npm assets.
+    #    These are Read at runtime by agent prompts (e.g. semantic_findings_spec.md),
+    #    so a drift here ships a broken /archie-scan to npm users.
+    shared_canonical = {f.name for f in SHARED_COMMANDS.glob("*.md")} if SHARED_COMMANDS.exists() else set()
+    shared_asset = {f.name for f in SHARED_ASSETS.glob("*.md")} if SHARED_ASSETS.exists() else set()
+    for name in sorted(shared_canonical - shared_asset):
+        errors.append(f"MISSING ASSET: .claude/commands/_shared/{name} has no copy in npm-package/assets/_shared/")
+    for name in sorted(shared_asset - shared_canonical):
+        errors.append(f"ORPHAN ASSET: npm-package/assets/_shared/{name} has no canonical in .claude/commands/_shared/")
+    for name in sorted(shared_canonical & shared_asset):
+        if (SHARED_COMMANDS / name).read_text() != (SHARED_ASSETS / name).read_text():
+            errors.append(f"OUT OF SYNC: _shared/{name} differs between .claude/commands/_shared/ and npm-package/assets/_shared/")
+
     # Report
     if errors:
         print(f"SYNC CHECK FAILED — {len(errors)} issue(s):\n")
@@ -108,7 +123,7 @@ def main():
         print()
         sys.exit(1)
     else:
-        print(f"SYNC CHECK PASSED — {len(standalone_pys)} scripts, {len(command_mds)} commands, all in sync.")
+        print(f"SYNC CHECK PASSED — {len(standalone_pys)} scripts, {len(command_mds)} commands, {len(shared_canonical)} shared fragments, all in sync.")
         sys.exit(0)
 
 

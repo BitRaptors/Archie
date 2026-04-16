@@ -305,6 +305,21 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 6. Framework Usage
 > Catalog external frameworks/libraries from import statements. For each, note the framework name and usage scope.
 >
+> ### 7. Pattern observations (for Wave 2 to synthesize)
+> While reading the files, note raw anomalies in your domain. These are NOT finished findings — Wave 2 will contextualize them.
+>
+> For each observation: `{type, evidence_locations, note}`. Types in your domain: `dep_magnet`, `layer_cycle`, `inverted_dependency`, `workspace_boundary_crossed`, `high_fan_in_rising`.
+>
+> Example:
+> ```json
+> {"type": "dep_magnet", "evidence_locations": ["packages/shared"], "note": "fan-in 22 across auth/storage/UI/logging — unrelated domains"}
+> ```
+>
+> ### 8. Localized findings (your domain)
+> Emit findings per `.claude/commands/_shared/semantic_findings_spec.md`. Your domain is architecture and dependencies — emit only `dependency_violation` and `cycle` types as Localized findings. Do NOT emit systemic findings (those are Wave 2's job). All findings you emit carry `synthesis_depth: "draft"` and `source: "wave1_structure"`.
+>
+> Before emitting, verify each finding against the quality gate in §2 of the spec — dropped candidates are better than padded ones.
+>
 > Return JSON:
 > ```json
 > {
@@ -326,7 +341,11 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >     "naming_conventions": [
 >       {"scope": "", "pattern": "", "examples": [], "description": ""}
 >     ]
->   }
+>   },
+>   "pattern_observations": [{"type": "", "evidence_locations": [], "note": ""}],
+>   "findings": [
+>     /* localized findings in architecture/dependency domain; see spec for schema */
+>   ]
 > }
 > ```
 
@@ -389,6 +408,13 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 8. Pattern Selection Guide
 > For common scenarios in this codebase, which pattern should be used and why?
 >
+> ### 9. Pattern observations (for Wave 2 to synthesize)
+> While cataloging patterns, note cross-file anomalies — things that feel inconsistent, fragmented, or missing an abstraction.
+>
+> For each: `{type, evidence_locations, note}`. Types in your domain: `fragmentation_signal` (same job done N ways), `missing_abstraction_signal` (copy-paste), `pattern_outlier` (1-2 files deviating from an otherwise-consistent pattern), `inconsistency_signal` (feature built one way in X, another in Y).
+>
+> These are observations for Wave 2, not finished findings.
+>
 > Return JSON:
 > ```json
 > {
@@ -406,7 +432,8 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >   "quick_reference": {
 >     "pattern_selection": {"scenario": "pattern"},
 >     "error_mapping": [{"error": "", "status_code": 0, "description": ""}]
->   }
+>   },
+>   "pattern_observations": [{"type": "", "evidence_locations": [], "note": ""}]
 > }
 > ```
 
@@ -635,6 +662,27 @@ Write /tmp/archie_sub3_$PROJECT_NAME.json with Technology agent's COMPLETE outpu
 Write /tmp/archie_sub4_$PROJECT_NAME.json with UI Layer agent's COMPLETE output text (if spawned)
 ```
 
+After Wave 1 outputs are saved, extract findings from Structure + Patterns agents (Technology does not produce findings):
+
+```bash
+# Extract findings from Structure (sub1) and Patterns (sub2) outputs
+python3 .archie/extract_output.py findings /tmp/archie_sub1_$PROJECT_NAME.json /tmp/_wave1_struct_f.json
+python3 .archie/extract_output.py findings /tmp/archie_sub2_$PROJECT_NAME.json /tmp/_wave1_patt_f.json
+
+# Concatenate into one wave1 findings file
+python3 -c "
+import json
+from pathlib import Path
+struct = json.loads(Path('/tmp/_wave1_struct_f.json').read_text())
+patt = json.loads(Path('/tmp/_wave1_patt_f.json').read_text())
+combined = {'findings': struct.get('findings', []) + patt.get('findings', [])}
+Path('$PROJECT_ROOT/.archie/semantic_findings_wave1.json').write_text(json.dumps(combined, indent=2))
+"
+rm -f /tmp/_wave1_struct_f.json /tmp/_wave1_patt_f.json
+```
+
+The `semantic_findings_wave1.json` file is read by the aggregator in Step 9 Phase 3.
+
 Then merge:
 
 ```bash
@@ -686,7 +734,12 @@ Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. N
 
 Tell the Reasoning agent:
 
-> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read key source files: entry points, main configs, core abstractions.
+> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents. Also read:
+> - `$PROJECT_ROOT/.archie/skeletons.json` — for cross-file pattern spotting
+> - `$PROJECT_ROOT/.archie/health.json` — for contextual CC interpretation
+> - `$PROJECT_ROOT/.archie/drift_report.json` — mechanical drift (produced by Step 9 Phase 1; SKIP this read on first-pass Wave 2; it will exist only on `--from 9` re-runs)
+> - `$PROJECT_ROOT/.archie/semantic_findings.json` — prior scan's findings, for the upgrade pass (SKIP if file doesn't exist)
+> - Key source files: entry points, main configs, core abstractions
 >
 > With the COMPLETE picture of what was built and how, produce deep architectural reasoning:
 >
@@ -740,6 +793,38 @@ Tell the Reasoning agent:
 > - **usage_example**: Realistic code snippet. A single line is fine when the pattern genuinely is one-line (`logger.track(Event.X)`). Multi-line (typically 3-10 lines) when clarity demands it — use real newlines, not `;` chains. Show the full pattern a developer would actually write.
 > - **tips**: Gotchas specific to this implementation
 >
+> ### 9. Semantic Findings (canonical)
+>
+> Produce canonical-tier Semantic Findings per `.claude/commands/_shared/semantic_findings_spec.md`. You are the primary producer of systemic findings in deep-scan — the Wave 1 agents fed you `pattern_observations` (in `blueprint_raw.json`); your job is to synthesize those observations + the blueprint you just built + targeted code reads into substantiated findings.
+>
+> **Systemic findings you produce** (canonical depth — deep root_cause with history, sequenced fix_direction):
+> - `fragmentation`, `god_component`, `split_brain`, `erosion`, `missing_abstraction`, `inconsistency`, `boundary_violation`, `responsibility_diffusion`, `trajectory_degradation`.
+>
+> **Localized findings you produce**:
+> - `decision_violation` (code contradicting a key_decision)
+> - `trade_off_undermined` (matching a `violation_signals` entry)
+> - `pitfall_triggered` (matching a `stems_from` chain)
+> - `responsibility_leak` (component doing another's work)
+> - `abstraction_bypass` (reaching through a layer)
+> - `complexity_hotspot` (when health.json CC warrants contextual interpretation beyond Agent B's shallow read)
+>
+> No count cap. Emit every finding you can substantiate. Quality gate: each systemic requires ≥3 evidence locations + mechanistic root_cause + actionable fix_direction.
+>
+> All findings you emit carry `synthesis_depth: "canonical"` and `source: "wave2"`.
+>
+> Before emitting, Read the spec file and follow §1 (schema), §2 (quality gate), §3 (severity rubric), §4 (taxonomy).
+>
+> ### 10. Upgrade pass (for drafts from prior scans)
+>
+> If you read `$PROJECT_ROOT/.archie/semantic_findings.json` successfully, process the entries in it:
+>
+> - For each entry with `synthesis_depth: "draft"` AND `lifecycle_status: "recurring"` that is NOT already in your Step 9 output (check by `type + sorted(components_affected)` signature):
+>   1. Re-evaluate with canonical-tier reasoning: does it still hold against the current blueprint + code?
+>   2. If yes: enrich `root_cause` (make it mechanistic with history context) and `fix_direction` (sequence the steps; reference decisions). Flip `synthesis_depth` to `"canonical"`. Keep the same `id`.
+>   3. If no longer substantiated: drop it (the aggregator will mark it `resolved` via diff).
+>
+> Emit upgraded drafts in the same findings list, with `source: "wave2"` but preserved `id`.
+>
 > Return JSON:
 > ```json
 > {
@@ -754,7 +839,8 @@ Tell the Reasoning agent:
 >   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
 >   "implementation_guidelines": [
 >     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
->   ]
+>   ],
+>   "findings": [ /* canonical systemic + localized + upgraded drafts */ ]
 > }
 > ```
 
@@ -764,6 +850,10 @@ After the Reasoning agent completes, save its output and finalize:
 
 ```
 Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's output
+```
+
+```bash
+python3 .archie/extract_output.py findings /tmp/archie_sub_x_$PROJECT_NAME.json "$PROJECT_ROOT/.archie/semantic_findings_wave2.json"
 ```
 
 ```bash
@@ -995,64 +1085,61 @@ python3 .archie/measure_health.py "$PROJECT_ROOT" --append-history --scan-type d
 python3 .archie/drift.py "$PROJECT_ROOT"
 ```
 
-### Phase 2: Deep architectural drift (AI)
+### Phase 2: Narrow findings agent (semantic_duplication + pattern_erosion)
+
+Wave 1/2 already produced most findings as byproducts of their existing reads. Phase 2 covers only what they can't: function-level near-twin detection (requires cross-file scanning) and pattern erosion vs per-folder CLAUDE.md (requires Intent Layer output, only available here).
 
 Identify files to analyze:
 ```bash
 git -C "$PROJECT_ROOT" log --name-only --pretty=format: --since="30 days ago" -- '*.kt' '*.java' '*.swift' '*.ts' '*.tsx' '*.py' '*.go' '*.rs' | sort -u | head -100
 ```
-If that returns nothing (new repo or no recent changes), use all source files from the scan:
+Fallback if empty: use all source files from `python3 .archie/extract_output.py recent-files "$PROJECT_ROOT/.archie/scan.json"`.
+
+Spawn a Sonnet subagent (`model: "sonnet"`) with:
+
+> You are a narrow findings agent. Emit Semantic Findings per `.claude/commands/_shared/semantic_findings_spec.md`. You only produce two types:
+>
+> 1. **`semantic_duplication`** (localized) — functions in different files with different signatures but essentially the same logic. AI agents frequently copy-paste a function, tweak the name/parameters, and leave the body identical or near-identical. Scan `.archie/skeletons.json` for functions with similar names (e.g., `getText`/`getTexts`, `loadUser`/`fetchUser`, `formatDate` in multiple files). Read suspicious pairs to confirm. For each confirmed duplicate group, emit one finding with category: localized, type: semantic_duplication, 1 canonical location + evidence listing duplicates, fix_direction specifying which function should be shared.
+>
+> 2. **`pattern_erosion`** (localized) — code in a folder that violates the patterns documented in that folder's CLAUDE.md. Read the folder's CLAUDE.md (if it exists; skip silently if missing), then read the files in the folder that changed recently. If a file deviates from a documented pattern, emit category: localized, type: pattern_erosion, location: the specific file, root_cause: which pattern is violated and how, fix_direction: how to conform.
+>
+> Do NOT emit systemic findings — those are Wave 2's job. Do NOT emit dependency_violation, cycle, complexity_hotspot, decision_violation, etc. — those come from Wave 1/2.
+>
+> All findings you emit carry `synthesis_depth: "draft"` and `source: "phase2"`.
+>
+> Before emitting, Read the spec file and follow §1 (schema), §2 (quality gate), §3 (severity rubric), §4 (taxonomy).
+>
+> Return JSON: `{"findings": [...]}`.
+
+Save the findings:
+
+```
+Write /tmp/archie_phase2_findings.json with the agent's COMPLETE output text
+```
+
 ```bash
-python3 .archie/extract_output.py recent-files "$PROJECT_ROOT/.archie/scan.json"
+python3 .archie/extract_output.py findings /tmp/archie_phase2_findings.json "$PROJECT_ROOT/.archie/semantic_findings_phase2.json"
+rm -f /tmp/archie_phase2_findings.json
 ```
 
-For each file (batch into groups of ~15), collect:
-- The file's content
-- Its folder's CLAUDE.md **if it exists** (per-folder patterns, anti-patterns — these were generated in Step 7, but may be missing if Step 7 was skipped or partially completed)
-- Its parent folder's CLAUDE.md **if it exists**
+### Phase 3: Aggregate + present combined assessment
 
-Read `$PROJECT_ROOT/.archie/blueprint.json` — specifically `decisions.key_decisions`, `decisions.decision_chain`, `decisions.trade_offs` (with `violation_signals`), `pitfalls` (with `stems_from`), `communication.patterns`, `development_rules`.
+Invoke the aggregator to merge all findings sources with lifecycle + quality gate:
 
-Read `$PROJECT_ROOT/.archie/drift_report.json` (mechanical findings from Phase 1).
-
-Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their folder CLAUDE.md files, and the blueprint context. Tell it:
-
-> You are an architecture reviewer. You have the project's architectural blueprint (decisions, trade-offs, pitfalls, patterns), per-folder CLAUDE.md files describing expected patterns, mechanical drift findings (already detected), and source files to review.
->
-> Find **deep architectural violations** — problems that pattern matching cannot catch. For each finding, return:
-> - `folder`: the folder path
-> - `file`: the specific file
-> - `type`: one of `decision_violation`, `pattern_erosion`, `trade_off_undermined`, `pitfall_triggered`, `responsibility_leak`, `abstraction_bypass`, `semantic_duplication`
-> - `severity`: `error` or `warn`
-> - `decision_or_pattern`: which architectural decision, pattern, or pitfall this violates (reference by name from the blueprint)
-> - `evidence`: the specific code (function name, class, line pattern) that demonstrates the violation
-> - `message`: one sentence explaining what's wrong and why it matters
->
-> Focus on:
-> 1. **Decision violations** — code that contradicts a key architectural decision
-> 2. **Pattern erosion** — code that doesn't follow the patterns described in its folder's CLAUDE.md
-> 3. **Trade-off undermining** — code that works against an accepted trade-off (check `violation_signals`)
-> 4. **Pitfall triggers** — code that falls into a documented pitfall (check `stems_from` chains)
-> 5. **Responsibility leaks** — a component doing work that belongs to another component
-> 6. **Abstraction bypass** — code reaching through a layer instead of using the intended interface
-> 7. **Semantic duplication** — functions/methods with different signatures but essentially the same logic. AI agents frequently copy-paste a function, tweak the name/parameters, and leave the body identical or near-identical. Look for: functions with similar names (e.g., `getText`/`getTexts`, `loadUser`/`fetchUser`), functions in different files that do the same thing with slightly different types, helper functions reimplemented instead of shared. For each, use type `semantic_duplication` and explain what's duplicated and which function should be the canonical one.
->
-> Do NOT report: style/formatting/naming (the script handles those), generic best-practice violations not grounded in THIS project's blueprint, or issues already in the mechanical drift report.
->
-> Return JSON: `{"deep_findings": [...]}`
-
-Save the deep findings:
-```
-Write /tmp/archie_deep_drift.json with the agent's COMPLETE output text
-```
 ```bash
-python3 .archie/extract_output.py deep-drift /tmp/archie_deep_drift.json "$PROJECT_ROOT/.archie/drift_report.json"
-rm -f /tmp/archie_deep_drift.json
+python3 .archie/aggregate_findings.py "$PROJECT_ROOT"
 ```
 
-### Phase 3: Present the combined assessment
+This reads:
+- `.archie/semantic_findings_wave1.json` (Wave 1 Structure + Patterns findings)
+- `.archie/semantic_findings_wave2.json` (Wave 2 canonical systemic + localized + upgraded drafts)
+- `.archie/semantic_findings_phase2.json` (narrow agent: semantic_duplication + pattern_erosion)
+- `.archie/drift_report.json` (mechanical findings from Phase 1)
+- `.archie/semantic_findings.json` (prior scan's findings, for lifecycle diff — if exists)
 
-Read `$PROJECT_ROOT/.archie/blueprint.json` and `$PROJECT_ROOT/.archie/drift_report.json` (now contains both mechanical and deep findings). This is the final output — make it valuable.
+...and writes the canonical merged output to `.archie/semantic_findings.json`.
+
+Now read `$PROJECT_ROOT/.archie/blueprint.json` and `$PROJECT_ROOT/.archie/semantic_findings.json` for presentation. This is the final output — make it valuable.
 
 #### Part 1: What was generated
 
@@ -1083,114 +1170,121 @@ Rate and explain each dimension (use these exact labels: Strong / Adequate / Wea
 
 Base every rating on actual evidence from the blueprint and drift findings — reference specific components, patterns, or findings. If the blueprint lacks data for a dimension, say "Not assessed" rather than guessing.
 
-#### Part 4: Architectural Drift
+#### Part 4: Top Risks & Recommendations
 
-Present ALL findings — mechanical and deep together, organized by severity (errors first).
-
-**Deep architectural findings** (from AI analysis):
-- For each: the file, which decision/pattern it violates, the evidence, and why it matters
-- Group related findings (e.g., multiple files violating the same decision)
-
-**Mechanical findings** (from script):
-- Pattern divergences, dependency violations, naming violations, structural outliers, anti-pattern clusters
-- For each: what diverged, why it matters, suggested action
-
-If 0 findings, say so — that's a positive signal.
-
-#### Part 5: Top Risks & Recommendations
-
-Synthesize from pitfalls, trade-offs, drift findings (both mechanical and deep), and your observations. List the **3-5 most important architectural risks**, ordered by impact:
+Synthesize from pitfalls, trade-offs, the systemic findings in `semantic_findings.json`, and your observations. List the **3-5 most important architectural risks**, ordered by impact:
 - What the risk is (one sentence)
-- Where it manifests (specific components/files/drift findings)
+- Where it manifests (specific components/files/finding ids)
 - What to watch for going forward
 
-#### Part 6: Semantic Duplication
+Full per-finding detail belongs in Phase 4's `scan_report.md` — this section is just the narrative top-of-stack.
 
-**This is a critical section.** The mechanical verbosity score (0-1) only catches exact line-for-line clones. AI agents frequently create near-identical functions with slightly different names, signatures, or types — the verbosity metric completely misses these.
+**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only); the `semantic_duplication` findings in `semantic_findings.json` (type `semantic_duplication` under Localized Findings in `scan_report.md`) are the AI-powered complement. Run `/archie-scan` regularly to track how these metrics change over time.
 
-Present the `semantic_duplication` findings from the deep drift analysis. If the drift agent found none, **do your own quick check now**: scan the skeletons for functions with similar names (e.g., `getText`/`getTexts`, `loadUser`/`fetchUser`, `formatDate` in multiple files, `handleError` reimplemented per-module). Read suspicious pairs and confirm whether the logic is duplicated.
+### Phase 4: Write `.archie/scan_report.md`
 
-For each confirmed duplicate group:
-- The canonical function (the one that should be the shared version)
-- The duplicates: which files, what differs (just the signature? types? minor logic?)
-- Whether they could be consolidated
+The Phase 3 synthesis above is valuable but ephemeral — it only exists in chat output. `/archie-share` (and future trending runs of `/archie-scan`) need the findings on disk.
 
-Present in the health table as:
-```
-| Semantic duplication | N groups found | See Part 6 for details |
-```
+Read `$PROJECT_ROOT/.archie/semantic_findings.json` (aggregator output from Phase 3) and `$PROJECT_ROOT/.archie/blueprint.json`. Also read `$PROJECT_ROOT/.archie/health.json` and `$PROJECT_ROOT/.archie/health_history.json` for the Executive Summary's health score + trend.
 
-If genuinely none found after checking, say "No semantic duplication detected after AI analysis."
-
-**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only) — the semantic duplication analysis in Part 6 above is the AI-powered complement. Run `/archie-scan` regularly to track how these metrics change over time.
-
-### Phase 4: Persist findings to `.archie/scan_report.md`
-
-The Phase 3 synthesis above is valuable but ephemeral — it only exists in the chat output. `/archie-share` (and future trending runs of `/archie-scan`) need the findings on disk. Write the same content to `.archie/scan_report.md` in the format `/archie-scan` produces.
-
-Check whether a prior scan report exists (for resolved/new/recurring classification):
-```bash
-test -f "$PROJECT_ROOT/.archie/scan_report.md" && echo "PRIOR_REPORT_EXISTS" || echo "FIRST_BASELINE"
-```
-
-If `FIRST_BASELINE` (no prior scan_report.md): all findings are tagged **NEW (baseline)**. If `PRIOR_REPORT_EXISTS`: compare against the prior file's Findings section and classify each as **NEW**, **RECURRING**, or **RESOLVED**.
-
-Read `$PROJECT_ROOT/.archie/health.json` for precise numeric values and `$PROJECT_ROOT/.archie/health_history.json` to compute trends (previous run values vs. current).
-
-Write `$PROJECT_ROOT/.archie/scan_report.md` with this exact structure (use the Write tool, do NOT shell-heredoc):
+Write `$PROJECT_ROOT/.archie/scan_report.md` with this **exact** structure (use the Write tool, do NOT shell-heredoc). This layout is shared with `/archie-scan`; deep-scan and fast-scan produce structurally identical reports.
 
 ```markdown
-# Archie Scan Report
-> Deep scan baseline | <today's date in YYYY-MM-DD HH:MM UTC> | <total_functions> functions / <total_loc> LOC analyzed | baseline run
+# Scan Report — <repo name>
 
-## Architecture Overview
+## Executive Summary
+- Health score: X.XX (trend: ↑ / ↓ / → vs previous scan from `health_history.json`)
+- Systemic findings: N total (new: X, recurring: Y, worsening: Z, resolved: W)
+- Top 3 systemic findings by severity × blast_radius:
+  1. [severity] type — component name (blast: N)
+  2. [severity] type — component name (blast: N)
+  3. [severity] type — component name (blast: N)
 
-<2-3 paragraphs from Part 2: architecture style, key components, most important decisions. Prose, not bullets.>
+## Systemic Findings (N)
 
-## Health Scores
+<For each finding where `category == "systemic"` AND `lifecycle_status != "resolved"`, render with the full expanded treatment below. Order by severity (error > warn > info) then `blast_radius` descending.>
 
-| Metric | Current | Previous | Trend | What it means |
-|--------|--------:|---------:|------:|---------------|
-| Erosion    | <erosion>    | <prev or "—"> | <up/down/flat> | <one-liner interpretation> |
-| Gini       | <gini>       | <prev or "—"> | <trend> | <one-liner> |
-| Top-20%    | <top20>      | <prev or "—"> | <trend> | <one-liner> |
-| Verbosity  | <verbosity>  | <prev or "—"> | <trend> | <one-liner> |
-| LOC        | <total_loc>  | <prev or "—"> | <trend> | <one-liner> |
+### [severity · lifecycle] type — component name
+**Pattern:** <pattern_description — one sentence>
+**Evidence:**
+- location1 — short why
+- location2 — short why
+- (more...)
+**Root cause:** <root_cause>
+**Fix direction:** <fix_direction>
+**Severity:** <severity> — blast_radius: N (delta: +K / -K / 0)
+**Blueprint anchor:** <blueprint_anchor if present, else omit line>
 
-<one paragraph summarizing what the numbers say together>
+## Localized Findings (M)
 
-### Complexity Trajectory
-<short list of the top 5-8 high-CC functions from health.json with file:line and CC values, and what they suggest about risk concentration>
+<Compact tables grouped by `type`. Only emit a subsection if at least one finding of that type exists. Use these exact table schemas.>
 
-## Findings
+### Dependency violations (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+| error | path/file:line | short detail | short fix |
 
-Ranked by severity, grouped by novelty.
+### Cycles (k)
+| Sev | Modules | Evidence | Fix |
+|---|---|---|---|
 
-### NEW (first observed this scan)
-<numbered list of findings — each: **[severity] Title.** Description. Confidence N.>
+### Complexity hotspots (k)
+| Sev | Function | CC | Location | Why | Fix |
+|---|---|---:|---|---|---|
 
-### RECURRING (previously documented, still present)
-<only if prior report exists; otherwise omit this subsection>
+### Pattern divergences (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
 
-### RESOLVED
-<only if prior report exists; otherwise omit. "None" if nothing resolved.>
+### Rule violations (k)
+| Sev | Rule | Location | Evidence | Fix |
+|---|---|---|---|---|
 
-## Proposed Rules
+### Semantic duplications (k)
+| Sev | Canonical | Duplicates | Fix |
+|---|---|---|---|
 
-<Any new rules proposed by Step 6 synthesis that are not yet in rules.json. Reference proposed_rules.json.>
+### Pattern erosion (k)
+| Sev | File | Violated pattern | Fix |
+|---|---|---|---|
+
+### Decision violations (k)
+| Sev | Decision | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Trade-offs undermined (k)
+| Sev | Trade-off | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Pitfalls triggered (k)
+| Sev | Pitfall | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Responsibility leaks (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+### Abstraction bypasses (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+## Resolved Findings (W)
+
+<Compressed list of findings where `lifecycle_status == "resolved"`. Group by `type`. Omit the section entirely if W == 0.>
+
+## Mechanical Findings (p)
+
+<Findings where `source == "mechanical"` — output of `drift.py` that AI analysis didn't subsume. Keep compact (1 line per item: severity, type, location, one-line detail). Omit the section if p == 0.>
 ```
 
-Sources for Findings:
-- `drift_report.json` — mechanical and deep drift findings from Phase 1 and 2
-- `blueprint.json` — `pitfalls` (each causal chain becomes a finding), `decisions.trade_offs` with violated `violation_signals` (if any appear in drift_report)
-- Top complexity offenders from `health.json` (only if CC ≥ 15 or a cluster — don't list every high-CC function as a finding)
+**Rendering rules:**
 
-Severity mapping:
-- `error` — decision violations, inverted dependencies, cycles across architectural boundaries
-- `warn` — pattern erosion, god-objects, pitfalls currently manifesting, trade-offs actively undermined
-- `info` — structural observations (dependency magnets, high fan-in nodes) that aren't currently broken
-
-Confidence: carry forward from drift findings when available; otherwise use 0.8-0.95 for findings grounded in direct code reading, lower for inferred ones.
+- Order within Systemic Findings: severity (error > warn > info), then `blast_radius` descending.
+- Within each Localized table, order by severity then by location string for stable diffs.
+- "component name" in the Top-3 summary and Systemic headings comes from `scope.components_affected[0]` if present, else derived from the first location.
+- `blast_radius_delta` renders as `+K` (worsening), `-K` (improving), or `0` (unchanged). Omit parentheses if the finding is new and delta is 0.
+- When the aggregator produces zero findings in a section, include the heading only if the section has a count in parentheses (so `## Systemic Findings (0)` stays; empty Localized subsections are omitted).
+- `blueprint_anchor` lines: include only when the field is non-null.
 
 Verify the write:
 ```bash
