@@ -18,11 +18,14 @@ Run:
   python3 aggregate_findings.py /path/to/repo
 
 Reads (from `<repo>/.archie/`):
-  - semantic_findings_wave1.json
-  - semantic_findings_wave2.json
-  - semantic_findings_phase2.json
-  - drift_report.json          (mechanical findings)
-  - semantic_findings.json     (prior run, for lifecycle)
+  - semantic_findings_wave1.json       (deep-scan)
+  - semantic_findings_wave2.json       (deep-scan)
+  - semantic_findings_phase2.json      (deep-scan)
+  - semantic_findings_fast_a.json      (fast-scan Agent A)
+  - semantic_findings_fast_b.json      (fast-scan Agent B)
+  - semantic_findings_fast_c.json      (fast-scan Agent C)
+  - drift_report.json                  (mechanical findings)
+  - semantic_findings.json             (prior run, for lifecycle)
 
 Writes:
   - semantic_findings.json     ({"findings": [...], "schema_version": 1})
@@ -200,10 +203,24 @@ def main():
     wave1 = _load(archie_dir / "semantic_findings_wave1.json")
     wave2 = _load(archie_dir / "semantic_findings_wave2.json")
     phase2 = _load(archie_dir / "semantic_findings_phase2.json")
+    # Fast-scan per-agent outputs. Deep-scan never writes these; fast-scan
+    # never writes the wave/phase files — either branch degrades to [] via
+    # _load. Merging them through the same pipeline keeps one code path.
+    fast_a = _load(archie_dir / "semantic_findings_fast_a.json")
+    fast_b = _load(archie_dir / "semantic_findings_fast_b.json")
+    fast_c = _load(archie_dir / "semantic_findings_fast_c.json")
     mechanical = _load(archie_dir / "drift_report.json")
     prior = _load(archie_dir / "semantic_findings.json")
 
-    merged = merge_sources(wave1, wave2, phase2, mechanical)
+    # fast_agent_* share SOURCE_RANK 2 with wave1_*, so threading them through
+    # the wave1 bucket keeps _pick's ranking correct. wave2/phase2 outrank them
+    # (deep-scan wins when both exist); mechanical is lower (draft-only bucket).
+    merged = merge_sources(
+        list(wave1) + list(fast_a) + list(fast_b) + list(fast_c),
+        wave2,
+        phase2,
+        mechanical,
+    )
     gated = apply_quality_gate(merged)
     with_lifecycle = compute_lifecycle(gated, prior)
 
