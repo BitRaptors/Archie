@@ -73,3 +73,34 @@ def test_hp_medium_state():
         _make_archie_dir(tmp_path, blueprint=True, scan_age_hours=48, violations=5)
         hp, _ = buddy.calculate_hp(tmp_path)
         assert hp == 75  # 30 (blueprint) + 30 (1-3 day bucket, <72h) + 15 (4-7 violations)
+
+
+def test_mood_confident():
+    assert buddy.mood_from_hp(95) == "confident"
+    assert buddy.mood_from_hp(80) == "confident"
+
+def test_mood_skeptical():
+    assert buddy.mood_from_hp(79) == "skeptical"
+    assert buddy.mood_from_hp(50) == "skeptical"
+
+def test_mood_sick():
+    assert buddy.mood_from_hp(49) == "sick"
+    assert buddy.mood_from_hp(20) == "sick"
+
+def test_mood_dead():
+    assert buddy.mood_from_hp(19) == "dead"
+    assert buddy.mood_from_hp(0) == "dead"
+
+def test_get_message_returns_string():
+    """Each mood should produce a non-empty string message."""
+    for mood in ("confident", "skeptical", "sick", "dead", "unborn"):
+        msg = buddy.get_message(mood)
+        assert isinstance(msg, str)
+        assert len(msg) > 0
+
+def test_eyes_for_mood():
+    assert buddy.eyes_for_mood("confident") == ("◕", "◕")
+    assert buddy.eyes_for_mood("skeptical") == ("¬", "¬")
+    assert buddy.eyes_for_mood("sick") == ("◔", "◔")
+    assert buddy.eyes_for_mood("dead") == ("×", "×")
+    assert buddy.eyes_for_mood("unborn") == ("·", "·")
