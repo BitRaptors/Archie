@@ -170,6 +170,9 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/drift":
             self._send_json(_load_json(archie_dir / "drift_report.json"))
 
+        elif path == "/api/semantic-findings":
+            self._send_json(_load_json(archie_dir / "semantic_findings.json"))
+
         elif path == "/api/generated-files":
             self._send_json(_collect_generated_files(root))
 
@@ -343,7 +346,7 @@ tailwind.config = {
 // ---------------------------------------------------------------------------
 let health = {}, healthHistory = [], scanReports = [], blueprint = {},
     rules = {}, ignoredRules = {}, generatedFiles = {}, folderMds = {},
-    drift = {}, depGraph = {}, proposedRules = {};
+    drift = {}, depGraph = {}, proposedRules = {}, semanticFindings = {};
 
 // ---------------------------------------------------------------------------
 // Tab switching
@@ -384,7 +387,7 @@ async function fetchJSON(url) {
 }
 
 async function loadData() {
-  const [h, hh, sr, bp, r, ir, gf, fm, dr, dg, pr] = await Promise.all([
+  const [h, hh, sr, bp, r, ir, gf, fm, dr, dg, pr, sf] = await Promise.all([
     fetchJSON('/api/health'),
     fetchJSON('/api/health-history'),
     fetchJSON('/api/scan-reports'),
@@ -396,6 +399,7 @@ async function loadData() {
     fetchJSON('/api/drift'),
     fetchJSON('/api/dependency-graph'),
     fetchJSON('/api/proposed-rules'),
+    fetchJSON('/api/semantic-findings'),
   ]);
   health = h || {};
   healthHistory = hh || [];
@@ -408,6 +412,8 @@ async function loadData() {
   drift = dr || {};
   depGraph = dg || {};
   proposedRules = pr || {};
+  semanticFindings = sf || {findings: []};
+  window.semanticFindings = semanticFindings;
 
   // Set repo name
   const repoNameEl = document.getElementById('repoName');
