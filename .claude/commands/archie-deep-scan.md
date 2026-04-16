@@ -662,6 +662,27 @@ Write /tmp/archie_sub3_$PROJECT_NAME.json with Technology agent's COMPLETE outpu
 Write /tmp/archie_sub4_$PROJECT_NAME.json with UI Layer agent's COMPLETE output text (if spawned)
 ```
 
+After Wave 1 outputs are saved, extract findings from Structure + Patterns agents (Technology does not produce findings):
+
+```bash
+# Extract findings from Structure (sub1) and Patterns (sub2) outputs
+python3 .archie/extract_output.py findings /tmp/archie_sub1_$PROJECT_NAME.json /tmp/_wave1_struct_f.json
+python3 .archie/extract_output.py findings /tmp/archie_sub2_$PROJECT_NAME.json /tmp/_wave1_patt_f.json
+
+# Concatenate into one wave1 findings file
+python3 -c "
+import json
+from pathlib import Path
+struct = json.loads(Path('/tmp/_wave1_struct_f.json').read_text())
+patt = json.loads(Path('/tmp/_wave1_patt_f.json').read_text())
+combined = {'findings': struct.get('findings', []) + patt.get('findings', [])}
+Path('$PROJECT_ROOT/.archie/semantic_findings_wave1.json').write_text(json.dumps(combined, indent=2))
+"
+rm -f /tmp/_wave1_struct_f.json /tmp/_wave1_patt_f.json
+```
+
+The `semantic_findings_wave1.json` file is read by the aggregator in Step 9 Phase 3.
+
 Then merge:
 
 ```bash
