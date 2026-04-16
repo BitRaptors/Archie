@@ -4,7 +4,7 @@ import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle, Share2, FileText } from 'lucide-react'
 import { loadBundle, isLocalMode } from '@/lib/data'
 import type { Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
@@ -19,6 +19,11 @@ import { GhostLogo } from '@/components/GhostLogo'
 import { filterReportSections } from '@/lib/toc'
 import * as Sections from '@/components/ReportSections'
 import { countSemanticDuplications, extractFindings, rankFindings } from '@/lib/findings'
+import { ScanReportsSection } from '@/components/ScanReportsSection'
+import { DependencyGraphSection } from '@/components/DependencyGraphSection'
+import { FilesSection } from '@/components/FilesSection'
+import { RulesManagementSection } from '@/components/RulesManagementSection'
+import { ShareButton } from '@/components/ShareButton'
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
@@ -30,6 +35,7 @@ export default function ReportPage() {
   const [copied, setCopied] = useState(false)
   const [activeSection, setActiveSection] = useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [adoptedRules, setAdoptedRules] = useState<any[]>([])
 
   const contentRef = useRef<HTMLDivElement>(null)
   const scrollingToRef = useRef(false)
@@ -40,6 +46,7 @@ export default function ReportPage() {
       .then((r) => {
         setBundle(r.bundle)
         setCreatedAt(r.created_at)
+        setAdoptedRules(r.bundle.rules_adopted?.rules || r.bundle.rules_adopted || [])
       })
       .catch((e) => setError(e.message))
   }, [token])
@@ -79,22 +86,16 @@ export default function ReportPage() {
     // nested `#pitfalls` div inside the Problems section plus `#try-archie`
     // footer. Rebuilt once per load to avoid querySelector churn on scroll.
     const TRACKED_IDS = [
-      'summary',
-      'health',
-      'diagram',
-      'workspace-topology',
-      'archrules',
-      'devrules',
-      'decisions',
-      'tradeoffs',
-      'guidelines',
-      'communications',
-      'components',
-      'technology',
-      'deployment',
+      'summary', 'health', 'diagram', 'workspace-topology',
+      'scan-reports',
+      'archrules', 'devrules', 'rules-management',
+      'decisions', 'tradeoffs',
+      'guidelines', 'communications',
+      'components', 'technology', 'deployment',
+      'dependencies',
+      'files',
       'problems',
-      'pitfalls',
-      'try-archie',
+      'share',
     ]
 
     const handleScroll = () => {
@@ -308,6 +309,18 @@ export default function ReportPage() {
             )}
           </div>
 
+          {bundle.scan_reports && bundle.scan_reports.length > 0 && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Reports</p>
+              <NavButton
+                active={activeSection === 'scan-reports'}
+                onClick={() => scrollToSection('scan-reports')}
+                icon={FileText}
+                label="Scan Reports"
+              />
+            </div>
+          )}
+
           {/* Rules */}
           {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0) && (
             <div className="space-y-1">
@@ -326,6 +339,14 @@ export default function ReportPage() {
                   onClick={() => scrollToSection('devrules')}
                   icon={Shield}
                   label="Development Rules"
+                />
+              )}
+              {isLocalMode() && (
+                <NavButton
+                  active={activeSection === 'rules-management'}
+                  onClick={() => scrollToSection('rules-management')}
+                  icon={Shield}
+                  label="Rules Management"
                 />
               )}
             </div>
@@ -408,6 +429,30 @@ export default function ReportPage() {
             </div>
           )}
 
+          {bundle.dependency_graph && bundle.dependency_graph.nodes?.length > 0 && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Graph</p>
+              <NavButton
+                active={activeSection === 'dependencies'}
+                onClick={() => scrollToSection('dependencies')}
+                icon={Database}
+                label="Dependencies"
+              />
+            </div>
+          )}
+
+          {(bundle.generated_files || bundle.folder_claude_mds) && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Files</p>
+              <NavButton
+                active={activeSection === 'files'}
+                onClick={() => scrollToSection('files')}
+                icon={FileText}
+                label="Browse Files"
+              />
+            </div>
+          )}
+
           {/* Risks — merged Findings + Pitfalls */}
           {(filteredReport || pitfalls.length > 0) && (
             <div className="space-y-1">
@@ -429,14 +474,16 @@ export default function ReportPage() {
             </div>
           )}
 
-          {/* Get started */}
+          {/* Get started / Share */}
           <div className="space-y-1">
-            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Get Started</p>
+            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">
+              {isLocalMode() ? 'Share' : 'Get Started'}
+            </p>
             <NavButton
-              active={activeSection === 'try-archie'}
-              onClick={() => scrollToSection('try-archie')}
-              icon={Rocket}
-              label="Try Archie"
+              active={activeSection === 'share'}
+              onClick={() => scrollToSection('share')}
+              icon={isLocalMode() ? Share2 : Rocket}
+              label={isLocalMode() ? 'Share Blueprint' : 'Try Archie'}
             />
           </div>
         </nav>
@@ -587,6 +634,14 @@ export default function ReportPage() {
             </section>
           )}
 
+          {/* Scan Reports */}
+          {bundle.scan_reports && bundle.scan_reports.length > 0 && (
+            <section id="scan-reports" className="scroll-mt-8">
+              <Sections.SectionHeader title="Scan Reports" icon={FileText} />
+              <ScanReportsSection reports={bundle.scan_reports} />
+            </section>
+          )}
+
           {/* 4. Architecture Rules */}
           {(filePlacement.length > 0 || naming.length > 0) && (
             <section id="archrules" className="scroll-mt-24">
@@ -598,6 +653,19 @@ export default function ReportPage() {
           {developmentRules.length > 0 && (
             <section id="devrules" className="scroll-mt-24">
               <Sections.DevelopmentRulesSection rules={developmentRules} />
+            </section>
+          )}
+
+          {/* Rules Management (local mode only) */}
+          {isLocalMode() && (
+            <section id="rules-management" className="scroll-mt-8">
+              <Sections.SectionHeader title="Rules Management" icon={Shield} />
+              <RulesManagementSection
+                adopted={adoptedRules}
+                proposed={bundle.proposed_rules}
+                ignored={bundle.ignored_rules}
+                onRulesChange={setAdoptedRules}
+              />
             </section>
           )}
 
@@ -650,6 +718,25 @@ export default function ReportPage() {
             </section>
           )}
 
+          {/* Dependencies */}
+          {bundle.dependency_graph && bundle.dependency_graph.nodes?.length > 0 && (
+            <section id="dependencies" className="scroll-mt-8">
+              <Sections.SectionHeader title="Dependencies" icon={Database} />
+              <DependencyGraphSection graph={bundle.dependency_graph} />
+            </section>
+          )}
+
+          {/* Generated Files */}
+          {(bundle.generated_files || bundle.folder_claude_mds) && (
+            <section id="files" className="scroll-mt-8">
+              <Sections.SectionHeader title="Generated Files" icon={FileText} />
+              <FilesSection
+                generatedFiles={bundle.generated_files}
+                folderClaudeMds={bundle.folder_claude_mds}
+              />
+            </section>
+          )}
+
           {/* 12. Architectural Problems + Pitfalls — merged, end of page */}
           {(findings.length > 0 || pitfalls.length > 0) && (
             <section id="problems" className="space-y-12 scroll-mt-24">
@@ -676,71 +763,83 @@ export default function ReportPage() {
             </section>
           )}
 
-          {/* Conversion Footer */}
-          <footer id="try-archie" className="pt-20 pb-32 scroll-mt-24">
-             <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-teal to-tangerine rounded-[40px] blur opacity-10 group-hover:opacity-20 transition-opacity duration-1000" />
-                <div className="relative p-12 md:p-20 rounded-[38px] bg-white border border-papaya-400 shadow-2xl shadow-ink/5 text-center space-y-8 overflow-hidden">
-                  <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
-                    <Activity className="w-96 h-96 -mr-48 -mt-48" />
-                  </div>
-                  
-                  <div className="space-y-4 relative">
-                    <div className="w-20 h-20 rounded-3xl bg-teal/10 flex items-center justify-center mx-auto mb-10 shadow-inner border border-teal/20">
-                       <Activity className="text-teal w-10 h-10" />
+          {/* Share / Try Archie Footer */}
+          <section id="share" className="scroll-mt-8">
+            {isLocalMode() ? (
+              <div className="text-center py-8">
+                <Sections.SectionHeader title="Share Blueprint" icon={Share2} />
+                <p className="text-sm text-ink/50 mb-6">Share this architecture blueprint with your team</p>
+                <div className="flex justify-center">
+                  <ShareButton />
+                </div>
+              </div>
+            ) : (
+              <footer className="pt-20 pb-32">
+                <div className="relative group">
+                  <div className="absolute -inset-1 bg-gradient-to-r from-teal to-tangerine rounded-[40px] blur opacity-10 group-hover:opacity-20 transition-opacity duration-1000" />
+                  <div className="relative p-12 md:p-20 rounded-[38px] bg-white border border-papaya-400 shadow-2xl shadow-ink/5 text-center space-y-8 overflow-hidden">
+                    <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
+                      <Activity className="w-96 h-96 -mr-48 -mt-48" />
                     </div>
-                    <h3 className="text-4xl md:text-5xl font-black tracking-tighter text-ink leading-tight">
-                      Archie knows your <br className="hidden md:block" /> codebase like a Senior Architect.
-                    </h3>
-                    <p className="text-xl text-ink/60 max-w-2xl mx-auto font-medium">
-                      Understand complexity, enforce standards, and guide AI agents with precision.
-                      Get started in 3 minutes.
-                    </p>
-                  </div>
 
-                  <div className="relative pt-8 max-w-lg mx-auto">
-                    <div className={cn(
-                      'rounded-2xl p-6 font-mono text-sm flex items-center justify-between gap-4 shadow-2xl transition-all group/cmd',
-                      theme.console.bg,
-                      theme.console.text
-                    )}>
-                      <code className="truncate text-teal-100">{INSTALL_CMD}</code>
-                      <button 
-                        onClick={copyInstall} 
-                        className="p-3 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all shrink-0 active:scale-90"
-                        title="Copy"
-                      >
-                        {copied ? <Check className="w-5 h-5 text-teal" /> : <Copy className="w-5 h-5" />}
-                      </button>
-                    </div>
-                    {copied && (
-                      <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-teal text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg animate-in fade-in zoom-in duration-300">
-                         Copied to Keyboard
+                    <div className="space-y-4 relative">
+                      <div className="w-20 h-20 rounded-3xl bg-teal/10 flex items-center justify-center mx-auto mb-10 shadow-inner border border-teal/20">
+                         <Activity className="text-teal w-10 h-10" />
                       </div>
-                    )}
-                  </div>
+                      <h3 className="text-4xl md:text-5xl font-black tracking-tighter text-ink leading-tight">
+                        Archie knows your <br className="hidden md:block" /> codebase like a Senior Architect.
+                      </h3>
+                      <p className="text-xl text-ink/60 max-w-2xl mx-auto font-medium">
+                        Understand complexity, enforce standards, and guide AI agents with precision.
+                        Get started in 3 minutes.
+                      </p>
+                    </div>
 
-                  <div className="pt-12 flex flex-col md:flex-row items-center justify-center gap-8">
-                    <a
-                      href="https://github.com/BitRaptors/Archie"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-[0.2em] text-ink/40 hover:text-teal transition-all group"
-                    >
-                      <span>Explore GitHub</span>
-                      <ExternalLink className="w-4 h-4 group-hover:-translate-y-1 group-hover:translate-x-1 transition-transform" />
-                    </a>
-                    <div className="w-1 h-1 rounded-full bg-ink/10 hidden md:block" />
-                    <Link
-                      to="/"
-                      className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-[0.2em] text-ink/40 hover:text-ink transition-all"
-                    >
-                      Documentation
-                    </Link>
+                    <div className="relative pt-8 max-w-lg mx-auto">
+                      <div className={cn(
+                        'rounded-2xl p-6 font-mono text-sm flex items-center justify-between gap-4 shadow-2xl transition-all group/cmd',
+                        theme.console.bg,
+                        theme.console.text
+                      )}>
+                        <code className="truncate text-teal-100">{INSTALL_CMD}</code>
+                        <button
+                          onClick={copyInstall}
+                          className="p-3 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all shrink-0 active:scale-90"
+                          title="Copy"
+                        >
+                          {copied ? <Check className="w-5 h-5 text-teal" /> : <Copy className="w-5 h-5" />}
+                        </button>
+                      </div>
+                      {copied && (
+                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-teal text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg animate-in fade-in zoom-in duration-300">
+                           Copied to Keyboard
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-12 flex flex-col md:flex-row items-center justify-center gap-8">
+                      <a
+                        href="https://github.com/BitRaptors/Archie"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-[0.2em] text-ink/40 hover:text-teal transition-all group"
+                      >
+                        <span>Explore GitHub</span>
+                        <ExternalLink className="w-4 h-4 group-hover:-translate-y-1 group-hover:translate-x-1 transition-transform" />
+                      </a>
+                      <div className="w-1 h-1 rounded-full bg-ink/10 hidden md:block" />
+                      <Link
+                        to="/"
+                        className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-[0.2em] text-ink/40 hover:text-ink transition-all"
+                      >
+                        Documentation
+                      </Link>
+                    </div>
                   </div>
                 </div>
-             </div>
-          </footer>
+              </footer>
+            )}
+          </section>
         </div>
       </main>
     </div>
