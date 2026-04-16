@@ -6,6 +6,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "archie" / "standalone"))
 import buddy
@@ -188,3 +189,43 @@ def test_achievement_comeback():
     state["last_hp"] = 15
     updated = buddy.update_state(state, hp=85)
     assert "comeback" in updated["achievements"]
+
+
+def test_cli_full_view():
+    """Running buddy.py on a project with .archie/ produces full ASCII output."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        _make_archie_dir(tmp_path, blueprint=True, scan_age_hours=0, violations=2)
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent.parent / "archie" / "standalone" / "buddy.py"), str(tmp_path)],
+            capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "▄███████▄" in result.stdout
+        assert "HP:" in result.stdout
+        assert "Mood:" in result.stdout
+
+
+def test_cli_compact_view():
+    """Running buddy.py --compact produces shorter output without Mood: line."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        _make_archie_dir(tmp_path, blueprint=True, scan_age_hours=0, violations=0)
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent.parent / "archie" / "standalone" / "buddy.py"), str(tmp_path), "--compact"],
+            capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "▄███████▄" in result.stdout
+        assert "Mood:" not in result.stdout
+
+
+def test_cli_no_archie_dir():
+    """Running on a project with no .archie/ still returns 0 and shows unborn."""
+    with tempfile.TemporaryDirectory() as tmp:
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent.parent / "archie" / "standalone" / "buddy.py"), tmp],
+            capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "·" in result.stdout  # unborn eyes
