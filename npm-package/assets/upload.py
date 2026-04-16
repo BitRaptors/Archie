@@ -76,7 +76,13 @@ def _strip_scan_meta(scan: dict) -> dict:
 
 def _strip_health(health: dict) -> dict:
     functions = health.get("functions") or []
-    top_cc = sorted(functions, key=lambda f: f.get("cc", 0), reverse=True)[:TOP_N_HIGH_CC]
+    # Rank by mass (cc*sqrt(sloc)) when present; fall back to cc for older
+    # health.json that predates the mass field.
+    top_cc = sorted(
+        functions,
+        key=lambda f: (f.get("mass") or f.get("cc", 0)),
+        reverse=True,
+    )[:TOP_N_HIGH_CC]
 
     duplicates = health.get("duplicates") or []
     top_dupes = sorted(duplicates, key=lambda d: d.get("lines", 0), reverse=True)[:TOP_N_DUPLICATES]
@@ -90,6 +96,8 @@ def _strip_health(health: dict) -> dict:
         "high_cc_functions": health.get("high_cc_functions"),
         "total_loc": health.get("total_loc"),
         "duplicate_lines": health.get("duplicate_lines"),
+        "cc_distribution": health.get("cc_distribution"),
+        "mass": health.get("mass"),
         "top_high_cc": [
             {
                 "path": f.get("path"),
@@ -97,6 +105,7 @@ def _strip_health(health: dict) -> dict:
                 "cc": f.get("cc"),
                 "sloc": f.get("sloc"),
                 "line": f.get("line"),
+                "mass": f.get("mass"),
             }
             for f in top_cc
         ],
@@ -156,6 +165,13 @@ def build_bundle(project_root: Path) -> dict:
     scan_report = _read_text(archie_dir / "scan_report.md")
     if scan_report:
         bundle["scan_report"] = scan_report
+
+    # Structured semantic duplications from Agent C — "near-twin" functions,
+    # reimplementations, same logic under different names. Distinct from
+    # health.json's textual duplicates (which are line-identical copy-paste).
+    sem = _read_json(archie_dir / "semantic_duplications.json")
+    if sem and isinstance(sem.get("duplications"), list):
+        bundle["semantic_duplications"] = sem["duplications"]
 
     return bundle
 

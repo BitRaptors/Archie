@@ -6,6 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
 // @ts-ignore
 import { Progress } from './ui/progress'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
@@ -13,7 +15,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import type { Finding } from '@/lib/findings'
-import { severityColor } from '@/lib/findings'
+import { isSemanticDupFinding, severityColor } from '@/lib/findings'
 import { AutoCode, codeInlineClassName } from '@/lib/autocode'
 
 export function WorkspaceTopologySection({ topology }: { topology: any }) {
@@ -126,7 +128,15 @@ export function WorkspaceTopologySection({ topology }: { topology: any }) {
 }
 
 
-export function FindingsList({ findings, truncate }: { findings: Finding[]; truncate?: boolean }) {
+export function FindingsList({
+  findings,
+  truncate,
+  semanticFunctionNames,
+}: {
+  findings: Finding[]
+  truncate?: boolean
+  semanticFunctionNames?: string[]
+}) {
   return (
     <div className="grid gap-4">
       {findings.map((f, i) => (
@@ -149,6 +159,11 @@ export function FindingsList({ findings, truncate }: { findings: Finding[]; trun
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2 flex-wrap">
               <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
+              {isSemanticDupFinding(f, { functionNames: semanticFunctionNames }) && (
+                <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest">
+                  Semantic Dup
+                </Badge>
+              )}
               {f.group && (
                 <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
                   {f.group}
@@ -195,19 +210,442 @@ export function Stat({ label, value, icon: Icon }: { label: string; value: any; 
   )
 }
 
-export function HealthBar({ label, value, inverted }: { label: string; value: number; inverted?: boolean }) {
+export function HintPopover({
+  hint,
+  direction,
+  target,
+}: {
+  hint: string
+  direction?: 'lower' | 'higher'
+  target?: string
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  const ariaLabel = [
+    direction ? `${direction === 'lower' ? 'Lower' : 'Higher'} is better` : '',
+    target ? `(target ${target})` : '',
+    hint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  // Recompute position whenever the popup is shown — handles scroll/resize by
+  // re-showing only (cheap; we could also re-compute on scroll but the popover
+  // is usually brief enough that one snapshot suffices).
+  useEffect(() => {
+    if (!open) return
+    const update = () => {
+      const rect = btnRef.current?.getBoundingClientRect()
+      if (!rect) return
+      // Viewport-relative — `position: fixed` below matches this frame.
+      setPos({
+        top: rect.top,
+        left: rect.left + rect.width / 2,
+      })
+    }
+    update()
+    const handle = () => setOpen(false)
+    // Dismiss the popup on scroll/resize so stale coordinates aren't shown.
+    window.addEventListener('scroll', handle, true)
+    window.addEventListener('resize', handle)
+    return () => {
+      window.removeEventListener('scroll', handle, true)
+      window.removeEventListener('resize', handle)
+    }
+  }, [open])
+
+  const popover =
+    open && pos
+      ? createPortal(
+          <span
+            role="tooltip"
+            className="fixed w-72 rounded-xl bg-ink text-papaya-100 text-[11px] leading-relaxed font-normal shadow-2xl overflow-hidden pointer-events-none z-[100]"
+            style={{
+              top: pos.top - 8,
+              left: pos.left,
+              transform: 'translate(-50%, -100%)',
+            }}
+          >
+            {direction && (
+              <span
+                className={cn(
+                  'block px-3 pt-3 pb-2 border-b border-white/10 text-[10px] font-black uppercase tracking-[0.15em] inline-flex items-center gap-1.5',
+                  direction === 'lower' ? 'text-teal-300' : 'text-tangerine-200',
+                )}
+              >
+                <span className="text-sm leading-none">{direction === 'lower' ? '↓' : '↑'}</span>
+                <span>{direction === 'lower' ? 'Lower is better' : 'Higher is better'}</span>
+                {target && (
+                  <span className="text-white/50 font-medium tracking-normal normal-case">
+                    · target {target}
+                  </span>
+                )}
+              </span>
+            )}
+            <span className="block px-3 py-3 text-papaya-100/90">{hint}</span>
+            <span className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-[5px] border-transparent border-t-ink" />
+          </span>,
+          document.body,
+        )
+      : null
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        ref={btnRef}
+        type="button"
+        tabIndex={0}
+        aria-label={ariaLabel}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-ink/10 text-ink/40 hover:bg-ink/20 hover:text-ink/60 focus:bg-teal/20 focus:text-teal focus:outline-none text-[10px] font-black cursor-help transition-colors"
+      >
+        ?
+      </button>
+      {popover}
+    </span>
+  )
+}
+
+export function HealthBar({
+  label,
+  value,
+  inverted,
+  hint,
+  direction,
+  target,
+}: {
+  label: string
+  value: number
+  inverted?: boolean
+  hint?: string
+  direction?: 'lower' | 'higher'
+  target?: string
+}) {
   const good = inverted ? value < 30 : value >= 70
   return (
     <div className="space-y-2">
-      <div className="flex justify-between items-end">
-        <span className="text-sm font-semibold text-ink/70">{label}</span>
+      <div className="flex justify-between items-end gap-2">
+        <span className="text-sm font-semibold text-ink/70 inline-flex items-center gap-1.5">
+          {label}
+          {hint && <HintPopover hint={hint} direction={direction} target={target} />}
+        </span>
         <span className={cn("text-lg font-bold tabular-nums", good ? 'text-teal' : 'text-brandy')}>{value}%</span>
       </div>
       <div className="h-2 rounded-full bg-ink/5 overflow-hidden border border-ink/5">
-         <div 
-           className={cn("h-full transition-all duration-1000", good ? 'bg-teal' : 'bg-brandy')} 
-           style={{ width: `${value}%` }} 
+         <div
+           className={cn("h-full transition-all duration-1000", good ? 'bg-teal' : 'bg-brandy')}
+           style={{ width: `${value}%` }}
          />
+      </div>
+    </div>
+  )
+}
+
+// Color-coded severity shared across histogram, top-20, mass block.
+const CC_BUCKETS: Array<{ label: string; color: string; textColor: string }> = [
+  { label: '1-2', color: 'bg-teal/60', textColor: 'text-teal-700' },
+  { label: '3-5', color: 'bg-teal/40', textColor: 'text-teal-700' },
+  { label: '6-10', color: 'bg-tangerine/40', textColor: 'text-tangerine-800' },
+  { label: '11-20', color: 'bg-tangerine/70', textColor: 'text-tangerine-800' },
+  { label: '21-50', color: 'bg-brandy/50', textColor: 'text-brandy' },
+  { label: '51-100', color: 'bg-brandy/80', textColor: 'text-brandy' },
+  { label: '101+', color: 'bg-brandy', textColor: 'text-brandy' },
+]
+
+export function ccSeverityClasses(cc: number): string {
+  if (cc <= 10) return 'text-teal border-teal/30 bg-teal/5'
+  if (cc <= 50) return 'text-tangerine-800 border-tangerine/30 bg-tangerine/5'
+  if (cc <= 100) return 'text-brandy border-brandy/30 bg-brandy/5'
+  return 'text-white border-brandy bg-brandy'
+}
+
+export function CCDistribution({ distribution, compact }: { distribution: Record<string, number>; compact?: boolean }) {
+  const total = Object.values(distribution).reduce((a, b) => a + b, 0)
+  if (total === 0) return null
+  const maxCount = Math.max(...Object.values(distribution))
+
+  return (
+    <div className={cn('space-y-2', !compact && 'space-y-3')} title="Distribution of function count across cyclomatic complexity buckets">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">
+          CC Distribution
+        </div>
+        <div className="text-[10px] text-ink/40 tabular-nums">
+          {total.toLocaleString()} functions
+        </div>
+      </div>
+      <div className={cn('space-y-1', compact ? 'space-y-1' : 'space-y-1.5')}>
+        {CC_BUCKETS.map(({ label, color, textColor }) => {
+          const count = distribution[label] ?? 0
+          const pct = total > 0 ? (count / total) * 100 : 0
+          const barWidth = maxCount > 0 ? (count / maxCount) * 100 : 0
+          return (
+            <div key={label} className="flex items-center gap-3 text-[11px] tabular-nums">
+              <div className={cn('w-14 font-mono font-semibold shrink-0', textColor)}>CC {label}</div>
+              <div className="flex-1 h-3 bg-ink/5 rounded-full overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full transition-all duration-500', color)}
+                  style={{ width: `${Math.max(barWidth, count > 0 ? 2 : 0)}%` }}
+                />
+              </div>
+              <div className="w-16 text-right text-ink/60 shrink-0">{count.toLocaleString()}</div>
+              <div className="w-12 text-right text-ink/40 shrink-0">{pct.toFixed(1)}%</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function MassConcentration({
+  mass,
+  totalFunctions,
+  highCcFunctions,
+  distribution,
+}: {
+  mass: { total?: number; heavy?: number; heavy_ratio?: number } | undefined
+  totalFunctions?: number
+  highCcFunctions?: number
+  distribution?: Record<string, number>
+}) {
+  if (!mass || !mass.total) return null
+  const total = mass.total ?? 0
+  const heavy = mass.heavy ?? 0
+  const rest = Math.max(total - heavy, 0)
+  const heavyPct = Math.round((mass.heavy_ratio ?? (total > 0 ? heavy / total : 0)) * 100)
+  const restPct = 100 - heavyPct
+  const restFunctions = Math.max((totalFunctions ?? 0) - (highCcFunctions ?? 0), 0)
+
+  // Optional "functions over CC 100 alone hold X%" line — purely derived from distribution.
+  let extremeLine: string | null = null
+  if (distribution && distribution['101+']) {
+    const extremeCount = distribution['101+']
+    if (extremeCount > 0 && heavy > 0) {
+      // Approximation for narrative: extreme count * (average of heavy mass bias).
+      // We use "~" to make it clear this is an estimate, not an exact number.
+      extremeLine = `${extremeCount} function${extremeCount === 1 ? '' : 's'} over CC 100 contribute a large share of the heavy mass.`
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-white/60 p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">
+          Complexity mass <span className="lowercase font-semibold normal-case text-ink/30">(cc × √sloc)</span>
+        </div>
+        <div className="text-[10px] text-ink/40 tabular-nums">
+          Total {Math.round(total).toLocaleString()}
+        </div>
+      </div>
+
+      <div className="h-6 rounded-full overflow-hidden border border-ink/5 flex">
+        <div
+          className="bg-brandy flex items-center justify-center text-[10px] font-black text-white tabular-nums transition-all duration-700"
+          style={{ width: `${heavyPct}%` }}
+          title={`Heavy mass (CC > 10): ${Math.round(heavy).toLocaleString()} — ${heavyPct}%`}
+        >
+          {heavyPct >= 15 && `${heavyPct}%`}
+        </div>
+        <div
+          className="bg-teal/60 flex items-center justify-center text-[10px] font-black text-white tabular-nums transition-all duration-700"
+          style={{ width: `${restPct}%` }}
+          title={`Rest (CC ≤ 10): ${Math.round(rest).toLocaleString()} — ${restPct}%`}
+        >
+          {restPct >= 15 && `${restPct}%`}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-[11px] tabular-nums">
+        <div>
+          <div className="inline-flex items-center gap-1.5">
+            <span className="w-2 h-2 bg-brandy rounded-full" />
+            <span className="font-bold text-ink/70">Heavy</span>
+          </div>
+          <div className="text-ink/50 mt-0.5">
+            {Math.round(heavy).toLocaleString()} from {(highCcFunctions ?? 0).toLocaleString()} functions
+            <span className="text-ink/30"> (CC &gt; 10)</span>
+          </div>
+        </div>
+        <div>
+          <div className="inline-flex items-center gap-1.5">
+            <span className="w-2 h-2 bg-teal/60 rounded-full" />
+            <span className="font-bold text-ink/70">Rest</span>
+          </div>
+          <div className="text-ink/50 mt-0.5">
+            {Math.round(rest).toLocaleString()} from {restFunctions.toLocaleString()} functions
+            <span className="text-ink/30"> (CC ≤ 10)</span>
+          </div>
+        </div>
+      </div>
+
+      {extremeLine && (
+        <div className="text-[11px] text-ink/50 pt-2 border-t border-ink/5 italic">
+          {extremeLine}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function TopHighCCList({
+  items,
+  totalMass,
+}: {
+  items: any[]
+  totalMass?: number
+}) {
+  if (!items || items.length === 0) return null
+  const sumMass = items.reduce((sum, f) => sum + (f.mass || 0), 0)
+  const shareOfTotal = totalMass && totalMass > 0 ? (sumMass / totalMass) * 100 : null
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">
+          Top {items.length} by complexity mass
+        </div>
+        <div className="text-[10px] text-ink/40 tabular-nums">
+          ranked by cc × √sloc
+        </div>
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((f, i) => (
+          <li key={i} className="flex items-start gap-2 text-xs">
+            <div className="flex gap-1 shrink-0">
+              <Badge variant="outline" className={cn('text-[10px] font-bold tabular-nums', ccSeverityClasses(f.cc || 0))}>
+                CC {f.cc}
+              </Badge>
+              {typeof f.mass === 'number' && (
+                <Badge variant="outline" className="text-[10px] font-bold tabular-nums text-ink/60 border-ink/10 bg-white">
+                  mass {Math.round(f.mass).toLocaleString()}
+                </Badge>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-bold text-ink/80 truncate">{f.name || '?'}</div>
+              <code className="text-[10px] text-ink/40 font-mono truncate block">
+                {f.path}
+                {f.line ? `:${f.line}` : ''}
+              </code>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {shareOfTotal !== null && (
+        <div className="pt-3 border-t border-ink/5 text-[11px] text-ink/50 italic">
+          These {items.length} functions alone hold <strong className="text-ink/80">{shareOfTotal.toFixed(0)}%</strong> of total complexity mass.
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function DuplicationCard({
+  verbosity,
+  totalLoc,
+  duplicateLines,
+  semanticCount,
+  semanticSource,
+  detailsHref,
+}: {
+  verbosity: number            // 0..1 textual ratio
+  totalLoc?: number
+  duplicateLines?: number
+  semanticCount: number | null  // null if we couldn't determine
+  semanticSource: 'structured' | 'heuristic' | 'unknown'
+  detailsHref?: string          // when present, renders a "View all → Architectural Problems" anchor
+}) {
+  const textualPct = Math.round((verbosity || 0) * 100)
+  const textualGood = textualPct < 5
+  const semanticGood = semanticCount !== null && semanticCount === 0
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1.5">
+        <span className="text-sm font-semibold text-ink/70">Code Duplication</span>
+        <HintPopover
+          direction="lower"
+          target="0 semantic, <5% textual"
+          hint="Two measures side by side. Textual duplication catches literal copy-paste (line-identical blocks). Semantic reimplementations are near-twin functions — same logic, different names or signatures — found by the scan's AI analysis. AI-written codebases typically have low textual duplication but hidden semantic duplication."
+        />
+      </div>
+
+      {/* Textual */}
+      <div className="space-y-1.5">
+        <div className="flex items-end justify-between gap-2">
+          <div className="text-xs text-ink/50 uppercase tracking-[0.15em] font-black">Textual</div>
+          <div className={cn("text-lg font-bold tabular-nums", textualGood ? 'text-teal' : 'text-brandy')}>
+            {textualPct}%
+          </div>
+        </div>
+        <div className="h-2 rounded-full bg-ink/5 overflow-hidden border border-ink/5">
+          <div
+            className={cn("h-full transition-all duration-1000", textualGood ? 'bg-teal' : 'bg-brandy')}
+            style={{ width: `${textualPct}%` }}
+          />
+        </div>
+        {(duplicateLines != null && totalLoc != null) && (
+          <div className="text-[11px] text-ink/40 tabular-nums">
+            {duplicateLines.toLocaleString()} duplicate lines of {totalLoc.toLocaleString()} total LOC
+          </div>
+        )}
+      </div>
+
+      {/* Semantic */}
+      <div className="space-y-1.5 pt-2 border-t border-ink/5">
+        <div className="flex items-end justify-between gap-2">
+          <div className="text-xs text-ink/50 uppercase tracking-[0.15em] font-black inline-flex items-center gap-1.5">
+            Semantic
+          </div>
+          <div className={cn("text-lg font-bold tabular-nums", semanticCount === null ? 'text-ink/30' : (semanticGood ? 'text-teal' : 'text-brandy'))}>
+            {semanticCount === null ? '—' : semanticCount.toLocaleString()}
+          </div>
+        </div>
+        <div className="text-[11px] text-ink/50 leading-snug">
+          {semanticCount === null ? (
+            'Not yet analyzed — run /archie-scan to detect near-twin functions.'
+          ) : semanticCount === 0 ? (
+            'No near-twin functions detected by AI analysis.'
+          ) : (
+            <>
+              <strong className="text-ink/80">{semanticCount}</strong> reimplementation
+              {semanticCount === 1 ? '' : 's'} found — near-twin function
+              {semanticCount === 1 ? '' : 's'} with same logic under different names.
+            </>
+          )}
+        </div>
+        {semanticSource === 'heuristic' && semanticCount !== null && (
+          <div className="text-[10px] text-ink/30 italic">
+            Derived from scan report text (older bundle). Re-scan for a precise count.
+          </div>
+        )}
+
+        {detailsHref && semanticCount !== null && semanticCount > 0 && (
+          <a
+            href={detailsHref}
+            onClick={(e) => {
+              const id = detailsHref.replace(/^#/, '')
+              const el = document.getElementById(id)
+              if (el) {
+                e.preventDefault()
+                const offset = 100
+                const top = el.getBoundingClientRect().top + window.scrollY - offset
+                window.scrollTo({ top, behavior: 'smooth' })
+                history.replaceState(null, '', detailsHref)
+              }
+            }}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal hover:text-teal-700 transition-colors pt-1 group/dup-link"
+          >
+            View each in Architectural Problems
+            <ChevronRight className="w-3 h-3 transition-transform group-hover/dup-link:translate-x-0.5" />
+          </a>
+        )}
       </div>
     </div>
   )

@@ -111,6 +111,75 @@ export function pickTopFindings(
   return [...errors.slice(0, errorSlots), ...nonErrors.slice(0, fillSlots)]
 }
 
+/** Heuristic keyword match for findings that describe semantic duplication /
+ * reimplementation. Used for count (fallback when no structured data) and
+ * for tagging matching findings visibly in the UI.
+ *
+ * Captures:
+ *   - duplicat(ed|ion), reimplement(ation), near-dup, near-twin, similar function
+ *   - "N separate <X> implementations"   (e.g., "3 separate generateSlug implementations")
+ *   - "duplicate <X> of", "copies of <X>"
+ */
+// Word-start boundary only. Word-END boundary is deliberately omitted so
+// "duplicat" matches "duplicated", "duplication", "duplicates"; "reimplement"
+// matches "reimplementation", etc.
+export const SEMANTIC_DUPE_RX =
+  /\b(duplicat|reimplement|near[- ]?dup|near[- ]?twin|similar function|\d+\s+separate\s+\S+\s+implementations?|multiple\s+\S+\s+implementations?|copies\s+of)/i
+
+function _escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function _matchesFunctionName(haystack: string, rawName: string): boolean {
+  // Split the entry on separators, keep only identifier-looking tokens with a
+  // camelCase transition (lowercase followed by uppercase). This filters out
+  // generic words like "violation", "package", "import" that would cause
+  // false positives on unrelated findings.
+  const tokens = rawName
+    .split(/[\s/()]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 5 && /[a-z][A-Z]/.test(t))
+
+  for (const tok of tokens) {
+    // (1) Exact match — `\bgenerateMessageId\b` in the text.
+    const exactRx = new RegExp(`\\b${_escapeRegex(tok)}\\b`)
+    if (exactRx.test(haystack)) return true
+
+    // (2) Relaxed match — allow whitespace between camelCase parts so that
+    // "generate MessageId" in the prose still matches "generateMessageId".
+    const parts = tok.split(/(?<=[a-z])(?=[A-Z])/).map(_escapeRegex)
+    if (parts.length >= 2) {
+      const relaxRx = new RegExp(`\\b${parts.join('\\s*')}\\b`)
+      if (relaxRx.test(haystack)) return true
+    }
+  }
+  return false
+}
+
+export function isSemanticDupFinding(
+  f: Finding,
+  opts?: { functionNames?: string[] },
+): boolean {
+  if (SEMANTIC_DUPE_RX.test(f.title) || SEMANTIC_DUPE_RX.test(f.description)) {
+    return true
+  }
+  // Structured hint: the bundle may carry a list of function names known to be
+  // reimplementations (Agent C's duplications output). Match conservatively on
+  // camelCase identifiers only, exact or separated by whitespace.
+  const names = opts?.functionNames
+  if (names && names.length > 0) {
+    const haystack = `${f.title}\n${f.description}`
+    for (const raw of names) {
+      if (_matchesFunctionName(haystack, raw)) return true
+    }
+  }
+  return false
+}
+
+export function countSemanticDuplications(findings: Finding[]): number {
+  return findings.filter((f) => isSemanticDupFinding(f)).length
+}
+
 export function severityColor(sev: FindingSeverity): string {
   if (sev === 'error') return 'text-brandy border-brandy/30 bg-brandy/5'
   if (sev === 'warn') return 'text-tangerine-800 border-tangerine/30 bg-tangerine/5'

@@ -17,7 +17,7 @@ import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { GhostLogo } from '@/components/GhostLogo'
 import { filterReportSections } from '@/lib/toc'
 import * as Sections from '@/components/ReportSections'
-import { extractFindings, rankFindings } from '@/lib/findings'
+import { countSemanticDuplications, extractFindings, rankFindings } from '@/lib/findings'
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
@@ -56,6 +56,17 @@ export default function ReportPage() {
     if (!bundle?.scan_report) return []
     return rankFindings(extractFindings(bundle.scan_report))
   }, [bundle?.scan_report])
+
+  // Semantic duplication — prefer structured field, fall back to heuristic
+  const semantic = useMemo<{ count: number | null; source: 'structured' | 'heuristic' | 'unknown' }>(() => {
+    if (Array.isArray(bundle?.semantic_duplications)) {
+      return { count: bundle!.semantic_duplications!.length, source: 'structured' }
+    }
+    if (bundle?.scan_report && findings.length > 0) {
+      return { count: countSemanticDuplications(findings), source: 'heuristic' }
+    }
+    return { count: null, source: 'unknown' }
+  }, [bundle, findings])
 
   // Scroll sync logic — re-attach after bundle loads so contentRef.current exists
   useEffect(() => {
@@ -490,9 +501,20 @@ export default function ReportPage() {
                 </div>
                 <div className="grid lg:grid-cols-2 gap-16 relative">
                   <div className="space-y-8">
-                    <Sections.HealthBar label="Architectural Erosion" value={Math.round((bundle.health.erosion || 0) * 100)} inverted />
-                    <Sections.HealthBar label="Logic Concentration (Gini)" value={Math.round((bundle.health.gini || 0) * 100)} inverted />
-                    <Sections.HealthBar label="Workload Verbosity" value={Math.round((bundle.health.verbosity || 0) * 100)} inverted />
+                    <Sections.HealthBar label="Architectural Erosion" value={Math.round((bundle.health.erosion || 0) * 100)} inverted
+                      direction="lower" target="<30%"
+                      hint="Share of total complexity mass (cc × √sloc) held by functions with CC > 10. High means a few complex functions dominate — hard to test, hard to change." />
+                    <Sections.HealthBar label="Logic Concentration (Gini)" value={Math.round((bundle.health.gini || 0) * 100)} inverted
+                      direction="lower" target="<40%"
+                      hint="How unevenly complexity is spread across functions. 0 = perfectly even, 1 = one function holds everything. High means a few god-functions dominate the codebase." />
+                    <Sections.DuplicationCard
+                      verbosity={bundle.health.verbosity || 0}
+                      totalLoc={bundle.health.total_loc}
+                      duplicateLines={bundle.health.duplicate_lines}
+                      semanticCount={semantic.count}
+                      semanticSource={semantic.source}
+                      detailsHref="#problems"
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-8 content-start">
                     <Sections.Stat label="Total LOC" value={bundle.health.total_loc?.toLocaleString() ?? '—'} />
@@ -502,6 +524,36 @@ export default function ReportPage() {
                   </div>
                 </div>
               </div>
+
+              {/* CC distribution + mass concentration + top-N — the 'why is erosion 86%' story */}
+              {(bundle.health.cc_distribution || bundle.health.mass || (bundle.health.top_high_cc || []).length > 0) && (
+                <div className="grid lg:grid-cols-2 gap-8">
+                  {bundle.health.cc_distribution && (
+                    <div className={cn("p-8 rounded-3xl border space-y-4", theme.surface.panel)}>
+                      <Sections.CCDistribution distribution={bundle.health.cc_distribution} />
+                    </div>
+                  )}
+                  {bundle.health.mass && (
+                    <div className={cn("p-8 rounded-3xl border", theme.surface.panel)}>
+                      <Sections.MassConcentration
+                        mass={bundle.health.mass}
+                        totalFunctions={bundle.health.total_functions}
+                        highCcFunctions={bundle.health.high_cc_functions}
+                        distribution={bundle.health.cc_distribution}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {Array.isArray(bundle.health.top_high_cc) && bundle.health.top_high_cc.length > 0 && (
+                <div className={cn("p-8 rounded-3xl border", theme.surface.panel)}>
+                  <Sections.TopHighCCList
+                    items={bundle.health.top_high_cc}
+                    totalMass={bundle.health.mass?.total}
+                  />
+                </div>
+              )}
             </section>
           )}
 
@@ -602,7 +654,18 @@ export default function ReportPage() {
             <section id="problems" className="space-y-12 scroll-mt-24">
               <Sections.SectionHeader title="Architectural Problems" icon={AlertTriangle} />
 
-              {findings.length > 0 && <Sections.FindingsList findings={findings} />}
+              {findings.length > 0 && (
+                <Sections.FindingsList
+                  findings={findings}
+                  semanticFunctionNames={
+                    Array.isArray(bundle.semantic_duplications)
+                      ? bundle.semantic_duplications
+                          .map((d: any) => d.function)
+                          .filter((x: any): x is string => typeof x === 'string')
+                      : undefined
+                  }
+                />
+              )}
 
               {pitfalls.length > 0 && (
                 <div id="pitfalls" className="scroll-mt-24">

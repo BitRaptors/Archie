@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { GhostLogo } from '@/components/GhostLogo'
 import * as Sections from '@/components/ReportSections'
 import {
+  countSemanticDuplications,
   extractFindings,
   pickTopFindings,
   rankFindings,
@@ -58,6 +59,21 @@ export default function CoverPage() {
       description: p.description || p.recommendation || '',
     }))
   }, [bundle])
+
+  // Prefer structured semantic_duplications; fall back to heuristic over findings;
+  // if no scan_report was included at all, we can't compute this at all.
+  const { semanticCount, semanticSource } = useMemo<{
+    semanticCount: number | null
+    semanticSource: 'structured' | 'heuristic' | 'unknown'
+  }>(() => {
+    if (Array.isArray(bundle?.semantic_duplications)) {
+      return { semanticCount: bundle!.semantic_duplications!.length, semanticSource: 'structured' }
+    }
+    if (bundle?.scan_report && findings.length > 0) {
+      return { semanticCount: countSemanticDuplications(findings), semanticSource: 'heuristic' }
+    }
+    return { semanticCount: null, semanticSource: 'unknown' }
+  }, [bundle, findings])
 
   if (error) {
     return (
@@ -176,21 +192,33 @@ export default function CoverPage() {
                       label="Architectural Erosion"
                       value={Math.round((health.erosion || 0) * 100)}
                       inverted
+                      direction="lower"
+                      target="<30%"
+                      hint="Share of total complexity mass (cc × √sloc) held by functions with CC > 10. High means a few complex functions dominate — hard to test, hard to change."
                     />
                     <Sections.HealthBar
                       label="Logic Concentration (Gini)"
                       value={Math.round((health.gini || 0) * 100)}
                       inverted
+                      direction="lower"
+                      target="<40%"
+                      hint="How unevenly complexity is spread across functions. 0 = perfectly even, 1 = one function holds everything. High means a few god-functions dominate the codebase."
                     />
                     <Sections.HealthBar
                       label="Top-20% Share"
                       value={Math.round((health.top20_share || 0) * 100)}
                       inverted
+                      direction="lower"
+                      target="<50%"
+                      hint="Complexity mass held by the biggest fifth of functions. 20% = perfectly balanced; 90% means that fifth carries almost all the work."
                     />
-                    <Sections.HealthBar
-                      label="Verbosity"
-                      value={Math.round((health.verbosity || 0) * 100)}
-                      inverted
+                    <Sections.DuplicationCard
+                      verbosity={health.verbosity || 0}
+                      totalLoc={health.total_loc}
+                      duplicateLines={health.duplicate_lines}
+                      semanticCount={semanticCount}
+                      semanticSource={semanticSource}
+                      /* Cover stays compact — details list only appears on the detail page */
                     />
                   </div>
                 )}
@@ -221,6 +249,22 @@ export default function CoverPage() {
                   )}
                 </div>
               </div>
+              {(health?.cc_distribution || health?.mass) && (
+                <div className="mt-8 pt-8 border-t border-papaya-400/30 grid md:grid-cols-2 gap-6">
+                  {health?.cc_distribution && (
+                    <Sections.CCDistribution distribution={health.cc_distribution} compact />
+                  )}
+                  {health?.mass && (
+                    <Sections.MassConcentration
+                      mass={health.mass}
+                      totalFunctions={health.total_functions}
+                      highCcFunctions={health.high_cc_functions}
+                      distribution={health.cc_distribution}
+                    />
+                  )}
+                </div>
+              )}
+
               {Array.isArray(scanMeta?.frameworks) && scanMeta.frameworks.length > 0 && (
                 <div className="mt-8 pt-8 border-t border-papaya-400/30">
                   <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-3">
