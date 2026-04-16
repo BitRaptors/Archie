@@ -1122,9 +1122,24 @@ python3 .archie/extract_output.py findings /tmp/archie_phase2_findings.json "$PR
 rm -f /tmp/archie_phase2_findings.json
 ```
 
-### Phase 3: Present the combined assessment
+### Phase 3: Aggregate + present combined assessment
 
-Read `$PROJECT_ROOT/.archie/blueprint.json` and `$PROJECT_ROOT/.archie/drift_report.json` (now contains both mechanical and deep findings). This is the final output — make it valuable.
+Invoke the aggregator to merge all findings sources with lifecycle + quality gate:
+
+```bash
+python3 .archie/aggregate_findings.py "$PROJECT_ROOT"
+```
+
+This reads:
+- `.archie/semantic_findings_wave1.json` (Wave 1 Structure + Patterns findings)
+- `.archie/semantic_findings_wave2.json` (Wave 2 canonical systemic + localized + upgraded drafts)
+- `.archie/semantic_findings_phase2.json` (narrow agent: semantic_duplication + pattern_erosion)
+- `.archie/drift_report.json` (mechanical findings from Phase 1)
+- `.archie/semantic_findings.json` (prior scan's findings, for lifecycle diff — if exists)
+
+...and writes the canonical merged output to `.archie/semantic_findings.json`.
+
+Now read `$PROJECT_ROOT/.archie/blueprint.json` and `$PROJECT_ROOT/.archie/semantic_findings.json` for presentation. This is the final output — make it valuable.
 
 #### Part 1: What was generated
 
