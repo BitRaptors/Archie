@@ -205,31 +205,33 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
 
 **Your job:**
-1. **Health assessment:** Report each metric with plain-language explanation. Thresholds:
-   - Erosion: <0.3 good, 0.3-0.5 moderate, >0.5 high
-   - Gini: <0.4 good, 0.4-0.6 moderate, >0.6 high
-   - Top-20% share: <0.5 good, 0.5-0.7 moderate, >0.7 high
-   - Verbosity: <0.05 good, 0.05-0.15 moderate, >0.15 high
 
-2. **Trend analysis:** Compare against health_history.json. Are things improving or degrading? Which metrics moved most? Is LOC growth justified?
+Emit findings per `.claude/commands/_shared/semantic_findings_spec.md`. Your domain is **health and complexity**. Produce:
 
-3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified.
+1. **health_scores** (existing — preserve): a summary of erosion, gini, top20_share, verbosity, total_loc for the viewer's Health tab.
 
-4. **Abstraction waste:** Single-method classes, tiny functions (<=2 lines). Flag from skeletons. Only read if the skeleton is ambiguous about whether a single-method class is a legitimate abstraction.
+2. **trend**: direction + details, comparing against health_history.json. Unchanged shape.
 
-**Output:** Write to `/tmp/archie_agent_b_health.json`:
+3. **findings** in your domain:
+   - **Localized**: `complexity_hotspot` for functions with CC ≥ 10 (severity per the spec's CC rubric: ≥50 error, 25-49 warn, 10-24 info), `abstraction_bypass` where a single-method class or tiny function obscures structure.
+   - **Systemic** (only when substantiated): `trajectory_degradation` when ≥3 hotspots are all worsening over history, `missing_abstraction` when the same minimal helper is re-implemented in many places.
+
+All findings MUST carry `synthesis_depth: "draft"` and `source: "fast_agent_b"`.
+
+For each complexity_hotspot, `root_cause` must be mechanistic — NOT "high CC" but "conflates auth validation with request parsing". Use skeletons first; Read the source only when CC signature is insufficient.
+
+**Output:** Write to `/tmp/archie_agent_b.json`:
+
 ```json
 {
   "health_scores": {"erosion": 0.31, "gini": 0.58, "top20_share": 0.72, "verbosity": 0.003, "total_loc": 9400},
   "trend": {"direction": "improving|degrading|stable", "details": "..."},
-  "complexity_hotspots": [{"function": "...", "file": "...", "cc": N, "assessment": "...", "recommendation": "..."}],
-  "complexity_trajectory": [{"function": "...", "file": "...", "previous_cc": N, "current_cc": N}],
-  "abstraction_waste": {"single_method_classes": N, "tiny_functions": N, "notable": ["..."]}
+  "findings": [ /* per semantic_findings_spec.md */ ]
 }
 ```
 
 ```
-Save output: /tmp/archie_agent_b_health.json
+Save output: /tmp/archie_agent_b.json
 ```
 
 ### Agent C: Rules & Patterns
@@ -303,7 +305,7 @@ Save output: /tmp/archie_agent_c_rules.json
 
 Read the outputs from all three agents:
 - `/tmp/archie_agent_a.json`
-- `/tmp/archie_agent_b_health.json`
+- `/tmp/archie_agent_b.json`
 - `/tmp/archie_agent_c_rules.json`
 
 Also re-read `.archie/blueprint.json` (the current state of accumulated knowledge).
@@ -456,7 +458,7 @@ This is what `/archie-share` surfaces as "N semantic reimplementations" alongsid
 ### 4d: Clean up temp files
 
 ```bash
-rm -f /tmp/archie_agent_a.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
+rm -f /tmp/archie_agent_a.json /tmp/archie_agent_b.json /tmp/archie_agent_c_rules.json
 ```
 
 Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
