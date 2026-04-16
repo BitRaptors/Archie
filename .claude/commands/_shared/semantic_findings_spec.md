@@ -148,7 +148,7 @@ Wave 2 re-processes stored `draft` findings whose `lifecycle_status` is `recurri
 
 ## 6. Source string enum
 
-The `source` field names the producing agent. Exactly the 8 values enumerated in the section 5a table are valid; any other value is a bug and the aggregator will reject the finding.
+The `source` field names the producing agent. Exactly the 8 values enumerated in the section 5a table are valid. Unknown `source` values are retained in the aggregated output but deprioritized during merge tie-breaks (they score the lowest rank when `_pick` compares duplicates), so an off-enum source will lose ownership to any known source covering the same signature.
 
 ---
 
