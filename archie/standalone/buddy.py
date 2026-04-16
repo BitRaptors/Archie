@@ -170,3 +170,84 @@ def get_message(mood: str) -> str:
     """Return a random sarcastic message for the given mood."""
     messages = MESSAGES.get(mood, MESSAGES["unborn"])
     return random.choice(messages)
+
+
+# ── ASCII Rendering ───────────────────────────────────────────────────────────
+
+def _hp_bar(hp: int, width: int = 10) -> str:
+    """Render HP bar like ████████░░."""
+    filled = round(hp / 100 * width)
+    return "█" * filled + "░" * (width - filled)
+
+
+def _scan_age_text(archie_dir: Path) -> str:
+    """Human-readable scan age."""
+    report = archie_dir / "scan_report.md"
+    if not report.exists():
+        return "soha"
+    age_hours = (time.time() - report.stat().st_mtime) / 3600
+    if age_hours < 1:
+        return "most"
+    if age_hours < 24:
+        return f"{int(age_hours)}h"
+    days = int(age_hours / 24)
+    if days == 1:
+        return "1 napja"
+    return f"{days} napja"
+
+
+def render_full(hp: int, mood: str, violations: int,
+                scan_age_text: str, streak: int) -> str:
+    """Render full buddy view with stats and message."""
+    left, right = eyes_for_mood(mood)
+    msg = get_message(mood)
+    bar = _hp_bar(hp)
+
+    if mood == "unborn":
+        return (
+            f"    ▄███████▄\n"
+            f"  ▄█         █▄\n"
+            f" █   {left}     {right}   █\n"
+            f" █ ╌╌╌╌╌╌╌╌╌╌╌ █\n"
+            f" █               █\n"
+            f" █ ╌╌╌╌╌╌╌╌╌╌╌ █     Archie Buddy\n"
+            f" ▀█▄▀ ▀█▄▀ ▀█▄▀\n"
+            f"\n"
+            f' "{msg}"'
+        )
+
+    return (
+        f"    ▄███████▄\n"
+        f"  ▄█         █▄\n"
+        f" █   {left}     {right}   █     Archie  ♥ HP: {bar} {hp}/100\n"
+        f" █ ╌╌╌╌╌╌╌╌╌╌╌ █     Mood: {mood.capitalize()}\n"
+        f" █               █     Scan: {scan_age_text}  │  Violations: {violations}\n"
+        f" █ ╌╌╌╌╌╌╌╌╌╌╌ █     Streak: {streak} scans\n"
+        f" ▀█▄▀ ▀█▄▀ ▀█▄▀\n"
+        f"\n"
+        f' "{msg}"'
+    )
+
+
+def render_compact(hp: int, mood: str) -> str:
+    """Render compact one-block buddy for command tails."""
+    left, right = eyes_for_mood(mood)
+    msg = get_message(mood)
+    bar = _hp_bar(hp)
+
+    if mood == "unborn":
+        return (
+            f"    ▄███████▄\n"
+            f"  ▄█         █▄\n"
+            f' █   {left}     {right}   █   "{msg}"\n'
+            f" █ ╌╌╌╌╌╌╌╌╌╌╌ █\n"
+            f" ▀█▄▀ ▀█▄▀ ▀█▄▀"
+        )
+
+    return (
+        f"    ▄███████▄\n"
+        f"  ▄█         █▄\n"
+        f' █   {left}     {right}   █   HP: {bar} {hp}  │  "{msg}"\n'
+        f" █ ╌╌╌╌╌╌╌╌╌╌╌ █\n"
+        f" ▀█▄▀ ▀█▄▀ ▀█▄▀"
+    )
