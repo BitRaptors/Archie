@@ -104,3 +104,31 @@ def test_eyes_for_mood():
     assert buddy.eyes_for_mood("sick") == ("◔", "◔")
     assert buddy.eyes_for_mood("dead") == ("×", "×")
     assert buddy.eyes_for_mood("unborn") == ("·", "·")
+
+
+def test_render_full_contains_ghost():
+    """Full render should contain the ghost body characters."""
+    output = buddy.render_full(hp=75, mood="skeptical", violations=5,
+                               scan_age_text="2 napja", streak=3)
+    assert "▄███████▄" in output
+    assert "▀█▄▀" in output
+    assert "¬" in output  # skeptical eyes
+    assert "HP:" in output
+    assert "75" in output
+
+
+def test_render_compact_one_block():
+    """Compact render should be shorter than full render."""
+    full = buddy.render_full(hp=90, mood="confident", violations=0,
+                             scan_age_text="ma", streak=1)
+    compact = buddy.render_compact(hp=90, mood="confident")
+    assert len(compact) < len(full)
+    assert "▄███████▄" in compact
+    assert "◕" in compact
+
+
+def test_render_full_unborn():
+    """Unborn render shows special message, no HP bar."""
+    output = buddy.render_full(hp=0, mood="unborn", violations=0,
+                               scan_age_text="soha", streak=0)
+    assert "·" in output  # unborn eyes
