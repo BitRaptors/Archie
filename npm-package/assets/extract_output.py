@@ -134,9 +134,25 @@ def cmd_recent_files(scan_json: str):
 # ---------------------------------------------------------------------------
 
 def extract_findings(input_path: str, output_path: str) -> None:
-    """Read agent output JSON, write bare {"findings": [...]} to output_path."""
-    data = json.loads(Path(input_path).read_text(encoding="utf-8"))
-    findings = data.get("findings", []) if isinstance(data, dict) else []
+    """Extract the 'findings' list from an agent's JSON output.
+
+    Tolerates enveloped JSON (prose + code fence around the object), missing
+    input files, and malformed JSON — degrades to an empty findings list in
+    any error case. Downstream aggregator applies its own quality gate, so
+    emitting empty here is safe and matches the behavior of concat-findings.
+    """
+    path = Path(input_path)
+    findings: list = []
+    if path.exists():
+        try:
+            text = path.read_text(encoding="utf-8")
+            data = extract_json_from_text(text) or {}
+            if isinstance(data, dict):
+                maybe = data.get("findings", [])
+                if isinstance(maybe, list):
+                    findings = maybe
+        except (OSError, json.JSONDecodeError):
+            pass
     Path(output_path).write_text(
         json.dumps({"findings": findings}, indent=2), encoding="utf-8"
     )
