@@ -305,6 +305,21 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 6. Framework Usage
 > Catalog external frameworks/libraries from import statements. For each, note the framework name and usage scope.
 >
+> ### 7. Pattern observations (for Wave 2 to synthesize)
+> While reading the files, note raw anomalies in your domain. These are NOT finished findings — Wave 2 will contextualize them.
+>
+> For each observation: `{type, evidence_locations, note}`. Types in your domain: `dep_magnet`, `layer_cycle`, `inverted_dependency`, `workspace_boundary_crossed`, `high_fan_in_rising`.
+>
+> Example:
+> ```json
+> {"type": "dep_magnet", "evidence_locations": ["packages/shared"], "note": "fan-in 22 across auth/storage/UI/logging — unrelated domains"}
+> ```
+>
+> ### 8. Localized findings (your domain)
+> Emit findings per `.claude/commands/_shared/semantic_findings_spec.md`. Your domain is architecture and dependencies — emit only `dependency_violation` and `cycle` types as Localized findings. Do NOT emit systemic findings (those are Wave 2's job). All findings you emit carry `synthesis_depth: "draft"` and `source: "wave1_structure"`.
+>
+> Before emitting, verify each finding against the quality gate in §2 of the spec — dropped candidates are better than padded ones.
+>
 > Return JSON:
 > ```json
 > {
@@ -326,7 +341,11 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >     "naming_conventions": [
 >       {"scope": "", "pattern": "", "examples": [], "description": ""}
 >     ]
->   }
+>   },
+>   "pattern_observations": [{"type": "", "evidence_locations": [], "note": ""}],
+>   "findings": [
+>     /* localized findings in architecture/dependency domain; see spec for schema */
+>   ]
 > }
 > ```
 
