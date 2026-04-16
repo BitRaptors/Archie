@@ -1667,3 +1667,13 @@ EOF
 - `scripts/verify_shared_prompts.py` drift checker (follow-up).
 - Viewer blast-radius visualization graphics (follow-up).
 - Auto-rule proposal from systemic findings (follow-up).
+
+## Deployment — hosted viewer
+
+The hosted viewer code (same `viewer.py`, served behind Supabase-linked URL) must ship BEFORE any `bundle_version: v2` bundle is shared publicly. Sequence:
+
+1. Deploy the updated `viewer.py` to the hosted environment (ops/infra task — outside this plan's scope).
+2. Verify the hosted viewer handles both v1 bundles (legacy path: reads `scan_report` markdown, old `drift` panel) and v2 bundles (new path: reads `semantic_findings`).
+3. Only after hosted viewer is live, release the npm package version that includes the new `upload.py` with `bundle_version: "v2"`.
+
+Until step 3 is complete, users on the new npm version who share bundles will get the legacy render on the hosted side. This degrades gracefully — no data loss, just less-rich UI on old deployments.
