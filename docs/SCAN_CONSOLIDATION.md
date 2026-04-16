@@ -1,3 +1,9 @@
+> **⚠️ Superseded.** This plan has been replaced by `docs/plans/2026-04-16-semantic-findings-design.md`. The "triple-the-Phase-2-agent-count" approach described below was reconsidered — it would have *added* codebase reads; the new design harvests findings from existing Wave 1/2 reads. See the design doc for the current direction.
+>
+> Kept here for history.
+
+---
+
 # Scan Consolidation — `/archie-scan` and `/archie-deep-scan`
 
 **Status:** Planned. Not yet implemented. Tracked at `~/.claude/plans/archie-findings-normalization.md`.
