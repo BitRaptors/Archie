@@ -250,6 +250,32 @@ def test_merge_never_downgrades_severity():
     assert merged[0]["source"] == "wave2"
 
 
+def test_merge_preserves_unknown_severity_against_known_loser():
+    """Winner carries an off-spec 'critical' label. Loser has known 'info' (rank 1).
+
+    The previous implementation compared unknown→rank 0 vs info→rank 1 and
+    concluded the loser was "higher", silently demoting the winner to 'info'.
+    The fix must treat unknown severities as opaque and preserve them.
+    """
+    wave2 = [{"type": "cycle", "scope": {"components_affected": ["a"]}, "severity": "critical", "source": "wave2"}]
+    mech = [{"type": "cycle", "scope": {"components_affected": ["a"]}, "severity": "info", "source": "mechanical"}]
+    merged = merge_sources(wave1=[], wave2=wave2, phase2=[], mechanical=mech)
+    assert len(merged) == 1
+    assert merged[0]["severity"] == "critical"
+
+
+def test_merge_preserves_empty_severity_against_known_loser():
+    """Winner has no severity field. Loser has 'info'. Must NOT fabricate 'info'
+    on the winner — the field stays absent, since only an upgrade between
+    known ranks is allowed."""
+    wave2 = [{"type": "cycle", "scope": {"components_affected": ["a"]}, "source": "wave2"}]
+    mech = [{"type": "cycle", "scope": {"components_affected": ["a"]}, "severity": "info", "source": "mechanical"}]
+    merged = merge_sources(wave1=[], wave2=wave2, phase2=[], mechanical=mech)
+    assert len(merged) == 1
+    # Winner had no severity; promotion requires a known winner rank, so field stays unset.
+    assert "severity" not in merged[0] or merged[0].get("severity") in ("", None)
+
+
 # ---------------------------------------------------------------------------
 # _load robustness — malformed JSON + non-list findings
 # ---------------------------------------------------------------------------

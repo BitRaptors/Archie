@@ -165,7 +165,14 @@ def _pick(a: dict, b: dict) -> dict:
         b_rank = SOURCE_RANK.get(b.get("source", ""), 0)
         winner = a if a_rank >= b_rank else b
     loser = b if winner is a else a
-    if SEVERITY_RANK.get(loser.get("severity", ""), 0) > SEVERITY_RANK.get(winner.get("severity", ""), 0):
+    # Severity promotion: upgrade only when BOTH labels are in the known enum
+    # (error/warn/info) AND the loser's rank is strictly higher. The
+    # winner_rank > 0 guard is load-bearing — without it an off-spec winner
+    # ("critical", "") compares as rank 0 and gets silently demoted to the
+    # loser's known "info".
+    winner_rank = SEVERITY_RANK.get(winner.get("severity", ""), 0)
+    loser_rank = SEVERITY_RANK.get(loser.get("severity", ""), 0)
+    if winner_rank > 0 and loser_rank > winner_rank:
         winner = {**winner, "severity": loser["severity"]}
     return winner
 
