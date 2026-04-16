@@ -469,49 +469,108 @@ Create the scan history directory if it doesn't exist:
 mkdir -p .archie/scan_history
 ```
 
-Write to `.archie/scan_history/scan_NNN_YYYY-MM-DDTHHMM.md` (where NNN is the zero-padded scan number, e.g., `scan_003_2026-04-08T1423.md`) and copy to `.archie/scan_report.md` (latest pointer).
+Read `$PROJECT_ROOT/.archie/semantic_findings.json` (from 4a), `$PROJECT_ROOT/.archie/blueprint.json`, `$PROJECT_ROOT/.archie/health.json`, and `$PROJECT_ROOT/.archie/health_history.json` for health trend.
 
-The report should include:
+Write the report to `.archie/scan_history/scan_NNN_YYYY-MM-DDTHHMM.md` (where NNN is the zero-padded scan number, e.g., `scan_003_2026-04-08T1423.md`) and copy to `.archie/scan_report.md` (latest pointer).
+
+Use this **exact** structure — this layout is shared with `/archie-deep-scan`; deep-scan and fast-scan produce structurally identical reports. The data provenance differs (fast-scan has no Wave 2 canonical findings — all entries will be `synthesis_depth: draft`) but the rendering is the same.
+
 ```markdown
-# Archie Scan Report
-> Scan #N | YYYY-MM-DD HH:MM UTC | X files analyzed | Y changed in last 7 days
+# Scan Report — <repo name>
 
-## Architecture Overview
-[5-10 lines from Agent A's analysis]
+## Executive Summary
+- Health score: X.XX (trend: ↑ / ↓ / → vs previous scan from `health_history.json`)
+- Systemic findings: N total (new: X, recurring: Y, worsening: Z, resolved: W)
+- Top 3 systemic findings by severity × blast_radius:
+  1. [severity] type — component name (blast: N)
+  2. [severity] type — component name (blast: N)
+  3. [severity] type — component name (blast: N)
 
-## Health Scores
-| Metric | Current | Previous | Trend | What it means |
-|--------|---------|----------|-------|---------------|
-| Erosion | | | | Files breaking expected structure (naming, docs, tests). <0.3 good, >0.5 high |
-| Gini | | | | Code distribution inequality. High = a few god-files hold most code. <0.4 good, >0.6 high |
-| Top-20% | | | | Share of code in the largest 20% of files. <0.5 good, >0.7 high |
-| Verbosity | | | | Comment-to-code ratio. High = over-documented or commented-out code. <0.05 good, >0.15 high |
-| LOC | | | | Total lines of code. Tracks growth over time |
-[Fill in Current, Previous, Trend from Agent B]
+## Systemic Findings (N)
 
-### Complexity Trajectory
-[functions that got more complex since last scan]
+<For each finding where `category == "systemic"` AND `lifecycle_status != "resolved"`, render with the full expanded treatment below. Order by severity (error > warn > info) then `blast_radius` descending.>
 
-## Findings
-[ALL findings from agents A, B, C — ranked by severity then confidence]
-[Each finding: what's wrong, which file, evidence from the code, why it matters]
-[Mark which findings are NEW vs. RECURRING vs. RESOLVED since last scan]
+### [severity · lifecycle] type — component name
+**Pattern:** <pattern_description — one sentence>
+**Evidence:**
+- location1 — short why
+- location2 — short why
+- (more...)
+**Root cause:** <root_cause>
+**Fix direction:** <fix_direction>
+**Severity:** <severity> — blast_radius: N (delta: +K / -K / 0)
+**Blueprint anchor:** <blueprint_anchor if present, else omit line>
 
-## Blueprint Evolution
-[What changed in the blueprint this scan — new components, updated confidence, resolved pitfalls, new rules added]
+## Localized Findings (M)
 
-## Proposed Rules
-[from Agent C — numbered checklist with rationale and confidence]
+<Compact tables grouped by `type`. Only emit a subsection if at least one finding of that type exists. Use these exact table schemas.>
 
-## Next Task
-**What:** [highest-impact action from across all three agents]
-**Where:** [exact file paths]
-**Why:** [what improves]
-**How:** [2-3 sentence approach]
+### Dependency violations (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+| error | path/file:line | short detail | short fix |
 
-## Recommendations
-[Re-baseline with /archie-deep-scan if: no deep scan ever, erosion increased >0.10, major structural changes]
+### Cycles (k)
+| Sev | Modules | Evidence | Fix |
+|---|---|---|---|
+
+### Complexity hotspots (k)
+| Sev | Function | CC | Location | Why | Fix |
+|---|---|---:|---|---|---|
+
+### Pattern divergences (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+### Rule violations (k)
+| Sev | Rule | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Semantic duplications (k)
+| Sev | Canonical | Duplicates | Fix |
+|---|---|---|---|
+
+### Pattern erosion (k)
+| Sev | File | Violated pattern | Fix |
+|---|---|---|---|
+
+### Decision violations (k)
+| Sev | Decision | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Trade-offs undermined (k)
+| Sev | Trade-off | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Pitfalls triggered (k)
+| Sev | Pitfall | Location | Evidence | Fix |
+|---|---|---|---|---|
+
+### Responsibility leaks (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+### Abstraction bypasses (k)
+| Sev | Location | Evidence | Fix |
+|---|---|---|---|
+
+## Resolved Findings (W)
+
+<Compressed list of findings where `lifecycle_status == "resolved"`. Group by `type`. Omit the section entirely if W == 0.>
+
+## Mechanical Findings (p)
+
+<Findings where `source == "mechanical"` — output of `drift.py` that AI analysis didn't subsume. Keep compact (1 line per item: severity, type, location, one-line detail). Omit the section if p == 0.>
 ```
+
+**Rendering rules:**
+
+- Order within Systemic Findings: severity (error > warn > info), then `blast_radius` descending.
+- Within each Localized table, order by severity then by location string for stable diffs.
+- "component name" in the Top-3 summary and Systemic headings comes from `scope.components_affected[0]` if present, else derived from the first location.
+- `blast_radius_delta` renders as `+K` (worsening), `-K` (improving), or `0` (unchanged). Omit parentheses if the finding is new and delta is 0.
+- When the aggregator produces zero findings in a section, include the heading only if the section has a count in parentheses (so `## Systemic Findings (0)` stays; empty Localized subsections are omitted).
+- `blueprint_anchor` lines: include only when the field is non-null.
 
 ### 4d: Update Satellite Files
 
