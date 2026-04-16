@@ -115,7 +115,18 @@ for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py
   }
 }
 
-// 3b. Copy data files (non-script)
+// 3b. Copy viewer dist (React SPA)
+const viewerDistSrc = join(ASSETS, "viewer_dist");
+const viewerDistDest = join(archieDir, "viewer_dist");
+if (existsSync(viewerDistSrc)) {
+  if (existsSync(viewerDistDest)) {
+    rmSync(viewerDistDest, { recursive: true, force: true });
+  }
+  cpSync(viewerDistSrc, viewerDistDest, { recursive: true });
+  console.log("  Copied viewer_dist/");
+}
+
+// 3c. Copy data files (non-script)
 for (const dataFile of ["platform_rules.json"]) {
   const src = join(ASSETS, dataFile);
   const dest = join(archieDir, dataFile);
@@ -125,7 +136,7 @@ for (const dataFile of ["platform_rules.json"]) {
   }
 }
 
-// 3c. Copy .archieignore (only if it doesn't exist — user may have customized)
+// 3d. Copy .archieignore (only if it doesn't exist — user may have customized)
 const archieignoreSrc = join(ASSETS, "archieignore.default");
 const archieignoreDest = join(projectRoot, ".archieignore");
 if (!existsSync(archieignoreDest) && existsSync(archieignoreSrc)) {
@@ -133,7 +144,7 @@ if (!existsSync(archieignoreDest) && existsSync(archieignoreSrc)) {
   console.log(`  ${GREEN}✓${RESET} .archieignore (default patterns)`);
 }
 
-// 3d. Add .gitignore entries for Archie scripts (idempotent)
+// 3e. Add .gitignore entries for Archie scripts (idempotent)
 const gitignorePath = join(projectRoot, ".gitignore");
 const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/hooks/\n.claude/settings.local.json\n`;
 
