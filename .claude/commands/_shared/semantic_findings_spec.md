@@ -5,6 +5,8 @@
 > When you update calibration, update this file ONLY — do not restate calibration inline in any agent prompt.
 > Changes here apply to both `/archie-scan` and `/archie-deep-scan` automatically.
 
+> **Normative terms:** `MUST` / `MUST NOT` / `SHOULD` / `SHOULD NOT` are used in the RFC-2119 sense. Blockquotes mark normative directives; prose is descriptive.
+
 ---
 
 ## 1. Output schema
@@ -24,7 +26,7 @@ Every Semantic Finding — systemic or localized, draft or canonical, regardless
   },
   "pattern_description": "one-sentence architectural name — required for systemic, omitted for localized",
   "evidence": "concrete instances (systemic) or single-location detail (localized)",
-  "root_cause": "mechanistic explanation — missing abstraction / conflicting decisions / organic growth without refactor / erosion trajectory",
+  "root_cause": "mechanistic explanation — names the structural reason (e.g., missing abstraction, conflicting decisions, organic growth without refactor, erosion trajectory)",
   "fix_direction": "actionable — extract X / consolidate to Y / split Z / add middleware W",
   "blueprint_anchor": "decision:D.3 | trade_off:T.2 | pitfall:P.5 | null",
   "blast_radius": 22,              // systemic-only; count of components / files affected
@@ -35,7 +37,12 @@ Every Semantic Finding — systemic or localized, draft or canonical, regardless
 }
 ```
 
-`blast_radius` and `blast_radius_delta` are **required for systemic** findings and **optional** for localized. All other fields are populated by the producing agent; `lifecycle_status` and `blast_radius_delta` are computed by the aggregator, not the agent. `id` is assigned by the aggregator if the agent doesn't emit one.
+Field population rules:
+
+- **Producing agent populates** all fields except `lifecycle_status` and `blast_radius_delta`.
+- **Aggregator populates** `lifecycle_status` and `blast_radius_delta` (not the agent).
+- **Required for systemic:** `blast_radius` and `blast_radius_delta`. Optional for localized.
+- **`id`** is assigned by the aggregator if the agent doesn't emit one.
 
 ---
 
@@ -52,7 +59,10 @@ A candidate finding that can't fill all required fields is **dropped**. No excep
 | `blast_radius` | required | optional |
 | `blueprint_anchor` | populate when applicable | populate when applicable |
 
-"Mechanistic" means the `root_cause` names the structural reason (missing abstraction, conflicting decisions, organic growth without refactor, erosion trajectory) — not the symptom. "Actionable" means `fix_direction` names a concrete move (extract / consolidate / split / add middleware), not a goal (improve / clean up / consider refactoring).
+### 2b. What "mechanistic" and "actionable" mean
+
+- **Mechanistic** — the `root_cause` names the structural reason (e.g., missing abstraction, conflicting decisions, organic growth without refactor, erosion trajectory), not the symptom.
+- **Actionable** — `fix_direction` names a concrete move (e.g., extract / consolidate / split / add middleware), not a goal (improve / clean up / consider refactoring).
 
 ---
 
@@ -67,7 +77,7 @@ Severity is assigned by the producing agent using these rules. Apply the **highe
 - `dependency_magnet` with fan-in > 20 OR a rising trajectory → `error`
 - ≥3 near-twin instances of `semantic_duplication` OR any instance in a security-critical path → `error`
 
-Absent any of the above, default to `info` for localized findings and `warn` for systemic findings with blast_radius ≥ 5.
+**Default when no rule matches:** `info` for localized findings; `warn` for systemic findings with `blast_radius ≥ 5`.
 
 ---
 
@@ -102,7 +112,7 @@ Location-specific issues with 1 concrete site.
 - **`pattern_erosion`** — A single file deviates from the pattern documented in its folder's `CLAUDE.md` (e.g., the folder prescribes a hook-based API but this file exposes a class).
 - **`dependency_violation`** — A specific import or call crosses a documented dependency boundary the wrong way (e.g., `apps/webui` imports from `apps/electron/src/...`).
 - **`cycle`** — A concrete import cycle exists between named modules or packages.
-- **`complexity_hotspot`** — A specific function or file exceeds complexity thresholds (CC ≥ 10) and is large enough to matter for maintenance.
+- **`complexity_hotspot`** — A specific function or file whose complexity exceeds the threshold defined in section 3 and is large enough to matter for maintenance.
 - **`rule_violation`** — A specific site breaches a rule defined in `rules.json` or `platform_rules.json` (the mechanical rules layer).
 - **`pattern_divergence`** — A single site diverges from a structural pattern that `drift.py` or Agent C detects as the dominant convention in the codebase.
 
@@ -119,16 +129,16 @@ Every finding carries `synthesis_depth`, signalling how deep the producing agent
 
 ### 5a. Which agent writes which depth
 
-| Agent / producer | Depth |
-|---|---|
-| Fast-scan Agent A (`/archie-scan`) | `draft` |
-| Fast-scan Agent B (`/archie-scan`) | `draft` |
-| Fast-scan Agent C (`/archie-scan`) | `draft` |
-| Wave 1 Structure (`/archie-deep-scan`) | `draft` |
-| Wave 1 Patterns (`/archie-deep-scan`) | `draft` |
-| Shrunk Phase 2 (`/archie-deep-scan`) | `draft` |
-| Wave 2 reasoning (`/archie-deep-scan`, Opus) | `canonical` |
-| `drift.py` (mechanical) | `draft` |
+| Agent / producer | Depth | `source` string |
+|---|---|---|
+| Fast-scan Agent A (`/archie-scan`, structure / dep graph) | `draft` | `fast_agent_a` |
+| Fast-scan Agent B (`/archie-scan`, health / complexity) | `draft` | `fast_agent_b` |
+| Fast-scan Agent C (`/archie-scan`, rules / patterns) | `draft` | `fast_agent_c` |
+| Wave 1 Structure (`/archie-deep-scan`) | `draft` | `wave1_structure` |
+| Wave 1 Patterns (`/archie-deep-scan`) | `draft` | `wave1_patterns` |
+| Shrunk Phase 2 (`/archie-deep-scan`: `semantic_duplication` + `pattern_erosion`) | `draft` | `phase2` |
+| Wave 2 reasoning (`/archie-deep-scan`, Opus) | `canonical` | `wave2` |
+| `drift.py` (mechanical) | `draft` | `mechanical` |
 
 ### 5b. Upgrade pass
 
@@ -138,18 +148,7 @@ Wave 2 re-processes stored `draft` findings whose `lifecycle_status` is `recurri
 
 ## 6. Source string enum
 
-The `source` field names the producing agent, with no freeform values. Valid entries:
-
-- `wave1_structure` — Wave 1 Structure agent (deep-scan)
-- `wave1_patterns` — Wave 1 Patterns agent (deep-scan)
-- `wave2` — Wave 2 reasoning agent (deep-scan, Opus)
-- `phase2` — Shrunk Phase 2 agent (deep-scan: `semantic_duplication` + `pattern_erosion`)
-- `fast_agent_a` — Fast-scan Agent A (structure / dep graph)
-- `fast_agent_b` — Fast-scan Agent B (health / complexity)
-- `fast_agent_c` — Fast-scan Agent C (rules / patterns)
-- `mechanical` — `drift.py` structural outliers
-
-Any other value is a bug — the aggregator will reject the finding.
+The `source` field names the producing agent. Exactly the 8 values enumerated in the section 5a table are valid; any other value is a bug and the aggregator will reject the finding.
 
 ---
 
@@ -163,7 +162,9 @@ Any other value is a bug — the aggregator will reject the finding.
 
 **Emit every finding you can substantiate with concrete evidence. No cap. Do not invent to pad. Do not drop to stay under a count. The quality gate is the only filter.**
 
-Every agent prompt that used to say "Emit 3-5 findings" or similar must say instead: the above directive verbatim. Agents that over-emit low-quality candidates will have them dropped at the quality gate; agents that under-emit will miss real issues. Trust the gate; don't second-guess yourself on count.
+Agents that over-emit low-quality candidates will have them dropped at the quality gate; agents that under-emit will miss real issues. Trust the gate; don't second-guess yourself on count.
+
+<!-- Maintainer note: every agent prompt that used to say "Emit 3-5 findings" or similar must be migrated to quote the bold directive above verbatim. -->
 
 ---
 
@@ -195,15 +196,15 @@ The quality gate's "mechanistic" and "actionable" bars are best communicated by 
 **Good** — sequenced, names the specific steps:
 > `"(1) Add a lint rule in platform_rules.json forbidding raw fetch outside packages/api-client. (2) Migrate the 6 call sites under apps/webui/src/admin/ first (smallest cluster). (3) Tackle apps/electron/src/ in a second pass — expect touch in auth.ts, storage.ts, sync.ts."`
 
-### 9d. Sonnet (draft) vs Opus (canonical) on the same finding
+### 9d. Draft vs canonical on the same finding
 
 This pair illustrates the `draft → canonical` quality difference; use it when calibrating Wave 2 upgrade-pass enrichment.
 
-**Sonnet draft** (acceptable at draft tier, but shallow):
+**Draft** (acceptable at draft tier, but shallow):
 > `root_cause: "Auth handling is scattered across the codebase without a central enforcement point."`
 > `fix_direction: "Consolidate auth checks into middleware."`
 
-**Opus canonical** (target for Wave 2):
+**Canonical** (target for Wave 2):
 > `root_cause: "Three successive decisions (D.2 API middleware, D.5 per-route decorators for admin, D.9 UI-level guards for optimistic rendering) each introduced a new enforcement site without deprecating the prior one. The resulting stack is cumulative, not layered: every request passes through all three, and removing any one silently weakens coverage in a non-obvious subset of routes."`
 > `fix_direction: "(1) Choose middleware as the single enforcement tier (simplest to reason about, already covers 80% of routes). (2) Rewrite the 12 admin routes under apps/webui/src/admin/api/ to rely on middleware claims rather than the decorator. (3) Remove the UI-level guard from apps/webui/src/components/ProtectedRoute.tsx once middleware is canonical — keep only the optimistic redirect. (4) Add a platform rule forbidding new uses of the decorator to prevent regrowth."`
 
