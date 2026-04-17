@@ -300,7 +300,7 @@ export default function ReportPage() {
                 label="Architecture Diagram"
               />
             )}
-            {bp.workspace_topology && (
+            {bp.workspace_topology && bp.workspace_topology.type !== 'single_app' && (
               <NavButton
                 active={activeSection === 'workspace-topology'}
                 onClick={() => scrollToSection('workspace-topology')}
@@ -411,7 +411,7 @@ export default function ReportPage() {
           )}
 
           {/* Risks — merged Findings + Pitfalls */}
-          {(filteredReport || pitfalls.length > 0) && (
+          {(findings.length > 0 || filteredReport || pitfalls.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Risks</p>
               <NavButton
@@ -583,7 +583,7 @@ export default function ReportPage() {
           )}
 
           {/* 3b. Workspace Topology (monorepo whole-mode blueprints only) */}
-          {bp.workspace_topology && (
+          {bp.workspace_topology && bp.workspace_topology.type !== 'single_app' && (
             <section id="workspace-topology" className="scroll-mt-24">
               <Sections.WorkspaceTopologySection topology={bp.workspace_topology} />
             </section>

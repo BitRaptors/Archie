@@ -243,7 +243,7 @@ export default function CoverPage() {
                         label="Files"
                         value={scanMeta.total_files?.toLocaleString?.() ?? scanMeta.total_files ?? '—'}
                       />
-                      {bp.workspace_topology ? (
+                      {bp.workspace_topology && bp.workspace_topology.type !== 'single_app' ? (
                         <Sections.Stat
                           label={`Workspaces (${bp.workspace_topology.type || 'monorepo'})`}
                           value={bp.workspace_topology.members?.length ?? scanMeta.subprojects?.length ?? 0}
