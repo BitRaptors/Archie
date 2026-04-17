@@ -84,3 +84,62 @@ def test_write_if_changed_creates_parent_dir(tmp_path):
     changed = wiki_builder.write_if_changed(page, "hello\n")
     assert changed is True
     assert page.read_text() == "hello\n"
+
+
+def _setup_project_with_previous_wiki(tmp_path):
+    """Build a wiki once (simulating a prior deep-scan), then prepare an
+    incremental scenario where one evidence file has changed."""
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    shutil.copy(FIXTURE_BP, archie / "blueprint.json")
+    # First: build full wiki.
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(tmp_path)],
+        check=True, capture_output=True,
+    )
+    # Write a previous scan snapshot showing the evidence files that existed.
+    old_scan = {
+        "files": [
+            {"path": "features/auth/AuthController.ts", "hash": "h1"},
+            {"path": "features/auth/AuthService.ts", "hash": "h2"},
+            {"path": "routes/api/auth.py", "hash": "h3"},
+        ]
+    }
+    (archie / "scan.json").write_text(json.dumps(old_scan))
+    return tmp_path
+
+
+def test_incremental_rewrites_only_affected_pages(tmp_path):
+    project = _setup_project_with_previous_wiki(tmp_path)
+    wiki = project / ".archie" / "wiki"
+    # Capture current file mtimes.
+    before = {p: p.stat().st_mtime_ns for p in wiki.rglob("*.md")}
+
+    # Simulate: one evidence file for "User Authentication" has changed.
+    new_scan = {
+        "files": [
+            {"path": "features/auth/AuthController.ts", "hash": "h1-modified"},
+            {"path": "features/auth/AuthService.ts", "hash": "h2"},
+            {"path": "routes/api/auth.py", "hash": "h3"},
+        ]
+    }
+    prev_scan = json.loads((project / ".archie" / "scan.json").read_text())
+    (project / ".archie" / "scan.json").write_text(json.dumps(new_scan))
+
+    # Run incremental.
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project),
+         "--incremental", "--previous-scan", json.dumps(prev_scan)],
+        check=True, capture_output=True,
+    )
+
+    after = {p: p.stat().st_mtime_ns for p in wiki.rglob("*.md")}
+    # Capability page MAY have been rewritten (evidence matched). Other pages
+    # must NOT have changed on disk.
+    unchanged_pages = [
+        wiki / "components" / "user-repository.md",
+        wiki / "decisions" / "postgresql-as-primary-store.md",
+        wiki / "patterns" / "repository.md",
+    ]
+    for p in unchanged_pages:
+        assert after[p] == before[p], f"{p} should not have been rewritten"
