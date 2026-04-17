@@ -191,6 +191,110 @@ def extract_json_from_text(text: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Capabilities merging
+# ---------------------------------------------------------------------------
+
+def merge_capabilities(blueprint: dict, capabilities_input: list) -> tuple[int, int]:
+    """Validate and append capability entries to blueprint['capabilities'].
+
+    Cross-references each entry's uses_components, constrained_by_decisions,
+    and related_pitfalls against known names in the blueprint. Unknown refs are
+    dropped (the entry is still kept). Returns (accepted_count, dropped_ref_count).
+    """
+    known_components = {
+        c.get("name")
+        for c in blueprint.get("components", []) or []
+        if isinstance(c, dict) and c.get("name")
+    }
+    known_decisions = {
+        d.get("title")
+        for d in (blueprint.get("decisions", {}) or {}).get("key_decisions", []) or []
+        if isinstance(d, dict) and d.get("title")
+    }
+    known_pitfalls = {
+        p.get("area")
+        for p in blueprint.get("pitfalls", []) or []
+        if isinstance(p, dict) and p.get("area")
+    }
+
+    accepted = 0
+    dropped = 0
+
+    blueprint.setdefault("capabilities", [])
+
+    for entry in capabilities_input or []:
+        if not isinstance(entry, dict) or not entry.get("name"):
+            dropped += 1
+            continue
+
+        filtered_components = []
+        for ref in entry.get("uses_components", []) or []:
+            if ref in known_components:
+                filtered_components.append(ref)
+            else:
+                dropped += 1
+
+        filtered_decisions = []
+        for ref in entry.get("constrained_by_decisions", []) or []:
+            if ref in known_decisions:
+                filtered_decisions.append(ref)
+            else:
+                dropped += 1
+
+        filtered_pitfalls = []
+        for ref in entry.get("related_pitfalls", []) or []:
+            if ref in known_pitfalls:
+                filtered_pitfalls.append(ref)
+            else:
+                dropped += 1
+
+        validated = dict(entry)
+        validated["uses_components"] = filtered_components
+        validated["constrained_by_decisions"] = filtered_decisions
+        validated["related_pitfalls"] = filtered_pitfalls
+        blueprint["capabilities"].append(validated)
+        accepted += 1
+
+    return accepted, dropped
+
+
+def _load_capabilities_file(path: str) -> list:
+    """Load capabilities JSON from a file path. Returns [] on any error."""
+    try:
+        text = Path(path).read_text()
+    except OSError as e:
+        print(f"  Warning: could not read capabilities file {path}: {e}", file=sys.stderr)
+        return []
+
+    # Try parsing as a JSON array directly
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            # Agent may have wrapped array in a dict key
+            for v in data.values():
+                if isinstance(v, list):
+                    return v
+        print(f"  Warning: capabilities file {path} did not contain a JSON array", file=sys.stderr)
+        return []
+    except json.JSONDecodeError:
+        pass
+
+    # Try extracting from markdown/code fences
+    result = extract_json_from_text(text)
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        for v in result.values():
+            if isinstance(v, list):
+                return v
+
+    print(f"  Warning: could not parse capabilities JSON from {path}", file=sys.stderr)
+    return []
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -248,7 +352,18 @@ if __name__ == "__main__":
 
     outputs: list[dict] = []
 
-    if not input_files or input_files == ["-"]:
+    # The last file arg may be a capabilities JSON array (from the Capabilities agent).
+    # Detect it by name convention: ends with "capabilities.json" or is exactly
+    # /tmp/archie_agent_capabilities.json.  Capabilities are handled separately —
+    # they are validated against the merged blueprint, not deep-merged into it.
+    capabilities_file: str | None = None
+    regular_files = list(input_files)
+    if regular_files and not regular_files[-1].startswith("-"):
+        candidate = regular_files[-1]
+        if "capabilities" in Path(candidate).name:
+            capabilities_file = regular_files.pop()
+
+    if not regular_files or regular_files == ["-"]:
         text = sys.stdin.read()
         parsed = extract_json_from_text(text)
         if parsed:
@@ -257,7 +372,7 @@ if __name__ == "__main__":
             print("Error: could not parse JSON from stdin", file=sys.stderr)
             sys.exit(1)
     else:
-        for f in input_files:
+        for f in regular_files:
             try:
                 text = Path(f).read_text()
                 parsed = extract_json_from_text(text)
@@ -281,6 +396,14 @@ if __name__ == "__main__":
     merged = {}
     for output in outputs:
         merged = deep_merge(merged, output)
+
+    # Merge capabilities (validate refs, append to blueprint["capabilities"])
+    if capabilities_file:
+        caps_input = _load_capabilities_file(capabilities_file)
+        accepted, dropped = merge_capabilities(merged, caps_input)
+        print(f"Capabilities: {accepted} accepted, {dropped} dropped due to unknown refs")
+    else:
+        merged.setdefault("capabilities", [])
 
     # Save raw merged output (pre-normalization)
     archie_dir = root / ".archie"
