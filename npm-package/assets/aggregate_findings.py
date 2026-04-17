@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Archie findings aggregator — merge, gate, and lifecycle-tag semantic findings.
 
-Consumes the per-wave/phase outputs of a scan (wave1, wave2, phase2, mechanical
-drift) and produces the single canonical `.archie/semantic_findings.json`:
+Consumes the per-agent outputs of a scan and produces the single canonical
+`.archie/semantic_findings.json`:
 
   1. merge_sources — dedupe by (type + sorted components_affected) signature,
      preferring canonical over draft, deeper synthesis over shallower, and
@@ -18,14 +18,20 @@ Run:
   python3 aggregate_findings.py /path/to/repo
 
 Reads (from `<repo>/.archie/`):
-  - semantic_findings_wave1.json       (deep-scan)
-  - semantic_findings_wave2.json       (deep-scan)
-  - semantic_findings_phase2.json      (deep-scan)
-  - semantic_findings_fast_a.json      (fast-scan Agent A)
-  - semantic_findings_fast_b.json      (fast-scan Agent B)
-  - semantic_findings_fast_c.json      (fast-scan Agent C)
+  - sf_structure.json                  (Structure agent)
+  - sf_patterns.json                   (Patterns agent)
+  - sf_health.json                     (Health agent)
+  - sf_synthesis.json                  (deep-scan Opus synthesis, optional)
   - drift_report.json                  (mechanical findings)
   - semantic_findings.json             (prior run, for lifecycle)
+
+Legacy files (backward compat, loaded if new files absent):
+  - semantic_findings_wave1.json       (old deep-scan)
+  - semantic_findings_wave2.json       (old deep-scan)
+  - semantic_findings_phase2.json      (old deep-scan)
+  - semantic_findings_fast_a.json      (old fast-scan Agent A)
+  - semantic_findings_fast_b.json      (old fast-scan Agent B)
+  - semantic_findings_fast_c.json      (old fast-scan Agent C)
 
 Writes:
   - semantic_findings.json     ({"findings": [...], "schema_version": 1})
@@ -42,6 +48,12 @@ from pathlib import Path
 # ── Source + severity ranking ────────────────────────────────────────────
 
 SOURCE_RANK = {
+    # Unified pipeline names
+    "synthesis_opus": 4,
+    "agent_structure": 2,
+    "agent_patterns": 2,
+    "agent_health": 2,
+    # Legacy names (backward compat)
     "wave2": 4,
     "phase2": 3,
     "wave1_structure": 2,
@@ -312,29 +324,41 @@ def _adapt_mechanical(path: Path) -> list:
 def main():
     project_root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd()
     archie_dir = project_root / ".archie"
-    wave1 = _load(archie_dir / "semantic_findings_wave1.json")
-    wave2 = _load(archie_dir / "semantic_findings_wave2.json")
-    phase2 = _load(archie_dir / "semantic_findings_phase2.json")
-    # Fast-scan per-agent outputs. Deep-scan never writes these; fast-scan
-    # never writes the wave/phase files — either branch degrades to [] via
-    # _load. Merging them through the same pipeline keeps one code path.
-    fast_a = _load(archie_dir / "semantic_findings_fast_a.json")
-    fast_b = _load(archie_dir / "semantic_findings_fast_b.json")
-    fast_c = _load(archie_dir / "semantic_findings_fast_c.json")
-    # drift_report.json uses a categorized-arrays shape (pattern_divergences,
-    # naming_violations, dependency_violations, ...) rather than the canonical
-    # `{findings: [...]}` envelope. _adapt_mechanical flattens it; _load would
-    # silently return [] and we'd lose every mechanical finding.
+
+    # ── New unified agent findings (both scan and deep-scan) ────────────
+    structure = _load(archie_dir / "sf_structure.json")
+    patterns = _load(archie_dir / "sf_patterns.json")
+    health = _load(archie_dir / "sf_health.json")
+    # Synthesis findings (deep-scan only — may not exist)
+    synthesis = _load(archie_dir / "sf_synthesis.json")
+
+    # ── Legacy filenames (backward compat — loaded if new files absent) ─
+    legacy_wave1 = _load(archie_dir / "semantic_findings_wave1.json")
+    legacy_wave2 = _load(archie_dir / "semantic_findings_wave2.json")
+    legacy_phase2 = _load(archie_dir / "semantic_findings_phase2.json")
+    legacy_fast_a = _load(archie_dir / "semantic_findings_fast_a.json")
+    legacy_fast_b = _load(archie_dir / "semantic_findings_fast_b.json")
+    legacy_fast_c = _load(archie_dir / "semantic_findings_fast_c.json")
+
+    # Mechanical
     mechanical = _adapt_mechanical(archie_dir / "drift_report.json")
+    # Prior
     prior = _load(archie_dir / "semantic_findings.json")
 
-    # fast_agent_* share SOURCE_RANK 2 with wave1_*, so threading them through
-    # the wave1 bucket keeps _pick's ranking correct. wave2/phase2 outrank them
-    # (deep-scan wins when both exist); mechanical is lower (draft-only bucket).
+    # New agent files take priority; legacy files fill in when new ones are
+    # absent. All agent-level findings feed into the wave1 bucket (SOURCE_RANK 2).
+    # Synthesis feeds into wave2 (SOURCE_RANK 4).
+    agent_findings = (
+        list(structure) + list(patterns) + list(health)
+        + list(legacy_wave1) + list(legacy_fast_a) + list(legacy_fast_b) + list(legacy_fast_c)
+    )
+    synthesis_findings = list(synthesis) + list(legacy_wave2)
+    phase2_findings = list(legacy_phase2)
+
     merged = merge_sources(
-        list(wave1) + list(fast_a) + list(fast_b) + list(fast_c),
-        wave2,
-        phase2,
+        agent_findings,
+        synthesis_findings,
+        phase2_findings,
         mechanical,
     )
     gated = apply_quality_gate(merged)
