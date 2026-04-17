@@ -34,6 +34,16 @@ _CAMEL_RE1 = re.compile(r"([a-z0-9])([A-Z][a-z])")
 _CAMEL_RE2 = re.compile(r"([A-Z]+)([A-Z][a-z])")
 
 
+def _as_dict(value) -> dict:
+    """Return value if dict, else empty dict. Defensive against malformed blueprints."""
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value) -> list:
+    """Return value if list, else empty list."""
+    return value if isinstance(value, list) else []
+
+
 def slugify(name: str) -> str:
     """Lowercase, alphanumerics-and-hyphens only, no leading/trailing hyphens.
 
@@ -273,7 +283,7 @@ def render_capability(capability: dict, slug: str, slugs: dict[str, dict[str, st
 
 
 def render_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
-    project_name = blueprint.get("meta", {}).get("project_name", "Project")
+    project_name = _as_dict(blueprint.get("meta")).get("project_name", "Project")
     decisions = slug_map.get("decisions", {})
     components = slug_map.get("components", {})
     patterns = slug_map.get("patterns", {})
@@ -281,7 +291,7 @@ def render_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
     capabilities = slug_map.get("capabilities", {})
 
     cap_entries = []
-    for cap in blueprint.get("capabilities", []) or []:
+    for cap in _as_list(blueprint.get("capabilities")):
         name = cap.get("name")
         slug = capabilities.get(name)
         if not slug:
@@ -335,11 +345,11 @@ def render_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
 
 def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
     """Return {type: {name: slug}} where each type has its own slug namespace."""
-    decisions = blueprint.get("decisions", {}).get("key_decisions", []) or []
-    components = blueprint.get("components", []) or []
-    patterns = blueprint.get("communication", {}).get("patterns", []) or []
-    pitfalls = blueprint.get("pitfalls", []) or []
-    capabilities = blueprint.get("capabilities", []) or []
+    decisions = _as_list(_as_dict(blueprint.get("decisions")).get("key_decisions"))
+    components = _as_list(blueprint.get("components"))
+    patterns = _as_list(_as_dict(blueprint.get("communication")).get("patterns"))
+    pitfalls = _as_list(blueprint.get("pitfalls"))
+    capabilities = _as_list(blueprint.get("capabilities"))
 
     def _map(items: list[dict], key: str) -> dict[str, str]:
         seen: set[str] = set()
@@ -373,7 +383,7 @@ def _collect_evidence_map(blueprint: dict, slug_map: dict[str, dict[str, str]]) 
     they are intentionally omitted.
     """
     evidence_map: dict[str, list[str]] = {}
-    for capability in blueprint.get("capabilities", []) or []:
+    for capability in _as_list(blueprint.get("capabilities")):
         slug = slug_map["capabilities"].get(capability.get("name"))
         if not slug:
             continue
@@ -398,13 +408,13 @@ def build_wiki(project_root: Path) -> None:
 
     slug_map = _build_slug_map(blueprint)
 
-    for decision in blueprint.get("decisions", {}).get("key_decisions", []) or []:
+    for decision in _as_list(_as_dict(blueprint.get("decisions")).get("key_decisions")):
         slug = slug_map["decisions"].get(decision.get("title"))
         if not slug:
             continue
         _write(wiki_root / "decisions" / f"{slug}.md", render_decision(decision, slug))
 
-    for component in blueprint.get("components", []) or []:
+    for component in _as_list(blueprint.get("components")):
         slug = slug_map["components"].get(component.get("name"))
         if not slug:
             continue
@@ -413,13 +423,13 @@ def build_wiki(project_root: Path) -> None:
             render_component(component, slug, slug_map["components"]),
         )
 
-    for pattern in blueprint.get("communication", {}).get("patterns", []) or []:
+    for pattern in _as_list(_as_dict(blueprint.get("communication")).get("patterns")):
         slug = slug_map["patterns"].get(pattern.get("name"))
         if not slug:
             continue
         _write(wiki_root / "patterns" / f"{slug}.md", render_pattern(pattern, slug))
 
-    for pitfall in blueprint.get("pitfalls", []) or []:
+    for pitfall in _as_list(blueprint.get("pitfalls")):
         slug = slug_map["pitfalls"].get(pitfall.get("area"))
         if not slug:
             continue
@@ -428,7 +438,7 @@ def build_wiki(project_root: Path) -> None:
             render_pitfall(pitfall, slug, slug_map["decisions"]),
         )
 
-    for capability in blueprint.get("capabilities", []) or []:
+    for capability in _as_list(blueprint.get("capabilities")):
         slug = slug_map["capabilities"].get(capability.get("name"))
         if not slug:
             continue
@@ -491,14 +501,14 @@ def _blueprint_structure_changed(provenance: dict, blueprint: dict) -> bool:
 
     expected_decisions = {
         slugify(d.get("title", ""))
-        for d in blueprint.get("decisions", {}).get("key_decisions", []) or []
+        for d in _as_list(_as_dict(blueprint.get("decisions")).get("key_decisions"))
     }
-    expected_components = {slugify(c.get("name", "")) for c in blueprint.get("components", []) or []}
+    expected_components = {slugify(c.get("name", "")) for c in _as_list(blueprint.get("components"))}
     expected_patterns = {
         slugify(p.get("name", ""))
-        for p in blueprint.get("communication", {}).get("patterns", []) or []
+        for p in _as_list(_as_dict(blueprint.get("communication")).get("patterns"))
     }
-    expected_pitfalls = {slugify(p.get("area", "")) for p in blueprint.get("pitfalls", []) or []}
+    expected_pitfalls = {slugify(p.get("area", "")) for p in _as_list(blueprint.get("pitfalls"))}
 
     def _slugs(prefix: str) -> set[str]:
         return {Path(p).stem for p in _pages(prefix)}
@@ -512,7 +522,7 @@ def _blueprint_structure_changed(provenance: dict, blueprint: dict) -> bool:
 
 
 def _find_capability_by_slug(blueprint: dict, slug: str, slug_map: dict[str, str]) -> dict | None:
-    for cap in blueprint.get("capabilities", []) or []:
+    for cap in _as_list(blueprint.get("capabilities")):
         if slug_map.get(cap.get("name")) == slug:
             return cap
     return None

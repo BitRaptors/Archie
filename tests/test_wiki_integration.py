@@ -167,3 +167,27 @@ def test_capability_backlinks_appear_on_components(tmp_path):
     # UserService is used by the User Authentication capability, so its
     # "Referenced by" section must include it.
     assert "[User Authentication](../capabilities/user-authentication.md)" in us
+
+
+def test_wiki_builder_survives_malformed_blueprint(tmp_path):
+    """If the blueprint has a list where a dict was expected (or vice versa),
+    the builder must not crash — it should produce an empty wiki instead."""
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    # `decisions` as a LIST instead of a dict (real Wave-2 failure mode).
+    # Every other required key is also present-but-malformed.
+    (archie / "blueprint.json").write_text(json.dumps({
+        "meta": ["not", "a", "dict"],
+        "decisions": ["this", "should", "be", "a", "dict"],
+        "components": "not a list",
+        "communication": 123,
+        "pitfalls": None,
+        "capabilities": {"not": "a list"},
+    }))
+    result = subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(tmp_path)],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, f"exit {result.returncode}: {result.stderr}"
+    # Index.md exists even though there is no data.
+    assert (tmp_path / ".archie" / "wiki" / "index.md").exists()
