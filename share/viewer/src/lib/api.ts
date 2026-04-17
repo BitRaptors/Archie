@@ -8,6 +8,28 @@ export interface SemanticDuplication {
   recommendation?: string
 }
 
+export interface SemanticFinding {
+  id?: string
+  category: string // "systemic" | "localized"
+  type: string
+  severity: string // "error" | "warn" | "info"
+  scope: {
+    kind?: string
+    components_affected?: string[]
+    locations?: string[]
+  }
+  pattern_description?: string
+  evidence?: string
+  root_cause?: string
+  fix_direction?: string
+  blueprint_anchor?: string | null
+  blast_radius?: number
+  blast_radius_delta?: number
+  lifecycle_status?: string // "new" | "recurring" | "resolved" | "worsening"
+  synthesis_depth?: string // "draft" | "canonical"
+  source?: string
+}
+
 export interface Bundle {
   blueprint: any
   health?: any
@@ -16,6 +38,11 @@ export interface Bundle {
   rules_proposed?: any
   scan_report?: string
   semantic_duplications?: SemanticDuplication[]
+  semantic_findings?: {
+    findings: SemanticFinding[]
+    schema_version?: number
+  }
+  bundle_version?: string
 }
 
 export interface ReportResponse {

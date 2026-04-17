@@ -128,6 +128,74 @@ export function WorkspaceTopologySection({ topology }: { topology: any }) {
 }
 
 
+function FindingBadge({ label, variant }: { label: string; variant?: 'lifecycle' | 'category' | 'depth' }) {
+  const cls = variant === 'lifecycle'
+    ? label === 'WORSENING'
+      ? 'bg-brandy/10 text-brandy border-brandy/30'
+      : label === 'NEW'
+        ? 'bg-teal/10 text-teal border-teal/30'
+        : label === 'RESOLVED'
+          ? 'bg-ink/5 text-ink/40 border-ink/10'
+          : 'border-ink/10 text-ink/40'
+    : variant === 'depth' && label === 'draft'
+      ? 'bg-tangerine/10 text-tangerine-800 border-tangerine/30'
+      : 'border-ink/10 text-ink/40'
+  return (
+    <Badge variant="outline" className={cn('text-[9px] font-black uppercase tracking-widest', cls)}>
+      {variant === 'depth' ? 'provisional' : label}
+    </Badge>
+  )
+}
+
+function StructuredFindingDetails({ f }: { f: Finding }) {
+  const hasDetails = f.rootCause || f.fixDirection || f.evidence || f.blastRadius != null || f.locations?.length
+  if (!hasDetails) return null
+  return (
+    <div className="mt-3 space-y-2 text-sm">
+      {f.evidence && (
+        <div className="text-ink/50 leading-relaxed">
+          <span className="font-semibold text-ink/70">Evidence: </span>
+          <AutoCode text={f.evidence} />
+        </div>
+      )}
+      {f.rootCause && (
+        <div className="text-ink/50 leading-relaxed">
+          <span className="font-semibold text-ink/70">Root cause: </span>
+          <AutoCode text={f.rootCause} />
+        </div>
+      )}
+      {f.fixDirection && (
+        <div className="text-ink/50 leading-relaxed">
+          <span className="font-semibold text-ink/70">Fix direction: </span>
+          <AutoCode text={f.fixDirection} />
+        </div>
+      )}
+      {f.blastRadius != null && (
+        <div className="text-ink/50 leading-relaxed">
+          <span className="font-semibold text-ink/70">Blast radius: </span>
+          {f.blastRadius}
+          {f.blastRadiusDelta != null && (
+            <span className={f.blastRadiusDelta > 0 ? 'text-brandy' : f.blastRadiusDelta < 0 ? 'text-teal' : ''}>
+              {' '}({f.blastRadiusDelta >= 0 ? '+' : ''}{f.blastRadiusDelta})
+            </span>
+          )}
+        </div>
+      )}
+      {f.locations && f.locations.length > 0 && (
+        <div className="text-ink/50 leading-relaxed">
+          <span className="font-semibold text-ink/70">Locations: </span>
+          {f.locations.map((loc, i) => (
+            <span key={i}>
+              {i > 0 && ', '}
+              <code className={codeInlineClassName}>{loc}</code>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function FindingsList({
   findings,
   truncate,
@@ -139,50 +207,71 @@ export function FindingsList({
 }) {
   return (
     <div className="grid gap-4">
-      {findings.map((f, i) => (
-        <div
-          key={i}
-          className={cn(
-            'p-6 rounded-2xl border flex gap-4 transition-all hover:shadow-lg',
-            theme.surface.panel
-          )}
-        >
+      {findings.map((f, i) => {
+        const isStructured = !!(f.category || f.findingType)
+        return (
           <div
+            key={i}
             className={cn(
-              'shrink-0 h-8 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest',
-              severityColor(f.severity)
+              'p-6 rounded-2xl border flex gap-4 transition-all hover:shadow-lg',
+              theme.surface.panel
             )}
           >
-            {f.severity === 'error' ? <Shield className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
-            {f.severity}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2 flex-wrap">
-              <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
-              {isSemanticDupFinding(f, { functionNames: semanticFunctionNames }) && (
-                <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest">
-                  Semantic Dup
-                </Badge>
+            <div
+              className={cn(
+                'shrink-0 h-8 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest',
+                severityColor(f.severity)
               )}
-              {f.group && (
-                <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
-                  {f.group}
-                </Badge>
+            >
+              {f.severity === 'error' ? <Shield className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+              {f.severity}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
+                {isSemanticDupFinding(f, { functionNames: semanticFunctionNames }) && (
+                  <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest">
+                    Semantic Dup
+                  </Badge>
+                )}
+                {f.group && (
+                  <FindingBadge label={f.group} variant="lifecycle" />
+                )}
+                {isStructured && f.category === 'systemic' && (
+                  <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40 font-black uppercase tracking-widest">
+                    systemic
+                  </Badge>
+                )}
+                {f.synthesisDepth === 'draft' && (
+                  <FindingBadge label="draft" variant="depth" />
+                )}
+              </div>
+              {/* Compact description for localized / truncate mode */}
+              {f.description && (!isStructured || f.category === 'localized' || truncate) && (
+                <p
+                  className={cn(
+                    'text-sm text-ink/60 mt-1 leading-relaxed',
+                    truncate && 'line-clamp-3'
+                  )}
+                >
+                  <AutoCode text={f.description} />
+                </p>
+              )}
+              {/* Rich details for systemic structured findings (non-truncate) */}
+              {isStructured && f.category === 'systemic' && !truncate && (
+                <StructuredFindingDetails f={f} />
+              )}
+              {/* Compact structured details for localized findings */}
+              {isStructured && f.category === 'localized' && !truncate && f.fixDirection && (
+                <div className="mt-2 text-sm text-ink/50">
+                  <span className="font-semibold text-ink/70">Fix: </span>
+                  <AutoCode text={f.fixDirection} />
+                </div>
               )}
             </div>
-            {f.description && (
-              <p
-                className={cn(
-                  'text-sm text-ink/60 mt-1 leading-relaxed',
-                  truncate && 'line-clamp-3'
-                )}
-              >
-                <AutoCode text={f.description} />
-              </p>
-            )}
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

@@ -17,7 +17,7 @@ import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { GhostLogo } from '@/components/GhostLogo'
 import { filterReportSections } from '@/lib/toc'
 import * as Sections from '@/components/ReportSections'
-import { countSemanticDuplications, extractFindings, rankFindings } from '@/lib/findings'
+import { countSemanticDuplications, extractFindings, rankFindings, semanticFindingsToFindings } from '@/lib/findings'
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
@@ -53,9 +53,12 @@ export default function ReportPage() {
   }, [bundle?.scan_report])
 
   const findings = useMemo(() => {
+    if (bundle?.semantic_findings?.findings?.length) {
+      return rankFindings(semanticFindingsToFindings(bundle.semantic_findings))
+    }
     if (!bundle?.scan_report) return []
     return rankFindings(extractFindings(bundle.scan_report))
-  }, [bundle?.scan_report])
+  }, [bundle?.scan_report, bundle?.semantic_findings])
 
   // Semantic duplication — prefer structured field, fall back to heuristic
   const semantic = useMemo<{ count: number | null; source: 'structured' | 'heuristic' | 'unknown' }>(() => {

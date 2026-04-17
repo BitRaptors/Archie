@@ -25,6 +25,7 @@ import {
   extractFindings,
   pickTopFindings,
   rankFindings,
+  semanticFindingsToFindings,
   type Finding,
 } from '@/lib/findings'
 
@@ -49,6 +50,11 @@ export default function CoverPage() {
 
   const findings: Finding[] = useMemo(() => {
     if (!bundle) return []
+    // v2: prefer structured semantic_findings
+    if (bundle.semantic_findings?.findings?.length) {
+      return rankFindings(semanticFindingsToFindings(bundle.semantic_findings))
+    }
+    // v1: parse markdown scan_report
     const fromReport = extractFindings(bundle.scan_report || '')
     // Fallback to pitfalls if scan_report has no findings
     if (fromReport.length > 0) return rankFindings(fromReport)

@@ -1,3 +1,5 @@
+import type { SemanticFinding, Bundle } from './api'
+
 /** Extract ranked findings from a scan_report.md string.
  *
  * Scan reports follow this shape:
@@ -12,17 +14,29 @@
  */
 
 export type FindingSeverity = 'error' | 'warn' | 'info'
-export type FindingGroup = 'RECURRING' | 'NEW' | 'RESOLVED'
+export type FindingGroup = 'RECURRING' | 'NEW' | 'RESOLVED' | 'WORSENING'
 
 export interface Finding {
   severity: FindingSeverity
   title: string
   description: string
   group?: FindingGroup
+  /** Rich fields from semantic_findings (v2 bundles) */
+  category?: string       // "systemic" | "localized"
+  findingType?: string    // e.g. "god_component", "layering_violation"
+  evidence?: string
+  rootCause?: string
+  fixDirection?: string
+  blastRadius?: number
+  blastRadiusDelta?: number
+  blueprintAnchor?: string | null
+  synthesisDepth?: string // "draft" | "canonical"
+  locations?: string[]
+  componentsAffected?: string[]
 }
 
 const SEVERITY_RANK: Record<FindingSeverity, number> = { error: 0, warn: 1, info: 2 }
-const GROUP_RANK: Record<FindingGroup, number> = { NEW: 0, RECURRING: 1, RESOLVED: 2 }
+const GROUP_RANK: Record<FindingGroup, number> = { WORSENING: 0, NEW: 1, RECURRING: 2, RESOLVED: 3 }
 
 export function extractFindings(scanReport: string): Finding[] {
   if (!scanReport) return []
@@ -178,6 +192,69 @@ export function isSemanticDupFinding(
 
 export function countSemanticDuplications(findings: Finding[]): number {
   return findings.filter((f) => isSemanticDupFinding(f)).length
+}
+
+// ---------------------------------------------------------------------------
+// v2 semantic_findings → Finding[] converter
+// ---------------------------------------------------------------------------
+
+function mapLifecycleToGroup(status?: string): FindingGroup | undefined {
+  if (!status) return undefined
+  const s = status.toLowerCase()
+  if (s === 'new') return 'NEW'
+  if (s === 'recurring') return 'RECURRING'
+  if (s === 'resolved') return 'RESOLVED'
+  if (s === 'worsening') return 'WORSENING'
+  return undefined
+}
+
+function buildSemanticTitle(f: SemanticFinding): string {
+  if (f.pattern_description) return f.pattern_description
+  const typeLabel = f.type.replace(/_/g, ' ')
+  const components = f.scope?.components_affected?.join(', ')
+  return components ? `${typeLabel} — ${components}` : typeLabel
+}
+
+function buildSemanticBody(f: SemanticFinding): string {
+  const parts: string[] = []
+  if (f.evidence) parts.push(f.evidence)
+  if (f.root_cause) parts.push(`Root cause: ${f.root_cause}`)
+  if (f.fix_direction) parts.push(`Fix: ${f.fix_direction}`)
+  if (f.blast_radius != null) {
+    const delta = f.blast_radius_delta != null
+      ? ` (${f.blast_radius_delta >= 0 ? '+' : ''}${f.blast_radius_delta})`
+      : ''
+    parts.push(`Blast radius: ${f.blast_radius}${delta}`)
+  }
+  if (f.blueprint_anchor) parts.push(`Anchor: ${f.blueprint_anchor}`)
+  if (f.scope?.locations?.length) {
+    parts.push(`Locations: ${f.scope.locations.join(', ')}`)
+  }
+  return parts.join(' | ')
+}
+
+/** Convert v2 semantic_findings to the Finding[] type used by the renderer. */
+export function semanticFindingsToFindings(
+  sf: Bundle['semantic_findings'],
+): Finding[] {
+  if (!sf?.findings?.length) return []
+  return sf.findings.map((f) => ({
+    severity: (['error', 'warn', 'info'].includes(f.severity) ? f.severity : 'warn') as FindingSeverity,
+    group: mapLifecycleToGroup(f.lifecycle_status),
+    title: buildSemanticTitle(f),
+    description: buildSemanticBody(f),
+    category: f.category,
+    findingType: f.type,
+    evidence: f.evidence,
+    rootCause: f.root_cause,
+    fixDirection: f.fix_direction,
+    blastRadius: f.blast_radius,
+    blastRadiusDelta: f.blast_radius_delta,
+    blueprintAnchor: f.blueprint_anchor,
+    synthesisDepth: f.synthesis_depth,
+    locations: f.scope?.locations,
+    componentsAffected: f.scope?.components_affected,
+  }))
 }
 
 export function severityColor(sev: FindingSeverity): string {
