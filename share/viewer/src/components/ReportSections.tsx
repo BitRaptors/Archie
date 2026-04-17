@@ -151,21 +151,21 @@ function StructuredFindingDetails({ f }: { f: Finding }) {
   const hasDetails = f.rootCause || f.fixDirection || f.evidence || f.blastRadius != null || f.locations?.length
   if (!hasDetails) return null
   return (
-    <div className="mt-3 space-y-2 text-sm">
+    <div className="mt-3 space-y-2 text-sm overflow-hidden">
       {f.evidence && (
-        <div className="text-ink/50 leading-relaxed">
+        <div className="text-ink/50 leading-relaxed break-words [overflow-wrap:anywhere]">
           <span className="font-semibold text-ink/70">Evidence: </span>
           <AutoCode text={f.evidence} />
         </div>
       )}
       {f.rootCause && (
-        <div className="text-ink/50 leading-relaxed">
+        <div className="text-ink/50 leading-relaxed break-words [overflow-wrap:anywhere]">
           <span className="font-semibold text-ink/70">Root cause: </span>
           <AutoCode text={f.rootCause} />
         </div>
       )}
       {f.fixDirection && (
-        <div className="text-ink/50 leading-relaxed">
+        <div className="text-ink/50 leading-relaxed break-words [overflow-wrap:anywhere]">
           <span className="font-semibold text-ink/70">Fix direction: </span>
           <AutoCode text={f.fixDirection} />
         </div>
@@ -182,14 +182,13 @@ function StructuredFindingDetails({ f }: { f: Finding }) {
         </div>
       )}
       {f.locations && f.locations.length > 0 && (
-        <div className="text-ink/50 leading-relaxed">
+        <div className="text-ink/50 leading-relaxed break-words [overflow-wrap:anywhere]">
           <span className="font-semibold text-ink/70">Locations: </span>
-          {f.locations.map((loc, i) => (
-            <span key={i}>
-              {i > 0 && ', '}
-              <code className={codeInlineClassName}>{loc}</code>
-            </span>
-          ))}
+          <span className="inline-flex flex-wrap gap-1">
+            {f.locations.map((loc, i) => (
+              <code key={i} className={cn(codeInlineClassName, "text-[10px] break-all")}>{loc}</code>
+            ))}
+          </span>
         </div>
       )}
     </div>
@@ -226,9 +225,9 @@ export function FindingsList({
               {f.severity === 'error' ? <Shield className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
               {f.severity}
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 overflow-hidden">
               <div className="flex items-baseline gap-2 flex-wrap">
-                <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
+                <h3 className="font-bold text-ink break-words [overflow-wrap:anywhere]"><AutoCode text={f.title} /></h3>
                 {isSemanticDupFinding(f, { functionNames: semanticFunctionNames }) && (
                   <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest">
                     Semantic Dup
