@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -93,6 +94,18 @@ def affected_pages(provenance: dict, changed_files: list[str]) -> list[str]:
                 affected.append(page)
                 break
     return sorted(affected)
+
+
+def write_if_changed(path: Path, content: str) -> bool:
+    """Write content to path only if the file content differs. Returns True when
+    the file was written. Creates parent directories as needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        existing = path.read_bytes()
+        if hashlib.sha256(existing).hexdigest() == hashlib.sha256(content.encode("utf-8")).hexdigest():
+            return False
+    path.write_text(content, encoding="utf-8")
+    return True
 
 
 def _frontmatter(**kv: str) -> str:

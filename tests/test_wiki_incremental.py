@@ -56,3 +56,31 @@ def test_affected_pages_handles_no_evidence_gracefully():
     provenance = {"index.md": {"sha256": "z", "source": "wiki_builder"}}
     affected = wiki_builder.affected_pages(provenance, ["anything.py"])
     assert affected == []
+
+
+import hashlib
+
+
+def test_write_if_changed_skips_identical_content(tmp_path):
+    page = tmp_path / "page.md"
+    page.write_text("same content\n")
+    original_mtime = page.stat().st_mtime_ns
+    changed = wiki_builder.write_if_changed(page, "same content\n")
+    assert changed is False
+    # File not rewritten; mtime unchanged.
+    assert page.stat().st_mtime_ns == original_mtime
+
+
+def test_write_if_changed_writes_new_content(tmp_path):
+    page = tmp_path / "page.md"
+    page.write_text("old\n")
+    changed = wiki_builder.write_if_changed(page, "new\n")
+    assert changed is True
+    assert page.read_text() == "new\n"
+
+
+def test_write_if_changed_creates_parent_dir(tmp_path):
+    page = tmp_path / "sub" / "dir" / "page.md"
+    changed = wiki_builder.write_if_changed(page, "hello\n")
+    assert changed is True
+    assert page.read_text() == "hello\n"
