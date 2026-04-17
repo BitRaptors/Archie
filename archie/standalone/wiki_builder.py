@@ -13,6 +13,7 @@ Pipeline:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -75,6 +76,23 @@ def diff_scans(old_scan: dict, new_scan: dict) -> dict[str, list[str]]:
     deleted = sorted(set(old) - set(new))
     modified = sorted(p for p in set(new) & set(old) if new[p] != old[p])
     return {"added": added, "modified": modified, "deleted": deleted}
+
+
+def affected_pages(provenance: dict, changed_files: list[str]) -> list[str]:
+    """Return wiki-root-relative page paths whose evidence globs match any
+    changed file. Pages without an `evidence` field are never considered
+    affected (their regeneration must be triggered by a blueprint-structure change).
+    """
+    affected = []
+    for page, prov in provenance.items():
+        evidence = prov.get("evidence") or []
+        if not evidence:
+            continue
+        for glob in evidence:
+            if any(fnmatch.fnmatch(f, glob) for f in changed_files):
+                affected.append(page)
+                break
+    return sorted(affected)
 
 
 def _frontmatter(**kv: str) -> str:
