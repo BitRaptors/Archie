@@ -100,6 +100,12 @@ After all passes finish, print a summary if >1 blueprint was touched: "Updated N
 
 ## Phase 1: Data Gathering (parallel scripts, seconds)
 
+Before running the scanner, snapshot the previous scan so the wiki incremental builder can diff against it:
+
+```bash
+cp "$PROJECT_ROOT/.archie/scan.json" /tmp/archie_prev_scan.json 2>/dev/null || echo '{}' > /tmp/archie_prev_scan.json
+```
+
 Run all three scripts simultaneously:
 
 ```bash
@@ -450,10 +456,53 @@ Save Agent C's semantic duplications to `.archie/semantic_duplications.json`:
 
 This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric.
 
-### 4d: Clean up temp files
+### 4d: Wiki — conditional capabilities refresh
+
+This step only applies when a prior wiki exists (`.archie/wiki/_meta/provenance.json` is present). Skip entirely if that file does not exist.
+
+Read `/tmp/archie_prev_scan.json` (the pre-run snapshot) and `$PROJECT_ROOT/.archie/scan.json` (the fresh scan). Compute which file paths changed (added, modified, or deleted) by comparing the `files[].hash` values between the two scans.
+
+Read `.archie/wiki/_meta/provenance.json`. For each page whose key starts with `capabilities/`, check whether any entry in its `evidence` array glob-matches one of the changed file paths. Collect the unique directory prefixes (the part before the first `*`) of the matching globs into a set called `cap_evidence_dirs`.
+
+If `cap_evidence_dirs` is non-empty, dispatch a Sonnet subagent with this prompt:
+
+> Read `$PROJECT_ROOT/.archie/blueprint.json`. Focus only on capability entries whose evidence directories overlap with: {cap_evidence_dirs}.
+> For each matching capability, decide whether its `summary`, `evidence`, or `linked_decisions` fields need updating based on the changed files.
+> Return a JSON array of capability objects (same schema as `blueprint.capabilities[]`) containing ONLY the capabilities that actually changed. Return `[]` if nothing changed materially. Do NOT introduce capabilities from outside the scoped directories.
+
+Save the subagent output to `/tmp/archie_agent_capabilities_scoped.json`.
+
+Then merge the returned capabilities into `.archie/blueprint.json`: for each returned capability, find the existing entry with matching `name` and replace it in-place; leave all other capabilities untouched. Write the updated blueprint back and re-run normalize:
 
 ```bash
-rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
+python3 .archie/finalize.py "$PROJECT_ROOT" --normalize-only
+```
+
+If `cap_evidence_dirs` is empty, skip the subagent dispatch and merge entirely.
+
+### 4e: Wiki — incremental build
+
+Run the incremental wiki builder. It rewrites only pages whose evidence files changed; it is a no-op when no prior wiki exists or when no files changed:
+
+```bash
+python3 .archie/wiki_builder.py "$PROJECT_ROOT" --incremental \
+  --previous-scan /tmp/archie_prev_scan.json
+```
+
+Expected output (one of):
+- `Wiki incremental: N pages rewritten.`
+- `Wiki incremental: no changed files, nothing to do.`
+- `Wiki incremental: no affected pages.`
+- `Wiki generation disabled (ARCHIE_WIKI_ENABLED=false). Skipped.`
+
+If `wiki_builder.py` exits with a non-zero status because the blueprint structure changed (RuntimeError), surface the following line in the scan report and continue — do not abort the scan:
+
+> Wiki: blueprint structure changed — run /archie-deep-scan to rebuild wiki.
+
+### 4f: Clean up temp files
+
+```bash
+rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json /tmp/archie_agent_capabilities_scoped.json /tmp/archie_prev_scan.json
 ```
 
 Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
