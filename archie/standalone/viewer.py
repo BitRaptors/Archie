@@ -1978,6 +1978,50 @@ document.addEventListener('DOMContentLoaded', loadData);
 </html>"""
 
 # ---------------------------------------------------------------------------
+# Wiki sidebar
+# ---------------------------------------------------------------------------
+
+_SIDEBAR_ORDER = ["capabilities", "decisions", "components", "patterns", "pitfalls"]
+_SIDEBAR_LABELS = {
+    "capabilities": "Capabilities",
+    "decisions": "Decisions",
+    "components": "Components",
+    "patterns": "Patterns",
+    "pitfalls": "Pitfalls",
+}
+
+
+def _page_title(page: Path) -> str:
+    for line in page.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+    return page.stem
+
+
+def render_wiki_sidebar(wiki_root: Path) -> str:
+    """Produce the sidebar HTML: sections per type, sorted by title within each."""
+    parts = ['<nav class="wiki-sidebar">']
+    parts.append('<h2><a href="/wiki/">Wiki index</a></h2>')
+    for subdir in _SIDEBAR_ORDER:
+        d = wiki_root / subdir
+        if not d.exists():
+            continue
+        pages = sorted(d.glob("*.md"), key=lambda p: _page_title(p).lower())
+        if not pages:
+            continue
+        parts.append(f"<h3>{_SIDEBAR_LABELS[subdir]}</h3>")
+        parts.append("<ul>")
+        for page in pages:
+            rel = page.relative_to(wiki_root).as_posix()
+            title = _html.escape(_page_title(page))
+            parts.append(f'<li><a href="/wiki/{rel}">{title}</a></li>')
+        parts.append("</ul>")
+    parts.append("</nav>")
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 

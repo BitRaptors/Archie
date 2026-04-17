@@ -41,3 +41,28 @@ def test_md_to_html_fenced_code():
 def test_md_to_html_escapes_raw_html():
     html = viewer.md_to_html("before <not-a-tag> after\n")
     assert "&lt;not-a-tag&gt;" in html
+
+
+def test_render_wiki_sidebar(tmp_path):
+    wiki = tmp_path / "wiki"
+    (wiki / "components").mkdir(parents=True)
+    (wiki / "decisions").mkdir()
+    (wiki / "capabilities").mkdir()
+    (wiki / "index.md").write_text("# Test\n")
+    (wiki / "components" / "a.md").write_text("# A\n")
+    (wiki / "components" / "b.md").write_text("# B\n")
+    (wiki / "decisions" / "d.md").write_text("# D\n")
+    (wiki / "capabilities" / "auth.md").write_text("# Auth\n")
+
+    html = viewer.render_wiki_sidebar(wiki)
+    assert '<nav class="wiki-sidebar">' in html
+    assert "Capabilities" in html
+    assert "Components" in html
+    assert "Decisions" in html
+    # Auth comes before A/B because capabilities group is listed first
+    auth_pos = html.index("Auth")
+    a_pos = html.index(">A<")
+    assert auth_pos < a_pos
+    # Links reference /wiki/<type>/<slug>
+    assert 'href="/wiki/capabilities/auth.md"' in html
+    assert 'href="/wiki/components/a.md"' in html
