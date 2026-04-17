@@ -71,6 +71,24 @@
       "recommendation": "Hash with bcrypt before persisting"
     }
   ],
+  "capabilities": [
+    {
+      "name": "User Authentication",
+      "slug_hint": "user-authentication",
+      "purpose": "Users sign up, log in, and receive a JWT.",
+      "entry_points": [
+        "POST /api/auth/login -> AuthController.login",
+        "POST /api/auth/signup -> AuthController.signup",
+        "screens/LoginScreen.tsx"
+      ],
+      "uses_components": ["UserService", "UserRepository", "AuthController"],
+      "constrained_by_decisions": ["JWT over sessions"],
+      "related_pitfalls": ["Password storage"],
+      "key_files": ["features/auth/**", "AuthController.ts"],
+      "evidence": ["features/auth/**", "routes matching /api/auth/*"],
+      "provenance": "INFERRED"
+    }
+  ],
   "implementation_guidelines": [],
   "development_rules": []
 }
