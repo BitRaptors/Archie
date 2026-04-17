@@ -330,7 +330,34 @@ Manual evaluation — not a CI gate, but a go/no-go signal for release.
 
 **v2.0** — consolidate `.claude/rules/*.md` into wiki frontmatter (breaking, requires its own brainstorm).
 
-## 12. Open questions (to revisit before implementation)
+## 12. See also and future integrations
+
+### 12.1 [tobi/qmd](https://github.com/tobi/qmd)
+
+`qmd` is Tobi Lütke's on-device hybrid-search CLI referenced in Karpathy's gist — Node.js/Bun + SQLite FTS5 + sqlite-vec + GGUF embeddings + LLM reranker, exposed as a Claude Code skill and MCP server. It is a **read-side retrieval engine**, not a wiki generator: no `build`, no `log.md`, no "answer filed back as a new page". Orthogonal to this design — the wiki we generate is exactly the kind of markdown corpus qmd is built to index.
+
+Relationship to this design:
+
+- **Not adopted for v1.** Our corpus is small (~50–200 pages, regenerated per scan), so an embedded SQLite + vector stack with a GGUF model dependency is overkill compared to ripgrep + `Read`. Our intent layer already propagates per-folder context, which is conceptually what qmd's path-context tree accomplishes.
+- **User-level option, not a dependency.** A user who wants heavier retrieval can point qmd at `.archie/wiki/`:
+
+  ```bash
+  qmd collection add archie-wiki .archie/wiki
+  qmd embed
+  qmd query "how does refresh-token rotation work" --md
+  ```
+
+  Nothing in our design prevents this. We will mention it in the wiki docs as an optional enhancement.
+- **Prompt conventions worth studying later.** qmd's `lex / vec / hyde + intent` query taxonomy and its `SKILL.md` shape are good templates if we ever ship a native `/archie-wiki-query` skill.
+
+### 12.2 Future work (out of scope for v1)
+
+- **`/archie-wiki-query` skill (v1.2 candidate).** Grep-first search over `.archie/wiki/**` with optional Haiku rerank, mirroring qmd's `--json --files --md` output modes and query-type taxonomy. Only worth building if passive Read-and-follow turns out to be insufficient.
+- **MCP wiki server (v2.0 candidate).** Expose the wiki to non-Claude-Code clients via an MCP endpoint. Only useful if users actually want wiki access outside Claude Code sessions.
+- **Karpathy-style `log.md` + query-as-new-page (v2.0 candidate).** Append-only record of every deep-scan / scan + filing significant agent-answered questions back as wiki pages. This is the "compounding knowledge" pattern — valuable but requires its own brainstorm.
+- **Graph view in the viewer (v1.1).** Client-side D3 visualization of the backlinks graph, sourced from `_meta/backlinks.json`. Small addition once the data is there.
+
+## 13. Open questions (to revisit before implementation)
 
 - **Capability slug collision** with existing component slugs (e.g. a component "auth" and a capability "auth-flow"). Proposal: namespace slugs by type (`capabilities/auth-flow` vs `components/auth`), unique within type only. Accept.
 - **Per-folder intent layer CLAUDE.md** — should these also be linked from the wiki? Leaning yes — add a "Location context" section on each capability page linking to the leaf-folder intent CLAUDE.md for the capability's directory. Low risk, small patch. Treat as in-scope for v1.
