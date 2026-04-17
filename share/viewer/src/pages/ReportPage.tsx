@@ -46,7 +46,8 @@ export default function ReportPage() {
       .then((r) => {
         setBundle(r.bundle)
         setCreatedAt(r.created_at)
-        setAdoptedRules(r.bundle.rules_adopted?.rules || r.bundle.rules_adopted || [])
+        const ra = r.bundle.rules_adopted
+        setAdoptedRules(Array.isArray(ra?.rules) ? ra.rules : Array.isArray(ra) ? ra : [])
       })
       .catch((e) => setError(e.message))
   }, [token])
