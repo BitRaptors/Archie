@@ -169,6 +169,37 @@ def test_capability_backlinks_appear_on_components(tmp_path):
     assert "[User Authentication](../capabilities/user-authentication.md)" in us
 
 
+def test_wiki_builder_handles_components_in_dict(tmp_path):
+    """Real Archie blueprints wrap components in a dict; wiki should still render them."""
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    (archie / "blueprint.json").write_text(json.dumps({
+        "meta": {},
+        "decisions": {"key_decisions": []},
+        "components": {
+            "structure_type": "layered",
+            "components": [
+                {"name": "Alpha", "purpose": "First"},
+                {"name": "Beta", "purpose": "Second", "depends_on": ["Alpha"]},
+            ],
+        },
+        "communication": {"patterns": []},
+        "pitfalls": [],
+    }))
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(tmp_path)],
+        check=True, capture_output=True,
+    )
+    wiki = tmp_path / ".archie" / "wiki"
+    assert (wiki / "components" / "alpha.md").exists()
+    assert (wiki / "components" / "beta.md").exists()
+    beta = (wiki / "components" / "beta.md").read_text()
+    assert "[Alpha](../components/alpha.md)" in beta
+    # Index falls back to directory name since meta.project_name is absent.
+    idx = (wiki / "index.md").read_text()
+    assert f"# {tmp_path.name} Wiki" in idx
+
+
 def test_wiki_builder_survives_malformed_blueprint(tmp_path):
     """If the blueprint has a list where a dict was expected (or vice versa),
     the builder must not crash — it should produce an empty wiki instead."""

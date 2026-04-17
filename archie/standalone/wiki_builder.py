@@ -44,6 +44,21 @@ def _as_list(value) -> list:
     return value if isinstance(value, list) else []
 
 
+def _extract_components(blueprint: dict) -> list:
+    """Return the components list, handling two real-world shapes:
+      1. `blueprint.components` is a list directly.
+      2. `blueprint.components` is a dict with a nested `components` list.
+    """
+    raw = blueprint.get("components")
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        inner = raw.get("components")
+        if isinstance(inner, list):
+            return inner
+    return []
+
+
 def _as_text(value) -> str:
     """Safely coerce to a stripped string.
 
@@ -305,8 +320,17 @@ def render_capability(capability: dict, slug: str, slugs: dict[str, dict[str, st
     return "".join(parts)
 
 
-def render_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
-    project_name = _as_dict(blueprint.get("meta")).get("project_name", "Project")
+def render_index(
+    blueprint: dict,
+    slug_map: dict[str, dict[str, str]],
+    project_root: "Path | None" = None,
+) -> str:
+    meta = _as_dict(blueprint.get("meta"))
+    project_name = _as_text(meta.get("project_name"))
+    if not project_name and project_root is not None:
+        project_name = project_root.name
+    if not project_name:
+        project_name = "Project"
     decisions = slug_map.get("decisions", {})
     components = slug_map.get("components", {})
     patterns = slug_map.get("patterns", {})
@@ -369,7 +393,7 @@ def render_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
 def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
     """Return {type: {name: slug}} where each type has its own slug namespace."""
     decisions = _as_list(_as_dict(blueprint.get("decisions")).get("key_decisions"))
-    components = _as_list(blueprint.get("components"))
+    components = _extract_components(blueprint)
     patterns = _as_list(_as_dict(blueprint.get("communication")).get("patterns"))
     pitfalls = _as_list(blueprint.get("pitfalls"))
     capabilities = _as_list(blueprint.get("capabilities"))
@@ -437,7 +461,7 @@ def build_wiki(project_root: Path) -> None:
             continue
         _write(wiki_root / "decisions" / f"{slug}.md", render_decision(decision, slug))
 
-    for component in _as_list(blueprint.get("components")):
+    for component in _extract_components(blueprint):
         slug = slug_map["components"].get(component.get("name"))
         if not slug:
             continue
@@ -470,7 +494,7 @@ def build_wiki(project_root: Path) -> None:
             render_capability(capability, slug, slug_map),
         )
 
-    _write(wiki_root / "index.md", render_index(blueprint, slug_map))
+    _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 
     # Pass 2: backlinks + referenced-by + provenance.
     import wiki_index
@@ -526,7 +550,7 @@ def _blueprint_structure_changed(provenance: dict, blueprint: dict) -> bool:
         slugify(d.get("title", ""))
         for d in _as_list(_as_dict(blueprint.get("decisions")).get("key_decisions"))
     }
-    expected_components = {slugify(c.get("name", "")) for c in _as_list(blueprint.get("components"))}
+    expected_components = {slugify(c.get("name", "")) for c in _extract_components(blueprint)}
     expected_patterns = {
         slugify(p.get("name", ""))
         for p in _as_list(_as_dict(blueprint.get("communication")).get("patterns"))

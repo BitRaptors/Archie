@@ -265,3 +265,35 @@ def test_render_decision_handles_list_fields():
     assert "reason 1" in md
     assert "reason 2" in md
     assert "outcome 1" in md
+
+
+def test_extract_components_from_list():
+    bp = {"components": [{"name": "A"}, {"name": "B"}]}
+    assert wiki_builder._extract_components(bp) == [{"name": "A"}, {"name": "B"}]
+
+
+def test_extract_components_from_nested_dict():
+    """Real Archie output sometimes wraps components in a dict."""
+    bp = {"components": {"structure_type": "layered", "components": [{"name": "X"}]}}
+    assert wiki_builder._extract_components(bp) == [{"name": "X"}]
+
+
+def test_extract_components_empty_or_missing():
+    assert wiki_builder._extract_components({}) == []
+    assert wiki_builder._extract_components({"components": None}) == []
+    assert wiki_builder._extract_components({"components": "weird"}) == []
+
+
+def test_render_index_uses_project_root_fallback_for_name(tmp_path):
+    blueprint = {"decisions": {}, "components": [], "pitfalls": [], "capabilities": []}
+    slug_map = {"decisions": {}, "components": {}, "patterns": {}, "pitfalls": {}, "capabilities": {}}
+    md = wiki_builder.render_index(blueprint, slug_map, project_root=tmp_path)
+    assert f"# {tmp_path.name} Wiki" in md
+
+
+def test_render_index_meta_project_name_takes_precedence(tmp_path):
+    blueprint = {"meta": {"project_name": "ExplicitName"}}
+    slug_map = {"decisions": {}, "components": {}, "patterns": {}, "pitfalls": {}, "capabilities": {}}
+    md = wiki_builder.render_index(blueprint, slug_map, project_root=tmp_path)
+    assert "# ExplicitName Wiki" in md
+    assert f"# {tmp_path.name}" not in md
