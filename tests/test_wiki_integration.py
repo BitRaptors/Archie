@@ -1,6 +1,7 @@
 """End-to-end tests for the wiki build pipeline."""
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -89,3 +90,17 @@ def test_wiki_builder_is_idempotent(tmp_path):
     )
     second = (project / ".archie" / "wiki" / "components" / "user-repository.md").read_text()
     assert first == second
+
+
+def test_wiki_builder_skips_when_flag_off(tmp_path, monkeypatch):
+    project = _setup_project(tmp_path)
+    env = os.environ.copy()
+    env["ARCHIE_WIKI_ENABLED"] = "false"
+    result = subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        capture_output=True, text=True, check=False, env=env,
+    )
+    assert result.returncode == 0
+    # Nothing should be written under .archie/wiki/
+    assert not (project / ".archie" / "wiki").exists()
+    assert "skipped" in result.stdout.lower() or "disabled" in result.stdout.lower()

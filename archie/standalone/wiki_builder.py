@@ -12,6 +12,7 @@ Pipeline:
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -294,11 +295,20 @@ def build_wiki(project_root: Path) -> None:
     wiki_index.write_provenance(wiki_root, last_refreshed=date.today().isoformat())
 
 
+def _wiki_enabled() -> bool:
+    raw = os.environ.get("ARCHIE_WIKI_ENABLED", "true").strip().lower()
+    return raw not in {"false", "0", "no", "off"}
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Archie LLM Wiki builder (Pass 1).")
+    parser = argparse.ArgumentParser(description="Archie LLM Wiki builder (Pass 1 + Pass 2).")
     parser.add_argument("project_root", help="Path to project with .archie/blueprint.json")
     args = parser.parse_args(argv)
+    if not _wiki_enabled():
+        print("Wiki generation disabled (ARCHIE_WIKI_ENABLED=false). Skipped.")
+        return 0
     build_wiki(Path(args.project_root))
+    print(f"Wiki built at {args.project_root}/.archie/wiki/")
     return 0
 
 
