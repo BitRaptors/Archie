@@ -20,10 +20,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+# Matches lower/digit followed by UpperLower (e.g. userService → user-Service)
+_CAMEL_RE1 = re.compile(r"([a-z0-9])([A-Z][a-z])")
+# Matches a run of caps followed by UpperLower (e.g. XMLParser → XML-Parser)
+_CAMEL_RE2 = re.compile(r"([A-Z]+)([A-Z][a-z])")
 
 
 def slugify(name: str) -> str:
-    """Lowercase, alphanumerics-and-hyphens only, no leading/trailing hyphens."""
+    """Lowercase, alphanumerics-and-hyphens only, no leading/trailing hyphens.
+
+    Handles CamelCase/PascalCase by inserting hyphens at word boundaries
+    (e.g. UserService → user-service, XMLParser → xml-parser) while leaving
+    all-caps acronyms like PostgreSQL intact.
+    """
+    name = _CAMEL_RE1.sub(r"\1-\2", name)
+    name = _CAMEL_RE2.sub(r"\1-\2", name)
     slug = _SLUG_RE.sub("-", name.lower()).strip("-")
     return slug or "untitled"
 
@@ -190,3 +201,98 @@ def render_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
     if pitfalls:
         parts.append("\n## Pitfalls\n\n" + _list(pitfalls, "pitfalls") + "\n")
     return "".join(parts)
+
+
+import json
+import argparse
+
+
+def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
+    """Return {type: {name: slug}} where each type has its own slug namespace."""
+    decisions = blueprint.get("decisions", {}).get("key_decisions", []) or []
+    components = blueprint.get("components", []) or []
+    patterns = blueprint.get("communication", {}).get("patterns", []) or []
+    pitfalls = blueprint.get("pitfalls", []) or []
+
+    def _map(items: list[dict], key: str) -> dict[str, str]:
+        seen: set[str] = set()
+        out: dict[str, str] = {}
+        for item in items:
+            name = item.get(key)
+            if not name:
+                continue
+            out[name] = slugify_unique(name, seen)
+        return out
+
+    return {
+        "decisions": _map(decisions, "title"),
+        "components": _map(components, "name"),
+        "patterns": _map(patterns, "name"),
+        "pitfalls": _map(pitfalls, "area"),
+    }
+
+
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def build_wiki(project_root: Path) -> None:
+    """Pass 1: read blueprint.json, emit all pages + index.md under .archie/wiki/."""
+    blueprint_path = project_root / ".archie" / "blueprint.json"
+    if not blueprint_path.exists():
+        raise FileNotFoundError(f"blueprint.json not found at {blueprint_path}")
+    blueprint = json.loads(blueprint_path.read_text(encoding="utf-8"))
+
+    wiki_root = project_root / ".archie" / "wiki"
+    # Full rebuild — Plan 1 has no incremental update.
+    if wiki_root.exists():
+        import shutil as _sh
+        _sh.rmtree(wiki_root)
+    wiki_root.mkdir(parents=True)
+
+    slug_map = _build_slug_map(blueprint)
+
+    for decision in blueprint.get("decisions", {}).get("key_decisions", []) or []:
+        slug = slug_map["decisions"].get(decision.get("title"))
+        if not slug:
+            continue
+        _write(wiki_root / "decisions" / f"{slug}.md", render_decision(decision, slug))
+
+    for component in blueprint.get("components", []) or []:
+        slug = slug_map["components"].get(component.get("name"))
+        if not slug:
+            continue
+        _write(
+            wiki_root / "components" / f"{slug}.md",
+            render_component(component, slug, slug_map["components"]),
+        )
+
+    for pattern in blueprint.get("communication", {}).get("patterns", []) or []:
+        slug = slug_map["patterns"].get(pattern.get("name"))
+        if not slug:
+            continue
+        _write(wiki_root / "patterns" / f"{slug}.md", render_pattern(pattern, slug))
+
+    for pitfall in blueprint.get("pitfalls", []) or []:
+        slug = slug_map["pitfalls"].get(pitfall.get("area"))
+        if not slug:
+            continue
+        _write(
+            wiki_root / "pitfalls" / f"{slug}.md",
+            render_pitfall(pitfall, slug, slug_map["decisions"]),
+        )
+
+    _write(wiki_root / "index.md", render_index(blueprint, slug_map))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Archie LLM Wiki builder (Pass 1).")
+    parser.add_argument("project_root", help="Path to project with .archie/blueprint.json")
+    args = parser.parse_args(argv)
+    build_wiki(Path(args.project_root))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
