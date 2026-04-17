@@ -469,8 +469,9 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
             5: [".archie/blueprint_raw.json"],
             6: [".archie/blueprint.json"],
             7: [".archie/blueprint.json", ".archie/scan.json"],
-            8: [],
-            9: [".archie/blueprint.json"],
+            8: [".archie/blueprint.json"],
+            9: [],
+            10: [".archie/blueprint.json"],
         }
         missing = [p for p in prereqs.get(step, []) if not (root / p).exists()]
         if missing:
