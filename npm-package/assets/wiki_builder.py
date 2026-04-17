@@ -295,16 +295,30 @@ def build_wiki(project_root: Path) -> None:
     wiki_index.write_provenance(wiki_root, last_refreshed=date.today().isoformat())
 
 
-def _wiki_enabled() -> bool:
-    raw = os.environ.get("ARCHIE_WIKI_ENABLED", "true").strip().lower()
-    return raw not in {"false", "0", "no", "off"}
+def _wiki_enabled(project_root: "Path | None" = None) -> bool:
+    """Return False only when explicitly disabled via env var or .archie/archie.json."""
+    env_val = os.environ.get("ARCHIE_WIKI_ENABLED", "").strip().lower()
+    if env_val:
+        return env_val not in {"false", "0", "no", "off"}
+    # Fall back to .archie/archie.json
+    if project_root is not None:
+        archie_json = Path(project_root) / ".archie" / "archie.json"
+        if archie_json.exists():
+            try:
+                import json as _json
+                cfg = _json.loads(archie_json.read_text(encoding="utf-8"))
+                if cfg.get("wiki_enabled") is False:
+                    return False
+            except Exception:
+                pass
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Archie LLM Wiki builder (Pass 1 + Pass 2).")
     parser.add_argument("project_root", help="Path to project with .archie/blueprint.json")
     args = parser.parse_args(argv)
-    if not _wiki_enabled():
+    if not _wiki_enabled(project_root=Path(args.project_root)):
         print("Wiki generation disabled (ARCHIE_WIKI_ENABLED=false). Skipped.")
         return 0
     build_wiki(Path(args.project_root))

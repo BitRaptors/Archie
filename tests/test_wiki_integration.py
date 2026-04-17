@@ -104,3 +104,19 @@ def test_wiki_builder_skips_when_flag_off(tmp_path, monkeypatch):
     # Nothing should be written under .archie/wiki/
     assert not (project / ".archie" / "wiki").exists()
     assert "skipped" in result.stdout.lower() or "disabled" in result.stdout.lower()
+
+
+def test_wiki_builder_respects_archie_json_flag(tmp_path):
+    project = _setup_project(tmp_path)
+    (project / ".archie" / "archie.json").write_text(
+        json.dumps({"wiki_enabled": False}), encoding="utf-8"
+    )
+    # No ARCHIE_WIKI_ENABLED env var in the subprocess environment
+    env = {k: v for k, v in os.environ.items() if k != "ARCHIE_WIKI_ENABLED"}
+    result = subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        capture_output=True, text=True, check=False, env=env,
+    )
+    assert result.returncode == 0
+    assert not (project / ".archie" / "wiki").exists()
+    assert "skipped" in result.stdout.lower() or "disabled" in result.stdout.lower()

@@ -482,9 +482,21 @@ def _render_claude(rule: dict) -> str:
 # --- LLM Wiki integration (Plan 1) ---
 
 def wiki_enabled() -> bool:
-    """Return False only when ARCHIE_WIKI_ENABLED is explicitly 'false' or '0'."""
-    raw = os.environ.get("ARCHIE_WIKI_ENABLED", "true").strip().lower()
-    return raw not in {"false", "0", "no", "off"}
+    """Return False only when explicitly disabled via env var or .archie/archie.json."""
+    env_val = os.environ.get("ARCHIE_WIKI_ENABLED", "").strip().lower()
+    if env_val:
+        return env_val not in {"false", "0", "no", "off"}
+    # Fall back to .archie/archie.json relative to cwd
+    archie_json = Path(os.getcwd()) / ".archie" / "archie.json"
+    if archie_json.exists():
+        try:
+            import json as _json
+            cfg = _json.loads(archie_json.read_text(encoding="utf-8"))
+            if cfg.get("wiki_enabled") is False:
+                return False
+        except Exception:
+            pass
+    return True
 
 
 def claude_md_wiki_pointer() -> str:
