@@ -654,7 +654,7 @@ export default function ReportPage() {
 
           {/* 12. Architectural Problems + Pitfalls — merged, end of page */}
           {(findings.length > 0 || pitfalls.length > 0) && (
-            <section id="problems" className="space-y-12 scroll-mt-24">
+            <section id="problems" className="space-y-12 scroll-mt-24 overflow-hidden">
               <Sections.SectionHeader title="Architectural Problems" icon={AlertTriangle} />
 
               {findings.length > 0 && (

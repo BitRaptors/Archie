@@ -205,14 +205,14 @@ export function FindingsList({
   semanticFunctionNames?: string[]
 }) {
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-4 overflow-hidden">
       {findings.map((f, i) => {
         const isStructured = !!(f.category || f.findingType)
         return (
           <div
             key={i}
             className={cn(
-              'p-6 rounded-2xl border flex gap-4 transition-all hover:shadow-lg',
+              'p-4 md:p-6 rounded-2xl border flex gap-3 md:gap-4 transition-all hover:shadow-lg overflow-hidden',
               theme.surface.panel
             )}
           >
