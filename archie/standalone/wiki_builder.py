@@ -12,9 +12,13 @@ Pipeline:
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import re
+import shutil
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -204,10 +208,6 @@ def render_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
     return "".join(parts)
 
 
-import json
-import argparse
-
-
 def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
     """Return {type: {name: slug}} where each type has its own slug namespace."""
     decisions = blueprint.get("decisions", {}).get("key_decisions", []) or []
@@ -248,8 +248,7 @@ def build_wiki(project_root: Path) -> None:
     wiki_root = project_root / ".archie" / "wiki"
     # Full rebuild — Plan 1 has no incremental update.
     if wiki_root.exists():
-        import shutil as _sh
-        _sh.rmtree(wiki_root)
+        shutil.rmtree(wiki_root)
     wiki_root.mkdir(parents=True)
 
     slug_map = _build_slug_map(blueprint)
@@ -288,7 +287,6 @@ def build_wiki(project_root: Path) -> None:
 
     # Pass 2: backlinks + referenced-by + provenance.
     import wiki_index
-    from datetime import date
     backlinks = wiki_index.build_backlinks(wiki_root)
     wiki_index.write_backlinks(wiki_root, backlinks)
     wiki_index.inject_referenced_by(wiki_root, backlinks)
@@ -305,8 +303,7 @@ def _wiki_enabled(project_root: "Path | None" = None) -> bool:
         archie_json = Path(project_root) / ".archie" / "archie.json"
         if archie_json.exists():
             try:
-                import json as _json
-                cfg = _json.loads(archie_json.read_text(encoding="utf-8"))
+                cfg = json.loads(archie_json.read_text(encoding="utf-8"))
                 if cfg.get("wiki_enabled") is False:
                     return False
             except Exception:
