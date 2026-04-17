@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "project_name": "TestProject",
+    "version": "0.1.0"
+  },
+  "decisions": {
+    "architectural_style": {
+      "chosen": "Layered MVC with repository pattern",
+      "rationale": "Separation of concerns"
+    },
+    "key_decisions": [
+      {
+        "title": "PostgreSQL as primary store",
+        "chosen": "PostgreSQL 15",
+        "rationale": "ACID guarantees for user data",
+        "forced_by": "Compliance requirements for financial data",
+        "enables": "Point-in-time recovery, logical replication",
+        "alternatives_rejected": ["MongoDB (no ACID)", "SQLite (no concurrent writers)"]
+      },
+      {
+        "title": "JWT over sessions",
+        "chosen": "Stateless JWT",
+        "rationale": "Horizontal scalability",
+        "forced_by": "Multi-region deployment target",
+        "enables": "Edge authentication",
+        "alternatives_rejected": ["Redis-backed sessions"]
+      }
+    ],
+    "trade_offs": [
+      {
+        "accepted_cost": "Token revocation is harder with stateless JWT",
+        "gained_benefit": "Stateless services scale horizontally"
+      }
+    ],
+    "out_of_scope": ["OAuth social login"]
+  },
+  "components": [
+    {
+      "name": "UserService",
+      "purpose": "User authentication and lifecycle management",
+      "depends_on": ["UserRepository"],
+      "exposes_to": ["AuthController"]
+    },
+    {
+      "name": "UserRepository",
+      "purpose": "User data access layer",
+      "depends_on": [],
+      "exposes_to": ["UserService"]
+    },
+    {
+      "name": "AuthController",
+      "purpose": "HTTP auth endpoints",
+      "depends_on": ["UserService"],
+      "exposes_to": []
+    }
+  ],
+  "communication": {
+    "patterns": [
+      {
+        "name": "Repository",
+        "when_to_use": "When abstracting a data source behind a contract",
+        "when_not_to_use": "For trivial single-table CRUD without future flexibility needs"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "area": "Password storage",
+      "description": "Storing plain-text passwords in UserRepository",
+      "stems_from": "PostgreSQL as primary store",
+      "recommendation": "Hash with bcrypt before persisting"
+    }
+  ],
+  "implementation_guidelines": [],
+  "development_rules": []
+}
