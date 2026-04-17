@@ -69,6 +69,18 @@
       "description": "Storing plain-text passwords in UserRepository",
       "stems_from": "PostgreSQL as primary store",
       "recommendation": "Hash with bcrypt before persisting"
+    },
+    {
+      "area": "Dependency direction: lib → queries/prisma",
+      "description": "src/lib/auth.ts imports from src/queries/prisma",
+      "stems_from": [],
+      "recommendation": "Move auth logic out of lib"
+    },
+    {
+      "area": "Multi-upstream pitfall",
+      "description": "Caused by multiple decisions",
+      "stems_from": ["PostgreSQL as primary store", "JWT over sessions"],
+      "recommendation": "Review decision chain"
     }
   ],
   "capabilities": [

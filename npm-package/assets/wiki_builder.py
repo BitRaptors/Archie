@@ -44,6 +44,23 @@ def _as_list(value) -> list:
     return value if isinstance(value, list) else []
 
 
+def _as_text(value) -> str:
+    """Safely coerce to a stripped string.
+
+    - None/empty -> ''
+    - str -> stripped
+    - list -> newline-joined non-empty elements
+    - other -> str() then stripped
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return "\n".join(_as_text(v) for v in value if v)
+    return str(value).strip()
+
+
 def slugify(name: str) -> str:
     """Lowercase, alphanumerics-and-hyphens only, no leading/trailing hyphens.
 
@@ -157,11 +174,11 @@ def render_decision(decision: dict, slug: str) -> str:
     optional fields are rendered as "_(not specified)_" or the section is omitted.
     """
     title = decision.get("title", "Untitled decision")
-    chosen = decision.get("chosen", "_(not specified)_")
-    rationale = decision.get("rationale", "").strip()
-    forced_by = decision.get("forced_by", "").strip()
-    enables = decision.get("enables", "").strip()
-    alternatives = decision.get("alternatives_rejected", []) or []
+    chosen = _as_text(decision.get("chosen")) or "_(not specified)_"
+    rationale = _as_text(decision.get("rationale"))
+    forced_by = _as_text(decision.get("forced_by"))
+    enables = _as_text(decision.get("enables"))
+    alternatives = _as_list(decision.get("alternatives_rejected"))
 
     parts = [
         _frontmatter(type="decision", slug=slug, provenance="EXTRACTED"),
@@ -188,9 +205,9 @@ def _link_or_text(name: str, slugs: dict[str, str], dir_name: str) -> str:
 
 def render_component(component: dict, slug: str, component_slugs: dict[str, str]) -> str:
     name = component.get("name", "Untitled component")
-    purpose = component.get("purpose", "").strip()
-    depends_on = component.get("depends_on", []) or []
-    exposes_to = component.get("exposes_to", []) or []
+    purpose = _as_text(component.get("purpose"))
+    depends_on = _as_list(component.get("depends_on"))
+    exposes_to = _as_list(component.get("exposes_to"))
 
     dep_links = [_link_or_text(n, component_slugs, "components") for n in depends_on]
     exp_links = [_link_or_text(n, component_slugs, "components") for n in exposes_to]
@@ -210,8 +227,8 @@ def render_component(component: dict, slug: str, component_slugs: dict[str, str]
 
 def render_pattern(pattern: dict, slug: str) -> str:
     name = pattern.get("name", "Untitled pattern")
-    when_to_use = pattern.get("when_to_use", "").strip()
-    when_not = pattern.get("when_not_to_use", "").strip()
+    when_to_use = _as_text(pattern.get("when_to_use"))
+    when_not = _as_text(pattern.get("when_not_to_use"))
 
     parts = [
         _frontmatter(type="pattern", slug=slug, provenance="EXTRACTED"),
@@ -224,9 +241,9 @@ def render_pattern(pattern: dict, slug: str) -> str:
 
 def render_pitfall(pitfall: dict, slug: str, decision_slugs: dict[str, str]) -> str:
     area = pitfall.get("area", "Untitled pitfall")
-    description = pitfall.get("description", "").strip()
-    stems_from = pitfall.get("stems_from", "").strip()
-    recommendation = pitfall.get("recommendation", "").strip()
+    description = _as_text(pitfall.get("description"))
+    stems_from_raw = pitfall.get("stems_from")
+    recommendation = _as_text(pitfall.get("recommendation"))
 
     parts = [
         _frontmatter(type="pitfall", slug=slug, provenance="EXTRACTED"),
@@ -234,8 +251,14 @@ def render_pitfall(pitfall: dict, slug: str, decision_slugs: dict[str, str]) -> 
     ]
     if description:
         parts.append(f"\n**Description:** {description}\n")
-    if stems_from:
-        linked = _link_or_text(stems_from, decision_slugs, "decisions")
+    # stems_from can be a string (single upstream decision) OR a list (multiple).
+    if isinstance(stems_from_raw, list):
+        items = [s.strip() for s in stems_from_raw if isinstance(s, str) and s.strip()]
+        if items:
+            linked = [_link_or_text(s, decision_slugs, "decisions") for s in items]
+            parts.append("\n**Stems from:**\n" + _list_lines(linked) + "\n")
+    elif isinstance(stems_from_raw, str) and stems_from_raw.strip():
+        linked = _link_or_text(stems_from_raw.strip(), decision_slugs, "decisions")
         parts.append(f"\n**Stems from:** {linked}\n")
     if recommendation:
         parts.append(f"\n**Recommendation:** {recommendation}\n")
@@ -249,14 +272,14 @@ def render_capability(capability: dict, slug: str, slugs: dict[str, dict[str, st
     Unknown references degrade to plain text.
     """
     name = capability.get("name", "Untitled capability")
-    purpose = capability.get("purpose", "").strip()
-    provenance = capability.get("provenance", "INFERRED")
-    entry_points = capability.get("entry_points", []) or []
-    uses = capability.get("uses_components", []) or []
-    decisions = capability.get("constrained_by_decisions", []) or []
-    pitfalls = capability.get("related_pitfalls", []) or []
-    key_files = capability.get("key_files", []) or []
-    evidence = capability.get("evidence", []) or []
+    purpose = _as_text(capability.get("purpose"))
+    provenance = _as_text(capability.get("provenance")) or "INFERRED"
+    entry_points = _as_list(capability.get("entry_points"))
+    uses = _as_list(capability.get("uses_components"))
+    decisions = _as_list(capability.get("constrained_by_decisions"))
+    pitfalls = _as_list(capability.get("related_pitfalls"))
+    key_files = _as_list(capability.get("key_files"))
+    evidence = _as_list(capability.get("evidence"))
 
     parts = [
         _frontmatter(type="capability", slug=slug, provenance=provenance),

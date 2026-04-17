@@ -214,3 +214,54 @@ def test_render_index_promotes_capabilities_at_top():
     assert before_idx < browse_idx
     assert "[User Authentication](./capabilities/user-authentication.md)" in md
     assert "Capabilities (1)" in md
+
+
+def test_as_text_handles_list():
+    assert wiki_builder._as_text([]) == ""
+    assert wiki_builder._as_text(["a", "b"]) == "a\nb"
+    assert wiki_builder._as_text(["  spaced  ", "", "x"]) == "spaced\nx"
+
+
+def test_as_text_handles_none_and_str():
+    assert wiki_builder._as_text(None) == ""
+    assert wiki_builder._as_text("  hello  ") == "hello"
+
+
+def test_render_pitfall_handles_list_stems_from():
+    pitfall = {
+        "area": "Multi-upstream",
+        "description": "Linked to 2 decisions",
+        "stems_from": ["Decision A", "Decision B"],
+        "recommendation": "Review",
+    }
+    decision_slugs = {"Decision A": "decision-a", "Decision B": "decision-b"}
+    md = wiki_builder.render_pitfall(pitfall, slug="multi", decision_slugs=decision_slugs)
+    assert "[Decision A](../decisions/decision-a.md)" in md
+    assert "[Decision B](../decisions/decision-b.md)" in md
+
+
+def test_render_pitfall_handles_empty_list_stems_from():
+    pitfall = {
+        "area": "No upstream",
+        "description": "Standalone",
+        "stems_from": [],
+        "recommendation": "Fix",
+    }
+    md = wiki_builder.render_pitfall(pitfall, slug="no-up", decision_slugs={})
+    assert "# No upstream" in md
+    assert "Stems from" not in md  # Empty list produces no section
+    assert "Fix" in md
+
+
+def test_render_decision_handles_list_fields():
+    """Wave 2 may emit forced_by/enables as list in some blueprints."""
+    decision = {
+        "title": "Decision with list fields",
+        "chosen": "X",
+        "forced_by": ["reason 1", "reason 2"],
+        "enables": ["outcome 1"],
+    }
+    md = wiki_builder.render_decision(decision, slug="test")
+    assert "reason 1" in md
+    assert "reason 2" in md
+    assert "outcome 1" in md
