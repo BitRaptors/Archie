@@ -194,3 +194,23 @@ def test_render_capability_tolerates_missing_fields():
     )
     assert "# Minimal cap" in md
     assert "type: capability" in md
+
+
+def test_render_index_promotes_capabilities_at_top():
+    fixture = Path(__file__).parent / "fixtures" / "wiki_fixture_blueprint.json"
+    blueprint = json.loads(fixture.read_text())
+    slug_map = {
+        "decisions": {"PostgreSQL as primary store": "postgresql-as-primary-store"},
+        "components": {"UserService": "user-service"},
+        "patterns": {"Repository": "repository"},
+        "pitfalls": {"Password storage": "password-storage"},
+        "capabilities": {"User Authentication": "user-authentication"},
+    }
+    md = wiki_builder.render_index(blueprint, slug_map)
+    assert "## Before you implement anything" in md
+    # The capabilities section comes before the "Browse by type" section.
+    before_idx = md.index("## Before you implement anything")
+    browse_idx = md.index("## Browse by type")
+    assert before_idx < browse_idx
+    assert "[User Authentication](./capabilities/user-authentication.md)" in md
+    assert "Capabilities (1)" in md
