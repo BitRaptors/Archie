@@ -218,24 +218,21 @@ def lint(wiki_root: Path, fs_root: Path | None = None) -> list[dict]:
     prov_path = wiki_root / "_meta" / "provenance.json"
     if prov_path.exists():
         prov = json.loads(prov_path.read_text(encoding="utf-8"))
+        # Pre-compute file list once — the inner loop was O(pages × globs × files)
+        # before this optimization, which scales badly on real projects.
+        all_files_posix = [
+            p.relative_to(fs_root).as_posix()
+            for p in fs_root.rglob("*")
+            if p.is_file()
+        ]
         for page, data in prov.items():
             evidence = data.get("evidence") or []
             if not evidence:
                 continue
-            # Any glob matching at least one file makes the page fresh.
             matched = False
             for glob in evidence:
-                for candidate in fs_root.rglob("*"):
-                    if not candidate.is_file():
-                        continue
-                    try:
-                        rel_candidate = candidate.relative_to(fs_root).as_posix()
-                    except ValueError:
-                        continue
-                    if fnmatch.fnmatch(rel_candidate, glob):
-                        matched = True
-                        break
-                if matched:
+                if any(fnmatch.fnmatch(f, glob) for f in all_files_posix):
+                    matched = True
                     break
             if not matched:
                 findings.append({"kind": "stale_evidence", "page": page, "evidence": evidence})
