@@ -961,21 +961,43 @@ python3 .archie/intent_layer.py merge "$PROJECT_ROOT"
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
 ```
 
-## Step 8: Clean up
+## Step 8: Build the LLM Wiki
 
 **If START_STEP > 8, skip this step.**
+
+Generate the browsable, linked wiki under `.archie/wiki/` from the finalized blueprint.
+
+```bash
+python3 .archie/wiki_builder.py "$PWD"
+```
+
+Expected output: `Wiki built at <project>/.archie/wiki/` or `Wiki generation disabled (ARCHIE_WIKI_ENABLED=false). Skipped.` Either is acceptable — do not fail the scan on wiki errors. If the command returns a non-zero exit code, surface it in the scan report but continue.
+
+Confirm the following exist (include any missing ones in the scan report):
+
+- `.archie/wiki/index.md`
+- `.archie/wiki/_meta/backlinks.json`
+- `.archie/wiki/_meta/provenance.json`
+
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
+```
+
+## Step 9: Clean up
+
+**If START_STEP > 9, skip this step.**
 
 ```bash
 rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json
 ```
 
 ```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 9
 ```
 
-## Step 9: Drift Detection & Architectural Assessment
+## Step 10: Drift Detection & Architectural Assessment
 
-**If START_STEP > 9, skip this step.**
+**If START_STEP > 10, skip this step.**
 
 ### Phase 0: Health measurement
 
@@ -1178,12 +1200,17 @@ Ranked by severity, grouped by novelty.
 ## Proposed Rules
 
 <Any new rules proposed by Step 6 synthesis that are not yet in rules.json. Reference proposed_rules.json.>
+
+## Wiki
+
+- **Wiki:** `<N_pages>` pages across `<N_types>` types — see `.archie/wiki/index.md`. Provenance: `.archie/wiki/_meta/provenance.json`.
 ```
 
 Sources for Findings:
 - `drift_report.json` — mechanical and deep drift findings from Phase 1 and 2
 - `blueprint.json` — `pitfalls` (each causal chain becomes a finding), `decisions.trade_offs` with violated `violation_signals` (if any appear in drift_report)
 - Top complexity offenders from `health.json` (only if CC ≥ 15 or a cluster — don't list every high-CC function as a finding)
+- `wiki/_meta/provenance.json` — wiki page counts by type; use `total_pages` and count of distinct `page_type` values for the Wiki section. If the file is absent (wiki disabled or failed), omit the Wiki section from the report.
 
 Severity mapping:
 - `error` — decision violations, inverted dependencies, cycles across architectural boundaries
@@ -1200,7 +1227,7 @@ test -s "$PROJECT_ROOT/.archie/scan_report.md" && wc -l "$PROJECT_ROOT/.archie/s
 Expected: non-empty file with at least 30 lines.
 
 ```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 9
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 10
 ```
 
 Save baseline marker for future incremental runs (use "full" or "incremental" based on SCAN_MODE):
