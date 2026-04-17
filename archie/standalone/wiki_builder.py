@@ -254,6 +254,7 @@ def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
     components = blueprint.get("components", []) or []
     patterns = blueprint.get("communication", {}).get("patterns", []) or []
     pitfalls = blueprint.get("pitfalls", []) or []
+    capabilities = blueprint.get("capabilities", []) or []
 
     def _map(items: list[dict], key: str) -> dict[str, str]:
         seen: set[str] = set()
@@ -270,6 +271,7 @@ def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
         "components": _map(components, "name"),
         "patterns": _map(patterns, "name"),
         "pitfalls": _map(pitfalls, "area"),
+        "capabilities": _map(capabilities, "name"),
     }
 
 
@@ -321,6 +323,15 @@ def build_wiki(project_root: Path) -> None:
         _write(
             wiki_root / "pitfalls" / f"{slug}.md",
             render_pitfall(pitfall, slug, slug_map["decisions"]),
+        )
+
+    for capability in blueprint.get("capabilities", []) or []:
+        slug = slug_map["capabilities"].get(capability.get("name"))
+        if not slug:
+            continue
+        _write(
+            wiki_root / "capabilities" / f"{slug}.md",
+            render_capability(capability, slug, slug_map),
         )
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map))

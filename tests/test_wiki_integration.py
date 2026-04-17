@@ -120,3 +120,30 @@ def test_wiki_builder_respects_archie_json_flag(tmp_path):
     assert result.returncode == 0
     assert not (project / ".archie" / "wiki").exists()
     assert "skipped" in result.stdout.lower() or "disabled" in result.stdout.lower()
+
+
+def test_wiki_builder_emits_capability_page(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    cap = project / ".archie" / "wiki" / "capabilities" / "user-authentication.md"
+    assert cap.exists()
+    text = cap.read_text()
+    assert "# User Authentication" in text
+    assert "[UserService](../components/user-service.md)" in text
+    assert "[JWT over sessions](../decisions/jwt-over-sessions.md)" in text
+    assert "[Password storage](../pitfalls/password-storage.md)" in text
+
+
+def test_capability_backlinks_appear_on_components(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    us = (project / ".archie" / "wiki" / "components" / "user-service.md").read_text()
+    # UserService is used by the User Authentication capability, so its
+    # "Referenced by" section must include it.
+    assert "[User Authentication](../capabilities/user-authentication.md)" in us
