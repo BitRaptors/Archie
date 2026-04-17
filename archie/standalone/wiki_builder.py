@@ -285,6 +285,14 @@ def build_wiki(project_root: Path) -> None:
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map))
 
+    # Pass 2: backlinks + referenced-by + provenance.
+    import wiki_index
+    from datetime import date
+    backlinks = wiki_index.build_backlinks(wiki_root)
+    wiki_index.write_backlinks(wiki_root, backlinks)
+    wiki_index.inject_referenced_by(wiki_root, backlinks)
+    wiki_index.write_provenance(wiki_root, last_refreshed=date.today().isoformat())
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Archie LLM Wiki builder (Pass 1).")

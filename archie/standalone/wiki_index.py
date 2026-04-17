@@ -74,3 +74,94 @@ def build_backlinks(wiki_root: Path) -> dict[str, list[dict]]:
                 {"path": rel_src, "title": src_title, "type": src_type}
             )
     return backlinks
+
+
+_REFERENCED_BY_MARKER = "<!-- archie:referenced-by -->"
+
+
+def _relative_link(src_page: str, target_path: str) -> str:
+    """Produce '../decisions/x.md' from two wiki-root-relative posix paths.
+
+    Always produces a path with at least one '../' component — i.e. the link
+    goes up to wiki root then down to the target. This matches the convention
+    used by wiki_builder.py for all cross-page links.
+    """
+    src_dir = Path(src_page).parent
+    target = Path(target_path)
+    # Count how many levels up from the source directory to wiki root.
+    depth = len(src_dir.parts) if src_dir != Path(".") else 0
+    up = [".."] * depth
+    down = list(target.parts)
+    return "/".join(up + down)
+
+
+def inject_referenced_by(wiki_root: Path, backlinks: dict[str, list[dict]]) -> None:
+    """Append or refresh a '## Referenced by' section on every page that has backlinks.
+
+    Pages without any backlinks are left unchanged (no empty section).
+    Idempotent: re-running with the same backlinks produces byte-identical output.
+    """
+    for page in sorted(wiki_root.rglob("*.md")):
+        rel_src = page.relative_to(wiki_root).as_posix()
+        if rel_src.startswith("_meta/"):
+            continue
+        inbound = backlinks.get(rel_src) or []
+        if not inbound:
+            # Strip any stale referenced-by block if present (in case links changed).
+            _strip_referenced_by(page)
+            continue
+        body = "\n".join(
+            f"- [{ref['title']}]({_relative_link(rel_src, ref['path'])}) ({ref['type']})"
+            for ref in sorted(inbound, key=lambda r: (r["type"], r["path"]))
+        )
+        block = f"\n{_REFERENCED_BY_MARKER}\n## Referenced by\n\n{body}\n"
+        content = page.read_text(encoding="utf-8")
+        if _REFERENCED_BY_MARKER in content:
+            content = _strip_block(content)
+        # Ensure single trailing newline before appending.
+        content = content.rstrip() + "\n"
+        page.write_text(content + block, encoding="utf-8")
+
+
+def _strip_block(content: str) -> str:
+    """Remove everything from the marker onwards (including the marker)."""
+    idx = content.find(_REFERENCED_BY_MARKER)
+    if idx == -1:
+        return content
+    return content[:idx].rstrip() + "\n"
+
+
+def _strip_referenced_by(page: Path) -> None:
+    content = page.read_text(encoding="utf-8")
+    if _REFERENCED_BY_MARKER not in content:
+        return
+    page.write_text(_strip_block(content), encoding="utf-8")
+
+
+def write_provenance(wiki_root: Path, last_refreshed: str) -> None:
+    """Walk the wiki and write _meta/provenance.json with SHA256 per page."""
+    prov: dict[str, dict] = {}
+    for page in sorted(wiki_root.rglob("*.md")):
+        rel = page.relative_to(wiki_root).as_posix()
+        if rel.startswith("_meta/"):
+            continue
+        content = page.read_bytes()
+        sha = hashlib.sha256(content).hexdigest()
+        prov[rel] = {
+            "sha256": sha,
+            "last_refreshed": last_refreshed,
+            "source": "wiki_builder",
+        }
+    meta = wiki_root / "_meta"
+    meta.mkdir(exist_ok=True)
+    (meta / "provenance.json").write_text(
+        json.dumps(prov, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+
+def write_backlinks(wiki_root: Path, backlinks: dict[str, list[dict]]) -> None:
+    meta = wiki_root / "_meta"
+    meta.mkdir(exist_ok=True)
+    (meta / "backlinks.json").write_text(
+        json.dumps(backlinks, indent=2, sort_keys=True), encoding="utf-8"
+    )

@@ -40,3 +40,46 @@ def test_build_backlinks(tmp_path):
     ]
     # D has no inbound links
     assert "decisions/d.md" not in backlinks or backlinks["decisions/d.md"] == []
+
+
+def test_inject_referenced_by(tmp_path):
+    wiki = tmp_path / "wiki"
+    (wiki / "components").mkdir(parents=True)
+    page = wiki / "components" / "b.md"
+    page.write_text("# B\n\nSome content.\n")
+    backlinks = {
+        "components/b.md": [
+            {"path": "components/a.md", "title": "A", "type": "component"},
+            {"path": "decisions/d.md", "title": "D", "type": "decision"},
+        ]
+    }
+    wiki_index.inject_referenced_by(wiki, backlinks)
+    content = page.read_text()
+    assert "## Referenced by" in content
+    assert "[A](../components/a.md) (component)" in content
+    assert "[D](../decisions/d.md) (decision)" in content
+
+
+def test_inject_referenced_by_idempotent(tmp_path):
+    wiki = tmp_path / "wiki"
+    (wiki / "components").mkdir(parents=True)
+    page = wiki / "components" / "b.md"
+    page.write_text("# B\n")
+    backlinks = {"components/b.md": [{"path": "components/a.md", "title": "A", "type": "component"}]}
+    wiki_index.inject_referenced_by(wiki, backlinks)
+    first = page.read_text()
+    # Running again with the same backlinks must produce the identical file.
+    wiki_index.inject_referenced_by(wiki, backlinks)
+    assert page.read_text() == first
+
+
+def test_write_provenance(tmp_path):
+    wiki = tmp_path / "wiki"
+    (wiki / "components").mkdir(parents=True)
+    (wiki / "components" / "a.md").write_text("# A\n")
+    wiki_index.write_provenance(wiki, last_refreshed="2026-04-17")
+    prov = json.loads((wiki / "_meta" / "provenance.json").read_text())
+    assert "components/a.md" in prov
+    assert "sha256" in prov["components/a.md"]
+    assert prov["components/a.md"]["last_refreshed"] == "2026-04-17"
+    assert prov["components/a.md"]["source"] == "wiki_builder"

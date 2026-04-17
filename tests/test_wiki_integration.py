@@ -51,3 +51,41 @@ def test_wiki_builder_forward_links_resolve(tmp_path):
     assert "[UserRepository](../components/user-repository.md)" in us
     pitfall = (wiki / "pitfalls" / "password-storage.md").read_text()
     assert "[PostgreSQL as primary store](../decisions/postgresql-as-primary-store.md)" in pitfall
+
+
+def test_wiki_builder_emits_backlinks_and_provenance(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    backlinks = json.loads((wiki / "_meta" / "backlinks.json").read_text())
+    # UserRepository is referenced by UserService (depends_on).
+    assert any(
+        ref["path"] == "components/user-service.md"
+        for ref in backlinks.get("components/user-repository.md", [])
+    )
+    # Referenced by is appended to user-repository.
+    ur = (wiki / "components" / "user-repository.md").read_text()
+    assert "## Referenced by" in ur
+    assert "[UserService](../components/user-service.md)" in ur
+    # Provenance has SHA256 for all pages.
+    prov = json.loads((wiki / "_meta" / "provenance.json").read_text())
+    assert "index.md" in prov
+    assert len(prov["index.md"]["sha256"]) == 64
+
+
+def test_wiki_builder_is_idempotent(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    first = (project / ".archie" / "wiki" / "components" / "user-repository.md").read_text()
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    second = (project / ".archie" / "wiki" / "components" / "user-repository.md").read_text()
+    assert first == second
