@@ -968,7 +968,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
 Generate the browsable, linked wiki under `.archie/wiki/` from the finalized blueprint.
 
 ```bash
-python3 .archie/wiki_builder.py "$PWD"
+python3 .archie/wiki_builder.py "$PROJECT_ROOT"
 ```
 
 Expected output: `Wiki built at <project>/.archie/wiki/` or `Wiki generation disabled (ARCHIE_WIKI_ENABLED=false). Skipped.` Either is acceptable — do not fail the scan on wiki errors. If the command returns a non-zero exit code, surface it in the scan report but continue.
