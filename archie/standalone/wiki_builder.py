@@ -121,3 +121,37 @@ def render_component(component: dict, slug: str, component_slugs: dict[str, str]
     if exp_links:
         parts.append(_section("Exposes to", _list_lines(exp_links)))
     return "".join(parts)
+
+
+def render_pattern(pattern: dict, slug: str) -> str:
+    name = pattern.get("name", "Untitled pattern")
+    when_to_use = pattern.get("when_to_use", "").strip()
+    when_not = pattern.get("when_not_to_use", "").strip()
+
+    parts = [
+        _frontmatter(type="pattern", slug=slug, provenance="EXTRACTED"),
+        f"\n# {name}\n",
+    ]
+    parts.append(_section("When to use", when_to_use))
+    parts.append(_section("When NOT to use", when_not))
+    return "".join(parts)
+
+
+def render_pitfall(pitfall: dict, slug: str, decision_slugs: dict[str, str]) -> str:
+    area = pitfall.get("area", "Untitled pitfall")
+    description = pitfall.get("description", "").strip()
+    stems_from = pitfall.get("stems_from", "").strip()
+    recommendation = pitfall.get("recommendation", "").strip()
+
+    parts = [
+        _frontmatter(type="pitfall", slug=slug, provenance="EXTRACTED"),
+        f"\n# {area}\n",
+    ]
+    if description:
+        parts.append(f"\n**Description:** {description}\n")
+    if stems_from:
+        linked = _link_or_text(stems_from, decision_slugs, "decisions")
+        parts.append(f"\n**Stems from:** {linked}\n")
+    if recommendation:
+        parts.append(f"\n**Recommendation:** {recommendation}\n")
+    return "".join(parts)

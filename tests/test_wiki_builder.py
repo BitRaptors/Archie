@@ -86,3 +86,41 @@ def test_render_component_page_handles_unknown_reference():
     # Unknown references render as plain text, not broken links
     assert "ExternalThing" in md
     assert "[ExternalThing]" not in md
+
+
+def test_render_pattern_page():
+    pattern = {
+        "name": "Repository",
+        "when_to_use": "When abstracting data access",
+        "when_not_to_use": "For trivial CRUD",
+    }
+    md = wiki_builder.render_pattern(pattern, slug="repository")
+    assert "# Repository" in md
+    assert "type: pattern" in md
+    assert "When abstracting data access" in md
+    assert "For trivial CRUD" in md
+
+
+def test_render_pitfall_page_with_stems_from_link():
+    pitfall = {
+        "area": "Password storage",
+        "description": "Plain text passwords",
+        "stems_from": "PostgreSQL as primary store",
+        "recommendation": "Hash with bcrypt",
+    }
+    decision_slugs = {"PostgreSQL as primary store": "postgresql-as-primary-store"}
+    md = wiki_builder.render_pitfall(
+        pitfall, slug="password-storage", decision_slugs=decision_slugs
+    )
+    assert "# Password storage" in md
+    assert "Plain text passwords" in md
+    assert "[PostgreSQL as primary store](../decisions/postgresql-as-primary-store.md)" in md
+    assert "Hash with bcrypt" in md
+
+
+def test_render_pitfall_page_with_unknown_stems_from():
+    pitfall = {"area": "Foo", "description": "Bar", "stems_from": "UnknownDecision", "recommendation": "Fix"}
+    md = wiki_builder.render_pitfall(pitfall, slug="foo", decision_slugs={})
+    # Unknown stems_from still renders the prose
+    assert "UnknownDecision" in md
+    assert "[UnknownDecision]" not in md
