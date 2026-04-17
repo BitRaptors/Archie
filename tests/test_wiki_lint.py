@@ -74,3 +74,21 @@ def test_lint_dangling_backlink(tmp_path):
     (wiki / "_meta" / "backlinks.json").write_text(json.dumps(backlinks))
     findings = wiki_index.lint(wiki, fs_root=tmp_path)
     assert any(f["kind"] == "dangling_backlink" and f["page"] == "components/a.md" for f in findings)
+
+
+import subprocess
+
+STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
+
+
+def test_lint_cli_emits_json(tmp_path):
+    wiki = _make_wiki(tmp_path, {
+        "index.md": "# I\n[Missing](./components/missing.md)\n",
+    })
+    result = subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_index.py"), "--lint",
+         "--wiki", str(wiki), "--json"],
+        capture_output=True, text=True, check=True,
+    )
+    findings = json.loads(result.stdout)
+    assert any(f["kind"] == "broken_link" for f in findings)

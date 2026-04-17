@@ -264,3 +264,37 @@ def lint(wiki_root: Path, fs_root: Path | None = None) -> list[dict]:
                     })
 
     return findings
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description="Archie LLM Wiki index + lint.")
+    parser.add_argument("--wiki", required=True, help="Path to .archie/wiki/")
+    parser.add_argument("--fs-root", default=None, help="Project root (for evidence glob checks)")
+    parser.add_argument("--lint", action="store_true", help="Run lint and print findings")
+    parser.add_argument("--json", action="store_true", help="Emit findings as JSON (requires --lint)")
+    args = parser.parse_args(argv)
+
+    wiki_root = Path(args.wiki)
+    fs_root = Path(args.fs_root) if args.fs_root else None
+
+    if args.lint:
+        findings = lint(wiki_root, fs_root=fs_root)
+        if args.json:
+            print(json.dumps(findings, indent=2, sort_keys=True))
+        else:
+            for f in findings:
+                print(f"[{f['kind']}] {f.get('page', '')} {f.get('target', '') or f.get('message', '')}")
+        return 0
+
+    # Default: rebuild backlinks + inject + provenance.
+    from datetime import date
+    backlinks = build_backlinks(wiki_root)
+    write_backlinks(wiki_root, backlinks)
+    inject_referenced_by(wiki_root, backlinks)
+    write_provenance(wiki_root, last_refreshed=date.today().isoformat())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
