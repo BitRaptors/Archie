@@ -451,6 +451,12 @@ The standalone version (953 LOC) handles the full rendering pipeline and can run
 python3 archie/standalone/renderer.py /path/to/project
 ```
 
+### LLM Wiki (v1.0)
+
+Deep-scan also generates a browsable wiki at `.archie/wiki/` with one markdown page per decision, component, pattern, pitfall, and capability. Every page ends with a `## Referenced by` section driven by `_meta/backlinks.json`, so agents can traverse the architecture graph by following standard markdown links. `/archie-scan` keeps the wiki fresh incrementally. Serve it through the local viewer with `python3 .archie/viewer.py --with-wiki-ui`.
+
+Feature flag: `ARCHIE_WIKI_ENABLED=false` disables all wiki generation. The flag can also be set in `.archie/archie.json` as `"wiki_enabled": false`.
+
 ---
 
 ## Standalone Scripts
