@@ -581,6 +581,52 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > }
 > ```
 
+### Capabilities agent
+
+**Trigger condition:** Before spawning this agent, check the file count under plausible feature directories:
+
+```bash
+FEATURE_FILE_COUNT=$(find "$PROJECT_ROOT" \( -path '*/features/*' -o -path '*/routes/*' -o -path '*/controllers/*' -o -path '*/pages/*' -o -path '*/app/*' \) -type f 2>/dev/null | wc -l)
+```
+
+If `FEATURE_FILE_COUNT` < 5: write `[]` to `/tmp/archie_agent_capabilities.json` and skip this agent. Otherwise spawn it in parallel with the other agents.
+
+> You are the Capabilities agent for Archie. Identify the user-facing capabilities of this codebase — concrete features a user or external system exercises (e.g. "User Authentication", "Payment Checkout", "Admin Dashboard"). Do NOT list architectural concepts; those go elsewhere.
+>
+> For each capability, return:
+> - name (title case, concrete noun phrase)
+> - purpose (one sentence, <140 chars)
+> - entry_points (routes, CLI commands, UI screens, event handlers — concrete paths + handler names)
+> - uses_components (exact component names from the existing blueprint, if provided)
+> - constrained_by_decisions (exact decision titles from the existing blueprint, if provided)
+> - related_pitfalls (exact pitfall areas, if any apply)
+> - key_files (glob patterns or concrete file paths — at least 1, max 5)
+> - evidence (globs or one-line justifications — what evidence supports that this capability exists)
+> - provenance (always "INFERRED")
+>
+> Evidence threshold: a capability must have at least 3 concrete files backing it, or a route / controller / explicit entry point. Do not invent capabilities from directory names alone.
+>
+> If `blueprint.json` is provided, use its `components[]`, `decisions.key_decisions[]`, and `pitfalls[]` names verbatim. Do not introduce new component/decision/pitfall names from this agent — synthesis owns the cross-link wiring.
+>
+> Return ONLY a JSON array, no prose:
+> ```json
+> [
+>   {
+>     "name": "User Authentication",
+>     "purpose": "Users sign up, log in, and receive a JWT.",
+>     "entry_points": ["POST /api/auth/login -> AuthController.login", "screens/LoginScreen.tsx"],
+>     "uses_components": ["UserService", "AuthController"],
+>     "constrained_by_decisions": ["JWT over sessions"],
+>     "related_pitfalls": [],
+>     "key_files": ["features/auth/**"],
+>     "evidence": ["features/auth/**", "routes matching /api/auth/*"],
+>     "provenance": "INFERRED"
+>   }
+> ]
+> ```
+>
+> If the project is too small or there is insufficient evidence, return `[]`.
+
 ---
 
 **Every agent also gets these GROUNDING RULES:**
@@ -633,12 +679,13 @@ Write /tmp/archie_sub1_$PROJECT_NAME.json with Structure agent's COMPLETE output
 Write /tmp/archie_sub2_$PROJECT_NAME.json with Patterns agent's COMPLETE output text
 Write /tmp/archie_sub3_$PROJECT_NAME.json with Technology agent's COMPLETE output text
 Write /tmp/archie_sub4_$PROJECT_NAME.json with UI Layer agent's COMPLETE output text (if spawned)
+Write /tmp/archie_agent_capabilities.json with Capabilities agent's COMPLETE output text (if spawned; if skipped, `[]` was already written)
 ```
 
 Then merge:
 
 ```bash
-python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tmp/archie_sub2_$PROJECT_NAME.json /tmp/archie_sub3_$PROJECT_NAME.json /tmp/archie_sub4_$PROJECT_NAME.json
+python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tmp/archie_sub2_$PROJECT_NAME.json /tmp/archie_sub3_$PROJECT_NAME.json /tmp/archie_sub4_$PROJECT_NAME.json /tmp/archie_agent_capabilities.json
 ```
 
 This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data). Verify the output shows non-zero component/section counts. If it says "0 sections, 0 components", the merge failed — check the agent output files.
@@ -988,7 +1035,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 **If START_STEP > 9, skip this step.**
 
 ```bash
-rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json
+rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json /tmp/archie_agent_capabilities.json
 ```
 
 ```bash
