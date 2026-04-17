@@ -427,6 +427,27 @@ The report should include:
 **Why:** [what improves]
 **How:** [2-3 sentence approach]
 
+## Wiki health
+[Read /tmp/archie_wiki_lint.json. If the array is empty, write: "Wiki lint: clean."
+Otherwise group findings by `kind` and emit:]
+
+**Orphans ({N}):**
+- `<page>`
+
+**Broken links ({N}):**
+- `<page>` → `<target>`
+
+**Stale evidence ({N}):**
+- `<page>` (globs: `<evidence>`)
+
+**Dangling backlinks ({N}):**
+- `<page>` (missing source: `<missing_source>`)
+
+**Contradictions ({N}):**
+- `<page>` → `<target>`: `<message>`
+
+[Omit any kind that has 0 findings.]
+
 ## Recommendations
 [Re-baseline with /archie-deep-scan if: no deep scan ever, erosion increased >0.10, major structural changes]
 ```
@@ -499,10 +520,20 @@ If `wiki_builder.py` exits with a non-zero status because the blueprint structur
 
 > Wiki: blueprint structure changed — run /archie-deep-scan to rebuild wiki.
 
-### 4f: Clean up temp files
+### 4f: Wiki lint
+
+Run the wiki linter and capture findings as JSON:
 
 ```bash
-rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json /tmp/archie_agent_capabilities_scoped.json /tmp/archie_prev_scan.json
+python3 .archie/wiki_index.py --wiki "$PROJECT_ROOT/.archie/wiki" --fs-root "$PROJECT_ROOT" --lint --json > /tmp/archie_wiki_lint.json 2>/dev/null || echo '[]' > /tmp/archie_wiki_lint.json
+```
+
+(The fallback `echo '[]'` ensures a missing or empty wiki does not break the scan.)
+
+### 4g: Clean up temp files
+
+```bash
+rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json /tmp/archie_agent_capabilities_scoped.json /tmp/archie_prev_scan.json /tmp/archie_wiki_lint.json
 ```
 
 Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
