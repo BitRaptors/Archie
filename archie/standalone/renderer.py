@@ -481,21 +481,21 @@ def _render_claude(rule: dict) -> str:
 
 # --- LLM Wiki integration (Plan 1) ---
 
-def wiki_enabled() -> bool:
+def wiki_enabled(project_root: "Path | None" = None) -> bool:
     """Return False only when explicitly disabled via env var or .archie/archie.json."""
     env_val = os.environ.get("ARCHIE_WIKI_ENABLED", "").strip().lower()
     if env_val:
         return env_val not in {"false", "0", "no", "off"}
-    # Fall back to .archie/archie.json relative to cwd
-    archie_json = Path(os.getcwd()) / ".archie" / "archie.json"
-    if archie_json.exists():
-        try:
+    # Fallback: check .archie/archie.json
+    root = project_root or Path(os.getcwd())
+    try:
+        config_path = root / ".archie" / "archie.json"
+        if config_path.exists():
             import json as _json
-            cfg = _json.loads(archie_json.read_text(encoding="utf-8"))
-            if cfg.get("wiki_enabled") is False:
-                return False
-        except Exception:
-            pass
+            config = _json.loads(config_path.read_text())
+            return bool(config.get("wiki_enabled", True))
+    except (OSError, Exception):
+        pass
     return True
 
 
