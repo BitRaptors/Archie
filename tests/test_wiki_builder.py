@@ -28,3 +28,33 @@ def test_slugify_collision_suffix():
 def test_slugify_strips_non_alnum():
     assert wiki_builder.slugify("Auth/Flow: v2!") == "auth-flow-v2"
     assert wiki_builder.slugify("   spaced   out   ") == "spaced-out"
+
+
+def test_render_decision_page_basic():
+    decision = {
+        "title": "PostgreSQL as primary store",
+        "chosen": "PostgreSQL 15",
+        "rationale": "ACID guarantees for user data",
+        "forced_by": "Compliance requirements",
+        "enables": "Point-in-time recovery",
+        "alternatives_rejected": ["MongoDB (no ACID)"],
+    }
+    md = wiki_builder.render_decision(decision, slug="postgresql-as-primary-store")
+    assert md.startswith("---\n")
+    assert "type: decision" in md
+    assert "slug: postgresql-as-primary-store" in md
+    assert "# PostgreSQL as primary store" in md
+    assert "**Chosen:** PostgreSQL 15" in md
+    assert "Compliance requirements" in md
+    assert "MongoDB (no ACID)" in md
+
+
+def test_render_decision_page_missing_optional_fields():
+    decision = {
+        "title": "Minimal decision",
+        "chosen": "Option A",
+    }
+    md = wiki_builder.render_decision(decision, slug="minimal-decision")
+    # Missing fields render as "N/A" or are omitted, but rendering must not crash
+    assert "# Minimal decision" in md
+    assert "**Chosen:** Option A" in md
