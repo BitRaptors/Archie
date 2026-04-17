@@ -158,3 +158,31 @@ def test_http_route_disabled_when_flag_off(tmp_path):
     finally:
         server.shutdown()
         thread.join(timeout=2)
+
+
+def test_md_to_html_escapes_href_attribute_quotes():
+    # Attacker tries to break out of href="" with a quote.
+    html = viewer.md_to_html('See [x](" onmouseover="alert(1)).\n')
+    # Quote must be entity-encoded, not raw.
+    assert 'onmouseover="alert(1)"' not in html
+    assert '&quot;' in html or "&#x27;" in html or 'onmouseover=&quot;' in html
+
+
+def test_md_to_html_blocks_javascript_urls():
+    html = viewer.md_to_html("[x](javascript:alert(1))\n")
+    # javascript: scheme must be blocked or neutralized.
+    assert "javascript:alert" not in html.lower()
+
+
+def test_md_to_html_blocks_data_urls():
+    html = viewer.md_to_html("[x](data:text/html,<script>alert(1)</script>)\n")
+    assert "data:text/html" not in html.lower()
+
+
+def test_md_to_html_strips_yaml_frontmatter():
+    html = viewer.md_to_html(
+        "---\ntype: decision\nslug: x\n---\n\n# Title\n"
+    )
+    assert "<h1>Title</h1>" in html
+    assert "type: decision" not in html
+    assert "---" not in html

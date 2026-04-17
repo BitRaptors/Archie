@@ -42,6 +42,11 @@ def md_to_html(text: str) -> str:
     ordered lists, nested lists. Anything unsupported is passed through as
     paragraph text with HTML escaping.
     """
+    # Strip YAML frontmatter — leading '---\n...\n---\n' block.
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            text = text[end + 5:]
     lines = text.splitlines()
     out: list[str] = []
     i = 0
@@ -111,7 +116,12 @@ def _inline(text: str) -> str:
 
     def _sub_link(match):
         idx = len(placeholders)
-        placeholders.append(f'<a href="{match.group(2)}">{_html.escape(match.group(1))}</a>')
+        href = match.group(2).strip()
+        # Block dangerous schemes. Localhost-only HTTP, but defensive defense-in-depth.
+        if _re.match(r"^(javascript|data|vbscript):", href, _re.IGNORECASE):
+            href = "#blocked"
+        href_attr = _html.escape(href, quote=True)
+        placeholders.append(f'<a href="{href_attr}">{_html.escape(match.group(1))}</a>')
         return f"\x00L{idx}\x00"
 
     text = _MD_LINK_RE.sub(_sub_link, text)
