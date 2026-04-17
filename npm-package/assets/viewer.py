@@ -8,10 +8,12 @@ Zero dependencies beyond Python 3.9+ stdlib.
 """
 from __future__ import annotations
 
+import html as _html
 import http.server
 import json
 import os
 import re
+import re as _re
 import socket
 import sys
 import threading
@@ -21,6 +23,116 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import _load_json  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Markdown → HTML renderer
+# ---------------------------------------------------------------------------
+
+_MD_LINK_RE = _re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+_MD_BOLD_RE = _re.compile(r"\*\*([^*]+)\*\*")
+_MD_ITALIC_RE = _re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_MD_CODE_INLINE_RE = _re.compile(r"`([^`]+)`")
+
+
+def md_to_html(text: str) -> str:
+    """Minimal markdown -> HTML. Supports: #/##/### headings, paragraphs,
+    unordered lists, fenced code blocks, inline code, bold, italic, links.
+
+    Does NOT support: tables, images, HTML passthrough, blockquotes,
+    ordered lists, nested lists. Anything unsupported is passed through as
+    paragraph text with HTML escaping.
+    """
+    lines = text.splitlines()
+    out: list[str] = []
+    i = 0
+    in_list = False
+    while i < len(lines):
+        line = lines[i]
+
+        # Fenced code block
+        if line.strip().startswith("```"):
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+            i += 1
+            buf = []
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                buf.append(_html.escape(lines[i]))
+                i += 1
+            out.append("<pre><code>" + "\n".join(buf) + "</code></pre>")
+            i += 1  # consume closing fence
+            continue
+
+        # Headings
+        m = _re.match(r"^(#{1,3})\s+(.+)$", line)
+        if m:
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+            level = len(m.group(1))
+            out.append(f"<h{level}>{_inline(m.group(2))}</h{level}>")
+            i += 1
+            continue
+
+        # Bullet list item
+        if line.startswith("- "):
+            if not in_list:
+                out.append("<ul>")
+                in_list = True
+            out.append(f"<li>{_inline(line[2:])}</li>")
+            i += 1
+            continue
+
+        # Blank line
+        if line.strip() == "":
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+            i += 1
+            continue
+
+        # Paragraph
+        if in_list:
+            out.append("</ul>")
+            in_list = False
+        out.append(f"<p>{_inline(line)}</p>")
+        i += 1
+
+    if in_list:
+        out.append("</ul>")
+    return "\n".join(out)
+
+
+def _inline(text: str) -> str:
+    """Apply inline markdown (link, bold, italic, inline code), then escape
+    leftovers. Links are substituted first with placeholders to protect hrefs
+    from HTML escaping."""
+    placeholders: list[str] = []
+
+    def _sub_link(match):
+        idx = len(placeholders)
+        placeholders.append(f'<a href="{match.group(2)}">{_html.escape(match.group(1))}</a>')
+        return f"\x00L{idx}\x00"
+
+    text = _MD_LINK_RE.sub(_sub_link, text)
+
+    def _sub_code(match):
+        idx = len(placeholders)
+        placeholders.append(f"<code>{_html.escape(match.group(1))}</code>")
+        return f"\x00L{idx}\x00"
+
+    text = _MD_CODE_INLINE_RE.sub(_sub_code, text)
+
+    # Escape everything else, then apply bold/italic on the escaped string.
+    text = _html.escape(text)
+    text = _MD_BOLD_RE.sub(r"<strong>\1</strong>", text)
+    text = _MD_ITALIC_RE.sub(r"<em>\1</em>", text)
+
+    # Restore placeholders.
+    for idx, replacement in enumerate(placeholders):
+        text = text.replace(f"\x00L{idx}\x00", replacement)
+    return text
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -83,11 +195,54 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def _handle_wiki(self):
+        wiki_root = self.server.root / ".archie" / "wiki"
+        if not wiki_root.exists():
+            self.send_error(404, "Wiki not found — run /archie-deep-scan first.")
+            return
+
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # JSON meta files
+        if path.startswith("/wiki/_meta/"):
+            meta_file = wiki_root / Path(path[len("/wiki/"):]).name
+            if meta_file.exists():
+                body = meta_file.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_error(404)
+            return
+
+        # Index when requesting /wiki/ or /wiki
+        page_rel = path[len("/wiki/"):] or "index.md"
+        if not page_rel.endswith(".md"):
+            page_rel = page_rel.rstrip("/") + "/index.md" if page_rel else "index.md"
+
+        html = render_wiki_page(wiki_root, page_rel)
+        if not html:
+            self.send_error(404, f"Wiki page not found: {page_rel}")
+            return
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
         root: Path = self.server.root  # type: ignore[attr-defined]
         archie_dir = root / ".archie"
+
+        if getattr(self.server, "with_wiki_ui", False) and path.startswith("/wiki/"):
+            self._handle_wiki()
+            return
 
         if path == "/":
             self._send_html(HTML_PAGE)
@@ -1866,12 +2021,112 @@ document.addEventListener('DOMContentLoaded', loadData);
 </html>"""
 
 # ---------------------------------------------------------------------------
+# Wiki sidebar
+# ---------------------------------------------------------------------------
+
+_SIDEBAR_ORDER = ["capabilities", "decisions", "components", "patterns", "pitfalls"]
+_SIDEBAR_LABELS = {
+    "capabilities": "Capabilities",
+    "decisions": "Decisions",
+    "components": "Components",
+    "patterns": "Patterns",
+    "pitfalls": "Pitfalls",
+}
+
+
+def _page_title(page: Path) -> str:
+    for line in page.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+    return page.stem
+
+
+def render_wiki_sidebar(wiki_root: Path) -> str:
+    """Produce the sidebar HTML: sections per type, sorted by title within each."""
+    parts = ['<nav class="wiki-sidebar">']
+    parts.append('<h2><a href="/wiki/">Wiki index</a></h2>')
+    for subdir in _SIDEBAR_ORDER:
+        d = wiki_root / subdir
+        if not d.exists():
+            continue
+        pages = sorted(d.glob("*.md"), key=lambda p: _page_title(p).lower())
+        if not pages:
+            continue
+        parts.append(f"<h3>{_SIDEBAR_LABELS[subdir]}</h3>")
+        parts.append("<ul>")
+        for page in pages:
+            rel = page.relative_to(wiki_root).as_posix()
+            title = _html.escape(_page_title(page))
+            parts.append(f'<li><a href="/wiki/{rel}">{title}</a></li>')
+        parts.append("</ul>")
+    parts.append("</nav>")
+    return "\n".join(parts)
+
+
+_WIKI_CSS = """
+<style>
+  body.wiki { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 0; display: flex; }
+  .wiki-sidebar { width: 240px; padding: 16px; border-right: 1px solid #eee; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+  .wiki-sidebar h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #666; }
+  .wiki-sidebar h3 { font-size: 12px; text-transform: uppercase; color: #888; margin: 16px 0 4px; }
+  .wiki-sidebar ul { list-style: none; padding: 0; margin: 0; }
+  .wiki-sidebar li a { color: #1a73e8; text-decoration: none; display: block; padding: 2px 0; font-size: 13px; }
+  .wiki-sidebar li a:hover { text-decoration: underline; }
+  .wiki-content { padding: 24px 32px; max-width: 820px; }
+  .wiki-content h1 { font-size: 22px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+  .wiki-content h2 { font-size: 16px; margin-top: 24px; }
+  .wiki-content h3 { font-size: 14px; color: #444; }
+  .wiki-content a { color: #1a73e8; }
+  .wiki-content pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  .wiki-content code { background: #f6f8fa; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+</style>
+"""
+
+
+def render_wiki_page(wiki_root: Path, page_rel: str) -> str:
+    """Return the full HTML (doc + sidebar + content) for a wiki page, or ''
+    when the page does not exist (route handler turns '' into a 404)."""
+    page = (wiki_root / page_rel).resolve()
+    try:
+        page.relative_to(wiki_root.resolve())
+    except ValueError:
+        return ""  # path traversal attempt
+    if not page.exists() or not page.is_file() or page.suffix != ".md":
+        return ""
+    content_html = md_to_html(page.read_text(encoding="utf-8"))
+    sidebar = render_wiki_sidebar(wiki_root)
+    title = _page_title(page)
+    return (
+        "<!DOCTYPE html><html><head>"
+        f"<title>{_html.escape(title)} — Archie Wiki</title>"
+        f"{_WIKI_CSS}"
+        "</head><body class='wiki'>"
+        f"{sidebar}"
+        f"<main class='wiki-content'>{content_html}</main>"
+        "</body></html>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Server factory
+# ---------------------------------------------------------------------------
+
+def make_server(project_root, host: str, port: int, with_wiki_ui: bool = False):
+    """Factory used by the viewer CLI and tests. Returns a configured HTTPServer."""
+    server = http.server.HTTPServer((host, port), ArchieHandler)
+    server.root = Path(project_root)  # type: ignore[attr-defined]
+    server.with_wiki_ui = with_wiki_ui  # type: ignore[attr-defined]
+    return server
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 viewer.py /path/to/repo [--port PORT]", file=sys.stderr)
+        print("Usage: python3 viewer.py /path/to/repo [--port PORT] [--with-wiki-ui]", file=sys.stderr)
         sys.exit(1)
 
     root = Path(sys.argv[1]).resolve()
@@ -1880,21 +2135,27 @@ if __name__ == "__main__":
         sys.exit(1)
 
     port = None
+    with_wiki_ui = False
     for i, arg in enumerate(sys.argv[2:], 2):
         if arg == "--port" and i + 1 < len(sys.argv):
             port = int(sys.argv[i + 1])
-            break
+        elif arg == "--with-wiki-ui":
+            with_wiki_ui = True
 
     if port is None:
         port = _find_free_port()
 
     try:
-        server = http.server.HTTPServer(("localhost", port), ArchieHandler)
+        server = make_server(
+            project_root=root,
+            host="localhost",
+            port=port,
+            with_wiki_ui=with_wiki_ui,
+        )
     except OSError as e:
         print(f"Error: Could not start server on port {port} ({e})", file=sys.stderr)
         print("Try a different port: python3 viewer.py /path/to/repo --port 8888", file=sys.stderr)
         sys.exit(1)
-    server.root = root  # type: ignore[attr-defined]
 
     url = f"http://localhost:{port}"
     print(f"Archie Viewer: {url}", file=sys.stderr)
