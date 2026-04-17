@@ -2021,6 +2021,50 @@ def render_wiki_sidebar(wiki_root: Path) -> str:
     return "\n".join(parts)
 
 
+_WIKI_CSS = """
+<style>
+  body.wiki { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 0; display: flex; }
+  .wiki-sidebar { width: 240px; padding: 16px; border-right: 1px solid #eee; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+  .wiki-sidebar h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #666; }
+  .wiki-sidebar h3 { font-size: 12px; text-transform: uppercase; color: #888; margin: 16px 0 4px; }
+  .wiki-sidebar ul { list-style: none; padding: 0; margin: 0; }
+  .wiki-sidebar li a { color: #1a73e8; text-decoration: none; display: block; padding: 2px 0; font-size: 13px; }
+  .wiki-sidebar li a:hover { text-decoration: underline; }
+  .wiki-content { padding: 24px 32px; max-width: 820px; }
+  .wiki-content h1 { font-size: 22px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+  .wiki-content h2 { font-size: 16px; margin-top: 24px; }
+  .wiki-content h3 { font-size: 14px; color: #444; }
+  .wiki-content a { color: #1a73e8; }
+  .wiki-content pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  .wiki-content code { background: #f6f8fa; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+</style>
+"""
+
+
+def render_wiki_page(wiki_root: Path, page_rel: str) -> str:
+    """Return the full HTML (doc + sidebar + content) for a wiki page, or ''
+    when the page does not exist (route handler turns '' into a 404)."""
+    page = (wiki_root / page_rel).resolve()
+    try:
+        page.relative_to(wiki_root.resolve())
+    except ValueError:
+        return ""  # path traversal attempt
+    if not page.exists() or not page.is_file() or page.suffix != ".md":
+        return ""
+    content_html = md_to_html(page.read_text(encoding="utf-8"))
+    sidebar = render_wiki_sidebar(wiki_root)
+    title = _page_title(page)
+    return (
+        "<!DOCTYPE html><html><head>"
+        f"<title>{_html.escape(title)} — Archie Wiki</title>"
+        f"{_WIKI_CSS}"
+        "</head><body class='wiki'>"
+        f"{sidebar}"
+        f"<main class='wiki-content'>{content_html}</main>"
+        "</body></html>"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------

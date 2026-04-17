@@ -66,3 +66,36 @@ def test_render_wiki_sidebar(tmp_path):
     # Links reference /wiki/<type>/<slug>
     assert 'href="/wiki/capabilities/auth.md"' in html
     assert 'href="/wiki/components/a.md"' in html
+
+
+def test_serve_wiki_page(tmp_path):
+    wiki = tmp_path / "wiki"
+    (wiki / "components").mkdir(parents=True)
+    (wiki / "index.md").write_text("# Idx\n- one\n")
+    (wiki / "components" / "a.md").write_text("# A\nSee [Idx](../index.md)\n")
+
+    html = viewer.render_wiki_page(wiki, page_rel="components/a.md")
+    # Sidebar present
+    assert '<nav class="wiki-sidebar">' in html
+    # Page content rendered
+    assert "<h1>A</h1>" in html
+    # Link preserved (relative hrefs still valid since the page is served
+    # under /wiki/components/a.md, and ../index.md resolves to /wiki/index.md)
+    assert 'href="../index.md"' in html
+
+
+def test_serve_wiki_index(tmp_path):
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    (wiki / "index.md").write_text("# Welcome\n")
+    html = viewer.render_wiki_page(wiki, page_rel="index.md")
+    assert "<h1>Welcome</h1>" in html
+
+
+def test_serve_wiki_page_404(tmp_path):
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    (wiki / "index.md").write_text("# I\n")
+    # Missing page returns an empty string — route handler interprets falsy
+    # result as 404.
+    assert viewer.render_wiki_page(wiki, page_rel="missing.md") == ""
