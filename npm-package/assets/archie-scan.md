@@ -813,6 +813,14 @@ TELEMETRY_STEP5_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 ### 5a: Merge agent outputs into blueprint
 
+Run the deterministic merge script (same as deep-scan):
+
+```bash
+python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_agent_structure.json /tmp/archie_agent_patterns.json /tmp/archie_agent_health.json /tmp/archie_agent_technology.json /tmp/archie_synthesis.json
+```
+
+Verify the output shows non-zero component/section counts. If merge.py fails or produces unexpected results, fall back to manual merge following these rules:
+
 Read the existing blueprint (or start with `{}` if none exists). Deep-merge each agent's output plus the synthesis into the appropriate blueprint sections:
 
 - **Structure agent** → `components`, `layers`, `architecture_rules.file_placement_rules`, `architecture_rules.naming_conventions`, `workspace_topology`
@@ -996,30 +1004,26 @@ Record telemetry end:
 TELEMETRY_STEP5_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ```
 
-Create the telemetry directory and write the timing data:
-```bash
-mkdir -p "$PROJECT_ROOT/.archie/telemetry"
-```
+Write the step timing data to a temp file from the timestamps you recorded at each step boundary, then invoke `telemetry.py`:
 
-Assemble the telemetry JSON from the timestamps collected throughout the run and write it to `$PROJECT_ROOT/.archie/telemetry/scan_YYYY-MM-DDTHH-MM-SSZ.json` using the `TELEMETRY_STEP1_START` timestamp for the filename.
-
-The telemetry file must follow this schema:
+Write `/tmp/archie_timing.json` with this structure (substitute actual timestamps you recorded):
 ```json
-{
-  "command": "archie-scan",
-  "started_at": "<TELEMETRY_STEP1_START>",
-  "completed_at": "<TELEMETRY_STEP5_END>",
-  "steps": [
-    {"name": "scan", "started_at": "<TELEMETRY_STEP1_START>", "completed_at": "<TELEMETRY_STEP1_END>"},
-    {"name": "gather", "started_at": "<TELEMETRY_STEP2_START>", "completed_at": "<TELEMETRY_STEP2_END>"},
-    {"name": "aggregate", "started_at": "<TELEMETRY_STEP3_START>", "completed_at": "<TELEMETRY_STEP3_END>"},
-    {"name": "synthesis", "started_at": "<TELEMETRY_STEP4_START>", "completed_at": "<TELEMETRY_STEP4_END>", "model": "sonnet"},
-    {"name": "render", "started_at": "<TELEMETRY_STEP5_START>", "completed_at": "<TELEMETRY_STEP5_END>"}
-  ]
-}
+[
+  {"name": "scan", "started_at": "<TELEMETRY_STEP1_START>", "completed_at": "<TELEMETRY_STEP1_END>"},
+  {"name": "gather", "started_at": "<TELEMETRY_STEP2_START>", "completed_at": "<TELEMETRY_STEP2_END>"},
+  {"name": "aggregate", "started_at": "<TELEMETRY_STEP3_START>", "completed_at": "<TELEMETRY_STEP3_END>"},
+  {"name": "synthesis", "started_at": "<TELEMETRY_STEP4_START>", "completed_at": "<TELEMETRY_STEP4_END>", "model": "sonnet"},
+  {"name": "render", "started_at": "<TELEMETRY_STEP5_START>", "completed_at": "<TELEMETRY_STEP5_END>"}
+]
 ```
 
-Write this JSON to the telemetry file. Use a bash heredoc to write the file — this is writing a text file, not running inline Python.
+Then run:
+```bash
+python3 .archie/telemetry.py "$PROJECT_ROOT" --command scan --timing-file /tmp/archie_timing.json
+rm -f /tmp/archie_timing.json
+```
+
+The script enriches each step with computed `seconds`, adds `total_seconds`, and includes project metadata (`source_files`, `total_loc`, `directories`) from `scan.json`.
 
 ---
 
