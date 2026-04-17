@@ -165,3 +165,37 @@ def write_backlinks(wiki_root: Path, backlinks: dict[str, list[dict]]) -> None:
     (meta / "backlinks.json").write_text(
         json.dumps(backlinks, indent=2, sort_keys=True), encoding="utf-8"
     )
+
+
+def lint(wiki_root: Path) -> list[dict]:
+    """Return a list of finding dicts. Each finding: {kind, page, ...detail}.
+
+    Kinds (Task 6): orphan, broken_link.
+    Kinds added in Task 7: stale_evidence, dangling_backlink, contradiction.
+    """
+    findings: list[dict] = []
+    backlinks = build_backlinks(wiki_root)
+
+    # Orphans: pages with no inbound links (except index.md).
+    for page in sorted(wiki_root.rglob("*.md")):
+        rel = page.relative_to(wiki_root).as_posix()
+        if rel == "index.md" or rel.startswith("_meta/"):
+            continue
+        if not backlinks.get(rel):
+            findings.append({"kind": "orphan", "page": rel})
+
+    # Broken links: every relative .md reference must resolve to an existing file.
+    for page in sorted(wiki_root.rglob("*.md")):
+        rel_src = page.relative_to(wiki_root).as_posix()
+        if rel_src.startswith("_meta/"):
+            continue
+        for relative_target, _title in extract_links(page):
+            target = (page.parent / relative_target).resolve()
+            if not target.exists():
+                findings.append({
+                    "kind": "broken_link",
+                    "page": rel_src,
+                    "target": relative_target,
+                })
+
+    return findings
