@@ -91,3 +91,33 @@ def render_decision(decision: dict, slug: str) -> str:
         parts.append(_section("Alternatives rejected", _list_lines(alternatives)))
     # Referenced-by is appended by wiki_index.py in Pass 2.
     return "".join(parts)
+
+
+def _link_or_text(name: str, slugs: dict[str, str], dir_name: str) -> str:
+    """Return '[Name](../dir/slug.md)' if name is known, else 'Name' plain."""
+    slug = slugs.get(name)
+    if slug:
+        return f"[{name}](../{dir_name}/{slug}.md)"
+    return name
+
+
+def render_component(component: dict, slug: str, component_slugs: dict[str, str]) -> str:
+    name = component.get("name", "Untitled component")
+    purpose = component.get("purpose", "").strip()
+    depends_on = component.get("depends_on", []) or []
+    exposes_to = component.get("exposes_to", []) or []
+
+    dep_links = [_link_or_text(n, component_slugs, "components") for n in depends_on]
+    exp_links = [_link_or_text(n, component_slugs, "components") for n in exposes_to]
+
+    parts = [
+        _frontmatter(type="component", slug=slug, provenance="EXTRACTED"),
+        f"\n# {name}\n",
+    ]
+    if purpose:
+        parts.append(f"\n**Purpose:** {purpose}\n")
+    if dep_links:
+        parts.append(_section("Depends on", _list_lines(dep_links)))
+    if exp_links:
+        parts.append(_section("Exposes to", _list_lines(exp_links)))
+    return "".join(parts)

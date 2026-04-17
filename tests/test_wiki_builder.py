@@ -58,3 +58,31 @@ def test_render_decision_page_missing_optional_fields():
     # Missing fields render as "N/A" or are omitted, but rendering must not crash
     assert "# Minimal decision" in md
     assert "**Chosen:** Option A" in md
+
+
+def test_render_component_page_links_depends_on():
+    component = {
+        "name": "UserService",
+        "purpose": "User auth and lifecycle",
+        "depends_on": ["UserRepository"],
+        "exposes_to": ["AuthController"],
+    }
+    component_slugs = {"UserService": "user-service", "UserRepository": "user-repository", "AuthController": "auth-controller"}
+    md = wiki_builder.render_component(component, slug="user-service", component_slugs=component_slugs)
+    assert "# UserService" in md
+    assert "[UserRepository](../components/user-repository.md)" in md
+    assert "[AuthController](../components/auth-controller.md)" in md
+    assert "User auth and lifecycle" in md
+
+
+def test_render_component_page_handles_unknown_reference():
+    component = {
+        "name": "OrphanService",
+        "purpose": "Depends on something not in the blueprint",
+        "depends_on": ["ExternalThing"],
+    }
+    component_slugs = {"OrphanService": "orphan-service"}
+    md = wiki_builder.render_component(component, slug="orphan-service", component_slugs=component_slugs)
+    # Unknown references render as plain text, not broken links
+    assert "ExternalThing" in md
+    assert "[ExternalThing]" not in md
