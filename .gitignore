@@ -70,3 +70,4 @@ htmlcov/
 
 # Worktrees
 .worktrees/
+.archie/wiki/
