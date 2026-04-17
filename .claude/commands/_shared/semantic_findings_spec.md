@@ -33,7 +33,7 @@ Every Semantic Finding — systemic or localized, draft or canonical, regardless
   "blast_radius_delta": 7,         // systemic-only; change vs prior scan (0 if new or unchanged)
   "lifecycle_status": "new | recurring | resolved | worsening",
   "synthesis_depth": "draft | canonical",
-  "source": "wave1_structure | wave1_patterns | wave2 | phase2 | fast_agent_a | fast_agent_b | fast_agent_c | mechanical"
+  "source": "agent_structure | agent_patterns | agent_health | synthesis_opus | mechanical"
 }
 ```
 
@@ -131,24 +131,23 @@ Every finding carries `synthesis_depth`, signalling how deep the producing agent
 
 | Agent / producer | Depth | `source` string |
 |---|---|---|
-| Fast-scan Agent A (`/archie-scan`, structure / dep graph) | `draft` | `fast_agent_a` |
-| Fast-scan Agent B (`/archie-scan`, health / complexity) | `draft` | `fast_agent_b` |
-| Fast-scan Agent C (`/archie-scan`, rules / patterns) | `draft` | `fast_agent_c` |
-| Wave 1 Structure (`/archie-deep-scan`) | `draft` | `wave1_structure` |
-| Wave 1 Patterns (`/archie-deep-scan`) | `draft` | `wave1_patterns` |
-| Shrunk Phase 2 (`/archie-deep-scan`: `semantic_duplication` + `pattern_erosion`) | `draft` | `phase2` |
-| Wave 2 reasoning (`/archie-deep-scan`, Opus) | `canonical` | `wave2` |
+| Structure agent (architecture, components, dependencies) | `draft` | `agent_structure` |
+| Patterns agent (communication, rules, duplication) | `draft` | `agent_patterns` |
+| Health agent (complexity, erosion, trends) | `draft` | `agent_health` |
+| Deep synthesis (Opus) — canonical findings + upgraded drafts | `canonical` | `synthesis_opus` |
 | `drift.py` (mechanical) | `draft` | `mechanical` |
+
+> **Legacy values** that may appear in older `semantic_findings.json` files: `fast_agent_a`, `fast_agent_b`, `fast_agent_c`, `wave1_structure`, `wave1_patterns`, `wave2`, `phase2`. These are retained by the aggregator for backward compatibility but are no longer emitted by current agents.
 
 ### 5b. Upgrade pass
 
-Wave 2 re-processes stored `draft` findings whose `lifecycle_status` is `recurring`, enriches `root_cause` and `fix_direction`, and flips `synthesis_depth` to `canonical`. The upgrade pass is the only mechanism that changes an existing finding's depth — never edit the field by hand or in an agent prompt.
+The deep-scan synthesis agent (Opus) re-processes stored `draft` findings whose `lifecycle_status` is `recurring`, enriches `root_cause` and `fix_direction`, and flips `synthesis_depth` to `canonical`. The upgrade pass is the only mechanism that changes an existing finding's depth — never edit the field by hand or in an agent prompt.
 
 ---
 
 ## 6. Source string enum
 
-The `source` field names the producing agent. Exactly the 8 values enumerated in the section 5a table are valid. Unknown `source` values are retained in the aggregated output but deprioritized during merge tie-breaks (they score the lowest rank when `_pick` compares duplicates), so an off-enum source will lose ownership to any known source covering the same signature.
+The `source` field names the producing agent. The 5 canonical values are: `agent_structure`, `agent_patterns`, `agent_health`, `synthesis_opus`, `mechanical`. Unknown `source` values (including legacy names listed in section 5a) are retained in the aggregated output but deprioritized during merge tie-breaks (they score the lowest rank when `_pick` compares duplicates), so an off-enum source will lose ownership to any known source covering the same signature.
 
 ---
 
