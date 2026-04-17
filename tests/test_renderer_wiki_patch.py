@@ -55,3 +55,39 @@ def test_wiki_flag_env_overrides_archie_json(monkeypatch, tmp_path):
     (archie_dir / "archie.json").write_text(json.dumps({"wiki_enabled": False}))
     monkeypatch.chdir(tmp_path)
     assert renderer.wiki_enabled() is True
+
+
+_MINIMAL_BLUEPRINT = {
+    "meta": {},
+    "decisions": {},
+    "components": [],
+    "pitfalls": [],
+    "technology": {},
+    "deployment": {},
+    "architecture_diagram": "",
+    "implementation_guidelines": [],
+    "development_rules": [],
+    "frontend": {},
+    "architecture_rules": [],
+    "communication": {},
+    "quick_reference": {},
+}
+
+
+def test_generate_claude_md_includes_wiki_pointer(monkeypatch):
+    monkeypatch.delenv("ARCHIE_WIKI_ENABLED", raising=False)
+    md = renderer.generate_claude_md(_MINIMAL_BLUEPRINT)
+    assert "## Before you implement anything" in md
+    assert ".archie/wiki/index.md" in md
+
+
+def test_generate_agents_md_includes_wiki_section(monkeypatch):
+    monkeypatch.delenv("ARCHIE_WIKI_ENABLED", raising=False)
+    md = renderer.generate_agents_md(_MINIMAL_BLUEPRINT)
+    assert "## Using the Archie Wiki" in md
+
+
+def test_generate_claude_md_omits_wiki_pointer_when_flag_off(monkeypatch):
+    monkeypatch.setenv("ARCHIE_WIKI_ENABLED", "false")
+    md = renderer.generate_claude_md(_MINIMAL_BLUEPRINT)
+    assert "Before you implement anything" not in md
