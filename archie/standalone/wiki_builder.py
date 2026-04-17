@@ -60,6 +60,23 @@ def slugify_unique(name: str, seen: set[str]) -> str:
     return candidate
 
 
+def diff_scans(old_scan: dict, new_scan: dict) -> dict[str, list[str]]:
+    """Return {added, modified, deleted} lists of file paths based on hashes.
+
+    Both scans are expected to have a top-level `files` key that is a list of
+    {path, hash} dicts. Missing or empty inputs are treated as zero files.
+    """
+    def _hashes(scan: dict) -> dict[str, str]:
+        return {f["path"]: f.get("hash", "") for f in scan.get("files", []) or []}
+
+    old = _hashes(old_scan)
+    new = _hashes(new_scan)
+    added = sorted(set(new) - set(old))
+    deleted = sorted(set(old) - set(new))
+    modified = sorted(p for p in set(new) & set(old) if new[p] != old[p])
+    return {"added": added, "modified": modified, "deleted": deleted}
+
+
 def _frontmatter(**kv: str) -> str:
     """Render a YAML frontmatter block. Values must be strings (we do not escape)."""
     lines = ["---"]
