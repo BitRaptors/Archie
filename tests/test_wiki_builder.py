@@ -6,6 +6,8 @@ from pathlib import Path
 # Make archie/standalone importable — mirrors how consumer projects use .archie/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "archie" / "standalone"))
 
+import json
+
 import wiki_builder  # noqa: E402
 
 
@@ -124,3 +126,30 @@ def test_render_pitfall_page_with_unknown_stems_from():
     # Unknown stems_from still renders the prose
     assert "UnknownDecision" in md
     assert "[UnknownDecision]" not in md
+
+
+def test_render_index():
+    fixture = Path(__file__).parent / "fixtures" / "wiki_fixture_blueprint.json"
+    blueprint = json.loads(fixture.read_text())
+    slug_map = {
+        "decisions": {
+            "PostgreSQL as primary store": "postgresql-as-primary-store",
+            "JWT over sessions": "jwt-over-sessions",
+        },
+        "components": {
+            "UserService": "user-service",
+            "UserRepository": "user-repository",
+            "AuthController": "auth-controller",
+        },
+        "patterns": {"Repository": "repository"},
+        "pitfalls": {"Password storage": "password-storage"},
+    }
+    md = wiki_builder.render_index(blueprint, slug_map)
+    assert "# TestProject Wiki" in md
+    assert "## Browse by type" in md
+    assert "Decisions (2)" in md
+    assert "Components (3)" in md
+    assert "Patterns (1)" in md
+    assert "Pitfalls (1)" in md
+    # At least one link into a sub-page
+    assert "[PostgreSQL as primary store](./decisions/postgresql-as-primary-store.md)" in md
