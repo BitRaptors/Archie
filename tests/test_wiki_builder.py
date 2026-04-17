@@ -153,3 +153,44 @@ def test_render_index():
     assert "Pitfalls (1)" in md
     # At least one link into a sub-page
     assert "[PostgreSQL as primary store](./decisions/postgresql-as-primary-store.md)" in md
+
+
+def test_render_capability_page_links_all_relations():
+    capability = {
+        "name": "User Authentication",
+        "purpose": "Users sign up, log in, and receive a JWT.",
+        "entry_points": [
+            "POST /api/auth/login -> AuthController.login",
+            "screens/LoginScreen.tsx",
+        ],
+        "uses_components": ["UserService", "AuthController"],
+        "constrained_by_decisions": ["JWT over sessions"],
+        "related_pitfalls": ["Password storage"],
+        "key_files": ["features/auth/**"],
+        "evidence": ["features/auth/**"],
+        "provenance": "INFERRED",
+    }
+    slugs = {
+        "components": {"UserService": "user-service", "AuthController": "auth-controller"},
+        "decisions": {"JWT over sessions": "jwt-over-sessions"},
+        "pitfalls": {"Password storage": "password-storage"},
+    }
+    md = wiki_builder.render_capability(capability, slug="user-authentication", slugs=slugs)
+    assert "type: capability" in md
+    assert "provenance: INFERRED" in md
+    assert "# User Authentication" in md
+    assert "POST /api/auth/login -> AuthController.login" in md
+    assert "[UserService](../components/user-service.md)" in md
+    assert "[AuthController](../components/auth-controller.md)" in md
+    assert "[JWT over sessions](../decisions/jwt-over-sessions.md)" in md
+    assert "[Password storage](../pitfalls/password-storage.md)" in md
+    assert "features/auth/**" in md
+
+
+def test_render_capability_tolerates_missing_fields():
+    capability = {"name": "Minimal cap", "purpose": "Just a name"}
+    md = wiki_builder.render_capability(
+        capability, slug="minimal-cap", slugs={"components": {}, "decisions": {}, "pitfalls": {}}
+    )
+    assert "# Minimal cap" in md
+    assert "type: capability" in md

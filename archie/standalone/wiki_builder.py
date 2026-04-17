@@ -173,6 +173,46 @@ def render_pitfall(pitfall: dict, slug: str, decision_slugs: dict[str, str]) -> 
     return "".join(parts)
 
 
+def render_capability(capability: dict, slug: str, slugs: dict[str, dict[str, str]]) -> str:
+    """Render a capability page.
+
+    `slugs` has sub-dicts keyed by type ('components', 'decisions', 'pitfalls').
+    Unknown references degrade to plain text.
+    """
+    name = capability.get("name", "Untitled capability")
+    purpose = capability.get("purpose", "").strip()
+    provenance = capability.get("provenance", "INFERRED")
+    entry_points = capability.get("entry_points", []) or []
+    uses = capability.get("uses_components", []) or []
+    decisions = capability.get("constrained_by_decisions", []) or []
+    pitfalls = capability.get("related_pitfalls", []) or []
+    key_files = capability.get("key_files", []) or []
+    evidence = capability.get("evidence", []) or []
+
+    parts = [
+        _frontmatter(type="capability", slug=slug, provenance=provenance),
+        f"\n# {name}\n",
+    ]
+    if purpose:
+        parts.append(f"\n**Purpose:** {purpose}\n")
+    if entry_points:
+        parts.append(_section("Entry points", _list_lines(entry_points)))
+    if uses:
+        linked = [_link_or_text(n, slugs.get("components", {}), "components") for n in uses]
+        parts.append(_section("Components", _list_lines(linked)))
+    if decisions:
+        linked = [_link_or_text(n, slugs.get("decisions", {}), "decisions") for n in decisions]
+        parts.append(_section("Decisions", _list_lines(linked)))
+    if pitfalls:
+        linked = [_link_or_text(n, slugs.get("pitfalls", {}), "pitfalls") for n in pitfalls]
+        parts.append(_section("Pitfalls", _list_lines(linked)))
+    if key_files:
+        parts.append(_section("Key files", _list_lines([f"`{f}`" for f in key_files])))
+    if evidence:
+        parts.append(_section("Evidence", _list_lines([f"`{e}`" for e in evidence])))
+    return "".join(parts)
+
+
 def render_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
     project_name = blueprint.get("meta", {}).get("project_name", "Project")
     decisions = slug_map.get("decisions", {})
