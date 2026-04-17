@@ -41,3 +41,36 @@ def test_lint_broken_link(tmp_path):
     findings = wiki_index.lint(wiki)
     broken = [f for f in findings if f["kind"] == "broken_link"]
     assert any(f["target"].endswith("components/missing.md") for f in broken)
+
+
+def test_lint_stale_evidence(tmp_path):
+    wiki = _make_wiki(tmp_path, {
+        "index.md": "# I\n[A](./capabilities/a.md)\n",
+        "capabilities/a.md": "# A\n",
+    })
+    # Provenance claims A's evidence is a glob that will match no files.
+    prov = {
+        "capabilities/a.md": {
+            "sha256": "x", "source": "wiki_builder",
+            "evidence": ["features/nonexistent/**"],
+        }
+    }
+    (wiki / "_meta" / "provenance.json").write_text(json.dumps(prov))
+    # Point fs_root at a project that has no `features/nonexistent/` directory.
+    findings = wiki_index.lint(wiki, fs_root=tmp_path)
+    assert any(f["kind"] == "stale_evidence" and f["page"] == "capabilities/a.md" for f in findings)
+
+
+def test_lint_dangling_backlink(tmp_path):
+    wiki = _make_wiki(tmp_path, {
+        "index.md": "# I\n",
+        "components/a.md": "# A\n",
+    })
+    backlinks = {
+        "components/a.md": [
+            {"path": "capabilities/gone.md", "title": "Gone", "type": "capability"}
+        ]
+    }
+    (wiki / "_meta" / "backlinks.json").write_text(json.dumps(backlinks))
+    findings = wiki_index.lint(wiki, fs_root=tmp_path)
+    assert any(f["kind"] == "dangling_backlink" and f["page"] == "components/a.md" for f in findings)

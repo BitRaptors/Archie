@@ -167,16 +167,15 @@ def write_backlinks(wiki_root: Path, backlinks: dict[str, list[dict]]) -> None:
     )
 
 
-def lint(wiki_root: Path) -> list[dict]:
-    """Return a list of finding dicts. Each finding: {kind, page, ...detail}.
-
-    Kinds (Task 6): orphan, broken_link.
-    Kinds added in Task 7: stale_evidence, dangling_backlink, contradiction.
-    """
+def lint(wiki_root: Path, fs_root: Path | None = None) -> list[dict]:
+    """Lint the wiki. fs_root is the project root used to validate evidence
+    globs; defaults to wiki_root.parent.parent (i.e. the consumer project)."""
+    import fnmatch
+    fs_root = fs_root or wiki_root.parent.parent
     findings: list[dict] = []
     backlinks = build_backlinks(wiki_root)
 
-    # Orphans: pages with no inbound links (except index.md).
+    # Orphans.
     for page in sorted(wiki_root.rglob("*.md")):
         rel = page.relative_to(wiki_root).as_posix()
         if rel == "index.md" or rel.startswith("_meta/"):
@@ -184,7 +183,7 @@ def lint(wiki_root: Path) -> list[dict]:
         if not backlinks.get(rel):
             findings.append({"kind": "orphan", "page": rel})
 
-    # Broken links: every relative .md reference must resolve to an existing file.
+    # Broken links.
     for page in sorted(wiki_root.rglob("*.md")):
         rel_src = page.relative_to(wiki_root).as_posix()
         if rel_src.startswith("_meta/"):
@@ -197,5 +196,71 @@ def lint(wiki_root: Path) -> list[dict]:
                     "page": rel_src,
                     "target": relative_target,
                 })
+
+    # Stale evidence: provenance globs that match zero files under fs_root.
+    prov_path = wiki_root / "_meta" / "provenance.json"
+    if prov_path.exists():
+        prov = json.loads(prov_path.read_text(encoding="utf-8"))
+        for page, data in prov.items():
+            evidence = data.get("evidence") or []
+            if not evidence:
+                continue
+            # Any glob matching at least one file makes the page fresh.
+            matched = False
+            for glob in evidence:
+                for candidate in fs_root.rglob("*"):
+                    if not candidate.is_file():
+                        continue
+                    try:
+                        rel_candidate = candidate.relative_to(fs_root).as_posix()
+                    except ValueError:
+                        continue
+                    if fnmatch.fnmatch(rel_candidate, glob):
+                        matched = True
+                        break
+                if matched:
+                    break
+            if not matched:
+                findings.append({"kind": "stale_evidence", "page": page, "evidence": evidence})
+
+    # Dangling backlinks: stored backlinks whose source page no longer exists.
+    bl_path = wiki_root / "_meta" / "backlinks.json"
+    if bl_path.exists():
+        stored = json.loads(bl_path.read_text(encoding="utf-8"))
+        for target, refs in stored.items():
+            for ref in refs:
+                src_path = wiki_root / ref["path"]
+                if not src_path.exists():
+                    findings.append({
+                        "kind": "dangling_backlink",
+                        "page": target,
+                        "missing_source": ref["path"],
+                    })
+
+    # Contradictions: pitfall claims stems_from X but X.md has no backlink to
+    # this pitfall.
+    pitfalls_dir = wiki_root / "pitfalls"
+    if pitfalls_dir.exists():
+        import re as _re
+        for page in sorted(pitfalls_dir.glob("*.md")):
+            text = page.read_text(encoding="utf-8")
+            for match in _re.finditer(
+                r"\*\*Stems from:\*\*\s+\[([^\]]+)\]\(([^)]+)\)", text
+            ):
+                rel_target = match.group(2)
+                target_abs = (page.parent / rel_target).resolve()
+                try:
+                    rel_target_norm = target_abs.relative_to(wiki_root.resolve()).as_posix()
+                except ValueError:
+                    continue
+                src_rel = page.relative_to(wiki_root).as_posix()
+                inbound_to_target = backlinks.get(rel_target_norm, [])
+                if not any(ref["path"] == src_rel for ref in inbound_to_target):
+                    findings.append({
+                        "kind": "contradiction",
+                        "page": src_rel,
+                        "target": rel_target_norm,
+                        "message": "pitfall claims stems_from target but target lacks the backlink",
+                    })
 
     return findings
