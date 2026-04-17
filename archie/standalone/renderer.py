@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import sys
 from collections import defaultdict
@@ -478,6 +479,43 @@ def _render_claude(rule: dict) -> str:
 
 
 
+# --- LLM Wiki integration (Plan 1) ---
+
+def wiki_enabled() -> bool:
+    """Return False only when ARCHIE_WIKI_ENABLED is explicitly 'false' or '0'."""
+    raw = os.environ.get("ARCHIE_WIKI_ENABLED", "true").strip().lower()
+    return raw not in {"false", "0", "no", "off"}
+
+
+def claude_md_wiki_pointer() -> str:
+    return (
+        "\n## Before you implement anything\n\n"
+        "Open `.archie/wiki/index.md` and scan the browse-by-type lists. "
+        "If your task matches an existing capability or component, open that page "
+        "and follow its links to decisions and pitfalls before coding. "
+        "Extending beats reimplementing.\n"
+    )
+
+
+def agents_md_wiki_section() -> str:
+    return (
+        "\n## Using the Archie Wiki\n\n"
+        "The wiki at `.archie/wiki/` is the linked, browsable view of this app's\n"
+        "architecture. Every page ends with a `## Referenced by` section showing\n"
+        "what points to it.\n\n"
+        "Before any implementation task:\n\n"
+        "1. Read `.archie/wiki/index.md` — does an existing capability or component match?\n"
+        "   - YES -> open that page. Its **Components**, **Decisions**, and **Pitfalls**\n"
+        "     sections tell you what to reuse and what to avoid.\n"
+        "   - NO  -> the work is genuinely new. Continue.\n\n"
+        "2. If your change touches an existing component, open\n"
+        "   `.archie/wiki/components/<name>.md` and read its **Referenced by** section —\n"
+        "   every page listed there depends on this component. Breaking changes ripple.\n\n"
+        "3. If you introduce a new capability, name it and list the evidence files in\n"
+        "   your PR description. The next `/archie-scan` will pick it up.\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # CLAUDE.md (lean root file — mirrors generate_claude_md_lean exactly)
 # ---------------------------------------------------------------------------
@@ -650,6 +688,9 @@ def generate_claude_md(bp: dict) -> str:
     # Footer
     lines.append("---")
     lines.append("*Auto-generated from structured architecture analysis. Place in project root.*")
+
+    if wiki_enabled():
+        lines.append(claude_md_wiki_pointer())
 
     return "\n".join(lines)
 
@@ -943,6 +984,9 @@ def generate_agents_md(bp: dict) -> str:
 
     lines.append("---")
     lines.append("*Auto-generated from structured architecture analysis.*")
+
+    if wiki_enabled():
+        lines.append(agents_md_wiki_section())
 
     return "\n".join(lines)
 
