@@ -186,3 +186,35 @@ def test_md_to_html_strips_yaml_frontmatter():
     assert "<h1>Title</h1>" in html
     assert "type: decision" not in html
     assert "---" not in html
+
+
+def test_http_route_bare_wiki_redirects(tmp_path):
+    archie = tmp_path / ".archie"
+    (archie / "wiki").mkdir(parents=True)
+    (archie / "wiki" / "index.md").write_text("# I\n")
+    server = viewer.make_server(
+        project_root=tmp_path, host="127.0.0.1", port=0, with_wiki_ui=True
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        # urllib follows redirects by default — so the final response is 200
+        # AND the URL we end up at should include the trailing slash.
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/wiki")
+        req.add_header("User-Agent", "test")
+        # Use an opener that doesn't follow redirects so we can assert on 301.
+        opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+        # Default opener follows redirects; use raw handler check via explicit urlopen on non-redirect-following:
+        # Simplest: check via HTTPConnection.
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", port)
+        conn.request("GET", "/wiki")
+        r = conn.getresponse()
+        assert r.status == 301
+        assert r.getheader("Location") == "/wiki/"
+        r.read()  # consume
+        conn.close()
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)

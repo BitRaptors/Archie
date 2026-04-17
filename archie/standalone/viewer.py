@@ -206,6 +206,13 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def _handle_wiki(self):
+        if self.path == "/wiki":
+            # Redirect bare /wiki to /wiki/ so relative paths in HTML resolve correctly.
+            self.send_response(301)
+            self.send_header("Location", "/wiki/")
+            self.end_headers()
+            return
+
         wiki_root = self.server.root / ".archie" / "wiki"
         if not wiki_root.exists():
             self.send_error(404, "Wiki not found — run /archie-deep-scan first.")
@@ -250,7 +257,7 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         root: Path = self.server.root  # type: ignore[attr-defined]
         archie_dir = root / ".archie"
 
-        if getattr(self.server, "with_wiki_ui", False) and path.startswith("/wiki/"):
+        if getattr(self.server, "with_wiki_ui", False) and (path == "/wiki" or path.startswith("/wiki/")):
             self._handle_wiki()
             return
 
