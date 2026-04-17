@@ -131,7 +131,7 @@ if (existsSync(sharedAssets)) {
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["_common.py", "aggregate_findings.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py"]) {
+for (const script of ["_common.py", "aggregate_findings.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "telemetry.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
