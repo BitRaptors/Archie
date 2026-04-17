@@ -137,6 +137,26 @@ def test_wiki_builder_emits_capability_page(tmp_path):
     assert "[Password storage](../pitfalls/password-storage.md)" in text
 
 
+def test_wiki_builder_persists_capability_evidence_in_provenance(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    prov = json.loads(
+        (project / ".archie" / "wiki" / "_meta" / "provenance.json").read_text()
+    )
+    # From the fixture, the User Authentication capability has evidence globs.
+    cap_prov = prov.get("capabilities/user-authentication.md")
+    assert cap_prov is not None
+    assert "evidence" in cap_prov
+    assert len(cap_prov["evidence"]) > 0
+    # And component pages do NOT have evidence (they depend on blueprint structure).
+    comp_prov = prov.get("components/user-service.md")
+    assert comp_prov is not None
+    assert "evidence" not in comp_prov
+
+
 def test_capability_backlinks_appear_on_components(tmp_path):
     project = _setup_project(tmp_path)
     subprocess.run(

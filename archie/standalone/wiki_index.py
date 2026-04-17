@@ -120,7 +120,11 @@ def inject_referenced_by(wiki_root: Path, backlinks: dict[str, list[dict]]) -> N
             content = _strip_block(content)
         # Ensure single trailing newline before appending.
         content = content.rstrip() + "\n"
-        page.write_text(content + block, encoding="utf-8")
+        new_content = content + block
+        # Only write if content has actually changed (keep mtime stable for
+        # incremental builds that rely on unchanged non-capability pages).
+        if page.read_text(encoding="utf-8") != new_content:
+            page.write_text(new_content, encoding="utf-8")
 
 
 def _strip_block(content: str) -> str:
@@ -138,8 +142,18 @@ def _strip_referenced_by(page: Path) -> None:
     page.write_text(_strip_block(content), encoding="utf-8")
 
 
-def write_provenance(wiki_root: Path, last_refreshed: str) -> None:
-    """Walk the wiki and write _meta/provenance.json with SHA256 per page."""
+def write_provenance(
+    wiki_root: Path,
+    last_refreshed: str,
+    evidence_map: dict[str, list[str]] | None = None,
+) -> None:
+    """Walk the wiki and write _meta/provenance.json with SHA256 per page.
+
+    When evidence_map is provided, the evidence globs are written into the
+    provenance record for each matching page (keyed by wiki-root-relative
+    POSIX path). Pages without an entry in evidence_map have no 'evidence' key.
+    """
+    evidence_map = evidence_map or {}
     prov: dict[str, dict] = {}
     for page in sorted(wiki_root.rglob("*.md")):
         rel = page.relative_to(wiki_root).as_posix()
@@ -147,11 +161,14 @@ def write_provenance(wiki_root: Path, last_refreshed: str) -> None:
             continue
         content = page.read_bytes()
         sha = hashlib.sha256(content).hexdigest()
-        prov[rel] = {
+        record = {
             "sha256": sha,
             "last_refreshed": last_refreshed,
             "source": "wiki_builder",
         }
+        if rel in evidence_map and evidence_map[rel]:
+            record["evidence"] = list(evidence_map[rel])
+        prov[rel] = record
     meta = wiki_root / "_meta"
     meta.mkdir(exist_ok=True)
     (meta / "provenance.json").write_text(

@@ -83,3 +83,19 @@ def test_write_provenance(tmp_path):
     assert "sha256" in prov["components/a.md"]
     assert prov["components/a.md"]["last_refreshed"] == "2026-04-17"
     assert prov["components/a.md"]["source"] == "wiki_builder"
+
+
+def test_write_provenance_records_evidence(tmp_path):
+    wiki = tmp_path / "wiki"
+    (wiki / "capabilities").mkdir(parents=True)
+    (wiki / "capabilities" / "auth.md").write_text("# Auth\n")
+    (wiki / "components").mkdir()
+    (wiki / "components" / "x.md").write_text("# X\n")
+
+    evidence_map = {"capabilities/auth.md": ["features/auth/**", "routes matching /api/auth/*"]}
+    wiki_index.write_provenance(wiki, last_refreshed="2026-04-17", evidence_map=evidence_map)
+
+    prov = json.loads((wiki / "_meta" / "provenance.json").read_text())
+    assert prov["capabilities/auth.md"]["evidence"] == ["features/auth/**", "routes matching /api/auth/*"]
+    # Pages without an evidence entry don't get the key.
+    assert "evidence" not in prov["components/x.md"]

@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -96,13 +97,23 @@ def affected_pages(provenance: dict, changed_files: list[str]) -> list[str]:
     return sorted(affected)
 
 
-def write_if_changed(path: Path, content: str) -> bool:
+def write_if_changed(
+    path: Path,
+    content: str,
+    normalize_existing: "Callable[[str], str] | None" = None,
+) -> bool:
     """Write content to path only if the file content differs. Returns True when
-    the file was written. Creates parent directories as needed."""
+    the file was written. Creates parent directories as needed.
+
+    ``normalize_existing`` is an optional callable applied to the on-disk content
+    before comparison. Use it to strip auto-appended sections (e.g. '## Referenced
+    by') so that pages are only rewritten when the canonical body has changed.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
-        existing = path.read_bytes()
-        if hashlib.sha256(existing).hexdigest() == hashlib.sha256(content.encode("utf-8")).hexdigest():
+        existing_text = path.read_text(encoding="utf-8")
+        compared = normalize_existing(existing_text) if normalize_existing else existing_text
+        if compared == content:
             return False
     path.write_text(content, encoding="utf-8")
     return True
@@ -354,6 +365,24 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _collect_evidence_map(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> dict[str, list[str]]:
+    """Return a map of wiki-root-relative page paths to their evidence globs.
+
+    Only capability pages carry evidence globs (from the capabilities agent).
+    All other page types depend on blueprint structure, not file evidence, so
+    they are intentionally omitted.
+    """
+    evidence_map: dict[str, list[str]] = {}
+    for capability in blueprint.get("capabilities", []) or []:
+        slug = slug_map["capabilities"].get(capability.get("name"))
+        if not slug:
+            continue
+        evidence = capability.get("evidence") or []
+        if evidence:
+            evidence_map[f"capabilities/{slug}.md"] = list(evidence)
+    return evidence_map
+
+
 def build_wiki(project_root: Path) -> None:
     """Pass 1: read blueprint.json, emit all pages + index.md under .archie/wiki/."""
     blueprint_path = project_root / ".archie" / "blueprint.json"
@@ -415,7 +444,8 @@ def build_wiki(project_root: Path) -> None:
     backlinks = wiki_index.build_backlinks(wiki_root)
     wiki_index.write_backlinks(wiki_root, backlinks)
     wiki_index.inject_referenced_by(wiki_root, backlinks)
-    wiki_index.write_provenance(wiki_root, last_refreshed=date.today().isoformat())
+    evidence_map = _collect_evidence_map(blueprint, slug_map)
+    wiki_index.write_provenance(wiki_root, last_refreshed=date.today().isoformat(), evidence_map=evidence_map)
 
 
 def _wiki_enabled(project_root: "Path | None" = None) -> bool:
@@ -437,11 +467,16 @@ def _wiki_enabled(project_root: "Path | None" = None) -> bool:
 
 
 def _load_previous_scan(raw: str | None, project: Path) -> dict:
+    import sys as _sys
     if not raw:
         return {"files": []}
     p = Path(raw)
     if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            print(f"warning: previous scan at {p} is malformed JSON: {exc}. Treating as empty.", file=_sys.stderr)
+            return {"files": []}
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -530,7 +565,11 @@ def build_wiki_incremental(project_root: Path, previous_scan: dict) -> None:
             continue
         content = render_capability(cap, slug, slug_map)
         page_abs = wiki_root / page_rel
-        if write_if_changed(page_abs, content):
+        # Strip the auto-appended "## Referenced by" section before comparing so
+        # we only rewrite when the canonical body (not the injected backlinks) has
+        # actually changed.
+        import wiki_index as _wi
+        if write_if_changed(page_abs, content, normalize_existing=_wi._strip_block):
             rewritten.append(page_rel)
 
     # Rebuild backlinks + "Referenced by" + provenance on any rewrite.
@@ -539,7 +578,8 @@ def build_wiki_incremental(project_root: Path, previous_scan: dict) -> None:
         backlinks = wiki_index.build_backlinks(wiki_root)
         wiki_index.write_backlinks(wiki_root, backlinks)
         wiki_index.inject_referenced_by(wiki_root, backlinks)
-        wiki_index.write_provenance(wiki_root, last_refreshed=date.today().isoformat())
+        evidence_map = _collect_evidence_map(blueprint, slug_map)
+        wiki_index.write_provenance(wiki_root, last_refreshed=date.today().isoformat(), evidence_map=evidence_map)
     print(f"Wiki incremental: {len(rewritten)} pages rewritten.")
 
 
