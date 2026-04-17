@@ -99,3 +99,62 @@ def test_serve_wiki_page_404(tmp_path):
     # Missing page returns an empty string — route handler interprets falsy
     # result as 404.
     assert viewer.render_wiki_page(wiki, page_rel="missing.md") == ""
+
+
+import http.server
+import threading
+import urllib.request
+import urllib.error
+
+
+def test_http_route_wiki_page(tmp_path):
+    # Prepare wiki.
+    wiki = tmp_path / ".archie" / "wiki"
+    (wiki / "components").mkdir(parents=True)
+    (wiki / "index.md").write_text("# Idx\n")
+    (wiki / "components" / "a.md").write_text("# A\n")
+
+    # Start viewer server in a thread, with wiki UI enabled pointing at tmp_path.
+    server = viewer.make_server(
+        project_root=tmp_path, host="127.0.0.1", port=0, with_wiki_ui=True
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/wiki/components/a.md") as r:
+            body = r.read().decode("utf-8")
+            assert r.status == 200
+            assert "<h1>A</h1>" in body
+            assert '<nav class="wiki-sidebar">' in body
+        # Missing page returns 404.
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/wiki/components/missing.md")
+            raise AssertionError("expected 404")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+
+def test_http_route_disabled_when_flag_off(tmp_path):
+    wiki = tmp_path / ".archie" / "wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "index.md").write_text("# I\n")
+    server = viewer.make_server(
+        project_root=tmp_path, host="127.0.0.1", port=0, with_wiki_ui=False
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        # With wiki disabled, /wiki/ returns 404.
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/wiki/")
+            raise AssertionError("expected 404")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)

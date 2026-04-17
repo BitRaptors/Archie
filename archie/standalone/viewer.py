@@ -195,11 +195,54 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def _handle_wiki(self):
+        wiki_root = self.server.root / ".archie" / "wiki"
+        if not wiki_root.exists():
+            self.send_error(404, "Wiki not found — run /archie-deep-scan first.")
+            return
+
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # JSON meta files
+        if path.startswith("/wiki/_meta/"):
+            meta_file = wiki_root / Path(path[len("/wiki/"):]).name
+            if meta_file.exists():
+                body = meta_file.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_error(404)
+            return
+
+        # Index when requesting /wiki/ or /wiki
+        page_rel = path[len("/wiki/"):] or "index.md"
+        if not page_rel.endswith(".md"):
+            page_rel = page_rel.rstrip("/") + "/index.md" if page_rel else "index.md"
+
+        html = render_wiki_page(wiki_root, page_rel)
+        if not html:
+            self.send_error(404, f"Wiki page not found: {page_rel}")
+            return
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
         root: Path = self.server.root  # type: ignore[attr-defined]
         archie_dir = root / ".archie"
+
+        if getattr(self.server, "with_wiki_ui", False) and path.startswith("/wiki/"):
+            self._handle_wiki()
+            return
 
         if path == "/":
             self._send_html(HTML_PAGE)
@@ -2066,12 +2109,24 @@ def render_wiki_page(wiki_root: Path, page_rel: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Server factory
+# ---------------------------------------------------------------------------
+
+def make_server(project_root, host: str, port: int, with_wiki_ui: bool = False):
+    """Factory used by the viewer CLI and tests. Returns a configured HTTPServer."""
+    server = http.server.HTTPServer((host, port), ArchieHandler)
+    server.root = Path(project_root)  # type: ignore[attr-defined]
+    server.with_wiki_ui = with_wiki_ui  # type: ignore[attr-defined]
+    return server
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 viewer.py /path/to/repo [--port PORT]", file=sys.stderr)
+        print("Usage: python3 viewer.py /path/to/repo [--port PORT] [--with-wiki-ui]", file=sys.stderr)
         sys.exit(1)
 
     root = Path(sys.argv[1]).resolve()
@@ -2080,21 +2135,27 @@ if __name__ == "__main__":
         sys.exit(1)
 
     port = None
+    with_wiki_ui = False
     for i, arg in enumerate(sys.argv[2:], 2):
         if arg == "--port" and i + 1 < len(sys.argv):
             port = int(sys.argv[i + 1])
-            break
+        elif arg == "--with-wiki-ui":
+            with_wiki_ui = True
 
     if port is None:
         port = _find_free_port()
 
     try:
-        server = http.server.HTTPServer(("localhost", port), ArchieHandler)
+        server = make_server(
+            project_root=root,
+            host="localhost",
+            port=port,
+            with_wiki_ui=with_wiki_ui,
+        )
     except OSError as e:
         print(f"Error: Could not start server on port {port} ({e})", file=sys.stderr)
         print("Try a different port: python3 viewer.py /path/to/repo --port 8888", file=sys.stderr)
         sys.exit(1)
-    server.root = root  # type: ignore[attr-defined]
 
     url = f"http://localhost:{port}"
     print(f"Archie Viewer: {url}", file=sys.stderr)
