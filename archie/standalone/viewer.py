@@ -8,10 +8,12 @@ Zero dependencies beyond Python 3.9+ stdlib.
 """
 from __future__ import annotations
 
+import html as _html
 import http.server
 import json
 import os
 import re
+import re as _re
 import socket
 import sys
 import threading
@@ -21,6 +23,116 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import _load_json  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Markdown → HTML renderer
+# ---------------------------------------------------------------------------
+
+_MD_LINK_RE = _re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+_MD_BOLD_RE = _re.compile(r"\*\*([^*]+)\*\*")
+_MD_ITALIC_RE = _re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_MD_CODE_INLINE_RE = _re.compile(r"`([^`]+)`")
+
+
+def md_to_html(text: str) -> str:
+    """Minimal markdown -> HTML. Supports: #/##/### headings, paragraphs,
+    unordered lists, fenced code blocks, inline code, bold, italic, links.
+
+    Does NOT support: tables, images, HTML passthrough, blockquotes,
+    ordered lists, nested lists. Anything unsupported is passed through as
+    paragraph text with HTML escaping.
+    """
+    lines = text.splitlines()
+    out: list[str] = []
+    i = 0
+    in_list = False
+    while i < len(lines):
+        line = lines[i]
+
+        # Fenced code block
+        if line.strip().startswith("```"):
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+            i += 1
+            buf = []
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                buf.append(_html.escape(lines[i]))
+                i += 1
+            out.append("<pre><code>" + "\n".join(buf) + "</code></pre>")
+            i += 1  # consume closing fence
+            continue
+
+        # Headings
+        m = _re.match(r"^(#{1,3})\s+(.+)$", line)
+        if m:
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+            level = len(m.group(1))
+            out.append(f"<h{level}>{_inline(m.group(2))}</h{level}>")
+            i += 1
+            continue
+
+        # Bullet list item
+        if line.startswith("- "):
+            if not in_list:
+                out.append("<ul>")
+                in_list = True
+            out.append(f"<li>{_inline(line[2:])}</li>")
+            i += 1
+            continue
+
+        # Blank line
+        if line.strip() == "":
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+            i += 1
+            continue
+
+        # Paragraph
+        if in_list:
+            out.append("</ul>")
+            in_list = False
+        out.append(f"<p>{_inline(line)}</p>")
+        i += 1
+
+    if in_list:
+        out.append("</ul>")
+    return "\n".join(out)
+
+
+def _inline(text: str) -> str:
+    """Apply inline markdown (link, bold, italic, inline code), then escape
+    leftovers. Links are substituted first with placeholders to protect hrefs
+    from HTML escaping."""
+    placeholders: list[str] = []
+
+    def _sub_link(match):
+        idx = len(placeholders)
+        placeholders.append(f'<a href="{match.group(2)}">{_html.escape(match.group(1))}</a>')
+        return f"\x00L{idx}\x00"
+
+    text = _MD_LINK_RE.sub(_sub_link, text)
+
+    def _sub_code(match):
+        idx = len(placeholders)
+        placeholders.append(f"<code>{_html.escape(match.group(1))}</code>")
+        return f"\x00L{idx}\x00"
+
+    text = _MD_CODE_INLINE_RE.sub(_sub_code, text)
+
+    # Escape everything else, then apply bold/italic on the escaped string.
+    text = _html.escape(text)
+    text = _MD_BOLD_RE.sub(r"<strong>\1</strong>", text)
+    text = _MD_ITALIC_RE.sub(r"<em>\1</em>", text)
+
+    # Restore placeholders.
+    for idx, replacement in enumerate(placeholders):
+        text = text.replace(f"\x00L{idx}\x00", replacement)
+    return text
+
 
 # ---------------------------------------------------------------------------
 # Helpers
