@@ -1477,33 +1477,27 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 
 ## Telemetry
 
-Create the telemetry directory and write the timing data:
+Write the step timing data to a temp file from the timestamps you recorded at each step boundary, then invoke `telemetry.py`:
 
-```bash
-mkdir -p "$PROJECT_ROOT/.archie/telemetry"
-```
-
-Assemble the telemetry JSON from the timestamps collected throughout the run and write it to `$PROJECT_ROOT/.archie/telemetry/deep-scan_YYYY-MM-DDTHH-MM-SSZ.json` using the `TELEMETRY_STEP1_START` timestamp for the filename.
-
-The telemetry file must follow this schema:
+Write `/tmp/archie_timing.json` with this structure (substitute actual timestamps and values you recorded):
 ```json
-{
-  "command": "archie-deep-scan",
-  "started_at": "<TELEMETRY_STEP1_START>",
-  "completed_at": "<TELEMETRY_STEP6_END>",
-  "scan_mode": "<full|incremental>",
-  "steps": [
-    {"name": "scan", "started_at": "<TELEMETRY_STEP1_START>", "completed_at": "<TELEMETRY_STEP1_END>"},
-    {"name": "gather", "started_at": "<TELEMETRY_STEP2_START>", "completed_at": "<TELEMETRY_STEP2_END>"},
-    {"name": "aggregate", "started_at": "<TELEMETRY_STEP3_START>", "completed_at": "<TELEMETRY_STEP3_END>"},
-    {"name": "synthesis", "started_at": "<TELEMETRY_STEP4_START>", "completed_at": "<TELEMETRY_STEP4_END>", "model": "opus"},
-    {"name": "render", "started_at": "<TELEMETRY_STEP5_START>", "completed_at": "<TELEMETRY_STEP5_END>"},
-    {"name": "intent_layer", "started_at": "<TELEMETRY_STEP6_START>", "completed_at": "<TELEMETRY_STEP6_END>", "folders_processed": "<INTENT_FOLDERS_PROCESSED>"}
-  ]
-}
+[
+  {"name": "scan", "started_at": "<TELEMETRY_STEP1_START>", "completed_at": "<TELEMETRY_STEP1_END>"},
+  {"name": "gather", "started_at": "<TELEMETRY_STEP2_START>", "completed_at": "<TELEMETRY_STEP2_END>"},
+  {"name": "aggregate", "started_at": "<TELEMETRY_STEP3_START>", "completed_at": "<TELEMETRY_STEP3_END>"},
+  {"name": "synthesis", "started_at": "<TELEMETRY_STEP4_START>", "completed_at": "<TELEMETRY_STEP4_END>", "model": "opus"},
+  {"name": "render", "started_at": "<TELEMETRY_STEP5_START>", "completed_at": "<TELEMETRY_STEP5_END>"},
+  {"name": "intent_layer", "started_at": "<TELEMETRY_STEP6_START>", "completed_at": "<TELEMETRY_STEP6_END>", "folders_processed": "<INTENT_FOLDERS_PROCESSED>"}
+]
 ```
 
-Write this JSON to the telemetry file. Use a bash heredoc to write the file — this is writing a text file, not running inline Python.
+Then run:
+```bash
+python3 .archie/telemetry.py "$PROJECT_ROOT" --command deep-scan --timing-file /tmp/archie_timing.json
+rm -f /tmp/archie_timing.json
+```
+
+The script enriches each step with computed `seconds`, adds `total_seconds`, and includes project metadata (`source_files`, `total_loc`, `directories`) from `scan.json`.
 
 ---
 
