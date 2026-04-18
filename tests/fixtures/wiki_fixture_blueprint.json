@@ -140,6 +140,36 @@
       "provenance": "INFERRED"
     }
   ],
+  "data_models": [
+    {
+      "name": "User",
+      "purpose": "Represents a registered user account.",
+      "fields": [
+        {"name": "id", "type": "string", "nullable": false},
+        {"name": "email", "type": "string", "nullable": false},
+        {"name": "createdAt", "type": "Date", "nullable": false},
+        {"name": "passwordHash", "type": "string", "nullable": false}
+      ],
+      "location": "features/auth/User.ts",
+      "used_by_components": ["UserService", "UserRepository"],
+      "evidence": ["features/auth/User.ts"],
+      "provenance": "INFERRED"
+    },
+    {
+      "name": "Session",
+      "purpose": "Authenticated session issued after login.",
+      "fields": [
+        {"name": "id", "type": "string", "nullable": false},
+        {"name": "userId", "type": "string", "nullable": false},
+        {"name": "token", "type": "string", "nullable": false},
+        {"name": "expiresAt", "type": "Date", "nullable": false}
+      ],
+      "location": "features/auth/Session.ts",
+      "used_by_components": ["UserService", "AuthController"],
+      "evidence": ["features/auth/Session.ts"],
+      "provenance": "INFERRED"
+    }
+  ],
   "architecture_rules": {
     "file_placement_rules": [
       {"pattern": "HTTP controllers", "location": "features/<feature>/*Controller.ts", "rationale": "Feature-colocated; keeps HTTP surface next to business logic."},
