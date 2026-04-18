@@ -326,6 +326,12 @@ def render_pitfall(pitfall: dict, slug: str, decision_slugs: dict[str, str]) -> 
         parts.append(f"\n**Stems from:** {linked}\n")
     if recommendation:
         parts.append(f"\n**Recommendation:** {recommendation}\n")
+    applies_to = _as_list(pitfall.get("applies_to"))
+    if applies_to:
+        paths = [str(p) for p in applies_to if _as_text(p)]
+        if paths:
+            body = "```\n" + "\n".join(paths) + "\n```"
+            parts.append(f"\n## Applies to\n\n{body}\n")
     return "".join(parts)
 
 

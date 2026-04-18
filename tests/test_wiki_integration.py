@@ -348,3 +348,16 @@ def test_wiki_builder_component_enrichment_end_to_end(tmp_path):
     assert "features/auth/UserService.ts" in us
     assert "**Platform:** backend" in us
     assert "**Location:** `features/auth/UserService.ts`" in us
+
+
+def test_wiki_builder_pitfall_applies_to_end_to_end(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    pitfall_md = (wiki / "pitfalls" / "password-storage.md").read_text()
+    assert "## Applies to" in pitfall_md
+    assert "features/auth/UserRepository.ts" in pitfall_md
+    assert "features/auth/PasswordHelper.ts" in pitfall_md

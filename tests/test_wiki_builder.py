@@ -291,6 +291,38 @@ def test_render_index_uses_project_root_fallback_for_name(tmp_path):
     assert f"# {tmp_path.name} Wiki" in md
 
 
+def test_render_pitfall_with_applies_to():
+    pitfall = {
+        "area": "Password storage",
+        "description": "Storing plain-text passwords",
+        "stems_from": "PostgreSQL as primary store",
+        "recommendation": "Hash with bcrypt",
+        "applies_to": ["features/auth/UserRepository.ts", "features/auth/PasswordHelper.ts"]
+    }
+    decision_slugs = {"PostgreSQL as primary store": "postgresql-as-primary-store"}
+    md = wiki_builder.render_pitfall(pitfall, slug="password-storage", decision_slugs=decision_slugs)
+    assert "# Password storage" in md
+    assert "## Applies to" in md
+    # Fenced code block for paths (grep-friendly)
+    assert "```\nfeatures/auth/UserRepository.ts\nfeatures/auth/PasswordHelper.ts\n```" in md
+
+
+def test_render_pitfall_without_applies_to_no_section():
+    pitfall = {
+        "area": "Some pitfall",
+        "description": "desc",
+        "recommendation": "fix it"
+    }
+    md = wiki_builder.render_pitfall(pitfall, slug="some-pitfall", decision_slugs={})
+    assert "## Applies to" not in md
+
+
+def test_render_pitfall_applies_to_empty_list_no_section():
+    pitfall = {"area": "X", "description": "x", "applies_to": [], "recommendation": "x"}
+    md = wiki_builder.render_pitfall(pitfall, slug="x", decision_slugs={})
+    assert "## Applies to" not in md
+
+
 def test_render_index_meta_project_name_takes_precedence(tmp_path):
     blueprint = {"meta": {"project_name": "ExplicitName"}}
     slug_map = {"decisions": {}, "components": {}, "patterns": {}, "pitfalls": {}, "capabilities": {}}
