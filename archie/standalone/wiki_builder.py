@@ -394,6 +394,63 @@ def render_architecture_rules(blueprint: dict) -> str:
     return "".join(parts)
 
 
+def render_development_rules(blueprint: dict) -> str:
+    """Render rules/development.md grouped by category (insertion order preserved).
+
+    Returns empty string when no rules exist.
+    """
+    rules = _as_list(blueprint.get("development_rules"))
+    if not rules:
+        return ""
+
+    # Group preserving first-seen category order; uncategorized always last.
+    grouped: dict[str, list[dict]] = {}
+    uncategorized: list[dict] = []
+    for r in rules:
+        if not isinstance(r, dict) or not _as_text(r.get("rule")):
+            continue
+        cat = _as_text(r.get("category"))
+        if cat:
+            grouped.setdefault(cat, []).append(r)
+        else:
+            uncategorized.append(r)
+
+    if not grouped and not uncategorized:
+        return ""
+
+    parts = [
+        _frontmatter(type="rules-page", slug="rules-development"),
+        "\n# Development rules\n",
+    ]
+
+    def _word(n: int, singular: str, plural: str) -> str:
+        return f"{n} {singular}" if n == 1 else f"{n} {plural}"
+
+    def _render_group(title: str, items: list[dict]) -> str:
+        header = f"\n## {title} ({_word(len(items), 'rule', 'rules')})\n\n"
+        lines = []
+        for r in items:
+            rule_text = _as_text(r.get("rule"))
+            rationale = _as_text(r.get("rationale"))
+            applies_to = _as_list(r.get("applies_to"))
+            entry = f"- **{rule_text}**"
+            if rationale:
+                entry += f"\n  {rationale}"
+            if applies_to:
+                globs = ", ".join(f"`{g}`" for g in applies_to if g)
+                if globs:
+                    entry += f"\n  _Applies to:_ {globs}"
+            lines.append(entry)
+        return header + "\n".join(lines) + "\n"
+
+    for cat, items in grouped.items():
+        parts.append(_render_group(cat, items))
+    if uncategorized:
+        parts.append(_render_group("Uncategorized rules", uncategorized))
+
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -583,6 +640,10 @@ def build_wiki(project_root: Path) -> None:
     rules_arch = render_architecture_rules(blueprint)
     if rules_arch:
         _write(wiki_root / "rules" / "architecture.md", rules_arch)
+
+    rules_dev = render_development_rules(blueprint)
+    if rules_dev:
+        _write(wiki_root / "rules" / "development.md", rules_dev)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 

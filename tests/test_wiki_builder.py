@@ -387,3 +387,49 @@ def test_render_architecture_rules_empty_returns_empty():
     assert wiki_builder.render_architecture_rules({}) == ""
     assert wiki_builder.render_architecture_rules({"architecture_rules": {}}) == ""
     assert wiki_builder.render_architecture_rules({"architecture_rules": {"file_placement_rules": [], "naming_conventions": []}}) == ""
+
+
+def test_render_development_rules_categorized():
+    blueprint = {
+        "development_rules": [
+            {"category": "Security", "rule": "Never log passwords.", "rationale": "Logs get aggregated."},
+            {"category": "Security", "rule": "Always use bcrypt.compare.", "rationale": "Timing-safe."},
+            {"category": "Data access", "rule": "Services never touch DB directly.", "applies_to": ["features/**"]},
+            {"rule": "Every async method returns Result<T, E>.", "rationale": "Uniform error surface."},
+        ]
+    }
+    md = wiki_builder.render_development_rules(blueprint)
+    assert "# Development rules" in md
+    assert "## Security (2 rules)" in md
+    assert "## Data access (1 rule)" in md
+    assert "## Uncategorized rules (1 rule)" in md
+    # Each rule appears with rationale where present
+    assert "**Never log passwords.**" in md
+    assert "Logs get aggregated." in md
+    # applies_to rendered as code-formatted globs
+    assert "`features/**`" in md
+    # Security (2) appears before Data access (1) alphabetically? Or stable insertion order?
+    # Implementation choice: keep insertion order for categories; rules within category also insertion order.
+    security_idx = md.index("## Security")
+    data_idx = md.index("## Data access")
+    uncat_idx = md.index("## Uncategorized")
+    assert security_idx < data_idx < uncat_idx
+
+
+def test_render_development_rules_all_uncategorized():
+    blueprint = {
+        "development_rules": [
+            {"rule": "Rule A."},
+            {"rule": "Rule B."},
+        ]
+    }
+    md = wiki_builder.render_development_rules(blueprint)
+    assert "# Development rules" in md
+    assert "## Uncategorized rules (2 rules)" in md
+    # No other category headers
+    assert "## Security" not in md
+
+
+def test_render_development_rules_empty():
+    assert wiki_builder.render_development_rules({}) == ""
+    assert wiki_builder.render_development_rules({"development_rules": []}) == ""

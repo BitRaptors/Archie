@@ -254,3 +254,18 @@ def test_wiki_builder_survives_malformed_blueprint(tmp_path):
     assert result.returncode == 0, f"exit {result.returncode}: {result.stderr}"
     # Index.md exists even though there is no data.
     assert (tmp_path / ".archie" / "wiki" / "index.md").exists()
+
+
+def test_wiki_builder_emits_rules_development(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    assert (wiki / "rules" / "development.md").exists()
+    text = (wiki / "rules" / "development.md").read_text()
+    assert "# Development rules" in text
+    assert "## Security" in text
+    assert "Never log passwords" in text
+    assert "`features/auth/**`" in text  # applies_to code-formatted
