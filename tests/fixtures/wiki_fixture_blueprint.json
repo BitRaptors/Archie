@@ -1,12 +1,15 @@
 {
   "meta": {
     "project_name": "TestProject",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "executive_summary": "TestProject is a small test-scope application demonstrating a layered MVC architecture with a repository pattern for data access. The primary flow is user authentication: a client calls AuthController, which delegates to UserService, which reads/writes via UserRepository and PostgreSQL. Sessions use stateless JWT. This fixture covers every blueprint field the LLM Wiki renders.",
+    "architecture_style": "Layered MVC with repository pattern. HTTP controllers remain thin; UserService owns business logic; UserRepository abstracts storage. Auth is stateless via JWT to allow horizontal scaling.",
+    "platforms": ["backend"]
   },
   "decisions": {
     "architectural_style": {
       "chosen": "Layered MVC with repository pattern",
-      "rationale": "Separation of concerns"
+      "rationale": "Separation of concerns + testable data layer. Matches team experience."
     },
     "key_decisions": [
       {
@@ -27,31 +30,58 @@
       }
     ],
     "trade_offs": [
-      {
-        "accepted_cost": "Token revocation is harder with stateless JWT",
-        "gained_benefit": "Stateless services scale horizontally"
-      }
+      {"accepted_cost": "Token revocation is harder with stateless JWT", "gained_benefit": "Stateless services scale horizontally"},
+      {"accepted_cost": "Schema migrations require care in CI", "gained_benefit": "Strong relational consistency for financial data"}
     ],
-    "out_of_scope": ["OAuth social login"]
+    "out_of_scope": ["OAuth social login", "Federated identity providers"]
   },
   "components": [
     {
       "name": "UserService",
       "purpose": "User authentication and lifecycle management",
       "depends_on": ["UserRepository"],
-      "exposes_to": ["AuthController"]
+      "exposes_to": ["AuthController"],
+      "responsibility": "Owns user authentication and session lifecycle. Validates credentials via UserRepository, issues JWTs, handles password hashing with bcrypt, and exposes login/logout/signup operations. All methods are async and return Result<T, AuthError>.",
+      "location": "features/auth/UserService.ts",
+      "platform": "backend",
+      "key_interfaces": [
+        {"name": "login", "signature": "async login(email: string, password: string): Promise<Result<Session, AuthError>>", "description": "Validates credentials and issues a new JWT session."},
+        {"name": "logout", "signature": "async logout(sessionId: string): Promise<void>", "description": "Invalidates a session server-side."},
+        {"name": "signup", "signature": "async signup(email: string, password: string): Promise<Result<User, AuthError>>", "description": "Creates a new user after password validation."}
+      ],
+      "key_files": [
+        {"file": "features/auth/UserService.ts", "description": "Main implementation"},
+        {"file": "features/auth/UserService.test.ts", "description": "Unit tests"}
+      ]
     },
     {
       "name": "UserRepository",
       "purpose": "User data access layer",
       "depends_on": [],
-      "exposes_to": ["UserService"]
+      "exposes_to": ["UserService"],
+      "responsibility": "Thin data-access wrapper over PostgreSQL. Never contains business logic. Exposes typed CRUD for User records and hashed-password comparisons.",
+      "location": "features/auth/UserRepository.ts",
+      "platform": "backend",
+      "key_interfaces": [
+        {"name": "findByEmail", "signature": "async findByEmail(email: string): Promise<User | null>", "description": "Lookup user by email."},
+        {"name": "create", "signature": "async create(user: User): Promise<User>", "description": "Persist a new user."}
+      ]
     },
     {
       "name": "AuthController",
       "purpose": "HTTP auth endpoints",
       "depends_on": ["UserService"],
-      "exposes_to": []
+      "exposes_to": [],
+      "responsibility": "HTTP boundary for authentication. Maps HTTP requests to UserService calls and serializes Result types into HTTP responses.",
+      "location": "features/auth/AuthController.ts",
+      "platform": "backend",
+      "key_interfaces": [
+        {"name": "login", "signature": "POST /api/auth/login", "description": "Validates credentials and returns JWT."},
+        {"name": "signup", "signature": "POST /api/auth/signup", "description": "Creates new account."}
+      ],
+      "key_files": [
+        {"file": "features/auth/AuthController.ts", "description": "Route handlers"}
+      ]
     }
   ],
   "communication": {
@@ -61,6 +91,14 @@
         "when_to_use": "When abstracting a data source behind a contract",
         "when_not_to_use": "For trivial single-table CRUD without future flexibility needs"
       }
+    ],
+    "integrations": [
+      {"service": "PostgreSQL", "purpose": "Primary user + session store", "integration_point": "features/auth/UserRepository.ts"},
+      {"service": "SMTP (SendGrid)", "purpose": "Password reset emails", "integration_point": "features/auth/EmailService.ts"}
+    ],
+    "pattern_selection_guide": [
+      {"scenario": "Need to add a new HTTP endpoint", "recommended_pattern": "Controller \u2192 Service \u2192 Repository chain"},
+      {"scenario": "Need to access the database", "recommended_pattern": "Go through a Repository, never direct SQL from Service"}
     ]
   },
   "pitfalls": [
@@ -68,10 +106,11 @@
       "area": "Password storage",
       "description": "Storing plain-text passwords in UserRepository",
       "stems_from": "PostgreSQL as primary store",
-      "recommendation": "Hash with bcrypt before persisting"
+      "recommendation": "Hash with bcrypt before persisting",
+      "applies_to": ["features/auth/UserRepository.ts", "features/auth/PasswordHelper.ts"]
     },
     {
-      "area": "Dependency direction: lib → queries/prisma",
+      "area": "Dependency direction: lib \u2192 queries/prisma",
       "description": "src/lib/auth.ts imports from src/queries/prisma",
       "stems_from": [],
       "recommendation": "Move auth logic out of lib"
@@ -101,6 +140,77 @@
       "provenance": "INFERRED"
     }
   ],
-  "implementation_guidelines": [],
-  "development_rules": []
+  "architecture_rules": {
+    "file_placement_rules": [
+      {"pattern": "HTTP controllers", "location": "features/<feature>/*Controller.ts", "rationale": "Feature-colocated; keeps HTTP surface next to business logic."},
+      {"pattern": "Services", "location": "features/<feature>/*Service.ts", "rationale": "Services own feature business logic."},
+      {"pattern": "Repositories", "location": "features/<feature>/*Repository.ts", "rationale": "Data access is always isolated from services."}
+    ],
+    "naming_conventions": [
+      {"applies_to": "Controller classes", "convention": "*Controller suffix, PascalCase", "example": "AuthController.ts"},
+      {"applies_to": "Service classes", "convention": "*Service suffix, PascalCase", "example": "UserService.ts"},
+      {"applies_to": "Test files", "convention": "*.test.ts next to source", "example": "UserService.test.ts"}
+    ]
+  },
+  "implementation_guidelines": [
+    {
+      "name": "How to add a new auth-protected endpoint",
+      "category": "Auth",
+      "pattern_description": "Define the route in the Controller. Delegate to a Service method. Service calls Repository. All return Result<T, E>.",
+      "libraries": ["express", "jsonwebtoken", "bcrypt"],
+      "key_files": ["features/auth/AuthController.ts", "features/auth/UserService.ts"],
+      "usage_example": "router.post('/api/protected', requireAuth, async (req, res) => {\n  const result = await userService.doThing(req.user.id);\n  if (result.ok) return res.json(result.value);\n  return res.status(result.error.statusCode).json({ error: result.error.message });\n});",
+      "tips": ["Always use the requireAuth middleware.", "Never call UserRepository from a Controller directly."]
+    },
+    {
+      "name": "How to hash a new password",
+      "category": "Security",
+      "pattern_description": "Use bcrypt with cost factor 12. Never store plaintext.",
+      "libraries": ["bcrypt"],
+      "key_files": ["features/auth/PasswordHelper.ts"],
+      "usage_example": "import bcrypt from 'bcrypt';\nconst hash = await bcrypt.hash(password, 12);",
+      "tips": ["Cost factor 12 is the current team standard.", "Never roll your own hashing."]
+    }
+  ],
+  "development_rules": [
+    {"category": "Security", "rule": "Never log passwords or password hashes, even at DEBUG level.", "rationale": "Logs get aggregated; leak risk is unacceptable.", "applies_to": ["features/auth/**"]},
+    {"category": "Security", "rule": "All password comparisons use bcrypt.compare, never string equality.", "rationale": "String equality is timing-attack vulnerable."},
+    {"category": "Data access", "rule": "Services never touch the database directly; always go through a Repository.", "rationale": "Keeps tests fast and the dependency graph one-directional."},
+    {"rule": "Every public async method returns a Result<T, E>, never throws.", "rationale": "Uniform error surface across the codebase."}
+  ],
+  "technology": {
+    "stack": [
+      {"category": "Language", "name": "TypeScript", "version": "5.3", "purpose": "Primary language"},
+      {"category": "Runtime", "name": "Node.js", "version": "24 LTS", "purpose": "Server runtime"},
+      {"category": "Framework", "name": "Express", "version": "4.x", "purpose": "HTTP server"},
+      {"category": "Database", "name": "PostgreSQL", "version": "15", "purpose": "Primary store"},
+      {"category": "Auth", "name": "bcrypt", "version": "5.x", "purpose": "Password hashing"},
+      {"category": "Auth", "name": "jsonwebtoken", "version": "9.x", "purpose": "JWT issuance"}
+    ],
+    "run_commands": {
+      "dev": "npm run dev",
+      "test": "npm test",
+      "build": "npm run build"
+    },
+    "project_structure": "Monorepo with features/ as the primary unit. Each feature contains its Controller, Service, Repository, and tests."
+  },
+  "quick_reference": {
+    "pattern_selection": [
+      {"scenario": "New endpoint needs auth", "pattern": "requireAuth middleware + Service.method that accepts userId"},
+      {"scenario": "Need to validate a password", "pattern": "bcrypt.compare in UserService, never UserRepository"}
+    ],
+    "error_mapping": [
+      {"error": "AuthError.InvalidCredentials", "status_code": 401, "solution": "Return JSON with code 'invalid_credentials'; log event (without password)"},
+      {"error": "AuthError.UserExists", "status_code": 409, "solution": "Return JSON with code 'user_exists'; client should prompt login"}
+    ]
+  },
+  "frontend": {
+    "framework": "Next.js 15 App Router",
+    "state_management": "Zustand",
+    "routing": "App Router file-based",
+    "styling": "Tailwind CSS",
+    "data_fetching": "React Query + Server Components",
+    "conventions": "Page components in app/; client components explicitly marked 'use client'. Shared UI in components/ui/."
+  },
+  "architecture_diagram": "graph TD\n  AuthController[AuthController] --> UserService[UserService]\n  UserService --> UserRepository[UserRepository]\n  UserRepository --> PostgreSQL[(PostgreSQL)]"
 }
