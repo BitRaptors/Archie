@@ -565,3 +565,41 @@ def test_render_frontend_empty_or_missing():
     assert wiki_builder.render_frontend({"frontend": {}}) == ""
     # All-empty string values should also skip.
     assert wiki_builder.render_frontend({"frontend": {"framework": "", "conventions": ""}}) == ""
+
+
+def test_render_architecture_full():
+    blueprint = {
+        "meta": {
+            "executive_summary": "TestProject is a small test-scope application. The primary flow is user authentication.",
+            "architecture_style": "Layered MVC with repository pattern.",
+        },
+        "architecture_diagram": "graph TD\n  A[Controller] --> B[Service]\n  B --> C[Repository]",
+    }
+    md = wiki_builder.render_architecture(blueprint)
+    assert "# Architecture" in md
+    # Executive summary prose appears
+    assert "TestProject is a small test-scope application" in md
+    # Architecture style appears
+    assert "## Architectural style" in md or "Layered MVC with repository pattern." in md
+    # Mermaid fenced block present
+    assert "## System diagram" in md
+    assert "```mermaid" in md
+    assert "graph TD" in md
+    assert "A[Controller]" in md
+    assert "type: architecture" in md
+
+
+def test_render_architecture_only_diagram():
+    blueprint = {"architecture_diagram": "graph LR\n  X --> Y"}
+    md = wiki_builder.render_architecture(blueprint)
+    assert "# Architecture" in md
+    assert "```mermaid" in md
+    assert "X --> Y" in md
+    # No executive_summary content should appear
+    assert "TestProject" not in md
+
+
+def test_render_architecture_empty():
+    assert wiki_builder.render_architecture({}) == ""
+    assert wiki_builder.render_architecture({"architecture_diagram": ""}) == ""
+    assert wiki_builder.render_architecture({"meta": {"executive_summary": "x"}}) != ""  # summary alone still renders

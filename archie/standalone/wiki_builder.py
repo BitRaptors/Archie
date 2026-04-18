@@ -593,6 +593,35 @@ def render_frontend(blueprint: dict) -> str:
     return "".join(parts)
 
 
+def render_architecture(blueprint: dict) -> str:
+    """Render architecture.md with a prose overview (executive_summary +
+    architecture_style) plus the Mermaid diagram in a fenced block.
+
+    Returns empty string if neither a diagram nor prose is available.
+    """
+    meta = _as_dict(blueprint.get("meta"))
+    summary = _as_text(meta.get("executive_summary"))
+    style = _as_text(meta.get("architecture_style"))
+    diagram = _as_text(blueprint.get("architecture_diagram"))
+
+    if not summary and not style and not diagram:
+        return ""
+
+    parts = [
+        _frontmatter(type="architecture", slug="architecture"),
+        "\n# Architecture\n",
+    ]
+
+    if summary:
+        parts.append(f"\n{summary}\n")
+    if style:
+        parts.append(f"\n## Architectural style\n\n{style}\n")
+    if diagram:
+        parts.append(f"\n## System diagram\n\n```mermaid\n{diagram}\n```\n")
+
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -798,6 +827,10 @@ def build_wiki(project_root: Path) -> None:
     frontend_page = render_frontend(blueprint)
     if frontend_page:
         _write(wiki_root / "frontend.md", frontend_page)
+
+    arch_page = render_architecture(blueprint)
+    if arch_page:
+        _write(wiki_root / "architecture.md", arch_page)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 

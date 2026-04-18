@@ -317,3 +317,17 @@ def test_wiki_builder_emits_frontend(tmp_path):
     assert "**Framework:**" in text
     assert "Next.js 15" in text
     assert "## Conventions" in text
+
+
+def test_wiki_builder_emits_architecture(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    assert (wiki / "architecture.md").exists()
+    text = (wiki / "architecture.md").read_text()
+    assert "# Architecture" in text
+    assert "```mermaid" in text
+    assert "AuthController" in text or "graph" in text
