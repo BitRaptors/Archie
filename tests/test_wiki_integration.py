@@ -269,3 +269,21 @@ def test_wiki_builder_emits_rules_development(tmp_path):
     assert "## Security" in text
     assert "Never log passwords" in text
     assert "`features/auth/**`" in text  # applies_to code-formatted
+
+
+def test_wiki_builder_emits_technology(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    assert (wiki / "technology.md").exists()
+    text = (wiki / "technology.md").read_text()
+    assert "# Technology" in text
+    assert "## Stack" in text
+    assert "| TypeScript |" in text
+    assert "## External integrations" in text
+    assert "PostgreSQL" in text
+    assert "## Run commands" in text
+    assert "npm run dev" in text

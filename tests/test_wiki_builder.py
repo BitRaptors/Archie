@@ -432,4 +432,50 @@ def test_render_development_rules_all_uncategorized():
 
 def test_render_development_rules_empty():
     assert wiki_builder.render_development_rules({}) == ""
+
+
+def test_render_technology_full():
+    blueprint = {
+        "technology": {
+            "stack": [
+                {"category": "Language", "name": "TypeScript", "version": "5.3", "purpose": "Primary language"},
+                {"category": "Runtime", "name": "Node.js", "version": "24 LTS", "purpose": "Server runtime"},
+            ],
+            "run_commands": {
+                "dev": "npm run dev",
+                "test": "npm test",
+            },
+        },
+        "communication": {
+            "integrations": [
+                {"service": "PostgreSQL", "purpose": "Primary user store", "integration_point": "features/auth/UserRepository.ts"},
+            ]
+        }
+    }
+    md = wiki_builder.render_technology(blueprint)
+    assert "# Technology" in md
+    assert "## Stack" in md
+    assert "| Category | Name | Version | Purpose |" in md
+    assert "| Language | TypeScript | 5.3 | Primary language |" in md
+    assert "## External integrations" in md
+    assert "**PostgreSQL**" in md
+    assert "features/auth/UserRepository.ts" in md
+    assert "## Run commands" in md
+    assert "npm run dev" in md
+    assert "npm test" in md
+    assert "type: technology" in md
+
+
+def test_render_technology_only_stack():
+    blueprint = {"technology": {"stack": [{"category": "Lang", "name": "Python", "version": "3.12"}]}}
+    md = wiki_builder.render_technology(blueprint)
+    assert "## Stack" in md
+    assert "| Lang | Python | 3.12 |" in md
+    assert "## External integrations" not in md
+    assert "## Run commands" not in md
+
+
+def test_render_technology_empty():
+    assert wiki_builder.render_technology({}) == ""
+    assert wiki_builder.render_technology({"technology": {}}) == ""
     assert wiki_builder.render_development_rules({"development_rules": []}) == ""

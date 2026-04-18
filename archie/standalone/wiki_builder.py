@@ -451,6 +451,60 @@ def render_development_rules(blueprint: dict) -> str:
     return "".join(parts)
 
 
+def render_technology(blueprint: dict) -> str:
+    """Render technology.md with Stack + External integrations + Run commands.
+
+    Returns empty string when all three sub-sections are empty.
+    """
+    tech = _as_dict(blueprint.get("technology"))
+    stack = _as_list(tech.get("stack"))
+    run_commands = _as_dict(tech.get("run_commands"))
+    integrations = _as_list(_as_dict(blueprint.get("communication")).get("integrations"))
+
+    if not stack and not run_commands and not integrations:
+        return ""
+
+    parts = [
+        _frontmatter(type="technology", slug="technology"),
+        "\n# Technology\n",
+    ]
+
+    if stack:
+        rows = ["## Stack\n", "", "| Category | Name | Version | Purpose |", "|---|---|---|---|"]
+        for s in stack:
+            cat = _as_text(s.get("category"))
+            name = _as_text(s.get("name"))
+            version = _as_text(s.get("version"))
+            purpose = _as_text(s.get("purpose"))
+            rows.append(f"| {cat} | {name} | {version} | {purpose} |")
+        parts.append("\n" + "\n".join(rows) + "\n")
+
+    if integrations:
+        lines = ["## External integrations\n"]
+        for it in integrations:
+            service = _as_text(it.get("service"))
+            purpose = _as_text(it.get("purpose"))
+            point = _as_text(it.get("integration_point"))
+            line = f"\n- **{service}** — {purpose}" if purpose else f"\n- **{service}**"
+            if point:
+                line += f"\n  _Integration point:_ `{point}`"
+            lines.append(line)
+        parts.append("\n".join(lines) + "\n")
+
+    if run_commands:
+        lines = ["\n## Run commands\n", "", "```bash"]
+        for label, cmd in run_commands.items():
+            cmd_text = _as_text(cmd)
+            if cmd_text:
+                lines.append(f"# {label}")
+                lines.append(cmd_text)
+                lines.append("")
+        lines.append("```")
+        parts.append("\n".join(lines) + "\n")
+
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -644,6 +698,10 @@ def build_wiki(project_root: Path) -> None:
     rules_dev = render_development_rules(blueprint)
     if rules_dev:
         _write(wiki_root / "rules" / "development.md", rules_dev)
+
+    tech_page = render_technology(blueprint)
+    if tech_page:
+        _write(wiki_root / "technology.md", tech_page)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 
