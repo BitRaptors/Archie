@@ -518,3 +518,34 @@ def test_component_pages_show_data_models_section(tmp_path):
     assert "## Data models" in ur
     assert "[User](../data-models/user.md)" in ur
     assert "[Session](../data-models/session.md)" not in ur
+
+
+def test_wiki_data_models_end_to_end(tmp_path):
+    """Single end-to-end check that data-model pages, component backlinks, and the
+    index entry are all emitted in one builder run."""
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+
+    wiki = project / ".archie" / "wiki"
+
+    # 1. data-models pages exist
+    user_md = wiki / "data-models" / "user.md"
+    session_md = wiki / "data-models" / "session.md"
+    assert user_md.exists()
+    assert session_md.exists()
+
+    # 2. component pages show the Data models section
+    user_service_md = (wiki / "components" / "user-service.md").read_text()
+    assert "## Data models" in user_service_md
+    assert "[User](../data-models/user.md)" in user_service_md
+    assert "[Session](../data-models/session.md)" in user_service_md
+
+    # 3. index has the browse-by-type bullet AND the dedicated section
+    index_md = (wiki / "index.md").read_text()
+    assert "**Data models (2)** — entities moving through the system" in index_md
+    assert "## Data models" in index_md
+    assert "- [User](./data-models/user.md)" in index_md
+    assert "- [Session](./data-models/session.md)" in index_md
