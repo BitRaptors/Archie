@@ -603,3 +603,75 @@ def test_render_architecture_empty():
     assert wiki_builder.render_architecture({}) == ""
     assert wiki_builder.render_architecture({"architecture_diagram": ""}) == ""
     assert wiki_builder.render_architecture({"meta": {"executive_summary": "x"}}) != ""  # summary alone still renders
+
+
+def test_render_component_full_enrichment():
+    component = {
+        "name": "UserService",
+        "purpose": "User auth and lifecycle",
+        "responsibility": "Owns user authentication and session lifecycle. Validates credentials via UserRepository, issues JWTs, handles password hashing.",
+        "location": "features/auth/UserService.ts",
+        "platform": "backend",
+        "depends_on": ["UserRepository"],
+        "exposes_to": ["AuthController"],
+        "key_interfaces": [
+            {"name": "login", "signature": "async login(email, password): Promise<Result<Session, AuthError>>", "description": "Validates credentials and issues a new JWT session."},
+            {"name": "logout", "signature": "async logout(sessionId): Promise<void>", "description": "Invalidates a session server-side."}
+        ],
+        "key_files": [
+            {"file": "features/auth/UserService.ts", "description": "Main implementation"},
+            {"file": "features/auth/UserService.test.ts", "description": "Unit tests"}
+        ]
+    }
+    component_slugs = {"UserService": "user-service", "UserRepository": "user-repository", "AuthController": "auth-controller"}
+    md = wiki_builder.render_component(component, slug="user-service", component_slugs=component_slugs)
+
+    assert "# UserService" in md
+    assert "**Platform:** backend" in md
+    assert "**Location:** `features/auth/UserService.ts`" in md
+    assert "**Purpose:** User auth and lifecycle" in md
+    # Responsibility section
+    assert "## Responsibility" in md
+    assert "Owns user authentication and session lifecycle" in md
+    # depends_on / exposes_to still present (unchanged behavior)
+    assert "[UserRepository](../components/user-repository.md)" in md
+    assert "[AuthController](../components/auth-controller.md)" in md
+    # Public interface
+    assert "## Public interface" in md
+    assert "**`login`**" in md
+    assert "`async login(email, password): Promise<Result<Session, AuthError>>`" in md
+    assert "Validates credentials and issues a new JWT session." in md
+    assert "**`logout`**" in md
+    # Key files
+    assert "## Key files" in md
+    assert "`features/auth/UserService.ts`" in md
+    assert "Main implementation" in md
+
+
+def test_render_component_only_legacy_fields_still_works():
+    """Pre-enrichment fixture shape — only name/purpose/depends_on/exposes_to — must still render cleanly."""
+    component = {
+        "name": "LegacyComponent",
+        "purpose": "Old-style component",
+        "depends_on": ["OtherComponent"],
+    }
+    component_slugs = {"LegacyComponent": "legacy-component", "OtherComponent": "other-component"}
+    md = wiki_builder.render_component(component, slug="legacy-component", component_slugs=component_slugs)
+    assert "# LegacyComponent" in md
+    assert "**Purpose:** Old-style component" in md
+    assert "[OtherComponent](../components/other-component.md)" in md
+    # New sections should NOT appear
+    assert "## Responsibility" not in md
+    assert "## Public interface" not in md
+    assert "## Key files" not in md
+    # Optional meta prefixes shouldn't appear either
+    assert "**Platform:**" not in md
+    assert "**Location:**" not in md
+
+
+def test_render_component_platform_only():
+    """If only platform is provided, show it without other meta prefixes."""
+    component = {"name": "X", "platform": "ios"}
+    md = wiki_builder.render_component(component, slug="x", component_slugs={"X": "x"})
+    assert "**Platform:** ios" in md
+    assert "**Location:**" not in md

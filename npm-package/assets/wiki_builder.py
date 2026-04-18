@@ -219,24 +219,73 @@ def _link_or_text(name: str, slugs: dict[str, str], dir_name: str) -> str:
 
 
 def render_component(component: dict, slug: str, component_slugs: dict[str, str]) -> str:
-    name = component.get("name", "Untitled component")
+    name = _as_text(component.get("name")) or "Untitled component"
     purpose = _as_text(component.get("purpose"))
+    responsibility = _as_text(component.get("responsibility"))
+    location = _as_text(component.get("location"))
+    platform = _as_text(component.get("platform"))
     depends_on = _as_list(component.get("depends_on"))
     exposes_to = _as_list(component.get("exposes_to"))
-
-    dep_links = [_link_or_text(n, component_slugs, "components") for n in depends_on]
-    exp_links = [_link_or_text(n, component_slugs, "components") for n in exposes_to]
+    key_interfaces = _as_list(component.get("key_interfaces"))
+    key_files = _as_list(component.get("key_files"))
 
     parts = [
         _frontmatter(type="component", slug=slug, provenance="EXTRACTED"),
         f"\n# {name}\n",
     ]
+
+    # Inline meta lines (platform, location) — each conditional on presence
+    meta_bullets = []
+    if platform:
+        meta_bullets.append(f"**Platform:** {platform}")
+    if location:
+        meta_bullets.append(f"**Location:** `{location}`")
+    if meta_bullets:
+        parts.append("\n" + "\n\n".join(meta_bullets) + "\n")
+
     if purpose:
         parts.append(f"\n**Purpose:** {purpose}\n")
+    if responsibility:
+        parts.append(f"\n## Responsibility\n\n{responsibility}\n")
+
+    dep_links = [_link_or_text(n, component_slugs, "components") for n in depends_on]
+    exp_links = [_link_or_text(n, component_slugs, "components") for n in exposes_to]
     if dep_links:
         parts.append(_section("Depends on", _list_lines(dep_links)))
     if exp_links:
         parts.append(_section("Exposes to", _list_lines(exp_links)))
+
+    # Public interface
+    if key_interfaces:
+        lines = ["## Public interface\n"]
+        for iface in key_interfaces:
+            iname = _as_text(iface.get("name")) if isinstance(iface, dict) else None
+            sig = _as_text(iface.get("signature")) if isinstance(iface, dict) else None
+            desc = _as_text(iface.get("description")) if isinstance(iface, dict) else None
+            if not iname and not sig:
+                continue
+            head = f"\n- **`{iname}`**" if iname else "\n- "
+            if sig:
+                head += f" — `{sig}`"
+            lines.append(head)
+            if desc:
+                lines.append(f"  {desc}")
+        parts.append("\n".join(lines) + "\n")
+
+    # Key files
+    if key_files:
+        lines = ["## Key files\n"]
+        for kf in key_files:
+            fpath = _as_text(kf.get("file")) if isinstance(kf, dict) else _as_text(kf)
+            fdesc = _as_text(kf.get("description")) if isinstance(kf, dict) else ""
+            if not fpath:
+                continue
+            if fdesc:
+                lines.append(f"\n- `{fpath}` — {fdesc}")
+            else:
+                lines.append(f"\n- `{fpath}`")
+        parts.append("\n".join(lines) + "\n")
+
     return "".join(parts)
 
 
@@ -593,6 +642,35 @@ def render_frontend(blueprint: dict) -> str:
     return "".join(parts)
 
 
+def render_architecture(blueprint: dict) -> str:
+    """Render architecture.md with a prose overview (executive_summary +
+    architecture_style) plus the Mermaid diagram in a fenced block.
+
+    Returns empty string if neither a diagram nor prose is available.
+    """
+    meta = _as_dict(blueprint.get("meta"))
+    summary = _as_text(meta.get("executive_summary"))
+    style = _as_text(meta.get("architecture_style"))
+    diagram = _as_text(blueprint.get("architecture_diagram"))
+
+    if not summary and not style and not diagram:
+        return ""
+
+    parts = [
+        _frontmatter(type="architecture", slug="architecture"),
+        "\n# Architecture\n",
+    ]
+
+    if summary:
+        parts.append(f"\n{summary}\n")
+    if style:
+        parts.append(f"\n## Architectural style\n\n{style}\n")
+    if diagram:
+        parts.append(f"\n## System diagram\n\n```mermaid\n{diagram}\n```\n")
+
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -798,6 +876,10 @@ def build_wiki(project_root: Path) -> None:
     frontend_page = render_frontend(blueprint)
     if frontend_page:
         _write(wiki_root / "frontend.md", frontend_page)
+
+    arch_page = render_architecture(blueprint)
+    if arch_page:
+        _write(wiki_root / "architecture.md", arch_page)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 

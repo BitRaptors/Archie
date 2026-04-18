@@ -331,3 +331,20 @@ def test_wiki_builder_emits_architecture(tmp_path):
     assert "# Architecture" in text
     assert "```mermaid" in text
     assert "AuthController" in text or "graph" in text
+
+
+def test_wiki_builder_component_enrichment_end_to_end(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    us = (wiki / "components" / "user-service.md").read_text()
+    assert "## Responsibility" in us
+    assert "## Public interface" in us
+    assert "`async login(email: string, password: string): Promise<Result<Session, AuthError>>`" in us
+    assert "## Key files" in us
+    assert "features/auth/UserService.ts" in us
+    assert "**Platform:** backend" in us
+    assert "**Location:** `features/auth/UserService.ts`" in us
