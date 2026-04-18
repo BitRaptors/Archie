@@ -627,6 +627,52 @@ If `FEATURE_FILE_COUNT` < 5: write `[]` to `/tmp/archie_agent_capabilities.json`
 >
 > If the project is too small or there is insufficient evidence, return `[]`.
 
+### Data models agent
+
+**Trigger condition:** Before spawning this agent, check whether the project has a recognizable model/entity directory:
+
+```bash
+MODEL_DIR_COUNT=$(find "$PROJECT_ROOT" \( -path '*/Models/*' -o -path '*/models/*' -o -path '*/entities/*' -o -path '*/domain/*' -o -path '*/types/*' \) -type f 2>/dev/null | wc -l)
+```
+
+If `MODEL_DIR_COUNT` < 3: write `[]` to `/tmp/archie_agent_data_models.json` and skip this agent. Otherwise spawn it in parallel with the other agents.
+
+> You are the Data models agent for Archie. Identify the primary data models of this codebase — structs, classes, interfaces, or types that represent domain entities (e.g. `User`, `Place`, `Order`, `Article`). Exclude test fixtures, internal state holders, transient DTO wrappers, and configuration-only types.
+>
+> For each entity, return:
+> - name (exact identifier as it appears in source)
+> - purpose (one sentence, <140 chars)
+> - fields (array of `{name, type, nullable}` — `nullable` is a boolean. Use the language's conventional optionality marker: `String?` / `Optional<T>` / `T | None` → `nullable: true`)
+> - location (one concrete file path where the entity is declared)
+> - used_by_components (exact `components[*].name` from the existing blueprint — names ONLY, no invention)
+> - evidence (1-3 file globs or explicit paths backing the entity)
+> - provenance (always "INFERRED")
+>
+> Cross-reference rule: only emit `used_by_components` entries that match exact names from the blueprint's `components[]`. Synthesis drops unknown refs individually, but you should still pre-filter aggressively to keep the output clean.
+>
+> Evidence threshold: an entity must be used by at least 2 components OR exposed via a public API surface. Do NOT list types only used by one component as a private detail.
+>
+> Return ONLY a JSON array, no prose:
+> ```json
+> [
+>   {
+>     "name": "User",
+>     "purpose": "Represents a registered user account.",
+>     "fields": [
+>       {"name": "id", "type": "string", "nullable": false},
+>       {"name": "email", "type": "string", "nullable": false},
+>       {"name": "createdAt", "type": "Date", "nullable": false}
+>     ],
+>     "location": "features/auth/User.ts",
+>     "used_by_components": ["UserService", "UserRepository"],
+>     "evidence": ["features/auth/User.ts"],
+>     "provenance": "INFERRED"
+>   }
+> ]
+> ```
+>
+> If the project has no clear data model layer or insufficient evidence, return `[]`.
+
 ---
 
 **Every agent also gets these GROUNDING RULES:**
@@ -680,12 +726,13 @@ Write /tmp/archie_sub2_$PROJECT_NAME.json with Patterns agent's COMPLETE output 
 Write /tmp/archie_sub3_$PROJECT_NAME.json with Technology agent's COMPLETE output text
 Write /tmp/archie_sub4_$PROJECT_NAME.json with UI Layer agent's COMPLETE output text (if spawned)
 Write /tmp/archie_agent_capabilities.json with Capabilities agent's COMPLETE output text (if spawned; if skipped, `[]` was already written)
+Write /tmp/archie_agent_data_models.json with Data models agent's COMPLETE output text (if spawned; if skipped, `[]` was already written)
 ```
 
 Then merge:
 
 ```bash
-python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tmp/archie_sub2_$PROJECT_NAME.json /tmp/archie_sub3_$PROJECT_NAME.json /tmp/archie_sub4_$PROJECT_NAME.json /tmp/archie_agent_capabilities.json
+python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tmp/archie_sub2_$PROJECT_NAME.json /tmp/archie_sub3_$PROJECT_NAME.json /tmp/archie_sub4_$PROJECT_NAME.json /tmp/archie_agent_capabilities.json /tmp/archie_agent_data_models.json
 ```
 
 This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data). Verify the output shows non-zero component/section counts. If it says "0 sections, 0 components", the merge failed — check the agent output files.
@@ -1035,7 +1082,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 **If START_STEP > 9, skip this step.**
 
 ```bash
-rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json /tmp/archie_agent_capabilities.json
+rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json /tmp/archie_agent_capabilities.json /tmp/archie_agent_data_models.json
 ```
 
 ```bash
