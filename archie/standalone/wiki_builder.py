@@ -505,6 +505,53 @@ def render_technology(blueprint: dict) -> str:
     return "".join(parts)
 
 
+def render_quick_reference(blueprint: dict) -> str:
+    """Render quick-reference.md with pattern-selection table + decision tree + error handling.
+
+    Returns empty string when all sub-sections are empty.
+    """
+    qr = _as_dict(blueprint.get("quick_reference"))
+    pattern_selection = _as_list(qr.get("pattern_selection"))
+    error_mapping = _as_list(qr.get("error_mapping"))
+    decision_tree = _as_list(_as_dict(blueprint.get("communication")).get("pattern_selection_guide"))
+
+    if not pattern_selection and not error_mapping and not decision_tree:
+        return ""
+
+    parts = [
+        _frontmatter(type="quick-reference", slug="quick-reference"),
+        "\n# Quick reference\n",
+    ]
+
+    if pattern_selection:
+        rows = ["## Which pattern should I use?\n", "", "| Scenario | Recommended pattern |", "|---|---|"]
+        for e in pattern_selection:
+            scenario = _as_text(e.get("scenario"))
+            pattern = _as_text(e.get("pattern"))
+            rows.append(f"| {scenario} | {pattern} |")
+        parts.append("\n" + "\n".join(rows) + "\n")
+
+    if decision_tree:
+        lines = ["## Pattern decision tree\n"]
+        for e in decision_tree:
+            scenario = _as_text(e.get("scenario"))
+            pattern = _as_text(e.get("recommended_pattern"))
+            lines.append(f"\n- **{scenario}** → {pattern}")
+        parts.append("\n".join(lines) + "\n")
+
+    if error_mapping:
+        rows = ["\n## Error handling\n", "", "| Error | Status code | Solution |", "|---|---|---|"]
+        for e in error_mapping:
+            err = _as_text(e.get("error"))
+            code = e.get("status_code")
+            code_str = str(code) if code is not None else ""
+            solution = _as_text(e.get("solution"))
+            rows.append(f"| {err} | {code_str} | {solution} |")
+        parts.append("\n".join(rows) + "\n")
+
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -702,6 +749,10 @@ def build_wiki(project_root: Path) -> None:
     tech_page = render_technology(blueprint)
     if tech_page:
         _write(wiki_root / "technology.md", tech_page)
+
+    qr_page = render_quick_reference(blueprint)
+    if qr_page:
+        _write(wiki_root / "quick-reference.md", qr_page)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 

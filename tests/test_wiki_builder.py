@@ -479,3 +479,49 @@ def test_render_technology_empty():
     assert wiki_builder.render_technology({}) == ""
     assert wiki_builder.render_technology({"technology": {}}) == ""
     assert wiki_builder.render_development_rules({"development_rules": []}) == ""
+
+
+def test_render_quick_reference_full():
+    blueprint = {
+        "quick_reference": {
+            "pattern_selection": [
+                {"scenario": "New endpoint needs auth", "pattern": "requireAuth middleware + Service method"},
+                {"scenario": "Validate password", "pattern": "bcrypt.compare in Service, never Repository"},
+            ],
+            "error_mapping": [
+                {"error": "AuthError.InvalidCredentials", "status_code": 401, "solution": "Return JSON code 'invalid_credentials'"},
+                {"error": "AuthError.UserExists", "status_code": 409, "solution": "Return JSON code 'user_exists'"},
+            ],
+        },
+        "communication": {
+            "pattern_selection_guide": [
+                {"scenario": "Need a new HTTP endpoint", "recommended_pattern": "Controller → Service → Repository"},
+                {"scenario": "Access the database", "recommended_pattern": "Always via Repository"},
+            ]
+        }
+    }
+    md = wiki_builder.render_quick_reference(blueprint)
+    assert "# Quick reference" in md
+    assert "## Which pattern should I use?" in md
+    assert "| Scenario | Recommended pattern |" in md
+    assert "| New endpoint needs auth | requireAuth middleware + Service method |" in md
+    assert "## Pattern decision tree" in md
+    assert "**Need a new HTTP endpoint**" in md
+    assert "Controller \u2192 Service \u2192 Repository" in md
+    assert "## Error handling" in md
+    assert "| Error | Status code | Solution |" in md
+    assert "| AuthError.InvalidCredentials | 401 | Return JSON code 'invalid_credentials' |" in md
+    assert "type: quick-reference" in md
+
+
+def test_render_quick_reference_partial():
+    blueprint = {"quick_reference": {"error_mapping": [{"error": "E", "status_code": 500, "solution": "Retry"}]}}
+    md = wiki_builder.render_quick_reference(blueprint)
+    assert "## Error handling" in md
+    assert "## Which pattern should I use?" not in md
+    assert "## Pattern decision tree" not in md
+
+
+def test_render_quick_reference_empty():
+    assert wiki_builder.render_quick_reference({}) == ""
+    assert wiki_builder.render_quick_reference({"quick_reference": {}}) == ""

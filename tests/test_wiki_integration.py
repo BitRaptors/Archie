@@ -287,3 +287,18 @@ def test_wiki_builder_emits_technology(tmp_path):
     assert "PostgreSQL" in text
     assert "## Run commands" in text
     assert "npm run dev" in text
+
+
+def test_wiki_builder_emits_quick_reference(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    assert (wiki / "quick-reference.md").exists()
+    text = (wiki / "quick-reference.md").read_text()
+    assert "# Quick reference" in text
+    assert "## Which pattern should I use?" in text
+    assert "## Error handling" in text
+    assert "401" in text
