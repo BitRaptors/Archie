@@ -302,3 +302,18 @@ def test_wiki_builder_emits_quick_reference(tmp_path):
     assert "## Which pattern should I use?" in text
     assert "## Error handling" in text
     assert "401" in text
+
+
+def test_wiki_builder_emits_frontend(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    assert (wiki / "frontend.md").exists()
+    text = (wiki / "frontend.md").read_text()
+    assert "# Frontend" in text
+    assert "**Framework:**" in text
+    assert "Next.js 15" in text
+    assert "## Conventions" in text

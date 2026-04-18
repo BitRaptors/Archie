@@ -552,6 +552,47 @@ def render_quick_reference(blueprint: dict) -> str:
     return "".join(parts)
 
 
+_FRONTEND_FIELD_ORDER = [
+    ("framework", "Framework"),
+    ("state_management", "State management"),
+    ("routing", "Routing"),
+    ("styling", "Styling"),
+    ("data_fetching", "Data fetching"),
+    ("rendering_strategy", "Rendering strategy"),
+    ("ui_components", "UI components"),
+]
+
+
+def render_frontend(blueprint: dict) -> str:
+    """Render frontend.md from blueprint.frontend.
+
+    Returns empty string when blueprint.frontend is missing/empty OR all fields are empty strings.
+    """
+    fe = _as_dict(blueprint.get("frontend"))
+    if not fe:
+        return ""
+
+    bullets = []
+    for key, label in _FRONTEND_FIELD_ORDER:
+        value = _as_text(fe.get(key))
+        if value:
+            bullets.append(f"**{label}:** {value}")
+    conventions = _as_text(fe.get("conventions"))
+
+    if not bullets and not conventions:
+        return ""
+
+    parts = [
+        _frontmatter(type="frontend", slug="frontend"),
+        "\n# Frontend\n",
+    ]
+    if bullets:
+        parts.append("\n" + "\n\n".join(bullets) + "\n")
+    if conventions:
+        parts.append(f"\n## Conventions\n\n{conventions}\n")
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -753,6 +794,10 @@ def build_wiki(project_root: Path) -> None:
     qr_page = render_quick_reference(blueprint)
     if qr_page:
         _write(wiki_root / "quick-reference.md", qr_page)
+
+    frontend_page = render_frontend(blueprint)
+    if frontend_page:
+        _write(wiki_root / "frontend.md", frontend_page)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 

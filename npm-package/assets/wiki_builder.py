@@ -320,6 +320,279 @@ def render_capability(capability: dict, slug: str, slugs: dict[str, dict[str, st
     return "".join(parts)
 
 
+def render_guideline(guideline: dict, slug: str) -> str:
+    """Render an implementation guideline as a how-to page.
+
+    Required: name, pattern_description.
+    Optional: category, libraries[], key_files[], usage_example, tips[].
+    """
+    name = guideline.get("name", "Untitled guideline")
+    category = _as_text(guideline.get("category"))
+    pattern_description = _as_text(guideline.get("pattern_description"))
+    libraries = _as_list(guideline.get("libraries"))
+    key_files = _as_list(guideline.get("key_files"))
+    usage_example = _as_text(guideline.get("usage_example"))
+    tips = _as_list(guideline.get("tips"))
+
+    # Frontmatter — include category if present
+    fm_kwargs = {"type": "guideline", "slug": slug, "provenance": "EXTRACTED"}
+    if category:
+        fm_kwargs["category"] = category
+    parts = [_frontmatter(**fm_kwargs), f"\n# {name}\n"]
+
+    if category:
+        parts.append(f"\n**Category:** {category}\n")
+    if pattern_description:
+        parts.append(_section("Pattern", pattern_description))
+    if libraries:
+        parts.append(_section("Libraries", _list_lines(libraries)))
+    if key_files:
+        parts.append(_section("Key files", _list_lines([f"`{f}`" for f in key_files])))
+    if usage_example:
+        # Fenced code block. Don't assume a language; leave bare fence.
+        parts.append(f"\n## Usage example\n\n```\n{usage_example}\n```\n")
+    if tips:
+        parts.append(_section("Tips", _list_lines(tips)))
+    return "".join(parts)
+
+
+def render_architecture_rules(blueprint: dict) -> str:
+    """Render rules/architecture.md combining file_placement_rules + naming_conventions.
+
+    Returns empty string when both sections are empty — caller should skip writing in that case.
+    """
+    rules = _as_dict(blueprint.get("architecture_rules"))
+    file_placement = _as_list(rules.get("file_placement_rules"))
+    naming = _as_list(rules.get("naming_conventions"))
+
+    if not file_placement and not naming:
+        return ""
+
+    parts = [
+        _frontmatter(type="rules-page", slug="rules-architecture"),
+        "\n# Architecture rules\n",
+    ]
+
+    if file_placement:
+        rows = ["## File placement\n", "", "| Pattern | Location | Rationale |", "|---|---|---|"]
+        for r in file_placement:
+            pattern = _as_text(r.get("pattern")) or "_(unspecified)_"
+            location = _as_text(r.get("location"))
+            rationale = _as_text(r.get("rationale"))
+            rows.append(f"| {pattern} | `{location}` | {rationale} |")
+        parts.append("\n" + "\n".join(rows) + "\n")
+
+    if naming:
+        rows = ["## Naming conventions\n", "", "| Applies to | Convention | Example |", "|---|---|---|"]
+        for r in naming:
+            applies = _as_text(r.get("applies_to")) or "_(unspecified)_"
+            convention = _as_text(r.get("convention"))
+            example = _as_text(r.get("example"))
+            rows.append(f"| {applies} | {convention} | `{example}` |")
+        parts.append("\n" + "\n".join(rows) + "\n")
+
+    return "".join(parts)
+
+
+def render_development_rules(blueprint: dict) -> str:
+    """Render rules/development.md grouped by category (insertion order preserved).
+
+    Returns empty string when no rules exist.
+    """
+    rules = _as_list(blueprint.get("development_rules"))
+    if not rules:
+        return ""
+
+    # Group preserving first-seen category order; uncategorized always last.
+    grouped: dict[str, list[dict]] = {}
+    uncategorized: list[dict] = []
+    for r in rules:
+        if not isinstance(r, dict) or not _as_text(r.get("rule")):
+            continue
+        cat = _as_text(r.get("category"))
+        if cat:
+            grouped.setdefault(cat, []).append(r)
+        else:
+            uncategorized.append(r)
+
+    if not grouped and not uncategorized:
+        return ""
+
+    parts = [
+        _frontmatter(type="rules-page", slug="rules-development"),
+        "\n# Development rules\n",
+    ]
+
+    def _word(n: int, singular: str, plural: str) -> str:
+        return f"{n} {singular}" if n == 1 else f"{n} {plural}"
+
+    def _render_group(title: str, items: list[dict]) -> str:
+        header = f"\n## {title} ({_word(len(items), 'rule', 'rules')})\n\n"
+        lines = []
+        for r in items:
+            rule_text = _as_text(r.get("rule"))
+            rationale = _as_text(r.get("rationale"))
+            applies_to = _as_list(r.get("applies_to"))
+            entry = f"- **{rule_text}**"
+            if rationale:
+                entry += f"\n  {rationale}"
+            if applies_to:
+                globs = ", ".join(f"`{g}`" for g in applies_to if g)
+                if globs:
+                    entry += f"\n  _Applies to:_ {globs}"
+            lines.append(entry)
+        return header + "\n".join(lines) + "\n"
+
+    for cat, items in grouped.items():
+        parts.append(_render_group(cat, items))
+    if uncategorized:
+        parts.append(_render_group("Uncategorized rules", uncategorized))
+
+    return "".join(parts)
+
+
+def render_technology(blueprint: dict) -> str:
+    """Render technology.md with Stack + External integrations + Run commands.
+
+    Returns empty string when all three sub-sections are empty.
+    """
+    tech = _as_dict(blueprint.get("technology"))
+    stack = _as_list(tech.get("stack"))
+    run_commands = _as_dict(tech.get("run_commands"))
+    integrations = _as_list(_as_dict(blueprint.get("communication")).get("integrations"))
+
+    if not stack and not run_commands and not integrations:
+        return ""
+
+    parts = [
+        _frontmatter(type="technology", slug="technology"),
+        "\n# Technology\n",
+    ]
+
+    if stack:
+        rows = ["## Stack\n", "", "| Category | Name | Version | Purpose |", "|---|---|---|---|"]
+        for s in stack:
+            cat = _as_text(s.get("category"))
+            name = _as_text(s.get("name"))
+            version = _as_text(s.get("version"))
+            purpose = _as_text(s.get("purpose"))
+            rows.append(f"| {cat} | {name} | {version} | {purpose} |")
+        parts.append("\n" + "\n".join(rows) + "\n")
+
+    if integrations:
+        lines = ["## External integrations\n"]
+        for it in integrations:
+            service = _as_text(it.get("service"))
+            purpose = _as_text(it.get("purpose"))
+            point = _as_text(it.get("integration_point"))
+            line = f"\n- **{service}** — {purpose}" if purpose else f"\n- **{service}**"
+            if point:
+                line += f"\n  _Integration point:_ `{point}`"
+            lines.append(line)
+        parts.append("\n".join(lines) + "\n")
+
+    if run_commands:
+        lines = ["\n## Run commands\n", "", "```bash"]
+        for label, cmd in run_commands.items():
+            cmd_text = _as_text(cmd)
+            if cmd_text:
+                lines.append(f"# {label}")
+                lines.append(cmd_text)
+                lines.append("")
+        lines.append("```")
+        parts.append("\n".join(lines) + "\n")
+
+    return "".join(parts)
+
+
+def render_quick_reference(blueprint: dict) -> str:
+    """Render quick-reference.md with pattern-selection table + decision tree + error handling.
+
+    Returns empty string when all sub-sections are empty.
+    """
+    qr = _as_dict(blueprint.get("quick_reference"))
+    pattern_selection = _as_list(qr.get("pattern_selection"))
+    error_mapping = _as_list(qr.get("error_mapping"))
+    decision_tree = _as_list(_as_dict(blueprint.get("communication")).get("pattern_selection_guide"))
+
+    if not pattern_selection and not error_mapping and not decision_tree:
+        return ""
+
+    parts = [
+        _frontmatter(type="quick-reference", slug="quick-reference"),
+        "\n# Quick reference\n",
+    ]
+
+    if pattern_selection:
+        rows = ["## Which pattern should I use?\n", "", "| Scenario | Recommended pattern |", "|---|---|"]
+        for e in pattern_selection:
+            scenario = _as_text(e.get("scenario"))
+            pattern = _as_text(e.get("pattern"))
+            rows.append(f"| {scenario} | {pattern} |")
+        parts.append("\n" + "\n".join(rows) + "\n")
+
+    if decision_tree:
+        lines = ["## Pattern decision tree\n"]
+        for e in decision_tree:
+            scenario = _as_text(e.get("scenario"))
+            pattern = _as_text(e.get("recommended_pattern"))
+            lines.append(f"\n- **{scenario}** → {pattern}")
+        parts.append("\n".join(lines) + "\n")
+
+    if error_mapping:
+        rows = ["\n## Error handling\n", "", "| Error | Status code | Solution |", "|---|---|---|"]
+        for e in error_mapping:
+            err = _as_text(e.get("error"))
+            code = e.get("status_code")
+            code_str = str(code) if code is not None else ""
+            solution = _as_text(e.get("solution"))
+            rows.append(f"| {err} | {code_str} | {solution} |")
+        parts.append("\n".join(rows) + "\n")
+
+    return "".join(parts)
+
+
+_FRONTEND_FIELD_ORDER = [
+    ("framework", "Framework"),
+    ("state_management", "State management"),
+    ("routing", "Routing"),
+    ("styling", "Styling"),
+    ("data_fetching", "Data fetching"),
+    ("rendering_strategy", "Rendering strategy"),
+    ("ui_components", "UI components"),
+]
+
+
+def render_frontend(blueprint: dict) -> str:
+    """Render frontend.md from blueprint.frontend.
+
+    Returns empty string when blueprint.frontend is missing/empty OR all fields are empty strings.
+    """
+    fe = _as_dict(blueprint.get("frontend"))
+    if not fe:
+        return ""
+
+    bullets = []
+    for key, label in _FRONTEND_FIELD_ORDER:
+        value = _as_text(fe.get(key))
+        if value:
+            bullets.append(f"**{label}:** {value}")
+    conventions = _as_text(fe.get("conventions"))
+
+    if not bullets and not conventions:
+        return ""
+
+    parts = [
+        _frontmatter(type="frontend", slug="frontend"),
+        "\n# Frontend\n",
+    ]
+    if bullets:
+        parts.append("\n" + "\n\n".join(bullets) + "\n")
+    if conventions:
+        parts.append(f"\n## Conventions\n\n{conventions}\n")
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -397,6 +670,7 @@ def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
     patterns = _as_list(_as_dict(blueprint.get("communication")).get("patterns"))
     pitfalls = _as_list(blueprint.get("pitfalls"))
     capabilities = _as_list(blueprint.get("capabilities"))
+    guidelines = _as_list(blueprint.get("implementation_guidelines"))
 
     def _map(items: list[dict], key: str) -> dict[str, str]:
         seen: set[str] = set()
@@ -414,6 +688,7 @@ def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
         "patterns": _map(patterns, "name"),
         "pitfalls": _map(pitfalls, "area"),
         "capabilities": _map(capabilities, "name"),
+        "guidelines": _map(guidelines, "name"),
     }
 
 
@@ -493,6 +768,36 @@ def build_wiki(project_root: Path) -> None:
             wiki_root / "capabilities" / f"{slug}.md",
             render_capability(capability, slug, slug_map),
         )
+
+    for guideline in _as_list(blueprint.get("implementation_guidelines")):
+        slug = slug_map["guidelines"].get(guideline.get("name"))
+        if not slug:
+            continue
+        _write(
+            wiki_root / "guidelines" / f"{slug}.md",
+            render_guideline(guideline, slug),
+        )
+
+    # Rules pages (single-page outputs with gating).
+    rules_arch = render_architecture_rules(blueprint)
+    if rules_arch:
+        _write(wiki_root / "rules" / "architecture.md", rules_arch)
+
+    rules_dev = render_development_rules(blueprint)
+    if rules_dev:
+        _write(wiki_root / "rules" / "development.md", rules_dev)
+
+    tech_page = render_technology(blueprint)
+    if tech_page:
+        _write(wiki_root / "technology.md", tech_page)
+
+    qr_page = render_quick_reference(blueprint)
+    if qr_page:
+        _write(wiki_root / "quick-reference.md", qr_page)
+
+    frontend_page = render_frontend(blueprint)
+    if frontend_page:
+        _write(wiki_root / "frontend.md", frontend_page)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 

@@ -525,3 +525,43 @@ def test_render_quick_reference_partial():
 def test_render_quick_reference_empty():
     assert wiki_builder.render_quick_reference({}) == ""
     assert wiki_builder.render_quick_reference({"quick_reference": {}}) == ""
+
+
+def test_render_frontend_full():
+    blueprint = {
+        "frontend": {
+            "framework": "Next.js 15 App Router",
+            "state_management": "Zustand",
+            "routing": "App Router file-based",
+            "styling": "Tailwind CSS",
+            "data_fetching": "React Query + Server Components",
+            "rendering_strategy": "Mixed SSR + CSR",
+            "conventions": "Page components in app/; client components explicitly marked 'use client'."
+        }
+    }
+    md = wiki_builder.render_frontend(blueprint)
+    assert "# Frontend" in md
+    assert "**Framework:** Next.js 15 App Router" in md
+    assert "**State management:** Zustand" in md
+    assert "**Routing:** App Router file-based" in md
+    assert "**Styling:** Tailwind CSS" in md
+    assert "**Data fetching:** React Query + Server Components" in md
+    assert "**Rendering strategy:** Mixed SSR + CSR" in md
+    assert "## Conventions" in md
+    assert "'use client'" in md
+    assert "type: frontend" in md
+
+
+def test_render_frontend_minimal():
+    blueprint = {"frontend": {"framework": "React"}}
+    md = wiki_builder.render_frontend(blueprint)
+    assert "# Frontend" in md
+    assert "**Framework:** React" in md
+    assert "## Conventions" not in md
+
+
+def test_render_frontend_empty_or_missing():
+    assert wiki_builder.render_frontend({}) == ""
+    assert wiki_builder.render_frontend({"frontend": {}}) == ""
+    # All-empty string values should also skip.
+    assert wiki_builder.render_frontend({"frontend": {"framework": "", "conventions": ""}}) == ""
