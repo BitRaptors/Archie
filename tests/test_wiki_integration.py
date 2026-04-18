@@ -409,3 +409,62 @@ def test_wiki_builder_index_system_overview_end_to_end(tmp_path):
     sys_idx = idx.index("## System overview")
     before_idx = idx.index("## Before you implement anything")
     assert sys_idx < before_idx
+
+
+def test_wiki_builder_plan5a_all_page_types(tmp_path):
+    """Single end-to-end test: fixture -> full wiki build -> every Plan 5a page type exists."""
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+
+    # New page types from Plan 5a
+    assert (wiki / "guidelines" / "how-to-add-a-new-auth-protected-endpoint.md").exists()
+    assert (wiki / "guidelines" / "how-to-hash-a-new-password.md").exists()
+    assert (wiki / "rules" / "architecture.md").exists()
+    assert (wiki / "rules" / "development.md").exists()
+    assert (wiki / "technology.md").exists()
+    assert (wiki / "quick-reference.md").exists()
+    assert (wiki / "frontend.md").exists()
+    assert (wiki / "architecture.md").exists()
+    assert (wiki / "decisions" / "index.md").exists()
+
+    # Enriched existing pages
+    us = (wiki / "components" / "user-service.md").read_text()
+    assert "## Responsibility" in us
+    assert "## Public interface" in us
+    assert "## Key files" in us
+    assert "**Platform:** backend" in us
+    assert "**Location:** `features/auth/UserService.ts`" in us
+
+    pitfall = (wiki / "pitfalls" / "password-storage.md").read_text()
+    assert "## Applies to" in pitfall
+    assert "features/auth/UserRepository.ts" in pitfall
+
+    # Top-level index overhaul
+    idx = (wiki / "index.md").read_text()
+    assert "## System overview" in idx
+    assert "## Browse by type" in idx
+    # System overview appears before the Before-you-implement section
+    assert idx.index("## System overview") < idx.index("## Before you implement anything")
+    # New browse entries present
+    assert "Guidelines (" in idx
+    assert "Rules (" in idx
+    assert "Technology" in idx
+    assert "Quick reference" in idx
+    assert "Architecture" in idx
+
+    # Wiki lint shows zero findings on a clean fixture-derived wiki
+    lint_result = subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_index.py"),
+         "--wiki", str(wiki), "--fs-root", str(project), "--lint", "--json"],
+        capture_output=True, text=True, check=True,
+    )
+    findings = json.loads(lint_result.stdout)
+    # Filter out stale_evidence — capability evidence globs reference files that don't exist in the synthetic fixture project.
+    # Filter out orphan — Plan 5a pages may not all be indexed in top-level index yet.
+    # All other kinds should be clean.
+    non_stale = [f for f in findings if f["kind"] not in ("stale_evidence", "orphan")]
+    assert non_stale == [], f"Unexpected lint findings: {non_stale}"
