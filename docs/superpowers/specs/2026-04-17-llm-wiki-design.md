@@ -223,6 +223,27 @@ Added in Plan 5a (render-layer enrichment). All types render from existing bluep
 
 `index.md` gains a `## System overview` section at the top — before the `## Before you implement anything` capability list. It contains `meta.platforms` inline, `meta.executive_summary` prose, and a `### Architecture style` sub-section from `meta.architecture_style`. The `## Browse by type` block was extended with rows for Guidelines, Rules, Technology, Quick reference, Frontend (conditional), and Architecture (conditional). The Decisions section gained a pointer to `./decisions/index.md` at the top.
 
+### 4.11 Data model page (Plan 5b.1)
+
+`data-models/<slug>.md` — One page per `data_models[]` entry. Renders structs/classes/interfaces representing domain entities (e.g. `User`, `Place`, `Order`) so agents can understand the data shape without grepping source.
+
+Page sections (all conditional on field presence):
+- Inline `**Location:**` (file path, backtick-formatted) and `**Purpose:**` lines under the title.
+- `## Fields` — table with `Name | Type | Nullable` columns, one row per `fields[]` entry. Field names and types are backtick-formatted; `nullable` renders as `yes`/`no`.
+- `## Used by` — bullet list of components referenced via `data_models[*].used_by_components`. Each entry links to `../components/<slug>.md` when known; unknown component names degrade to plain text.
+
+Slug derived from the `name` field via the same `slugify_unique` helper used elsewhere. Frontmatter: `type: data-model`, `slug`, `provenance` (defaults to `INFERRED`).
+
+Component pages also gain a reverse `## Data models` section listing every entity that includes the component in its `used_by_components` list (computed in `build_wiki` via `_build_component_to_data_models`). The section is omitted when no data models reference the component.
+
+`index.md` gains:
+- A `**Data models (N)** — entities moving through the system` row in `## Browse by type`, positioned between Components and Patterns.
+- A dedicated `## Data models` section listing each entry alphabetically with links to `./data-models/<slug>.md`, positioned between `## Components` and `## Patterns`.
+
+Both index additions only appear when `data_models[]` produces at least one slug.
+
+Synthesis: a new Wave 1 "Data models agent" (mirrors the Capabilities agent) extracts entries from source. `merge.merge_data_models()` validates each entry's `used_by_components` refs against `blueprint.components[*].name`, drops unknown refs individually (entry survives), and silently skips nameless entries.
+
 ## 5. Generation pipeline
 
 ### 5.1 Deep-scan (full build)

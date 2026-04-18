@@ -218,7 +218,13 @@ def _link_or_text(name: str, slugs: dict[str, str], dir_name: str) -> str:
     return name
 
 
-def render_component(component: dict, slug: str, component_slugs: dict[str, str]) -> str:
+def render_component(
+    component: dict,
+    slug: str,
+    component_slugs: dict[str, str],
+    *,
+    data_models: "list[tuple[str, str]] | None" = None,
+) -> str:
     name = _as_text(component.get("name")) or "Untitled component"
     purpose = _as_text(component.get("purpose"))
     responsibility = _as_text(component.get("responsibility"))
@@ -285,6 +291,59 @@ def render_component(component: dict, slug: str, component_slugs: dict[str, str]
             else:
                 lines.append(f"\n- `{fpath}`")
         parts.append("\n".join(lines) + "\n")
+
+    # Data models (reverse map injected by build_wiki)
+    if data_models:
+        links = [f"[{name}](../data-models/{dm_slug}.md)" for name, dm_slug in data_models]
+        parts.append(_section("Data models", _list_lines(links)))
+
+    return "".join(parts)
+
+
+def render_data_model(
+    model: dict,
+    slug: str,
+    component_slugs: dict[str, str],
+) -> str:
+    """Render a single data model entity as markdown with frontmatter.
+
+    Required: name. All other fields are optional and degrade gracefully.
+    """
+    name = _as_text(model.get("name")) or "Untitled data model"
+    purpose = _as_text(model.get("purpose"))
+    location = _as_text(model.get("location"))
+    fields = _as_list(model.get("fields"))
+    used_by = _as_list(model.get("used_by_components"))
+    provenance = _as_text(model.get("provenance")) or "INFERRED"
+
+    parts = [
+        _frontmatter(type="data-model", slug=slug, provenance=provenance),
+        f"\n# {name}\n",
+    ]
+
+    if location:
+        parts.append(f"\n**Location:** `{location}`\n")
+    if purpose:
+        parts.append(f"\n**Purpose:** {purpose}\n")
+
+    if fields:
+        rows = [
+            "\n## Fields\n",
+            "",
+            "| Name | Type | Nullable |",
+            "|---|---|---|",
+        ]
+        for field in fields:
+            fname = _as_text(field.get("name") if isinstance(field, dict) else None)
+            ftype = _as_text(field.get("type") if isinstance(field, dict) else None)
+            fnullable = field.get("nullable", False) if isinstance(field, dict) else False
+            nullable_str = "yes" if fnullable else "no"
+            rows.append(f"| `{fname}` | `{ftype}` | {nullable_str} |")
+        parts.append("\n".join(rows) + "\n")
+
+    if used_by:
+        linked = [_link_or_text(n, component_slugs, "components") for n in used_by]
+        parts.append(_section("Used by", _list_lines(linked)))
 
     return "".join(parts)
 
@@ -691,6 +750,7 @@ def render_index(
 
     decisions = slug_map.get("decisions", {})
     components = slug_map.get("components", {})
+    data_models = slug_map.get("data_models", {})
     patterns = slug_map.get("patterns", {})
     pitfalls = slug_map.get("pitfalls", {})
     capabilities = slug_map.get("capabilities", {})
@@ -764,6 +824,12 @@ def render_index(
         f"- **Capabilities ({len(capabilities)})** — user-facing features",
         f"- **Decisions ({len(decisions)})** — why the architecture is the way it is",
         f"- **Components ({len(components)})** — system parts and how they connect",
+    ]
+    if data_models:
+        browse_lines.append(
+            f"- **Data models ({len(data_models)})** — entities moving through the system"
+        )
+    browse_lines += [
         f"- **Patterns ({len(patterns)})** — reusable design choices",
         f"- **Pitfalls ({len(pitfalls)})** — known traps and how to avoid them",
         f"- **Guidelines ({len(guidelines)})** — implementation recipes",
@@ -790,6 +856,8 @@ def render_index(
         )
     if components:
         parts.append("\n## Components\n\n" + _list(components, "components") + "\n")
+    if data_models:
+        parts.append("\n## Data models\n\n" + _list(data_models, "data-models") + "\n")
     if patterns:
         parts.append("\n## Patterns\n\n" + _list(patterns, "patterns") + "\n")
     if pitfalls:
@@ -825,6 +893,7 @@ def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
         "pitfalls": _map(pitfalls, "area"),
         "capabilities": _map(capabilities, "name"),
         "guidelines": _map(guidelines, "name"),
+        "data_models": _map(_as_list(blueprint.get("data_models")), "name"),
     }
 
 
@@ -848,7 +917,30 @@ def _collect_evidence_map(blueprint: dict, slug_map: dict[str, dict[str, str]]) 
         evidence = capability.get("evidence") or []
         if evidence:
             evidence_map[f"capabilities/{slug}.md"] = list(evidence)
+    for model in _as_list(blueprint.get("data_models")):
+        slug = slug_map["data_models"].get(model.get("name"))
+        if not slug:
+            continue
+        evidence = model.get("evidence") or []
+        if evidence:
+            evidence_map[f"data-models/{slug}.md"] = list(evidence)
     return evidence_map
+
+
+def _build_component_to_data_models(
+    blueprint: dict,
+    data_model_slugs: dict[str, str],
+) -> dict[str, list[tuple[str, str]]]:
+    """Reverse map: component name -> [(data_model_name, data_model_slug), ...] in blueprint order."""
+    reverse: dict[str, list[tuple[str, str]]] = {}
+    for model in _as_list(blueprint.get("data_models")):
+        model_name = model.get("name")
+        model_slug = data_model_slugs.get(model_name)
+        if not model_slug:
+            continue
+        for comp_name in _as_list(model.get("used_by_components")):
+            reverse.setdefault(comp_name, []).append((model_name, model_slug))
+    return reverse
 
 
 def render_decisions_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
@@ -930,6 +1022,7 @@ def build_wiki(project_root: Path) -> None:
     wiki_root.mkdir(parents=True)
 
     slug_map = _build_slug_map(blueprint)
+    component_to_models = _build_component_to_data_models(blueprint, slug_map["data_models"])
 
     for decision in _as_list(_as_dict(blueprint.get("decisions")).get("key_decisions")):
         slug = slug_map["decisions"].get(decision.get("title"))
@@ -947,7 +1040,12 @@ def build_wiki(project_root: Path) -> None:
             continue
         _write(
             wiki_root / "components" / f"{slug}.md",
-            render_component(component, slug, slug_map["components"]),
+            render_component(
+                component,
+                slug,
+                slug_map["components"],
+                data_models=component_to_models.get(component.get("name"), []),
+            ),
         )
 
     for pattern in _as_list(_as_dict(blueprint.get("communication")).get("patterns")):
@@ -972,6 +1070,15 @@ def build_wiki(project_root: Path) -> None:
         _write(
             wiki_root / "capabilities" / f"{slug}.md",
             render_capability(capability, slug, slug_map),
+        )
+
+    for model in _as_list(blueprint.get("data_models")):
+        slug = slug_map["data_models"].get(model.get("name"))
+        if not slug:
+            continue
+        _write(
+            wiki_root / "data-models" / f"{slug}.md",
+            render_data_model(model, slug, slug_map["components"]),
         )
 
     for guideline in _as_list(blueprint.get("implementation_guidelines")):
