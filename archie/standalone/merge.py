@@ -258,6 +258,44 @@ def merge_capabilities(blueprint: dict, capabilities_input: list) -> tuple[int, 
     return accepted, dropped
 
 
+def merge_data_models(blueprint: dict, data_models_input: list) -> tuple[int, int]:
+    """Validate and append data_model entries to blueprint['data_models'].
+
+    Cross-references each entry's used_by_components against blueprint
+    components. Unknown refs are dropped (entry is still kept). Returns
+    (accepted_count, dropped_ref_count). Entries without a name are dropped
+    entirely (count NOT incremented in dropped_ref_count — they are silently
+    skipped, mirroring merge_capabilities).
+    """
+    known_components = {
+        c.get("name")
+        for c in blueprint.get("components", []) or []
+        if isinstance(c, dict) and c.get("name")
+    }
+
+    accepted = 0
+    dropped = 0
+    blueprint.setdefault("data_models", [])
+
+    for entry in data_models_input or []:
+        if not isinstance(entry, dict) or not entry.get("name"):
+            continue  # silently skip nameless entries (no dropped_ref_count bump)
+
+        filtered = []
+        for ref in entry.get("used_by_components", []) or []:
+            if ref in known_components:
+                filtered.append(ref)
+            else:
+                dropped += 1
+
+        validated = dict(entry)
+        validated["used_by_components"] = filtered
+        blueprint["data_models"].append(validated)
+        accepted += 1
+
+    return accepted, dropped
+
+
 def _load_capabilities_file(path: str) -> list:
     """Load capabilities JSON from a file path. Returns [] on any error."""
     try:
@@ -291,6 +329,39 @@ def _load_capabilities_file(path: str) -> list:
                 return v
 
     print(f"  Warning: could not parse capabilities JSON from {path}", file=sys.stderr)
+    return []
+
+
+def _load_data_models_file(path: str) -> list:
+    """Load data_models JSON from a file path. Returns [] on any error."""
+    try:
+        text = Path(path).read_text()
+    except OSError as e:
+        print(f"  Warning: could not read data_models file {path}: {e}", file=sys.stderr)
+        return []
+
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for v in data.values():
+                if isinstance(v, list):
+                    return v
+        print(f"  Warning: data_models file {path} did not contain a JSON array", file=sys.stderr)
+        return []
+    except json.JSONDecodeError:
+        pass
+
+    result = extract_json_from_text(text)
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        for v in result.values():
+            if isinstance(v, list):
+                return v
+
+    print(f"  Warning: could not parse data_models JSON from {path}", file=sys.stderr)
     return []
 
 
@@ -352,16 +423,23 @@ if __name__ == "__main__":
 
     outputs: list[dict] = []
 
-    # The last file arg may be a capabilities JSON array (from the Capabilities agent).
-    # Detect it by name convention: ends with "capabilities.json" or is exactly
-    # /tmp/archie_agent_capabilities.json.  Capabilities are handled separately —
-    # they are validated against the merged blueprint, not deep-merged into it.
+    # The last file args may be special JSON arrays (capabilities, data_models).
+    # Each is identified by name convention and handled separately — validated
+    # against the merged blueprint rather than deep-merged into it.
     capabilities_file: str | None = None
+    data_models_file: str | None = None
     regular_files = list(input_files)
-    if regular_files and not regular_files[-1].startswith("-"):
-        candidate = regular_files[-1]
-        if "capabilities" in Path(candidate).name:
+
+    # Pop trailing special files in reverse order: data_models, then capabilities.
+    # Each is identified by name convention.
+    while regular_files and not regular_files[-1].startswith("-"):
+        candidate_name = Path(regular_files[-1]).name
+        if "data_models" in candidate_name and data_models_file is None:
+            data_models_file = regular_files.pop()
+        elif "capabilities" in candidate_name and capabilities_file is None:
             capabilities_file = regular_files.pop()
+        else:
+            break
 
     if not regular_files or regular_files == ["-"]:
         text = sys.stdin.read()
@@ -404,6 +482,14 @@ if __name__ == "__main__":
         print(f"Capabilities: {accepted} accepted, {dropped} dropped due to unknown refs")
     else:
         merged.setdefault("capabilities", [])
+
+    # Merge data models (validate refs, append to blueprint["data_models"])
+    if data_models_file:
+        dm_input = _load_data_models_file(data_models_file)
+        accepted, dropped = merge_data_models(merged, dm_input)
+        print(f"Data models: {accepted} accepted, {dropped} dropped due to unknown refs")
+    else:
+        merged.setdefault("data_models", [])
 
     # Save raw merged output (pre-normalization)
     archie_dir = root / ".archie"
