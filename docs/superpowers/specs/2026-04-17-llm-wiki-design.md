@@ -191,6 +191,38 @@ Root-level `forced_by` constraints from which many decisions flow.
 Pages with no inbound backlinks (wiki-lint flag).
 ```
 
+### 4.7 Plan 5a page types
+
+Added in Plan 5a (render-layer enrichment). All types render from existing blueprint fields — no new AI calls.
+
+- **`guidelines/<slug>.md`** — One page per `implementation_guidelines[]` entry. Sections: Category, Pattern, Libraries, Key files, Usage example (fenced code), Tips. Slug derived from the `name` field.
+- **`rules/architecture.md`** — Single page combining `architecture_rules.file_placement_rules` + `naming_conventions` as tables. Skipped entirely if both sub-lists are empty.
+- **`rules/development.md`** — Single page rendering `development_rules[]` grouped by `category` (preserving insertion order), with `Uncategorized rules` section at the bottom for entries without a category. Each rule shows text, optional rationale, and optional applies_to globs as code-formatted.
+- **`technology.md`** — Single page with `## Stack` (table: Category / Name / Version / Purpose), `## External integrations` (bullets from `communication.integrations`), `## Run commands` (fenced bash block from `technology.run_commands`).
+- **`quick-reference.md`** — Single page with `## Which pattern should I use?` table, `## Pattern decision tree` from `communication.pattern_selection_guide`, `## Error handling` table from `quick_reference.error_mapping`.
+- **`frontend.md`** — Conditional page (only if `blueprint.frontend` has at least one populated field). Renders Framework / State management / Routing / Styling / Data fetching / Rendering strategy / UI components as inline bullets, plus a `## Conventions` section.
+- **`architecture.md`** — Conditional page containing `meta.executive_summary` prose + `## Architectural style` + `## System diagram` with the `architecture_diagram` (Mermaid) in a fenced `` ```mermaid `` block.
+- **`decisions/index.md`** — Overview page inside the existing `decisions/` directory. Renders `architectural_style`, `trade_offs` (table), `out_of_scope` (list), and an "All decisions" list linking to each per-decision page (sorted by title).
+
+### 4.8 Component page enrichment (Plan 5a)
+
+`components/<slug>.md` pages gain (all conditional on field presence):
+
+- Inline `**Platform:**` and `**Location:**` lines directly under the title.
+- `## Responsibility` prose section (from `component.responsibility`).
+- `## Public interface` listing each `key_interfaces[]` entry with backtick-formatted signature and description.
+- `## Key files` listing file paths (backtick-formatted) with descriptions.
+
+`depends_on`, `exposes_to`, and the auto-generated `## Referenced by` stay unchanged.
+
+### 4.9 Pitfall page enrichment (Plan 5a)
+
+`pitfalls/<slug>.md` pages gain a `## Applies to` section with file paths rendered inside a fenced code block (so agents can grep the paths cleanly from raw text). Emitted only when `pitfalls[*].applies_to` is a non-empty list.
+
+### 4.10 Index overhaul (Plan 5a)
+
+`index.md` gains a `## System overview` section at the top — before the `## Before you implement anything` capability list. It contains `meta.platforms` inline, `meta.executive_summary` prose, and a `### Architecture style` sub-section from `meta.architecture_style`. The `## Browse by type` block was extended with rows for Guidelines, Rules, Technology, Quick reference, Frontend (conditional), and Architecture (conditional). The Decisions section gained a pointer to `./decisions/index.md` at the top.
+
 ## 5. Generation pipeline
 
 ### 5.1 Deep-scan (full build)
