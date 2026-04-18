@@ -343,3 +343,47 @@ def test_render_guideline_minimal():
     assert "## Key files" not in md
     assert "## Usage example" not in md
     assert "## Tips" not in md
+
+
+def test_render_architecture_rules_both_sections():
+    blueprint = {
+        "architecture_rules": {
+            "file_placement_rules": [
+                {"pattern": "HTTP controllers", "location": "features/<feature>/*Controller.ts", "rationale": "Feature-colocated"},
+                {"pattern": "Services", "location": "features/<feature>/*Service.ts", "rationale": "Business logic isolation"},
+            ],
+            "naming_conventions": [
+                {"applies_to": "Controller classes", "convention": "*Controller suffix, PascalCase", "example": "AuthController.ts"},
+            ],
+        }
+    }
+    md = wiki_builder.render_architecture_rules(blueprint)
+    assert "# Architecture rules" in md
+    assert "## File placement" in md
+    assert "| Pattern | Location | Rationale |" in md
+    assert "| HTTP controllers | `features/<feature>/*Controller.ts` | Feature-colocated |" in md
+    assert "| Services | `features/<feature>/*Service.ts` |" in md
+    assert "## Naming conventions" in md
+    assert "| Applies to | Convention | Example |" in md
+    assert "| Controller classes | *Controller suffix, PascalCase | `AuthController.ts` |" in md
+    assert "type: rules-page" in md
+
+
+def test_render_architecture_rules_only_file_placement():
+    blueprint = {
+        "architecture_rules": {
+            "file_placement_rules": [
+                {"pattern": "Tests", "location": "tests/", "rationale": "Co-located with features"},
+            ],
+        }
+    }
+    md = wiki_builder.render_architecture_rules(blueprint)
+    assert "## File placement" in md
+    assert "Tests" in md
+    assert "## Naming conventions" not in md
+
+
+def test_render_architecture_rules_empty_returns_empty():
+    assert wiki_builder.render_architecture_rules({}) == ""
+    assert wiki_builder.render_architecture_rules({"architecture_rules": {}}) == ""
+    assert wiki_builder.render_architecture_rules({"architecture_rules": {"file_placement_rules": [], "naming_conventions": []}}) == ""

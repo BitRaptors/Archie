@@ -356,6 +356,44 @@ def render_guideline(guideline: dict, slug: str) -> str:
     return "".join(parts)
 
 
+def render_architecture_rules(blueprint: dict) -> str:
+    """Render rules/architecture.md combining file_placement_rules + naming_conventions.
+
+    Returns empty string when both sections are empty — caller should skip writing in that case.
+    """
+    rules = _as_dict(blueprint.get("architecture_rules"))
+    file_placement = _as_list(rules.get("file_placement_rules"))
+    naming = _as_list(rules.get("naming_conventions"))
+
+    if not file_placement and not naming:
+        return ""
+
+    parts = [
+        _frontmatter(type="rules-page", slug="rules-architecture"),
+        "\n# Architecture rules\n",
+    ]
+
+    if file_placement:
+        rows = ["## File placement\n", "", "| Pattern | Location | Rationale |", "|---|---|---|"]
+        for r in file_placement:
+            pattern = _as_text(r.get("pattern")) or "_(unspecified)_"
+            location = _as_text(r.get("location"))
+            rationale = _as_text(r.get("rationale"))
+            rows.append(f"| {pattern} | `{location}` | {rationale} |")
+        parts.append("\n" + "\n".join(rows) + "\n")
+
+    if naming:
+        rows = ["## Naming conventions\n", "", "| Applies to | Convention | Example |", "|---|---|---|"]
+        for r in naming:
+            applies = _as_text(r.get("applies_to")) or "_(unspecified)_"
+            convention = _as_text(r.get("convention"))
+            example = _as_text(r.get("example"))
+            rows.append(f"| {applies} | {convention} | `{example}` |")
+        parts.append("\n" + "\n".join(rows) + "\n")
+
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -540,6 +578,11 @@ def build_wiki(project_root: Path) -> None:
             wiki_root / "guidelines" / f"{slug}.md",
             render_guideline(guideline, slug),
         )
+
+    # Rules pages (single-page outputs with gating).
+    rules_arch = render_architecture_rules(blueprint)
+    if rules_arch:
+        _write(wiki_root / "rules" / "architecture.md", rules_arch)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 

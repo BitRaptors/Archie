@@ -216,6 +216,22 @@ def test_wiki_builder_emits_guideline_pages(tmp_path):
     assert "requireAuth middleware" in g
 
 
+def test_wiki_builder_emits_rules_architecture(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    assert (wiki / "rules" / "architecture.md").exists()
+    text = (wiki / "rules" / "architecture.md").read_text()
+    assert "# Architecture rules" in text
+    assert "## File placement" in text
+    assert "| HTTP controllers |" in text
+    assert "## Naming conventions" in text
+    assert "| Controller classes |" in text
+
+
 def test_wiki_builder_survives_malformed_blueprint(tmp_path):
     """If the blueprint has a list where a dict was expected (or vice versa),
     the builder must not crash — it should produce an empty wiki instead."""
