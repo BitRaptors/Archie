@@ -765,3 +765,57 @@ def test_render_decisions_index_minimal():
 
 def test_render_decisions_index_empty():
     assert wiki_builder.render_decisions_index({}, {"decisions": {}}) == ""
+
+
+def test_render_index_system_overview_section():
+    fixture = Path(__file__).parent / "fixtures" / "wiki_fixture_blueprint.json"
+    blueprint = json.loads(fixture.read_text())
+    slug_map = {
+        "decisions": {"PostgreSQL as primary store": "postgresql-as-primary-store"},
+        "components": {"UserService": "user-service"},
+        "patterns": {"Repository": "repository"},
+        "pitfalls": {"Password storage": "password-storage"},
+        "capabilities": {"User Authentication": "user-authentication"},
+        "guidelines": {"How to add a new auth-protected endpoint": "how-to-add-a-new-auth-protected-endpoint"},
+    }
+    md = wiki_builder.render_index(blueprint, slug_map)
+    # System overview at top
+    assert "## System overview" in md
+    sys_idx = md.index("## System overview")
+    before_idx = md.index("## Before you implement anything")
+    assert sys_idx < before_idx
+    # executive_summary from fixture appears
+    assert "TestProject is a small test-scope application" in md
+    # Architecture style
+    assert "Layered MVC with repository pattern" in md
+    # Platforms rendered as inline list
+    assert "backend" in md
+
+
+def test_render_index_has_browse_entries_for_new_page_types():
+    fixture = Path(__file__).parent / "fixtures" / "wiki_fixture_blueprint.json"
+    blueprint = json.loads(fixture.read_text())
+    slug_map = {
+        "decisions": {"PostgreSQL as primary store": "postgresql-as-primary-store"},
+        "components": {"UserService": "user-service"},
+        "patterns": {"Repository": "repository"},
+        "pitfalls": {"Password storage": "password-storage"},
+        "capabilities": {"User Authentication": "user-authentication"},
+        "guidelines": {
+            "How to add a new auth-protected endpoint": "how-to-add-a-new-auth-protected-endpoint",
+            "How to hash a new password": "how-to-hash-a-new-password",
+        },
+    }
+    md = wiki_builder.render_index(blueprint, slug_map)
+    assert "## Browse by type" in md
+    # New browse entries
+    assert "Guidelines (2)" in md
+    assert "Rules" in md  # 2 pages (arch + dev), listed as "Rules" row
+    assert "Technology" in md
+    assert "Quick reference" in md
+    assert "Architecture" in md
+    # Dedicated Guidelines section listing each
+    assert "## Guidelines" in md
+    assert "[How to add a new auth-protected endpoint](./guidelines/how-to-add-a-new-auth-protected-endpoint.md)" in md
+    # Pointer to decisions overview in the decisions section
+    assert "[Decisions overview](./decisions/index.md)" in md or "decisions/index.md" in md

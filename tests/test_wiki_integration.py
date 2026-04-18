@@ -385,3 +385,27 @@ def test_wiki_builder_emits_decisions_index(tmp_path):
     # Top-level index is not this file
     top = (wiki / "index.md").read_text()
     assert "# TestProject Wiki" in top
+
+
+def test_wiki_builder_index_system_overview_end_to_end(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    idx = (project / ".archie" / "wiki" / "index.md").read_text()
+    assert "## System overview" in idx
+    assert "TestProject is a small test-scope application" in idx
+    assert "### Architecture style" in idx
+    assert "Layered MVC with repository pattern" in idx
+    # Browse by type has new entries
+    assert "Guidelines (" in idx
+    assert "Rules (" in idx
+    assert "Technology" in idx
+    assert "Quick reference" in idx
+    # Decisions section has the overview pointer
+    assert "[Decisions overview](./decisions/index.md)" in idx
+    # Order: System overview before Before-you-implement
+    sys_idx = idx.index("## System overview")
+    before_idx = idx.index("## Before you implement anything")
+    assert sys_idx < before_idx
