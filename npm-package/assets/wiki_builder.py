@@ -799,6 +799,71 @@ def _collect_evidence_map(blueprint: dict, slug_map: dict[str, dict[str, str]]) 
     return evidence_map
 
 
+def render_decisions_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
+    """Render decisions/index.md overview: architectural_style + trade_offs + out_of_scope + decisions list.
+
+    Returns empty string when no content at all (no style, no trade_offs, no out_of_scope, no key_decisions).
+    """
+    decisions = _as_dict(blueprint.get("decisions"))
+    style = _as_dict(decisions.get("architectural_style"))
+    trade_offs = _as_list(decisions.get("trade_offs"))
+    out_of_scope = _as_list(decisions.get("out_of_scope"))
+    key_decisions = _as_list(decisions.get("key_decisions"))
+
+    style_chosen = _as_text(style.get("chosen"))
+    style_rationale = _as_text(style.get("rationale"))
+    decision_slugs = _as_dict(slug_map.get("decisions"))
+
+    has_content = (
+        style_chosen or style_rationale
+        or trade_offs or out_of_scope
+        or (key_decisions and decision_slugs)
+    )
+    if not has_content:
+        return ""
+
+    parts = [
+        _frontmatter(type="decisions-index", slug="decisions-index"),
+        "\n# Architectural decisions\n",
+    ]
+
+    if style_chosen or style_rationale:
+        parts.append("\n## Architectural style\n")
+        if style_chosen:
+            parts.append(f"\n**Chosen:** {style_chosen}\n")
+        if style_rationale:
+            parts.append(f"\n**Rationale:** {style_rationale}\n")
+
+    if trade_offs:
+        rows = ["\n## Trade-offs accepted\n", "", "| Accepted cost | Gained benefit |", "|---|---|"]
+        for t in trade_offs:
+            cost = _as_text(t.get("accepted_cost"))
+            benefit = _as_text(t.get("gained_benefit"))
+            if cost or benefit:
+                rows.append(f"| {cost} | {benefit} |")
+        parts.append("\n".join(rows) + "\n")
+
+    if out_of_scope:
+        parts.append("\n## Explicitly out of scope\n\n")
+        for item in out_of_scope:
+            text = _as_text(item)
+            if text:
+                parts.append(f"- {text}\n")
+
+    if key_decisions and decision_slugs:
+        parts.append("\n## All decisions\n\n")
+        listed = []
+        for d in key_decisions:
+            title = _as_text(d.get("title"))
+            slug = decision_slugs.get(title) if isinstance(d, dict) else None
+            if title and slug:
+                listed.append((title, slug))
+        for title, slug in sorted(listed):
+            parts.append(f"- [{title}](./{slug}.md)\n")
+
+    return "".join(parts)
+
+
 def build_wiki(project_root: Path) -> None:
     """Pass 1: read blueprint.json, emit all pages + index.md under .archie/wiki/."""
     blueprint_path = project_root / ".archie" / "blueprint.json"
@@ -819,6 +884,10 @@ def build_wiki(project_root: Path) -> None:
         if not slug:
             continue
         _write(wiki_root / "decisions" / f"{slug}.md", render_decision(decision, slug))
+
+    decisions_index_md = render_decisions_index(blueprint, slug_map)
+    if decisions_index_md:
+        _write(wiki_root / "decisions" / "index.md", decisions_index_md)
 
     for component in _extract_components(blueprint):
         slug = slug_map["components"].get(component.get("name"))
@@ -951,7 +1020,7 @@ def _blueprint_structure_changed(provenance: dict, blueprint: dict) -> bool:
     expected_pitfalls = {slugify(p.get("area", "")) for p in _as_list(blueprint.get("pitfalls"))}
 
     def _slugs(prefix: str) -> set[str]:
-        return {Path(p).stem for p in _pages(prefix)}
+        return {Path(p).stem for p in _pages(prefix) if Path(p).stem != "index"}
 
     return (
         expected_decisions != _slugs("decisions/")

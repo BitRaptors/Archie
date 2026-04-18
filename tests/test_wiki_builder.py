@@ -707,3 +707,61 @@ def test_render_component_platform_only():
     md = wiki_builder.render_component(component, slug="x", component_slugs={"X": "x"})
     assert "**Platform:** ios" in md
     assert "**Location:**" not in md
+
+
+def test_render_decisions_index_full():
+    blueprint = {
+        "decisions": {
+            "architectural_style": {
+                "chosen": "Layered MVC with repository pattern",
+                "rationale": "Separation of concerns + testable data layer."
+            },
+            "trade_offs": [
+                {"accepted_cost": "Token revocation harder", "gained_benefit": "Horizontal scalability"},
+                {"accepted_cost": "Schema migrations need care", "gained_benefit": "Relational consistency"},
+            ],
+            "out_of_scope": ["OAuth social login", "Federated identity"],
+            "key_decisions": [
+                {"title": "PostgreSQL as primary store"},
+                {"title": "JWT over sessions"},
+            ],
+        }
+    }
+    slug_map = {
+        "decisions": {
+            "PostgreSQL as primary store": "postgresql-as-primary-store",
+            "JWT over sessions": "jwt-over-sessions",
+        }
+    }
+    md = wiki_builder.render_decisions_index(blueprint, slug_map)
+    assert "# Architectural decisions" in md
+    assert "## Architectural style" in md
+    assert "**Chosen:** Layered MVC with repository pattern" in md
+    assert "**Rationale:** Separation of concerns" in md
+    assert "## Trade-offs accepted" in md
+    assert "| Accepted cost | Gained benefit |" in md
+    assert "| Token revocation harder | Horizontal scalability |" in md
+    assert "## Explicitly out of scope" in md
+    assert "- OAuth social login" in md
+    assert "- Federated identity" in md
+    assert "## All decisions" in md
+    assert "[PostgreSQL as primary store](./postgresql-as-primary-store.md)" in md
+    assert "[JWT over sessions](./jwt-over-sessions.md)" in md
+    assert "type: decisions-index" in md
+
+
+def test_render_decisions_index_minimal():
+    blueprint = {"decisions": {"key_decisions": [{"title": "Only one"}]}}
+    slug_map = {"decisions": {"Only one": "only-one"}}
+    md = wiki_builder.render_decisions_index(blueprint, slug_map)
+    assert "# Architectural decisions" in md
+    assert "## All decisions" in md
+    assert "[Only one](./only-one.md)" in md
+    # Empty sections omitted
+    assert "## Architectural style" not in md
+    assert "## Trade-offs accepted" not in md
+    assert "## Explicitly out of scope" not in md
+
+
+def test_render_decisions_index_empty():
+    assert wiki_builder.render_decisions_index({}, {"decisions": {}}) == ""

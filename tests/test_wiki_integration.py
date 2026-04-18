@@ -361,3 +361,27 @@ def test_wiki_builder_pitfall_applies_to_end_to_end(tmp_path):
     assert "## Applies to" in pitfall_md
     assert "features/auth/UserRepository.ts" in pitfall_md
     assert "features/auth/PasswordHelper.ts" in pitfall_md
+
+
+def test_wiki_builder_emits_decisions_index(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    di = wiki / "decisions" / "index.md"
+    assert di.exists()
+    text = di.read_text()
+    assert "# Architectural decisions" in text
+    assert "## Architectural style" in text
+    assert "Layered MVC" in text
+    assert "## Trade-offs accepted" in text
+    assert "Token revocation" in text
+    assert "## Explicitly out of scope" in text
+    assert "OAuth social login" in text
+    assert "## All decisions" in text
+    assert "[PostgreSQL as primary store](./postgresql-as-primary-store.md)" in text
+    # Top-level index is not this file
+    top = (wiki / "index.md").read_text()
+    assert "# TestProject Wiki" in top
