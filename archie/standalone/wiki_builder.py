@@ -218,7 +218,13 @@ def _link_or_text(name: str, slugs: dict[str, str], dir_name: str) -> str:
     return name
 
 
-def render_component(component: dict, slug: str, component_slugs: dict[str, str]) -> str:
+def render_component(
+    component: dict,
+    slug: str,
+    component_slugs: dict[str, str],
+    *,
+    data_models: "list[tuple[str, str]] | None" = None,
+) -> str:
     name = _as_text(component.get("name")) or "Untitled component"
     purpose = _as_text(component.get("purpose"))
     responsibility = _as_text(component.get("responsibility"))
@@ -285,6 +291,11 @@ def render_component(component: dict, slug: str, component_slugs: dict[str, str]
             else:
                 lines.append(f"\n- `{fpath}`")
         parts.append("\n".join(lines) + "\n")
+
+    # Data models (reverse map injected by build_wiki)
+    if data_models:
+        links = [f"[{name}](../data-models/{dm_slug}.md)" for name, dm_slug in data_models]
+        parts.append(_section("Data models", _list_lines(links)))
 
     return "".join(parts)
 
@@ -907,6 +918,22 @@ def _collect_evidence_map(blueprint: dict, slug_map: dict[str, dict[str, str]]) 
     return evidence_map
 
 
+def _build_component_to_data_models(
+    blueprint: dict,
+    data_model_slugs: dict[str, str],
+) -> dict[str, list[tuple[str, str]]]:
+    """Reverse map: component name -> [(data_model_name, data_model_slug), ...] in blueprint order."""
+    reverse: dict[str, list[tuple[str, str]]] = {}
+    for model in _as_list(blueprint.get("data_models")):
+        model_name = model.get("name")
+        model_slug = data_model_slugs.get(model_name)
+        if not model_slug:
+            continue
+        for comp_name in _as_list(model.get("used_by_components")):
+            reverse.setdefault(comp_name, []).append((model_name, model_slug))
+    return reverse
+
+
 def render_decisions_index(blueprint: dict, slug_map: dict[str, dict[str, str]]) -> str:
     """Render decisions/index.md overview: architectural_style + trade_offs + out_of_scope + decisions list.
 
@@ -986,6 +1013,7 @@ def build_wiki(project_root: Path) -> None:
     wiki_root.mkdir(parents=True)
 
     slug_map = _build_slug_map(blueprint)
+    component_to_models = _build_component_to_data_models(blueprint, slug_map["data_models"])
 
     for decision in _as_list(_as_dict(blueprint.get("decisions")).get("key_decisions")):
         slug = slug_map["decisions"].get(decision.get("title"))
@@ -1003,7 +1031,12 @@ def build_wiki(project_root: Path) -> None:
             continue
         _write(
             wiki_root / "components" / f"{slug}.md",
-            render_component(component, slug, slug_map["components"]),
+            render_component(
+                component,
+                slug,
+                slug_map["components"],
+                data_models=component_to_models.get(component.get("name"), []),
+            ),
         )
 
     for pattern in _as_list(_as_dict(blueprint.get("communication")).get("patterns")):

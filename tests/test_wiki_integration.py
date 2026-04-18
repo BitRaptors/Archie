@@ -490,3 +490,31 @@ def test_wiki_builder_plan5a_all_page_types(tmp_path):
     # All other kinds should be clean.
     non_stale = [f for f in findings if f["kind"] not in ("stale_evidence", "orphan")]
     assert non_stale == [], f"Unexpected lint findings: {non_stale}"
+
+
+def test_component_pages_show_data_models_section(tmp_path):
+    """Component pages list data models that point at them via used_by_components."""
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+
+    # UserService is referenced by both User and Session.
+    us = (wiki / "components" / "user-service.md").read_text()
+    assert "## Data models" in us
+    assert "[User](../data-models/user.md)" in us
+    assert "[Session](../data-models/session.md)" in us
+
+    # AuthController is referenced by Session only.
+    ac = (wiki / "components" / "auth-controller.md").read_text()
+    assert "## Data models" in ac
+    assert "[Session](../data-models/session.md)" in ac
+    assert "[User](../data-models/user.md)" not in ac
+
+    # UserRepository is referenced by User only.
+    ur = (wiki / "components" / "user-repository.md").read_text()
+    assert "## Data models" in ur
+    assert "[User](../data-models/user.md)" in ur
+    assert "[Session](../data-models/session.md)" not in ur

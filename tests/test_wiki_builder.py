@@ -90,6 +90,41 @@ def test_render_component_page_handles_unknown_reference():
     assert "[ExternalThing]" not in md
 
 
+def test_render_component_data_models_section_present():
+    """render_component with data_models kwarg appends a ## Data models section."""
+    component = {
+        "name": "UserService",
+        "purpose": "User auth",
+    }
+    component_slugs = {"UserService": "user-service"}
+    data_models = [("User", "user"), ("Session", "session")]
+    md = wiki_builder.render_component(
+        component, slug="user-service", component_slugs=component_slugs,
+        data_models=data_models,
+    )
+    assert "## Data models" in md
+    assert "[User](../data-models/user.md)" in md
+    assert "[Session](../data-models/session.md)" in md
+
+
+def test_render_component_data_models_section_omitted_when_empty():
+    """render_component omits the ## Data models section when list is empty or None."""
+    component = {"name": "UserService", "purpose": "User auth"}
+    component_slugs = {"UserService": "user-service"}
+
+    md_none = wiki_builder.render_component(
+        component, slug="user-service", component_slugs=component_slugs,
+        data_models=None,
+    )
+    assert "## Data models" not in md_none
+
+    md_empty = wiki_builder.render_component(
+        component, slug="user-service", component_slugs=component_slugs,
+        data_models=[],
+    )
+    assert "## Data models" not in md_empty
+
+
 def test_render_pattern_page():
     pattern = {
         "name": "Repository",
