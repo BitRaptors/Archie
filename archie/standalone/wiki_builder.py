@@ -289,6 +289,54 @@ def render_component(component: dict, slug: str, component_slugs: dict[str, str]
     return "".join(parts)
 
 
+def render_data_model(
+    model: dict,
+    slug: str,
+    component_slugs: dict[str, str],
+) -> str:
+    """Render a single data model entity as markdown with frontmatter.
+
+    Required: name. All other fields are optional and degrade gracefully.
+    """
+    name = _as_text(model.get("name")) or "Untitled data model"
+    purpose = _as_text(model.get("purpose"))
+    location = _as_text(model.get("location"))
+    fields = _as_list(model.get("fields"))
+    used_by = _as_list(model.get("used_by_components"))
+    provenance = _as_text(model.get("provenance")) or "INFERRED"
+
+    parts = [
+        _frontmatter(type="data-model", slug=slug, provenance=provenance),
+        f"\n# {name}\n",
+    ]
+
+    if location:
+        parts.append(f"\n**Location:** `{location}`\n")
+    if purpose:
+        parts.append(f"\n**Purpose:** {purpose}\n")
+
+    if fields:
+        rows = [
+            "\n## Fields\n",
+            "",
+            "| Name | Type | Nullable |",
+            "|---|---|---|",
+        ]
+        for field in fields:
+            fname = _as_text(field.get("name") if isinstance(field, dict) else None)
+            ftype = _as_text(field.get("type") if isinstance(field, dict) else None)
+            fnullable = field.get("nullable", False) if isinstance(field, dict) else False
+            nullable_str = "yes" if fnullable else "no"
+            rows.append(f"| `{fname}` | `{ftype}` | {nullable_str} |")
+        parts.append("\n".join(rows) + "\n")
+
+    if used_by:
+        linked = [_link_or_text(n, component_slugs, "components") for n in used_by]
+        parts.append(_section("Used by", _list_lines(linked)))
+
+    return "".join(parts)
+
+
 def render_pattern(pattern: dict, slug: str) -> str:
     name = pattern.get("name", "Untitled pattern")
     when_to_use = _as_text(pattern.get("when_to_use"))

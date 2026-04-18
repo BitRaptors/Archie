@@ -819,3 +819,76 @@ def test_render_index_has_browse_entries_for_new_page_types():
     assert "[How to add a new auth-protected endpoint](./guidelines/how-to-add-a-new-auth-protected-endpoint.md)" in md
     # Pointer to decisions overview in the decisions section
     assert "[Decisions overview](./decisions/index.md)" in md or "decisions/index.md" in md
+
+
+def test_render_data_model_full_entity():
+    model = {
+        "name": "User",
+        "purpose": "Represents a registered user account.",
+        "fields": [
+            {"name": "id", "type": "string", "nullable": False},
+            {"name": "email", "type": "string", "nullable": False},
+            {"name": "createdAt", "type": "Date", "nullable": False},
+            {"name": "passwordHash", "type": "string", "nullable": False},
+        ],
+        "location": "features/auth/User.ts",
+        "used_by_components": ["UserService", "UserRepository"],
+        "evidence": ["features/auth/User.ts"],
+        "provenance": "INFERRED",
+    }
+    component_slugs = {"UserService": "user-service", "UserRepository": "user-repository"}
+    md = wiki_builder.render_data_model(model, slug="user", component_slugs=component_slugs)
+
+    # Frontmatter
+    assert "type: data-model" in md
+    assert "slug: user" in md
+    assert "provenance: INFERRED" in md
+
+    # Heading
+    assert "# User" in md
+
+    # Location and Purpose
+    assert "**Location:** `features/auth/User.ts`" in md
+    assert "**Purpose:** Represents a registered user account." in md
+
+    # Fields table row
+    assert "| `email` | `string` | no |" in md
+
+    # Used by links
+    assert "[UserService](../components/user-service.md)" in md
+    assert "[UserRepository](../components/user-repository.md)" in md
+
+
+def test_render_data_model_minimal_name_only():
+    model = {"name": "Tag"}
+    md = wiki_builder.render_data_model(model, slug="tag", component_slugs={})
+
+    # Must start with frontmatter then heading
+    assert md.startswith("---\n")
+    assert "# Tag" in md
+
+    # No Fields section
+    assert "## Fields" not in md
+
+    # No Used by section
+    assert "## Used by" not in md
+
+    # No Purpose or Location lines
+    assert "**Purpose:**" not in md
+    assert "**Location:**" not in md
+
+
+def test_render_data_model_unknown_used_by_renders_plain():
+    model = {
+        "name": "Thing",
+        "used_by_components": ["KnownService", "UnknownThing"],
+    }
+    component_slugs = {"KnownService": "known-service"}
+    md = wiki_builder.render_data_model(model, slug="thing", component_slugs=component_slugs)
+
+    # Known component renders as link
+    assert "[KnownService](../components/known-service.md)" in md
+
+    # Unknown component renders as plain text (no markdown link brackets)
+    assert "- UnknownThing" in md
+    assert "[UnknownThing]" not in md
