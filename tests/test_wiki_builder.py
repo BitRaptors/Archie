@@ -297,3 +297,49 @@ def test_render_index_meta_project_name_takes_precedence(tmp_path):
     md = wiki_builder.render_index(blueprint, slug_map, project_root=tmp_path)
     assert "# ExplicitName Wiki" in md
     assert f"# {tmp_path.name}" not in md
+
+
+def test_render_guideline_full():
+    guideline = {
+        "name": "How to add a new auth-protected endpoint",
+        "category": "Auth",
+        "pattern_description": "Define the route in the Controller. Delegate to a Service method. Service calls Repository.",
+        "libraries": ["express", "jsonwebtoken", "bcrypt"],
+        "key_files": ["features/auth/AuthController.ts", "features/auth/UserService.ts"],
+        "usage_example": "router.post('/api/protected', requireAuth, async (req, res) => { ... });",
+        "tips": ["Always use the requireAuth middleware.", "Never call UserRepository from a Controller directly."]
+    }
+    md = wiki_builder.render_guideline(guideline, slug="how-to-add-a-new-auth-protected-endpoint")
+    assert "type: guideline" in md
+    assert "slug: how-to-add-a-new-auth-protected-endpoint" in md
+    assert "category: Auth" in md
+    assert "# How to add a new auth-protected endpoint" in md
+    assert "**Category:** Auth" in md
+    assert "## Pattern" in md
+    assert "Define the route in the Controller" in md
+    assert "## Libraries" in md
+    assert "- express" in md
+    assert "- jsonwebtoken" in md
+    assert "## Key files" in md
+    assert "`features/auth/AuthController.ts`" in md
+    assert "## Usage example" in md
+    assert "```" in md  # fenced code block
+    assert "requireAuth" in md
+    assert "## Tips" in md
+    assert "- Always use the requireAuth middleware." in md
+
+
+def test_render_guideline_minimal():
+    """Only name + pattern_description present — other sections omitted."""
+    guideline = {
+        "name": "Tiny guideline",
+        "pattern_description": "Just do X."
+    }
+    md = wiki_builder.render_guideline(guideline, slug="tiny-guideline")
+    assert "# Tiny guideline" in md
+    assert "## Pattern" in md
+    assert "Just do X." in md
+    assert "## Libraries" not in md
+    assert "## Key files" not in md
+    assert "## Usage example" not in md
+    assert "## Tips" not in md

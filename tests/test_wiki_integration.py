@@ -200,6 +200,22 @@ def test_wiki_builder_handles_components_in_dict(tmp_path):
     assert f"# {tmp_path.name} Wiki" in idx
 
 
+def test_wiki_builder_emits_guideline_pages(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    assert (wiki / "guidelines" / "how-to-add-a-new-auth-protected-endpoint.md").exists()
+    assert (wiki / "guidelines" / "how-to-hash-a-new-password.md").exists()
+    g = (wiki / "guidelines" / "how-to-add-a-new-auth-protected-endpoint.md").read_text()
+    assert "# How to add a new auth-protected endpoint" in g
+    assert "## Libraries" in g
+    assert "- express" in g
+    assert "requireAuth middleware" in g
+
+
 def test_wiki_builder_survives_malformed_blueprint(tmp_path):
     """If the blueprint has a list where a dict was expected (or vice versa),
     the builder must not crash — it should produce an empty wiki instead."""

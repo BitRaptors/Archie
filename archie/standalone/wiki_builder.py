@@ -320,6 +320,42 @@ def render_capability(capability: dict, slug: str, slugs: dict[str, dict[str, st
     return "".join(parts)
 
 
+def render_guideline(guideline: dict, slug: str) -> str:
+    """Render an implementation guideline as a how-to page.
+
+    Required: name, pattern_description.
+    Optional: category, libraries[], key_files[], usage_example, tips[].
+    """
+    name = guideline.get("name", "Untitled guideline")
+    category = _as_text(guideline.get("category"))
+    pattern_description = _as_text(guideline.get("pattern_description"))
+    libraries = _as_list(guideline.get("libraries"))
+    key_files = _as_list(guideline.get("key_files"))
+    usage_example = _as_text(guideline.get("usage_example"))
+    tips = _as_list(guideline.get("tips"))
+
+    # Frontmatter — include category if present
+    fm_kwargs = {"type": "guideline", "slug": slug, "provenance": "EXTRACTED"}
+    if category:
+        fm_kwargs["category"] = category
+    parts = [_frontmatter(**fm_kwargs), f"\n# {name}\n"]
+
+    if category:
+        parts.append(f"\n**Category:** {category}\n")
+    if pattern_description:
+        parts.append(_section("Pattern", pattern_description))
+    if libraries:
+        parts.append(_section("Libraries", _list_lines(libraries)))
+    if key_files:
+        parts.append(_section("Key files", _list_lines([f"`{f}`" for f in key_files])))
+    if usage_example:
+        # Fenced code block. Don't assume a language; leave bare fence.
+        parts.append(f"\n## Usage example\n\n```\n{usage_example}\n```\n")
+    if tips:
+        parts.append(_section("Tips", _list_lines(tips)))
+    return "".join(parts)
+
+
 def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
@@ -397,6 +433,7 @@ def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
     patterns = _as_list(_as_dict(blueprint.get("communication")).get("patterns"))
     pitfalls = _as_list(blueprint.get("pitfalls"))
     capabilities = _as_list(blueprint.get("capabilities"))
+    guidelines = _as_list(blueprint.get("implementation_guidelines"))
 
     def _map(items: list[dict], key: str) -> dict[str, str]:
         seen: set[str] = set()
@@ -414,6 +451,7 @@ def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
         "patterns": _map(patterns, "name"),
         "pitfalls": _map(pitfalls, "area"),
         "capabilities": _map(capabilities, "name"),
+        "guidelines": _map(guidelines, "name"),
     }
 
 
@@ -492,6 +530,15 @@ def build_wiki(project_root: Path) -> None:
         _write(
             wiki_root / "capabilities" / f"{slug}.md",
             render_capability(capability, slug, slug_map),
+        )
+
+    for guideline in _as_list(blueprint.get("implementation_guidelines")):
+        slug = slug_map["guidelines"].get(guideline.get("name"))
+        if not slug:
+            continue
+        _write(
+            wiki_root / "guidelines" / f"{slug}.md",
+            render_guideline(guideline, slug),
         )
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
