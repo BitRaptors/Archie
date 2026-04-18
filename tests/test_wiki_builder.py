@@ -856,6 +856,57 @@ def test_render_index_has_browse_entries_for_new_page_types():
     assert "[Decisions overview](./decisions/index.md)" in md or "decisions/index.md" in md
 
 
+def test_render_index_includes_data_models():
+    fixture = Path(__file__).parent / "fixtures" / "wiki_fixture_blueprint.json"
+    blueprint = json.loads(fixture.read_text())
+    slug_map = {
+        "decisions": {"PostgreSQL as primary store": "postgresql-as-primary-store"},
+        "components": {"UserService": "user-service"},
+        "patterns": {"Repository": "repository"},
+        "pitfalls": {"Password storage": "password-storage"},
+        "capabilities": {},
+        "guidelines": {},
+        "data_models": {"User": "user", "Session": "session"},
+    }
+    md = wiki_builder.render_index(blueprint, slug_map)
+
+    # Browse by type bullet
+    assert "**Data models (2)** — entities moving through the system" in md
+
+    # Dedicated section
+    assert "## Data models" in md
+    assert "- [Session](./data-models/session.md)" in md
+    assert "- [User](./data-models/user.md)" in md
+
+    # Ordering: "Components" bullet before "Data models" bullet before "Patterns" bullet
+    components_idx = md.index("**Components")
+    data_models_idx = md.index("**Data models")
+    patterns_idx = md.index("**Patterns")
+    assert components_idx < data_models_idx < patterns_idx
+
+    # Ordering of dedicated sections: ## Components before ## Data models before ## Patterns
+    comp_section_idx = md.index("## Components")
+    dm_section_idx = md.index("## Data models")
+    pat_section_idx = md.index("## Patterns")
+    assert comp_section_idx < dm_section_idx < pat_section_idx
+
+
+def test_render_index_omits_data_models_when_empty():
+    fixture = Path(__file__).parent / "fixtures" / "wiki_fixture_blueprint.json"
+    blueprint = json.loads(fixture.read_text())
+    slug_map = {
+        "decisions": {"PostgreSQL as primary store": "postgresql-as-primary-store"},
+        "components": {"UserService": "user-service"},
+        "patterns": {"Repository": "repository"},
+        "pitfalls": {"Password storage": "password-storage"},
+        "data_models": {},
+    }
+    md = wiki_builder.render_index(blueprint, slug_map)
+
+    assert "**Data models" not in md
+    assert "## Data models" not in md
+
+
 def test_render_data_model_full_entity():
     model = {
         "name": "User",

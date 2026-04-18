@@ -750,6 +750,7 @@ def render_index(
 
     decisions = slug_map.get("decisions", {})
     components = slug_map.get("components", {})
+    data_models = slug_map.get("data_models", {})
     patterns = slug_map.get("patterns", {})
     pitfalls = slug_map.get("pitfalls", {})
     capabilities = slug_map.get("capabilities", {})
@@ -823,6 +824,12 @@ def render_index(
         f"- **Capabilities ({len(capabilities)})** — user-facing features",
         f"- **Decisions ({len(decisions)})** — why the architecture is the way it is",
         f"- **Components ({len(components)})** — system parts and how they connect",
+    ]
+    if data_models:
+        browse_lines.append(
+            f"- **Data models ({len(data_models)})** — entities moving through the system"
+        )
+    browse_lines += [
         f"- **Patterns ({len(patterns)})** — reusable design choices",
         f"- **Pitfalls ({len(pitfalls)})** — known traps and how to avoid them",
         f"- **Guidelines ({len(guidelines)})** — implementation recipes",
@@ -849,6 +856,8 @@ def render_index(
         )
     if components:
         parts.append("\n## Components\n\n" + _list(components, "components") + "\n")
+    if data_models:
+        parts.append("\n## Data models\n\n" + _list(data_models, "data-models") + "\n")
     if patterns:
         parts.append("\n## Patterns\n\n" + _list(patterns, "patterns") + "\n")
     if pitfalls:
