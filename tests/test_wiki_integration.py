@@ -411,6 +411,28 @@ def test_wiki_builder_index_system_overview_end_to_end(tmp_path):
     assert sys_idx < before_idx
 
 
+def test_wiki_builder_emits_data_model_pages(tmp_path):
+    """Data models from blueprint produce data-models/*.md pages with all expected sections."""
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True, capture_output=True,
+    )
+    wiki = project / ".archie" / "wiki"
+    assert (wiki / "data-models" / "user.md").exists()
+    assert (wiki / "data-models" / "session.md").exists()
+    user = (wiki / "data-models" / "user.md").read_text()
+    assert "# User" in user
+    assert "| `email` | `string` | no |" in user
+    assert "[UserService](../components/user-service.md)" in user
+    # Verify evidence appears in provenance
+    prov = json.loads((wiki / "_meta" / "provenance.json").read_text())
+    assert "data-models/user.md" in prov
+    assert "data-models/session.md" in prov
+    assert prov["data-models/user.md"].get("evidence") == ["features/auth/User.ts"]
+    assert prov["data-models/session.md"].get("evidence") == ["features/auth/Session.ts"]
+
+
 def test_wiki_builder_plan5a_all_page_types(tmp_path):
     """Single end-to-end test: fixture -> full wiki build -> every Plan 5a page type exists."""
     project = _setup_project(tmp_path)

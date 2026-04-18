@@ -873,6 +873,7 @@ def _build_slug_map(blueprint: dict) -> dict[str, dict[str, str]]:
         "pitfalls": _map(pitfalls, "area"),
         "capabilities": _map(capabilities, "name"),
         "guidelines": _map(guidelines, "name"),
+        "data_models": _map(_as_list(blueprint.get("data_models")), "name"),
     }
 
 
@@ -896,6 +897,13 @@ def _collect_evidence_map(blueprint: dict, slug_map: dict[str, dict[str, str]]) 
         evidence = capability.get("evidence") or []
         if evidence:
             evidence_map[f"capabilities/{slug}.md"] = list(evidence)
+    for model in _as_list(blueprint.get("data_models")):
+        slug = slug_map["data_models"].get(model.get("name"))
+        if not slug:
+            continue
+        evidence = model.get("evidence") or []
+        if evidence:
+            evidence_map[f"data-models/{slug}.md"] = list(evidence)
     return evidence_map
 
 
@@ -1020,6 +1028,15 @@ def build_wiki(project_root: Path) -> None:
         _write(
             wiki_root / "capabilities" / f"{slug}.md",
             render_capability(capability, slug, slug_map),
+        )
+
+    for model in _as_list(blueprint.get("data_models")):
+        slug = slug_map["data_models"].get(model.get("name"))
+        if not slug:
+            continue
+        _write(
+            wiki_root / "data-models" / f"{slug}.md",
+            render_data_model(model, slug, slug_map["components"]),
         )
 
     for guideline in _as_list(blueprint.get("implementation_guidelines")):
