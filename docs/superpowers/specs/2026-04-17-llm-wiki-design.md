@@ -244,6 +244,27 @@ Both index additions only appear when `data_models[]` produces at least one slug
 
 Synthesis: a new Wave 1 "Data models agent" (mirrors the Capabilities agent) extracts entries from source. `merge.merge_data_models()` validates each entry's `used_by_components` refs against `blueprint.components[*].name`, drops unknown refs individually (entry survives), and silently skips nameless entries.
 
+### 4.12 Utilities catalog (Plan 5b.2)
+
+`utilities.md` — Single page rendering reusable helper functions discovered by the scanner. Goal: agents can grep one page before reimplementing `formatDate`, `deduplicate`, or extension methods that already exist.
+
+Source: `scan.json.symbols[]` (deterministic, no AI). Each symbol entry has `file`, `name`, `kind`, `signature`, `exported`, `language`. The scanner ships per-language extractors (Swift, TypeScript/JavaScript, Python in v1; Kotlin/Go are explicit follow-ups).
+
+Page structure:
+- `## <Category> (N function[s])` heading per group, alphabetical with `Uncategorized` always last.
+- Each entry: bolded backtick-formatted `signature`, optional ` _(extension)_` marker when the symbol name contains `.`, then a second line with the file path in backticks for grep.
+
+Categorization heuristic (first match wins):
+1. Filename topic — strip `Ext`/`Utils`/`Helper` suffix, match against an allowed-topic set (`Date`, `String`, `Array`, `Number`, `URL`, `JSON`, `File`, `Path`, `Color`, `Time`).
+2. Function-name prefix — `format*` → "Formatting", `is*`/`has*`/`can*`/`should*` → "Predicate", `to*`/`from*`/`parse*`/`stringify*` → "Conversion".
+3. Fallback → "Uncategorized".
+
+Filtering (in scanner): test files excluded via path patterns (`Tests/`, `__tests__/`, `tests/`, `*_test.py`, `*.test.ts`, etc.), private/non-exported functions excluded per language convention, names starting with `_` excluded.
+
+`index.md` gains a `**Utilities (N functions)** — existing helpers; grep before implementing new ones` row in `## Browse by type` and a one-line `## Utilities` section linking to the catalog page. Both appear only when at least one symbol was extracted.
+
+Out of scope for v1: per-function pages, AI-enhanced categorization, calling-convention normalization across languages, function-body extraction. See Plan 5b.2 "Known follow-ups" for the full list.
+
 ## 5. Generation pipeline
 
 ### 5.1 Deep-scan (full build)
