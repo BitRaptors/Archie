@@ -148,7 +148,8 @@
         {"name": "id", "type": "string", "nullable": false},
         {"name": "email", "type": "string", "nullable": false},
         {"name": "createdAt", "type": "Date", "nullable": false},
-        {"name": "passwordHash", "type": "string", "nullable": false}
+        {"name": "passwordHash", "type": "string", "nullable": false},
+        {"name": "session", "type": "Session?", "nullable": true}
       ],
       "location": "features/auth/User.ts",
       "used_by_components": ["UserService", "UserRepository"],
@@ -162,7 +163,8 @@
         {"name": "id", "type": "string", "nullable": false},
         {"name": "userId", "type": "string", "nullable": false},
         {"name": "token", "type": "string", "nullable": false},
-        {"name": "expiresAt", "type": "Date", "nullable": false}
+        {"name": "expiresAt", "type": "Date", "nullable": false},
+        {"name": "user", "type": "Optional<User>", "nullable": true}
       ],
       "location": "features/auth/Session.ts",
       "used_by_components": ["UserService", "AuthController"],

@@ -551,6 +551,21 @@ def test_wiki_data_models_end_to_end(tmp_path):
     assert "- [Session](./data-models/session.md)" in index_md
 
 
+def test_data_model_pages_show_related_models_from_field_types(tmp_path):
+    project = _setup_project(tmp_path)
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True,
+        capture_output=True,
+    )
+    user_md = (project / ".archie" / "wiki" / "data-models" / "user.md").read_text()
+    session_md = (project / ".archie" / "wiki" / "data-models" / "session.md").read_text()
+    assert "## Related models" in user_md
+    assert "[Session](./session.md)" in user_md
+    assert "## Related models" in session_md
+    assert "[User](./user.md)" in session_md
+
+
 def test_wiki_builder_emits_utilities_page_from_scan(tmp_path):
     """End-to-end: scanner produces symbols on sample_sources, wiki_builder
     renders utilities.md with at least one categorized section."""

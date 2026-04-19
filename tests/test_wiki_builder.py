@@ -1108,3 +1108,61 @@ def test_render_data_model_shows_normalized_and_raw_types():
     assert "| `openingHours` | `OpeningHours? (Optional<OpeningHours>)` | yes |" in md
     # "Date" canonical = "Date" (custom preserved), identical → show only canonical
     assert "| `kept` | `Date` | no |" in md
+
+
+def test_render_data_model_emits_related_models_section():
+    model = {
+        "name": "User",
+        "fields": [
+            {"name": "id", "type": "string", "nullable": False},
+            {"name": "session", "type": "Session?", "nullable": True},
+            {"name": "homeLocation", "type": "Place?", "nullable": True},
+            {"name": "workLocation", "type": "Optional<Place>", "nullable": True},
+        ],
+    }
+    model_slugs = {"User": "user", "Session": "session", "Place": "place"}
+    md = wiki_builder.render_data_model(model, "user", {}, model_slugs=model_slugs)
+    assert "## Related models" in md
+    # Single-field reference
+    assert "[Session](./session.md) — via `session` field" in md
+    # Multi-field reference (Place referenced by homeLocation AND workLocation)
+    assert "[Place](./place.md) — via `homeLocation`, `workLocation` fields" in md
+    # Section sits between Fields and Used by (no Used by here since used_by_components missing)
+    assert md.index("## Fields") < md.index("## Related models")
+
+
+def test_render_data_model_omits_related_when_no_known_refs():
+    model = {
+        "name": "Lonely",
+        "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "ext", "type": "ExternalType"},
+        ],
+    }
+    md = wiki_builder.render_data_model(model, "lonely", {}, model_slugs={"Lonely": "lonely"})
+    assert "## Related models" not in md
+
+
+def test_render_data_model_does_not_self_reference():
+    model = {
+        "name": "Recursive",
+        "fields": [
+            {"name": "parent", "type": "Recursive?", "nullable": True},
+            {"name": "children", "type": "[Recursive]", "nullable": False},
+        ],
+    }
+    md = wiki_builder.render_data_model(
+        model, "recursive", {}, model_slugs={"Recursive": "recursive"}
+    )
+    assert "## Related models" not in md
+
+
+def test_extract_data_model_refs_word_boundary_does_not_partial_match():
+    """Ensure 'UserSession' does not falsely trigger a 'User' or 'Session' match."""
+    from wiki_builder import _extract_data_model_refs
+    model = {
+        "name": "Wrapper",
+        "fields": [{"name": "x", "type": "UserSession"}],
+    }
+    refs = _extract_data_model_refs(model, {"User", "Session"})
+    assert refs == []
