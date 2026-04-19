@@ -219,3 +219,61 @@ class Foo:
     results = scanner._extract_python_functions(content, "test.py")
     names = sorted(r["name"] for r in results)
     assert names == ["async_one", "public_one"]
+
+
+# -------------------------------------------------------------------
+# 9. extract_symbols integration — wiring + test-path filtering
+# -------------------------------------------------------------------
+def test_run_scan_emits_symbols_for_sample_sources(tmp_path):
+    """Running the scanner on the sample_sources fixture emits symbols[] with
+    entries from each supported language."""
+    import shutil
+    fixture_root = Path(__file__).parent / "fixtures" / "sample_sources"
+    project = tmp_path / "project"
+    shutil.copytree(fixture_root, project)
+
+    scan = scanner.run_scan(str(project))
+    assert "symbols" in scan
+
+    by_lang = {}
+    for s in scan["symbols"]:
+        by_lang.setdefault(s["language"], []).append(s["name"])
+
+    # Swift fixture contributes formatLocalizedDate + String.trimmed
+    assert "formatLocalizedDate" in by_lang.get("swift", [])
+    assert "String.trimmed" in by_lang.get("swift", [])
+
+    # TS fixture contributes formatDate + deduplicate
+    assert "formatDate" in by_lang.get("typescript", [])
+    assert "deduplicate" in by_lang.get("typescript", [])
+
+    # Python fixture contributes format_time
+    assert "format_time" in by_lang.get("python", [])
+
+    # Private/test entries excluded
+    all_names = [s["name"] for s in scan["symbols"]]
+    assert "_internalHelper" not in all_names
+    assert "privateHelper" not in all_names
+    assert "_private_helper" not in all_names
+
+
+def test_extract_symbols_filters_test_paths(tmp_path):
+    """Files whose path matches a test pattern are excluded."""
+    files = [
+        {"path": "src/utils.ts", "extension": ".ts", "size": 100},
+        {"path": "src/__tests__/utils.test.ts", "extension": ".ts", "size": 100},
+        {"path": "MyAppTests/SomeTest.swift", "extension": ".swift", "size": 100},
+        {"path": "tests/test_helpers.py", "extension": ".py", "size": 100},
+    ]
+    # Create dummy files so the read succeeds
+    for f in files:
+        p = tmp_path / f["path"]
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("export function noop() {}\n" if f["extension"].startswith(".t") else "def noop(): pass\n")
+
+    symbols = scanner.extract_symbols(tmp_path, files)
+    files_seen = {s["file"] for s in symbols}
+    assert "src/utils.ts" in files_seen
+    assert "src/__tests__/utils.test.ts" not in files_seen
+    assert "MyAppTests/SomeTest.swift" not in files_seen
+    assert "tests/test_helpers.py" not in files_seen

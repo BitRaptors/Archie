@@ -746,6 +746,58 @@ def extract_skeletons(root: Path, files: list[dict]) -> dict[str, dict]:
     return skeletons
 
 
+# ── Symbol Extraction ──────────────────────────────────────────────────────
+
+_TEST_PATH_PATTERNS = (
+    "/Tests/", "Tests/",           # Swift: trailing dir or relative root
+    "/__tests__/", "__tests__/",   # JS/TS convention
+    "/test/", "test/",             # Python convention
+    "/tests/", "tests/",           # Python convention
+)
+_TEST_FILE_SUFFIXES = (
+    "_test.py", ".test.ts", ".test.tsx", ".test.js", ".test.jsx",
+    ".spec.ts", ".spec.tsx", ".spec.js", ".spec.jsx",
+    "Tests.swift", "Spec.swift",
+)
+
+
+def _is_test_path(path: str) -> bool:
+    """Conservative test-file detector — matches dir patterns AND file-name suffixes."""
+    for pat in _TEST_PATH_PATTERNS:
+        if pat in path:
+            return True
+    for suf in _TEST_FILE_SUFFIXES:
+        if path.endswith(suf):
+            return True
+    return False
+
+
+def extract_symbols(root: Path, files: list[dict]) -> list[dict]:
+    """Walk source files, dispatch to language-specific function extractors,
+    return a flat list of utility-function symbol dicts.
+
+    Filters out test files by path patterns (matches anywhere in the path):
+      *Tests/, /Tests/, __tests__/, *_test.py, *.test.ts, *.spec.ts, *.test.tsx
+    """
+    symbols: list[dict] = []
+    for f in files:
+        if f.get("size", 0) > 500_000:
+            continue
+        path = f.get("path", "")
+        if _is_test_path(path):
+            continue
+        ext = f.get("extension", "")
+        extractor = _LANGUAGE_EXTRACTORS.get(ext)
+        if extractor is None:
+            continue
+        try:
+            content = (root / path).read_text(errors="ignore")
+        except OSError:
+            continue
+        symbols.extend(extractor(content, path))
+    return symbols
+
+
 def _extract_swift_functions(content: str, path: str) -> list[dict]:
     """Regex-based extraction of public top-level + extension methods from Swift source.
 
@@ -895,6 +947,17 @@ def _extract_python_functions(content: str, path: str) -> list[dict]:
     return results
 
 
+_LANGUAGE_EXTRACTORS: dict = {
+    ".swift": _extract_swift_functions,
+    ".ts": _extract_typescript_functions,
+    ".tsx": _extract_typescript_functions,
+    ".js": _extract_typescript_functions,
+    ".jsx": _extract_typescript_functions,
+    ".mjs": _extract_typescript_functions,
+    ".py": _extract_python_functions,
+}
+
+
 def _extract_name(kind: str, signature: str) -> str:
     """Pull the symbol name out of a matched signature."""
     # class Foo, interface Foo, struct Foo, protocol Foo, enum Foo, object Foo, type Foo
@@ -975,6 +1038,7 @@ def run_scan(repo_path: str) -> dict:
     entry_points = detect_entry_points(files)
     configs = collect_configs(root)
     skeletons = extract_skeletons(root, files)
+    symbols = extract_symbols(root, files)
 
     # Aggregate token counts by directory
     tokens_by_dir: dict[str, int] = defaultdict(int)
@@ -1004,6 +1068,7 @@ def run_scan(repo_path: str) -> dict:
         "entry_points": entry_points,
         "frontend_ratio": round(frontend_ratio, 2),
         "_skeletons": skeletons,
+        "symbols": symbols,
     }
 
 
