@@ -746,6 +746,218 @@ def extract_skeletons(root: Path, files: list[dict]) -> dict[str, dict]:
     return skeletons
 
 
+# ── Symbol Extraction ──────────────────────────────────────────────────────
+
+_TEST_PATH_PATTERNS = (
+    "/Tests/", "Tests/",           # Swift: trailing dir or relative root
+    "/__tests__/", "__tests__/",   # JS/TS convention
+    "/test/", "test/",             # Python convention
+    "/tests/", "tests/",           # Python convention
+)
+_TEST_FILE_SUFFIXES = (
+    "_test.py", ".test.ts", ".test.tsx", ".test.js", ".test.jsx",
+    ".spec.ts", ".spec.tsx", ".spec.js", ".spec.jsx",
+    "Tests.swift", "Spec.swift",
+)
+
+
+def _is_test_path(path: str) -> bool:
+    """Conservative test-file detector — matches dir patterns AND file-name suffixes."""
+    for pat in _TEST_PATH_PATTERNS:
+        if pat in path:
+            return True
+    for suf in _TEST_FILE_SUFFIXES:
+        if path.endswith(suf):
+            return True
+    return False
+
+
+def extract_symbols(root: Path, files: list[dict]) -> list[dict]:
+    """Walk source files, dispatch to language-specific function extractors,
+    return a flat list of utility-function symbol dicts.
+
+    Filters out test files by path patterns (matches anywhere in the path):
+      *Tests/, /Tests/, __tests__/, *_test.py, *.test.ts, *.spec.ts, *.test.tsx
+    """
+    symbols: list[dict] = []
+    for f in files:
+        if f.get("size", 0) > 500_000:
+            continue
+        path = f.get("path", "")
+        if _is_test_path(path):
+            continue
+        ext = f.get("extension", "")
+        extractor = _LANGUAGE_EXTRACTORS.get(ext)
+        if extractor is None:
+            continue
+        try:
+            content = (root / path).read_text(errors="ignore")
+        except OSError:
+            continue
+        symbols.extend(extractor(content, path))
+    return symbols
+
+
+def _extract_swift_functions(content: str, path: str) -> list[dict]:
+    """Regex-based extraction of public top-level + extension methods from Swift source.
+
+    Two-pass approach:
+    1. Match ``public func`` at indentation level 0 (top-level).
+    2. Match ``extension Type {`` blocks, then within each block find
+       ``public func`` lines at one level of indentation.
+
+    Limitation: nested extensions (``extension A { extension B { } }``) are not
+    supported; for the v1 fixture this regex-based block scan is sufficient.
+    """
+    results: list[dict] = []
+
+    # Pass 1 — top-level public functions (no leading whitespace)
+    # Match `public func name(...)` at column 0; capture the whole line for the signature.
+    # We stop at newline so both `func foo() -> T {` and `func foo() -> T { body }` are handled.
+    top_level_re = re.compile(
+        r'^public\s+func\s+(\w+)\s*\([^)]*\)[^\n]*$',
+        re.MULTILINE,
+    )
+    for m in top_level_re.finditer(content):
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        # Build clean signature: strip trailing `{` and anything after it, then trim
+        raw = m.group(0)
+        # Keep up to (but not including) the opening `{` body brace
+        sig = re.sub(r'\s*\{.*$', '', raw, flags=re.DOTALL).strip()
+        results.append({
+            "file": path,
+            "name": name,
+            "kind": "function",
+            "signature": sig,
+            "exported": True,
+            "language": "swift",
+        })
+
+    # Pass 2 — extension methods
+    # Match each top-level extension block: extension TypeName { ... }
+    # We use a simple approach: find `extension Foo {` then grab content up to
+    # the matching closing `}` at column 0.
+    ext_block_re = re.compile(r'^extension\s+(\w+)\s*\{', re.MULTILINE)
+    # Match `public func name(...)` with leading whitespace (inside an extension block)
+    ext_method_re = re.compile(
+        r'^\s+public\s+func\s+(\w+)\s*\([^)]*\)[^\n]*$',
+        re.MULTILINE,
+    )
+
+    for ext_match in ext_block_re.finditer(content):
+        type_name = ext_match.group(1)
+        block_start = ext_match.end()
+        # Find the closing `}` at column 0
+        close_re = re.compile(r'^\}', re.MULTILINE)
+        close_match = close_re.search(content, block_start)
+        block_content = content[block_start: close_match.start()] if close_match else content[block_start:]
+
+        for m in ext_method_re.finditer(block_content):
+            method_name = m.group(1)
+            if method_name.startswith("_"):
+                continue
+            # Signature in source form (no Type. prefix), strip leading indent and trailing body
+            raw = m.group(0).strip()
+            sig = re.sub(r'\s*\{.*$', '', raw, flags=re.DOTALL).strip()
+            results.append({
+                "file": path,
+                "name": f"{type_name}.{method_name}",
+                "kind": "function",
+                "signature": sig,
+                "exported": True,
+                "language": "swift",
+            })
+
+    return results
+
+
+def _extract_typescript_functions(content: str, path: str) -> list[dict]:
+    """Regex-based extraction of exported functions and arrow constants from TS/JS source."""
+    results: list[dict] = []
+
+    # Pass 1 — exported function declarations: `export [async] function name(...) [: ReturnType] {`
+    func_re = re.compile(
+        r'^export\s+(?:async\s+)?function\s+(\w+)\s*\([^)]*\)[^{\n]*',
+        re.MULTILINE,
+    )
+    for m in func_re.finditer(content):
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        # Strip trailing `{` and whitespace for a clean signature
+        sig = re.sub(r'\s*\{.*$', '', m.group(0), flags=re.DOTALL).strip()
+        results.append({
+            "file": path,
+            "name": name,
+            "kind": "function",
+            "signature": sig,
+            "exported": True,
+            "language": "typescript",
+        })
+
+    # Pass 2 — exported const arrow functions: `export const name = [async] [<T>] (...) [: ReturnType] =>`
+    arrow_re = re.compile(
+        r'^export\s+const\s+(\w+)\s*=\s*(?:async\s+)?(?:<[^>]+>\s*)?\([^)]*\)\s*(?::\s*[^=\n]+?)?\s*=>',
+        re.MULTILINE,
+    )
+    for m in arrow_re.finditer(content):
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        sig = m.group(0).strip()
+        results.append({
+            "file": path,
+            "name": name,
+            "kind": "function",
+            "signature": sig,
+            "exported": True,
+            "language": "typescript",
+        })
+
+    return results
+
+
+def _extract_python_functions(content: str, path: str) -> list[dict]:
+    """Regex-based extraction of module-level Python functions."""
+    results: list[dict] = []
+
+    func_re = re.compile(
+        r'^(?:async\s+)?def\s+(\w+)\s*\([^)]*\)(?:\s*->\s*[^:]+)?\s*:',
+        re.MULTILINE,
+    )
+    for m in func_re.finditer(content):
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        # Signature is the matched text up to (but not including) the trailing colon
+        sig = m.group(0).rstrip()
+        if sig.endswith(":"):
+            sig = sig[:-1].rstrip()
+        results.append({
+            "file": path,
+            "name": name,
+            "kind": "function",
+            "signature": sig,
+            "exported": True,
+            "language": "python",
+        })
+
+    return results
+
+
+_LANGUAGE_EXTRACTORS: dict = {
+    ".swift": _extract_swift_functions,
+    ".ts": _extract_typescript_functions,
+    ".tsx": _extract_typescript_functions,
+    ".js": _extract_typescript_functions,
+    ".jsx": _extract_typescript_functions,
+    ".mjs": _extract_typescript_functions,
+    ".py": _extract_python_functions,
+}
+
+
 def _extract_name(kind: str, signature: str) -> str:
     """Pull the symbol name out of a matched signature."""
     # class Foo, interface Foo, struct Foo, protocol Foo, enum Foo, object Foo, type Foo
@@ -826,6 +1038,7 @@ def run_scan(repo_path: str) -> dict:
     entry_points = detect_entry_points(files)
     configs = collect_configs(root)
     skeletons = extract_skeletons(root, files)
+    symbols = extract_symbols(root, files)
 
     # Aggregate token counts by directory
     tokens_by_dir: dict[str, int] = defaultdict(int)
@@ -855,6 +1068,7 @@ def run_scan(repo_path: str) -> dict:
         "entry_points": entry_points,
         "frontend_ratio": round(frontend_ratio, 2),
         "_skeletons": skeletons,
+        "symbols": symbols,
     }
 
 
