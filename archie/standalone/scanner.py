@@ -867,6 +867,34 @@ def _extract_typescript_functions(content: str, path: str) -> list[dict]:
     return results
 
 
+def _extract_python_functions(content: str, path: str) -> list[dict]:
+    """Regex-based extraction of module-level Python functions."""
+    results: list[dict] = []
+
+    func_re = re.compile(
+        r'^(?:async\s+)?def\s+(\w+)\s*\([^)]*\)(?:\s*->\s*[^:]+)?\s*:',
+        re.MULTILINE,
+    )
+    for m in func_re.finditer(content):
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        # Signature is the matched text up to (but not including) the trailing colon
+        sig = m.group(0).rstrip()
+        if sig.endswith(":"):
+            sig = sig[:-1].rstrip()
+        results.append({
+            "file": path,
+            "name": name,
+            "kind": "function",
+            "signature": sig,
+            "exported": True,
+            "language": "python",
+        })
+
+    return results
+
+
 def _extract_name(kind: str, signature: str) -> str:
     """Pull the symbol name out of a matched signature."""
     # class Foo, interface Foo, struct Foo, protocol Foo, enum Foo, object Foo, type Foo

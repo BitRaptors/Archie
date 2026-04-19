@@ -178,3 +178,44 @@ export const _privateArrow = (x: number) => x;
     results = scanner._extract_typescript_functions(content, "test.ts")
     names = [r["name"] for r in results]
     assert names == ["keepMe"]  # _privateArrow skipped due to leading underscore
+
+
+# -------------------------------------------------------------------
+# 8. Python function extraction
+# -------------------------------------------------------------------
+def test_extract_python_functions_returns_module_level_only():
+    """Python fixture has 1 module-level def, 1 _private def, 1 class method."""
+    fixture = Path(__file__).parent / "fixtures" / "sample_sources" / "python" / "helpers.py"
+    content = fixture.read_text()
+    results = scanner._extract_python_functions(content, "helpers.py")
+
+    names = sorted(r["name"] for r in results)
+    assert names == ["format_time"]
+
+    fmt = results[0]
+    assert fmt["exported"] is True
+    assert fmt["language"] == "python"
+    assert fmt["kind"] == "function"
+    assert fmt["file"] == "helpers.py"
+    assert "def format_time" in fmt["signature"]
+    assert "datetime" in fmt["signature"]
+
+
+def test_extract_python_functions_skips_class_methods_and_underscores():
+    content = '''
+def public_one(x: int) -> int:
+    return x
+
+def _private_skip(x: int) -> int:
+    return x
+
+async def async_one(x: int) -> int:
+    return x
+
+class Foo:
+    def method_skip(self, x: int) -> int:
+        return x
+'''
+    results = scanner._extract_python_functions(content, "test.py")
+    names = sorted(r["name"] for r in results)
+    assert names == ["async_one", "public_one"]
