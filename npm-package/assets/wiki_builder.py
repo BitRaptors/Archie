@@ -301,10 +301,116 @@ def render_component(
     return "".join(parts)
 
 
+_PRIMITIVES: dict[str, str] = {
+    "string": "string", "str": "string",
+    "int": "int", "integer": "int",
+    "bool": "bool", "boolean": "bool",
+    "float": "float", "double": "float", "number": "float",
+    "long": "long",
+    "char": "char", "character": "char",
+    "bytes": "bytes",
+    "void": "void", "none": "void", "unit": "void",
+}
+
+_OPT_PATTERNS = [
+    re.compile(r"^Optional\s*<\s*(.+?)\s*>$"),
+    re.compile(r"^Optional\s*\[\s*(.+?)\s*\]$"),
+    re.compile(r"^(.+?)\s*\|\s*None$"),
+    re.compile(r"^(.+?)\?$"),
+]
+
+
+def _normalize_field_type(raw) -> str:
+    """Map language-specific type notations to a canonical form.
+
+    Optional notations supported:
+      Foo?              → foo? (lowercase only when foo is a known primitive)
+      Optional<Foo>     → foo?
+      Optional[foo]     → foo?
+      foo | None        → foo?
+
+    Primitive name canonicalization (case-insensitive, output lowercase):
+      String / Str            → string
+      Int / Integer           → int
+      Bool / Boolean          → bool
+      Float / Double / Number → float
+      Long                    → long
+      Char / Character        → char
+      Bytes                   → bytes
+      Void / None / Unit      → void
+
+    Custom types (anything not in the primitive map) are preserved verbatim
+    minus the optional wrapper.
+
+    Returns "" for None/empty input.
+    """
+    if not raw:
+        return ""
+    raw = str(raw).strip()
+    if not raw:
+        return ""
+
+    # Try each optional wrapper pattern in order
+    optional = False
+    inner = raw
+    for pat in _OPT_PATTERNS:
+        m = pat.match(raw)
+        if m:
+            inner = m.group(1).strip()
+            optional = True
+            break
+
+    # Canonicalize via primitives map (case-insensitive)
+    canonical_inner = _PRIMITIVES.get(inner.lower(), inner)
+
+    if optional:
+        return canonical_inner + "?"
+    return canonical_inner
+
+
+def _extract_data_model_refs(
+    model: dict,
+    known_model_names: "set[str]",
+) -> "list[tuple[str, list[str]]]":
+    """Find data-model references in field types.
+
+    Scans each field's raw `type` string for any token matching a name in
+    known_model_names (word-boundary regex). Excludes self-references.
+    Returns [(referenced_name, [field_name, ...]), ...] sorted by referenced_name.
+    Field names within each tuple are sorted by appearance order in fields[],
+    deduplicated.
+    """
+    own_name = model.get("name")
+    candidates = sorted(n for n in known_model_names if n and n != own_name)
+    if not candidates:
+        return []
+
+    # Word-boundary regex to avoid partial matches: \b(Foo|Bar|Baz)\b
+    pattern = re.compile(r"\b(" + "|".join(re.escape(n) for n in candidates) + r")\b")
+
+    # ref_name -> ordered list of field_names (deduplicated)
+    refs: dict[str, list[str]] = {}
+    for field in _as_list(model.get("fields")):
+        if not isinstance(field, dict):
+            continue
+        ftype = _as_text(field.get("type"))
+        fname = _as_text(field.get("name"))
+        if not ftype or not fname:
+            continue
+        for match in pattern.findall(ftype):
+            field_list = refs.setdefault(match, [])
+            if fname not in field_list:
+                field_list.append(fname)
+
+    return sorted(refs.items(), key=lambda kv: kv[0])
+
+
 def render_data_model(
     model: dict,
     slug: str,
     component_slugs: dict[str, str],
+    *,
+    model_slugs: "dict[str, str] | None" = None,
 ) -> str:
     """Render a single data model entity as markdown with frontmatter.
 
@@ -339,8 +445,27 @@ def render_data_model(
             ftype = _as_text(field.get("type") if isinstance(field, dict) else None)
             fnullable = field.get("nullable", False) if isinstance(field, dict) else False
             nullable_str = "yes" if fnullable else "no"
-            rows.append(f"| `{fname}` | `{ftype}` | {nullable_str} |")
+            canonical = _normalize_field_type(ftype)
+            if canonical and canonical != ftype:
+                type_display = f"{canonical} ({ftype})"
+            elif canonical:
+                type_display = canonical
+            else:
+                type_display = ftype  # fallback: empty/None canonical → original
+            rows.append(f"| `{fname}` | `{type_display}` | {nullable_str} |")
         parts.append("\n".join(rows) + "\n")
+
+    if model_slugs:
+        relations = _extract_data_model_refs(model, set(model_slugs.keys()))
+        if relations:
+            lines = ["## Related models\n"]
+            for ref_name, field_names in relations:
+                ref_slug = model_slugs.get(ref_name)
+                link = f"[{ref_name}](./{ref_slug}.md)" if ref_slug else ref_name
+                field_word = "field" if len(field_names) == 1 else "fields"
+                field_list = ", ".join(f"`{f}`" for f in field_names)
+                lines.append(f"- {link} — via {field_list} {field_word}")
+            parts.append("\n" + "\n".join(lines) + "\n")
 
     if used_by:
         linked = [_link_or_text(n, component_slugs, "components") for n in used_by]
@@ -1190,7 +1315,7 @@ def build_wiki(project_root: Path) -> None:
             continue
         _write(
             wiki_root / "data-models" / f"{slug}.md",
-            render_data_model(model, slug, slug_map["components"]),
+            render_data_model(model, slug, slug_map["components"], model_slugs=slug_map["data_models"]),
         )
 
     for guideline in _as_list(blueprint.get("implementation_guidelines")):

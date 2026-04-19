@@ -265,6 +265,14 @@ Filtering (in scanner): test files excluded via path patterns (`Tests/`, `__test
 
 Out of scope for v1: per-function pages, AI-enhanced categorization, calling-convention normalization across languages, function-body extraction. See Plan 5b.2 "Known follow-ups" for the full list.
 
+### 4.13 Wiki polish bundle (Plan 5c)
+
+Three small refinements to the data-model and backlink rendering:
+
+- **Page-type backlinks** — `wiki_index._page_type_from_dir` now recognizes `data-models/` (singular: `data-model`), `guidelines/`, `rules/`, and the root-level single-page outputs (`utilities.md` → `utility-catalog`, `technology.md`, `quick-reference.md`, `frontend.md`, `architecture.md`, `index.md`) so the auto-injected `## Referenced by` section displays a meaningful page-type label instead of `(unknown)`.
+- **Data-model relations** — `render_data_model` gains a `## Related models` section listing entities referenced via field types. Detection (`_extract_data_model_refs`) is word-boundary regex against the set of known data-model names; multi-field references coalesce into a single line per related model (e.g. `[Place](./place.md) — via \`homeLocation\`, \`workLocation\` fields`). Self-references are excluded. Section sits between `## Fields` and `## Used by`.
+- **Field-type normalization** — `_normalize_field_type` maps language-specific optional notations (`String?`, `Optional<String>`, `Optional[str]`, `str | None`) to a canonical lowercase + `?` form. Primitive type names (`String`/`Int`/`Bool`/`Float`/...) are lowercased; custom and acronym types are preserved verbatim. Collection wrappers (`[Foo]`, `Array<Foo>`, `List<Foo>`) pass through unchanged minus optionality. The Fields table renders `canonical (raw)` when the two differ — agents see the canonical form first, with the original kept for fidelity.
+
 ## 5. Generation pipeline
 
 ### 5.1 Deep-scan (full build)

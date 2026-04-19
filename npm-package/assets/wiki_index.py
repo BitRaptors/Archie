@@ -26,15 +26,36 @@ def extract_links(page: Path) -> list[tuple[str, str]]:
 
 
 def _page_type_from_dir(path_parts: tuple[str, ...]) -> str:
-    """Given ('components', 'foo.md') return 'component'. Best-effort singular."""
+    """Given ('components', 'foo.md') return 'component'. Best-effort singular.
+
+    Single-file root-level pages (utilities.md, technology.md, etc.) are
+    recognized too, mapping to their canonical type label.
+    """
     if not path_parts:
         return "unknown"
+
+    # Single-file root-level pages
+    single_file_types = {
+        "utilities.md": "utility-catalog",
+        "technology.md": "technology",
+        "quick-reference.md": "quick-reference",
+        "frontend.md": "frontend",
+        "architecture.md": "architecture",
+        "index.md": "index",
+    }
+    if len(path_parts) == 1 and path_parts[0] in single_file_types:
+        return single_file_types[path_parts[0]]
+
+    # Directory-based mapping
     mapping = {
         "components": "component",
         "decisions": "decision",
         "patterns": "pattern",
         "pitfalls": "pitfall",
         "capabilities": "capability",
+        "data-models": "data-model",
+        "guidelines": "guideline",
+        "rules": "rule",
     }
     return mapping.get(path_parts[0], "unknown")
 
