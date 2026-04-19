@@ -821,6 +821,52 @@ def _extract_swift_functions(content: str, path: str) -> list[dict]:
     return results
 
 
+def _extract_typescript_functions(content: str, path: str) -> list[dict]:
+    """Regex-based extraction of exported functions and arrow constants from TS/JS source."""
+    results: list[dict] = []
+
+    # Pass 1 — exported function declarations: `export [async] function name(...) [: ReturnType] {`
+    func_re = re.compile(
+        r'^export\s+(?:async\s+)?function\s+(\w+)\s*\([^)]*\)[^{\n]*',
+        re.MULTILINE,
+    )
+    for m in func_re.finditer(content):
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        # Strip trailing `{` and whitespace for a clean signature
+        sig = re.sub(r'\s*\{.*$', '', m.group(0), flags=re.DOTALL).strip()
+        results.append({
+            "file": path,
+            "name": name,
+            "kind": "function",
+            "signature": sig,
+            "exported": True,
+            "language": "typescript",
+        })
+
+    # Pass 2 — exported const arrow functions: `export const name = [async] [<T>] (...) [: ReturnType] =>`
+    arrow_re = re.compile(
+        r'^export\s+const\s+(\w+)\s*=\s*(?:async\s+)?(?:<[^>]+>\s*)?\([^)]*\)\s*(?::\s*[^=\n]+?)?\s*=>',
+        re.MULTILINE,
+    )
+    for m in arrow_re.finditer(content):
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        sig = m.group(0).strip()
+        results.append({
+            "file": path,
+            "name": name,
+            "kind": "function",
+            "signature": sig,
+            "exported": True,
+            "language": "typescript",
+        })
+
+    return results
+
+
 def _extract_name(kind: str, signature: str) -> str:
     """Pull the symbol name out of a matched signature."""
     # class Foo, interface Foo, struct Foo, protocol Foo, enum Foo, object Foo, type Foo

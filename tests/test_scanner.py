@@ -138,3 +138,43 @@ def test_extract_swift_functions_skips_private_and_internal():
     results = scanner._extract_swift_functions(content, "Test.swift")
     names = [r["name"] for r in results]
     assert names == ["keepMe"]
+
+
+# -------------------------------------------------------------------
+# 7. TypeScript/JavaScript function extraction
+# -------------------------------------------------------------------
+def test_extract_typescript_functions_returns_exported_functions_and_arrows():
+    """TS fixture has 1 export function, 1 export const arrow, 1 unexported function."""
+    fixture = Path(__file__).parent / "fixtures" / "sample_sources" / "typescript" / "utils.ts"
+    content = fixture.read_text()
+    results = scanner._extract_typescript_functions(content, "utils.ts")
+
+    names = sorted(r["name"] for r in results)
+    assert names == ["deduplicate", "formatDate"]
+
+    for r in results:
+        assert r["exported"] is True
+        assert r["language"] == "typescript"
+        assert r["kind"] == "function"
+        assert r["file"] == "utils.ts"
+
+    # formatDate is the export function
+    fmt = next(r for r in results if r["name"] == "formatDate")
+    assert "export function formatDate" in fmt["signature"]
+    assert "Date" in fmt["signature"]
+
+    # deduplicate is the arrow const
+    dedup = next(r for r in results if r["name"] == "deduplicate")
+    assert "export const deduplicate" in dedup["signature"]
+
+
+def test_extract_typescript_functions_skips_unexported():
+    content = """
+export function keepMe(x: number): number { return x; }
+function skipMe(x: number): number { return x; }
+const skipArrow = (x: number) => x;
+export const _privateArrow = (x: number) => x;
+"""
+    results = scanner._extract_typescript_functions(content, "test.ts")
+    names = [r["name"] for r in results]
+    assert names == ["keepMe"]  # _privateArrow skipped due to leading underscore
