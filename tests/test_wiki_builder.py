@@ -961,6 +961,40 @@ def test_render_index_omits_data_models_when_empty():
     assert "## Data models" not in md
 
 
+def test_render_index_includes_utilities_when_symbols_present():
+    fixture = Path(__file__).parent / "fixtures" / "wiki_fixture_blueprint.json"
+    blueprint = json.loads(fixture.read_text())
+    slug_map = {
+        "decisions": {},
+        "components": {"UserService": "user-service"},
+        "patterns": {},
+        "pitfalls": {},
+        "capabilities": {},
+        "guidelines": {},
+        "data_models": {},
+    }
+    md = wiki_builder.render_index(blueprint, slug_map, symbol_count=7)
+    assert "**Utilities (7 functions)** — existing helpers; grep before implementing new ones" in md
+    assert "## Utilities" in md
+    assert "- [Utilities catalog](./utilities.md)" in md
+
+
+def test_render_index_omits_utilities_when_no_symbols():
+    fixture = Path(__file__).parent / "fixtures" / "wiki_fixture_blueprint.json"
+    blueprint = json.loads(fixture.read_text())
+    slug_map = {
+        "decisions": {},
+        "components": {},
+        "patterns": {},
+        "pitfalls": {},
+        "data_models": {},
+    }
+    md = wiki_builder.render_index(blueprint, slug_map, symbol_count=0)
+    assert "**Utilities" not in md
+    assert "## Utilities" not in md  # the dedicated section
+    assert "[Utilities catalog](./utilities.md)" not in md
+
+
 def test_render_data_model_full_entity():
     model = {
         "name": "User",

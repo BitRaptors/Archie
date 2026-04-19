@@ -741,6 +741,8 @@ def render_index(
     blueprint: dict,
     slug_map: dict[str, dict[str, str]],
     project_root: "Path | None" = None,
+    *,
+    symbol_count: int = 0,
 ) -> str:
     meta = _as_dict(blueprint.get("meta"))
     project_name = _as_text(meta.get("project_name"))
@@ -835,6 +837,10 @@ def render_index(
         f"- **Pitfalls ({len(pitfalls)})** — known traps and how to avoid them",
         f"- **Guidelines ({len(guidelines)})** — implementation recipes",
     ]
+    if symbol_count:
+        browse_lines.append(
+            f"- **Utilities ({symbol_count} functions)** — existing helpers; grep before implementing new ones"
+        )
     if rules_pages:
         browse_lines.append(f"- **Rules ({len(rules_pages)} pages)** — architecture + development rules")
     if has_tech:
@@ -865,6 +871,8 @@ def render_index(
         parts.append("\n## Pitfalls\n\n" + _list(pitfalls, "pitfalls") + "\n")
     if guidelines:
         parts.append("\n## Guidelines\n\n" + _list(guidelines, "guidelines") + "\n")
+    if symbol_count:
+        parts.append("\n## Utilities\n\n- [Utilities catalog](./utilities.md)\n")
     return "".join(parts)
 
 
@@ -1233,7 +1241,10 @@ def build_wiki(project_root: Path) -> None:
     if utilities_page:
         _write(wiki_root / "utilities.md", utilities_page)
 
-    _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
+    _write(
+        wiki_root / "index.md",
+        render_index(blueprint, slug_map, project_root=project_root, symbol_count=len(symbols)),
+    )
 
     # Pass 2: backlinks + referenced-by + provenance.
     import wiki_index
