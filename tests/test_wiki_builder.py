@@ -1066,3 +1066,45 @@ def test_render_data_model_unknown_used_by_renders_plain():
     # Unknown component renders as plain text (no markdown link brackets)
     assert "- UnknownThing" in md
     assert "[UnknownThing]" not in md
+
+
+def test_normalize_field_type_canonical_forms():
+    from wiki_builder import _normalize_field_type
+    assert _normalize_field_type("String") == "string"
+    assert _normalize_field_type("String?") == "string?"
+    assert _normalize_field_type("Optional<String>") == "string?"
+    assert _normalize_field_type("Optional[str]") == "string?"
+    assert _normalize_field_type("str | None") == "string?"
+    assert _normalize_field_type("Int") == "int"
+    assert _normalize_field_type("Integer") == "int"
+    assert _normalize_field_type("Bool") == "bool"
+    assert _normalize_field_type("Boolean") == "bool"
+    assert _normalize_field_type("Date") == "Date"
+    assert _normalize_field_type("CLLocationCoordinate2D") == "CLLocationCoordinate2D"
+    assert _normalize_field_type("[PlaceCategory]") == "[PlaceCategory]"
+    assert _normalize_field_type("Array<Place>") == "Array<Place>"
+    assert _normalize_field_type("Optional<Date>") == "Date?"
+    assert _normalize_field_type("") == ""
+    assert _normalize_field_type(None) == ""
+    assert _normalize_field_type("  String?  ") == "string?"
+
+
+def test_render_data_model_shows_normalized_and_raw_types():
+    model = {
+        "name": "Place",
+        "fields": [
+            {"name": "id", "type": "String", "nullable": False},
+            {"name": "name", "type": "String?", "nullable": True},
+            {"name": "openingHours", "type": "Optional<OpeningHours>", "nullable": True},
+            {"name": "kept", "type": "Date", "nullable": False},
+        ],
+    }
+    md = wiki_builder.render_data_model(model, "place", {})
+    # "String" canonical = "string", differs → show both
+    assert "| `id` | `string (String)` | no |" in md
+    # "String?" canonical = "string?", differs → both
+    assert "| `name` | `string? (String?)` | yes |" in md
+    # "Optional<OpeningHours>" canonical = "OpeningHours?", differs → both
+    assert "| `openingHours` | `OpeningHours? (Optional<OpeningHours>)` | yes |" in md
+    # "Date" canonical = "Date" (custom preserved), identical → show only canonical
+    assert "| `kept` | `Date` | no |" in md
