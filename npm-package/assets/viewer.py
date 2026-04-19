@@ -264,6 +264,9 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         if path == "/":
             self._send_html(HTML_PAGE)
 
+        elif path == "/api/wiki-enabled":
+            self._send_json({"enabled": bool(getattr(self.server, "with_wiki_ui", False))})
+
         elif path == "/api/blueprint":
             self._send_json(_load_json(archie_dir / "blueprint.json"))
 
@@ -497,6 +500,7 @@ tailwind.config = {
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="rules">Rules</button>
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="files">Files</button>
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="dependencies">Dependencies</button>
+  <button id="tab-btn-wiki" class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px] hidden" data-tab="wiki">Wiki</button>
   <button class="tab-btn py-4 text-sm font-bold transition-all relative border-b-2 -mb-[2px]" data-tab="workspace">Workspace</button>
 </div>
 
@@ -507,6 +511,7 @@ tailwind.config = {
 <div id="tab-rules" class="tab-content hidden p-8 max-w-5xl mx-auto"></div>
 <div id="tab-files" class="tab-content hidden"></div>
 <div id="tab-dependencies" class="tab-content hidden" style="height: calc(100vh - 140px)"></div>
+<div id="tab-wiki" class="tab-content hidden" style="height: calc(100vh - 140px)"></div>
 <div id="tab-workspace" class="tab-content hidden p-8 max-w-7xl mx-auto"></div>
 
 <script>
@@ -535,11 +540,31 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       rules: renderRules,
       files: renderFiles,
       dependencies: renderDependencies,
+      wiki: renderWiki,
       workspace: renderWorkspace
     };
     if (renderers[btn.dataset.tab]) renderers[btn.dataset.tab]();
   });
 });
+
+// Reveal the Wiki tab when the server reports the wiki UI is enabled
+fetch('/api/wiki-enabled')
+  .then(r => r.json())
+  .then(d => {
+    if (d && d.enabled) {
+      const btn = document.getElementById('tab-btn-wiki');
+      if (btn) btn.classList.remove('hidden');
+    }
+  })
+  .catch(() => {});
+
+// Lazy-load the wiki into an iframe on first activation, then keep it mounted
+function renderWiki() {
+  const el = document.getElementById('tab-wiki');
+  if (el.dataset.loaded) return;
+  el.dataset.loaded = '1';
+  el.innerHTML = '<iframe src="/wiki/" style="border:0; width:100%; height:100%; display:block;" title="Archie Wiki"></iframe>';
+}
 
 // ---------------------------------------------------------------------------
 // Data loading
@@ -2163,8 +2188,14 @@ def render_wiki_page(wiki_root: Path, page_rel: str) -> str:
 # Server factory
 # ---------------------------------------------------------------------------
 
-def make_server(project_root, host: str, port: int, with_wiki_ui: bool = False):
-    """Factory used by the viewer CLI and tests. Returns a configured HTTPServer."""
+def make_server(project_root, host: str, port: int, with_wiki_ui: "bool | None" = None):
+    """Factory used by the viewer CLI and tests. Returns a configured HTTPServer.
+
+    When ``with_wiki_ui`` is None (default), the wiki UI is auto-enabled if
+    ``.archie/wiki/`` exists. Pass True/False explicitly to override.
+    """
+    if with_wiki_ui is None:
+        with_wiki_ui = (Path(project_root) / ".archie" / "wiki").exists()
     server = http.server.HTTPServer((host, port), ArchieHandler)
     server.root = Path(project_root)  # type: ignore[attr-defined]
     server.with_wiki_ui = with_wiki_ui  # type: ignore[attr-defined]
@@ -2177,7 +2208,8 @@ def make_server(project_root, host: str, port: int, with_wiki_ui: bool = False):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 viewer.py /path/to/repo [--port PORT] [--with-wiki-ui]", file=sys.stderr)
+        print("Usage: python3 viewer.py /path/to/repo [--port PORT] [--with-wiki-ui|--no-wiki-ui]", file=sys.stderr)
+        print("  Wiki UI is auto-enabled when .archie/wiki/ exists.", file=sys.stderr)
         sys.exit(1)
 
     root = Path(sys.argv[1]).resolve()
@@ -2186,12 +2218,14 @@ if __name__ == "__main__":
         sys.exit(1)
 
     port = None
-    with_wiki_ui = False
+    with_wiki_ui = None  # None = auto-detect from .archie/wiki/ presence
     for i, arg in enumerate(sys.argv[2:], 2):
         if arg == "--port" and i + 1 < len(sys.argv):
             port = int(sys.argv[i + 1])
         elif arg == "--with-wiki-ui":
             with_wiki_ui = True
+        elif arg == "--no-wiki-ui":
+            with_wiki_ui = False
 
     if port is None:
         port = _find_free_port()

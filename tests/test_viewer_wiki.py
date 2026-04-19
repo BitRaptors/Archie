@@ -1,6 +1,10 @@
 """Tests for viewer.py wiki integration."""
 
+import json
 import sys
+import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "archie" / "standalone"))
@@ -199,6 +203,43 @@ def test_http_route_disabled_when_flag_off(tmp_path):
             raise AssertionError("expected 404")
         except urllib.error.HTTPError as exc:
             assert exc.code == 404
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+
+def test_make_server_auto_enables_wiki_when_dir_exists(tmp_path):
+    """When with_wiki_ui is omitted and .archie/wiki/ exists, wiki UI is auto-enabled."""
+    (tmp_path / ".archie" / "wiki").mkdir(parents=True)
+    server = viewer.make_server(project_root=tmp_path, host="127.0.0.1", port=0)
+    try:
+        assert server.with_wiki_ui is True
+    finally:
+        server.server_close()
+
+
+def test_make_server_auto_disables_wiki_when_dir_missing(tmp_path):
+    """When with_wiki_ui is omitted and .archie/wiki/ is absent, wiki UI stays off."""
+    server = viewer.make_server(project_root=tmp_path, host="127.0.0.1", port=0)
+    try:
+        assert server.with_wiki_ui is False
+    finally:
+        server.server_close()
+
+
+def test_api_wiki_enabled_endpoint(tmp_path):
+    """The /api/wiki-enabled endpoint surfaces the server's wiki flag for the JS UI."""
+    server = viewer.make_server(
+        project_root=tmp_path, host="127.0.0.1", port=0, with_wiki_ui=True
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/wiki-enabled") as r:
+            assert r.status == 200
+            body = json.loads(r.read().decode("utf-8"))
+            assert body == {"enabled": True}
     finally:
         server.shutdown()
         thread.join(timeout=2)

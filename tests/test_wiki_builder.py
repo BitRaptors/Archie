@@ -125,6 +125,42 @@ def test_render_component_data_models_section_omitted_when_empty():
     assert "## Data models" not in md_empty
 
 
+def test_render_component_public_interface_links_known_data_models():
+    """When a key_interface entry's name matches a known data-model, link to its page
+    instead of rendering as a code-formatted identifier."""
+    component = {
+        "name": "Models",
+        "purpose": "Pure Codable value types",
+        "key_interfaces": [
+            {"name": "Place", "description": "Primary domain model"},
+            {"name": "Tag", "description": "~17-case enum"},
+            {"name": "InternalThing", "description": "Not a data model"},
+        ],
+    }
+    md = wiki_builder.render_component(
+        component, slug="models", component_slugs={"Models": "models"},
+        model_slugs={"Place": "place", "Tag": "tag"},
+    )
+    # Known data-model names get linked into ../data-models/<slug>.md
+    assert "**[Place](../data-models/place.md)**" in md
+    assert "**[Tag](../data-models/tag.md)**" in md
+    # Non-data-model entries keep the original code-formatted style
+    assert "**`InternalThing`**" in md
+
+
+def test_render_component_public_interface_falls_back_when_model_slugs_missing():
+    """Without model_slugs, the existing code-formatted rendering is preserved."""
+    component = {
+        "name": "Models",
+        "key_interfaces": [{"name": "Place", "description": "model"}],
+    }
+    md = wiki_builder.render_component(
+        component, slug="models", component_slugs={"Models": "models"},
+    )
+    assert "**`Place`**" in md
+    assert "(../data-models/" not in md
+
+
 def test_render_pattern_page():
     pattern = {
         "name": "Repository",

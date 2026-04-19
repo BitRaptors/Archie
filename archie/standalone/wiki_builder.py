@@ -225,6 +225,7 @@ def render_component(
     component_slugs: dict[str, str],
     *,
     data_models: "list[tuple[str, str]] | None" = None,
+    model_slugs: "dict[str, str] | None" = None,
 ) -> str:
     name = _as_text(component.get("name")) or "Untitled component"
     purpose = _as_text(component.get("purpose"))
@@ -271,7 +272,14 @@ def render_component(
             desc = _as_text(iface.get("description")) if isinstance(iface, dict) else None
             if not iname and not sig:
                 continue
-            head = f"\n- **`{iname}`**" if iname else "\n- "
+            # When the interface name matches a known data-model, link to its page.
+            # Renders as **[Place](../data-models/place.md)** instead of **`Place`**.
+            if iname and model_slugs and iname in model_slugs:
+                head = f"\n- **[{iname}](../data-models/{model_slugs[iname]}.md)**"
+            elif iname:
+                head = f"\n- **`{iname}`**"
+            else:
+                head = "\n- "
             if sig:
                 head += f" — `{sig}`"
             lines.append(head)
@@ -1282,6 +1290,7 @@ def build_wiki(project_root: Path) -> None:
                 slug,
                 slug_map["components"],
                 data_models=component_to_models.get(component.get("name"), []),
+                model_slugs=slug_map["data_models"],
             ),
         )
 
