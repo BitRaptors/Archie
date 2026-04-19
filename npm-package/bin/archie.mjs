@@ -95,7 +95,7 @@ if (cleanedCount > 0) {
 }
 
 // 2. Copy Claude Code commands
-for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md", "archie-wiki.md", "archie-share.md"]) {
+for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md", "archie-share.md"]) {
   const src = join(ASSETS, cmd);
   const dest = join(claudeCommands, cmd);
   if (existsSync(src)) {
