@@ -2041,14 +2041,29 @@ document.addEventListener('DOMContentLoaded', loadData);
 # Wiki sidebar
 # ---------------------------------------------------------------------------
 
-_SIDEBAR_ORDER = ["capabilities", "decisions", "components", "patterns", "pitfalls"]
+_SIDEBAR_ORDER = [
+    "capabilities", "decisions", "components", "data-models",
+    "patterns", "pitfalls", "guidelines", "rules",
+]
 _SIDEBAR_LABELS = {
     "capabilities": "Capabilities",
     "decisions": "Decisions",
     "components": "Components",
+    "data-models": "Data models",
     "patterns": "Patterns",
     "pitfalls": "Pitfalls",
+    "guidelines": "Guidelines",
+    "rules": "Rules",
 }
+
+# Root-level single-page outputs that should appear as their own section in the sidebar
+_SIDEBAR_ROOT_PAGES = [
+    ("utilities.md", "Utilities catalog"),
+    ("technology.md", "Technology"),
+    ("quick-reference.md", "Quick reference"),
+    ("frontend.md", "Frontend"),
+    ("architecture.md", "Architecture"),
+]
 
 
 def _page_title(page: Path) -> str:
@@ -2067,16 +2082,35 @@ def render_wiki_sidebar(wiki_root: Path) -> str:
         d = wiki_root / subdir
         if not d.exists():
             continue
-        pages = sorted(d.glob("*.md"), key=lambda p: _page_title(p).lower())
+        pages = sorted(
+            (p for p in d.glob("*.md") if p.name != "index.md"),
+            key=lambda p: _page_title(p).lower(),
+        )
         if not pages:
             continue
         parts.append(f"<h3>{_SIDEBAR_LABELS[subdir]}</h3>")
         parts.append("<ul>")
+        # Surface a per-section overview link when index.md exists (e.g. decisions/index.md)
+        idx = d / "index.md"
+        if idx.exists():
+            rel_idx = idx.relative_to(wiki_root).as_posix()
+            parts.append(f'<li><a href="/wiki/{rel_idx}"><em>Overview</em></a></li>')
         for page in pages:
             rel = page.relative_to(wiki_root).as_posix()
             title = _html.escape(_page_title(page))
             parts.append(f'<li><a href="/wiki/{rel}">{title}</a></li>')
         parts.append("</ul>")
+
+    # Root-level single-page outputs as a "More" section
+    root_present = [(name, label) for name, label in _SIDEBAR_ROOT_PAGES
+                    if (wiki_root / name).exists()]
+    if root_present:
+        parts.append("<h3>More</h3>")
+        parts.append("<ul>")
+        for name, label in root_present:
+            parts.append(f'<li><a href="/wiki/{name}">{_html.escape(label)}</a></li>')
+        parts.append("</ul>")
+
     parts.append("</nav>")
     return "\n".join(parts)
 

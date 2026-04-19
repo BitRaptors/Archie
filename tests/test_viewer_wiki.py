@@ -68,6 +68,50 @@ def test_render_wiki_sidebar(tmp_path):
     assert 'href="/wiki/components/a.md"' in html
 
 
+def test_render_wiki_sidebar_includes_data_models_and_root_pages(tmp_path):
+    """Sidebar must surface data-models, guidelines, rules sections AND root-level
+    single-page outputs (utilities.md, technology.md, etc.)."""
+    wiki = tmp_path / "wiki"
+    (wiki / "data-models").mkdir(parents=True)
+    (wiki / "guidelines").mkdir()
+    (wiki / "rules").mkdir()
+    (wiki / "data-models" / "place.md").write_text("# Place\n")
+    (wiki / "data-models" / "tag.md").write_text("# Tag\n")
+    (wiki / "guidelines" / "auth.md").write_text("# How to add auth\n")
+    (wiki / "rules" / "architecture.md").write_text("# Architecture rules\n")
+    (wiki / "utilities.md").write_text("# Utilities catalog\n")
+    (wiki / "technology.md").write_text("# Technology\n")
+    (wiki / "frontend.md").write_text("# Frontend\n")
+
+    html = viewer.render_wiki_sidebar(wiki)
+    # New section headings appear
+    assert "Data models" in html
+    assert "Guidelines" in html
+    assert "Rules" in html
+    # Data-model pages linked
+    assert 'href="/wiki/data-models/place.md"' in html
+    assert 'href="/wiki/data-models/tag.md"' in html
+    # Root-level single-page outputs surface under "More"
+    assert "More" in html
+    assert 'href="/wiki/utilities.md"' in html
+    assert 'href="/wiki/technology.md"' in html
+    assert 'href="/wiki/frontend.md"' in html
+
+
+def test_render_wiki_sidebar_includes_decisions_overview_link(tmp_path):
+    """When decisions/index.md exists, surface it as an Overview link at the top of the section."""
+    wiki = tmp_path / "wiki"
+    (wiki / "decisions").mkdir(parents=True)
+    (wiki / "decisions" / "index.md").write_text("# Architectural decisions\n")
+    (wiki / "decisions" / "jwt.md").write_text("# JWT\n")
+
+    html = viewer.render_wiki_sidebar(wiki)
+    assert 'href="/wiki/decisions/index.md"' in html
+    assert "<em>Overview</em>" in html
+    # Overview link should appear before the per-decision link
+    assert html.index("decisions/index.md") < html.index("decisions/jwt.md")
+
+
 def test_serve_wiki_page(tmp_path):
     wiki = tmp_path / "wiki"
     (wiki / "components").mkdir(parents=True)
