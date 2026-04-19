@@ -549,3 +549,39 @@ def test_wiki_data_models_end_to_end(tmp_path):
     assert "## Data models" in index_md
     assert "- [User](./data-models/user.md)" in index_md
     assert "- [Session](./data-models/session.md)" in index_md
+
+
+def test_wiki_builder_emits_utilities_page_from_scan(tmp_path):
+    """End-to-end: scanner produces symbols on sample_sources, wiki_builder
+    renders utilities.md with at least one categorized section."""
+    project = _setup_project(tmp_path)
+
+    # Drop sample_sources into the project so scanner has something to extract from
+    fixture_root = Path(__file__).parent / "fixtures" / "sample_sources"
+    for src in fixture_root.iterdir():
+        if src.is_dir():
+            shutil.copytree(src, project / src.name)
+
+    # Run scanner so .archie/scan.json gets symbols[]
+    scanner_path = STANDALONE / "scanner.py"
+    subprocess.run(
+        [sys.executable, str(scanner_path), str(project)],
+        check=True,
+        capture_output=True,
+    )
+
+    # Run wiki_builder
+    subprocess.run(
+        [sys.executable, str(STANDALONE / "wiki_builder.py"), str(project)],
+        check=True,
+        capture_output=True,
+    )
+
+    utilities_md = (project / ".archie" / "wiki" / "utilities.md").read_text()
+    assert "# Utilities catalog" in utilities_md
+    # At least one of the sample functions should appear
+    assert (
+        "formatLocalizedDate" in utilities_md
+        or "format_time" in utilities_md
+        or "formatDate" in utilities_md
+    )

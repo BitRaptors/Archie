@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import sys
+from collections import defaultdict
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -1008,6 +1009,109 @@ def render_decisions_index(blueprint: dict, slug_map: dict[str, dict[str, str]])
     return "".join(parts)
 
 
+_TOPIC_WORDS: dict[str, str] = {
+    "date": "Date", "dates": "Date", "time": "Time",
+    "string": "String", "strings": "String",
+    "array": "Array", "arrays": "Array",
+    "number": "Number", "numbers": "Number",
+    "url": "URL", "urls": "URL",
+    "json": "JSON",
+    "file": "File", "files": "File", "path": "Path", "paths": "Path",
+    "color": "Color", "colors": "Color",
+}
+
+_STRIP_SUFFIXES = ("Ext", "Extensions", "Extension", "Utils", "Util",
+                   "Helper", "Helpers")
+
+
+def _categorize_symbol(symbol: dict) -> str:
+    """Return a category string for a symbol, used to group the utilities catalog.
+
+    Priority:
+    1. Filename topic — stem split on +/-/_, strip common suffixes, match TOPIC_WORDS.
+    2. Function-name prefix — format*, is*/has*/can*/should*, to*/from*/parse*/stringify*.
+    3. Fallback — "Uncategorized".
+    """
+    file_path = symbol.get("file") or ""
+    stem = Path(file_path).stem if file_path else ""
+    # Try filename topic
+    parts = re.split(r"[+\-_]", stem)
+    for raw in parts:
+        cleaned = raw
+        for suf in _STRIP_SUFFIXES:
+            if cleaned.endswith(suf) and len(cleaned) > len(suf):
+                cleaned = cleaned[: -len(suf)]
+                break
+        topic = _TOPIC_WORDS.get(cleaned.lower())
+        if topic:
+            return topic
+    # Try function-name prefix
+    name = symbol.get("name") or ""
+    bare = name.split(".")[-1]  # strip "Type." prefix from extension methods
+    lower = bare.lower()
+    if lower.startswith("format"):
+        return "Formatting"
+    if any(lower.startswith(p) for p in ("is", "has", "can", "should")):
+        return "Predicate"
+    if any(lower.startswith(p) for p in ("to", "from", "parse", "stringify")):
+        return "Conversion"
+    return "Uncategorized"
+
+
+def render_utilities_catalog(symbols: list[dict] | None) -> str:
+    """Render symbols[] as a single grouped utilities.md page.
+
+    Returns empty string when symbols is empty/None — caller should skip writing.
+
+    Rendering choice: we render the literal `signature` field for the bold entry.
+    Extension methods (name contains a '.') get an _(extension)_ marker appended.
+    This preserves the full function signature (e.g. `func trimmed() -> String`)
+    while the marker conveys it extends an existing type.
+    """
+    if not symbols:
+        return ""
+
+    # Group by category
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for sym in symbols:
+        if not sym.get("name") or not sym.get("signature"):
+            continue
+        cat = _categorize_symbol(sym)
+        groups[cat].append(sym)
+
+    if not groups:
+        return ""
+
+    # Sort categories alphabetically, Uncategorized always last
+    sorted_cats = sorted(
+        groups.keys(),
+        key=lambda c: (c == "Uncategorized", c),
+    )
+
+    parts = [
+        _frontmatter(type="utilities-catalog", slug="utilities"),
+        "\n# Utilities catalog\n",
+        "\nReusable helper functions discovered in the codebase. "
+        "Grep the wiki before implementing similar logic.\n",
+    ]
+
+    for cat in sorted_cats:
+        entries = sorted(groups[cat], key=lambda s: (s.get("file", ""), s.get("name", "")))
+        n = len(entries)
+        noun = "function" if n == 1 else "functions"
+        parts.append(f"\n## {cat} ({n} {noun})\n")
+        for sym in entries:
+            sig = sym["signature"]
+            name = sym["name"]
+            file_path = sym.get("file", "")
+            extension_marker = " _(extension)_" if "." in name else ""
+            parts.append(f"\n- **`{sig}`**{extension_marker}")
+            parts.append(f"\n  `{file_path}`")
+        parts.append("\n")
+
+    return "".join(parts)
+
+
 def build_wiki(project_root: Path) -> None:
     """Pass 1: read blueprint.json, emit all pages + index.md under .archie/wiki/."""
     blueprint_path = project_root / ".archie" / "blueprint.json"
@@ -1114,6 +1218,20 @@ def build_wiki(project_root: Path) -> None:
     arch_page = render_architecture(blueprint)
     if arch_page:
         _write(wiki_root / "architecture.md", arch_page)
+
+    # Utilities catalog (from scan.json.symbols, not the blueprint)
+    scan_path = project_root / ".archie" / "scan.json"
+    symbols: list[dict] = []
+    if scan_path.exists():
+        try:
+            scan_data = json.loads(scan_path.read_text(encoding="utf-8"))
+            symbols = _as_list(scan_data.get("symbols"))
+        except (json.JSONDecodeError, OSError):
+            symbols = []
+
+    utilities_page = render_utilities_catalog(symbols)
+    if utilities_page:
+        _write(wiki_root / "utilities.md", utilities_page)
 
     _write(wiki_root / "index.md", render_index(blueprint, slug_map, project_root=project_root))
 

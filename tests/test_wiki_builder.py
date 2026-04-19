@@ -358,6 +358,60 @@ def test_render_pitfall_applies_to_empty_list_no_section():
     assert "## Applies to" not in md
 
 
+def test_render_utilities_catalog_groups_by_category():
+    symbols = [
+        {
+            "file": "Sources/Extensions/Date+Ext.swift",
+            "name": "formatLocalizedDate",
+            "kind": "function",
+            "signature": "func formatLocalizedDate(_ date: Date) -> String",
+            "exported": True,
+            "language": "swift",
+        },
+        {
+            "file": "Sources/Extensions/String+Ext.swift",
+            "name": "String.trimmed",
+            "kind": "function",
+            "signature": "func trimmed() -> String",
+            "exported": True,
+            "language": "swift",
+        },
+        {
+            "file": "src/utils/random.ts",
+            "name": "shuffleArray",
+            "kind": "function",
+            "signature": "export function shuffleArray<T>(arr: T[]): T[]",
+            "exported": True,
+            "language": "typescript",
+        },
+    ]
+    md = wiki_builder.render_utilities_catalog(symbols)
+
+    assert "type: utilities-catalog" in md
+    assert "# Utilities catalog" in md
+
+    # Category headings appear with correct counts
+    assert "## Date (1 function)" in md
+    assert "## String (1 function)" in md
+    assert "## Uncategorized (1 function)" in md
+
+    # Signatures rendered + file paths shown
+    assert "func formatLocalizedDate" in md
+    assert "Sources/Extensions/Date+Ext.swift" in md
+
+    # Extension method gets the marker
+    assert "_(extension)_" in md
+
+    # Uncategorized always last
+    assert md.index("## Date") < md.index("## Uncategorized")
+    assert md.index("## String") < md.index("## Uncategorized")
+
+
+def test_render_utilities_catalog_returns_empty_for_no_symbols():
+    assert wiki_builder.render_utilities_catalog([]) == ""
+    assert wiki_builder.render_utilities_catalog(None) == ""
+
+
 def test_render_index_meta_project_name_takes_precedence(tmp_path):
     blueprint = {"meta": {"project_name": "ExplicitName"}}
     slug_map = {"decisions": {}, "components": {}, "patterns": {}, "pitfalls": {}, "capabilities": {}}
