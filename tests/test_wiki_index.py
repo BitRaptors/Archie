@@ -99,3 +99,34 @@ def test_write_provenance_records_evidence(tmp_path):
     assert prov["capabilities/auth.md"]["evidence"] == ["features/auth/**", "routes matching /api/auth/*"]
     # Pages without an evidence entry don't get the key.
     assert "evidence" not in prov["components/x.md"]
+
+
+def test_page_type_from_dir_recognizes_data_models():
+    from wiki_index import _page_type_from_dir
+    assert _page_type_from_dir(("data-models", "user.md")) == "data-model"
+
+
+def test_page_type_from_dir_recognizes_utilities_root_file():
+    from wiki_index import _page_type_from_dir
+    assert _page_type_from_dir(("utilities.md",)) == "utility-catalog"
+
+
+def test_page_type_from_dir_recognizes_other_root_files():
+    from wiki_index import _page_type_from_dir
+    assert _page_type_from_dir(("technology.md",)) == "technology"
+    assert _page_type_from_dir(("frontend.md",)) == "frontend"
+    assert _page_type_from_dir(("quick-reference.md",)) == "quick-reference"
+    assert _page_type_from_dir(("architecture.md",)) == "architecture"
+    assert _page_type_from_dir(("index.md",)) == "index"
+
+
+def test_page_type_from_dir_recognizes_guidelines_and_rules():
+    from wiki_index import _page_type_from_dir
+    assert _page_type_from_dir(("guidelines", "foo.md")) == "guideline"
+    assert _page_type_from_dir(("rules", "architecture.md")) == "rule"
+
+
+def test_page_type_from_dir_unknown_fallback():
+    from wiki_index import _page_type_from_dir
+    assert _page_type_from_dir(("mystery", "foo.md")) == "unknown"
+    assert _page_type_from_dir(()) == "unknown"
