@@ -273,6 +273,22 @@ Three small refinements to the data-model and backlink rendering:
 - **Data-model relations** — `render_data_model` gains a `## Related models` section listing entities referenced via field types. Detection (`_extract_data_model_refs`) is word-boundary regex against the set of known data-model names; multi-field references coalesce into a single line per related model (e.g. `[Place](./place.md) — via \`homeLocation\`, \`workLocation\` fields`). Self-references are excluded. Section sits between `## Fields` and `## Used by`.
 - **Field-type normalization** — `_normalize_field_type` maps language-specific optional notations (`String?`, `Optional<String>`, `Optional[str]`, `str | None`) to a canonical lowercase + `?` form. Primitive type names (`String`/`Int`/`Bool`/`Float`/...) are lowercased; custom and acronym types are preserved verbatim. Collection wrappers (`[Foo]`, `Array<Foo>`, `List<Foo>`) pass through unchanged minus optionality. The Fields table renders `canonical (raw)` when the two differ — agents see the canonical form first, with the original kept for fidelity.
 
+### 4.14 Blueprint freshness check (Plan 5d)
+
+`/archie-deep-scan` previously skipped the Wave 1 agent set when the orchestrator detected no source-code changes since the last baseline. This optimization broke whenever a new Wave 1 agent was added (e.g. Plan 5b.1's `data_models`): the existing blueprint lacked the new key, but the optimization reused it anyway, so the new agent never produced output. Confirmed in production: a 2026-04-19 deep-scan of Gasztroterkepek.iOS reused the prior-day blueprint and silently regressed the data-models feature.
+
+The fix is a small standalone helper `check_blueprint_completeness.py` that runs as **Step 0.5** in the deep-scan command (before Step 1 / scanner). It compares `blueprint.json`'s top-level keys against an `EXPECTED_KEYS` list maintained inside the helper (each entry annotated with the plan that introduced it). When any expected key is missing — or the blueprint is malformed JSON — the helper exits non-zero and the deep-scan command writes a marker file `/tmp/archie_force_full_wave1_<project>` that Step 3 must consult before applying the "no code changes → reuse blueprint" optimization. The marker is cleaned up in Step 9 alongside other `/tmp` artifacts.
+
+Status semantics:
+- `MISSING` — `.archie/blueprint.json` does not exist; exit 0 (first-run logic in deep-scan handles it).
+- `OK` — all expected keys present; exit 0.
+- `STALE: missing <key1> (<intro_plan>), <key2> (<intro_plan>)` — sorted by intro plan version then key name; exit 1.
+- `MALFORMED` — JSON parse failure; exit 1.
+
+Empty arrays count as PRESENT (the agent ran and returned nothing legitimately). The check operates on key presence only — does NOT validate inner structure (the per-agent merger handles that).
+
+Maintenance contract: any plan that adds a new Wave 1 agent must add a matching entry to `EXPECTED_KEYS` in the same commit. Without it, the new agent will silently regress on the first project upgrade after the new toolchain rolls out.
+
 ## 5. Generation pipeline
 
 ### 5.1 Deep-scan (full build)

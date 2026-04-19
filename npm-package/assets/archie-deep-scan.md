@@ -163,6 +163,24 @@ Run the following steps once per project. In single-project mode, `PROJECT_ROOT`
 
 Use `PROJECT_NAME` as the basename of `PROJECT_ROOT` for namespacing temp files (e.g., "gasztroterkepek-android").
 
+## Step 0.5: Blueprint freshness check (Plan 5d)
+
+**If START_STEP > 0, skip this step.**
+
+Before any "skip Wave 1 because no code changes" reasoning, deterministically verify that the existing `blueprint.json` (if any) contains all expected top-level keys. New Wave 1 agents added since the prior baseline produce keys that the old blueprint lacks — those gaps require a forced full re-synthesis regardless of code-change state.
+
+```bash
+FRESHNESS=$(python3 .archie/check_blueprint_completeness.py "$PROJECT_ROOT")
+FRESHNESS_EXIT=$?
+echo "Blueprint freshness: $FRESHNESS"
+if [ $FRESHNESS_EXIT -ne 0 ]; then
+    echo "FORCE_FULL_WAVE1=1 (blueprint stale or malformed)"
+    touch /tmp/archie_force_full_wave1_$PROJECT_NAME
+fi
+```
+
+The marker file `/tmp/archie_force_full_wave1_$PROJECT_NAME` is consumed in Step 3 (see "Force-full-Wave1 override" note there) and cleaned up in Step 9 along with other /tmp artifacts.
+
 ## Step 1: Run the scanner
 
 **If START_STEP > 1, skip this step.**
@@ -193,6 +211,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 2
 ## Step 3: Spawn analytical agents
 
 **If START_STEP > 3, skip this step.**
+
+**Force-full-Wave1 override (Plan 5d):** If `/tmp/archie_force_full_wave1_$PROJECT_NAME` exists (set by Step 0.5 when blueprint freshness check failed), you MUST spawn the full Wave 1 set (Structure + Patterns + Technology + UI Layer + Capabilities + Data models) regardless of how many source files changed. The optimization to "reuse existing blueprint when no code changed" assumes the existing blueprint was produced by the current toolchain — when freshness check fails, that assumption is wrong. Treat the run as a full baseline (SCAN_MODE = "full") even if the heuristic would otherwise pick "incremental".
 
 ### If SCAN_MODE = "incremental":
 
@@ -1082,7 +1102,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 **If START_STEP > 9, skip this step.**
 
 ```bash
-rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json /tmp/archie_agent_capabilities.json /tmp/archie_agent_data_models.json
+rm -f /tmp/archie_sub*_$PROJECT_NAME.json /tmp/archie_rules_$PROJECT_NAME.json /tmp/archie_intent_prompt_$PROJECT_NAME.txt /tmp/archie_enrichment_*.json /tmp/archie_agent_capabilities.json /tmp/archie_agent_data_models.json /tmp/archie_force_full_wave1_$PROJECT_NAME
 ```
 
 ```bash
