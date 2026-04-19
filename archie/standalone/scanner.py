@@ -746,6 +746,81 @@ def extract_skeletons(root: Path, files: list[dict]) -> dict[str, dict]:
     return skeletons
 
 
+def _extract_swift_functions(content: str, path: str) -> list[dict]:
+    """Regex-based extraction of public top-level + extension methods from Swift source.
+
+    Two-pass approach:
+    1. Match ``public func`` at indentation level 0 (top-level).
+    2. Match ``extension Type {`` blocks, then within each block find
+       ``public func`` lines at one level of indentation.
+
+    Limitation: nested extensions (``extension A { extension B { } }``) are not
+    supported; for the v1 fixture this regex-based block scan is sufficient.
+    """
+    results: list[dict] = []
+
+    # Pass 1 — top-level public functions (no leading whitespace)
+    # Match `public func name(...)` at column 0; capture the whole line for the signature.
+    # We stop at newline so both `func foo() -> T {` and `func foo() -> T { body }` are handled.
+    top_level_re = re.compile(
+        r'^public\s+func\s+(\w+)\s*\([^)]*\)[^\n]*$',
+        re.MULTILINE,
+    )
+    for m in top_level_re.finditer(content):
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        # Build clean signature: strip trailing `{` and anything after it, then trim
+        raw = m.group(0)
+        # Keep up to (but not including) the opening `{` body brace
+        sig = re.sub(r'\s*\{.*$', '', raw, flags=re.DOTALL).strip()
+        results.append({
+            "file": path,
+            "name": name,
+            "kind": "function",
+            "signature": sig,
+            "exported": True,
+            "language": "swift",
+        })
+
+    # Pass 2 — extension methods
+    # Match each top-level extension block: extension TypeName { ... }
+    # We use a simple approach: find `extension Foo {` then grab content up to
+    # the matching closing `}` at column 0.
+    ext_block_re = re.compile(r'^extension\s+(\w+)\s*\{', re.MULTILINE)
+    # Match `public func name(...)` with leading whitespace (inside an extension block)
+    ext_method_re = re.compile(
+        r'^\s+public\s+func\s+(\w+)\s*\([^)]*\)[^\n]*$',
+        re.MULTILINE,
+    )
+
+    for ext_match in ext_block_re.finditer(content):
+        type_name = ext_match.group(1)
+        block_start = ext_match.end()
+        # Find the closing `}` at column 0
+        close_re = re.compile(r'^\}', re.MULTILINE)
+        close_match = close_re.search(content, block_start)
+        block_content = content[block_start: close_match.start()] if close_match else content[block_start:]
+
+        for m in ext_method_re.finditer(block_content):
+            method_name = m.group(1)
+            if method_name.startswith("_"):
+                continue
+            # Signature in source form (no Type. prefix), strip leading indent and trailing body
+            raw = m.group(0).strip()
+            sig = re.sub(r'\s*\{.*$', '', raw, flags=re.DOTALL).strip()
+            results.append({
+                "file": path,
+                "name": f"{type_name}.{method_name}",
+                "kind": "function",
+                "signature": sig,
+                "exported": True,
+                "language": "swift",
+            })
+
+    return results
+
+
 def _extract_name(kind: str, signature: str) -> str:
     """Pull the symbol name out of a matched signature."""
     # class Foo, interface Foo, struct Foo, protocol Foo, enum Foo, object Foo, type Foo

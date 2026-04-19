@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
 from archie.engine.scanner import scan_directory
+import archie.standalone.scanner as scanner
 
 
 @pytest.fixture()
@@ -96,3 +98,43 @@ def test_scan_skips_binary_extensions(tmp_repo):
     paths = [e.path for e in entries]
 
     assert paths == ["app.ts"]
+
+
+# -------------------------------------------------------------------
+# 6. Swift function extraction
+# -------------------------------------------------------------------
+def test_extract_swift_functions_returns_public_top_level_and_extensions():
+    """Swift fixture has 1 public top-level fn, 1 public extension method, 1 private fn."""
+    fixture = Path(__file__).parent / "fixtures" / "sample_sources" / "swift" / "Extensions.swift"
+    content = fixture.read_text()
+    results = scanner._extract_swift_functions(content, "Extensions.swift")
+
+    names = sorted(r["name"] for r in results)
+    assert names == ["String.trimmed", "formatLocalizedDate"]
+
+    # All returned entries are exported, language=swift, kind=function
+    for r in results:
+        assert r["exported"] is True
+        assert r["language"] == "swift"
+        assert r["kind"] == "function"
+        assert r["file"] == "Extensions.swift"
+
+    # Signature for the top-level fn is captured (no leading `public ` is fine; signature is the canonical `func ...` form trimmed)
+    top = next(r for r in results if r["name"] == "formatLocalizedDate")
+    assert "func formatLocalizedDate" in top["signature"]
+    assert "Date" in top["signature"]
+
+
+def test_extract_swift_functions_skips_private_and_internal():
+    """Verify private/fileprivate/internal/no-modifier funcs are excluded."""
+    import textwrap
+    content = textwrap.dedent("""
+        public func keepMe() -> Int { return 1 }
+        private func skip1() {}
+        fileprivate func skip2() {}
+        internal func skip3() {}
+        func skipDefault() {}
+    """)
+    results = scanner._extract_swift_functions(content, "Test.swift")
+    names = [r["name"] for r in results]
+    assert names == ["keepMe"]
