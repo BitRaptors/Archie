@@ -651,21 +651,33 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 
 **If START_STEP > 5, skip this step.**
 
+### Findings store (accumulates across all runs)
+
+`.archie/findings.json` is a shared, compounding store — both `/archie-scan` and `/archie-deep-scan` read from it and write back to it. Each run adds new findings, upgrades existing ones (with matching `id`), confirms recurrence, or marks resolution. Scan and deep-scan are independent — neither requires the other; you can run either command any number of times in any order.
+
+Before Wave 2:
+
+- If `$PROJECT_ROOT/.archie/findings.json` exists, load the `findings` array and pass it to the Reasoning agent. It will upgrade the draft entries and emit additional findings it discovers.
+- If the file is absent (first-ever run, or brand-new project), the Reasoning agent produces findings from scratch and Wave 2 writes the file as part of its output.
+
+Either way, after Wave 2 the store reflects accumulated knowledge across every prior scan and deep-scan run.
+
 ### If SCAN_MODE = "incremental":
 
 Spawn an **Opus subagent** (`model: "opus"`) with scoped context:
 - The existing `$PROJECT_ROOT/.archie/blueprint.json` (full current architecture)
 - The patched `$PROJECT_ROOT/.archie/blueprint_raw.json` (with incremental changes from Step 4)
+- The current `$PROJECT_ROOT/.archie/findings.json` if it exists (the accumulated findings store)
 - The changed file contents (from `changed_files` list)
 
 Tell the scoped Reasoning agent:
 
-> The architecture was previously analyzed (blueprint.json attached). The blueprint_raw.json was updated with incremental structural changes. These specific files changed: [list changed_files]. Review the changes and update ONLY the affected sections:
+> The architecture was previously analyzed (blueprint.json attached). The blueprint_raw.json was updated with incremental structural changes. If findings.json is present, it carries the accumulated findings from prior scan and deep-scan runs. These specific files changed: [list changed_files]. Review the changes and update ONLY the affected sections:
 > - If changes affect a key decision, update it
 > - If changes introduce a new trade-off or invalidate one, update trade_offs
-> - If changes trigger or resolve a pitfall, update pitfalls
+> - If changes trigger, resolve, or modify findings/pitfalls in the changed areas, update them
 > - Update the decision_chain only for affected branches
-> Return ONLY the sections that need updating — unchanged sections will be preserved.
+> Return ONLY the sections that need updating — unchanged sections will be preserved. Use the 4-field contract (`problem_statement`, `evidence`, `root_cause`, `fix_direction`) when writing finding or pitfall entries.
 
 Save output and finalize with patch mode:
 ```
@@ -686,9 +698,9 @@ Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. N
 
 Tell the Reasoning agent:
 
-> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read key source files: entry points, main configs, core abstractions.
+> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read `$PROJECT_ROOT/.archie/findings.json` **if it exists** — it is the accumulated findings store across every prior scan and deep-scan run, each entry shaped as `{id, problem_statement, evidence, root_cause, fix_direction, depth, source, ...}`. If the file is absent, proceed without it and produce findings from scratch. Also read key source files: entry points, main configs, core abstractions.
 >
-> With the COMPLETE picture of what was built and how, produce deep architectural reasoning:
+> With the COMPLETE picture of what was built and how, produce deep architectural reasoning. You will upgrade any draft findings in the accumulated store, emit new findings you discover, AND emit pitfalls (classes of problem rooted in architectural decisions). Both findings and pitfalls share the same 4-field core (`problem_statement`, `evidence`, `root_cause`, `fix_direction`); pitfalls differ in altitude (class-of-problem, not instance) and ownership (blueprint-durable, not per-run).
 >
 > ### 1. Decision Chain
 > Trace the root constraint(s) that shaped this architecture. Build a dependency tree:
@@ -719,18 +731,33 @@ Tell the Reasoning agent:
 > ### 5. Out-of-Scope
 > What this codebase does NOT do. For each item, optionally note which decision makes it out of scope.
 >
-> ### 6. Pitfalls (3-5)
-> Each with:
-> - **area**, **description**, **recommendation**
-> - **stems_from**: NOT just a label — the FULL causal chain as an array. Example: `["local-first constraint", "chose SQLite for zero-config", "singleton pattern in db.ts", "no connection recovery on corruption"]`. Each element is a step in the chain from root decision to pitfall.
-> - **applies_to**: file paths where this pitfall is relevant
+> ### 6. Findings (upgrade existing + emit new)
+> Findings describe **instances**: concrete problems observed in specific files. If findings.json exists, upgrade each entry: preserve its `id`, `first_seen`, `applies_to`, and `evidence` (you may append new evidence). Rewrite `root_cause` with architectural grounding (name the decision, pattern, or constraint — not generic explanation) and rewrite `fix_direction` as an **ordered list of sequenced steps** referencing specific components and file paths. Set `depth: "canonical"`, `source: "deep:synthesis"`, increment `confirmed_in_scan` by 1.
 >
-> Only describe problems grounded in actual code. Do NOT recommend alternatives the code doesn't use.
+> Also emit **new findings** you discover from this overall-picture analysis that weren't in the store (assign next-free `f_NNNN` id, `first_seen` = today, `confirmed_in_scan` = 1, `depth: "canonical"`, `source: "deep:synthesis"`).
 >
-> ### 7. Architecture Diagram
+> Quality bar (both upgraded and new): `problem_statement` specific, `evidence` with concrete references, `root_cause` architecturally grounded, `fix_direction` sequenced and actionable. Soft floor of 3 total findings in the updated store; if fewer meet the bar, say so explicitly in your output.
+>
+> ### 7. Pitfalls
+> Pitfalls describe **classes** of problem — architectural traps rooted in decisions or patterns, covering both current manifestations and latent risks. They are durable blueprint entries, not per-run observations. Each pitfall uses the same 4-field core as findings:
+> - `id` (`pf_NNNN`, stable across runs — reuse existing ids when upgrading)
+> - `problem_statement` — one sentence describing the class of problem
+> - `evidence` — list of observations (cite architectural decisions, pattern recurrences across multiple findings, component absences)
+> - `root_cause` — the decision/pattern/constraint making this class of problem likely
+> - `fix_direction` — **ordered list** of strategic steps (migration order, seam to introduce, rule to establish)
+> - `applies_to` — component/folder paths (broader than finding-level file paths)
+> - `severity`, `confidence`, `source: "deep:synthesis"`, `depth: "canonical"`, `first_seen`, `confirmed_in_scan`
+>
+> Where a finding's `root_cause` is structural/recurring, also emit a corresponding pitfall and set the finding's `pitfall_id` to it. A single pitfall may have multiple confirming findings.
+>
+> Quality bar: only emit pitfalls whose `root_cause` traces to something visible in the blueprint (decision, pattern, component absence). Soft floor of 3; if fewer meet the bar, say so.
+>
+> Only describe problems grounded in actual code and observed decisions. Do NOT recommend alternatives the code doesn't use.
+>
+> ### 8. Architecture Diagram
 > Mermaid `graph TD` with 8-12 nodes. You have the full component list and communication patterns from the blueprint — use actual component names and real data flows.
 >
-> ### 8. Implementation Guidelines (5-8)
+> ### 9. Implementation Guidelines (5-8)
 > Capabilities using third-party libraries. Cross-reference the tech stack and pattern list from the blueprint. For each:
 > - **capability**: Human-readable name
 > - **category**: auth | notifications | media | storage | networking | analytics | persistence | ui | payments | location | state_management | navigation | testing
@@ -750,7 +777,40 @@ Tell the Reasoning agent:
 >     "out_of_scope": [],
 >     "decision_chain": {"root": "", "forces": [{"decision": "", "rationale": "", "violation_keywords": [], "forces": []}]}
 >   },
->   "pitfalls": [{"area": "", "description": "", "recommendation": "", "stems_from": ["causal", "chain", "steps"], "applies_to": []}],
+>   "findings": [
+>     {
+>       "id": "f_NNNN",
+>       "problem_statement": "",
+>       "evidence": [],
+>       "root_cause": "",
+>       "fix_direction": ["step 1", "step 2", "step 3"],
+>       "severity": "error|warn|info",
+>       "confidence": 0.9,
+>       "applies_to": [],
+>       "source": "deep:synthesis",
+>       "depth": "canonical",
+>       "pitfall_id": "pf_NNNN (optional)",
+>       "first_seen": "YYYY-MM-DDTHHMM",
+>       "confirmed_in_scan": 1,
+>       "status": "active"
+>     }
+>   ],
+>   "pitfalls": [
+>     {
+>       "id": "pf_NNNN",
+>       "problem_statement": "",
+>       "evidence": [],
+>       "root_cause": "",
+>       "fix_direction": ["step 1", "step 2", "step 3"],
+>       "severity": "error|warn",
+>       "confidence": 0.9,
+>       "applies_to": [],
+>       "source": "deep:synthesis",
+>       "depth": "canonical",
+>       "first_seen": "YYYY-MM-DD",
+>       "confirmed_in_scan": 1
+>     }
+>   ],
 >   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
 >   "implementation_guidelines": [
 >     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
