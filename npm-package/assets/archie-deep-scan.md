@@ -369,6 +369,8 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > - **Backend**: Direct method calls between layers, in-process events, message buses
 > - **Frontend**: Props, Context, event emitters, pub/sub, state management stores
 > - **Cross-Platform**: API calls from frontend to backend, shared types/contracts
+> - **Runtime boundaries** (flag whenever present): separate processes/workers/threads/iframes/subprocesses, their lifecycle (who spawns, how they die), and the protocol crossing each boundary (IPC channel names, stdio framing like NDJSON/length-prefix, RPC shape). Record the exact files where each side is implemented.
+> - **Seams and invariants** (flag whenever present): abstract interfaces/classes/traits with multiple concrete implementations (note what varies vs. what's stable); any wrapper/middleware/interceptor/guard that conditionally allows, denies, transforms, or sequences other operations based on state. Wave 2 will upgrade these into key decisions — just surface the raw signal here.
 >
 > ### 5. External Communication
 > - **HTTP/REST**: External API calls (both backend-to-external and frontend-to-backend)
@@ -380,6 +382,7 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 6. Third-Party Integrations
 > List ALL external services with: service name, purpose, integration point (file path).
 > Categories: AI/LLM providers, payment processors, auth providers, storage services, analytics/monitoring, CDN/asset hosting.
+> Also call out any **extension protocols** — mechanisms by which third-party or user-supplied capabilities can be plugged in at runtime (plugin systems, protocol-based tool/resource loading, hook/callback registries, config-driven dispatch). For each: the protocol, the registration point, and how contributed capabilities stitch into the core's catalog.
 >
 > ### 7. Frontend-Backend Contract
 > - How do frontend and backend communicate? (REST, GraphQL, tRPC, WebSocket, etc.)
@@ -720,10 +723,30 @@ Tell the Reasoning agent:
 > - **alternatives_rejected**: What alternatives were NOT chosen and WHY they were ruled out by the constraints
 >
 > ### 3. Key Decisions (3-7)
-> Each with: title, chosen, rationale, alternatives_rejected.
-> - **rationale** must reference specific components, patterns, or tech from the blueprint
-> - **forced_by**: What constraint or other decision made this one necessary
-> - **enables**: What this decision makes possible downstream
+>
+> Before writing key decisions, run these three probes across the codebase. They surface load-bearing decisions that are often invisible to pure structural analysis (components, layers, tech stack). Each probe is **shape-based and framework-neutral** — it asks about *how* the code commits, not about any specific pattern. A probe can produce 0-N decisions; only emit what is actually present. Name each commitment in the **codebase's own vocabulary** (exact class/module/file names), not generic restatements.
+>
+> **Probe A — Complexity-budget:** identify every place where this codebase spends meaningful complexity on something a naive implementation of the same product wouldn't need. For each:
+> - Name the commitment (in the codebase's own terms).
+> - Sketch the naive alternative in one sentence.
+> - What does this choice **enable** (capability unlocked)?
+> - What does it **foreclose** (path closed off)?
+> - Point at the specific files/modules where the commitment is implemented. If you can't, drop it.
+>
+> **Probe B — Invariants & gates:** locate every rule the codebase enforces on itself — anything that constrains, sequences, authorizes, versions, rate-limits, or otherwise gates other operations. For each: state the invariant in plain language, identify whether it is enforced at a single seam or scattered, and name what violates it (or where violation would slip through).
+>
+> **Probe C — Seams:** locate every place designed for substitution or extension — abstract interfaces with multiple concrete implementations, registry- or config-driven dispatch, protocol boundaries, plugin surfaces, hook/callback systems. For each: what **varies** across the seam, what is held **stable**, and what is the **mechanism** for adding a new implementation.
+>
+> **Working from Wave 1 output.** Wave 1 has already read the codebase (skeletons and, where needed, source). Run each probe primarily against `blueprint_raw.json` — specifically the `communication`, `components`, and `technology` sections, plus any raw agent output captured there. The probes are synthesis questions over Wave 1's data, not a fresh read pass.
+>
+> Only read source directly when Wave 1's output is genuinely insufficient to answer a probe (e.g., Wave 1 named a seam but didn't record what varies across it, or flagged a gate without naming the invariant). Judge file-by-file — no blanket re-read. If a signal clearly exists in the codebase but Wave 1's data is thin, prefer to record that as a gap in `pitfalls` (so the next scan catches more) over re-doing Wave 1's job here.
+>
+> **Emitting decisions.** Consolidate what the probes surface into `key_decisions` (target 3-7). Each with: title, chosen, rationale, alternatives_rejected.
+> - **rationale** must reference specific components, patterns, or tech from the blueprint AND cite the concrete file/module that implements the commitment.
+> - **forced_by**: what constraint or other decision made this one necessary
+> - **enables**: what this decision makes possible downstream
+>
+> A codebase with few commitments (template apps, naive CRUD) may genuinely have only 2-3 meaningful decisions — do not invent filler. A codebase heavy in protocols, gates, and seams will have more than 7 candidates; in that case keep the most load-bearing and note the rest in `trade_offs` or `pitfalls` as appropriate.
 >
 > ### 4. Trade-offs (3-5)
 > Each with: accept, benefit, caused_by (which decision created this trade-off), violation_signals (code patterns that would indicate someone is undoing this trade-off, e.g., removing Puppeteer → `["uninstall puppeteer", "remove puppeteer", "playwright"]`)
