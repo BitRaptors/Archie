@@ -163,7 +163,13 @@ Run the following steps once per project. In single-project mode, `PROJECT_ROOT`
 
 Use `PROJECT_NAME` as the basename of `PROJECT_ROOT` for namespacing temp files (e.g., "gasztroterkepek-android").
 
+## Telemetry conventions
+
+Each Step 1–9 records a `TELEMETRY_STEPN_START` timestamp as its first action; the next step's start serves as the previous step's end. Step 9 records its own `TELEMETRY_STEP9_END`. After Step 9 completes, the run writes `.archie/telemetry/deep-scan_<timestamp>.json` for measuring per-step wall-clock impact of changes. If a step is skipped via `START_STEP > N`, set both START and END to the same timestamp so totals don't include skipped time.
+
 ## Step 1: Run the scanner
+
+**Telemetry:** `TELEMETRY_STEP1_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
 
 **If START_STEP > 1, skip this step.**
 
@@ -178,6 +184,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 1
 
 ## Step 2: Read scan results
 
+**Telemetry:** `TELEMETRY_STEP2_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 2, skip this step.**
 
 Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, top-level directories, and `frontend_ratio`.
@@ -191,6 +199,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 2
 ```
 
 ## Step 3: Spawn analytical agents
+
+**Telemetry:** `TELEMETRY_STEP3_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
 
 **If START_STEP > 3, skip this step.**
 
@@ -608,6 +618,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 3
 
 ## Step 4: Save Wave 1 output and merge
 
+**Telemetry:** `TELEMETRY_STEP4_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 4, skip this step.**
 
 ### If SCAN_MODE = "incremental":
@@ -651,6 +663,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 ```
 
 ## Step 5: Wave 2 — Reasoning agent
+
+**Telemetry:** `TELEMETRY_STEP5_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
 
 **If START_STEP > 5, skip this step.**
 
@@ -867,6 +881,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5
 
 ## Step 6: AI Rule Synthesis
 
+**Telemetry:** `TELEMETRY_STEP6_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 6, skip this step.**
 
 ### If SCAN_MODE = "incremental":
@@ -965,6 +981,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 
 ## Step 7: Intent Layer — per-folder CLAUDE.md
 
+**Telemetry:** `TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 7, skip this step.**
 
 This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
@@ -1046,6 +1064,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
 
 ## Step 8: Clean up
 
+**Telemetry:** `TELEMETRY_STEP8_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 8, skip this step.**
 
 ```bash
@@ -1057,6 +1077,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 ```
 
 ## Step 9: Drift Detection & Architectural Assessment
+
+**Telemetry:** `TELEMETRY_STEP9_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
 
 **If START_STEP > 9, skip this step.**
 
@@ -1293,3 +1315,35 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-baseline SC
 (Replace SCAN_MODE with the actual mode — "full" or "incremental")
 
 End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-scan` for fast health checks. Run `/archie-deep-scan --incremental` after code changes to update the architecture analysis."**
+
+## Step 10: Write telemetry
+
+Record the final timestamp and emit the per-run telemetry file at `.archie/telemetry/deep-scan_<timestamp>.json` for measuring per-step wall-clock impact.
+
+```bash
+TELEMETRY_STEP9_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
+
+Write `/tmp/archie_timing.json` with the timestamps you recorded at each step boundary. For any step skipped via `START_STEP > N`, set both `started_at` and `completed_at` to the same value so the elapsed seconds is 0.
+
+```json
+[
+  {"name": "scan",            "started_at": "<TELEMETRY_STEP1_START>", "completed_at": "<TELEMETRY_STEP2_START>"},
+  {"name": "read",            "started_at": "<TELEMETRY_STEP2_START>", "completed_at": "<TELEMETRY_STEP3_START>"},
+  {"name": "wave1",           "started_at": "<TELEMETRY_STEP3_START>", "completed_at": "<TELEMETRY_STEP4_START>", "model": "sonnet"},
+  {"name": "merge",           "started_at": "<TELEMETRY_STEP4_START>", "completed_at": "<TELEMETRY_STEP5_START>"},
+  {"name": "wave2_synthesis", "started_at": "<TELEMETRY_STEP5_START>", "completed_at": "<TELEMETRY_STEP6_START>", "model": "opus"},
+  {"name": "rule_synthesis",  "started_at": "<TELEMETRY_STEP6_START>", "completed_at": "<TELEMETRY_STEP7_START>", "model": "sonnet"},
+  {"name": "intent_layer",    "started_at": "<TELEMETRY_STEP7_START>", "completed_at": "<TELEMETRY_STEP8_START>", "model": "sonnet"},
+  {"name": "cleanup",         "started_at": "<TELEMETRY_STEP8_START>", "completed_at": "<TELEMETRY_STEP9_START>"},
+  {"name": "drift",           "started_at": "<TELEMETRY_STEP9_START>", "completed_at": "<TELEMETRY_STEP9_END>"}
+]
+```
+
+Then invoke the writer:
+
+```bash
+python3 .archie/telemetry.py "$PROJECT_ROOT" --command deep-scan --timing-file /tmp/archie_timing.json
+```
+
+If telemetry fails for any reason (missing timestamp, file write error), do not abort — telemetry is informational only.

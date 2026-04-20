@@ -100,6 +100,8 @@ After all passes finish, print a summary if >1 blueprint was touched: "Updated N
 
 ## Phase 1: Data Gathering (parallel scripts, seconds)
 
+**Telemetry:** record `TELEMETRY_DATA_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` before launching the scripts below.
+
 Run all three scripts simultaneously:
 
 ```bash
@@ -137,6 +139,8 @@ Read accumulated knowledge (skip any that don't exist — that's normal for earl
 ---
 
 ## Phase 3: Parallel Analysis (3 agents)
+
+**Telemetry:** record `TELEMETRY_DATA_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` and `TELEMETRY_AGENTS_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` before spawning agents.
 
 Spawn 3 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`). Each agent receives all the data from Phase 2 and can read source files when needed.
 
@@ -297,6 +301,8 @@ Save output: /tmp/archie_agent_c_rules.json
 ---
 
 ## Phase 4: Synthesis + Blueprint Evolution
+
+**Telemetry:** record `TELEMETRY_AGENTS_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` and `TELEMETRY_SYNTHESIS_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` before starting synthesis.
 
 Read the outputs from all three agents:
 - `/tmp/archie_agent_a_arch.json`
@@ -512,6 +518,32 @@ rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_
 ```
 
 Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
+
+### 4f: Write telemetry
+
+Record the synthesis end timestamp and write the per-run telemetry file. This captures step-level wall-clock for measuring the impact of prompt/code changes; output lives in `.archie/telemetry/`.
+
+```bash
+TELEMETRY_SYNTHESIS_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
+
+Write `/tmp/archie_timing.json` with the timestamps you recorded at each phase boundary above:
+
+```json
+[
+  {"name": "data", "started_at": "<TELEMETRY_DATA_START>", "completed_at": "<TELEMETRY_DATA_END>"},
+  {"name": "agents", "started_at": "<TELEMETRY_AGENTS_START>", "completed_at": "<TELEMETRY_AGENTS_END>", "model": "sonnet"},
+  {"name": "synthesis", "started_at": "<TELEMETRY_SYNTHESIS_START>", "completed_at": "<TELEMETRY_SYNTHESIS_END>"}
+]
+```
+
+Then invoke the writer:
+
+```bash
+python3 .archie/telemetry.py "$PWD" --command scan --timing-file /tmp/archie_timing.json
+```
+
+If telemetry fails for any reason (missing timestamp, file write error), do not abort the scan — telemetry is informational only.
 
 ---
 
