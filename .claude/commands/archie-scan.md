@@ -369,7 +369,62 @@ Then normalize it to ensure canonical schema:
 python3 .archie/finalize.py "$PWD" --normalize-only
 ```
 
-### 4b: Write Scan Report
+### 4b: Write structured findings
+
+Collect every concrete problem the three agents surfaced (Agent A: architecture/structure, Agent B: health/complexity, Agent C: patterns/rules) and emit them as structured JSON to `.archie/findings.json`. This is the machine-readable companion to the prose scan report in 4c, and it is the seam that `/archie-deep-scan` consumes to produce canonical findings and pitfalls.
+
+**Quality bar — quality-gated, not quantity-gated.** A finding is valid only if:
+
+- `problem_statement` is specific. "Code is complex" is not a finding; "3 route handlers exceed 500 SLOC with cyclomatic complexity > 20" is.
+- `evidence` is non-empty and concrete: file paths with line numbers, counts, pattern observations. No `evidence` → drop the finding.
+- `root_cause` names the architectural decision, pattern choice, or constraint driving the problem. "Needs refactoring" is not a root cause.
+- `fix_direction` is actionable and tactical (single sentence).
+
+**Soft floor of 3.** If you would emit fewer than 3 findings total across all three agents, explicitly state why in the scan report's Findings section (e.g., "no material issues — codebase is clean in areas X, Y, Z; only one finding met the quality bar"). Never invent filler findings to hit a number.
+
+No upper cap on `findings.json` — rank-clip happens only at render time in `scan_report.md` (4c).
+
+**Finding schema:**
+
+```json
+{
+  "id": "f_NNNN",
+  "problem_statement": "One sentence, specific.",
+  "evidence": ["src/file.py:42", "pattern observed in 7 modules", "..."],
+  "root_cause": "Names a decision/pattern/constraint, specific to this codebase.",
+  "fix_direction": "Single tactical sentence.",
+  "severity": "error | warn | info",
+  "confidence": 0.85,
+  "applies_to": ["src/auth/", "src/routes/profile.py"],
+  "source": "scan:structure | scan:health | scan:patterns",
+  "depth": "draft",
+  "first_seen": "YYYY-MM-DDTHHMM",
+  "confirmed_in_scan": 1,
+  "status": "active"
+}
+```
+
+`source` maps to the agent: Agent A → `scan:structure`, Agent B → `scan:health`, Agent C → `scan:patterns`.
+
+**ID stability across scans.** Read the previous `.archie/findings.json` if present. For each new finding:
+
+- Try to match an existing finding by (similar `problem_statement`) ∧ (overlapping `applies_to`). On match: reuse the existing `id`, increment `confirmed_in_scan`, keep `first_seen`.
+- Unmatched new findings → assign the next-free `f_NNNN` id, set `first_seen` = current scan timestamp, `confirmed_in_scan` = 1.
+- Previous findings that no longer apply → set `status: "resolved"` and add `resolved_at: <current timestamp>`. Keep them in the file (the resolution is valuable signal for `/archie-deep-scan` and trend analysis).
+
+**Output file shape:**
+
+```json
+{
+  "scanned_at": "YYYY-MM-DDTHHMM",
+  "scan_count": N,
+  "findings": [ ... ]
+}
+```
+
+Write to `.archie/findings.json`. `scanned_at` must match the date/time you compute in 4c. `scan_count` matches `blueprint.meta.scan_count` after 4a evolved it.
+
+### 4c: Write Scan Report
 
 Get the current date/time and scan number from the blueprint (`meta.scan_count`):
 ```bash
@@ -425,7 +480,7 @@ The report should include:
 [Re-baseline with /archie-deep-scan if: no deep scan ever, erosion increased >0.10, major structural changes]
 ```
 
-### 4c: Update Satellite Files
+### 4d: Update Satellite Files
 
 Append health scores to history:
 ```bash
@@ -450,7 +505,7 @@ Save Agent C's semantic duplications to `.archie/semantic_duplications.json`:
 
 This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric.
 
-### 4d: Clean up temp files
+### 4e: Clean up temp files
 
 ```bash
 rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
