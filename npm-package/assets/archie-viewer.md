@@ -13,3 +13,15 @@ python3 .archie/viewer.py "$PWD"
 ```
 
 The viewer opens automatically in your default browser. Press Ctrl+C to stop.
+
+---
+
+## Buddy
+
+Before launching the viewer, show the Archie buddy in compact mode:
+
+```bash
+python3 .archie/buddy.py "$PROJECT_ROOT" --compact
+```
+
+Include its output, then proceed with the viewer launch.

@@ -486,3 +486,15 @@ The rule adoption prompt:
 - `none` → skip (rules stay in proposed_rules.json)
 
 Print confirmation: `Adopted N rules, skipped M (available in /archie-viewer → Rules tab). Scan #N complete — blueprint evolved.`
+
+---
+
+## Buddy
+
+After presenting scan results, show the Archie buddy in compact mode:
+
+```bash
+python3 .archie/buddy.py "$PROJECT_ROOT" --compact
+```
+
+Include its output at the end of the scan results.

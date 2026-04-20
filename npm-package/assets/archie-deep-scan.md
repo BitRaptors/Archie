@@ -1210,3 +1210,15 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-baseline SC
 (Replace SCAN_MODE with the actual mode — "full" or "incremental")
 
 End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-scan` for fast health checks. Run `/archie-deep-scan --incremental` after code changes to update the architecture analysis."**
+
+---
+
+## Buddy
+
+After the completion message, show the Archie buddy in compact mode:
+
+```bash
+python3 .archie/buddy.py "$PROJECT_ROOT" --compact
+```
+
+Include its output at the end.
