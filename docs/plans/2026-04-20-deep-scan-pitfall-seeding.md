@@ -79,9 +79,11 @@ No hard upper cap. Render-time clipping in `scan_report.md` only (top-N by sever
 
 ## Coupling
 
-**Hard dependency.** Deep-scan refuses to run Step 5 (Wave 2) if `.archie/findings.json` is missing or its `scanned_at` timestamp is older than 24 hours. Message: "Deep-scan requires fresh findings from `/archie-scan`. Run `/archie-scan` first."
+**Soft coupling, accumulating store.** `.archie/findings.json` is a shared, compounding store. Both `/archie-scan` and `/archie-deep-scan` read it on entry and write it on exit. Neither command requires the other to have run first — either can run any number of times in any order. Findings accumulate across runs: new ones are appended, recurring ones bump `confirmed_in_scan`, resolved ones flip `status`.
 
-Staleness check is done by the deep-scan prompt comparing `scanned_at` to the current date — no new Python helper needed.
+Deep-scan's value-add when findings exist: upgrade draft findings to canonical (richer `root_cause`, sequenced `fix_direction`) and add pitfalls rooted in architectural reasoning. Deep-scan's value-add when findings don't exist: produce canonical findings + pitfalls from scratch via Wave 2 analysis.
+
+No staleness check, no prereq check.
 
 ## Files to touch
 
