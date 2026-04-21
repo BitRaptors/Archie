@@ -133,6 +133,16 @@ if (!existsSync(archieignoreDest) && existsSync(archieignoreSrc)) {
   console.log(`  ${GREEN}✓${RESET} .archieignore (default patterns)`);
 }
 
+// 3c². Copy .archiebulk (only if it doesn't exist — user may have customized).
+// .archiebulk tags files as "visible but not read" (UI resources, generated
+// code, migrations, lockfiles). Scanner counts them; agents never Read them.
+const archiebulkSrc = join(ASSETS, "archiebulk.default");
+const archiebulkDest = join(projectRoot, ".archiebulk");
+if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
+  writeFileSync(archiebulkDest, readFileSync(archiebulkSrc, "utf8"));
+  console.log(`  ${GREEN}✓${RESET} .archiebulk (default bulk-content rules)`);
+}
+
 // 3d. Add .gitignore entries for Archie scripts (idempotent)
 const gitignorePath = join(projectRoot, ".gitignore");
 const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/hooks/\n.claude/settings.local.json\n`;

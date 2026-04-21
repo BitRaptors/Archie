@@ -234,6 +234,110 @@ class IgnoreMatcher:
         return self._check(name, parent, is_dir=is_dir)
 
 
+# ── BulkMatcher — classify files as bulk-content (visible but not read) ──
+
+def _glob_to_regex(glob: str) -> re.Pattern:
+    """Translate a shell-style glob to a regex for full-path matching.
+
+    Differs from fnmatch to give sane `**` semantics across path components:
+    - `**/` (with trailing slash) matches zero or more directory segments
+    - `**` (without slash) matches any characters including `/`
+    - `*` matches any characters except `/`
+    - `?` matches a single non-`/` character
+    - `[abc]` keeps standard character-class semantics
+    """
+    out: list[str] = []
+    i = 0
+    n = len(glob)
+    while i < n:
+        c = glob[i]
+        if c == '*':
+            if i + 1 < n and glob[i + 1] == '*':
+                if i + 2 < n and glob[i + 2] == '/':
+                    out.append(r'(?:[^/]+/)*')
+                    i += 3
+                else:
+                    out.append(r'.*')
+                    i += 2
+            else:
+                out.append(r'[^/]*')
+                i += 1
+        elif c == '?':
+            out.append(r'[^/]')
+            i += 1
+        elif c == '[':
+            j = glob.find(']', i)
+            if j == -1:
+                out.append(r'\[')
+                i += 1
+            else:
+                out.append(glob[i:j + 1])
+                i = j + 1
+        else:
+            out.append(re.escape(c))
+            i += 1
+    return re.compile('^' + ''.join(out) + '$')
+
+
+class BulkMatcher:
+    """Classify files as bulk-content (visible to the scanner, never read).
+
+    Loads `.archiebulk` from the project root. Each non-comment line carries
+    three whitespace-separated columns: `<glob>  <category>  <framework>`. The
+    framework column is optional (use `-` or omit).
+
+    `classify(rel_path)` returns `{category, framework}` for a match, else None.
+    Last matching rule wins (gitignore-style precedence).
+    """
+
+    def __init__(self, root: str | Path):
+        root = Path(root)
+        self._root = root
+        self._rules: list[tuple[re.Pattern, str, str]] = []
+        path = root / ".archiebulk"
+        if not path.exists():
+            return
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 2)
+            if len(parts) < 2:
+                continue
+            glob_pat, category = parts[0], parts[1]
+            framework = parts[2].strip() if len(parts) == 3 else "-"
+            # Allow an inline comment after the framework column.
+            if "#" in framework:
+                framework = framework.split("#", 1)[0].strip() or "-"
+            try:
+                rx = _glob_to_regex(glob_pat)
+            except re.error:
+                continue
+            self._rules.append((rx, category, framework))
+
+    def classify(self, rel_path: str) -> dict | None:
+        """Return {category, framework} if the path is bulk, else None.
+
+        Last matching rule wins, so later entries in `.archiebulk` override
+        earlier ones (mirroring gitignore precedence).
+        """
+        if not self._rules:
+            return None
+        norm = rel_path.replace(os.sep, "/")
+        result: dict | None = None
+        for rx, cat, fw in self._rules:
+            if rx.match(norm):
+                result = {"category": cat, "framework": fw}
+        return result
+
+    def __bool__(self) -> bool:
+        return bool(self._rules)
+
+
 # Regex decision-point patterns for non-Python languages.
 # NOTE: bare ``else`` is intentionally excluded — it is NOT a decision point
 # in cyclomatic complexity (it's the default path, not an independent one).

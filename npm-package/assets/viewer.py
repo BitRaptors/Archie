@@ -170,6 +170,15 @@ class ArchieHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/drift":
             self._send_json(_load_json(archie_dir / "drift_report.json"))
 
+        elif path == "/api/findings":
+            data = _load_json(archie_dir / "findings.json")
+            if isinstance(data, dict) and isinstance(data.get("findings"), list):
+                self._send_json(data["findings"])
+            elif isinstance(data, list):
+                self._send_json(data)
+            else:
+                self._send_json([])
+
         elif path == "/api/generated-files":
             self._send_json(_collect_generated_files(root))
 
@@ -343,7 +352,7 @@ tailwind.config = {
 // ---------------------------------------------------------------------------
 let health = {}, healthHistory = [], scanReports = [], blueprint = {},
     rules = {}, ignoredRules = {}, generatedFiles = {}, folderMds = {},
-    drift = {}, depGraph = {}, proposedRules = {};
+    drift = {}, depGraph = {}, proposedRules = {}, findings = [];
 
 // ---------------------------------------------------------------------------
 // Tab switching
@@ -384,7 +393,7 @@ async function fetchJSON(url) {
 }
 
 async function loadData() {
-  const [h, hh, sr, bp, r, ir, gf, fm, dr, dg, pr] = await Promise.all([
+  const [h, hh, sr, bp, r, ir, gf, fm, dr, dg, pr, fnd] = await Promise.all([
     fetchJSON('/api/health'),
     fetchJSON('/api/health-history'),
     fetchJSON('/api/scan-reports'),
@@ -396,6 +405,7 @@ async function loadData() {
     fetchJSON('/api/drift'),
     fetchJSON('/api/dependency-graph'),
     fetchJSON('/api/proposed-rules'),
+    fetchJSON('/api/findings'),
   ]);
   health = h || {};
   healthHistory = hh || [];
@@ -408,6 +418,7 @@ async function loadData() {
   drift = dr || {};
   depGraph = dg || {};
   proposedRules = pr || {};
+  findings = Array.isArray(fnd) ? fnd : [];
 
   // Set repo name
   const repoNameEl = document.getElementById('repoName');
@@ -754,6 +765,62 @@ function renderReports() {
 
 function esc(s) { if (s == null) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
 
+// Render a 4-field finding/pitfall card (problem_statement, evidence, root_cause,
+// fix_direction). Falls back to the legacy {title/area, description, recommendation,
+// stems_from} shape so bundles written before the schema change still render.
+function renderFourFieldItem(item) {
+  const sev = (item.severity || 'warn').toLowerCase();
+  const sevColor = sev === 'error' ? 'brandy' : (sev === 'info' ? 'teal' : 'tangerine');
+  const problem = item.problem_statement || item.title || item.area || '';
+  const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+  const rootCause = item.root_cause || '';
+  const fix = item.fix_direction;
+  const appliesTo = Array.isArray(item.applies_to) ? item.applies_to : [];
+  const legacyDesc = !item.problem_statement ? (item.description || '') : '';
+  const legacyRec = !item.problem_statement ? (item.recommendation || '') : '';
+
+  let c = '<div class="border-l-[3px] border-' + sevColor + ' pl-4 py-2 mb-4">';
+  c += '<div class="flex items-start justify-between gap-3">';
+  c += '<div class="font-bold text-sm text-ink flex-1">' + esc(problem) + '</div>';
+  c += '<div class="flex items-center gap-2 shrink-0">';
+  c += '<span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-' + sevColor + '/10 text-' + sevColor + '">' + esc(sev) + '</span>';
+  if (item.status && item.status !== 'active') c += '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal/10 text-teal">' + esc(item.status) + '</span>';
+  if (item.id) c += '<span class="text-[10px] font-mono text-ink/40">' + esc(item.id) + '</span>';
+  c += '</div></div>';
+
+  if (legacyDesc) c += '<div class="text-xs text-ink/70 mt-1.5">' + esc(legacyDesc) + '</div>';
+  if (legacyRec) c += '<div class="text-xs text-teal mt-1">' + esc(legacyRec) + '</div>';
+
+  if (evidence.length) {
+    c += '<div class="mt-2"><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 mb-1">Evidence</div>';
+    c += '<ul class="text-xs text-ink/70 space-y-0.5 list-disc list-inside">';
+    evidence.forEach(e => { c += '<li>' + esc(e) + '</li>'; });
+    c += '</ul></div>';
+  }
+  if (rootCause) {
+    c += '<div class="mt-2"><div class="text-[10px] font-bold uppercase tracking-widest text-ink/40 mb-1">Root Cause</div>';
+    c += '<div class="text-xs text-ink/70">' + esc(rootCause) + '</div></div>';
+  }
+  if (Array.isArray(fix) && fix.length) {
+    c += '<div class="mt-2"><div class="text-[10px] font-bold uppercase tracking-widest text-teal mb-1">Fix Direction</div>';
+    c += '<ol class="text-xs text-ink/70 space-y-0.5 list-decimal list-inside">';
+    fix.forEach(step => { c += '<li>' + esc(step) + '</li>'; });
+    c += '</ol></div>';
+  } else if (typeof fix === 'string' && fix) {
+    c += '<div class="mt-2"><div class="text-[10px] font-bold uppercase tracking-widest text-teal mb-1">Fix Direction</div>';
+    c += '<div class="text-xs text-ink/70">' + esc(fix) + '</div></div>';
+  }
+
+  const footer = [];
+  if (typeof item.confidence === 'number') footer.push('confidence: ' + item.confidence);
+  if (appliesTo.length) footer.push('Applies to: ' + appliesTo.map(a => esc(a)).join(', '));
+  if (item.pitfall_id) footer.push('Pitfall: ' + esc(item.pitfall_id));
+  if (footer.length) c += '<div class="text-[10px] text-ink/40 mt-2">' + footer.join(' · ') + '</div>';
+
+  c += '</div>';
+  return c;
+}
+
 function renderBlueprint() {
   const el = document.getElementById('tab-blueprint');
   if (!blueprint || Object.keys(blueprint).length === 0) {
@@ -799,6 +866,7 @@ function renderBlueprint() {
   if (tech.stack && tech.stack.length) sections.push({ id: 'technology', label: 'Technology' });
   if (fe && (fe.framework || fe.rendering_strategy || fe.styling)) sections.push({ id: 'frontend', label: 'Frontend' });
   if (dep.runtime_environment || (dep.compute_services && dep.compute_services.length) || (dep.ci_cd && dep.ci_cd.length)) sections.push({ id: 'deployment', label: 'Deployment' });
+  if (findings && findings.length) sections.push({ id: 'problems', label: 'Architectural Problems' });
   if (pits && pits.length) sections.push({ id: 'pitfalls', label: 'Pitfalls' });
   if (impl && impl.length) sections.push({ id: 'guidelines', label: 'Guidelines' });
   if (devRules && devRules.length) sections.push({ id: 'devrules', label: 'Dev Rules' });
@@ -811,12 +879,15 @@ function renderBlueprint() {
   const td = (text, extra) => '<td class="py-2 px-3 border-b border-papaya-100' + (extra ? ' ' + extra : '') + '">' + esc(text) + '</td>';
 
   // --- Card builder ---
-  function bpCard(id, title, count, contentHtml) {
+  function bpCard(id, title, count, contentHtml, hint) {
     const countBadge = count != null ? ' <span class="bg-teal/10 text-teal text-xs font-bold px-2 py-0.5 rounded-full ml-2">' + count + '</span>' : '';
+    const hintIcon = hint
+      ? ' <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-ink/10 text-ink/40 text-[10px] font-black align-middle ml-1 cursor-help" title="' + esc(hint) + '" onclick="event.stopPropagation()">?</span>'
+      : '';
     return '<div id="bp-' + id + '" class="mb-6">'
       + '<div class="rounded-xl border border-papaya-400/60 bg-white overflow-hidden">'
         + '<div class="px-5 py-4 font-bold text-ink flex items-center justify-between cursor-pointer hover:bg-papaya-50 transition-colors" onclick="this.nextElementSibling.classList.toggle(\'hidden\')">'
-          + '<span>' + esc(title) + countBadge + '</span>'
+          + '<span>' + esc(title) + countBadge + hintIcon + '</span>'
           + '<span class="text-ink/30 text-xs">&#9660;</span>'
         + '</div>'
         + '<div class="px-5 py-4 border-t border-papaya-300/50">'
@@ -990,28 +1061,25 @@ function renderBlueprint() {
       html += bpCard('deployment', 'Deployment', null, c);
     }
 
+    // Architectural Problems (findings.json — shared store from scan + deep-scan)
+    if (sections.find(s => s.id === 'problems')) {
+      const sevRank = { error: 0, warn: 1, info: 2 };
+      const ranked = findings.slice().sort((a, b) => {
+        const sa = sevRank[a.severity] != null ? sevRank[a.severity] : 3;
+        const sb = sevRank[b.severity] != null ? sevRank[b.severity] : 3;
+        if (sa !== sb) return sa - sb;
+        return (b.confidence || 0) - (a.confidence || 0);
+      });
+      let c = '';
+      ranked.forEach(f => { c += renderFourFieldItem(f); });
+      html += bpCard('problems', 'Architectural Problems', findings.length, c, 'Concrete problems observed in specific files.');
+    }
+
     // Pitfalls
     if (sections.find(s => s.id === 'pitfalls')) {
       let c = '';
-      pits.forEach(p => {
-        const sevColor = p.severity === 'error' ? 'brandy' : 'tangerine';
-        c += '<div class="border-l-[3px] border-' + sevColor + ' pl-4 py-2 mb-3">';
-        c += '<div class="font-bold text-sm text-ink">' + esc(p.title || p.area || '') + '</div>';
-        if (p.severity || p.confidence) {
-          c += '<div class="flex gap-2 mt-1">';
-          if (p.severity) c += '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-' + sevColor + '/10 text-' + sevColor + '">' + esc(p.severity) + '</span>';
-          if (p.confidence) c += '<span class="text-[10px] text-ink/40">confidence: ' + p.confidence + '</span>';
-          if (p.status) c += '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal/10 text-teal">' + esc(p.status) + '</span>';
-          c += '</div>';
-        }
-        c += '<div class="text-xs text-ink/70 mt-1">' + esc(p.description || '') + '</div>';
-        if (p.recommendation) c += '<div class="text-xs text-teal mt-1">' + esc(p.recommendation) + '</div>';
-        if (p.files && p.files.length) c += '<div class="text-[10px] text-ink/40 mt-1">Files: ' + p.files.map(f => esc(f)).join(', ') + '</div>';
-        if (p.stems_from && p.stems_from.length) c += '<div class="text-[10px] text-ink/40 mt-1">Stems from: ' + p.stems_from.map(s => esc(s)).join(', ') + '</div>';
-        if (p.applies_to && p.applies_to.length) c += '<div class="text-[10px] text-ink/40 mt-0.5">Applies to: ' + p.applies_to.map(a => esc(a)).join(', ') + '</div>';
-        c += '</div>';
-      });
-      html += bpCard('pitfalls', 'Pitfalls', pits.length, c);
+      pits.forEach(p => { c += renderFourFieldItem(p); });
+      html += bpCard('pitfalls', 'Pitfalls', pits.length, c, 'Classes of problem rooted in architectural decisions — the trap itself, not each instance.');
     }
 
     // Implementation Guidelines
