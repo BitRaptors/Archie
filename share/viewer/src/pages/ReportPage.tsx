@@ -4,7 +4,7 @@ import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle, Layers } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
 import { formatBlueprintTitle } from '@/lib/blueprintTitle'
@@ -15,9 +15,8 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MermaidDiagram } from '@/components/MermaidDiagram'
 import { GhostLogo } from '@/components/GhostLogo'
-import { filterReportSections } from '@/lib/toc'
 import * as Sections from '@/components/ReportSections'
-import { countSemanticDuplications, extractFindings, rankFindings } from '@/lib/findings'
+import { countSemanticDuplications, extractFindings, normalizeStructuredFinding, rankFindings, scanReportAssertsZeroSemanticDup } from '@/lib/findings'
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
@@ -47,20 +46,30 @@ export default function ReportPage() {
   const meta = bp.meta || {}
   const diagram: string = typeof bp.architecture_diagram === 'string' ? bp.architecture_diagram : bp.architecture_diagram?.mermaid || ''
   
-  const filteredReport = useMemo(() => {
-    if (!bundle?.scan_report) return ''
-    return filterReportSections(bundle.scan_report, ['Findings', 'Next task', 'Next steps', 'Rules', 'Architecture Rules', 'Guidelines'])
-  }, [bundle?.scan_report])
-
   const findings = useMemo(() => {
+    // Prefer the structured shared store when present — gives us the 4-field
+    // shape (evidence/root_cause/fix_direction). Fall back to parsing the
+    // markdown scan_report for older bundles uploaded before findings.json
+    // was included.
+    if (Array.isArray(bundle?.findings) && bundle!.findings!.length > 0) {
+      const active = bundle!.findings!.filter((f: any) => (f?.status || 'active') !== 'resolved')
+      return rankFindings(active.map(normalizeStructuredFinding))
+    }
     if (!bundle?.scan_report) return []
     return rankFindings(extractFindings(bundle.scan_report))
-  }, [bundle?.scan_report])
+  }, [bundle?.findings, bundle?.scan_report])
 
-  // Semantic duplication — prefer structured field, fall back to heuristic
+  // Semantic duplication — prefer structured field, else honour an explicit
+  // zero verdict in the scan report, else fall back to a heuristic regex count
+  // over the markdown findings. Older bundles that predate
+  // `.archie/semantic_duplications.json` still render a trustworthy number
+  // when the AI reported zero via prose ("No semantic duplication detected").
   const semantic = useMemo<{ count: number | null; source: 'structured' | 'heuristic' | 'unknown' }>(() => {
     if (Array.isArray(bundle?.semantic_duplications)) {
       return { count: bundle!.semantic_duplications!.length, source: 'structured' }
+    }
+    if (bundle?.scan_report && scanReportAssertsZeroSemanticDup(bundle.scan_report)) {
+      return { count: 0, source: 'structured' }
     }
     if (bundle?.scan_report && findings.length > 0) {
       return { count: countSemanticDuplications(findings), source: 'heuristic' }
@@ -89,6 +98,7 @@ export default function ReportPage() {
       'guidelines',
       'communications',
       'components',
+      'integrations',
       'technology',
       'deployment',
       'problems',
@@ -218,8 +228,9 @@ export default function ReportPage() {
     ...(bp.development_rules || [])
   ]
   // Blueprint exposes `communication` (singular) as an object with
-  // `patterns[]` and `integrations[]`. Flatten into the array shape the
-  // CommunicationsSection expects ({ type, protocol, description, ... }).
+  // `patterns[]` and `integrations[]`. Patterns flow into the Communications
+  // section; integrations get their own inventory section so third-party
+  // service wiring is easy to scan.
   const commObj = bp.communication || {}
   const communications = [
     ...(bp.communications || []),
@@ -231,12 +242,15 @@ export default function ReportPage() {
         .filter(Boolean)
         .join(' '),
     }))),
-    ...((commObj.integrations || []).map((i: any) => ({
-      type: i.name || 'Integration',
-      protocol: i.type || 'integration',
-      description: i.purpose,
-    }))),
   ]
+  // Integrations: `{service, purpose, integration_point}` in the blueprint.
+  // Accept older/alternate shapes too (`name`/`type`/`description`).
+  const integrations = (commObj.integrations || []).map((i: any) => ({
+    service: i.service || i.name || 'Integration',
+    purpose: i.purpose || i.description || '',
+    integration_point: i.integration_point || i.file || '',
+    type: i.type || '',
+  }))
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-papaya-50 via-white to-teal-50/10 text-ink scroll-smooth">
@@ -377,7 +391,7 @@ export default function ReportPage() {
           )}
 
           {/* Inventory */}
-          {(componentsList.length > 0 || stack.length > 0) && (
+          {(componentsList.length > 0 || stack.length > 0 || integrations.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Inventory</p>
               {componentsList.length > 0 && (
@@ -385,14 +399,22 @@ export default function ReportPage() {
                   active={activeSection === 'components'}
                   onClick={() => scrollToSection('components')}
                   icon={Database}
-                  label={`Components (${componentsList.length})`}
+                  label="Components"
+                />
+              )}
+              {integrations.length > 0 && (
+                <NavButton
+                  active={activeSection === 'integrations'}
+                  onClick={() => scrollToSection('integrations')}
+                  icon={Zap}
+                  label="Integrations"
                 />
               )}
               {stack.length > 0 && (
                 <NavButton
                   active={activeSection === 'technology'}
                   onClick={() => scrollToSection('technology')}
-                  icon={Zap}
+                  icon={Layers}
                   label="Technology Stack"
                 />
               )}
@@ -408,7 +430,7 @@ export default function ReportPage() {
           )}
 
           {/* Risks — merged Findings + Pitfalls */}
-          {(filteredReport || pitfalls.length > 0) && (
+          {(findings.length > 0 || pitfalls.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Risks</p>
               <NavButton
@@ -635,6 +657,13 @@ export default function ReportPage() {
             </section>
           )}
 
+          {/* 10b. Integrations — third-party services wired into the app */}
+          {integrations.length > 0 && (
+            <section id="integrations" className="scroll-mt-24">
+              <Sections.IntegrationsSection integrations={integrations} />
+            </section>
+          )}
+
           {/* 11. Technology Stack */}
           {stack.length > 0 && (
             <section id="technology" className="scroll-mt-24">
@@ -652,7 +681,11 @@ export default function ReportPage() {
           {/* 12. Architectural Problems + Pitfalls — merged, end of page */}
           {(findings.length > 0 || pitfalls.length > 0) && (
             <section id="problems" className="space-y-12 scroll-mt-24">
-              <Sections.SectionHeader title="Architectural Problems" icon={AlertTriangle} />
+              <Sections.SectionHeader
+                title="Architectural Problems"
+                icon={AlertTriangle}
+                hint="Concrete problems observed in specific files."
+              />
 
               {findings.length > 0 && (
                 <Sections.FindingsList

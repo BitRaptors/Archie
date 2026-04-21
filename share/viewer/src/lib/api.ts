@@ -16,6 +16,7 @@ export interface Bundle {
   rules_proposed?: any
   scan_report?: string
   semantic_duplications?: SemanticDuplication[]
+  findings?: any[]
 }
 
 export interface ReportResponse {

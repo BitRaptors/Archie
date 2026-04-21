@@ -8,14 +8,14 @@ import { Badge } from './ui/badge'
 import { Progress } from './ui/progress'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal } from 'lucide-react'
+import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
 // @ts-ignore
 import remarkGfm from 'remark-gfm'
 
 import type { Finding } from '@/lib/findings'
-import { isSemanticDupFinding, severityColor } from '@/lib/findings'
+import { isSemanticDupFinding, normalizePitfall, severityColor } from '@/lib/findings'
 import { AutoCode, codeInlineClassName } from '@/lib/autocode'
 
 export function WorkspaceTopologySection({ topology }: { topology: any }) {
@@ -128,6 +128,15 @@ export function WorkspaceTopologySection({ topology }: { topology: any }) {
 }
 
 
+/** Is this finding rich enough to render the full 4-field layout? */
+function hasRichShape(f: Finding): boolean {
+  return Boolean(
+    (f.evidence && f.evidence.length > 0) ||
+    f.root_cause ||
+    (Array.isArray(f.fix_direction) ? f.fix_direction.length > 0 : Boolean(f.fix_direction))
+  )
+}
+
 export function FindingsList({
   findings,
   truncate,
@@ -139,61 +148,151 @@ export function FindingsList({
 }) {
   return (
     <div className="grid gap-4">
-      {findings.map((f, i) => (
-        <div
-          key={i}
-          className={cn(
-            'p-6 rounded-2xl border flex gap-4 transition-all hover:shadow-lg',
-            theme.surface.panel
-          )}
-        >
+      {findings.map((f, i) => {
+        const rich = !truncate && hasRichShape(f)
+        return (
           <div
+            key={i}
             className={cn(
-              'shrink-0 h-8 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest',
-              severityColor(f.severity)
+              'p-6 rounded-2xl border flex gap-4 transition-all hover:shadow-lg',
+              theme.surface.panel
             )}
           >
-            {f.severity === 'error' ? <Shield className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
-            {f.severity}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2 flex-wrap">
-              <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
-              {isSemanticDupFinding(f, { functionNames: semanticFunctionNames }) && (
-                <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest">
-                  Semantic Dup
-                </Badge>
+            <div
+              className={cn(
+                'shrink-0 h-8 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest self-start',
+                severityColor(f.severity)
               )}
-              {f.group && (
-                <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
-                  {f.group}
-                </Badge>
-              )}
+            >
+              {f.severity === 'error' ? <Shield className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+              {f.severity}
             </div>
-            {f.description && (
-              <p
-                className={cn(
-                  'text-sm text-ink/60 mt-1 leading-relaxed',
-                  truncate && 'line-clamp-3'
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
+                {isSemanticDupFinding(f, { functionNames: semanticFunctionNames }) && (
+                  <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest">
+                    Semantic Dup
+                  </Badge>
                 )}
-              >
-                <AutoCode text={f.description} />
-              </p>
-            )}
+                {f.group && (
+                  <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
+                    {f.group}
+                  </Badge>
+                )}
+                {f.id && (
+                  <span className="text-[10px] font-mono text-ink/30">{f.id}</span>
+                )}
+              </div>
+              {rich ? (
+                <RichFindingBody f={f} />
+              ) : (
+                f.description && (
+                  <p
+                    className={cn(
+                      'text-sm text-ink/60 mt-1 leading-relaxed',
+                      truncate && 'line-clamp-3'
+                    )}
+                  >
+                    <AutoCode text={f.description} />
+                  </p>
+                )
+              )}
+              {rich && <FindingMeta f={f} />}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
-export function SectionHeader({ title, icon: Icon }: { title: string; icon: any }) {
+/** Render the 4-field body: evidence, root cause, fix direction.
+ * Shows `description` as a lead paragraph when present — carries the prose
+ * body from legacy pitfalls shaped `{title, description, recommendation}`
+ * so old Supabase bundles don't lose content. */
+function RichFindingBody({ f }: { f: Finding }) {
+  const fix = f.fix_direction
+  const fixList = Array.isArray(fix) ? fix : (typeof fix === 'string' && fix ? [fix] : [])
+  return (
+    <div className="mt-3 space-y-3">
+      {f.description && (
+        <p className="text-sm text-ink/70 leading-relaxed">
+          <AutoCode text={f.description} />
+        </p>
+      )}
+      {f.evidence && f.evidence.length > 0 && (
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-1.5">Evidence</div>
+          <ul className="space-y-1">
+            {f.evidence.map((e, j) => (
+              <li key={j} className="text-sm text-ink/70 leading-relaxed flex gap-2">
+                <span className="mt-1.5 w-1 h-1 rounded-full bg-ink/30 shrink-0" />
+                <span className="min-w-0 break-words"><AutoCode text={e} /></span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {f.root_cause && (
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-1.5">Root Cause</div>
+          <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={f.root_cause} /></p>
+        </div>
+      )}
+      {fixList.length > 0 && (
+        <div className="bg-teal/5 border border-teal/10 rounded-2xl p-4">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-teal/60 mb-2">Fix Direction</div>
+          {fixList.length === 1 ? (
+            <p className="text-sm text-teal-900 leading-relaxed"><AutoCode text={fixList[0]} /></p>
+          ) : (
+            <ol className="list-decimal list-inside space-y-1.5 text-sm text-teal-900 leading-relaxed">
+              {fixList.map((step, j) => (
+                <li key={j}><AutoCode text={step} /></li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FindingMeta({ f }: { f: Finding }) {
+  const bits: string[] = []
+  if (typeof f.confidence === 'number') bits.push(`confidence ${f.confidence}`)
+  if (f.applies_to && f.applies_to.length > 0) bits.push(`applies to ${f.applies_to.length} location${f.applies_to.length === 1 ? '' : 's'}`)
+  if (f.pitfall_id) bits.push(`pitfall ${f.pitfall_id}`)
+  if (bits.length === 0 && (!f.applies_to || f.applies_to.length === 0)) return null
+  return (
+    <div className="mt-3 pt-3 border-t border-ink/5 text-[11px] text-ink/40 flex flex-wrap gap-x-3 gap-y-1">
+      {bits.map((b, i) => (
+        <span key={i}>{b}</span>
+      ))}
+      {f.applies_to && f.applies_to.length > 0 && (
+        <details className="basis-full mt-1">
+          <summary className="cursor-pointer text-ink/40 hover:text-ink/60">show locations</summary>
+          <ul className="mt-1 space-y-0.5 font-mono text-[11px]">
+            {f.applies_to.map((a, i) => (
+              <li key={i} className="break-all">{a}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  )
+}
+
+export function SectionHeader({ title, icon: Icon, hint }: { title: string; icon: any; hint?: string }) {
   return (
     <div className="flex items-center gap-3 mb-6 px-1">
       <div className={cn("p-2 rounded-xl shadow-sm border", theme.surface.sectionHeaderIcon)}>
         <Icon className={cn("w-4 h-4", theme.active.iconColor)} />
       </div>
-      <h2 className={cn("text-xl font-bold tracking-tight", theme.brand.title)}>{title}</h2>
+      <h2 className={cn("text-xl font-bold tracking-tight inline-flex items-center gap-2", theme.brand.title)}>
+        {title}
+        {hint && <HintPopover hint={hint} />}
+      </h2>
     </div>
   )
 }
@@ -500,43 +599,68 @@ export function TopHighCCList({
   items: any[]
   totalMass?: number
 }) {
+  const [expanded, setExpanded] = useState(false)
   if (!items || items.length === 0) return null
+
+  const PREVIEW = 3
   const sumMass = items.reduce((sum, f) => sum + (f.mass || 0), 0)
   const shareOfTotal = totalMass && totalMass > 0 ? (sumMass / totalMass) * 100 : null
+  const hasOverflow = items.length > PREVIEW
+  const visible = expanded || !hasOverflow ? items : items.slice(0, PREVIEW)
+
+  const renderRow = (f: any, i: number) => (
+    <li key={i} className="flex items-start gap-2 text-xs">
+      <div className="flex gap-1 shrink-0">
+        <Badge variant="outline" className={cn('text-[10px] font-bold tabular-nums', ccSeverityClasses(f.cc || 0))}>
+          CC {f.cc}
+        </Badge>
+        {typeof f.mass === 'number' && (
+          <Badge variant="outline" className="text-[10px] font-bold tabular-nums text-ink/60 border-ink/10 bg-white">
+            mass {Math.round(f.mass).toLocaleString()}
+          </Badge>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="font-bold text-ink/80 truncate">{f.name || '?'}</div>
+        <code className="text-[10px] text-ink/40 font-mono truncate block">
+          {f.path}
+          {f.line ? `:${f.line}` : ''}
+        </code>
+      </div>
+    </li>
+  )
+
+  const headerLabel = hasOverflow
+    ? `Top ${Math.min(PREVIEW, items.length)} of ${items.length} by complexity mass`
+    : `Top ${items.length} by complexity mass`
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">
-          Top {items.length} by complexity mass
+          {headerLabel}
         </div>
         <div className="text-[10px] text-ink/40 tabular-nums">
           ranked by cc × √sloc
         </div>
       </div>
-      <ul className="space-y-1.5">
-        {items.map((f, i) => (
-          <li key={i} className="flex items-start gap-2 text-xs">
-            <div className="flex gap-1 shrink-0">
-              <Badge variant="outline" className={cn('text-[10px] font-bold tabular-nums', ccSeverityClasses(f.cc || 0))}>
-                CC {f.cc}
-              </Badge>
-              {typeof f.mass === 'number' && (
-                <Badge variant="outline" className="text-[10px] font-bold tabular-nums text-ink/60 border-ink/10 bg-white">
-                  mass {Math.round(f.mass).toLocaleString()}
-                </Badge>
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="font-bold text-ink/80 truncate">{f.name || '?'}</div>
-              <code className="text-[10px] text-ink/40 font-mono truncate block">
-                {f.path}
-                {f.line ? `:${f.line}` : ''}
-              </code>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <ul className="space-y-1.5">{visible.map(renderRow)}</ul>
+      {hasOverflow && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-[11px] font-semibold text-teal hover:text-teal-700 transition-colors inline-flex items-center gap-1 group"
+          aria-expanded={expanded}
+        >
+          {expanded ? 'Show less' : `Show ${items.length - PREVIEW} more`}
+          <ChevronRight
+            className={cn(
+              'w-3 h-3 transition-transform',
+              expanded ? 'rotate-90' : 'group-hover:translate-x-0.5',
+            )}
+          />
+        </button>
+      )}
       {shareOfTotal !== null && (
         <div className="pt-3 border-t border-ink/5 text-[11px] text-ink/50 italic">
           These {items.length} functions alone hold <strong className="text-ink/80">{shareOfTotal.toFixed(0)}%</strong> of total complexity mass.
@@ -561,7 +685,17 @@ export function DuplicationCard({
   semanticSource: 'structured' | 'heuristic' | 'unknown'
   detailsHref?: string          // when present, renders a "View all → Architectural Problems" anchor
 }) {
-  const textualPct = Math.round((verbosity || 0) * 100)
+  // Format the textual percent so sub-1% but non-zero values don't flatten
+  // to "0%". A raw 77/23187 ≈ 0.33% is not zero — hiding that loses signal.
+  const textualRaw = (verbosity || 0) * 100
+  const textualPct = Math.round(textualRaw)
+  const textualLabel = textualRaw === 0
+    ? '0%'
+    : textualRaw < 1
+      ? '<1%'
+      : `${textualPct}%`
+  // The bar width gets a 1% floor when non-zero so the bar stays visible.
+  const textualBarWidth = textualRaw === 0 ? 0 : Math.max(1, textualPct)
   const textualGood = textualPct < 5
   const semanticGood = semanticCount !== null && semanticCount === 0
 
@@ -581,13 +715,13 @@ export function DuplicationCard({
         <div className="flex items-end justify-between gap-2">
           <div className="text-xs text-ink/50 uppercase tracking-[0.15em] font-black">Textual</div>
           <div className={cn("text-lg font-bold tabular-nums", textualGood ? 'text-teal' : 'text-brandy')}>
-            {textualPct}%
+            {textualLabel}
           </div>
         </div>
         <div className="h-2 rounded-full bg-ink/5 overflow-hidden border border-ink/5">
           <div
             className={cn("h-full transition-all duration-1000", textualGood ? 'bg-teal' : 'bg-brandy')}
-            style={{ width: `${textualPct}%` }}
+            style={{ width: `${textualBarWidth}%` }}
           />
         </div>
         {(duplicateLines != null && totalLoc != null) && (
@@ -622,7 +756,7 @@ export function DuplicationCard({
         </div>
         {semanticSource === 'heuristic' && semanticCount !== null && (
           <div className="text-[10px] text-ink/30 italic">
-            Derived from scan report text (older bundle). Re-scan for a precise count.
+            Heuristic count from scan report prose.
           </div>
         )}
 
@@ -783,27 +917,15 @@ export function TradeOffsSection({ tradeoffs }: { tradeoffs: any[] }) {
 }
 
 export function PitfallsSection({ pitfalls }: { pitfalls: any[] }) {
+  const normalized = pitfalls.map(normalizePitfall)
   return (
     <section className="space-y-4">
-      <SectionHeader title="Pitfalls" icon={AlertTriangle} />
-      <div className="grid gap-4 lg:grid-cols-2">
-        {pitfalls.map((p: any, i: number) => (
-          <div key={i} className={cn("p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg hover:-translate-y-1", theme.surface.panel)}>
-            <div className="flex items-center gap-2 mb-3">
-              {p.area && <Badge className="bg-brandy/10 text-brandy-700 border-brandy/20 uppercase text-[9px] font-black tracking-widest">{p.area}</Badge>}
-              <div className="w-1 h-1 rounded-full bg-brandy/50" />
-              <h3 className="font-bold text-ink truncate">{p.title}</h3>
-            </div>
-            {p.description && <p className="text-sm text-ink/70 leading-relaxed mb-4 flex-1"><AutoCode text={p.description} /></p>}
-            {p.recommendation && (
-              <div className="bg-teal/5 border border-teal/10 rounded-2xl p-4">
-                <span className="text-[9px] font-extrabold text-teal/40 uppercase tracking-[0.2em] block mb-1">Recommendation</span>
-                <p className="text-sm font-semibold text-teal-900 leading-tight"><AutoCode text={p.recommendation} /></p>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      <SectionHeader
+        title="Pitfalls"
+        icon={AlertTriangle}
+        hint="Classes of problem rooted in architectural decisions — the trap itself, not each instance."
+      />
+      <FindingsList findings={normalized} />
     </section>
   )
 }
@@ -857,7 +979,7 @@ export function TechnologySection({ stack, runCommands }: { stack: any[]; runCom
 
   return (
     <section className="space-y-6">
-      <SectionHeader title="Technology Stack" icon={Zap} />
+      <SectionHeader title="Technology Stack" icon={Layers} />
       
       <div className="columns-1 md:columns-2 lg:columns-3 gap-6">
         {Object.entries(grouped).map(([cat, items]) => (
@@ -1223,6 +1345,70 @@ export function CommunicationsSection({ communications }: { communications: any[
                 </div>
               )}
             </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+export function IntegrationsSection({
+  integrations,
+}: {
+  integrations: Array<{
+    service: string
+    purpose?: string
+    integration_point?: string
+    type?: string
+  }>
+}) {
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Integrations"
+        icon={Zap}
+        hint="Third-party services the app wires into — each with a canonical service name, what it's used for, and the file where it's integrated."
+      />
+      <div className="grid gap-4 md:grid-cols-2">
+        {integrations.map((i, idx) => (
+          <div
+            key={idx}
+            className={cn(
+              'p-6 rounded-3xl border flex flex-col gap-3 min-w-0 transition-all hover:shadow-lg',
+              theme.surface.panel,
+            )}
+          >
+            <div className="flex items-start gap-2">
+              <div className="p-2 rounded-xl bg-ink/5 shrink-0">
+                <Zap className="w-4 h-4 text-tangerine" />
+              </div>
+              <h3 className="font-bold text-ink leading-snug min-w-0 break-words flex-1">
+                <AutoCode text={i.service || 'Integration'} />
+              </h3>
+              <Badge
+                variant="outline"
+                className="shrink-0 text-[9px] font-black uppercase tracking-widest text-teal border-teal/20 bg-teal/5"
+              >
+                {i.type || 'integration'}
+              </Badge>
+            </div>
+
+            {i.purpose && (
+              <p className="text-sm text-ink/70 leading-relaxed min-w-0 break-words">
+                <AutoCode text={i.purpose} />
+              </p>
+            )}
+
+            {i.integration_point && (
+              <div className="pt-3 border-t border-papaya-400/20">
+                <div className="text-[9px] font-black uppercase text-ink/30 tracking-widest mb-1">
+                  Integration point
+                </div>
+                <code className="block font-mono text-[11px] text-ink/70 break-all leading-snug">
+                  {i.integration_point}
+                </code>
+              </div>
+            )}
           </div>
         ))}
       </div>
