@@ -6,9 +6,10 @@ Uses merge.extract_json_from_text to handle conversation envelopes, code fences,
 and AI escape issues.
 
 Subcommands:
-  rules        <input_file> <output_path>   — extract rules JSON from agent output
-  deep-drift   <input_file> <report_path>   — extract deep findings, merge into drift report
-  recent-files <scan_json>                  — print source file paths from scan.json
+  rules             <input_file> <output_path>   — extract rules JSON from agent output
+  deep-drift        <input_file> <report_path>   — extract deep findings, merge into drift report
+  recent-files      <scan_json>                  — print source file paths from scan.json
+  save-duplications <agent_c_file> <project_root>  — write .archie/semantic_duplications.json
 
 Zero dependencies beyond Python 3.9+ stdlib + sibling merge.py.
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Import extract_json_from_text from sibling merge.py
@@ -128,6 +130,39 @@ def cmd_recent_files(scan_json: str):
 
 
 # ---------------------------------------------------------------------------
+# save-duplications — extract Agent C's duplications and write to .archie/
+# ---------------------------------------------------------------------------
+
+def cmd_save_duplications(agent_c_file: str, project_root: str):
+    """Write Agent C's semantic duplications to .archie/semantic_duplications.json.
+
+    Writes an empty `duplications: []` list when Agent C's output is absent or
+    has no duplications — so `/archie-share` always carries a structured field
+    and the viewer never has to guess from the markdown scan report.
+    """
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    duplications: list = []
+
+    src = Path(agent_c_file)
+    if src.exists():
+        try:
+            data = extract_json_from_text(src.read_text())
+        except OSError:
+            data = None
+        if isinstance(data, dict):
+            raw = data.get("duplications")
+            if isinstance(raw, list):
+                duplications = raw
+
+    out_dir = Path(project_root) / ".archie"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "semantic_duplications.json"
+    payload = {"duplications": duplications, "scanned_at": now}
+    out_path.write_text(json.dumps(payload, indent=2))
+    print(f"Wrote {out_path} ({len(duplications)} duplications)", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -137,6 +172,7 @@ if __name__ == "__main__":
         print("  python3 extract_output.py rules <input_file> <output_path>", file=sys.stderr)
         print("  python3 extract_output.py deep-drift <input_file> <report_path>", file=sys.stderr)
         print("  python3 extract_output.py recent-files <scan_json>", file=sys.stderr)
+        print("  python3 extract_output.py save-duplications <agent_c_file> <project_root>", file=sys.stderr)
         sys.exit(1)
 
     subcmd = sys.argv[1]
@@ -158,6 +194,12 @@ if __name__ == "__main__":
             print("Usage: extract_output.py recent-files <scan_json>", file=sys.stderr)
             sys.exit(1)
         cmd_recent_files(sys.argv[2])
+
+    elif subcmd == "save-duplications":
+        if len(sys.argv) < 4:
+            print("Usage: extract_output.py save-duplications <agent_c_file> <project_root>", file=sys.stderr)
+            sys.exit(1)
+        cmd_save_duplications(sys.argv[2], sys.argv[3])
 
     else:
         print(f"Unknown subcommand: {subcmd}", file=sys.stderr)

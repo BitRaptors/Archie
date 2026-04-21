@@ -51,24 +51,28 @@ Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 
 ### Step C: Interactive scope prompt
 
-Present the user with:
+First, print the workspace list so the user sees what's available:
 
 > Found **N workspaces** in this **{monorepo_type}** monorepo:
 > 1. {name} ({type}) — {path}
 > 2. {name} ({type}) — {path}
 > ...
->
-> **How do you want to analyze it?**
->
-> - **whole** — One unified blueprint treating the monorepo as one product. Workspaces become components; cross-workspace imports become the primary architecture view. Fastest.
-> - **per-package** — One blueprint per workspace you pick. Deep detail per package, no product-level view.
-> - **hybrid** — Whole blueprint at root + per-workspace blueprints for specific workspaces. Most comprehensive, slowest.
-> - **single** — Ignore the workspaces and scan the whole tree as if it were one project. Only use this for small monorepos.
 
-Wait for the user's answer.
+Then call `AskUserQuestion` with the scope choice:
+
+- **question:** "How do you want to analyze this monorepo?"
+- **header:** "Scope"
+- **multiSelect:** false
+- **options** (exactly these four labels and descriptions):
+  1. label `Whole` — description `One unified blueprint treating the monorepo as one product. Workspaces become components; cross-workspace imports become the primary architecture view. Fastest.`
+  2. label `Per-package` — description `One blueprint per workspace you pick. Deep detail per package, no product-level view.`
+  3. label `Hybrid` — description `Whole blueprint at root + per-workspace blueprints for specific workspaces. Most comprehensive, slowest.`
+  4. label `Single` — description `Ignore the workspaces and scan the whole tree as if it were one project. Only for small monorepos.`
+
+Map the answer: Whole → `whole`, Per-package → `per-package`, Hybrid → `hybrid`, Single → `single`.
 
 - If `whole` or `single` → `WORKSPACES=[]`
-- If `per-package` or `hybrid` → ask which workspaces to include. Accept comma-separated numbers (`1,3,5`) or `all`. Resolve to paths relative to `$PWD`.
+- If `per-package` or `hybrid` → ask which workspaces to include as a free-form follow-up: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PWD`.
 
 Persist the choice:
 
@@ -99,6 +103,8 @@ After all passes finish, print a summary if >1 blueprint was touched: "Updated N
 ---
 
 ## Phase 1: Data Gathering (parallel scripts, seconds)
+
+**Telemetry:** record `TELEMETRY_DATA_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` before launching the scripts below.
 
 Run all three scripts simultaneously:
 
@@ -138,9 +144,13 @@ Read accumulated knowledge (skip any that don't exist — that's normal for earl
 
 ## Phase 3: Parallel Analysis (3 agents)
 
+**Telemetry:** record `TELEMETRY_DATA_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` and `TELEMETRY_AGENTS_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` before spawning agents.
+
 Spawn 3 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`). Each agent receives all the data from Phase 2 and can read source files when needed.
 
 **EFFICIENCY RULE:** Agents read skeletons.json which contains every file's path, class/function signatures, imports, and first lines. This is sufficient for pattern detection, outlier finding, and most analysis. Agents should ONLY use the Read tool on source files when the skeleton genuinely lacks the information needed to make a judgment.
+
+**Bulk content — off-limits for reading.** `scan.json.bulk_content_manifest` classifies files that the scanner saw but intentionally did not skeleton-parse: `ui_resource` (Android `res/`, iOS storyboards), `generated` (codegen output, bundled/minified JS, `*.d.ts`, `*.pb.go`, `*.g.dart`), `localization`, `migration`, `fixture`, `asset`, `lockfile`, `dependency`, `data`. Every agent below inherits this rule: **reference these paths by name and inventory counts, but do NOT call Read on them** — the scanner already summarized their shape. Surgical Read is allowed only when resolving a specific finding requires the content; note the reason.
 
 **IMPORTANT:** Write each agent's output to a temp file so Phase 4 can read them all.
 
@@ -157,6 +167,9 @@ You are analyzing the ARCHITECTURE and DEPENDENCIES of a codebase. You have acce
 - `.archie/skeletons.json` — every file's structure
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
 - `.archie/scan.json` — import graph, frameworks
+- `.archie/findings.json` — accumulated findings from prior runs (if present). Entries with `source: "scan:structure"` are yours to steward.
+
+**Novelty priority.** If findings.json exists, open it first and skim the entries in your slice (`source: "scan:structure"`, `status: "active"`). Those problems are already known — **your job is not to rediscover them**. Spend your analysis budget on problems that are NOT in the store: new components, newly-introduced violations, previously-missed gaps, anything emerging from recent changes to the dependency graph or skeletons. Reconfirming known items is bookkeeping, not analysis — emit them with the same `problem_statement` wording as the store (so 4b can id-match them) but do NOT re-derive evidence from scratch. If you genuinely find nothing new, say so in your output rather than padding.
 
 **Your job:**
 1. **Component analysis:** Identify all logical components. If a blueprint exists, compare — are there new components? Removed ones? Changed responsibilities? If no blueprint, infer components from directory structure and import patterns.
@@ -200,6 +213,9 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
 - `.archie/health_history.json` — historical health scores (for trend analysis)
 - `.archie/skeletons.json` — file structure
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
+- `.archie/findings.json` — accumulated findings from prior runs (if present). Entries with `source: "scan:health"` are yours to steward.
+
+**Novelty priority.** If findings.json exists, open it first and skim the entries in your slice (`source: "scan:health"`, `status: "active"`). Those hotspots are already known — **your job is not to rediscover them**. Point your analysis at what has MOVED: functions whose CC climbed since last run, newly-introduced complexity, LOC growth that wasn't there before, hotspots that cooled off (mark candidates for resolution). Reconfirming known hotspots is bookkeeping — emit them with the same `problem_statement` wording (so 4b can id-match) without re-deriving evidence. If trends are flat and nothing new emerged, say so explicitly rather than padding.
 
 **Your job:**
 1. **Health assessment:** Report each metric with plain-language explanation. Thresholds:
@@ -243,6 +259,9 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 - `.archie/proposed_rules.json` — previously proposed rules (adopted or pending)
 - `.archie/blueprint.json` — existing architectural knowledge (if any)
 - `.archie/scan.json` — file tree, imports, frameworks
+- `.archie/findings.json` — accumulated findings from prior runs (if present). Entries with `source: "scan:patterns"` are yours to steward.
+
+**Novelty priority.** If findings.json exists, open it first and skim the entries in your slice (`source: "scan:patterns"`, `status: "active"`). Those pattern issues are already known — **your job is not to rediscover them**. Aim your analysis at pattern drift that is NEW since the last run: freshly-introduced outliers, newly-emergent duplications, new rule violations in recently-touched files, categories of pattern you haven't flagged before. Reconfirming known pattern issues is bookkeeping — emit them with the same `problem_statement` wording (so 4b can id-match) without re-deriving evidence. Similarly for proposed_rules.json: do not re-propose rules that already exist there — look deeper. If nothing new has drifted, say so explicitly rather than padding.
 
 **Your job:**
 1. **Pattern consistency:** Identify patterns and outliers from skeletons alone — the class hierarchy, function names, file organization, and import patterns are all visible in skeletons. Only Read an outlier source file if you cannot determine from the skeleton whether it's intentional (e.g., a comment, a different base class for a reason).
@@ -298,6 +317,8 @@ Save output: /tmp/archie_agent_c_rules.json
 
 ## Phase 4: Synthesis + Blueprint Evolution
 
+**Telemetry:** record `TELEMETRY_AGENTS_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` and `TELEMETRY_SYNTHESIS_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` before starting synthesis.
+
 Read the outputs from all three agents:
 - `/tmp/archie_agent_a_arch.json`
 - `/tmp/archie_agent_b_health.json`
@@ -333,12 +354,10 @@ Structure: `{"title": "Architectural Style", "chosen": "", "rationale": "", "con
 - Add `"last_health_scan"` timestamp
 
 **Pitfalls** (`blueprint.pitfalls`):
-Structure: `[{"area": "", "description": "", "recommendation": "", "severity": "error|warn", "confidence": 0.9, "source": "scan-observed", "stems_from": [], "applies_to": [], "first_seen": "", "confirmed_in_scan": N}]`
-- Agent A's dependency violations → add as pitfalls. Map `title` → `area`.
-- Agent B's complexity hotspots → add as pitfalls
-- Agent C's pattern violations → add as pitfalls
-- Existing pitfalls from blueprint → keep. If a scan-observed pitfall matches an existing one, increase its confidence.
-- If a previously scan-observed pitfall is no longer found → mark `"status": "resolved"` with timestamp. Don't delete — the resolution is valuable knowledge.
+- **DO NOT write, edit, or delete entries in `blueprint.pitfalls` during scan.** Pitfalls are class-of-problem, blueprint-durable entries owned exclusively by `/archie-deep-scan` Wave 2, which emits them in the canonical 4-field shape (`problem_statement`, `evidence`, `root_cause`, `fix_direction`).
+- Concrete problems surfaced by Agents A/B/C become **findings** in `.archie/findings.json` via step 4b — not pitfalls. Their schema is the same 4-field core; `source` is `scan:structure | scan:health | scan:patterns`; `depth` is `draft`.
+- If a scan-observed finding recurs across runs its `confirmed_in_scan` counter increments (id-stable match in 4b). If a deep-scan has already linked it to a parent pitfall (`pitfall_id` set), the link is preserved.
+- Existing `blueprint.pitfalls` entries pass through untouched.
 
 **Architecture rules** (`blueprint.architecture_rules`):
 - Agent C's proposed rules that have confidence >= 0.8 → add to `architecture_rules` with `"source": "scan-inferred"`
@@ -369,7 +388,70 @@ Then normalize it to ensure canonical schema:
 python3 .archie/finalize.py "$PWD" --normalize-only
 ```
 
-### 4b: Write Scan Report
+### 4b: Write structured findings
+
+Collect every concrete problem the three agents surfaced (Agent A: architecture/structure, Agent B: health/complexity, Agent C: patterns/rules) and emit them as structured JSON to `.archie/findings.json`. This is the machine-readable companion to the prose scan report in 4c, and it is the seam that `/archie-deep-scan` consumes to produce canonical findings and pitfalls.
+
+**Dedup is the default, novelty is the goal.** The agents were told to prioritize NEW problems and to reuse the existing `problem_statement` wording when they reconfirm known ones — so ID-matching should be cheap here. The store compounds across runs; your job in 4b is to make sure:
+
+- Already-known findings get reused (same `id`, `confirmed_in_scan += 1`), not duplicated.
+- Genuinely new findings get a fresh `f_NNNN` id.
+- Known findings the agents couldn't confirm any more get `status: "resolved"` (plus `resolved_at`).
+
+A run whose output is dominated by reconfirmations is a valid result only when the codebase is stable. If the agents reported novelty but 4b flattened it into reconfirmations, you did it wrong — preserve the new findings they flagged.
+
+**Quality bar — quality-gated, not quantity-gated.** A finding is valid only if:
+
+- `problem_statement` is specific. "Code is complex" is not a finding; "3 route handlers exceed 500 SLOC with cyclomatic complexity > 20" is.
+- `evidence` is non-empty and concrete: file paths with line numbers, counts, pattern observations. No `evidence` → drop the finding.
+- `root_cause` names the architectural decision, pattern choice, or constraint driving the problem. "Needs refactoring" is not a root cause.
+- `fix_direction` is actionable and tactical (single sentence).
+
+**Soft floor of 3.** If you would emit fewer than 3 findings total across all three agents, explicitly state why in the scan report's Findings section (e.g., "no material issues — codebase is clean in areas X, Y, Z; only one finding met the quality bar"). Never invent filler findings to hit a number.
+
+No upper cap on `findings.json` — rank-clip happens only at render time in `scan_report.md` (4c).
+
+**Finding schema:**
+
+```json
+{
+  "id": "f_NNNN",
+  "problem_statement": "One sentence, specific.",
+  "evidence": ["src/file.py:42", "pattern observed in 7 modules", "..."],
+  "root_cause": "Names a decision/pattern/constraint, specific to this codebase.",
+  "fix_direction": "Single tactical sentence.",
+  "severity": "error | warn | info",
+  "confidence": 0.85,
+  "applies_to": ["src/auth/", "src/routes/profile.py"],
+  "source": "scan:structure | scan:health | scan:patterns",
+  "depth": "draft",
+  "first_seen": "YYYY-MM-DDTHHMM",
+  "confirmed_in_scan": 1,
+  "status": "active"
+}
+```
+
+`source` maps to the agent: Agent A → `scan:structure`, Agent B → `scan:health`, Agent C → `scan:patterns`.
+
+**ID stability across scans.** Read the previous `.archie/findings.json` if present. For each new finding:
+
+- Try to match an existing finding by (similar `problem_statement`) ∧ (overlapping `applies_to`). On match: reuse the existing `id`, increment `confirmed_in_scan`, keep `first_seen`.
+- Unmatched new findings → assign the next-free `f_NNNN` id, set `first_seen` = current scan timestamp, `confirmed_in_scan` = 1.
+- Previous findings that no longer apply → set `status: "resolved"` and add `resolved_at: <current timestamp>`. Keep them in the file (the resolution is valuable signal for `/archie-deep-scan` and trend analysis).
+
+**Output file shape:**
+
+```json
+{
+  "scanned_at": "YYYY-MM-DDTHHMM",
+  "scan_count": N,
+  "findings": [ ... ]
+}
+```
+
+Write to `.archie/findings.json`. `scanned_at` must match the date/time you compute in 4c. `scan_count` matches `blueprint.meta.scan_count` after 4a evolved it.
+
+### 4c: Write Scan Report
 
 Get the current date/time and scan number from the blueprint (`meta.scan_count`):
 ```bash
@@ -425,7 +507,7 @@ The report should include:
 [Re-baseline with /archie-deep-scan if: no deep scan ever, erosion increased >0.10, major structural changes]
 ```
 
-### 4c: Update Satellite Files
+### 4d: Update Satellite Files
 
 Append health scores to history:
 ```bash
@@ -441,22 +523,47 @@ Save ALL proposed rules (from Agent C) to `.archie/proposed_rules.json`:
 5. Write back
 ```
 
-Save Agent C's semantic duplications to `.archie/semantic_duplications.json`:
-```
-1. Read /tmp/archie_agent_c_rules.json and extract the `duplications` array (each entry: {function, locations[], recommendation})
-2. Write to .archie/semantic_duplications.json as {"duplications": [...], "scanned_at": "<ISO UTC>"}
-3. Overwrite on every scan — this is a snapshot of the current state, not append-only
+Save Agent C's semantic duplications to `.archie/semantic_duplications.json` — run this unconditionally (it writes an empty list when Agent C found none, so the file always reflects the latest AI verdict):
+
+```bash
+python3 .archie/extract_output.py save-duplications /tmp/archie_agent_c_rules.json "$PWD"
 ```
 
-This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric.
+This is what `/archie-share` surfaces as "N semantic reimplementations" alongside the textual verbosity metric. Keeping the write deterministic means every fresh bundle carries a structured `semantic_duplications` field — the share viewer never has to fall back to regex-parsing the scan report.
 
-### 4d: Clean up temp files
+### 4e: Clean up temp files
 
 ```bash
 rm -f /tmp/archie_agent_a_arch.json /tmp/archie_agent_b_health.json /tmp/archie_agent_c_rules.json
 ```
 
 Note: keep `.archie/health.json` — `/archie-share` needs it to populate the Metrics panel in the viewer. It is regenerated on every scan, so stale data is not a concern.
+
+### 4f: Write telemetry
+
+Record the synthesis end timestamp and write the per-run telemetry file. This captures step-level wall-clock for measuring the impact of prompt/code changes; output lives in `.archie/telemetry/`.
+
+```bash
+TELEMETRY_SYNTHESIS_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
+
+Write `/tmp/archie_timing.json` with the timestamps you recorded at each phase boundary above:
+
+```json
+[
+  {"name": "data", "started_at": "<TELEMETRY_DATA_START>", "completed_at": "<TELEMETRY_DATA_END>"},
+  {"name": "agents", "started_at": "<TELEMETRY_AGENTS_START>", "completed_at": "<TELEMETRY_AGENTS_END>", "model": "sonnet"},
+  {"name": "synthesis", "started_at": "<TELEMETRY_SYNTHESIS_START>", "completed_at": "<TELEMETRY_SYNTHESIS_END>"}
+]
+```
+
+Then invoke the writer:
+
+```bash
+python3 .archie/telemetry.py "$PWD" --command scan --timing-file /tmp/archie_timing.json
+```
+
+If telemetry fails for any reason (missing timestamp, file write error), do not abort the scan — telemetry is informational only.
 
 ---
 

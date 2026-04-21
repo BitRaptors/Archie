@@ -19,6 +19,64 @@ export interface Finding {
   title: string
   description: string
   group?: FindingGroup
+  // Rich 4-field shape (present when sourced from findings.json / blueprint
+  // pitfalls rather than from scan_report.md regex parsing).
+  id?: string
+  evidence?: string[]
+  root_cause?: string
+  fix_direction?: string | string[]
+  applies_to?: string[]
+  confidence?: number
+  status?: string
+  pitfall_id?: string
+}
+
+/** Normalize a structured finding (from findings.json) into the Finding shape
+ * the UI components expect. Keeps the 4-field data available for rich rendering
+ * while preserving legacy `description` (if present) so old bundles still
+ * show their prose body. `description` is NOT auto-filled from root_cause /
+ * evidence — doing so would duplicate content when rendered in rich mode. */
+export function normalizeStructuredFinding(raw: any): Finding {
+  const sev = (raw?.severity || 'warn').toLowerCase() as FindingSeverity
+  const problem = raw?.problem_statement || raw?.title || raw?.area || ''
+  return {
+    severity: (['error', 'warn', 'info'] as const).includes(sev) ? sev : 'warn',
+    title: String(problem),
+    description: raw?.description ? String(raw.description) : '',
+    id: raw?.id,
+    evidence: Array.isArray(raw?.evidence) ? raw.evidence.map(String) : undefined,
+    root_cause: raw?.root_cause || undefined,
+    fix_direction: raw?.fix_direction || undefined,
+    applies_to: Array.isArray(raw?.applies_to) ? raw.applies_to.map(String) : undefined,
+    confidence: typeof raw?.confidence === 'number' ? raw.confidence : undefined,
+    status: raw?.status || undefined,
+    pitfall_id: raw?.pitfall_id || undefined,
+  }
+}
+
+/** Normalize a pitfall (from blueprint.pitfalls) into the Finding shape. Same
+ * 4-field schema as findings, but kept separate so callers can label the
+ * section differently. Falls back to the legacy
+ * {title/area, description, recommendation} shape for old bundles. */
+export function normalizePitfall(raw: any): Finding {
+  const sev = (raw?.severity || 'warn').toLowerCase() as FindingSeverity
+  const problem = raw?.problem_statement || raw?.title || raw?.area || 'Pitfall'
+  return {
+    severity: (['error', 'warn', 'info'] as const).includes(sev) ? sev : 'warn',
+    title: String(problem),
+    // Preserve legacy prose body. Don't synthesize from 4-field data — that
+    // would double-render alongside Evidence / Root Cause in the rich view.
+    description: raw?.description ? String(raw.description) : '',
+    id: raw?.id,
+    evidence: Array.isArray(raw?.evidence) ? raw.evidence.map(String) : undefined,
+    root_cause: raw?.root_cause || undefined,
+    // Bridge legacy pitfalls: recommendation becomes a single-step fix_direction
+    // so it still renders in the new "Fix Direction" block.
+    fix_direction: raw?.fix_direction || raw?.recommendation || undefined,
+    applies_to: Array.isArray(raw?.applies_to) ? raw.applies_to.map(String) : undefined,
+    confidence: typeof raw?.confidence === 'number' ? raw.confidence : undefined,
+    status: raw?.status || undefined,
+  }
 }
 
 const SEVERITY_RANK: Record<FindingSeverity, number> = { error: 0, warn: 1, info: 2 }
@@ -178,6 +236,28 @@ export function isSemanticDupFinding(
 
 export function countSemanticDuplications(findings: Finding[]): number {
   return findings.filter((f) => isSemanticDupFinding(f)).length
+}
+
+/** Parse the scan report for an explicit "no semantic duplication" verdict.
+ *
+ * Older bundles (and bundles written before `semantic_duplications.json` was
+ * a deterministic pipeline artifact) often carry the AI's zero verdict only
+ * in the scan report prose — e.g. `## Part 6: Semantic Duplication` followed
+ * by "No semantic duplication detected after AI analysis." Returns `true`
+ * when the report explicitly asserts a zero count, so the viewer can treat
+ * this as a structured 0 rather than a heuristic fallback. */
+export function scanReportAssertsZeroSemanticDup(scanReport: string): boolean {
+  if (!scanReport) return false
+  // Anchor on a "Semantic Duplication" heading (Part 6 in the current template,
+  // but keep it tolerant of future section numbering). Then look for an
+  // explicit zero assertion within a reasonable slice after the heading.
+  const headingRx = /^#{1,4}\s+[^\n]*semantic\s+duplication[^\n]*$/im
+  const m = headingRx.exec(scanReport)
+  if (!m) return false
+  const after = scanReport.slice(m.index + m[0].length, m.index + m[0].length + 1200)
+  return /\b(no|zero)\s+(semantic\s+duplicat\w*|near[- ]?twin\s+functions?)\b/i.test(after)
+    || /\b(semantic\s+duplicat\w*|near[- ]?twin\s+functions?)\b[^.\n]{0,40}\bnot\s+detected\b/i.test(after)
+    || /\bclean\b[^.\n]{0,40}\b(semantic|duplicat\w*)\b/i.test(after)
 }
 
 export function severityColor(sev: FindingSeverity): string {

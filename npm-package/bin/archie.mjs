@@ -105,7 +105,7 @@ for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md", 
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py"]) {
+for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "telemetry.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -131,6 +131,16 @@ const archieignoreDest = join(projectRoot, ".archieignore");
 if (!existsSync(archieignoreDest) && existsSync(archieignoreSrc)) {
   writeFileSync(archieignoreDest, readFileSync(archieignoreSrc, "utf8"));
   console.log(`  ${GREEN}✓${RESET} .archieignore (default patterns)`);
+}
+
+// 3c². Copy .archiebulk (only if it doesn't exist — user may have customized).
+// .archiebulk tags files as "visible but not read" (UI resources, generated
+// code, migrations, lockfiles). Scanner counts them; agents never Read them.
+const archiebulkSrc = join(ASSETS, "archiebulk.default");
+const archiebulkDest = join(projectRoot, ".archiebulk");
+if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
+  writeFileSync(archiebulkDest, readFileSync(archiebulkSrc, "utf8"));
+  console.log(`  ${GREEN}✓${RESET} .archiebulk (default bulk-content rules)`);
 }
 
 // 3d. Add .gitignore entries for Archie scripts (idempotent)
