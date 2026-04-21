@@ -16,7 +16,7 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 npx @bitraptors/archie /path/to/your/project
 ```
 
-This copies Archie's standalone scripts and Claude Code commands into your project, installs enforcement hooks, configures permissions, delivers `.archieignore` (ignore patterns for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code.
+This copies Archie's standalone scripts and Claude Code commands into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code.
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
 
@@ -26,16 +26,17 @@ npx @bitraptors/archie /path/to/project --commands-dir .agents/skills
 ```
 Use `--commands-dir` to install command files to a custom directory (default: `.claude/commands/`).
 
-## Two Commands
+## Commands
 
 | Command | What it does | Time |
 |---------|-------------|------|
-| `/archie-scan` | Architecture health check. Runs deterministic scanner for data, then AI analyzes the architecture like a senior architect: finds dependency violations, pattern drift, complexity hotspots, proposes enforceable rules. Each scan builds on prior knowledge — confidence grows with repeated confirmation. | 1-3 min |
-| `/archie-deep-scan` | Comprehensive architecture baseline. Full 2-wave multi-agent analysis (3-4 Sonnet agents + Opus reasoning) producing blueprint, per-folder CLAUDE.md, rules, and health metrics. | 15-20 min |
+| `/archie-scan` | Architecture health check. Runs deterministic scanner for data, then AI analyzes the architecture like a senior architect: finds dependency violations, pattern drift, complexity hotspots, proposes enforceable rules. Writes concrete problems to `.archie/findings.json` (a shared 4-field store). Each scan builds on prior knowledge — recurring findings bump a `confirmed_in_scan` counter, resolved ones flip `status`, new ones get fresh ids. | 1-3 min |
+| `/archie-deep-scan` | Comprehensive architecture baseline. Full 2-wave multi-agent analysis (3-4 Sonnet agents + Opus reasoning) producing blueprint, optional per-folder CLAUDE.md, rules, findings, pitfalls, and health metrics. Wave 2 upgrades scan-triage drafts to canonical and emits class-of-problem pitfalls. Intent Layer (per-folder enrichment) is opt-in via an interactive prompt. Supports `--incremental`, `--continue`, and `--from N`. | 15-20 min |
+| `/archie-share` | Upload a blueprint + findings + scan report to a hosted viewer for teammates to review. Returns a shareable URL. | seconds |
 
-Run `/archie-deep-scan` once to establish a baseline. Then use `/archie-scan` for ongoing checks — each scan compounds on previous knowledge.
+Run `/archie-deep-scan` once to establish a baseline. Then use `/archie-scan` for ongoing checks — each scan compounds on previous knowledge. Use `/archie-share` to hand a snapshot to anyone with a browser.
 
-There is also `/archie-viewer` for interactive blueprint inspection (6 tabs: Dashboard, Scan Reports, Blueprint, Rules, Files, Dependencies).
+There is also `/archie-viewer` for interactive local blueprint inspection (Dashboard, Scan Reports, Blueprint, Rules, Files, Dependencies, Workspace tabs).
 
 ### `/archie-scan` in action
 
@@ -321,63 +322,94 @@ There is also `/archie-viewer` for interactive blueprint inspection (6 tabs: Das
 | `--incremental` | Only process files changed since last deep scan (3-6 min vs 15-20 min) |
 | `--continue` | Resume from where the last run stopped (handles interruptions) |
 | `--from N` | Resume from a specific step N (steps 1-9) |
+| `--reconfigure` | Re-prompt for monorepo scope config (whole/per-package/hybrid/single) |
 
 ### Monorepo Support
 
-Both scan commands auto-detect sub-projects (via Gradle, package.json, pyproject.toml, etc.) and present a scope selection: scan the entire repository, the current package, or a specific sub-project. Each scope gets its own `.archie/` directory.
+Both scan commands auto-detect sub-projects (via Gradle, package.json, Cargo.toml, pyproject.toml, etc.). On the first run for a monorepo they present an interactive single-choice picker:
+
+- **Whole** — one unified blueprint treating the monorepo as one product
+- **Per-package** — one blueprint per workspace you pick
+- **Hybrid** — whole blueprint at root + per-workspace blueprints for specific workspaces
+- **Single** — ignore the workspaces and scan as one tree (small monorepos only)
+
+The choice is persisted in `.archie/archie_config.json` so it's only asked once per project. In `whole` mode, Archie additionally produces a `workspace_topology` field with inter-workspace edges, cycles, and dependency magnets.
 
 ### Ignore Patterns
 
-Archie uses `.archieignore` (delivered with sensible defaults) merged with `.gitignore` to determine what to scan. Patterns use gitignore syntax — directory patterns like `node_modules/` match at any depth. The default `.archieignore` covers dependencies, caches, build outputs, IDE files, and binary formats.
+Archie uses three layered pattern files to decide what the scanner sees and what agents read. Most-restrictive wins:
 
-Claude can edit `.archieignore` on demand if you ask to include or exclude specific paths.
+| File | Semantics |
+|---|---|
+| `.gitignore` | Not scanned at all (standard git rules, nested files supported) |
+| `.archieignore` | Not scanned at all — Archie-specific exclusions on top of `.gitignore` (default covers deps, caches, build outputs, IDE files, binaries) |
+| `.archiebulk` | **Scanned but opaque** — the scanner records path + `{category, framework}` metadata but never reads the contents. Default covers Android `res/`, iOS storyboards/asset catalogs, Flutter/Dart codegen, minified JS, TypeScript `.d.ts`, Go protobuf/vendor, Python protobuf/migrations, SQL migrations, lockfiles, OpenAPI codegen, and more. |
+
+The `.archiebulk` tier gives AI agents structural inventory (e.g. "this project has 248 Android layouts across 24 screens") without burning analytical budget on reading boilerplate contents. All patterns use gitignore syntax — `**/res/layout/**` matches at any depth. Claude can edit any of the three files on demand.
 
 ## What It Generates
 
 | Output | Purpose |
 |--------|---------|
-| `.archie/blueprint.json` | Structured architecture data (single source of truth) |
-| `.archie/rules.json` | Adopted enforcement rules (from blueprint extraction + AI-proposed scan rules) |
+| `.archie/blueprint.json` | Structured architecture data (single source of truth). Decisions, components, trade-offs, communication patterns, pitfalls (4-field shape), implementation guidelines, architecture diagram. |
+| `.archie/findings.json` | Shared, compounding findings store. Each entry is `{id, problem_statement, evidence, root_cause, fix_direction, severity, confidence, applies_to, source, depth, first_seen, confirmed_in_scan, status, pitfall_id?}`. Read and written by both `/archie-scan` and `/archie-deep-scan`. |
+| `.archie/rules.json` | Adopted enforcement rules (from blueprint extraction + AI-proposed scan rules + platform rules) |
 | `.archie/proposed_rules.json` | AI-proposed rules pending adoption, with confidence scores |
-| `.archie/health.json` | Current architecture health scores |
+| `.archie/health.json` | Current architecture health scores + per-function complexity snapshot |
 | `.archie/health_history.json` | Timestamped health snapshots for trend analysis |
 | `.archie/dependency_graph.json` | Resolved dependency graph with cycle detection |
-| `.archie/function_complexity.json` | Per-function cyclomatic complexity snapshot |
-| `.archie/scan_report.md` | Latest scan report (all reports preserved in `.archie/scan_history/` with timestamps) |
-| `.archieignore` | Scanning ignore patterns (merged with `.gitignore`) |
+| `.archie/semantic_duplications.json` | Near-twin / reimplementation groups found by AI analysis (deterministic writer) |
+| `.archie/scan.json` | Raw scan data: file tree, import graph, framework signals, `bulk_content_manifest`, `frontend_ratio`, token counts |
+| `.archie/skeletons.json` | Per-file class/function signatures + imports + first lines (efficient AI context) |
+| `.archie/drift_report.json` | Mechanical drift findings (pattern outliers, dependency-direction breaches, structural anomalies) |
+| `.archie/scan_report.md` | Latest prose report; every run is archived in `.archie/scan_history/scan_NNN_*.md` |
+| `.archie/telemetry/*.json` | Per-run step-level wall-clock timing (for measuring changes to the pipeline) |
+| `.archie/archie_config.json` | Persisted monorepo scope config (whole/per-package/hybrid/single) |
+| `.archieignore` / `.archiebulk` | Scanning pattern files (merged with `.gitignore`) |
 | `CLAUDE.md` | Root architecture context for Claude Code |
 | `AGENTS.md` | Multi-agent guidance with decision chains |
-| Per-folder `CLAUDE.md` | Directory-level context with patterns, anti-patterns, code examples |
+| Per-folder `CLAUDE.md` | Directory-level context with patterns, anti-patterns, code examples (only if Intent Layer opt-in) |
 | `.claude/hooks/` | Real-time enforcement hooks |
-| `.claude/rules/*.md` | Topic-split rule files (architecture, patterns, guidelines, pitfalls) |
+| `.claude/rules/*.md` | Topic-split rule files (architecture, patterns, guidelines, pitfalls, dev-rules) |
 
 ## How It Works
 
 ### Deep Scan Pipeline (2-Wave)
 
-1. **Scanner** — Deterministic local analysis: file tree, import graph, framework detection, token counting, file hashing, skeleton extraction (class/function signatures for efficient AI context). Respects `.archieignore` + `.gitignore` patterns. Pure Python, no AI.
+1. **Scanner** — Deterministic local analysis: file tree, import graph, framework detection, token counting, file hashing, skeleton extraction (class/function signatures for efficient AI context), and **bulk-content classification** (files matching `.archiebulk` get tagged by category/framework and skipped from skeleton/hash/import reads). Respects `.archieignore` + `.gitignore` + `.archiebulk` layering. Pure Python, no AI. Writes `.archie/scan.json` with `bulk_content_manifest` and `frontend_ratio`.
 
 2. **Wave 1** (parallel) — 3-4 Sonnet agents gather facts simultaneously:
-   - **Structure agent** — Components, layers, file placement rules
+   - **Structure agent** — Components, layers, file placement rules, workspace topology in monorepos
    - **Patterns agent** — Communication patterns, design patterns, integrations
    - **Technology agent** — Stack inventory, deployment config, dev rules
-   - **UI agent** — UI components, state management, routing (only if frontend detected)
+   - **UI Layer agent** — UI components, state management, routing (only if `frontend_ratio ≥ 0.20`)
 
-3. **Wave 2** — Opus reasoning agent reads all Wave 1 output and produces deep architectural reasoning:
-   - Decision chain (root constraint tree with forced_by/enables links)
-   - Key decisions with violation keywords
-   - Trade-offs with violation signals (patterns that would indicate the trade-off is being undermined)
-   - Pitfalls traced to specific architectural choices (causal chains)
-   - Architecture diagram
+   Each agent receives `.archie/findings.json` scoped to its `source` slice and is told to prioritise NEW problems over re-deriving known ones. Draft findings flow into the shared store as `depth: "draft"`; structural workspace observations (cross-workspace cycles, magnets) flow in as draft findings rather than free-form pitfalls.
 
-4. **Normalize** — AI reshapes raw output to canonical schema
-5. **Render** — Deterministic JSON-to-Markdown (CLAUDE.md, AGENTS.md, per-folder context)
-6. **Validate** — Cross-reference output against actual codebase (paths, methods, pitfalls)
-7. **Intent Layer** — AI-generated per-folder CLAUDE.md via bottom-up DAG scheduling (leaf folders first, parents inherit child summaries, incremental re-generation for changed folders only)
+3. **Wave 2 — Opus reasoning** — One Opus subagent reads all Wave 1 output plus the accumulated findings store, and produces the architectural synthesis:
+   - **Three codebase probes** before emitting key decisions: (A) complexity-budget — where the codebase spends complexity a naive implementation wouldn't, (B) invariants & gates — self-enforced rules, (C) seams — substitution/extension points
+   - **Decision chain** — rooted constraint tree with `violation_keywords` per node
+   - **Key decisions** (3-7) with `forced_by` / `enables` links and alternatives_rejected
+   - **Trade-offs** (3-5) with `violation_signals` (code patterns that would undo the trade-off)
+   - **Findings** — upgrades scan-triage drafts in place (fills `root_cause` with architectural grounding, rewrites `fix_direction` as an ordered sequence of steps, flips `depth: "canonical"`) and emits NEW findings visible only from the whole-system view
+   - **Pitfalls** — class-of-problem entries (same 4-field shape) durable across runs, linked from confirming findings via `pitfall_id`
+   - **Architecture diagram** and **implementation guidelines**
+
+4. **Finalize** — Deterministic id-stable merge of Opus output: findings into the shared store (`confirmed_in_scan += 1` on id match, new ids minted for novel entries), pitfalls into the blueprint.
+5. **Rule Synthesis** (Sonnet) — Proposes new architecturally-grounded rules from the synthesised blueprint.
+6. **Intent Layer** (opt-in) — Step E asks whether to generate per-folder CLAUDE.md via bottom-up DAG scheduling (leaves first, parents inherit child summaries, incremental re-generation for changed folders only). Skipping saves the bulk of the wall-clock on large projects.
+7. **Drift Detection & Architectural Assessment** — Mechanical drift (pattern outliers, file-size/complexity violations, dependency-direction breaches) + deep AI drift (decision violations, pattern erosion, trade-off undermining, pitfall triggers, responsibility leaks, abstraction bypasses, semantic duplication). Writes the final scan report.
+8. **Telemetry** — Every step records wall-clock; `.archie/telemetry/deep-scan_<ts>.json` captures per-step seconds + whether Intent Layer was skipped.
 
 ### Compound Learning
 
-Each `/archie-scan` reads the existing blueprint, health history, and prior rules before analyzing. Findings are merged back — confidence scores increase with repeated confirmation, resolved pitfalls are marked but preserved as history. The blueprint evolves incrementally rather than being rebuilt from scratch.
+Every run feeds the next. Both `/archie-scan` and `/archie-deep-scan` read and write the same `findings.json` shared store:
+
+- **Id-stable upsert.** Recurring findings reuse their existing `f_NNNN` id and bump `confirmed_in_scan`; brand-new ones get a fresh id and `first_seen` stamp; findings that no longer apply flip `status: "resolved"` (preserved as history, not deleted).
+- **Novelty priority.** Agents are explicitly told to spend their cognitive budget on NEW problems, not re-describe known ones under different wording.
+- **Depth escalation.** Scan emits `depth: "draft"` entries quickly (`source: scan:structure|health|patterns`, single-line `fix_direction`). Deep-scan Wave 2 upgrades the same id to `depth: "canonical"` (`source: deep:synthesis`, ordered-list `fix_direction` with architectural root_cause) and links to a parent pitfall if the problem is structural.
+- **Blueprint confidence** also grows per-section with repeated confirmation across scans.
+- **Health scores** appended to `health_history.json` for trend detection (improving / degrading / stable).
 
 ### Drift Detection
 
@@ -399,7 +431,7 @@ Once installed via `npx @bitraptors/archie`, four hooks are registered:
 - **PostToolUse (ExitPlanMode)** — After plan approval, triggers an architectural review of the plan.
 - **PreToolUse (Glob|Grep)** — Blueprint nudge: reminds the agent about project architecture before code exploration.
 
-All hooks fail open: if `.archie/rules.json` doesn't exist, they exit silently. Permissions are auto-configured in `.claude/settings.local.json` to prevent workflow interruptions.
+All hooks fail open: if `.archie/rules.json` doesn't exist, they exit silently. The installer also writes a comprehensive `allow` list (29 entries) into `.claude/settings.local.json` — covering Python script execution, git / sort / head / test / wc, temp files under `/tmp/archie_*`, reads/writes under `.archie/**`, per-folder CLAUDE.md, and `Agent(*)` for subagent spawning — so the scan workflow runs without permission prompts.
 
 ## Rules
 
@@ -407,14 +439,14 @@ Rules come from three sources:
 
 1. **Blueprint extraction** (`rules/extractor.py`) — Deterministically extracts `file_placement` and `naming` rules from the blueprint's `architecture_rules` and `components` sections.
 
-2. **AI-proposed rules** (`/archie-scan`) — The scan AI proposes architectural rules with deep rationale tracing back to decision chains and trade-offs. Each rule includes a confidence score (0-1). Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by Claude Code during scans. Source tracking distinguishes `deep-baseline`, `scan-adopted`, and `scan-inferred` rules.
+2. **AI-proposed rules** (`/archie-scan` + `/archie-deep-scan`) — The AI proposes architectural rules with deep rationale tracing back to decision chains and trade-offs. Each rule includes a confidence score (0-1). Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by Claude Code during scans. Source tracking distinguishes `deep-baseline`, `scan-adopted`, and `scan-inferred` rules.
 
-3. **Platform rules** (`platform_rules.json`) — 40+ predefined architectural checks installed with every project, covering:
-   - **Universal** — God-functions, growing complexity, empty catches, disabled tests, hardcoded secrets
-   - **Android** — Layer violations (ViewModel/Context, Fragment/network), lifecycle (GlobalScope), DI anti-patterns
-   - **Swift** — Force unwraps, force try, view-layer network access
-   - **TypeScript** — Components fetching data, `any` type, React DOM manipulation, array index keys
-   - **Python** — Bare except, eval/exec, mutable defaults, star imports
+3. **Platform rules** (`platform_rules.json`) — 30 predefined architectural checks installed with every project, categorized by concern:
+   - **Erosion** — God-functions, growing complexity, monster files
+   - **Decay** — Empty catches, disabled tests, TODO/HACK markers, debug breakpoints
+   - **Security** — Hardcoded secrets, eval/exec, plaintext API keys in logs
+   - **Architecture** — Layer violations (Android ViewModel/Context, Fragment/network, Swift view-layer networking, React components fetching data), DI anti-patterns, TypeScript `any`, React DOM manipulation, array index keys, Python mutable defaults, star imports, bare except
+   - **Safety** — Python `TYPE_CHECKING` guards, Swift force unwraps / force try
 
 Each rule has a severity (`warn` for advisory, `error` for blocking). Severity can be changed from `/archie-viewer` or by Claude Code during scans.
 
@@ -437,28 +469,36 @@ Each scan compares current scores against history to detect trends (improving, d
 
 - **Python 3.9+** for standalone scripts (installed via `npx @bitraptors/archie`, stdlib only, zero pip dependencies)
 - **Node.js 18+** for `npx @bitraptors/archie` installer
-- **Claude Code** for `/archie-scan` and `/archie-deep-scan`
+- **Claude Code** for `/archie-scan`, `/archie-deep-scan`, `/archie-share`, and `/archie-viewer`
 
-The scan templates use only pre-installed CLI commands — no inline Python is generated during scans. Available commands include `--append-history`, `--normalize-only`, and `inspect` for JSON inspection.
+The scan templates use only pre-installed CLI commands — no inline Python is written during scans. Every data operation has a dedicated subcommand: `measure_health.py --append-history`, `finalize.py --normalize-only`, `intent_layer.py inspect`, `extract_output.py save-duplications`, `extract_output.py recent-files`, and so on. Agents are explicitly forbidden from `python3 -c` one-liners.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentation.
 
 ## Repository Layout
 
 ```
-archie/              Python package (CLI, engine, coordinator, hooks, renderer)
-  cli/               Click CLI commands
+archie/              Python package (CLI + engine + coordinator + standalone)
+  cli/               Click CLI commands (init, refresh, status, check, serve)
   engine/            Local codebase analysis (scanner, imports, frameworks)
   coordinator/       2-wave AI pipeline (planner, runner, merger, prompts)
   hooks/             Claude Code hook generation and enforcement
   renderer/          Output generation (CLAUDE.md, per-folder context)
   rules/             Rule extraction and management
-  standalone/        Zero-dependency scripts (copied to target projects via npm)
+  standalone/        Zero-dependency scripts (18 files, copied to target projects via npm)
 npm-package/         NPM distribution (npx @bitraptors/archie)
-tests/               Pytest suite (26 files, 3400+ LOC)
+  bin/archie.mjs     Installer entry point
+  assets/            Canonical copies of standalone scripts + commands + archieignore/archiebulk defaults
+share/               Blueprint sharing ecosystem
+  viewer/            React/Vite app (archie-viewer.vercel.app) that renders uploaded bundles
+  supabase/          Edge functions (upload, blueprint) + migrations
+landing/             Landing page
+tests/               Pytest suite (30 files, ~4,000 LOC)
 docs/                Architecture documentation
-.claude/commands/    Slash commands (archie-scan, archie-deep-scan, archie-viewer)
+scripts/             verify_sync.py — pre-commit canonical ↔ asset sync checker
+.claude/commands/    Slash commands (archie-scan, archie-deep-scan, archie-share, archie-viewer)
 .claude/skills/      Developer assistance skills
+v1/                  Archived V1 web app (FastAPI + Next.js, obsolete)
 ```
 
 ## Kudos for Inspiration
