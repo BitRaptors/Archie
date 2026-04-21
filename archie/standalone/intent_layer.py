@@ -416,12 +416,45 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
     """Manage deep scan state for resume capability.
 
     Actions:
-      init           — reset state for fresh run
+      init            — reset state for fresh run
       complete-step N — mark step N as completed
-      read           — print current state as JSON to stdout
+      read            — print current state as JSON to stdout
       check-prereqs N — validate artifacts exist for step N
+      save-context    — stdin JSON merged into state["run_context"]; stores
+                        shell-recoverable state (scope, intent_layer, scan_mode,
+                        project_root, workspaces, monorepo_type, start_step)
+                        so /compact + --continue can rehydrate without relying
+                        on the orchestrator's in-context memory.
+      save-baseline   — stash the current git SHA + scan mode (existing)
+      detect-changes  — emit incremental mode + changed files (existing)
+
+    State file shape:
+      {
+        "completed_steps": [1, 2, …],
+        "last_completed": N,
+        "status": "in_progress" | "completed" | "none",
+        "started_at": ISO,
+        "run_context": {              # present after save-context call
+          "scope": "whole|per-package|hybrid|single",
+          "intent_layer": "yes|no",
+          "scan_mode": "full|incremental",
+          "project_root": "/abs/path",
+          "workspaces": ["apps/…"],
+          "monorepo_type": "…",
+          "start_step": 1
+        }
+      }
     """
     state_path = root / ".archie" / _DEEP_SCAN_STATE_FILE
+
+    def _load_state() -> dict:
+        try:
+            data = json.loads(state_path.read_text())
+            if isinstance(data, dict):
+                return data
+        except (OSError, json.JSONDecodeError):
+            pass
+        return {"completed_steps": [], "last_completed": 0, "status": "none"}
 
     if action == "init":
         from datetime import datetime, timezone
@@ -430,6 +463,7 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
             "last_completed": 0,
             "status": "in_progress",
             "started_at": datetime.now(timezone.utc).isoformat(),
+            "run_context": {},
         }
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(json.dumps(state, indent=2))
@@ -439,10 +473,8 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
         if step is None:
             print("Error: step number required", file=sys.stderr)
             sys.exit(1)
-        try:
-            state = json.loads(state_path.read_text())
-        except (OSError, json.JSONDecodeError):
-            state = {"completed_steps": [], "last_completed": 0, "status": "in_progress"}
+        state = _load_state()
+        state.setdefault("completed_steps", [])
         if step not in state["completed_steps"]:
             state["completed_steps"].append(step)
             state["completed_steps"].sort()
@@ -451,11 +483,38 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
         state_path.write_text(json.dumps(state, indent=2))
         print(f"Step {step} completed", file=sys.stderr)
 
+    elif action == "save-context":
+        try:
+            payload = json.loads(sys.stdin.read())
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON on stdin: {e}", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(payload, dict):
+            print("save-context expects a JSON object on stdin", file=sys.stderr)
+            sys.exit(1)
+        state = _load_state()
+        context = state.get("run_context") or {}
+        if not isinstance(context, dict):
+            context = {}
+        # Merge (new values win); drop keys set explicitly to null
+        for k, v in payload.items():
+            if v is None:
+                context.pop(k, None)
+            else:
+                context[k] = v
+        state["run_context"] = context
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, indent=2))
+        print(f"Run context saved: {sorted(context.keys())}", file=sys.stderr)
+
     elif action == "read":
         if state_path.exists():
             print(state_path.read_text())
         else:
-            print(json.dumps({"completed_steps": [], "last_completed": 0, "status": "none"}))
+            print(json.dumps({
+                "completed_steps": [], "last_completed": 0,
+                "status": "none", "run_context": {},
+            }))
 
     elif action == "check-prereqs":
         if step is None:
@@ -1319,7 +1378,7 @@ if __name__ == "__main__":
         print("  python3 intent_layer.py mark-done /path/to/repo <folder1> [folder2 ...]", file=sys.stderr)
         print("  python3 intent_layer.py reset-state /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py merge /path/to/repo", file=sys.stderr)
-        print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs|save-baseline|detect-changes> [step|mode]", file=sys.stderr)
+        print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs|save-context|save-baseline|detect-changes> [step|mode]", file=sys.stderr)
         print("  python3 intent_layer.py scan-config /path/to/repo <read|write|validate>  (write reads JSON from stdin)", file=sys.stderr)
         print("  python3 intent_layer.py inspect /path/to/repo <filename> [--query .key.path]", file=sys.stderr)
         sys.exit(1)
