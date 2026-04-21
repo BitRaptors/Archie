@@ -157,7 +157,13 @@ def mark_step(project_root: str | Path, command: str, step: str) -> None:
 
 
 def finish_step(project_root: str | Path, step: str | None = None) -> None:
-    """Record a step's completed_at timestamp. If step is None, finish the last open step."""
+    """Record a step's completed_at timestamp. If step is None, finish the last open step.
+
+    Idempotent: if the target step already has a `completed_at`, this is a
+    no-op. That matters because the pipeline calls `finish_step` via
+    `complete-step N` auto-finish, and we don't want a later mid-run call to
+    overwrite an accurate timestamp with a post-compact one.
+    """
     root = Path(project_root)
     now = _now_iso()
     state = _load_current_run(root)
@@ -168,15 +174,26 @@ def finish_step(project_root: str | Path, step: str | None = None) -> None:
 
     target = None
     if step is None:
-        target = steps[-1]
+        # Finish whichever step is the newest still-open one.
+        for s in reversed(steps):
+            if not s.get("completed_at"):
+                target = s
+                break
+        if target is None:
+            # All steps already closed; most recent one is the last one.
+            target = steps[-1]
     else:
-        # Finish the most recent step with this name
+        # Finish the most recent step with this name.
         for s in reversed(steps):
             if s.get("name") == step:
                 target = s
                 break
     if target is None:
         print(f"telemetry finish: step {step!r} not found", file=sys.stderr)
+        return
+    if target.get("completed_at"):
+        # Already closed — leave the earlier (more accurate) timestamp alone.
+        print(f"telemetry finish: {target.get('name')} already closed at {target['completed_at']} (no-op)", file=sys.stderr)
         return
     target["completed_at"] = now
     _save_current_run(root, state)

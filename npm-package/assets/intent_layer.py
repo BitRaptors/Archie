@@ -481,6 +481,27 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
         state["last_completed"] = step
         state["status"] = "completed" if step == 9 else "in_progress"
         state_path.write_text(json.dumps(state, indent=2))
+
+        # Also mark the matching telemetry step as finished — captures an
+        # accurate completed_at NOW, before any /compact pause can shift the
+        # mark-auto-close baseline. Idempotent: finish_step is a no-op if the
+        # step is already closed.
+        _STEP_NAMES = {
+            1: "scan", 2: "read", 3: "wave1", 4: "merge",
+            5: "wave2_synthesis", 6: "rule_synthesis",
+            7: "intent_layer", 8: "cleanup", 9: "drift",
+        }
+        step_name = _STEP_NAMES.get(step)
+        if step_name:
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).parent))
+                import telemetry as _telem
+                _telem.finish_step(root, step_name)
+            except Exception as exc:
+                # Telemetry is informational; never block the pipeline.
+                print(f"telemetry finish skipped for step {step} ({step_name}): {exc}", file=sys.stderr)
+
         print(f"Step {step} completed", file=sys.stderr)
 
     elif action == "save-context":

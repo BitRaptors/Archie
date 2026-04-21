@@ -227,28 +227,61 @@ After a `/compact`, running `/archie-deep-scan --continue` re-enters via the **R
 
 ## Resume Prelude (runs whenever `--continue` or `--from N` is supplied)
 
-Before executing any step:
+Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context. Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
 
 ```bash
-# Read persisted run context
+# 1. Read both persisted state files.
 STATE=$(python3 .archie/intent_layer.py deep-scan-state "$PWD" read)
-LAST=$(echo "$STATE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('last_completed', 0))")
+TELEMETRY=$(python3 .archie/telemetry.py read "$PWD")
+
+# 2. Extract last_completed + run_context. A fresh run returns LAST=0.
+LAST=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('last_completed', 0))")
 RC=$(echo "$STATE" | python3 -c "import json,sys; print(json.dumps((json.load(sys.stdin).get('run_context') or {})))")
 
-# Rehydrate shell vars from run_context
-PROJECT_ROOT=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('project_root') or '')")
-SCOPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scope') or '')")
-INTENT_LAYER=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('intent_layer') or 'yes')")
-SCAN_MODE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scan_mode') or 'full')")
-MONOREPO_TYPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('monorepo_type') or 'none')")
-PROJECT_NAME=$(basename "$PROJECT_ROOT")
+# 3. If we have real state, rehydrate every shell variable from run_context.
+if [ "$LAST" -gt 0 ] && [ "$RC" != "{}" ]; then
+    PROJECT_ROOT=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('project_root') or '')")
+    SCOPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scope') or '')")
+    INTENT_LAYER=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('intent_layer') or 'yes')")
+    SCAN_MODE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scan_mode') or 'full')")
+    MONOREPO_TYPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('monorepo_type') or 'none')")
+    # WORKSPACES as newline-separated (matches the scope picker's original shape).
+    WORKSPACES=$(echo "$RC" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin).get('workspaces') or []))")
+    PROJECT_NAME=$(basename "$PROJECT_ROOT")
 
-# START_STEP = max(last_completed + 1, explicit --from value)
-# Verify consistency: persisted telemetry marks should cover up to last_completed
-TELEMETRY_STATE=$(python3 .archie/telemetry.py read "$PROJECT_ROOT")
+    # 4. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
+    if [ -n "$FROM_STEP" ]; then
+        START_STEP=$FROM_STEP
+    else
+        START_STEP=$((LAST + 1))
+    fi
+
+    # 5. Consistency check: telemetry _current_run.json should contain at least
+    # one step entry per completed step. Warn loudly if the two states diverge
+    # — that signals either corruption or manual intervention. Do not abort;
+    # telemetry is informational, the scan itself is still resumable from
+    # blueprint/findings on disk.
+    TELEMETRY_STEPS=$(echo "$TELEMETRY" | python3 -c "import json,sys; print(len((json.load(sys.stdin).get('steps') or [])))")
+    if [ "$TELEMETRY_STEPS" -lt "$LAST" ]; then
+        echo "WARNING: deep_scan_state says last_completed=$LAST but telemetry has only $TELEMETRY_STEPS step marks. Final per-step timing may be incomplete. Scan output itself is not affected." >&2
+    fi
+
+    echo "Resuming from persisted state: SCOPE=$SCOPE SCAN_MODE=$SCAN_MODE INTENT_LAYER=$INTENT_LAYER last_completed=$LAST start_step=$START_STEP" >&2
+
+    # 6. Skip Phase 0 (scope resolution) — we already have the answers on disk.
+    # Jump directly to Step $START_STEP in the main pipeline below.
+else
+    # Fresh run: LAST=0 or no run_context. Fall through to Phase 0 normally.
+    : # no-op; flow continues with scope resolution below.
+fi
 ```
 
-If the state file doesn't exist (`last_completed == 0`), treat as a fresh run and proceed through Step 0 normally.
+**Notes on accuracy:**
+
+- Rehydrating from disk is lossless by construction — `save-context` wrote exactly these fields, and `save-context` runs both in Step F (fresh runs) and is safe to call again if anything changes mid-run.
+- The consistency check is defensive. Under normal compact-and-resume flow, telemetry step count ≥ last_completed always holds because each step marks its start *before* calling `complete-step N`. A warning here signals something outside the happy path (manual state edit, aborted step, corrupted file).
+- `WORKSPACES` is rehydrated as a newline-separated string, matching what Step C's scope picker originally produced. Downstream iteration patterns (`while IFS= read`; `printf '%s\n' "$WORKSPACES" | ...`) work identically.
+- If `--from N` is supplied, the orchestrator sets `FROM_STEP=N` before this block runs.
 
 ## Step 1: Run the scanner
 
