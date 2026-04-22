@@ -171,15 +171,30 @@ Output is a JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `
 python3 .archie/intent_layer.py prompt "$PWD" --folders <comma-separated-folders> --child-summaries "$PWD/.archie/enrichments/" > /tmp/archie_intent_prompt_<batch_id>.txt
 ```
 
-Read the prompt file. Spawn a Sonnet subagent (`model: "sonnet"`) with the prompt content. The subagent must return ONLY valid JSON with folder paths as keys.
+Read the prompt file. **Before spawning**, append the following output contract to the prompt text you pass to the subagent (so the subagent writes its result directly to disk — the orchestrator must never copy or re-Write the transcript):
+
+```
+---
+OUTPUT CONTRACT (mandatory):
+
+1. Use the Write tool to save your COMPLETE JSON response to:
+   /tmp/archie_enrichment_<batch_id>.json
+
+2. Write only valid JSON with folder paths as keys — no prose, no code
+   fences, no preamble.
+
+3. After Writing, reply with a single-line confirmation:
+   "Wrote /tmp/archie_enrichment_<batch_id>.json"
+
+DO NOT print the JSON in your response body. Writing to /tmp is already
+permissioned (Write(//tmp/archie_*)) — no permission prompt will fire.
+```
+
+Substitute the actual `<batch_id>` in both the path and the confirmation string before augmenting the prompt. Spawn a Sonnet subagent (`model: "sonnet"`) with that augmented prompt.
 
 **Spawn ALL batches of one wave in parallel** — they're independent by construction.
 
-**d. After each subagent completes, persist its output:**
-
-```
-Write /tmp/archie_enrichment_<batch_id>.json with the subagent's COMPLETE output text
-```
+**d. After each subagent completes, ingest its pre-written file:**
 
 ```bash
 python3 .archie/intent_layer.py save-enrichment "$PWD" <batch_id> /tmp/archie_enrichment_<batch_id>.json
@@ -187,7 +202,9 @@ python3 .archie/intent_layer.py save-enrichment "$PWD" <batch_id> /tmp/archie_en
 
 This extracts the JSON (handling conversation envelopes, code fences, multi-block merging), saves it to `.archie/enrichments/<batch_id>.json`, and automatically marks the folders as done.
 
-**IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT write inline Python to process agent output. The save-enrichment command handles everything.**
+**IMPORTANT: Never copy or Write the subagent's output yourself. The subagent wrote it directly to /tmp — you only need to call save-enrichment. Attempting to `cp` from `.claude/projects/.../subagents/*.jsonl` triggers a sensitive-file permission prompt every single batch.**
+
+If the subagent's confirmation reply is missing or the file is absent, skip save-enrichment for that batch and surface the failure — do NOT try to recover the output from the transcript file.
 
 **e. Go back to (a) for the next wave.**
 

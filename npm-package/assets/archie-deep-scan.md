@@ -791,16 +791,28 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 
 **If resuming via --from or --continue:** Step 4 depends on Wave 1 agent outputs in /tmp/. These may not survive a system reboot. If merge fails with missing files, re-run from step 3: `/archie-deep-scan --from 3`
 
-After each subagent completes, use the Write tool to save its COMPLETE output text to a temporary file. The merge script handles JSON extraction automatically — it can parse plain JSON, code-fenced JSON, and conversation envelopes.
+**Subagent output contract (mandatory — append to each agent's prompt before spawning):**
 
-**IMPORTANT: Save the COMPLETE raw text from each agent. Do NOT try to extract JSON yourself — the script handles all extraction including conversation envelopes, code fences, and escape issues.**
+Each Wave 1 subagent must write its own output directly to a pre-specified path. The orchestrator must NEVER copy or Write the transcript itself — attempting to access `.claude/projects/.../subagents/*.jsonl` triggers a sensitive-file permission prompt on every call.
+
+Append this block to each Wave 1 agent's prompt, substituting `<OUTPUT_PATH>` with the path below:
 
 ```
-Write /tmp/archie_sub1_$PROJECT_NAME.json with Structure agent's COMPLETE output text
-Write /tmp/archie_sub2_$PROJECT_NAME.json with Patterns agent's COMPLETE output text
-Write /tmp/archie_sub3_$PROJECT_NAME.json with Technology agent's COMPLETE output text
-Write /tmp/archie_sub4_$PROJECT_NAME.json with UI Layer agent's COMPLETE output text (if spawned)
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to <OUTPUT_PATH>.
+2. Write the raw output verbatim — the merge script handles JSON envelopes, code fences, and multi-block text.
+3. After Writing, reply with exactly: "Wrote <OUTPUT_PATH>"
+4. Do NOT print the output in your response body. /tmp/archie_* is already permissioned via Write(//tmp/archie_*).
 ```
+
+Output paths per agent:
+- Structure agent → `/tmp/archie_sub1_$PROJECT_NAME.json`
+- Patterns agent → `/tmp/archie_sub2_$PROJECT_NAME.json`
+- Technology agent → `/tmp/archie_sub3_$PROJECT_NAME.json`
+- UI Layer agent (if spawned) → `/tmp/archie_sub4_$PROJECT_NAME.json`
+
+When each subagent's confirmation reply returns, its file is already on disk — proceed directly to the merge step below. Do NOT attempt to re-extract output from the subagent's conversation — if the confirmation is missing or file absent, skip that agent's contribution and report the failure.
 
 Then merge:
 
@@ -853,10 +865,18 @@ Tell the scoped Reasoning agent:
 > - Update the decision_chain only for affected branches
 > Return ONLY the sections that need updating — unchanged sections will be preserved. Use the 4-field contract (`problem_statement`, `evidence`, `root_cause`, `fix_direction`) when writing finding or pitfall entries.
 
-Save output and finalize with patch mode:
+Instruct the Reasoning agent to write its own output (append to its prompt):
+
 ```
-Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's COMPLETE output text
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to /tmp/archie_sub_x_$PROJECT_NAME.json
+2. Write the raw output verbatim — merge handles JSON envelopes.
+3. After Writing, reply with exactly: "Wrote /tmp/archie_sub_x_$PROJECT_NAME.json"
+4. Do NOT print the output in your response body.
 ```
+
+The file will be on disk when the agent's confirmation returns. Then finalize with patch mode:
 ```bash
 python3 .archie/finalize.py "$PROJECT_ROOT" --patch /tmp/archie_sub_x_$PROJECT_NAME.json
 ```
@@ -1020,11 +1040,18 @@ Tell the Reasoning agent:
 
 The Reasoning agent also gets the GROUNDING RULES from Step 3.
 
-After the Reasoning agent completes, save its output and finalize:
+Instruct the Reasoning agent to write its own output (append to its prompt):
 
 ```
-Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's output
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to /tmp/archie_sub_x_$PROJECT_NAME.json
+2. Write the raw output verbatim — finalize handles JSON envelopes.
+3. After Writing, reply with exactly: "Wrote /tmp/archie_sub_x_$PROJECT_NAME.json"
+4. Do NOT print the output in your response body.
 ```
+
+After the agent's confirmation returns, finalize:
 
 ```bash
 python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
@@ -1135,17 +1162,24 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 
 **IMPORTANT: If `.archie/rules.json` already exists (from previous scans), read it first. The new rules must be MERGED with existing rules — do not overwrite user-adopted rules.**
 
-After the agent responds, save its COMPLETE output text to a temp file and extract:
+Instruct the agent to write its own output (append to its prompt):
 
 ```
-Write /tmp/archie_rules_$PROJECT_NAME.json with the agent's COMPLETE output text
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to /tmp/archie_rules_$PROJECT_NAME.json
+2. Write the raw output verbatim — extract_output.py handles JSON envelopes.
+3. After Writing, reply with exactly: "Wrote /tmp/archie_rules_$PROJECT_NAME.json"
+4. Do NOT print the output in your response body.
 ```
+
+After the agent's confirmation returns, extract:
 
 ```bash
 python3 .archie/extract_output.py rules /tmp/archie_rules_$PROJECT_NAME.json "$PROJECT_ROOT/.archie/rules.json"
 ```
 
-**IMPORTANT: Do NOT try to extract or parse JSON yourself. Always use the pre-installed scripts.**
+**IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT copy the agent's transcript. Always use the pre-installed scripts on the file the agent already wrote.**
 
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
@@ -1318,10 +1352,19 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their fo
 >
 > Return JSON: `{"deep_findings": [...]}`
 
-Save the deep findings:
+Instruct the reviewer subagent to write its own output (append to its prompt):
+
 ```
-Write /tmp/archie_deep_drift.json with the agent's COMPLETE output text
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to /tmp/archie_deep_drift.json
+2. Write the raw output verbatim — extract_output.py handles JSON envelopes.
+3. After Writing, reply with exactly: "Wrote /tmp/archie_deep_drift.json"
+4. Do NOT print the output in your response body.
 ```
+
+After the agent's confirmation returns, extract and clean up:
+
 ```bash
 python3 .archie/extract_output.py deep-drift /tmp/archie_deep_drift.json "$PROJECT_ROOT/.archie/drift_report.json"
 rm -f /tmp/archie_deep_drift.json
