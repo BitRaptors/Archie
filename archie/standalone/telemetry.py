@@ -372,6 +372,7 @@ def _usage_and_exit() -> None:
         "  telemetry.py read   <project_root>\n"
         "  telemetry.py write  <project_root>\n"
         "  telemetry.py clear  <project_root>\n"
+        "  telemetry.py steps-count <project_root>\n"
         "\n"
         "  (legacy) telemetry.py <project_root> --command <name> --timing-file <path>",
         file=sys.stderr,
@@ -385,7 +386,7 @@ def main():
         _usage_and_exit()
 
     sub = argv[0]
-    KNOWN = {"mark", "finish", "extra", "read", "write", "clear"}
+    KNOWN = {"mark", "finish", "extra", "read", "write", "clear", "steps-count"}
 
     # Legacy entry point: first arg is a path, plus --command / --timing-file
     if sub not in KNOWN:
@@ -415,6 +416,12 @@ def main():
         write_from_disk(root)
     elif sub == "clear":
         clear_run(root)
+    elif sub == "steps-count":
+        # Count step entries in the current run — used by the deep-scan
+        # Resume Prelude to cross-check against deep_scan_state.last_completed.
+        state = _load_current_run(root)
+        steps = state.get("steps") if isinstance(state, dict) else None
+        print(len(steps) if isinstance(steps, list) else 0)
 
 
 if __name__ == "__main__":

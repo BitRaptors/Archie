@@ -177,17 +177,14 @@ Map the answer: Yes → `INTENT_LAYER=yes`, No → `INTENT_LAYER=no`. Expose `IN
 Write every shell variable that Steps 1–10 depend on into `.archie/deep_scan_state.json` so `/compact` + `--continue` can rehydrate them from disk without relying on orchestrator memory:
 
 ```bash
-cat <<EOF | python3 .archie/intent_layer.py deep-scan-state "$PWD" save-context
-{
-  "scope": "$SCOPE",
-  "intent_layer": "$INTENT_LAYER",
-  "scan_mode": "$SCAN_MODE",
-  "project_root": "$PWD",
-  "workspaces": $(printf '%s\n' "$WORKSPACES" | python3 -c "import sys,json; print(json.dumps([l for l in sys.stdin.read().splitlines() if l]))"),
-  "monorepo_type": "$MONOREPO_TYPE",
-  "start_step": $START_STEP
-}
-EOF
+echo "$WORKSPACES" | python3 .archie/intent_layer.py deep-scan-state "$PWD" save-run-context \
+    --scope "$SCOPE" \
+    --intent-layer "$INTENT_LAYER" \
+    --scan-mode "$SCAN_MODE" \
+    --project-root "$PWD" \
+    --monorepo-type "$MONOREPO_TYPE" \
+    --start-step "$START_STEP" \
+    --workspaces-from-stdin
 ```
 
 This is a no-op on `--continue` runs because the Resume Prelude already rehydrated these variables. Safe to call every time.
@@ -230,45 +227,47 @@ After a `/compact`, running `/archie-deep-scan --continue` re-enters via the **R
 Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context. Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
 
 ```bash
-# 1. Read both persisted state files.
-STATE=$(python3 .archie/intent_layer.py deep-scan-state "$PWD" read)
-TELEMETRY=$(python3 .archie/telemetry.py read "$PWD")
+# 1. Read last_completed via dedicated CLI. A fresh run returns "null" → normalise to 0.
+LAST=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .last_completed 2>/dev/null)
+[ -z "$LAST" ] || [ "$LAST" = "null" ] && LAST=0
 
-# 2. Extract last_completed + run_context. A fresh run returns LAST=0.
-LAST=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('last_completed', 0))")
-RC=$(echo "$STATE" | python3 -c "import json,sys; print(json.dumps((json.load(sys.stdin).get('run_context') or {})))")
-
-# 3. If we have real state, rehydrate every shell variable from run_context.
-if [ "$LAST" -gt 0 ] && [ "$RC" != "{}" ]; then
-    PROJECT_ROOT=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('project_root') or '')")
-    SCOPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scope') or '')")
-    INTENT_LAYER=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('intent_layer') or 'yes')")
-    SCAN_MODE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scan_mode') or 'full')")
-    MONOREPO_TYPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('monorepo_type') or 'none')")
+# 2. If we have real state, rehydrate every shell variable from run_context.
+if [ "$LAST" -gt 0 ]; then
+    PROJECT_ROOT=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.project_root 2>/dev/null)
+    [ "$PROJECT_ROOT" = "null" ] && PROJECT_ROOT=""
+    SCOPE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.scope 2>/dev/null)
+    [ "$SCOPE" = "null" ] && SCOPE=""
+    INTENT_LAYER=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.intent_layer 2>/dev/null)
+    [ "$INTENT_LAYER" = "null" ] || [ -z "$INTENT_LAYER" ] && INTENT_LAYER=yes
+    SCAN_MODE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.scan_mode 2>/dev/null)
+    [ "$SCAN_MODE" = "null" ] || [ -z "$SCAN_MODE" ] && SCAN_MODE=full
+    MONOREPO_TYPE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.monorepo_type 2>/dev/null)
+    [ "$MONOREPO_TYPE" = "null" ] || [ -z "$MONOREPO_TYPE" ] && MONOREPO_TYPE=none
     # WORKSPACES as newline-separated (matches the scope picker's original shape).
-    WORKSPACES=$(echo "$RC" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin).get('workspaces') or []))")
+    WORKSPACES=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.workspaces --list 2>/dev/null)
     PROJECT_NAME=$(basename "$PROJECT_ROOT")
 
-    # 4. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
+    # 3. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
     if [ -n "$FROM_STEP" ]; then
         START_STEP=$FROM_STEP
     else
         START_STEP=$((LAST + 1))
     fi
 
-    # 5. Consistency check: telemetry _current_run.json should contain at least
+    # 4. Consistency check: telemetry _current_run.json should contain at least
     # one step entry per completed step. Warn loudly if the two states diverge
     # — that signals either corruption or manual intervention. Do not abort;
     # telemetry is informational, the scan itself is still resumable from
     # blueprint/findings on disk.
-    TELEMETRY_STEPS=$(echo "$TELEMETRY" | python3 -c "import json,sys; print(len((json.load(sys.stdin).get('steps') or [])))")
+    TELEMETRY_STEPS=$(python3 .archie/telemetry.py steps-count "$PWD" 2>/dev/null)
+    [ -z "$TELEMETRY_STEPS" ] && TELEMETRY_STEPS=0
     if [ "$TELEMETRY_STEPS" -lt "$LAST" ]; then
         echo "WARNING: deep_scan_state says last_completed=$LAST but telemetry has only $TELEMETRY_STEPS step marks. Final per-step timing may be incomplete. Scan output itself is not affected." >&2
     fi
 
     echo "Resuming from persisted state: SCOPE=$SCOPE SCAN_MODE=$SCAN_MODE INTENT_LAYER=$INTENT_LAYER last_completed=$LAST start_step=$START_STEP" >&2
 
-    # 6. Skip Phase 0 (scope resolution) — we already have the answers on disk.
+    # 5. Skip Phase 0 (scope resolution) — we already have the answers on disk.
     # Jump directly to Step $START_STEP in the main pipeline below.
 else
     # Fresh run: LAST=0 or no run_context. Fall through to Phase 0 normally.
