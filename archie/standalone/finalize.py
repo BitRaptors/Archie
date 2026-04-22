@@ -10,10 +10,67 @@ Zero dependencies beyond Python 3.9+ stdlib.
 """
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import json
 import sys
 from pathlib import Path
+
+
+def _now_iso_short() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H%M")
+
+
+def _merge_findings_into_store(archie_dir: Path, new_findings: list) -> int:
+    """Upsert deep-scan findings into .archie/findings.json.
+
+    Existing entries whose id matches one in `new_findings` are replaced by
+    the new entry — preserving `first_seen` — and their `confirmed_in_scan`
+    counter is bumped by 1. Existing entries not referenced in
+    `new_findings` are left untouched (scan is responsible for marking
+    resolution).
+
+    Returns the new total count.
+    """
+    store_path = archie_dir / "findings.json"
+    if store_path.exists():
+        try:
+            store = json.loads(store_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            store = {}
+    else:
+        store = {}
+
+    existing: list = store.get("findings") or []
+    by_id: dict = {f.get("id"): f for f in existing if isinstance(f, dict) and f.get("id")}
+
+    now = _now_iso_short()
+    for nf in new_findings:
+        if not isinstance(nf, dict):
+            continue
+        fid = nf.get("id")
+        if not fid:
+            continue
+        prior = by_id.get(fid)
+        if prior:
+            merged = dict(nf)
+            merged["first_seen"] = prior.get("first_seen") or nf.get("first_seen") or now
+            merged["confirmed_in_scan"] = (prior.get("confirmed_in_scan") or 0) + 1
+            # Preserve resolution unless deep-scan explicitly changed it.
+            if "status" not in merged and prior.get("status"):
+                merged["status"] = prior["status"]
+            by_id[fid] = merged
+        else:
+            merged = dict(nf)
+            merged.setdefault("first_seen", now)
+            merged.setdefault("confirmed_in_scan", 1)
+            merged.setdefault("status", "active")
+            by_id[fid] = merged
+
+    store["findings"] = list(by_id.values())
+    store["scanned_at"] = now
+    store_path.write_text(json.dumps(store, indent=2))
+    return len(store["findings"])
 
 # When running standalone (.archie/), import sibling scripts directly by path
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -51,6 +108,13 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
             text = agent_x_path.read_text()
             parsed = extract_json_from_text(text)
             if parsed:
+                # Findings live in .archie/findings.json, not in the blueprint.
+                # Extract and merge id-stably before deep-merging the rest.
+                new_findings = parsed.pop("findings", None)
+                if isinstance(new_findings, list) and new_findings:
+                    total = _merge_findings_into_store(archie_dir, new_findings)
+                    print(f"  Findings store: {total} entries after deep-scan upgrade", file=sys.stderr)
+
                 bp = deep_merge(bp, parsed)
                 if patch_mode:
                     # In patch mode, write directly to blueprint.json (skip raw)

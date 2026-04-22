@@ -23,8 +23,11 @@ import * as Sections from '@/components/ReportSections'
 import {
   countSemanticDuplications,
   extractFindings,
+  normalizePitfall,
+  normalizeStructuredFinding,
   pickTopFindings,
   rankFindings,
+  scanReportAssertsZeroSemanticDup,
   type Finding,
 } from '@/lib/findings'
 
@@ -49,15 +52,16 @@ export default function CoverPage() {
 
   const findings: Finding[] = useMemo(() => {
     if (!bundle) return []
+    // Prefer the structured findings store (4-field shape).
+    if (Array.isArray(bundle.findings) && bundle.findings.length > 0) {
+      const active = bundle.findings.filter((f: any) => (f?.status || 'active') !== 'resolved')
+      return rankFindings(active.map(normalizeStructuredFinding))
+    }
     const fromReport = extractFindings(bundle.scan_report || '')
-    // Fallback to pitfalls if scan_report has no findings
     if (fromReport.length > 0) return rankFindings(fromReport)
+    // Last-resort fallback: synthesize from blueprint pitfalls.
     const pitfalls = Array.isArray(bundle.blueprint?.pitfalls) ? bundle.blueprint.pitfalls : []
-    return pitfalls.map((p: any): Finding => ({
-      severity: 'warn',
-      title: p.title || p.area || 'Pitfall',
-      description: p.description || p.recommendation || '',
-    }))
+    return rankFindings(pitfalls.map(normalizePitfall))
   }, [bundle])
 
   // Prefer structured semantic_duplications; fall back to heuristic over findings;
@@ -68,6 +72,9 @@ export default function CoverPage() {
   }>(() => {
     if (Array.isArray(bundle?.semantic_duplications)) {
       return { semanticCount: bundle!.semantic_duplications!.length, semanticSource: 'structured' }
+    }
+    if (bundle?.scan_report && scanReportAssertsZeroSemanticDup(bundle.scan_report)) {
+      return { semanticCount: 0, semanticSource: 'structured' }
     }
     if (bundle?.scan_report && findings.length > 0) {
       return { semanticCount: countSemanticDuplications(findings), semanticSource: 'heuristic' }
@@ -315,7 +322,11 @@ export default function CoverPage() {
         {/* Found architectural problems */}
         {topFindings.length > 0 && (
           <section className="space-y-8">
-            <Sections.SectionHeader title="Architectural Problems" icon={AlertTriangle} />
+            <Sections.SectionHeader
+              title="Architectural Problems"
+              icon={AlertTriangle}
+              hint="Concrete problems observed in specific files."
+            />
             <Sections.FindingsList findings={topFindings} truncate />
             {findings.length > topFindings.length && (
               <p className="text-sm text-ink/40 text-center pt-2">

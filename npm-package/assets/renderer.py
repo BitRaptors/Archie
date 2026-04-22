@@ -383,6 +383,43 @@ def _build_guidelines_rule(bp: dict):
     }
 
 
+def _render_pitfall_lines(pitfall: dict) -> list[str]:
+    """Render one pitfall as markdown. Accepts the 4-field shape
+    (problem_statement/evidence/root_cause/fix_direction) or the legacy
+    shape (area/description/recommendation/stems_from) for backward
+    compatibility with blueprints written before 2.3.0.
+    """
+    # New 4-field shape
+    if pitfall.get("problem_statement"):
+        lines = [f"- **{pitfall['problem_statement']}**"]
+        evidence = pitfall.get("evidence") or []
+        if evidence:
+            ev_preview = "; ".join(str(e) for e in evidence[:3])
+            if len(evidence) > 3:
+                ev_preview += f"; … ({len(evidence)} total)"
+            lines.append(f"  - *Evidence:* {ev_preview}")
+        if pitfall.get("root_cause"):
+            lines.append(f"  - *Root cause:* {pitfall['root_cause']}")
+        fix = pitfall.get("fix_direction")
+        if isinstance(fix, list) and fix:
+            lines.append(f"  - *Fix direction:*")
+            for step in fix:
+                lines.append(f"    - {step}")
+        elif isinstance(fix, str) and fix:
+            lines.append(f"  - *Fix direction:* {fix}")
+        return lines
+
+    # Legacy shape
+    if pitfall.get("area") or pitfall.get("description"):
+        area_label = f"**{pitfall['area']}:** " if pitfall.get("area") else ""
+        lines = [f"- {area_label}{pitfall.get('description', '')}"]
+        if pitfall.get("recommendation"):
+            lines.append(f"  - *{pitfall['recommendation']}*")
+        return lines
+
+    return []
+
+
 def _build_pitfalls_rule(bp: dict):
     """Pitfalls + error mapping."""
     lines = []
@@ -392,18 +429,8 @@ def _build_pitfalls_rule(bp: dict):
         lines.append("## Pitfalls")
         lines.append("")
         for pitfall in pitfalls:
-            if not pitfall.get("area") and not pitfall.get("description"):
-                continue
-            area_label = f"**{pitfall['area']}:** " if pitfall.get("area") else ""
-            lines.append(f"- {area_label}{pitfall.get('description', '')}")
-            stems = pitfall.get("stems_from")
-            if stems:
-                if isinstance(stems, list):
-                    lines.append(f"  - *causal chain: {" → ".join(stems)}*")
-                else:
-                    lines.append(f"  - *stems from: {stems}*")
-            if pitfall.get("recommendation"):
-                lines.append(f"  - *{pitfall['recommendation']}*")
+            rendered = _render_pitfall_lines(pitfall)
+            lines.extend(rendered)
         lines.append("")
 
     # Error Mapping
@@ -930,12 +957,24 @@ def generate_agents_md(bp: dict) -> str:
         "Edit vendor/node_modules directories",
         "Remove failing tests without authorization",
     ]
-    # Add project-specific nevers from pitfalls
+    # Add project-specific nevers from pitfalls. Accepts both the new
+    # 4-field shape (fix_direction as str or list) and the legacy
+    # shape (recommendation).
     pitfalls = bp.get("pitfalls") or []
     for pitfall in pitfalls[:3]:
-        rec = pitfall.get("recommendation") or ""
-        if rec and "never" in rec.lower():
-            never_items.append(rec)
+        candidates: list[str] = []
+        fix = pitfall.get("fix_direction")
+        if isinstance(fix, str) and fix:
+            candidates.append(fix)
+        elif isinstance(fix, list):
+            candidates.extend(s for s in fix if isinstance(s, str) and s)
+        rec = pitfall.get("recommendation")
+        if isinstance(rec, str) and rec:
+            candidates.append(rec)
+        for cand in candidates:
+            if "never" in cand.lower():
+                never_items.append(cand)
+                break
     # Add out-of-scope items as nevers
     oos = _get(bp, "decisions", "out_of_scope", default=[]) or []
     for item in oos[:5]:
@@ -970,18 +1009,7 @@ def generate_agents_md(bp: dict) -> str:
         lines.append("## Pitfalls & Gotchas")
         lines.append("")
         for pitfall in pitfalls:
-            if not pitfall.get("area") and not pitfall.get("description"):
-                continue
-            area_label = f"**{pitfall['area']}:** " if pitfall.get("area") else ""
-            lines.append(f"- {area_label}{pitfall.get('description', '')}")
-            stems = pitfall.get("stems_from")
-            if stems:
-                if isinstance(stems, list):
-                    lines.append(f"  - *causal chain: {" → ".join(stems)}*")
-                else:
-                    lines.append(f"  - *stems from: {stems}*")
-            if pitfall.get("recommendation"):
-                lines.append(f"  - *{pitfall['recommendation']}*")
+            lines.extend(_render_pitfall_lines(pitfall))
         lines.append("")
 
 

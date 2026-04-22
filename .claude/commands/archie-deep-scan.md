@@ -107,28 +107,39 @@ Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 
 ### Step C: Interactive scope prompt
 
-Present the user with:
+First, print the workspace list so the user sees what's available:
 
 > Found **N workspaces** in this **{monorepo_type}** monorepo:
 > 1. {name} ({type}) — {path}
 > 2. {name} ({type}) — {path}
 > ...
->
-> **How do you want to analyze it?**
->
-> - **whole** — One unified blueprint treating the monorepo as one product. Workspaces become components; cross-workspace imports become the primary architecture view. Fastest.
-> - **per-package** — One blueprint per workspace you pick. Deep detail per package, no product-level view.
-> - **hybrid** — Whole blueprint at root + per-workspace blueprints for specific workspaces. Most comprehensive, slowest.
-> - **single** — Ignore the workspaces and scan the whole tree as if it were one project. Only use this for small monorepos.
 
-Wait for the user's answer.
+Then call `AskUserQuestion` with the scope choice:
+
+- **question:** "How do you want to analyze this monorepo?"
+- **header:** "Scope"
+- **multiSelect:** false
+- **options** (exactly these four labels and descriptions):
+  1. label `Whole` — description `One unified blueprint treating the monorepo as one product. Workspaces become components; cross-workspace imports become the primary architecture view. Fastest.`
+  2. label `Per-package` — description `One blueprint per workspace you pick. Deep detail per package, no product-level view.`
+  3. label `Hybrid` — description `Whole blueprint at root + per-workspace blueprints for specific workspaces. Most comprehensive, slowest.`
+  4. label `Single` — description `Ignore the workspaces and scan the whole tree as if it were one project. Only for small monorepos.`
+
+Map the answer: Whole → `whole`, Per-package → `per-package`, Hybrid → `hybrid`, Single → `single`.
 
 - If `whole` or `single` → `WORKSPACES=[]`
-- If `per-package` or `hybrid` → ask which workspaces to include. Accept comma-separated numbers (`1,3,5`) or `all`. Resolve to paths relative to `$PWD`.
+- If `per-package` or `hybrid` → ask which workspaces to include as a free-form follow-up: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PWD`.
 
-If `per-package` or `hybrid`, also ask:
+If `per-package` or `hybrid`, also call `AskUserQuestion` for run mode:
 
-> Run the selected workspaces in **parallel** (faster, more agents) or **sequential** (one at a time)?
+- **question:** "How should the selected workspaces run?"
+- **header:** "Run mode"
+- **multiSelect:** false
+- **options:**
+  1. label `Parallel` — description `Spawn one agent per workspace at the same time. Faster, more concurrent model usage.`
+  2. label `Sequential` — description `Run workspaces one after another. Slower but easier to follow the output.`
+
+Map: Parallel → `parallel`, Sequential → `sequential`.
 
 Persist the chosen config (parallel/sequential lives only in the run itself, not in the config file):
 
@@ -147,6 +158,19 @@ python3 .archie/intent_layer.py scan-config "$PWD" validate
 - **Exit 1** → workspace drift. Instruct the user to re-run with `--reconfigure`. Stop.
 
 Expose `SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`.
+
+### Step E: Intent Layer choice
+
+Call `AskUserQuestion` to decide whether to run the per-folder enrichment pass (Step 7):
+
+- **question:** "Generate per-folder CLAUDE.md files (Intent Layer)?"
+- **header:** "Intent Layer"
+- **multiSelect:** false
+- **options:**
+  1. label `Yes — enrich every folder (Recommended)` — description `Adds a short, folder-specific CLAUDE.md to every directory in your project — role, expected patterns, anti-patterns. AI coding agents then get pinpoint local context wherever they edit instead of re-deriving it from the root CLAUDE.md each time. Adds a few minutes of Sonnet time (scales with folder count).`
+  2. label `No — skip Intent Layer` — description `Faster deep-scan. Only the root CLAUDE.md + rule files are written. AI agents editing files in deep folders won't have folder-local architectural guidance.`
+
+Map the answer: Yes → `INTENT_LAYER=yes`, No → `INTENT_LAYER=no`. Expose `INTENT_LAYER` for the rest of the run. Step 7 honors this flag.
 
 ### Execution plan based on SCOPE
 
@@ -181,7 +205,13 @@ fi
 
 The marker file `/tmp/archie_force_full_wave1_$PROJECT_NAME` is consumed in Step 3 (see "Force-full-Wave1 override" note there) and cleaned up in Step 9 along with other /tmp artifacts.
 
+## Telemetry conventions
+
+Each Step 1–9 records a `TELEMETRY_STEPN_START` timestamp as its first action; the next step's start serves as the previous step's end. Step 9 records its own `TELEMETRY_STEP9_END`. After Step 9 completes, the run writes `.archie/telemetry/deep-scan_<timestamp>.json` for measuring per-step wall-clock impact of changes. If a step is skipped via `START_STEP > N`, set both START and END to the same timestamp so totals don't include skipped time.
+
 ## Step 1: Run the scanner
+
+**Telemetry:** `TELEMETRY_STEP1_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
 
 **If START_STEP > 1, skip this step.**
 
@@ -196,6 +226,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 1
 
 ## Step 2: Read scan results
 
+**Telemetry:** `TELEMETRY_STEP2_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 2, skip this step.**
 
 Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, top-level directories, and `frontend_ratio`.
@@ -209,6 +241,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 2
 ```
 
 ## Step 3: Spawn analytical agents
+
+**Telemetry:** `TELEMETRY_STEP3_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
 
 **If START_STEP > 3, skip this step.**
 
@@ -243,6 +277,8 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 
 **If `frontend_ratio` >= 0.20, spawn all 4 agents. Otherwise spawn only the first 3 (skip UI Layer).**
 
+**Bulk content — off-limits for reading.** `scan.json.bulk_content_manifest` lists files classified by `.archiebulk` as "visible inventory, not contents": categories like `ui_resource` (Android `res/`, iOS storyboards), `generated`, `localization`, `migration`, `fixture`, `asset`, `lockfile`, `dependency`, `data`. Every agent below inherits this rule: **you may reference these paths by name and inventory counts, but you MUST NOT call Read on them.** The scanner has already summarized their shape. If a specific file is genuinely required to resolve a finding, read it surgically and note why — it is an exception, not the default.
+
 ---
 
 ### Structure agent
@@ -269,7 +305,25 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > }
 > ```
 >
-> Surface cross-workspace import cycles as `pitfalls` with severity `error`. Surface workspaces with very high fan-in (top quartile of in_degree) as `dependency_magnets`. Reference workspace members by **name** (not path) in all cross-references.
+> Record `dependency_magnets` (workspaces in the top quartile of in_degree) inside `workspace_topology` as shown — it's a structural inventory field, not a finding.
+>
+> **DO NOT write directly to `blueprint.pitfalls`.** Pitfalls are emitted only by Wave 2 Opus synthesis in the canonical 4-field shape. Instead, capture cross-workspace import cycles and other workspace-level problems as **draft findings** for Wave 2 to upgrade. Append each to the `findings` array you return alongside your structure output, using this shape:
+>
+> ```json
+> {
+>   "problem_statement": "Cross-workspace import cycle: <name-a> → <name-b> → <name-a>",
+>   "evidence": ["<name-a>/path/to/file.ts imports <name-b>/…", "<name-b>/path/to/file.ts imports <name-a>/…"],
+>   "root_cause": "",
+>   "fix_direction": "",
+>   "severity": "error",
+>   "confidence": 0.9,
+>   "applies_to": ["<name-a>", "<name-b>"],
+>   "source": "scan:structure",
+>   "depth": "draft"
+> }
+> ```
+>
+> Leave `root_cause` and `fix_direction` empty strings — Wave 2 will fill them with architectural grounding when it upgrades the draft to canonical. Reference workspace members by **name** (not path) in all cross-references.
 
 >
 > **DO NOT:**
@@ -389,6 +443,8 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > - **Backend**: Direct method calls between layers, in-process events, message buses
 > - **Frontend**: Props, Context, event emitters, pub/sub, state management stores
 > - **Cross-Platform**: API calls from frontend to backend, shared types/contracts
+> - **Runtime boundaries** (flag whenever present): separate processes/workers/threads/iframes/subprocesses, their lifecycle (who spawns, how they die), and the protocol crossing each boundary (IPC channel names, stdio framing like NDJSON/length-prefix, RPC shape). Record the exact files where each side is implemented.
+> - **Seams and invariants** (flag whenever present): abstract interfaces/classes/traits with multiple concrete implementations (note what varies vs. what's stable); any wrapper/middleware/interceptor/guard that conditionally allows, denies, transforms, or sequences other operations based on state. Wave 2 will upgrade these into key decisions — just surface the raw signal here.
 >
 > ### 5. External Communication
 > - **HTTP/REST**: External API calls (both backend-to-external and frontend-to-backend)
@@ -400,6 +456,7 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 6. Third-Party Integrations
 > List ALL external services with: service name, purpose, integration point (file path).
 > Categories: AI/LLM providers, payment processors, auth providers, storage services, analytics/monitoring, CDN/asset hosting.
+> Also call out any **extension protocols** — mechanisms by which third-party or user-supplied capabilities can be plugged in at runtime (plugin systems, protocol-based tool/resource loading, hook/callback registries, config-driven dispatch). For each: the protocol, the registration point, and how contributed capabilities stitch into the core's catalog.
 >
 > ### 7. Frontend-Backend Contract
 > - How do frontend and backend communicate? (REST, GraphQL, tRPC, WebSocket, etc.)
@@ -717,6 +774,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 3
 
 ## Step 4: Save Wave 1 output and merge
 
+**Telemetry:** `TELEMETRY_STEP4_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 4, skip this step.**
 
 ### If SCAN_MODE = "incremental":
@@ -763,23 +822,37 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 
 ## Step 5: Wave 2 — Reasoning agent
 
+**Telemetry:** `TELEMETRY_STEP5_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 5, skip this step.**
+
+### Findings store (accumulates across all runs)
+
+`.archie/findings.json` is a shared, compounding store — both `/archie-scan` and `/archie-deep-scan` read from it and write back to it. Each run adds new findings, upgrades existing ones (with matching `id`), confirms recurrence, or marks resolution. Scan and deep-scan are independent — neither requires the other; you can run either command any number of times in any order.
+
+Before Wave 2:
+
+- If `$PROJECT_ROOT/.archie/findings.json` exists, load the `findings` array and pass it to the Reasoning agent. It will upgrade the draft entries and emit additional findings it discovers.
+- If the file is absent (first-ever run, or brand-new project), the Reasoning agent produces findings from scratch and Wave 2 writes the file as part of its output.
+
+Either way, after Wave 2 the store reflects accumulated knowledge across every prior scan and deep-scan run.
 
 ### If SCAN_MODE = "incremental":
 
 Spawn an **Opus subagent** (`model: "opus"`) with scoped context:
 - The existing `$PROJECT_ROOT/.archie/blueprint.json` (full current architecture)
 - The patched `$PROJECT_ROOT/.archie/blueprint_raw.json` (with incremental changes from Step 4)
+- The current `$PROJECT_ROOT/.archie/findings.json` if it exists (the accumulated findings store)
 - The changed file contents (from `changed_files` list)
 
 Tell the scoped Reasoning agent:
 
-> The architecture was previously analyzed (blueprint.json attached). The blueprint_raw.json was updated with incremental structural changes. These specific files changed: [list changed_files]. Review the changes and update ONLY the affected sections:
+> The architecture was previously analyzed (blueprint.json attached). The blueprint_raw.json was updated with incremental structural changes. If findings.json is present, it carries the accumulated findings from prior scan and deep-scan runs. These specific files changed: [list changed_files]. Review the changes and update ONLY the affected sections:
 > - If changes affect a key decision, update it
 > - If changes introduce a new trade-off or invalidate one, update trade_offs
-> - If changes trigger or resolve a pitfall, update pitfalls
+> - If changes trigger, resolve, or modify findings/pitfalls in the changed areas, update them
 > - Update the decision_chain only for affected branches
-> Return ONLY the sections that need updating — unchanged sections will be preserved.
+> Return ONLY the sections that need updating — unchanged sections will be preserved. Use the 4-field contract (`problem_statement`, `evidence`, `root_cause`, `fix_direction`) when writing finding or pitfall entries.
 
 Save output and finalize with patch mode:
 ```
@@ -800,9 +873,9 @@ Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. N
 
 Tell the Reasoning agent:
 
-> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. Also read key source files: entry points, main configs, core abstractions.
+> Read `$PROJECT_ROOT/.archie/blueprint_raw.json` — it contains the full analysis from Wave 1 agents: components, communication patterns, technology stack, deployment, frontend. It may also carry a top-level `findings` array holding **draft findings from Wave 1 agents** (for example, the Structure agent's workspace-level observations — cross-workspace cycles, monorepo constraint violations). Pick those drafts up and include them in your own findings output, upgrading them to canonical (fill `root_cause` and `fix_direction`, keep their `problem_statement`/`evidence`/`applies_to`, set `depth: "canonical"`, `source: "deep:synthesis"`). Also read `$PROJECT_ROOT/.archie/findings.json` **if it exists** — it is the accumulated findings store across every prior scan and deep-scan run, each entry shaped as `{id, problem_statement, evidence, root_cause, fix_direction, depth, source, ...}`. If the file is absent, proceed without it and produce findings from scratch. Also read key source files: entry points, main configs, core abstractions.
 >
-> With the COMPLETE picture of what was built and how, produce deep architectural reasoning:
+> With the COMPLETE picture of what was built and how, produce deep architectural reasoning. You will upgrade any draft findings in the accumulated store, emit new findings you discover, AND emit pitfalls (classes of problem rooted in architectural decisions). Both findings and pitfalls share the same 4-field core (`problem_statement`, `evidence`, `root_cause`, `fix_direction`); pitfalls differ in altitude (class-of-problem, not instance) and ownership (blueprint-durable, not per-run).
 >
 > ### 1. Decision Chain
 > Trace the root constraint(s) that shaped this architecture. Build a dependency tree:
@@ -822,10 +895,30 @@ Tell the Reasoning agent:
 > - **alternatives_rejected**: What alternatives were NOT chosen and WHY they were ruled out by the constraints
 >
 > ### 3. Key Decisions (3-7)
-> Each with: title, chosen, rationale, alternatives_rejected.
-> - **rationale** must reference specific components, patterns, or tech from the blueprint
-> - **forced_by**: What constraint or other decision made this one necessary
-> - **enables**: What this decision makes possible downstream
+>
+> Before writing key decisions, run these three probes across the codebase. They surface load-bearing decisions that are often invisible to pure structural analysis (components, layers, tech stack). Each probe is **shape-based and framework-neutral** — it asks about *how* the code commits, not about any specific pattern. A probe can produce 0-N decisions; only emit what is actually present. Name each commitment in the **codebase's own vocabulary** (exact class/module/file names), not generic restatements.
+>
+> **Probe A — Complexity-budget:** identify every place where this codebase spends meaningful complexity on something a naive implementation of the same product wouldn't need. For each:
+> - Name the commitment (in the codebase's own terms).
+> - Sketch the naive alternative in one sentence.
+> - What does this choice **enable** (capability unlocked)?
+> - What does it **foreclose** (path closed off)?
+> - Point at the specific files/modules where the commitment is implemented. If you can't, drop it.
+>
+> **Probe B — Invariants & gates:** locate every rule the codebase enforces on itself — anything that constrains, sequences, authorizes, versions, rate-limits, or otherwise gates other operations. For each: state the invariant in plain language, identify whether it is enforced at a single seam or scattered, and name what violates it (or where violation would slip through).
+>
+> **Probe C — Seams:** locate every place designed for substitution or extension — abstract interfaces with multiple concrete implementations, registry- or config-driven dispatch, protocol boundaries, plugin surfaces, hook/callback systems. For each: what **varies** across the seam, what is held **stable**, and what is the **mechanism** for adding a new implementation.
+>
+> **Working from Wave 1 output.** Wave 1 has already read the codebase (skeletons and, where needed, source). Run each probe primarily against `blueprint_raw.json` — specifically the `communication`, `components`, and `technology` sections, plus any raw agent output captured there. The probes are synthesis questions over Wave 1's data, not a fresh read pass.
+>
+> Only read source directly when Wave 1's output is genuinely insufficient to answer a probe (e.g., Wave 1 named a seam but didn't record what varies across it, or flagged a gate without naming the invariant). Judge file-by-file — no blanket re-read. If a signal clearly exists in the codebase but Wave 1's data is thin, prefer to record that as a gap in `pitfalls` (so the next scan catches more) over re-doing Wave 1's job here.
+>
+> **Emitting decisions.** Consolidate what the probes surface into `key_decisions` (target 3-7). Each with: title, chosen, rationale, alternatives_rejected.
+> - **rationale** must reference specific components, patterns, or tech from the blueprint AND cite the concrete file/module that implements the commitment.
+> - **forced_by**: what constraint or other decision made this one necessary
+> - **enables**: what this decision makes possible downstream
+>
+> A codebase with few commitments (template apps, naive CRUD) may genuinely have only 2-3 meaningful decisions — do not invent filler. A codebase heavy in protocols, gates, and seams will have more than 7 candidates; in that case keep the most load-bearing and note the rest in `trade_offs` or `pitfalls` as appropriate.
 >
 > ### 4. Trade-offs (3-5)
 > Each with: accept, benefit, caused_by (which decision created this trade-off), violation_signals (code patterns that would indicate someone is undoing this trade-off, e.g., removing Puppeteer → `["uninstall puppeteer", "remove puppeteer", "playwright"]`)
@@ -833,18 +926,39 @@ Tell the Reasoning agent:
 > ### 5. Out-of-Scope
 > What this codebase does NOT do. For each item, optionally note which decision makes it out of scope.
 >
-> ### 6. Pitfalls (3-5)
-> Each with:
-> - **area**, **description**, **recommendation**
-> - **stems_from**: NOT just a label — the FULL causal chain as an array. Example: `["local-first constraint", "chose SQLite for zero-config", "singleton pattern in db.ts", "no connection recovery on corruption"]`. Each element is a step in the chain from root decision to pitfall.
-> - **applies_to**: file paths where this pitfall is relevant
+> ### 6. Findings (primary: new; secondary: upgrade existing)
+> Findings describe **instances**: concrete problems observed in specific files.
 >
-> Only describe problems grounded in actual code. Do NOT recommend alternatives the code doesn't use.
+> **Primary goal — emit NEW findings.** You have the overall picture (all Wave 1 output plus source files). Your highest-leverage work is surfacing problems that are NOT already in findings.json — things only visible from the whole-system view: cross-component coupling, pattern breakdowns that individual agents miss, constraint violations implied by the decision chain, gaps between what the blueprint claims and what the code does. Spend the bulk of your cognitive budget here. For each new finding: next-free `f_NNNN` id, `first_seen` = today, `confirmed_in_scan` = 1, `depth: "canonical"`, `source: "deep:synthesis"`.
 >
-> ### 7. Architecture Diagram
+> **Novelty check before emitting.** Before you add a "new" finding, verify it is genuinely new: scan the existing store for any entry with overlapping `problem_statement` meaning OR overlapping `applies_to` files. If the same problem is already tracked under a different wording, DO NOT mint a new id — instead upgrade the existing entry (see below). A new finding must describe something the store doesn't already cover.
+>
+> **Secondary goal — upgrade existing drafts.** If findings.json has entries (especially `depth: "draft"` from scan:triage), upgrade them: preserve `id`, `first_seen`, `applies_to`, `evidence` (you may append new evidence). Rewrite `root_cause` with architectural grounding (name the decision, pattern, or constraint — not generic explanation) and rewrite `fix_direction` as an **ordered list of sequenced steps** referencing specific components and file paths. Set `depth: "canonical"`, `source: "deep:synthesis"`, increment `confirmed_in_scan` by 1. Upgrading is housekeeping — quick, targeted; don't re-derive evidence from scratch.
+>
+> Quality bar (both new and upgraded): `problem_statement` specific, `evidence` with concrete references, `root_cause` architecturally grounded, `fix_direction` sequenced and actionable. Soft floor of 3 total findings in the updated store; if fewer meet the bar, say so explicitly in your output. If the store is already comprehensive and you cannot find anything new, say "no new findings emerged from the overall-picture pass" in your output rather than restating existing ones under different ids.
+>
+> ### 7. Pitfalls
+> Pitfalls describe **classes** of problem — architectural traps rooted in decisions or patterns, covering both current manifestations and latent risks. They are durable blueprint entries, not per-run observations. Each pitfall uses the same 4-field core as findings:
+> - `id` (`pf_NNNN`, stable across runs — reuse existing ids when upgrading)
+> - `problem_statement` — one sentence describing the class of problem
+> - `evidence` — list of observations (cite architectural decisions, pattern recurrences across multiple findings, component absences)
+> - `root_cause` — the decision/pattern/constraint making this class of problem likely
+> - `fix_direction` — **ordered list** of strategic steps (migration order, seam to introduce, rule to establish)
+> - `applies_to` — component/folder paths (broader than finding-level file paths)
+> - `severity`, `confidence`, `source: "deep:synthesis"`, `depth: "canonical"`, `first_seen`, `confirmed_in_scan`
+>
+> Where a finding's `root_cause` is structural/recurring, also emit a corresponding pitfall and set the finding's `pitfall_id` to it. A single pitfall may have multiple confirming findings.
+>
+> **Novelty check for pitfalls.** If the blueprint already contains pitfalls, reuse their `id`s when you upgrade them (preserve `first_seen`, bump `confirmed_in_scan`). Before minting a new `pf_NNNN`, verify no existing pitfall covers the same class of problem — the store is durable across runs, and a pitfall that re-emerges under a new id loses its history. Spend your cognitive budget surfacing NEW classes of problem (architectural traps visible only from the whole-system view) rather than restating existing ones.
+>
+> Quality bar: only emit pitfalls whose `root_cause` traces to something visible in the blueprint (decision, pattern, component absence). Soft floor of 3; if fewer meet the bar, say so. If no new pitfalls emerged, say so explicitly rather than duplicating existing ones under new wording.
+>
+> Only describe problems grounded in actual code and observed decisions. Do NOT recommend alternatives the code doesn't use.
+>
+> ### 8. Architecture Diagram
 > Mermaid `graph TD` with 8-12 nodes. You have the full component list and communication patterns from the blueprint — use actual component names and real data flows.
 >
-> ### 8. Implementation Guidelines (5-8)
+> ### 9. Implementation Guidelines (5-8)
 > Capabilities using third-party libraries. Cross-reference the tech stack and pattern list from the blueprint. For each:
 > - **capability**: Human-readable name
 > - **category**: auth | notifications | media | storage | networking | analytics | persistence | ui | payments | location | state_management | navigation | testing
@@ -864,7 +978,40 @@ Tell the Reasoning agent:
 >     "out_of_scope": [],
 >     "decision_chain": {"root": "", "forces": [{"decision": "", "rationale": "", "violation_keywords": [], "forces": []}]}
 >   },
->   "pitfalls": [{"area": "", "description": "", "recommendation": "", "stems_from": ["causal", "chain", "steps"], "applies_to": []}],
+>   "findings": [
+>     {
+>       "id": "f_NNNN",
+>       "problem_statement": "",
+>       "evidence": [],
+>       "root_cause": "",
+>       "fix_direction": ["step 1", "step 2", "step 3"],
+>       "severity": "error|warn|info",
+>       "confidence": 0.9,
+>       "applies_to": [],
+>       "source": "deep:synthesis",
+>       "depth": "canonical",
+>       "pitfall_id": "pf_NNNN (optional)",
+>       "first_seen": "YYYY-MM-DDTHHMM",
+>       "confirmed_in_scan": 1,
+>       "status": "active"
+>     }
+>   ],
+>   "pitfalls": [
+>     {
+>       "id": "pf_NNNN",
+>       "problem_statement": "",
+>       "evidence": [],
+>       "root_cause": "",
+>       "fix_direction": ["step 1", "step 2", "step 3"],
+>       "severity": "error|warn",
+>       "confidence": 0.9,
+>       "applies_to": [],
+>       "source": "deep:synthesis",
+>       "depth": "canonical",
+>       "first_seen": "YYYY-MM-DD",
+>       "confirmed_in_scan": 1
+>     }
+>   ],
 >   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
 >   "implementation_guidelines": [
 >     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
@@ -897,6 +1044,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5
 ```
 
 ## Step 6: AI Rule Synthesis
+
+**Telemetry:** `TELEMETRY_STEP6_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
 
 **If START_STEP > 6, skip this step.**
 
@@ -996,11 +1145,15 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 
 ## Step 7: Intent Layer — per-folder CLAUDE.md
 
+**Telemetry:** `TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 7, skip this step.**
+
+**If `INTENT_LAYER=no` (user opted out in Step E), skip this entire step.** Print a one-line note to the user: *"Intent Layer skipped (no per-folder CLAUDE.md generated). Root CLAUDE.md + rule files still written."* Then proceed to Step 8. The `intent_layer` telemetry step will record zero elapsed time (its `started_at == completed_at`) and carry `"skipped": true` (see Step 10).
 
 This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
 
-**Execute this step fully. Do NOT ask the user whether to run, skip, or reduce scope. Do NOT offer alternatives. Run all batches as instructed below.**
+**If `INTENT_LAYER=yes`, execute this step fully. Do NOT ask the user whether to run, skip, or reduce scope. Do NOT offer alternatives. Run all batches as instructed below.**
 
 ### If SCAN_MODE = "incremental":
 
@@ -1077,6 +1230,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
 
 ## Step 8: Build the LLM Wiki
 
+**Telemetry:** `TELEMETRY_STEP8_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+
 **If START_STEP > 8, skip this step.**
 
 Generate the browsable, linked wiki under `.archie/wiki/` from the finalized blueprint.
@@ -1098,6 +1253,8 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 ```
 
 ## Step 9: Clean up
+
+**Telemetry:** `TELEMETRY_STEP9_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
 
 **If START_STEP > 9, skip this step.**
 
@@ -1351,3 +1508,35 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-baseline SC
 (Replace SCAN_MODE with the actual mode — "full" or "incremental")
 
 End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-scan` for fast health checks. Run `/archie-deep-scan --incremental` after code changes to update the architecture analysis."**
+
+## Step 10: Write telemetry
+
+Record the final timestamp and emit the per-run telemetry file at `.archie/telemetry/deep-scan_<timestamp>.json` for measuring per-step wall-clock impact.
+
+```bash
+TELEMETRY_STEP9_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
+
+Write `/tmp/archie_timing.json` with the timestamps you recorded at each step boundary. For any step skipped via `START_STEP > N`, set both `started_at` and `completed_at` to the same value so the elapsed seconds is 0.
+
+```json
+[
+  {"name": "scan",            "started_at": "<TELEMETRY_STEP1_START>", "completed_at": "<TELEMETRY_STEP2_START>"},
+  {"name": "read",            "started_at": "<TELEMETRY_STEP2_START>", "completed_at": "<TELEMETRY_STEP3_START>"},
+  {"name": "wave1",           "started_at": "<TELEMETRY_STEP3_START>", "completed_at": "<TELEMETRY_STEP4_START>", "model": "sonnet"},
+  {"name": "merge",           "started_at": "<TELEMETRY_STEP4_START>", "completed_at": "<TELEMETRY_STEP5_START>"},
+  {"name": "wave2_synthesis", "started_at": "<TELEMETRY_STEP5_START>", "completed_at": "<TELEMETRY_STEP6_START>", "model": "opus"},
+  {"name": "rule_synthesis",  "started_at": "<TELEMETRY_STEP6_START>", "completed_at": "<TELEMETRY_STEP7_START>", "model": "sonnet"},
+  {"name": "intent_layer",    "started_at": "<TELEMETRY_STEP7_START>", "completed_at": "<TELEMETRY_STEP8_START>", "model": "sonnet", "skipped": <true if INTENT_LAYER=no else false>},
+  {"name": "cleanup",         "started_at": "<TELEMETRY_STEP8_START>", "completed_at": "<TELEMETRY_STEP9_START>"},
+  {"name": "drift",           "started_at": "<TELEMETRY_STEP9_START>", "completed_at": "<TELEMETRY_STEP9_END>"}
+]
+```
+
+Then invoke the writer:
+
+```bash
+python3 .archie/telemetry.py "$PROJECT_ROOT" --command deep-scan --timing-file /tmp/archie_timing.json
+```
+
+If telemetry fails for any reason (missing timestamp, file write error), do not abort — telemetry is informational only.

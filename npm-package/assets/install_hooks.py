@@ -288,6 +288,8 @@ def install(project_root: Path) -> None:
         "Bash(for *)",
         "Bash(mkdir *)",
         "Bash(date *)",
+        "Bash(sort *)",
+        "Bash(head *)",
         "Bash(rm -f /tmp/archie_*)",
         "Bash(rm -f .archie/health.json)",
         # Temp files for agent output

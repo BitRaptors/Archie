@@ -166,6 +166,17 @@ def build_bundle(project_root: Path) -> dict:
     if scan_report:
         bundle["scan_report"] = scan_report
 
+    # Structured findings from the shared accumulating store. Gives the share
+    # viewer the 4-field shape (problem_statement/evidence/root_cause/
+    # fix_direction) — far richer than the title/description regex-scraped
+    # from scan_report.md. Old bundles without this still fall back to the
+    # markdown-parsed findings.
+    findings_store = _read_json(archie_dir / "findings.json")
+    if isinstance(findings_store, dict) and isinstance(findings_store.get("findings"), list):
+        bundle["findings"] = findings_store["findings"]
+    elif isinstance(findings_store, list):
+        bundle["findings"] = findings_store
+
     # Structured semantic duplications from Agent C — "near-twin" functions,
     # reimplementations, same logic under different names. Distinct from
     # health.json's textual duplicates (which are line-identical copy-paste).

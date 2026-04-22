@@ -19,7 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import IgnoreMatcher, SKIP_DIRS  # noqa: E402
+from _common import BulkMatcher, IgnoreMatcher, SKIP_DIRS  # noqa: E402
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
@@ -1029,16 +1029,29 @@ def run_scan(repo_path: str) -> dict:
     root = Path(repo_path).resolve()
 
     matcher = IgnoreMatcher(root)
+    bulk = BulkMatcher(root)
     files = scan_files(root, matcher=matcher)
+
+    # ── Bulk-content classification ──────────────────────────────────────
+    # Files matching `.archiebulk` patterns are tagged and excluded from
+    # content-reading operations (skeletons, hashes, tokens, imports). Their
+    # existence still counts toward inventory ratios.
+    for f in files:
+        bulk_info = bulk.classify(f["path"])
+        if bulk_info:
+            f["bulk"] = bulk_info
+
+    readable_files = [f for f in files if "bulk" not in f]
+
     deps = parse_dependencies(root)
-    frameworks = detect_frameworks(files, deps)
-    hashes = hash_files(root, files)
-    tokens = estimate_tokens(root, files)
-    imports = build_import_graph(root, files)
-    entry_points = detect_entry_points(files)
+    frameworks = detect_frameworks(readable_files, deps)
+    hashes = hash_files(root, readable_files)
+    tokens = estimate_tokens(root, readable_files)
+    imports = build_import_graph(root, readable_files)
+    entry_points = detect_entry_points(readable_files)
     configs = collect_configs(root)
-    skeletons = extract_skeletons(root, files)
-    symbols = extract_symbols(root, files)
+    skeletons = extract_skeletons(root, readable_files)
+    symbols = extract_symbols(root, readable_files)
 
     # Aggregate token counts by directory
     tokens_by_dir: dict[str, int] = defaultdict(int)
@@ -1046,15 +1059,44 @@ def run_scan(repo_path: str) -> dict:
         parent = str(Path(path).parent) if "/" in path else "."
         tokens_by_dir[parent] += count
 
-    # Compute frontend file ratio for Agent D threshold
+    # ── Build bulk-content manifest ──────────────────────────────────────
+    # Shape shared with agents: counts + framework breakdown + file paths
+    # (no content). Agents reference by path; they must not Read them.
+    bulk_manifest: dict[str, dict] = {}
+    for f in files:
+        info = f.get("bulk")
+        if not info:
+            continue
+        cat = info["category"]
+        bucket = bulk_manifest.setdefault(cat, {
+            "count": 0,
+            "frameworks": {},
+            "files": [],
+        })
+        bucket["count"] += 1
+        fw = info.get("framework") or "-"
+        bucket["frameworks"][fw] = bucket["frameworks"].get(fw, 0) + 1
+        bucket["files"].append(f["path"])
+
+    # ── Frontend ratio ────────────────────────────────────────────────────
+    # Numerator: extension-tagged UI source (Swift/JSX/etc.) + any bulk file
+    # tagged `ui_resource` (Android res/, iOS storyboards, etc.).
+    # Denominator: readable source files + bulk categories that represent
+    # source shape (ui_resource/generated/localization/migration/fixture).
+    # Bulk categories that aren't source shape (asset, lockfile, dependency,
+    # data) are excluded from both ratio sides.
     frontend_exts = {".tsx", ".jsx", ".vue", ".svelte", ".swift", ".xib",
                      ".storyboard", ".dart", ".xaml"}
-    frontend_files = sum(1 for f in files if f.get("extension", "") in frontend_exts)
-    total_source = sum(1 for f in files if f.get("extension", "") not in (
+    frontend_files = sum(1 for f in readable_files if f.get("extension", "") in frontend_exts)
+    ui_bulk_files = sum(1 for f in files if f.get("bulk", {}).get("category") == "ui_resource")
+
+    source_bulk_categories = {"ui_resource", "generated", "localization", "migration", "fixture"}
+    total_source = sum(1 for f in readable_files if f.get("extension", "") not in (
         ".json", ".xml", ".yaml", ".yml", ".toml", ".lock", ".md", ".txt",
         ".png", ".jpg", ".svg", ".gif", ".ico", ".webp",
     ))
-    frontend_ratio = frontend_files / max(total_source, 1)
+    total_source += sum(1 for f in files if f.get("bulk", {}).get("category") in source_bulk_categories)
+    frontend_ratio = (frontend_files + ui_bulk_files) / max(total_source, 1)
 
     return {
         "file_tree": files,
@@ -1067,6 +1109,7 @@ def run_scan(repo_path: str) -> dict:
         "file_hashes": hashes,
         "entry_points": entry_points,
         "frontend_ratio": round(frontend_ratio, 2),
+        "bulk_content_manifest": bulk_manifest,
         "_skeletons": skeletons,
         "symbols": symbols,
     }
