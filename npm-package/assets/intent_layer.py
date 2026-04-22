@@ -412,6 +412,97 @@ def cmd_scan_config(root: Path, action: str):
     sys.exit(1)
 
 
+# Keys settable via `config set`. Each entry: (type, default_if_missing).
+_CONFIG_FLAGS = {
+    "wiki_enabled": ("bool", True),
+}
+
+
+def _coerce_flag(kind: str, raw: str):
+    if kind == "bool":
+        v = raw.strip().lower()
+        if v in {"1", "true", "yes", "on", "enabled"}:
+            return True
+        if v in {"0", "false", "no", "off", "disabled"}:
+            return False
+        raise ValueError(f"expected boolean (on/off), got {raw!r}")
+    raise ValueError(f"unsupported flag type {kind!r}")
+
+
+def cmd_config(root: Path, action: str, key: str, value: str | None = None):
+    """Read or write simple top-level flags in .archie/archie_config.json.
+
+    Actions:
+      get <key>         — print current value + source (config|default|env-override)
+      set <key> <value> — persist value (merges with existing config)
+
+    Does NOT require scope/monorepo_type (unlike `scan-config write`).
+    """
+    if key not in _CONFIG_FLAGS:
+        print(
+            f"Unknown config key: {key}. Known keys: {', '.join(sorted(_CONFIG_FLAGS))}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    kind, default = _CONFIG_FLAGS[key]
+    path = _config_path(root)
+    existing: dict = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+
+    if action == "get":
+        env_override = None
+        if key == "wiki_enabled":
+            raw = os.environ.get("ARCHIE_WIKI_ENABLED", "").strip().lower()
+            if raw in {"1", "true", "yes", "on"}:
+                env_override = True
+            elif raw in {"0", "false", "no", "off"}:
+                env_override = False
+
+        current = existing.get(key, default) if key in existing else default
+        source = "config" if key in existing else "default"
+        if env_override is not None:
+            effective = env_override
+            source = "env-override (ARCHIE_WIKI_ENABLED)"
+        else:
+            effective = current
+
+        out = {
+            "key": key,
+            "value": effective,
+            "source": source,
+            "persisted_value": existing.get(key, None),
+            "default": default,
+        }
+        print(json.dumps(out, indent=2))
+        return
+
+    if action == "set":
+        if value is None:
+            print("Usage: config set <key> <value>", file=sys.stderr)
+            sys.exit(1)
+        try:
+            coerced = _coerce_flag(kind, value)
+        except ValueError as e:
+            print(f"Invalid value: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        merged = {**existing, key: coerced}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(merged, indent=2) + "\n")
+        tmp.replace(path)
+        print(json.dumps({"key": key, "value": coerced, "persisted": True}, indent=2))
+        return
+
+    print(f"Unknown config action: {action}", file=sys.stderr)
+    sys.exit(1)
+
+
 def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
     """Manage deep scan state for resume capability.
 
@@ -1322,6 +1413,7 @@ if __name__ == "__main__":
         print("  python3 intent_layer.py merge /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs|save-baseline|detect-changes> [step|mode]", file=sys.stderr)
         print("  python3 intent_layer.py scan-config /path/to/repo <read|write|validate>  (write reads JSON from stdin)", file=sys.stderr)
+        print("  python3 intent_layer.py config /path/to/repo <get|set> <key> [value]", file=sys.stderr)
         print("  python3 intent_layer.py inspect /path/to/repo <filename> [--query .key.path]", file=sys.stderr)
         sys.exit(1)
 
@@ -1410,6 +1502,14 @@ if __name__ == "__main__":
             print("Usage: scan-config /path/to/repo <read|write|validate>", file=sys.stderr)
             sys.exit(1)
         cmd_scan_config(root, action)
+    elif subcmd == "config":
+        action = sys.argv[3] if len(sys.argv) > 3 else ""
+        key = sys.argv[4] if len(sys.argv) > 4 else ""
+        value = sys.argv[5] if len(sys.argv) > 5 else None
+        if action not in {"get", "set"} or not key:
+            print("Usage: config /path/to/repo <get|set> <key> [value]", file=sys.stderr)
+            sys.exit(1)
+        cmd_config(root, action, key, value)
     elif subcmd == "merge":
         cmd_merge(root)
     elif subcmd == "inspect":
