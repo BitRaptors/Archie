@@ -51,10 +51,11 @@ The core workflow:
 5. **Enforce** — Claude Code hooks validate every file write against extracted rules.
 6. **Share** (optional) — `/archie-share` uploads a bundle to a hosted React viewer at `archie-viewer.vercel.app` via a Supabase edge function.
 
-Archie has three user-facing slash commands (+ one local inspector):
+Archie has four user-facing slash commands (+ one local inspector):
 
 - **`/archie-scan`** — architecture health check (1–3 min). Runs deterministic scanner for data gathering, then AI acts as a senior architect: analyzes dependencies, finds pattern drift, identifies complexity hotspots, proposes enforceable rules. Writes concrete findings to the shared `.archie/findings.json` store with id-stable upsert. Single AI synthesis, 3 parallel Sonnet agents below it.
 - **`/archie-deep-scan`** — comprehensive baseline (15–20 min). Full 2-wave multi-agent analysis (3–4 parallel Sonnet fact-gatherers + one Opus reasoner). Produces complete blueprint and all outputs. Supports `--incremental` (changed files only, 3–6 min), `--continue` (resume interrupted run), `--from N` (resume from step N), `--reconfigure` (re-prompt monorepo scope). Auto-detects monorepos and offers parallel sub-project analysis. Intent Layer (per-folder CLAUDE.md) is **opt-in** via an interactive prompt at Step E.
+- **`/archie-intent-layer`** — standalone per-folder CLAUDE.md regeneration. Phase 0.5 asks Full/Incremental/Auto upfront (Auto uses `detect-changes` against the `last_deep_scan.json` baseline). Hard-requires `blueprint.json` — otherwise tells the user to run `/archie-deep-scan` first, no degraded path. **Shares its Phases 1–4 pipeline with `/archie-deep-scan` Step 7** (single source of truth); deep-scan Reads this file and layers its own deltas (telemetry, SCAN_MODE mapping, Compact Checkpoint B).
 - **`/archie-share`** — uploads blueprint + findings + scan report to the shared viewer and returns a URL.
 - **`/archie-viewer`** — local HTML inspector (served from `viewer.py`) with 7 tabs: Dashboard, Scan Reports, Blueprint, Rules, Files, Dependencies, Workspace.
 
@@ -112,25 +113,26 @@ archie/
     intent_layer.py             # Generate per-folder CLAUDE.md with local patterns
   rules/
     extractor.py                # Extract file_placement + naming rules from blueprint -> rules.json
-  standalone/                   # Zero-dependency scripts (18 files, exported to target projects)
+  standalone/                   # Zero-dependency scripts (19 files, exported to target projects)
     _common.py                  # IgnoreMatcher, BulkMatcher, DECISION_RE, normalize_blueprint
     scanner.py                  # File tree, import graph, framework detection, skeleton extraction, bulk manifest
     renderer.py                 # Generate CLAUDE.md, AGENTS.md, rule files from blueprint
-    intent_layer.py             # Per-folder CLAUDE.md via DAG scheduling + AI enrichment + `inspect` subcommand
+    intent_layer.py             # Per-folder CLAUDE.md via DAG scheduling + AI enrichment + inspect/scan-config/deep-scan-state/save-run-context
     viewer.py                   # Local HTML blueprint inspector (7 tabs)
     drift.py                    # Mechanical drift detection
     validate.py                 # Cross-reference blueprint against actual codebase
     check_rules.py              # Check files against rules (CI path)
     measure_health.py           # Erosion, gini, verbosity, top-20%, waste scores + history append
     detect_cycles.py            # Tarjan's SCC on the import graph
-    install_hooks.py            # Install 4 hooks + 29 permissions in settings.local.json
+    install_hooks.py            # Install 6 hooks + 29 permissions in settings.local.json
     merge.py                    # Merge blueprint sections from multiple sources
     finalize.py                 # Deep merge + findings upsert into store + pitfalls into blueprint
     arch_review.py              # Architectural review checklist for plans and diffs
     refresh.py                  # File change detection (hash comparison)
     extract_output.py           # rules / deep-drift / recent-files / save-duplications subcommands
-    telemetry.py                # Per-run step-level wall-clock timing writer
+    telemetry.py                # Per-run step-level wall-clock timing + steps-count action
     upload.py                   # Build share bundle + POST to Supabase edge function
+    lint_gate.py                # Opt-in external linter gate (ruff / eslint / golangci-lint / semgrep) behind .archie/enforcement.json
 
 npm-package/
   bin/archie.mjs                # npx @bitraptors/archie installer entry point
@@ -139,6 +141,7 @@ npm-package/
     *.py                        # Mirror of every standalone script
     archie-scan.md              # Mirror of .claude/commands/archie-scan.md
     archie-deep-scan.md         # Mirror of .claude/commands/archie-deep-scan.md
+    archie-intent-layer.md      # Mirror of .claude/commands/archie-intent-layer.md
     archie-share.md             # Mirror of .claude/commands/archie-share.md
     archie-viewer.md            # Mirror of .claude/commands/archie-viewer.md
     archieignore.default        # Default `.archieignore` template
@@ -182,6 +185,7 @@ v1/                             # Archived V1 web app (FastAPI + Next.js, obsole
   commands/
     archie-scan.md              # Architecture health check (1–3 min)
     archie-deep-scan.md         # Full 2-wave analysis (15–20 min)
+    archie-intent-layer.md      # Standalone per-folder CLAUDE.md regen (shared pipeline w/ deep-scan Step 7)
     archie-share.md             # Upload bundle to shared viewer
     archie-viewer.md            # Local blueprint inspector
   skills/                       # Developer assistance skills
@@ -498,12 +502,16 @@ A single pitfall may have multiple confirming findings via `pitfall_id`.
 
 ## Hooks — Real-Time Enforcement
 
-The installer (`npx @bitraptors/archie`) generates four hooks and registers them in `.claude/settings.local.json`:
+The installer (`npx @bitraptors/archie`) generates six hooks and registers them in `.claude/settings.local.json`:
 
 **`pre-validate.sh`** (PreToolUse, matcher: `Write|Edit|MultiEdit`)
-- Checks `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, and `file_naming` rules
-- Reads the content being written for deeper validation (not just file path)
-- Loads both `rules.json` and `platform_rules.json`
+- **Rule injection (Tier 4)** — before the violation check, prints every rule that applies to the file's path (rules with `applies_to` prefix-matching `rel_path`) plus every rule tagged `always_inject: true` (critical globals). Output includes rule id, severity, description, and rationale. Deduped per-turn via `/tmp/.archie_turn_<cksum-of-project-root>` marker so the same rule doesn't re-surface on every Edit within a turn.
+- **Violation check** — blocks `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, and `file_naming` rules.
+- Reads the content being written for deeper validation (not just file path); uses `printf %s` + tempfile + JSON parse to pass tool input to Python without shell-escaping bugs.
+- Loads both `rules.json` and `platform_rules.json`.
+
+**`pre-turn.sh`** (UserPromptSubmit)
+- Clears the per-turn rule-injection marker at the start of each new user turn so applicable rules re-surface on the first Write/Edit of that turn.
 
 **`pre-commit-review.sh`** (PreToolUse, matcher: `Bash`)
 - Filters to fire only on `git commit` commands
@@ -514,6 +522,12 @@ The installer (`npx @bitraptors/archie`) generates four hooks and registers them
 
 **`blueprint-nudge.sh`** (PreToolUse, matcher: `Glob|Grep`)
 - Always-on architectural reminder — fires before code exploration to remind the agent about project architecture
+
+**`post-lint.sh`** (PostToolUse, matcher: `Write|Edit|MultiEdit`)
+- **Opt-in external linter gate** — reads `.archie/enforcement.json`; no-op unless `{"enabled": true}`
+- Auto-detects the right linter per file extension + project config: Python (`.py` + `pyproject.toml [tool.ruff]` → `ruff check --quiet`), JS/TS (`.js/.ts/...` + `.eslintrc` + eslint on PATH → `eslint --quiet`), Go (`.go` + `.golangci.yaml` → `golangci-lint run --fast` on the parent dir since golangci-lint is package-aware), Semgrep (any file type + `.semgrep.yml` → `semgrep --error --quiet`)
+- Config overrides let users pin custom commands per kind
+- `severity: error` → exit 2 blocks; `severity: warn` → exit 0 with message
 
 ### Permissions
 
@@ -528,7 +542,13 @@ The installer writes a 29-entry `allow` list into `.claude/settings.local.json` 
 - `Write(**/CLAUDE.md)`, `Edit(**/CLAUDE.md)`
 - `Agent(*)` for subagent spawning
 
-All hooks fail open: if `.archie/rules.json` doesn't exist, they exit silently.
+All hooks fail open: missing rules/config/marker files → hooks exit 0 silently.
+
+### Subagent output contract
+
+Every Sonnet/Opus subagent spawned during a scan receives a mandatory instruction to Write its own output directly to `/tmp/archie_*.json` using the Write tool (permissioned via `Write(//tmp/archie_*)`). The orchestrator never copies subagent transcripts. This avoids Claude Code's sensitive-file guardrail on `~/.claude/projects/.../subagents/*.jsonl` (which used to fire a permission prompt on every batch), keeps subagent output out of the orchestrator's context (less compaction pressure), and isolates failures (missing confirmation line or missing file → clear signal, no silent fallback to transcript scraping).
+
+The contract is enforced in 6 spawn sites across the slash commands: Wave 1 structural agents (3–4 Sonnets), Wave 2 reasoning agent (full + incremental paths), rule-proposer agent, deep-drift reviewer, and Intent Layer enrichment subagents.
 
 ---
 
@@ -572,6 +592,31 @@ Installed with every project. Categories:
 
 Severity can be changed from `/archie-viewer` or by Claude Code during scans. Rules are stored in `.archie/rules.json` as `{"rules": [...]}`.
 
+### Rule delivery — the four-tier enforcement ladder
+
+Rules don't do anything unless the agent sees them at the right moment. Archie uses a layered delivery model:
+
+| Tier | Mechanism | What it covers | Effect |
+|---|---|---|---|
+| **Session start** | `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*.md` auto-loaded by Claude Code | All rules (prose + mechanical) | Agent-aware |
+| **Prompt time** | `UserPromptSubmit` hook keyword-matches `rules.json` entries against the user's prompt | Rules with `keywords` array OR `severity: error` (always-inject) | Surfaces relevant rules before the agent starts writing |
+| **Edit time — injection (Tier 4)** | `PreToolUse` `pre-validate.sh` prints matching rules with rationale before any violation check | Rules with `applies_to` prefix-matching the file path, and rules with `always_inject: true` | Re-surfaces rule + rationale at the point of edit, deduped per-turn |
+| **Edit time — mechanical block (Tier 1)** | `PreToolUse` `pre-validate.sh` runs regex / glob checks and exits 2 on violation | Rules with `check` field (`forbidden_content`, `forbidden_import`, `required_pattern`, `architectural_constraint`, `file_naming`) | Blocks the write |
+| **Post-edit — external linter (Tier 3, opt-in)** | `PostToolUse` `post-lint.sh` runs project's native linter on changed file | Standard language-level issues (ruff / eslint / golangci-lint / semgrep) | Blocks if `severity: error`, warns otherwise |
+
+**Rule schema fields** that drive this ladder:
+
+- `keywords: [...]` — 2–5 terms for prompt-time matching (Tier 2)
+- `applies_to: "path/prefix"` — scopes the rule to edits under that path (Tier 4 injection + content-check scoping)
+- `always_inject: true` — critical globals that should re-surface at every first-edit-of-turn regardless of path (Tier 4)
+- `check: "..."` + `forbidden_patterns` / `required_in_content` / `file_pattern` — mechanical enforcement (Tier 1)
+
+The AI rule-proposer in `/archie-scan` and `/archie-deep-scan` is instructed to emit `keywords` for every rule and to pick the narrowest meaningful `applies_to` scope, promoting broad-but-critical globals to `always_inject` rather than leaving them scopeless.
+
+### Per-turn rule-injection dedup
+
+Tier 4 injection uses `/tmp/.archie_turn_<cksum-of-project-root>` as a marker file: `pre-validate.sh` appends each injected rule id after printing it; `pre-turn.sh` (UserPromptSubmit) clears the file at the start of each user turn. Within a single turn, editing N files doesn't re-inject the same rule N times — the agent sees it once, keeps it in context, and moves on.
+
 ---
 
 ## Renderer — Output Generation
@@ -606,28 +651,29 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 
 ## Standalone Scripts
 
-18 zero-dependency Python scripts in `archie/standalone/`. These are exported to target projects via `npx @bitraptors/archie`.
+19 zero-dependency Python scripts in `archie/standalone/`. These are exported to target projects via `npx @bitraptors/archie`.
 
 | Script | Purpose |
 |--------|---------|
 | `_common.py` | `IgnoreMatcher`, `BulkMatcher`, `_glob_to_regex`, `DECISION_RE`, `normalize_blueprint()`, JSON helpers |
 | `scanner.py` | File tree, import graph, framework detection, skeleton extraction, bulk classification, `frontend_ratio` |
 | `renderer.py` | Blueprint JSON → CLAUDE.md, AGENTS.md, rule files |
-| `intent_layer.py` | Per-folder CLAUDE.md via DAG scheduling + AI enrichment + `inspect` subcommand + `scan-config` + `deep-scan-state` |
+| `intent_layer.py` | Per-folder CLAUDE.md via DAG scheduling + AI enrichment. Subcommands: `prepare`, `next-ready`, `suggest-batches`, `prompt`, `save-enrichment`, `merge`, `inspect [--query] [--list]`, `scan-config`, `deep-scan-state` (incl. `save-run-context` for shell-friendly run-context writes) |
 | `viewer.py` | Local HTML blueprint inspector (7 tabs), served via stdlib `http.server` |
 | `drift.py` | Mechanical drift detection |
 | `validate.py` | Cross-reference blueprint against actual codebase |
 | `check_rules.py` | Check files against rules (CI path) |
 | `measure_health.py` | Erosion, gini, verbosity, top-20%, waste scores + `--append-history` |
 | `detect_cycles.py` | Tarjan's SCC on the import graph |
-| `install_hooks.py` | 4 hooks + 29 permissions in `.claude/settings.local.json` |
+| `install_hooks.py` | 6 hooks + 29 permissions in `.claude/settings.local.json` |
 | `merge.py` | Merge blueprint sections; `extract_json_from_text` handles conversation envelopes / code fences |
 | `finalize.py` | Normalise blueprint + deep-merge Opus output + id-stable findings upsert + pitfalls into blueprint |
 | `arch_review.py` | Architectural review checklist for plans and diffs |
 | `refresh.py` | File change detection (hash comparison) |
 | `extract_output.py` | Subcommands: `rules`, `deep-drift`, `recent-files`, `save-duplications` |
-| `telemetry.py` | Per-run step-level wall-clock timing → `.archie/telemetry/<command>_<ts>.json` |
+| `telemetry.py` | Per-run step-level wall-clock timing → `.archie/telemetry/<command>_<ts>.json`. Subcommands: `mark`, `finish`, `extra`, `read`, `write`, `clear`, `steps-count` |
 | `upload.py` | Build share bundle + POST to Supabase edge function |
+| `lint_gate.py` | Opt-in external linter gate (Tier 3). Invoked by `post-lint.sh`; reads `.archie/enforcement.json`; auto-detects ruff / eslint / golangci-lint / semgrep based on project config files + binary on PATH; per-kind config overrides; `target: "parent"` dispatch for package-aware linters (golangci-lint) |
 
 ---
 
@@ -639,13 +685,13 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 
 1. **Clean install** — removes old `.py` scripts from `.archie/`, old slash commands from commands dir, old hooks from `.claude/hooks/`, and hook section from `.claude/settings.local.json`
 2. Create commands directory (default `.claude/commands/`) and `.archie/` in the target project
-3. Copy 4 slash commands (`archie-scan.md`, `archie-deep-scan.md`, `archie-share.md`, `archie-viewer.md`)
-4. Copy 18 standalone Python scripts to `.archie/`
+3. Copy 5 slash commands (`archie-scan.md`, `archie-deep-scan.md`, `archie-intent-layer.md`, `archie-share.md`, `archie-viewer.md`)
+4. Copy 19 standalone Python scripts to `.archie/` (including `lint_gate.py` for the opt-in external linter gate)
 5. Copy `platform_rules.json`
 6. Copy `.archieignore` default (only if not already present — preserves user customisations)
 7. Copy `.archiebulk` default (only if not already present)
 8. Append `.gitignore` entries for installed tooling (idempotent, handles upgrade from older versions)
-9. Run `python3 install_hooks.py` to set up 4 hooks + 29 permissions in `.claude/settings.local.json`
+9. Run `python3 install_hooks.py` to set up 6 hooks + 29 permissions in `.claude/settings.local.json`
 10. Print installation summary
 
 ### Assets (`npm-package/assets/`)
@@ -661,7 +707,8 @@ Exact copies of canonical files. See [File Sync Protocol](#file-sync-protocol).
 | Command | File | Purpose |
 |---------|------|---------|
 | `/archie-scan` | `archie-scan.md` | Architecture health check: 3 parallel Sonnets + single AI synthesis. Writes to `findings.json` and `semantic_duplications.json` |
-| `/archie-deep-scan` | `archie-deep-scan.md` | Full 2-wave analysis. Supports `--incremental`, `--continue`, `--from N`, `--reconfigure`. Intent Layer is opt-in via Step E |
+| `/archie-deep-scan` | `archie-deep-scan.md` | Full 2-wave analysis. Supports `--incremental`, `--continue`, `--from N`, `--reconfigure`. Intent Layer is opt-in via Step E. Step 7 delegates to `/archie-intent-layer` Phases 1–4 as a single source of truth |
+| `/archie-intent-layer` | `archie-intent-layer.md` | Standalone per-folder CLAUDE.md regen. Phase 0.5 asks Full/Incremental/Auto; Auto uses `deep-scan-state detect-changes` against `last_deep_scan.json`. Hard-requires `blueprint.json`. Same Sonnet subagent DAG used by deep-scan Step 7 |
 | `/archie-share` | `archie-share.md` | Upload bundle to hosted viewer via `upload.py` + return URL |
 | `/archie-viewer` | `archie-viewer.md` | Local HTML inspector via `viewer.py` — 7 tabs (Dashboard, Scan Reports, Blueprint, Rules, Files, Dependencies, Workspace) |
 
@@ -970,17 +1017,18 @@ Scan templates include a "CRITICAL CONSTRAINT: Never write inline Python" block 
 | `measure_health.py --append-history --scan-type fast\|deep` | Inline health history append |
 | `finalize.py --normalize-only` | Inline blueprint normalisation |
 | `finalize.py --patch <file>` | Incremental deep-scan merge |
-| `intent_layer.py inspect <file> [--query .key]` | Ad-hoc JSON inspection |
+| `intent_layer.py inspect <file> [--query .key] [--list]` | Ad-hoc JSON inspection; `--list` prints array elements one per line (replaces inline python for array→newline conversion) |
 | `intent_layer.py scan-config <dir> read\|write\|validate` | Monorepo scope config management |
-| `intent_layer.py deep-scan-state <dir> init\|read\|complete-step N\|detect-changes\|save-baseline` | Deep-scan resume state |
+| `intent_layer.py deep-scan-state <dir> init\|read\|complete-step N\|detect-changes\|save-baseline\|save-context\|save-run-context` | Deep-scan resume state; `save-run-context` takes flags + newline-separated workspaces via stdin (replaces heredoc-JSON-with-inline-python that used to round-trip workspaces through `python3 -c`) |
 | `extract_output.py rules <in> <out>` | Parse rule synthesis output |
 | `extract_output.py deep-drift <in> <out>` | Merge drift findings into report |
 | `extract_output.py recent-files <scan.json>` | Print source file paths |
 | `extract_output.py save-duplications <agent_c_file> <project_root>` | Deterministic semantic_duplications.json writer |
 | `telemetry.py <project_root> --command <name> --timing-file <file>` | Write per-run telemetry |
+| `telemetry.py steps-count <project_root>` | Count completed step marks (replaces inline python `len(json.load(...).get('steps'))` in deep-scan Resume Prelude) |
 | `upload.py <project_root>` | Build + POST share bundle |
 
-This prevents crashes from Claude guessing wrong field names (e.g. `batch_id` vs `id`, `path` vs `id`) and keeps the pipeline deterministic where it matters.
+This prevents crashes from Claude guessing wrong field names (e.g. `batch_id` vs `id`, `path` vs `id`) and keeps the pipeline deterministic where it matters. The constraint is enforced in the scan templates themselves; Claude Code is told "CRITICAL CONSTRAINT: Never write inline Python" at the top of each scan command, and every data operation has a dedicated subcommand. Even the deep-scan Resume Prelude — which used to contain 8 inline `python3 -c` blocks — now reads every field via dedicated CLIs.
 
 ---
 
@@ -1057,5 +1105,5 @@ python3 scripts/verify_sync.py
 This verifies all canonical files, asset copies, and `archie.mjs` references are consistent. It catches missing copies, orphan assets, and dead installer references, then reports:
 
 ```
-SYNC CHECK PASSED — 18 scripts, 4 commands, all in sync.
+SYNC CHECK PASSED — 19 scripts, 5 commands, all in sync.
 ```
