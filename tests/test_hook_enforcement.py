@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from archie.hooks.enforcement import check_pre_validate, match_context_rules
+from archie.hooks.enforcement import (
+    check_pre_validate,
+    match_context_rules,
+    rules_to_inject,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -545,3 +549,155 @@ def test_project_root_strips_prefix_for_applies_to():
         project_root="/home/user/proj",
     )
     assert result["pass"] is False
+
+
+# ---------------------------------------------------------------------------
+# rules_to_inject — Tier 4: path-aware rule surfacing
+# ---------------------------------------------------------------------------
+
+
+def test_inject_path_scoped_rule_fires_on_match():
+    rules = [
+        {
+            "id": "arch-005",
+            "applies_to": "openmeter/billing/",
+            "description": "Status transitions must go through stateless",
+            "severity": "error",
+        }
+    ]
+    out = rules_to_inject("openmeter/billing/invoice.go", rules)
+    assert len(out) == 1
+    assert out[0]["id"] == "arch-005"
+
+
+def test_inject_path_scoped_rule_does_not_fire_out_of_scope():
+    rules = [
+        {
+            "id": "arch-005",
+            "applies_to": "openmeter/billing/",
+            "description": "x",
+            "severity": "error",
+        }
+    ]
+    out = rules_to_inject("openmeter/ledger/entry.go", rules)
+    assert out == []
+
+
+def test_inject_always_inject_fires_regardless_of_path():
+    rules = [
+        {
+            "id": "ban-001",
+            "applies_to": "openmeter/billing/",  # narrow scope
+            "always_inject": True,                # but still always
+            "description": "No context.Background",
+            "severity": "error",
+        }
+    ]
+    out = rules_to_inject("openmeter/ledger/entry.go", rules)
+    assert len(out) == 1
+    assert out[0]["id"] == "ban-001"
+
+
+def test_inject_dedup_skips_already_injected():
+    rules = [
+        {
+            "id": "arch-005",
+            "applies_to": "openmeter/billing/",
+            "description": "x",
+            "severity": "error",
+        }
+    ]
+    out = rules_to_inject(
+        "openmeter/billing/invoice.go",
+        rules,
+        already_injected_ids={"arch-005"},
+    )
+    assert out == []
+
+
+def test_inject_multiple_rules_for_same_path():
+    rules = [
+        {
+            "id": "arch-004",
+            "applies_to": "openmeter/billing/",
+            "description": "Multi-step ops in one transaction",
+            "severity": "error",
+        },
+        {
+            "id": "arch-005",
+            "applies_to": "openmeter/billing/",
+            "description": "Stateless transitions",
+            "severity": "error",
+        },
+        {
+            "id": "ledger-only",
+            "applies_to": "openmeter/ledger/",
+            "description": "x",
+            "severity": "error",
+        },
+    ]
+    out = rules_to_inject("openmeter/billing/invoice.go", rules)
+    ids = {r["id"] for r in out}
+    assert ids == {"arch-004", "arch-005"}
+
+
+def test_inject_skips_rules_without_applies_to_and_without_always():
+    """Prose-only rules (no applies_to, no always_inject) are handled by
+    CLAUDE.md at session start — never injected at edit time."""
+    rules = [
+        {
+            "id": "arch-002",
+            "description": "Adapter helpers must wrap with TransactingRepo",
+            "severity": "error",
+        }
+    ]
+    out = rules_to_inject("openmeter/billing/invoice.go", rules)
+    assert out == []
+
+
+def test_inject_rules_without_id_are_skipped():
+    rules = [
+        {"applies_to": "x/", "description": "no id"},
+        {"id": "valid", "applies_to": "openmeter/", "description": "y"},
+    ]
+    out = rules_to_inject("openmeter/foo.go", rules)
+    assert [r["id"] for r in out] == ["valid"]
+
+
+def test_inject_project_root_strips_prefix():
+    rules = [
+        {
+            "id": "arch-005",
+            "applies_to": "openmeter/billing/",
+            "description": "x",
+            "severity": "error",
+        }
+    ]
+    out = rules_to_inject(
+        "/home/me/openmeter-repo/openmeter/billing/invoice.go",
+        rules,
+        project_root="/home/me/openmeter-repo",
+    )
+    assert len(out) == 1
+    assert out[0]["id"] == "arch-005"
+
+
+def test_inject_updates_seen_set_within_single_call():
+    """A rule matched once in one call isn't duplicated within that call."""
+    rules = [
+        {
+            "id": "dup-id",
+            "applies_to": "openmeter/",
+            "description": "x",
+            "severity": "error",
+        },
+        {
+            "id": "dup-id",  # same id as above
+            "applies_to": "openmeter/",
+            "description": "y",
+            "severity": "error",
+        },
+    ]
+    out = rules_to_inject("openmeter/foo.go", rules)
+    assert len(out) == 1
+    assert out[0]["description"] == "x"

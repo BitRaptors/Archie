@@ -113,6 +113,48 @@ def check_pre_validate(
     }
 
 
+def rules_to_inject(
+    file_path: str,
+    rules: list[dict],
+    already_injected_ids: set[str] | list[str] | None = None,
+    project_root: str = "",
+) -> list[dict]:
+    """Return rules that should be surfaced to the agent before an edit.
+
+    A rule is eligible for injection when:
+    - It is path-scoped (``applies_to`` non-empty) AND the file's rel_path
+      starts with that prefix, OR
+    - It is tagged ``always_inject: true`` (a critical global the user wants
+      re-surfaced even though it's also in CLAUDE.md).
+
+    Rules whose ``id`` is in ``already_injected_ids`` are filtered out so the
+    same rule doesn't re-inject on every Edit within a turn. The caller is
+    responsible for persisting the set (typically a /tmp marker cleared on
+    UserPromptSubmit).
+    """
+    seen = set(already_injected_ids or [])
+
+    rel_path = file_path
+    if project_root and file_path.startswith(project_root):
+        rel_path = file_path[len(project_root):].lstrip("/")
+
+    out: list[dict] = []
+    for rule in rules:
+        rid = rule.get("id", "")
+        if not rid or rid in seen:
+            continue
+
+        applies_to = rule.get("applies_to", "")
+        always = bool(rule.get("always_inject"))
+        path_match = bool(applies_to) and rel_path.startswith(applies_to)
+
+        if always or path_match:
+            out.append(rule)
+            seen.add(rid)
+
+    return out
+
+
 def _any_pattern_matches(patterns: list[str], content: str) -> bool:
     """Return True if any of the regex patterns matches the content.
 

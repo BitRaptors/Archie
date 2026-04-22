@@ -65,7 +65,11 @@ def test_detect_linter_uses_config_override_for_python(tmp_path):
     result = lint_gate.detect_linter(
         tmp_path / "foo.py", tmp_path, cfg
     )
-    assert result == {"kind": "python", "command": "my-custom-ruff"}
+    assert result == {
+        "kind": "python",
+        "command": "my-custom-ruff",
+        "target": "file",
+    }
 
 
 def test_detect_linter_uses_config_override_for_js(tmp_path):
@@ -77,7 +81,70 @@ def test_detect_linter_uses_config_override_for_js(tmp_path):
         result = lint_gate.detect_linter(
             tmp_path / f"foo{ext}", tmp_path, cfg
         )
-        assert result == {"kind": "js", "command": "eslint-wrapper"}, ext
+        assert result == {
+            "kind": "js",
+            "command": "eslint-wrapper",
+            "target": "file",
+        }, ext
+
+
+def test_detect_linter_uses_config_override_for_go(tmp_path):
+    """Go override defaults to target=parent since golangci-lint is package-aware."""
+    cfg = {
+        "enabled": True,
+        "linters": {"go": {"command": "golangci-lint run"}},
+    }
+    result = lint_gate.detect_linter(
+        tmp_path / "main.go", tmp_path, cfg
+    )
+    assert result == {
+        "kind": "go",
+        "command": "golangci-lint run",
+        "target": "parent",
+    }
+
+
+def test_detect_linter_go_override_can_pin_target_file(tmp_path):
+    """Advanced users can override target=file if their Go tool handles single files."""
+    cfg = {
+        "enabled": True,
+        "linters": {"go": {"command": "gofmt -l", "target": "file"}},
+    }
+    result = lint_gate.detect_linter(
+        tmp_path / "main.go", tmp_path, cfg
+    )
+    assert result["target"] == "file"
+
+
+def test_detect_linter_go_autodetect_without_golangci_config(tmp_path, monkeypatch):
+    """Without a .golangci.yaml, auto-detect returns None even if golangci-lint
+    is on PATH — we only fire the gate when the project opts in via config."""
+    monkeypatch.setattr(lint_gate.shutil, "which", lambda cmd: "/usr/bin/golangci-lint" if cmd == "golangci-lint" else None)
+    cfg = {"enabled": True}
+    result = lint_gate.detect_linter(
+        tmp_path / "main.go", tmp_path, cfg
+    )
+    assert result is None
+
+
+def test_detect_linter_go_autodetect_with_golangci_yaml(tmp_path, monkeypatch):
+    """With .golangci.yaml and golangci-lint on PATH, detection returns the
+    expected command + parent target."""
+    (tmp_path / ".golangci.yaml").write_text("linters:\n  enable: [govet]\n")
+    monkeypatch.setattr(
+        lint_gate.shutil,
+        "which",
+        lambda cmd: "/usr/bin/golangci-lint" if cmd == "golangci-lint" else None,
+    )
+    cfg = {"enabled": True}
+    result = lint_gate.detect_linter(
+        tmp_path / "main.go", tmp_path, cfg
+    )
+    assert result == {
+        "kind": "go",
+        "command": "golangci-lint run --fast",
+        "target": "parent",
+    }
 
 
 def test_detect_linter_unknown_extension_returns_none(tmp_path):
@@ -233,3 +300,33 @@ def test_gate_ignores_unknown_file_types(tmp_path):
     code, msg = lint_gate.gate(tmp_path, target)
     assert code == 0
     assert msg == ""
+
+
+def test_gate_go_dispatches_to_parent_dir(tmp_path):
+    """Target=parent means the linter command gets the containing directory,
+    not the file path. Uses a stub that echoes its arg so we can verify."""
+    _write_config(
+        tmp_path,
+        {
+            "enabled": True,
+            "severity": "error",
+            "linters": {
+                "go": {
+                    "command": "sh -c 'echo GOT-ARG:$1; exit 1' --",
+                    # target defaults to "parent" for kind=go
+                },
+            },
+        },
+    )
+    pkg_dir = tmp_path / "cmd" / "server"
+    pkg_dir.mkdir(parents=True)
+    target = pkg_dir / "main.go"
+    target.write_text("package main\nfunc main() {}\n")
+
+    code, msg = lint_gate.gate(tmp_path, target)
+    assert code == 2
+    # Stub received the parent dir, not the single file.
+    assert "GOT-ARG:" in msg
+    assert "cmd/server" in msg
+    # Must NOT have received the file path itself as the arg.
+    assert "main.go" not in msg.split("GOT-ARG:")[1].splitlines()[0]

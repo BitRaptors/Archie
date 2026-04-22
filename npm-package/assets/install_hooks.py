@@ -26,6 +26,12 @@ fi
 TOOL_INPUT=$(cat || true)
 [ -z "$TOOL_INPUT" ] && exit 0
 
+# Stable-named turn marker (cleared by pre-turn.sh on UserPromptSubmit).
+# Holds rule IDs already injected this turn so we don't re-surface the same
+# rule on every subsequent Write/Edit in the chain.
+TURN_HASH=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
+TURN_FILE="/tmp/.archie_turn_$TURN_HASH"
+
 # Stash the whole tool-call JSON in a temp file so Python can parse it
 # without shell quoting corrupting backslashes, newlines, or quotes in content.
 TOOL_JSON=$(mktemp)
@@ -34,6 +40,7 @@ export _ARCHIE_TOOL_JSON="$TOOL_JSON"
 export _ARCHIE_ROOT="$PROJECT_ROOT"
 export _ARCHIE_RULES="$RULES_FILE"
 export _ARCHIE_PLATFORM_RULES="$PLATFORM_RULES_FILE"
+export _ARCHIE_TURN_FILE="$TURN_FILE"
 trap 'rm -f "$TOOL_JSON"' EXIT
 
 python3 << 'PYEOF'
@@ -43,6 +50,7 @@ tool_json_file = os.environ.get("_ARCHIE_TOOL_JSON", "")
 project_root = os.environ.get("_ARCHIE_ROOT", ".")
 rules_file = os.environ.get("_ARCHIE_RULES", "")
 platform_rules_file = os.environ.get("_ARCHIE_PLATFORM_RULES", "")
+turn_file = os.environ.get("_ARCHIE_TURN_FILE", "")
 
 try:
     with open(tool_json_file) as f:
@@ -83,6 +91,49 @@ rel_path = fp
 if fp.startswith(project_root):
     rel_path = fp[len(project_root):].lstrip("/")
 filename = os.path.basename(fp)
+
+# ----- Tier 4: path-aware rule injection, deduped per turn ----------------
+already_injected = set()
+if turn_file and os.path.isfile(turn_file):
+    try:
+        already_injected = {line.strip() for line in open(turn_file) if line.strip()}
+    except Exception:
+        pass
+
+to_inject = []
+newly_injected = []
+for r in rules:
+    rid = r.get("id", "")
+    if not rid or rid in already_injected:
+        continue
+    applies_to = r.get("applies_to", "")
+    always = bool(r.get("always_inject"))
+    path_match = bool(applies_to) and rel_path.startswith(applies_to)
+    if always or path_match:
+        to_inject.append((r, "always" if (always and not path_match) else "path"))
+        already_injected.add(rid)
+        newly_injected.append(rid)
+
+if to_inject:
+    print(f"[Archie] Rules applying to {rel_path}:")
+    for r, how in to_inject:
+        rid = r.get("id", "unknown")
+        sev = r.get("severity", "warn")
+        desc = r.get("description", "")
+        rationale = r.get("rationale", "")
+        tag = " (global)" if how == "always" else ""
+        print(f"  [{sev}] {rid}{tag}: {desc}")
+        if rationale:
+            print(f"    ↳ {rationale}")
+
+if newly_injected and turn_file:
+    try:
+        with open(turn_file, "a") as f:
+            for rid in newly_injected:
+                f.write(rid + "\n")
+    except Exception:
+        pass
+# ---------------------------------------------------------------------------
 
 def any_match(patterns, text):
     for p in patterns:
@@ -184,6 +235,16 @@ python3 "$PROJECT_ROOT/.archie/arch_review.py" diff "$PROJECT_ROOT"
 '''
 
 
+PRE_TURN_HOOK = r'''#!/usr/bin/env bash
+# Archie pre-turn reset — clears the per-turn rule-injection marker so the
+# next Write/Edit surfaces applicable rules again. Runs on UserPromptSubmit.
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+TURN_HASH=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
+rm -f "/tmp/.archie_turn_$TURN_HASH"
+exit 0
+'''
+
+
 POST_LINT_HOOK = r'''#!/usr/bin/env bash
 # Archie lint gate — opt-in via .archie/enforcement.json.
 # Runs the project's native linter on a single changed file after Write/Edit/MultiEdit.
@@ -258,6 +319,7 @@ def install(project_root: Path) -> None:
         ("pre-commit-review.sh", PRE_COMMIT_HOOK),
         ("blueprint-nudge.sh", BLUEPRINT_NUDGE_HOOK),
         ("post-lint.sh", POST_LINT_HOOK),
+        ("pre-turn.sh", PRE_TURN_HOOK),
     ]:
         path = hook_dir / name
         path.write_text(content)
@@ -276,6 +338,7 @@ def install(project_root: Path) -> None:
     hooks = settings.get("hooks", {})
     pre_tool = hooks.get("PreToolUse", [])
     post_tool = hooks.get("PostToolUse", [])
+    user_prompt = hooks.get("UserPromptSubmit", [])
 
     _add_hook(pre_tool, "Write|Edit|MultiEdit", ".claude/hooks/pre-validate.sh")
     _add_hook(pre_tool, "Bash", ".claude/hooks/pre-commit-review.sh")
@@ -286,8 +349,12 @@ def install(project_root: Path) -> None:
     # Lint gate (opt-in via .archie/enforcement.json — defaults to inert).
     _add_hook(post_tool, "Write|Edit|MultiEdit", ".claude/hooks/post-lint.sh")
 
+    # Turn reset: clears per-turn rule-injection marker on UserPromptSubmit.
+    _add_hook(user_prompt, "", ".claude/hooks/pre-turn.sh")
+
     hooks["PreToolUse"] = pre_tool
     hooks["PostToolUse"] = post_tool
+    hooks["UserPromptSubmit"] = user_prompt
     settings["hooks"] = hooks
 
     # Add permissions so /archie-init and /archie-refresh run without

@@ -41,6 +41,7 @@ EXT_TO_KIND = {
     ".tsx": "js",
     ".mjs": "js",
     ".cjs": "js",
+    ".go": "go",
 }
 
 
@@ -78,24 +79,37 @@ def detect_linter(file_path: Path, project_root: Path, config: dict) -> dict | N
         # Explicit override from config.
         override = linters_cfg.get(kind)
         if isinstance(override, dict) and override.get("command"):
-            return {"kind": kind, "command": override["command"]}
+            target = override.get("target", _default_target(kind))
+            return {"kind": kind, "command": override["command"], "target": target}
 
         # Auto-detect per kind.
         if kind == "python":
             auto = _detect_python_linter(project_root)
             if auto:
-                return {"kind": kind, "command": auto}
+                return {"kind": kind, "command": auto, "target": "file"}
         elif kind == "js":
             auto = _detect_js_linter(project_root)
             if auto:
-                return {"kind": kind, "command": auto}
+                return {"kind": kind, "command": auto, "target": "file"}
+        elif kind == "go":
+            auto = _detect_go_linter(project_root)
+            if auto:
+                # golangci-lint is package-aware — pass the containing
+                # directory, not the single file, or it errors with "no go
+                # files found".
+                return {"kind": kind, "command": auto, "target": "parent"}
 
     # Semgrep fallback — applies to any file type when the user has a semgrep
     # config checked in.
     if _has_semgrep_config(project_root) and shutil.which("semgrep"):
-        return {"kind": "semgrep", "command": "semgrep --error --quiet"}
+        return {"kind": "semgrep", "command": "semgrep --error --quiet", "target": "file"}
 
     return None
+
+
+def _default_target(kind: str) -> str:
+    """File-oriented vs package-oriented linters."""
+    return "parent" if kind == "go" else "file"
 
 
 def _detect_python_linter(project_root: Path) -> str | None:
@@ -143,6 +157,21 @@ def _detect_js_linter(project_root: Path) -> str | None:
                     return "eslint --quiet"
         except (json.JSONDecodeError, OSError):
             pass
+    return None
+
+
+def _detect_go_linter(project_root: Path) -> str | None:
+    """Return a golangci-lint command when the project is configured for it."""
+    if not shutil.which("golangci-lint"):
+        return None
+    for cfg_name in (
+        ".golangci.yaml",
+        ".golangci.yml",
+        ".golangci.toml",
+        ".golangci.json",
+    ):
+        if (project_root / cfg_name).is_file():
+            return "golangci-lint run --fast"
     return None
 
 
@@ -205,7 +234,11 @@ def gate(
     if linter is None:
         return 0, ""
 
-    code, output = run_linter(linter["command"], file_path, project_root)
+    # Some linters are package-aware (golangci-lint) and must be pointed at
+    # the containing directory, not the single file.
+    target_path = file_path.parent if linter.get("target") == "parent" else file_path
+
+    code, output = run_linter(linter["command"], target_path, project_root)
     if code == 0:
         return 0, ""
 

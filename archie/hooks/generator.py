@@ -107,7 +107,13 @@ def _inject_context_script() -> str:
         "# Claude Code hook: UserPromptSubmit — inject relevant architecture rules.",
         "set -euo pipefail",
         "",
-        'RULES_FILE=".archie/rules.json"',
+        'PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"',
+        'RULES_FILE="$PROJECT_ROOT/.archie/rules.json"',
+        "",
+        "# Clear per-turn rule-injection marker so pre-validate.sh re-surfaces",
+        "# applicable rules on this turn's first Write/Edit.",
+        'TURN_HASH=$(printf \'%s\' "$PROJECT_ROOT" | cksum | awk \'{print $1}\')',
+        'rm -f "/tmp/.archie_turn_$TURN_HASH"',
         "",
         "# Fail open: if rules file is missing, exit silently.",
         'if [ ! -f "$RULES_FILE" ]; then',
@@ -191,6 +197,8 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 RULES_FILE="$PROJECT_ROOT/.archie/rules.json"
 PLATFORM_RULES_FILE="$PROJECT_ROOT/.archie/platform_rules.json"
 STATS_FILE="$PROJECT_ROOT/.archie/stats.jsonl"
+TURN_HASH=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
+TURN_FILE="/tmp/.archie_turn_$TURN_HASH"
 
 # Fail open: if no rules at all, exit silently.
 if [ ! -f "$RULES_FILE" ] && [ ! -f "$PLATFORM_RULES_FILE" ]; then
@@ -209,6 +217,7 @@ export _ARCHIE_ROOT="$PROJECT_ROOT"
 export _ARCHIE_RULES="$RULES_FILE"
 export _ARCHIE_PLATFORM_RULES="$PLATFORM_RULES_FILE"
 export _ARCHIE_STATS="$STATS_FILE"
+export _ARCHIE_TURN_FILE="$TURN_FILE"
 trap 'rm -f "$TOOL_JSON"' EXIT
 
 python3 << 'PYEOF'
@@ -219,6 +228,7 @@ project_root = os.environ.get("_ARCHIE_ROOT", ".")
 rules_file = os.environ.get("_ARCHIE_RULES", "")
 platform_rules_file = os.environ.get("_ARCHIE_PLATFORM_RULES", "")
 stats_file = os.environ.get("_ARCHIE_STATS", "")
+turn_file = os.environ.get("_ARCHIE_TURN_FILE", "")
 
 try:
     with open(tool_json_file) as f:
@@ -268,6 +278,49 @@ def any_match(patterns, text):
         except re.error:
             continue
     return False
+
+# ----- Tier 4: path-aware rule injection, deduped per turn ----------------
+already_injected = set()
+if turn_file and os.path.isfile(turn_file):
+    try:
+        already_injected = {line.strip() for line in open(turn_file) if line.strip()}
+    except Exception:
+        pass
+
+to_inject = []
+newly_injected = []
+for r in rules:
+    rid = r.get("id", "")
+    if not rid or rid in already_injected:
+        continue
+    applies_to = r.get("applies_to", "")
+    always = bool(r.get("always_inject"))
+    path_match = bool(applies_to) and rel_path.startswith(applies_to)
+    if always or path_match:
+        to_inject.append((r, "always" if (always and not path_match) else "path"))
+        already_injected.add(rid)
+        newly_injected.append(rid)
+
+if to_inject:
+    print(f"[Archie] Rules applying to {rel_path}:")
+    for r, how in to_inject:
+        rid = r.get("id", "unknown")
+        sev = r.get("severity", "warn")
+        desc = r.get("description", "")
+        rationale = r.get("rationale", "")
+        tag = " (global)" if how == "always" else ""
+        print(f"  [{sev}] {rid}{tag}: {desc}")
+        if rationale:
+            print(f"    \u21b3 {rationale}")
+
+if newly_injected and turn_file:
+    try:
+        with open(turn_file, "a") as f:
+            for rid in newly_injected:
+                f.write(rid + "\n")
+    except Exception:
+        pass
+# ---------------------------------------------------------------------------
 
 violations = []
 
