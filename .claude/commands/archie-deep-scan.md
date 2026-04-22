@@ -1240,7 +1240,7 @@ Generate the browsable, linked wiki under `.archie/wiki/` from the finalized blu
 python3 .archie/wiki_builder.py "$PROJECT_ROOT"
 ```
 
-Expected output: `Wiki built at <project>/.archie/wiki/` or `Wiki generation disabled (ARCHIE_WIKI_ENABLED=false). Skipped.` Either is acceptable — do not fail the scan on wiki errors. If the command returns a non-zero exit code, surface it in the scan report but continue.
+Expected output: `Wiki built at <project>/.archie/wiki/` or `Wiki generation disabled (opt-in). Run `/archie-set-wiki on` to enable. Skipped.` Either is acceptable — do not fail the scan on wiki errors. If the command returns a non-zero exit code, surface it in the scan report but continue.
 
 Confirm the following exist (include any missing ones in the scan report):
 

@@ -414,7 +414,7 @@ def cmd_scan_config(root: Path, action: str):
 
 # Keys settable via `config set`. Each entry: (type, default_if_missing).
 _CONFIG_FLAGS = {
-    "wiki_enabled": ("bool", True),
+    "wiki_enabled": ("bool", False),
 }
 
 

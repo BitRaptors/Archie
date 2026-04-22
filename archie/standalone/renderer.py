@@ -509,21 +509,26 @@ def _render_claude(rule: dict) -> str:
 # --- LLM Wiki integration (Plan 1) ---
 
 def wiki_enabled(project_root: "Path | None" = None) -> bool:
-    """Return False only when explicitly disabled via env var or .archie/archie.json."""
+    """Return True only when explicitly enabled via env var or .archie/archie_config.json.
+
+    Default is False — wiki generation is opt-in. Users turn it on with
+    `/archie-set-wiki on` (which writes `wiki_enabled: true` to the config)
+    or by setting `ARCHIE_WIKI_ENABLED=true` in the environment.
+    """
     env_val = os.environ.get("ARCHIE_WIKI_ENABLED", "").strip().lower()
     if env_val:
         return env_val not in {"false", "0", "no", "off"}
-    # Fallback: check .archie/archie.json
+    # Fallback: check .archie/archie_config.json (written by intent_layer.py config set)
     root = project_root or Path(os.getcwd())
     try:
-        config_path = root / ".archie" / "archie.json"
+        config_path = root / ".archie" / "archie_config.json"
         if config_path.exists():
             import json as _json
             config = _json.loads(config_path.read_text())
-            return bool(config.get("wiki_enabled", True))
+            return bool(config.get("wiki_enabled", False))
     except (OSError, Exception):
         pass
-    return True
+    return False
 
 
 def claude_md_wiki_pointer() -> str:

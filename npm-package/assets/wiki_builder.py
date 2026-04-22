@@ -1390,21 +1390,22 @@ def build_wiki(project_root: Path) -> None:
 
 
 def _wiki_enabled(project_root: "Path | None" = None) -> bool:
-    """Return False only when explicitly disabled via env var or .archie/archie.json."""
+    """Return True only when explicitly enabled via env var or .archie/archie_config.json.
+
+    Default is False — wiki generation is opt-in.
+    """
     env_val = os.environ.get("ARCHIE_WIKI_ENABLED", "").strip().lower()
     if env_val:
         return env_val not in {"false", "0", "no", "off"}
-    # Fall back to .archie/archie.json
     if project_root is not None:
-        archie_json = Path(project_root) / ".archie" / "archie.json"
-        if archie_json.exists():
+        config_path = Path(project_root) / ".archie" / "archie_config.json"
+        if config_path.exists():
             try:
-                cfg = json.loads(archie_json.read_text(encoding="utf-8"))
-                if cfg.get("wiki_enabled") is False:
-                    return False
+                cfg = json.loads(config_path.read_text(encoding="utf-8"))
+                return bool(cfg.get("wiki_enabled", False))
             except Exception:
                 pass
-    return True
+    return False
 
 
 def _load_previous_scan(raw: str | None, project: Path) -> dict:
@@ -1539,7 +1540,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if not _wiki_enabled(Path(args.project_root)):
-        print("Wiki generation disabled (ARCHIE_WIKI_ENABLED=false). Skipped.")
+        print("Wiki generation disabled (opt-in). Run `/archie-set-wiki on` to enable. Skipped.")
         return 0
     project = Path(args.project_root)
     if args.incremental:

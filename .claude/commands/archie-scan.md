@@ -595,7 +595,7 @@ Expected output (one of):
 - `Wiki incremental: N pages rewritten.`
 - `Wiki incremental: no changed files, nothing to do.`
 - `Wiki incremental: no affected pages.`
-- `Wiki generation disabled (ARCHIE_WIKI_ENABLED=false). Skipped.`
+- `Wiki generation disabled (opt-in). Run `/archie-set-wiki on` to enable. Skipped.`
 
 If `wiki_builder.py` exits with a non-zero status because the blueprint structure changed (RuntimeError), surface the following line in the scan report and continue — do not abort the scan:
 
