@@ -964,18 +964,22 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > {"id": "dep-001", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning chain", "severity": "error|warn"}
 > ```
 >
+> **Prompt-time matching** (RECOMMENDED for every rule):
+> - `"keywords"`: 2-5 terms an AI would use when describing a task this rule governs (e.g. `["datetime", "timestamp"]`, `["migration"]`, `["handler", "endpoint"]`). The `UserPromptSubmit` hook matches these against the user's prompt and surfaces the rule BEFORE the agent writes code. Without keywords the hook falls back to noisy description-token extraction — always emit keywords.
+>
 > **Optional mechanical fields** (add ONLY when a meaningful regex exists):
-> - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
-> - `"applies_to"`: directory prefix scope
-> - `"file_pattern"`: glob matched against filename
-> - `"forbidden_patterns"`: regex patterns that violate the rule
-> - `"required_in_content"`: strings that must appear in matching files
+> - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, `file_naming`
+> - `"applies_to"`: directory prefix (string-prefix match, NOT a glob) — e.g. `"backend/"`
+> - `"file_pattern"`: glob on basename for `required_pattern` / `architectural_constraint`, OR regex on basename for `file_naming`
+> - `"forbidden_patterns"`: array of regexes; rule fires if any matches the content
+> - `"required_in_content"`: array of literal strings; rule fires if NONE appears in the content
 >
 > When `check` is present:
 > - `forbidden_import`: requires `applies_to` + `forbidden_patterns`
-> - `required_pattern`: requires `file_pattern` + `required_in_content`
+> - `required_pattern`: requires `file_pattern` (glob) + `required_in_content`
 > - `forbidden_content`: requires `forbidden_patterns`, optional `applies_to`
-> - `architectural_constraint`: requires `file_pattern` + `forbidden_patterns`
+> - `architectural_constraint`: requires `file_pattern` (glob) + `forbidden_patterns`
+> - `file_naming`: requires `applies_to` (path glob) + `file_pattern` (regex on basename)
 >
 > ## The `rationale` field (REQUIRED — this is the most important field)
 >
@@ -986,14 +990,14 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >
 > ## Examples
 >
-> Rationale-only rule (most rules will look like this):
+> Rationale-only rule with prompt-time keywords (most rules will look like this):
 > ```json
-> {"id": "arch-001", "description": "Business logic must not depend on UI framework classes", "rationale": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.", "severity": "error"}
+> {"id": "arch-001", "description": "Business logic must not depend on UI framework classes", "rationale": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.", "severity": "error", "keywords": ["viewmodel", "domain", "business logic", "context"]}
 > ```
 >
-> Rule with optional mechanical enforcement:
+> Rule with full mechanical enforcement AND prompt-time keywords:
 > ```json
-> {"id": "dep-001", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.", "severity": "error", "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
+> {"id": "dep-001", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.", "severity": "error", "keywords": ["domain", "presentation", "import"], "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
 > ```
 >
 > ## What to produce:

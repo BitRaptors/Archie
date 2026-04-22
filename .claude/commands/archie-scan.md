@@ -283,9 +283,22 @@ Confidence calibration:
 
 Be honest. A wrong rule with high confidence is worse than a right rule with low confidence.
 
+Prompt-time matching (RECOMMENDED for every rule):
+- `"keywords"`: 2-5 terms that would appear in a user prompt touching this rule. The `UserPromptSubmit` hook keyword-matches these against the prompt and surfaces matching rules to the agent before it writes code. Pick terms an AI would use when describing the task (e.g., `["datetime", "timestamp", "utcnow"]`, `["migration", "alembic"]`, `["handler", "route", "endpoint"]`). Omitting keywords leaves the hook to fall back to description-token extraction, which is noisy.
+
 Optional mechanical fields (add ONLY when a meaningful regex exists):
-- `"check"`: `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
-- `"applies_to"`, `"file_pattern"`, `"forbidden_patterns"`, `"required_in_content"`
+- `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, `file_naming`
+- `"applies_to"`: directory prefix (e.g. `"backend/"`) scoping the rule to files under that path. String-prefix match, NOT a glob.
+- `"file_pattern"`: glob matched against the basename (e.g. `"*_migration.py"`) OR regex for `file_naming` checks.
+- `"forbidden_patterns"`: array of regexes; rule fires if any matches the file content.
+- `"required_in_content"`: array of literal strings; rule fires if NONE appears in the content.
+
+Check-type requirements:
+- `forbidden_import`: `applies_to` (dir prefix) + `forbidden_patterns`
+- `required_pattern`: `file_pattern` (glob on basename) + `required_in_content`
+- `forbidden_content`: `forbidden_patterns`, optional `applies_to`
+- `architectural_constraint`: `file_pattern` (glob on basename) + `forbidden_patterns`
+- `file_naming`: `applies_to` (path glob) + `file_pattern` (regex on basename)
 
 **Output:** Write to `/tmp/archie_agent_c_rules.json`:
 ```json

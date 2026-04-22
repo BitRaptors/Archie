@@ -493,6 +493,39 @@ def test_file_naming_enforces_pattern_in_scope():
 # ---------------------------------------------------------------------------
 
 
+def test_prose_rule_surfaces_via_prompt_keywords():
+    """End-to-end: a forbidden_content prose rule with keywords surfaces when
+    the user's prompt mentions a keyword — even before any file is written.
+
+    This is the Tier 2 contract: rules proposed by /archie-scan include
+    ``keywords`` so inject-context.sh surfaces them at prompt time, and the
+    same rule mechanically blocks at edit time via pre-validate.sh.
+    """
+    rules = [
+        {
+            "id": "no-naive-datetime",
+            "check": "forbidden_content",
+            "severity": "error",
+            "description": "Use tz-aware datetime, never datetime.utcnow() or datetime.now() without tz",
+            "keywords": ["datetime", "timestamp", "utcnow"],
+            "forbidden_patterns": [r"datetime\.(utcnow|now)\s*\(\s*\)"],
+        },
+    ]
+    # Prompt-time: agent asks about adding a timestamp.
+    matched = match_context_rules("add a created_at timestamp to the User model", rules)
+    assert len(matched) == 1
+    assert matched[0]["id"] == "no-naive-datetime"
+
+    # Edit-time: agent tries to write naive datetime code.
+    result = check_pre_validate(
+        "src/models.py",
+        rules,
+        content="created_at = datetime.utcnow()",
+    )
+    assert result["pass"] is False
+    assert any("no-naive-datetime" in e for e in result["errors"])
+
+
 def test_project_root_strips_prefix_for_applies_to():
     """Absolute path gets stripped to a rel path for applies_to matching."""
     rules = [
