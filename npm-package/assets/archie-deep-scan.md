@@ -172,6 +172,26 @@ Call `AskUserQuestion` to decide whether to run the per-folder enrichment pass (
 
 Map the answer: Yes → `INTENT_LAYER=yes`, No → `INTENT_LAYER=no`. Expose `INTENT_LAYER` for the rest of the run. Step 7 honors this flag.
 
+### Step F: Persist run context
+
+Write every shell variable that Steps 1–10 depend on into `.archie/deep_scan_state.json` so `/compact` + `--continue` can rehydrate them from disk without relying on orchestrator memory:
+
+```bash
+cat <<EOF | python3 .archie/intent_layer.py deep-scan-state "$PWD" save-context
+{
+  "scope": "$SCOPE",
+  "intent_layer": "$INTENT_LAYER",
+  "scan_mode": "$SCAN_MODE",
+  "project_root": "$PWD",
+  "workspaces": $(printf '%s\n' "$WORKSPACES" | python3 -c "import sys,json; print(json.dumps([l for l in sys.stdin.read().splitlines() if l]))"),
+  "monorepo_type": "$MONOREPO_TYPE",
+  "start_step": $START_STEP
+}
+EOF
+```
+
+This is a no-op on `--continue` runs because the Resume Prelude already rehydrated these variables. Safe to call every time.
+
 ### Execution plan based on SCOPE
 
 - **SCOPE=single** — Set `PROJECT_ROOT="$PWD"` and run Steps 1-9 once. No monorepo awareness.
@@ -189,11 +209,87 @@ Use `PROJECT_NAME` as the basename of `PROJECT_ROOT` for namespacing temp files 
 
 ## Telemetry conventions
 
-Each Step 1–9 records a `TELEMETRY_STEPN_START` timestamp as its first action; the next step's start serves as the previous step's end. Step 9 records its own `TELEMETRY_STEP9_END`. After Step 9 completes, the run writes `.archie/telemetry/deep-scan_<timestamp>.json` for measuring per-step wall-clock impact of changes. If a step is skipped via `START_STEP > N`, set both START and END to the same timestamp so totals don't include skipped time.
+Every Step 1–9 records its start timestamp to disk via `telemetry.py mark` as its first action. The mark auto-closes the previous step's `completed_at`, mirroring the "next step's start = prior step's end" convention. Step 9 finishes its own completion with `telemetry.py finish`. After Step 10, `telemetry.py write` consumes the persisted `.archie/telemetry/_current_run.json` and emits the final `deep-scan_<timestamp>.json`.
+
+Shell-variable fallback: the existing `TELEMETRY_STEPN_START` shell variables are still set for readability, but they are **not load-bearing** — the disk file is the source of truth. This makes the pipeline safe to `/compact` mid-run without losing timing data.
+
+## Compact-and-resume contract
+
+At every "✓ Step N complete" boundary, all state needed to resume lives on disk:
+
+- `.archie/deep_scan_state.json` — last completed step + `run_context` (scope, intent_layer, scan_mode, workspaces, monorepo_type, project_root, start_step)
+- `.archie/telemetry/_current_run.json` — every step's start/completed timestamp + extras
+- `.archie/archie_config.json` — persisted scope picker answer (whole/per-package/hybrid/single)
+- `.archie/blueprint_raw.json`, `.archie/blueprint.json`, `.archie/findings.json` — pipeline output as it accumulates
+- `.archie/enrich_state.json`, `.archie/enrich_batches.json` — Intent Layer DAG scheduler state (survives mid-Step-7 compaction)
+
+After a `/compact`, running `/archie-deep-scan --continue` re-enters via the **Resume Prelude** below, which rehydrates every shell variable from disk before jumping to the next step. No conversation memory required.
+
+## Resume Prelude (runs whenever `--continue` or `--from N` is supplied)
+
+Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context. Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
+
+```bash
+# 1. Read both persisted state files.
+STATE=$(python3 .archie/intent_layer.py deep-scan-state "$PWD" read)
+TELEMETRY=$(python3 .archie/telemetry.py read "$PWD")
+
+# 2. Extract last_completed + run_context. A fresh run returns LAST=0.
+LAST=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('last_completed', 0))")
+RC=$(echo "$STATE" | python3 -c "import json,sys; print(json.dumps((json.load(sys.stdin).get('run_context') or {})))")
+
+# 3. If we have real state, rehydrate every shell variable from run_context.
+if [ "$LAST" -gt 0 ] && [ "$RC" != "{}" ]; then
+    PROJECT_ROOT=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('project_root') or '')")
+    SCOPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scope') or '')")
+    INTENT_LAYER=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('intent_layer') or 'yes')")
+    SCAN_MODE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scan_mode') or 'full')")
+    MONOREPO_TYPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('monorepo_type') or 'none')")
+    # WORKSPACES as newline-separated (matches the scope picker's original shape).
+    WORKSPACES=$(echo "$RC" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin).get('workspaces') or []))")
+    PROJECT_NAME=$(basename "$PROJECT_ROOT")
+
+    # 4. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
+    if [ -n "$FROM_STEP" ]; then
+        START_STEP=$FROM_STEP
+    else
+        START_STEP=$((LAST + 1))
+    fi
+
+    # 5. Consistency check: telemetry _current_run.json should contain at least
+    # one step entry per completed step. Warn loudly if the two states diverge
+    # — that signals either corruption or manual intervention. Do not abort;
+    # telemetry is informational, the scan itself is still resumable from
+    # blueprint/findings on disk.
+    TELEMETRY_STEPS=$(echo "$TELEMETRY" | python3 -c "import json,sys; print(len((json.load(sys.stdin).get('steps') or [])))")
+    if [ "$TELEMETRY_STEPS" -lt "$LAST" ]; then
+        echo "WARNING: deep_scan_state says last_completed=$LAST but telemetry has only $TELEMETRY_STEPS step marks. Final per-step timing may be incomplete. Scan output itself is not affected." >&2
+    fi
+
+    echo "Resuming from persisted state: SCOPE=$SCOPE SCAN_MODE=$SCAN_MODE INTENT_LAYER=$INTENT_LAYER last_completed=$LAST start_step=$START_STEP" >&2
+
+    # 6. Skip Phase 0 (scope resolution) — we already have the answers on disk.
+    # Jump directly to Step $START_STEP in the main pipeline below.
+else
+    # Fresh run: LAST=0 or no run_context. Fall through to Phase 0 normally.
+    : # no-op; flow continues with scope resolution below.
+fi
+```
+
+**Notes on accuracy:**
+
+- Rehydrating from disk is lossless by construction — `save-context` wrote exactly these fields, and `save-context` runs both in Step F (fresh runs) and is safe to call again if anything changes mid-run.
+- The consistency check is defensive. Under normal compact-and-resume flow, telemetry step count ≥ last_completed always holds because each step marks its start *before* calling `complete-step N`. A warning here signals something outside the happy path (manual state edit, aborted step, corrupted file).
+- `WORKSPACES` is rehydrated as a newline-separated string, matching what Step C's scope picker originally produced. Downstream iteration patterns (`while IFS= read`; `printf '%s\n' "$WORKSPACES" | ...`) work identically.
+- If `--from N` is supplied, the orchestrator sets `FROM_STEP=N` before this block runs.
 
 ## Step 1: Run the scanner
 
-**Telemetry:** `TELEMETRY_STEP1_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:** persist the step start to disk (compaction-safe), then keep the shell var for readability:
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan scan
+TELEMETRY_STEP1_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 1, skip this step.**
 
@@ -208,7 +304,11 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 1
 
 ## Step 2: Read scan results
 
-**Telemetry:** `TELEMETRY_STEP2_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:**
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan read
+TELEMETRY_STEP2_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 2, skip this step.**
 
@@ -224,7 +324,12 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 2
 
 ## Step 3: Spawn analytical agents
 
-**Telemetry:** `TELEMETRY_STEP3_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:**
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan wave1
+python3 .archie/telemetry.py extra "$PROJECT_ROOT" wave1 model=sonnet
+TELEMETRY_STEP3_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 3, skip this step.**
 
@@ -662,7 +767,11 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 3
 
 ## Step 4: Save Wave 1 output and merge
 
-**Telemetry:** `TELEMETRY_STEP4_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:**
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan merge
+TELEMETRY_STEP4_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 4, skip this step.**
 
@@ -708,7 +817,12 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 
 ## Step 5: Wave 2 — Reasoning agent
 
-**Telemetry:** `TELEMETRY_STEP5_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:**
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan wave2_synthesis
+python3 .archie/telemetry.py extra "$PROJECT_ROOT" wave2_synthesis model=opus
+TELEMETRY_STEP5_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 5, skip this step.**
 
@@ -931,7 +1045,12 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5
 
 ## Step 6: AI Rule Synthesis
 
-**Telemetry:** `TELEMETRY_STEP6_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:**
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan rule_synthesis
+python3 .archie/telemetry.py extra "$PROJECT_ROOT" rule_synthesis model=sonnet
+TELEMETRY_STEP6_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 6, skip this step.**
 
@@ -1033,9 +1152,26 @@ python3 .archie/extract_output.py rules /tmp/archie_rules_$PROJECT_NAME.json "$P
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 ```
 
+---
+
+### ✓ Compact Checkpoint A — before Intent Layer
+
+**This is the highest-leverage compaction point in the whole pipeline.** Steps 1–6 are fully persisted (blueprint, findings, pitfalls, rules, proposed_rules, telemetry marks). Wave 1 subagent transcripts, Wave 2 Opus synthesis, and Rule Synthesis are redundant with the disk state — holding them in conversation context is pure waste for the massive Intent Layer pass that follows (which spawns one Sonnet subagent per folder batch).
+
+If the orchestrator's context is over ~70%, pause here, run `/compact`, and resume with `/archie-deep-scan --continue`. The Resume Prelude reads `deep_scan_state.json` (last_completed=6) and jumps straight to Step 7 after rehydrating shell vars from the persisted run_context.
+
+Skipping this checkpoint is safe — auto-compact will fire if needed — but compacting here is strictly cheaper and cleaner.
+
+---
+
 ## Step 7: Intent Layer — per-folder CLAUDE.md
 
-**Telemetry:** `TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:**
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan intent_layer
+python3 .archie/telemetry.py extra "$PROJECT_ROOT" intent_layer model=sonnet skipped=false
+TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 7, skip this step.**
 
@@ -1105,7 +1241,9 @@ mkdir -p "$PROJECT_ROOT/.archie/enrichments"
 
    **IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT write inline Python to process agent output. The save-enrichment command handles everything including conversation envelopes, code fences, multi-block merging, and escape issues.**
 
-   f. Go to (a) for the next wave.
+   f. **✓ Compact Checkpoint B** — between Intent Layer waves. After every wave's `save-enrichment` commands have all returned (so no subagent is in flight and all completed folders are persisted in `enrich_state.json`), this is a safe compaction boundary. Suggested frequency: every 3 waves when the project has >20 folders. On small projects (<20 folders) ignore this checkpoint. Procedure: `/compact` → `/archie-deep-scan --continue` → Resume Prelude sees `last_completed=6` and re-enters Step 7, which calls `next-ready` and resumes from the next wave using disk state alone.
+
+   g. Go to (a) for the next wave.
 
 3. Merge enrichments into CLAUDE.md files:
 ```bash
@@ -1118,9 +1256,25 @@ python3 .archie/intent_layer.py merge "$PROJECT_ROOT"
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
 ```
 
+---
+
+### ✓ Compact Checkpoint C — after Intent Layer
+
+Only meaningful when `INTENT_LAYER=yes`. Step 7 has just pushed dozens-to-hundreds of Sonnet subagent transcripts into conversation context; those are now fully persisted to `.archie/enrichments/*.json` and merged into per-folder `CLAUDE.md` files. Compacting here gives Step 9 (Drift Assessment) a fresh context, which matters because drift assessment reads blueprint + drift_report + CLAUDE.md files and benefits from focused attention.
+
+If `INTENT_LAYER=no` (opted out in Step E), skip this checkpoint — Checkpoint A already covered it.
+
+Procedure when firing: `/compact` → `/archie-deep-scan --continue` → Resume Prelude sees `last_completed=7` and jumps to Step 8 (Cleanup is cheap, so continuing through 8→9 in a fresh context costs nothing).
+
+---
+
 ## Step 8: Clean up
 
-**Telemetry:** `TELEMETRY_STEP8_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:**
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan cleanup
+TELEMETRY_STEP8_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 8, skip this step.**
 
@@ -1134,7 +1288,11 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 
 ## Step 9: Drift Detection & Architectural Assessment
 
-**Telemetry:** `TELEMETRY_STEP9_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")`
+**Telemetry:**
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan drift
+TELEMETRY_STEP9_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+```
 
 **If START_STEP > 9, skip this step.**
 
@@ -1374,32 +1532,23 @@ End with: **"Archie is now active. Architecture rules will be enforced on every 
 
 ## Step 10: Write telemetry
 
-Record the final timestamp and emit the per-run telemetry file at `.archie/telemetry/deep-scan_<timestamp>.json` for measuring per-step wall-clock impact.
+Each prior step persisted its start timestamp to `.archie/telemetry/_current_run.json` via `telemetry.py mark` — so the final writer reads entirely from disk (no shell variables required, no /tmp timing file to assemble). This is what makes mid-run `/compact` safe: even if the orchestrator's conversation was compacted, every step's timing is on disk.
+
+If the Intent Layer was skipped (INTENT_LAYER=no), mark it so explicitly:
 
 ```bash
-TELEMETRY_STEP9_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+if [ "$INTENT_LAYER" = "no" ]; then
+  python3 .archie/telemetry.py extra "$PROJECT_ROOT" intent_layer skipped=true
+fi
 ```
 
-Write `/tmp/archie_timing.json` with the timestamps you recorded at each step boundary. For any step skipped via `START_STEP > N`, set both `started_at` and `completed_at` to the same value so the elapsed seconds is 0.
-
-```json
-[
-  {"name": "scan",            "started_at": "<TELEMETRY_STEP1_START>", "completed_at": "<TELEMETRY_STEP2_START>"},
-  {"name": "read",            "started_at": "<TELEMETRY_STEP2_START>", "completed_at": "<TELEMETRY_STEP3_START>"},
-  {"name": "wave1",           "started_at": "<TELEMETRY_STEP3_START>", "completed_at": "<TELEMETRY_STEP4_START>", "model": "sonnet"},
-  {"name": "merge",           "started_at": "<TELEMETRY_STEP4_START>", "completed_at": "<TELEMETRY_STEP5_START>"},
-  {"name": "wave2_synthesis", "started_at": "<TELEMETRY_STEP5_START>", "completed_at": "<TELEMETRY_STEP6_START>", "model": "opus"},
-  {"name": "rule_synthesis",  "started_at": "<TELEMETRY_STEP6_START>", "completed_at": "<TELEMETRY_STEP7_START>", "model": "sonnet"},
-  {"name": "intent_layer",    "started_at": "<TELEMETRY_STEP7_START>", "completed_at": "<TELEMETRY_STEP8_START>", "model": "sonnet", "skipped": <true if INTENT_LAYER=no else false>},
-  {"name": "cleanup",         "started_at": "<TELEMETRY_STEP8_START>", "completed_at": "<TELEMETRY_STEP9_START>"},
-  {"name": "drift",           "started_at": "<TELEMETRY_STEP9_START>", "completed_at": "<TELEMETRY_STEP9_END>"}
-]
-```
-
-Then invoke the writer:
+Then flush the in-flight file into the final `.archie/telemetry/deep-scan_<timestamp>.json`:
 
 ```bash
-python3 .archie/telemetry.py "$PROJECT_ROOT" --command deep-scan --timing-file /tmp/archie_timing.json
+python3 .archie/telemetry.py finish "$PROJECT_ROOT"
+python3 .archie/telemetry.py write  "$PROJECT_ROOT"
 ```
 
-If telemetry fails for any reason (missing timestamp, file write error), do not abort — telemetry is informational only.
+`write` auto-closes any still-open step with `now`, emits the final timestamped JSON, then deletes `_current_run.json` so the next deep-scan starts fresh. If telemetry fails for any reason, do not abort — telemetry is informational only.
+
+**Legacy fallback:** the old `/tmp/archie_timing.json` + `telemetry.py <root> --command … --timing-file …` invocation still works for any downstream tool that expects it, but the disk-persisted flow above is the compaction-safe canonical path.
