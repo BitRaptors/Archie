@@ -177,17 +177,14 @@ Map the answer: Yes → `INTENT_LAYER=yes`, No → `INTENT_LAYER=no`. Expose `IN
 Write every shell variable that Steps 1–10 depend on into `.archie/deep_scan_state.json` so `/compact` + `--continue` can rehydrate them from disk without relying on orchestrator memory:
 
 ```bash
-cat <<EOF | python3 .archie/intent_layer.py deep-scan-state "$PWD" save-context
-{
-  "scope": "$SCOPE",
-  "intent_layer": "$INTENT_LAYER",
-  "scan_mode": "$SCAN_MODE",
-  "project_root": "$PWD",
-  "workspaces": $(printf '%s\n' "$WORKSPACES" | python3 -c "import sys,json; print(json.dumps([l for l in sys.stdin.read().splitlines() if l]))"),
-  "monorepo_type": "$MONOREPO_TYPE",
-  "start_step": $START_STEP
-}
-EOF
+echo "$WORKSPACES" | python3 .archie/intent_layer.py deep-scan-state "$PWD" save-run-context \
+    --scope "$SCOPE" \
+    --intent-layer "$INTENT_LAYER" \
+    --scan-mode "$SCAN_MODE" \
+    --project-root "$PWD" \
+    --monorepo-type "$MONOREPO_TYPE" \
+    --start-step "$START_STEP" \
+    --workspaces-from-stdin
 ```
 
 This is a no-op on `--continue` runs because the Resume Prelude already rehydrated these variables. Safe to call every time.
@@ -230,45 +227,47 @@ After a `/compact`, running `/archie-deep-scan --continue` re-enters via the **R
 Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context. Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
 
 ```bash
-# 1. Read both persisted state files.
-STATE=$(python3 .archie/intent_layer.py deep-scan-state "$PWD" read)
-TELEMETRY=$(python3 .archie/telemetry.py read "$PWD")
+# 1. Read last_completed via dedicated CLI. A fresh run returns "null" → normalise to 0.
+LAST=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .last_completed 2>/dev/null)
+[ -z "$LAST" ] || [ "$LAST" = "null" ] && LAST=0
 
-# 2. Extract last_completed + run_context. A fresh run returns LAST=0.
-LAST=$(echo "$STATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('last_completed', 0))")
-RC=$(echo "$STATE" | python3 -c "import json,sys; print(json.dumps((json.load(sys.stdin).get('run_context') or {})))")
-
-# 3. If we have real state, rehydrate every shell variable from run_context.
-if [ "$LAST" -gt 0 ] && [ "$RC" != "{}" ]; then
-    PROJECT_ROOT=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('project_root') or '')")
-    SCOPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scope') or '')")
-    INTENT_LAYER=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('intent_layer') or 'yes')")
-    SCAN_MODE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scan_mode') or 'full')")
-    MONOREPO_TYPE=$(echo "$RC" | python3 -c "import json,sys; print(json.load(sys.stdin).get('monorepo_type') or 'none')")
+# 2. If we have real state, rehydrate every shell variable from run_context.
+if [ "$LAST" -gt 0 ]; then
+    PROJECT_ROOT=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.project_root 2>/dev/null)
+    [ "$PROJECT_ROOT" = "null" ] && PROJECT_ROOT=""
+    SCOPE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.scope 2>/dev/null)
+    [ "$SCOPE" = "null" ] && SCOPE=""
+    INTENT_LAYER=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.intent_layer 2>/dev/null)
+    [ "$INTENT_LAYER" = "null" ] || [ -z "$INTENT_LAYER" ] && INTENT_LAYER=yes
+    SCAN_MODE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.scan_mode 2>/dev/null)
+    [ "$SCAN_MODE" = "null" ] || [ -z "$SCAN_MODE" ] && SCAN_MODE=full
+    MONOREPO_TYPE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.monorepo_type 2>/dev/null)
+    [ "$MONOREPO_TYPE" = "null" ] || [ -z "$MONOREPO_TYPE" ] && MONOREPO_TYPE=none
     # WORKSPACES as newline-separated (matches the scope picker's original shape).
-    WORKSPACES=$(echo "$RC" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin).get('workspaces') or []))")
+    WORKSPACES=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.workspaces --list 2>/dev/null)
     PROJECT_NAME=$(basename "$PROJECT_ROOT")
 
-    # 4. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
+    # 3. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
     if [ -n "$FROM_STEP" ]; then
         START_STEP=$FROM_STEP
     else
         START_STEP=$((LAST + 1))
     fi
 
-    # 5. Consistency check: telemetry _current_run.json should contain at least
+    # 4. Consistency check: telemetry _current_run.json should contain at least
     # one step entry per completed step. Warn loudly if the two states diverge
     # — that signals either corruption or manual intervention. Do not abort;
     # telemetry is informational, the scan itself is still resumable from
     # blueprint/findings on disk.
-    TELEMETRY_STEPS=$(echo "$TELEMETRY" | python3 -c "import json,sys; print(len((json.load(sys.stdin).get('steps') or [])))")
+    TELEMETRY_STEPS=$(python3 .archie/telemetry.py steps-count "$PWD" 2>/dev/null)
+    [ -z "$TELEMETRY_STEPS" ] && TELEMETRY_STEPS=0
     if [ "$TELEMETRY_STEPS" -lt "$LAST" ]; then
         echo "WARNING: deep_scan_state says last_completed=$LAST but telemetry has only $TELEMETRY_STEPS step marks. Final per-step timing may be incomplete. Scan output itself is not affected." >&2
     fi
 
     echo "Resuming from persisted state: SCOPE=$SCOPE SCAN_MODE=$SCAN_MODE INTENT_LAYER=$INTENT_LAYER last_completed=$LAST start_step=$START_STEP" >&2
 
-    # 6. Skip Phase 0 (scope resolution) — we already have the answers on disk.
+    # 5. Skip Phase 0 (scope resolution) — we already have the answers on disk.
     # Jump directly to Step $START_STEP in the main pipeline below.
 else
     # Fresh run: LAST=0 or no run_context. Fall through to Phase 0 normally.
@@ -792,16 +791,28 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 
 **If resuming via --from or --continue:** Step 4 depends on Wave 1 agent outputs in /tmp/. These may not survive a system reboot. If merge fails with missing files, re-run from step 3: `/archie-deep-scan --from 3`
 
-After each subagent completes, use the Write tool to save its COMPLETE output text to a temporary file. The merge script handles JSON extraction automatically — it can parse plain JSON, code-fenced JSON, and conversation envelopes.
+**Subagent output contract (mandatory — append to each agent's prompt before spawning):**
 
-**IMPORTANT: Save the COMPLETE raw text from each agent. Do NOT try to extract JSON yourself — the script handles all extraction including conversation envelopes, code fences, and escape issues.**
+Each Wave 1 subagent must write its own output directly to a pre-specified path. The orchestrator must NEVER copy or Write the transcript itself — attempting to access `.claude/projects/.../subagents/*.jsonl` triggers a sensitive-file permission prompt on every call.
+
+Append this block to each Wave 1 agent's prompt, substituting `<OUTPUT_PATH>` with the path below:
 
 ```
-Write /tmp/archie_sub1_$PROJECT_NAME.json with Structure agent's COMPLETE output text
-Write /tmp/archie_sub2_$PROJECT_NAME.json with Patterns agent's COMPLETE output text
-Write /tmp/archie_sub3_$PROJECT_NAME.json with Technology agent's COMPLETE output text
-Write /tmp/archie_sub4_$PROJECT_NAME.json with UI Layer agent's COMPLETE output text (if spawned)
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to <OUTPUT_PATH>.
+2. Write the raw output verbatim — the merge script handles JSON envelopes, code fences, and multi-block text.
+3. After Writing, reply with exactly: "Wrote <OUTPUT_PATH>"
+4. Do NOT print the output in your response body. /tmp/archie_* is already permissioned via Write(//tmp/archie_*).
 ```
+
+Output paths per agent:
+- Structure agent → `/tmp/archie_sub1_$PROJECT_NAME.json`
+- Patterns agent → `/tmp/archie_sub2_$PROJECT_NAME.json`
+- Technology agent → `/tmp/archie_sub3_$PROJECT_NAME.json`
+- UI Layer agent (if spawned) → `/tmp/archie_sub4_$PROJECT_NAME.json`
+
+When each subagent's confirmation reply returns, its file is already on disk — proceed directly to the merge step below. Do NOT attempt to re-extract output from the subagent's conversation — if the confirmation is missing or file absent, skip that agent's contribution and report the failure.
 
 Then merge:
 
@@ -854,10 +865,18 @@ Tell the scoped Reasoning agent:
 > - Update the decision_chain only for affected branches
 > Return ONLY the sections that need updating — unchanged sections will be preserved. Use the 4-field contract (`problem_statement`, `evidence`, `root_cause`, `fix_direction`) when writing finding or pitfall entries.
 
-Save output and finalize with patch mode:
+Instruct the Reasoning agent to write its own output (append to its prompt):
+
 ```
-Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's COMPLETE output text
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to /tmp/archie_sub_x_$PROJECT_NAME.json
+2. Write the raw output verbatim — merge handles JSON envelopes.
+3. After Writing, reply with exactly: "Wrote /tmp/archie_sub_x_$PROJECT_NAME.json"
+4. Do NOT print the output in your response body.
 ```
+
+The file will be on disk when the agent's confirmation returns. Then finalize with patch mode:
 ```bash
 python3 .archie/finalize.py "$PROJECT_ROOT" --patch /tmp/archie_sub_x_$PROJECT_NAME.json
 ```
@@ -1021,11 +1040,18 @@ Tell the Reasoning agent:
 
 The Reasoning agent also gets the GROUNDING RULES from Step 3.
 
-After the Reasoning agent completes, save its output and finalize:
+Instruct the Reasoning agent to write its own output (append to its prompt):
 
 ```
-Write /tmp/archie_sub_x_$PROJECT_NAME.json with the Reasoning agent's output
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to /tmp/archie_sub_x_$PROJECT_NAME.json
+2. Write the raw output verbatim — finalize handles JSON envelopes.
+3. After Writing, reply with exactly: "Wrote /tmp/archie_sub_x_$PROJECT_NAME.json"
+4. Do NOT print the output in your response body.
 ```
+
+After the agent's confirmation returns, finalize:
 
 ```bash
 python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
@@ -1083,18 +1109,22 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > {"id": "dep-001", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning chain", "severity": "error|warn"}
 > ```
 >
+> **Prompt-time matching** (RECOMMENDED for every rule):
+> - `"keywords"`: 2-5 terms an AI would use when describing a task this rule governs (e.g. `["datetime", "timestamp"]`, `["migration"]`, `["handler", "endpoint"]`). The `UserPromptSubmit` hook matches these against the user's prompt and surfaces the rule BEFORE the agent writes code. Without keywords the hook falls back to noisy description-token extraction — always emit keywords.
+>
 > **Optional mechanical fields** (add ONLY when a meaningful regex exists):
-> - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`
-> - `"applies_to"`: directory prefix scope
-> - `"file_pattern"`: glob matched against filename
-> - `"forbidden_patterns"`: regex patterns that violate the rule
-> - `"required_in_content"`: strings that must appear in matching files
+> - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, `file_naming`
+> - `"applies_to"`: directory prefix (string-prefix match, NOT a glob) — e.g. `"backend/"`
+> - `"file_pattern"`: glob on basename for `required_pattern` / `architectural_constraint`, OR regex on basename for `file_naming`
+> - `"forbidden_patterns"`: array of regexes; rule fires if any matches the content
+> - `"required_in_content"`: array of literal strings; rule fires if NONE appears in the content
 >
 > When `check` is present:
 > - `forbidden_import`: requires `applies_to` + `forbidden_patterns`
-> - `required_pattern`: requires `file_pattern` + `required_in_content`
+> - `required_pattern`: requires `file_pattern` (glob) + `required_in_content`
 > - `forbidden_content`: requires `forbidden_patterns`, optional `applies_to`
-> - `architectural_constraint`: requires `file_pattern` + `forbidden_patterns`
+> - `architectural_constraint`: requires `file_pattern` (glob) + `forbidden_patterns`
+> - `file_naming`: requires `applies_to` (path glob) + `file_pattern` (regex on basename)
 >
 > ## The `rationale` field (REQUIRED — this is the most important field)
 >
@@ -1105,14 +1135,14 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >
 > ## Examples
 >
-> Rationale-only rule (most rules will look like this):
+> Rationale-only rule with prompt-time keywords (most rules will look like this):
 > ```json
-> {"id": "arch-001", "description": "Business logic must not depend on UI framework classes", "rationale": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.", "severity": "error"}
+> {"id": "arch-001", "description": "Business logic must not depend on UI framework classes", "rationale": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.", "severity": "error", "keywords": ["viewmodel", "domain", "business logic", "context"]}
 > ```
 >
-> Rule with optional mechanical enforcement:
+> Rule with full mechanical enforcement AND prompt-time keywords:
 > ```json
-> {"id": "dep-001", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.", "severity": "error", "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
+> {"id": "dep-001", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.", "severity": "error", "keywords": ["domain", "presentation", "import"], "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
 > ```
 >
 > ## What to produce:
@@ -1132,17 +1162,24 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 
 **IMPORTANT: If `.archie/rules.json` already exists (from previous scans), read it first. The new rules must be MERGED with existing rules — do not overwrite user-adopted rules.**
 
-After the agent responds, save its COMPLETE output text to a temp file and extract:
+Instruct the agent to write its own output (append to its prompt):
 
 ```
-Write /tmp/archie_rules_$PROJECT_NAME.json with the agent's COMPLETE output text
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to /tmp/archie_rules_$PROJECT_NAME.json
+2. Write the raw output verbatim — extract_output.py handles JSON envelopes.
+3. After Writing, reply with exactly: "Wrote /tmp/archie_rules_$PROJECT_NAME.json"
+4. Do NOT print the output in your response body.
 ```
+
+After the agent's confirmation returns, extract:
 
 ```bash
 python3 .archie/extract_output.py rules /tmp/archie_rules_$PROJECT_NAME.json "$PROJECT_ROOT/.archie/rules.json"
 ```
 
-**IMPORTANT: Do NOT try to extract or parse JSON yourself. Always use the pre-installed scripts.**
+**IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT copy the agent's transcript. Always use the pre-installed scripts on the file the agent already wrote.**
 
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
@@ -1171,86 +1208,45 @@ TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 **If START_STEP > 7, skip this step.**
 
-**If `INTENT_LAYER=no` (user opted out in Step E), skip this entire step.** Print a one-line note to the user: *"Intent Layer skipped (no per-folder CLAUDE.md generated). Root CLAUDE.md + rule files still written."* Then proceed to Step 8. The `intent_layer` telemetry step will record zero elapsed time (its `started_at == completed_at`) and carry `"skipped": true` (see Step 10).
-
-This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
+**If `INTENT_LAYER=no` (user opted out in Step E), skip this entire step.** Print a one-line note to the user: *"Intent Layer skipped (no per-folder CLAUDE.md generated). Root CLAUDE.md + rule files still written. You can run `/archie-intent-layer` later if you change your mind."* Then proceed to Step 8. The `intent_layer` telemetry step will record zero elapsed time (its `started_at == completed_at`) and carry `"skipped": true` (see Step 10).
 
 **If `INTENT_LAYER=yes`, execute this step fully. Do NOT ask the user whether to run, skip, or reduce scope. Do NOT offer alternatives. Run all batches as instructed below.**
 
-### If SCAN_MODE = "incremental":
+### Shared pipeline
 
-Only re-enrich folders containing changed files + their parent chain. Unchanged folders keep their existing CLAUDE.md.
+**This step runs the exact same pipeline as the standalone `/archie-intent-layer` command.** The canonical description lives there (Phases 1–4): prepare the DAG → loop `next-ready` / `suggest-batches` / Sonnet subagent per batch / `save-enrichment` → `merge` enrichments into per-folder CLAUDE.md files.
 
-1. Prepare with `--only-folders` using the `affected_folders` from the preamble:
-```bash
-python3 .archie/intent_layer.py prepare "$PROJECT_ROOT" --only-folders AFFECTED_FOLDER1,AFFECTED_FOLDER2,...
-python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
-mkdir -p "$PROJECT_ROOT/.archie/enrichments"
+**Load the canonical prose into context before starting** — slash-command bodies are not cross-loaded automatically, so you must Read the file yourself:
+
+```
+Read .claude/commands/archie-intent-layer.md
 ```
 
-Replace `AFFECTED_FOLDER1,AFFECTED_FOLDER2,...` with the comma-separated `affected_folders` list from the detect-changes output. This marks only those folders + their ancestors as dirty. The `next-ready` command will only return dirty folders.
+Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD`, with the deep-scan-specific deltas below layered on top. Do NOT reinterpret or re-derive the pipeline logic — follow what the file says.
 
-Then proceed with the same wave processing as full mode (step 2 below). The waves will be much smaller since only dirty folders are included.
+### Deep-scan-specific deltas
 
-### If SCAN_MODE = "full" (default):
+1. **Skip the precondition check (Phase 0).** The blueprint was just produced in Steps 5–6, so the hard-requirement check in `/archie-intent-layer` Phase 0 is a no-op in this context. Do not re-run it.
 
-1. Prepare the folder DAG and reset state:
-```bash
-python3 .archie/intent_layer.py prepare "$PROJECT_ROOT"
-python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
-mkdir -p "$PROJECT_ROOT/.archie/enrichments"
-```
+2. **Skip the mode selector (Phase 0.5).** The deep-scan already decided `SCAN_MODE` in its own preamble — don't ask the user again. In Phase 1 of `/archie-intent-layer`, treat `MODE=incremental` as equivalent to `SCAN_MODE=incremental`, and `MODE=full` as `SCAN_MODE=full`.
 
-2. Process in readiness waves. The script tracks done folders automatically.
+3. **SCAN_MODE = "incremental" → pass `--only-folders`.** When the preamble set `SCAN_MODE=incremental`, the Phase 1 `prepare` call becomes:
 
-   **Repeat until done:**
-
-   a. Get ready folders:
    ```bash
-   python3 .archie/intent_layer.py next-ready "$PROJECT_ROOT"
+   python3 .archie/intent_layer.py prepare "$PROJECT_ROOT" --only-folders AFFECTED_FOLDER1,AFFECTED_FOLDER2,...
    ```
-   The script reads done state from `.archie/enrich_state.json` automatically. First call returns all leaf folders.
 
-   b. If the ready list is empty (`[]`), all folders are done. Proceed to step 3.
+   Use the comma-separated `affected_folders` list from the detect-changes output you captured earlier in the deep-scan run. `next-ready` will then only return dirty folders and their ancestors — waves will be much smaller than a full scan.
 
-   c. Get batches for the ready folders:
+3. **Batch-processing compact checkpoint.**
+
+   **✓ Compact Checkpoint B** — between Intent Layer waves. After every wave's `save-enrichment` commands have all returned (so no subagent is in flight and all completed folders are persisted in `enrich_state.json`), this is a safe compaction boundary. Suggested frequency: every 3 waves when the project has >20 folders. On small projects (<20 folders) ignore this checkpoint. Procedure: `/compact` → `/archie-deep-scan --continue` → Resume Prelude sees `last_completed=6` and re-enters Step 7, which calls `next-ready` and resumes from the next wave using disk state alone.
+
+4. **Mark step complete at the end.** After Phase 3 (`merge`) and Phase 4 (cleanup) of the standalone command, record completion:
+
    ```bash
-   python3 .archie/intent_layer.py suggest-batches "$PROJECT_ROOT" <ready1> <ready2> ...
+   python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
    ```
-   Output is JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `batch_id`) to reference batches. Do NOT write ad-hoc Python to inspect this — use the output directly.
-
-   d. For each batch, generate the prompt and spawn a subagent:
-   ```bash
-   python3 .archie/intent_layer.py prompt "$PROJECT_ROOT" --folders <comma-separated> --child-summaries "$PROJECT_ROOT/.archie/enrichments/" > /tmp/archie_intent_prompt_$PROJECT_NAME.txt
-   ```
-   Read the prompt file. Spawn a Sonnet subagent (`model: "sonnet"`) with the prompt content. The subagent must return ONLY valid JSON with folder paths as keys.
-   **Spawn ALL batches in a wave in parallel.**
-
-   e. After each subagent completes, save its COMPLETE output text to a temp file, then use the save-enrichment command to extract JSON and mark folders as done:
-   ```
-   Write /tmp/archie_enrichment_<batch_id>.json with the subagent's COMPLETE output text
-   ```
-   ```bash
-   python3 .archie/intent_layer.py save-enrichment "$PROJECT_ROOT" <batch_id> /tmp/archie_enrichment_<batch_id>.json
-   ```
-   This extracts the JSON, saves it to `.archie/enrichments/<batch_id>.json`, and automatically marks the folders as done.
-
-   **IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT write inline Python to process agent output. The save-enrichment command handles everything including conversation envelopes, code fences, multi-block merging, and escape issues.**
-
-   f. **✓ Compact Checkpoint B** — between Intent Layer waves. After every wave's `save-enrichment` commands have all returned (so no subagent is in flight and all completed folders are persisted in `enrich_state.json`), this is a safe compaction boundary. Suggested frequency: every 3 waves when the project has >20 folders. On small projects (<20 folders) ignore this checkpoint. Procedure: `/compact` → `/archie-deep-scan --continue` → Resume Prelude sees `last_completed=6` and re-enters Step 7, which calls `next-ready` and resumes from the next wave using disk state alone.
-
-   g. Go to (a) for the next wave.
-
-3. Merge enrichments into CLAUDE.md files:
-```bash
-python3 .archie/intent_layer.py merge "$PROJECT_ROOT"
-```
-
----
-
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
-```
 
 ---
 
@@ -1356,10 +1352,19 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their fo
 >
 > Return JSON: `{"deep_findings": [...]}`
 
-Save the deep findings:
+Instruct the reviewer subagent to write its own output (append to its prompt):
+
 ```
-Write /tmp/archie_deep_drift.json with the agent's COMPLETE output text
+---
+OUTPUT CONTRACT (mandatory):
+1. Use the Write tool to save your COMPLETE output to /tmp/archie_deep_drift.json
+2. Write the raw output verbatim — extract_output.py handles JSON envelopes.
+3. After Writing, reply with exactly: "Wrote /tmp/archie_deep_drift.json"
+4. Do NOT print the output in your response body.
 ```
+
+After the agent's confirmation returns, extract and clean up:
+
 ```bash
 python3 .archie/extract_output.py deep-drift /tmp/archie_deep_drift.json "$PROJECT_ROOT/.archie/drift_report.json"
 rm -f /tmp/archie_deep_drift.json

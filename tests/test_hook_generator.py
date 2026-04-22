@@ -169,3 +169,60 @@ def test_standalone_install_registers_blueprint_nudge(tmp_path):
         and any(h.get("command") == ".claude/hooks/blueprint-nudge.sh" for h in entry.get("hooks", []))
         for entry in pre_tool
     )
+
+
+# -------------------------------------------------------------------
+# 13. standalone install creates post-lint.sh
+# -------------------------------------------------------------------
+def test_standalone_install_creates_post_lint_hook(tmp_path):
+    standalone_install(tmp_path)
+
+    post_lint = tmp_path / ".claude" / "hooks" / "post-lint.sh"
+    assert post_lint.exists()
+    assert post_lint.stat().st_mode & stat.S_IXUSR
+    content = post_lint.read_text()
+    assert "enforcement.json" in content
+    assert "lint_gate.py" in content
+
+
+# -------------------------------------------------------------------
+# 14. standalone install registers post-lint on PostToolUse Write|Edit|MultiEdit
+# -------------------------------------------------------------------
+def test_standalone_install_registers_post_lint(tmp_path):
+    standalone_install(tmp_path)
+
+    settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    post_tool = settings["hooks"].get("PostToolUse", [])
+    assert any(
+        entry.get("matcher") == "Write|Edit|MultiEdit"
+        and any(h.get("command") == ".claude/hooks/post-lint.sh" for h in entry.get("hooks", []))
+        for entry in post_tool
+    ), "post-lint.sh not registered under PostToolUse Write|Edit|MultiEdit"
+
+
+# -------------------------------------------------------------------
+# 15. standalone install creates pre-turn.sh (Tier 4)
+# -------------------------------------------------------------------
+def test_standalone_install_creates_pre_turn_hook(tmp_path):
+    standalone_install(tmp_path)
+
+    pre_turn = tmp_path / ".claude" / "hooks" / "pre-turn.sh"
+    assert pre_turn.exists()
+    assert pre_turn.stat().st_mode & stat.S_IXUSR
+    content = pre_turn.read_text()
+    assert "archie_turn" in content
+    assert "rm -f" in content
+
+
+# -------------------------------------------------------------------
+# 16. standalone install registers pre-turn on UserPromptSubmit
+# -------------------------------------------------------------------
+def test_standalone_install_registers_pre_turn(tmp_path):
+    standalone_install(tmp_path)
+
+    settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    ups = settings["hooks"].get("UserPromptSubmit", [])
+    assert any(
+        any(h.get("command") == ".claude/hooks/pre-turn.sh" for h in entry.get("hooks", []))
+        for entry in ups
+    ), "pre-turn.sh not registered under UserPromptSubmit"

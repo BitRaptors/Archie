@@ -528,6 +528,62 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
         state_path.write_text(json.dumps(state, indent=2))
         print(f"Run context saved: {sorted(context.keys())}", file=sys.stderr)
 
+    elif action == "save-run-context":
+        # Shell-friendly alternative to save-context: accepts the canonical
+        # deep-scan run-context fields as CLI flags so callers don't have to
+        # build JSON in bash (which would require inline python for the
+        # workspaces array). Reads workspaces from --workspaces-file as a
+        # newline-separated list.
+        fields: dict[str, str | None] = {
+            "scope": None,
+            "intent_layer": None,
+            "scan_mode": None,
+            "project_root": None,
+            "monorepo_type": None,
+            "start_step": None,
+        }
+        workspaces_from_stdin = False
+        # CLI layout: [script, "deep-scan-state", <root>, "save-run-context", ...flags...]
+        # So flags start at sys.argv[4].
+        argv = sys.argv[4:]
+        i = 0
+        while i < len(argv):
+            a = argv[i]
+            if a == "--workspaces-from-stdin":
+                workspaces_from_stdin = True
+                i += 1
+                continue
+            if a.startswith("--"):
+                key = a[2:].replace("-", "_")
+                if key in fields and i + 1 < len(argv):
+                    fields[key] = argv[i + 1]
+                    i += 2
+                    continue
+            i += 1
+        payload: dict = {}
+        for k in ("scope", "intent_layer", "scan_mode", "project_root", "monorepo_type"):
+            v = fields[k]
+            if v is not None:
+                payload[k] = v
+        if fields["start_step"] is not None:
+            try:
+                payload["start_step"] = int(fields["start_step"])
+            except ValueError:
+                payload["start_step"] = fields["start_step"]
+        if workspaces_from_stdin:
+            raw = sys.stdin.read()
+            payload["workspaces"] = [line for line in raw.splitlines() if line.strip()]
+        state = _load_state()
+        context = state.get("run_context") or {}
+        if not isinstance(context, dict):
+            context = {}
+        for k, v in payload.items():
+            context[k] = v
+        state["run_context"] = context
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, indent=2))
+        print(f"Run context saved: {sorted(context.keys())}", file=sys.stderr)
+
     elif action == "read":
         if state_path.exists():
             print(state_path.read_text())
@@ -1290,8 +1346,15 @@ def cmd_merge(root: Path):
 # inspect subcommand
 # ---------------------------------------------------------------------------
 
-def cmd_inspect(root: Path, filename: str, query: str | None = None):
-    """Print human-readable summary (stderr) + raw JSON (stdout) for .archie/ files."""
+def cmd_inspect(root: Path, filename: str, query: str | None = None, as_list: bool = False):
+    """Print human-readable summary (stderr) + raw JSON (stdout) for .archie/ files.
+
+    When ``as_list`` is True and the resolved query value is a JSON array,
+    prints each element on its own line (raw string for string elements,
+    compact JSON for non-string elements). Non-list values print normally.
+    Used by shell callers that want to iterate a list without pulling in
+    jq or inline python.
+    """
     filepath = root / ".archie" / filename
     if not filepath.exists():
         print(f"Error: {filename} not found in .archie/", file=sys.stderr)
@@ -1325,6 +1388,19 @@ def cmd_inspect(root: Path, filename: str, query: str | None = None):
             else:
                 print(f"Error: value is not a list or dict", file=sys.stderr)
                 sys.exit(1)
+        elif as_list:
+            if isinstance(obj, list):
+                for item in obj:
+                    if isinstance(item, str):
+                        print(item)
+                    else:
+                        print(json.dumps(item))
+            elif isinstance(obj, str):
+                print(obj)
+            elif obj is None:
+                pass  # empty output — matches "no items"
+            else:
+                print(json.dumps(obj))
         else:
             print(json.dumps(obj) if isinstance(obj, (dict, list)) else obj)
         return
@@ -1493,7 +1569,7 @@ if __name__ == "__main__":
         cmd_merge(root)
     elif subcmd == "inspect":
         if len(sys.argv) < 4:
-            print("Usage: inspect /path/to/repo <filename> [--query .key.path]", file=sys.stderr)
+            print("Usage: inspect /path/to/repo <filename> [--query .key.path] [--list]", file=sys.stderr)
             sys.exit(1)
         fname = sys.argv[3]
         q = None
@@ -1501,7 +1577,8 @@ if __name__ == "__main__":
             qi = sys.argv.index("--query")
             if qi + 1 < len(sys.argv):
                 q = sys.argv[qi + 1]
-        cmd_inspect(root, fname, q)
+        as_list = "--list" in sys.argv
+        cmd_inspect(root, fname, q, as_list=as_list)
     else:
         print(f"Error: unknown subcommand '{subcmd}'", file=sys.stderr)
         sys.exit(1)
