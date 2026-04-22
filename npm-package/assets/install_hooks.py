@@ -184,6 +184,20 @@ python3 "$PROJECT_ROOT/.archie/arch_review.py" diff "$PROJECT_ROOT"
 '''
 
 
+POST_LINT_HOOK = r'''#!/usr/bin/env bash
+# Archie lint gate — opt-in via .archie/enforcement.json.
+# Runs the project's native linter on a single changed file after Write/Edit/MultiEdit.
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+CFG="$PROJECT_ROOT/.archie/enforcement.json"
+GATE="$PROJECT_ROOT/.archie/lint_gate.py"
+# Fail open: no config, no gate script → nothing to do.
+[ ! -f "$CFG" ] && exit 0
+[ ! -f "$GATE" ] && exit 0
+export _ARCHIE_ROOT="$PROJECT_ROOT"
+python3 "$GATE"
+'''
+
+
 BLUEPRINT_NUDGE_HOOK = r'''#!/usr/bin/env bash
 # Archie blueprint nudge — reminds the AI about project architecture before searching.
 # Fires on Glob|Grep (PreToolUse) so the agent reads architecture context before
@@ -243,6 +257,7 @@ def install(project_root: Path) -> None:
         ("post-plan-review.sh", POST_PLAN_HOOK),
         ("pre-commit-review.sh", PRE_COMMIT_HOOK),
         ("blueprint-nudge.sh", BLUEPRINT_NUDGE_HOOK),
+        ("post-lint.sh", POST_LINT_HOOK),
     ]:
         path = hook_dir / name
         path.write_text(content)
@@ -267,6 +282,9 @@ def install(project_root: Path) -> None:
     _add_hook(post_tool, "ExitPlanMode", ".claude/hooks/post-plan-review.sh")
 
     _add_hook(pre_tool, "Glob|Grep", ".claude/hooks/blueprint-nudge.sh")
+
+    # Lint gate (opt-in via .archie/enforcement.json — defaults to inert).
+    _add_hook(post_tool, "Write|Edit|MultiEdit", ".claude/hooks/post-lint.sh")
 
     hooks["PreToolUse"] = pre_tool
     hooks["PostToolUse"] = post_tool

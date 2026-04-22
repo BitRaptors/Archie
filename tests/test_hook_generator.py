@@ -169,3 +169,32 @@ def test_standalone_install_registers_blueprint_nudge(tmp_path):
         and any(h.get("command") == ".claude/hooks/blueprint-nudge.sh" for h in entry.get("hooks", []))
         for entry in pre_tool
     )
+
+
+# -------------------------------------------------------------------
+# 13. standalone install creates post-lint.sh
+# -------------------------------------------------------------------
+def test_standalone_install_creates_post_lint_hook(tmp_path):
+    standalone_install(tmp_path)
+
+    post_lint = tmp_path / ".claude" / "hooks" / "post-lint.sh"
+    assert post_lint.exists()
+    assert post_lint.stat().st_mode & stat.S_IXUSR
+    content = post_lint.read_text()
+    assert "enforcement.json" in content
+    assert "lint_gate.py" in content
+
+
+# -------------------------------------------------------------------
+# 14. standalone install registers post-lint on PostToolUse Write|Edit|MultiEdit
+# -------------------------------------------------------------------
+def test_standalone_install_registers_post_lint(tmp_path):
+    standalone_install(tmp_path)
+
+    settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    post_tool = settings["hooks"].get("PostToolUse", [])
+    assert any(
+        entry.get("matcher") == "Write|Edit|MultiEdit"
+        and any(h.get("command") == ".claude/hooks/post-lint.sh" for h in entry.get("hooks", []))
+        for entry in post_tool
+    ), "post-lint.sh not registered under PostToolUse Write|Edit|MultiEdit"
