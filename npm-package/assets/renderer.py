@@ -214,6 +214,24 @@ def _build_patterns_rule(bp: dict):
             lines.append(f"- **How:** {pat.get('how_it_works', '')}")
             lines.append("")
 
+    # Integrations — external services and their architectural entry points.
+    # Critical for agents editing code that touches ingestion, billing, search,
+    # etc., so they know which seam owns the integration.
+    integrations = _get(bp, "communication", "integrations", default=[]) or []
+    if integrations:
+        lines.append("## Integrations")
+        lines.append("")
+        lines.append("| Service | Purpose | Integration point |")
+        lines.append("|---------|---------|-------------------|")
+        for ig in integrations:
+            service = ig.get("service") or ig.get("name", "")
+            purpose = ig.get("purpose", "")
+            point = ig.get("integration_point", "")
+            # Preserve backticks around file paths in integration_point when present.
+            point_fmt = f"`{point}`" if point and "/" in point and "`" not in point else point
+            lines.append(f"| {service} | {purpose} | {point_fmt} |")
+        lines.append("")
+
     # Pattern Selection Guide
     psg_list = _get(bp, "communication", "pattern_selection_guide", default=[]) or []
     if psg_list:
@@ -256,18 +274,25 @@ def _build_patterns_rule(bp: dict):
                 lines.append(f"**Enables:** {enables}")
             lines.append("")
 
-    # Trade-offs
+    # Trade-offs — rendered as a list (not a table) so violation_signals can
+    # be surfaced as sub-bullets. violation_signals is the most enforcement-
+    # relevant field: it enumerates code-level patterns that would undo the
+    # trade-off, which is exactly what agents need to recognise before writing.
     trade_offs = _get(bp, "decisions", "trade_offs", default=[]) or []
     if trade_offs:
         lines.append("## Trade-offs Accepted")
         lines.append("")
-        lines.append("| Accepted | Benefit | Caused by |")
-        lines.append("|----------|---------|-----------|")
         for to in trade_offs:
             accept = to.get("accept", "") or to.get("accepted", "")
             benefit = to.get("benefit", "") or to.get("gained", "")
             caused_by = to.get("caused_by", "")
-            lines.append(f"| {accept} | {benefit} | {caused_by} |")
+            lines.append(f"- **Accepted:** {accept}")
+            if benefit:
+                lines.append(f"  - *Benefit:* {benefit}")
+            if caused_by:
+                lines.append(f"  - *Caused by:* {caused_by}")
+            for sig in (to.get("violation_signals") or []):
+                lines.append(f"  - *Violation signal:* {sig}")
         lines.append("")
 
     # Out of Scope
@@ -721,6 +746,24 @@ def generate_agents_md(bp: dict) -> str:
             lines.append(f"- **{cat}:** {techs}")
         lines.append("")
 
+    # Integrations — external services with their architectural entry points.
+    # Surfaced at AGENTS.md load time so agents know which seam owns each
+    # integration (e.g. "ClickHouse is only accessed via streaming.Connector").
+    integrations = _get(bp, "communication", "integrations", default=[]) or []
+    if integrations:
+        lines.append("## Integrations")
+        lines.append("")
+        for ig in integrations:
+            service = ig.get("service") or ig.get("name", "")
+            purpose = ig.get("purpose", "")
+            point = ig.get("integration_point", "")
+            tail = f" (via `{point}`)" if point else ""
+            if purpose:
+                lines.append(f"- **{service}** — {purpose}{tail}")
+            else:
+                lines.append(f"- **{service}**{tail}")
+        lines.append("")
+
     # Key Decisions
     ad = _get(bp, "decisions", "architectural_style", default={}) or {}
     key_decs = _get(bp, "decisions", "key_decisions", default=[]) or []
@@ -751,12 +794,15 @@ def generate_agents_md(bp: dict) -> str:
         if trade_offs:
             lines.append("**Trade-offs:**")
             lines.append("")
-            lines.append("| Accepted | Benefit |")
-            lines.append("|----------|---------|")
             for to in trade_offs:
                 accept = to.get("accept", "") or to.get("accepted", "")
                 benefit = to.get("benefit", "") or to.get("gained", "")
-                lines.append(f"| {accept} | {benefit} |")
+                lines.append(f"- **{accept}** → {benefit}")
+                # violation_signals tell agents which code patterns would
+                # undo the trade-off — surface them so they're visible at
+                # AGENTS.md load time, not just in the rule files.
+                for sig in (to.get("violation_signals") or []):
+                    lines.append(f"  - *Violation signal:* {sig}")
             lines.append("")
         if out_of_scope:
             lines.append("**Out of scope:**")
@@ -775,6 +821,12 @@ def generate_agents_md(bp: dict) -> str:
             for f in (forces or []):
                 prefix = "  " * indent + "- "
                 lines.append(f"{prefix}**{f.get('decision', '')}**: {f.get('rationale', '')}")
+                # violation_keywords are concrete code-pattern fingerprints
+                # that would breach this decision. They're the enforcement
+                # surface of the chain — worth surfacing so agents see the
+                # "don't do X" signal next to the "here's why" reasoning.
+                for kw in (f.get("violation_keywords") or []):
+                    lines.append(f"{'  ' * (indent + 1)}- *Violation keyword:* `{kw}`")
                 _render_chain(f.get("forces", []), indent + 1)
         _render_chain(decision_chain.get("forces", []))
         lines.append("")
