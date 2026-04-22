@@ -83,6 +83,34 @@ def _as_list(val):
     return []
 
 
+def _str_list(val) -> list[str]:
+    """Coerce a value to a list of non-empty strings.
+
+    Used for fields like ``violation_signals`` and ``violation_keywords``
+    where a malformed blueprint might pass a string, None, or a list
+    containing non-strings. Prevents per-character bullet spam and
+    silently drops non-string entries.
+    """
+    if isinstance(val, list):
+        return [s for s in val if isinstance(s, str) and s.strip()]
+    if isinstance(val, str) and val.strip():
+        return [val]
+    return []
+
+
+def _escape_table_cell(val) -> str:
+    """Escape a value for safe inclusion in a markdown table cell.
+
+    Replaces ``|`` with ``\\|`` and newlines with spaces so a malformed
+    field doesn't shred the table layout. Coerces non-strings via ``str()``.
+    """
+    if val is None:
+        return ""
+    if not isinstance(val, str):
+        val = str(val)
+    return val.replace("|", r"\|").replace("\n", " ").strip()
+
+
 # ---------------------------------------------------------------------------
 # Frontend glob detection
 # ---------------------------------------------------------------------------
@@ -218,18 +246,21 @@ def _build_patterns_rule(bp: dict):
     # Critical for agents editing code that touches ingestion, billing, search,
     # etc., so they know which seam owns the integration.
     integrations = _get(bp, "communication", "integrations", default=[]) or []
-    if integrations:
+    valid_integrations = [ig for ig in integrations if isinstance(ig, dict)]
+    if valid_integrations:
         lines.append("## Integrations")
         lines.append("")
         lines.append("| Service | Purpose | Integration point |")
         lines.append("|---------|---------|-------------------|")
-        for ig in integrations:
-            service = ig.get("service") or ig.get("name", "")
-            purpose = ig.get("purpose", "")
-            point = ig.get("integration_point", "")
-            # Preserve backticks around file paths in integration_point when present.
+        for ig in valid_integrations:
+            service = _escape_table_cell(ig.get("service") or ig.get("name", ""))
+            purpose = _escape_table_cell(ig.get("purpose", ""))
+            point = ig.get("integration_point", "") or ""
+            if not isinstance(point, str):
+                point = str(point)
+            # Preserve backticks around file paths when present.
             point_fmt = f"`{point}`" if point and "/" in point and "`" not in point else point
-            lines.append(f"| {service} | {purpose} | {point_fmt} |")
+            lines.append(f"| {service} | {purpose} | {_escape_table_cell(point_fmt)} |")
         lines.append("")
 
     # Pattern Selection Guide
@@ -279,10 +310,11 @@ def _build_patterns_rule(bp: dict):
     # relevant field: it enumerates code-level patterns that would undo the
     # trade-off, which is exactly what agents need to recognise before writing.
     trade_offs = _get(bp, "decisions", "trade_offs", default=[]) or []
-    if trade_offs:
+    valid_trade_offs = [to for to in trade_offs if isinstance(to, dict)]
+    if valid_trade_offs:
         lines.append("## Trade-offs Accepted")
         lines.append("")
-        for to in trade_offs:
+        for to in valid_trade_offs:
             accept = to.get("accept", "") or to.get("accepted", "")
             benefit = to.get("benefit", "") or to.get("gained", "")
             caused_by = to.get("caused_by", "")
@@ -291,7 +323,7 @@ def _build_patterns_rule(bp: dict):
                 lines.append(f"  - *Benefit:* {benefit}")
             if caused_by:
                 lines.append(f"  - *Caused by:* {caused_by}")
-            for sig in (to.get("violation_signals") or []):
+            for sig in _str_list(to.get("violation_signals")):
                 lines.append(f"  - *Violation signal:* {sig}")
         lines.append("")
 
@@ -750,13 +782,16 @@ def generate_agents_md(bp: dict) -> str:
     # Surfaced at AGENTS.md load time so agents know which seam owns each
     # integration (e.g. "ClickHouse is only accessed via streaming.Connector").
     integrations = _get(bp, "communication", "integrations", default=[]) or []
-    if integrations:
+    valid_integrations = [ig for ig in integrations if isinstance(ig, dict)]
+    if valid_integrations:
         lines.append("## Integrations")
         lines.append("")
-        for ig in integrations:
-            service = ig.get("service") or ig.get("name", "")
-            purpose = ig.get("purpose", "")
-            point = ig.get("integration_point", "")
+        for ig in valid_integrations:
+            service = ig.get("service") or ig.get("name") or ""
+            purpose = ig.get("purpose") or ""
+            point = ig.get("integration_point") or ""
+            if not service:
+                continue
             tail = f" (via `{point}`)" if point else ""
             if purpose:
                 lines.append(f"- **{service}** — {purpose}{tail}")
@@ -795,13 +830,15 @@ def generate_agents_md(bp: dict) -> str:
             lines.append("**Trade-offs:**")
             lines.append("")
             for to in trade_offs:
+                if not isinstance(to, dict):
+                    continue
                 accept = to.get("accept", "") or to.get("accepted", "")
                 benefit = to.get("benefit", "") or to.get("gained", "")
                 lines.append(f"- **{accept}** → {benefit}")
                 # violation_signals tell agents which code patterns would
                 # undo the trade-off — surface them so they're visible at
                 # AGENTS.md load time, not just in the rule files.
-                for sig in (to.get("violation_signals") or []):
+                for sig in _str_list(to.get("violation_signals")):
                     lines.append(f"  - *Violation signal:* {sig}")
             lines.append("")
         if out_of_scope:
@@ -819,13 +856,15 @@ def generate_agents_md(bp: dict) -> str:
         lines.append("")
         def _render_chain(forces, indent=0):
             for f in (forces or []):
+                if not isinstance(f, dict):
+                    continue
                 prefix = "  " * indent + "- "
                 lines.append(f"{prefix}**{f.get('decision', '')}**: {f.get('rationale', '')}")
                 # violation_keywords are concrete code-pattern fingerprints
                 # that would breach this decision. They're the enforcement
                 # surface of the chain — worth surfacing so agents see the
                 # "don't do X" signal next to the "here's why" reasoning.
-                for kw in (f.get("violation_keywords") or []):
+                for kw in _str_list(f.get("violation_keywords")):
                     lines.append(f"{'  ' * (indent + 1)}- *Violation keyword:* `{kw}`")
                 _render_chain(f.get("forces", []), indent + 1)
         _render_chain(decision_chain.get("forces", []))

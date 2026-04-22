@@ -269,3 +269,136 @@ def test_decision_chain_without_violation_keywords_still_renders():
     out = renderer.generate_agents_md(bp)
     assert "**D**: rat" in out
     assert "Violation keyword" not in out
+
+
+# ---------------------------------------------------------------------------
+# Malformed-input guards — regression tests for defensive handling
+# ---------------------------------------------------------------------------
+
+
+def test_integrations_with_non_dict_elements_does_not_crash():
+    """Old/user-edited blueprints may pass strings in `integrations`. Must skip them."""
+    bp = _bp(communication={
+        "patterns": [],
+        "integrations": ["raw string", {"service": "Real", "purpose": "valid"}, None, 42],
+        "pattern_selection_guide": [],
+    })
+    # Must not raise.
+    agents = renderer.generate_agents_md(bp)
+    patterns = renderer._build_patterns_rule(bp)
+    # Only the valid dict entry should render.
+    assert "Real" in agents
+    assert "valid" in agents
+    if patterns:
+        assert "Real" in patterns["body"]
+
+
+def test_integrations_pipe_char_escaped_in_table():
+    """Pipe chars would break the markdown table; must be escaped."""
+    bp = _bp(communication={
+        "patterns": [],
+        "integrations": [{"service": "A | B", "purpose": "x | y", "integration_point": "src"}],
+        "pattern_selection_guide": [],
+    })
+    patterns = renderer._build_patterns_rule(bp)
+    assert patterns is not None
+    body = patterns["body"]
+    # Each source `|` is escaped as `\|`; the only structural pipes are the
+    # three column separators per row (4 `|` per row total).
+    row = next(line for line in body.splitlines() if line.startswith("| A "))
+    # Structural pipes: leading, separator after service, after purpose, trailing = 4
+    assert row.count("|") - row.count(r"\|") == 4
+
+
+def test_violation_signals_as_string_does_not_produce_per_char_bullets():
+    bp = _bp(decisions={
+        "architectural_style": {"chosen": "Layered", "rationale": "x"},
+        "trade_offs": [{"accept": "x", "benefit": "y", "violation_signals": "single signal"}],
+        "key_decisions": [],
+        "out_of_scope": [],
+        "decision_chain": {},
+    })
+    patterns = renderer._build_patterns_rule(bp)
+    assert patterns is not None
+    # Exactly one violation signal bullet (not 13 for each character).
+    assert patterns["body"].count("Violation signal:") == 1
+    assert "single signal" in patterns["body"]
+
+
+def test_violation_keywords_as_string_does_not_produce_per_char_bullets():
+    bp = _bp(decisions={
+        "architectural_style": {"chosen": "Layered", "rationale": "x"},
+        "trade_offs": [],
+        "key_decisions": [],
+        "out_of_scope": [],
+        "decision_chain": {
+            "root": "R",
+            "forces": [{"decision": "D", "rationale": "r", "violation_keywords": "one kw"}],
+        },
+    })
+    out = renderer.generate_agents_md(bp)
+    assert out.count("Violation keyword:") == 1
+    assert "one kw" in out
+
+
+def test_violation_keywords_empty_string_is_skipped():
+    bp = _bp(decisions={
+        "architectural_style": {"chosen": "Layered", "rationale": "x"},
+        "trade_offs": [],
+        "key_decisions": [],
+        "out_of_scope": [],
+        "decision_chain": {
+            "root": "R",
+            "forces": [{"decision": "D", "rationale": "r", "violation_keywords": ["", "valid", "   "]}],
+        },
+    })
+    out = renderer.generate_agents_md(bp)
+    assert out.count("Violation keyword:") == 1
+    assert "`valid`" in out
+
+
+def test_malformed_trade_off_entry_is_skipped():
+    bp = _bp(decisions={
+        "architectural_style": {"chosen": "Layered", "rationale": "x"},
+        "trade_offs": ["bad entry", {"accept": "ok", "benefit": "yes"}, None],
+        "key_decisions": [],
+        "out_of_scope": [],
+        "decision_chain": {},
+    })
+    out = renderer.generate_agents_md(bp)
+    assert "ok" in out
+    assert "yes" in out
+    patterns = renderer._build_patterns_rule(bp)
+    assert "ok" in patterns["body"]
+
+
+def test_malformed_decision_chain_force_is_skipped():
+    bp = _bp(decisions={
+        "architectural_style": {"chosen": "Layered", "rationale": "x"},
+        "trade_offs": [],
+        "key_decisions": [],
+        "out_of_scope": [],
+        "decision_chain": {
+            "root": "R",
+            "forces": ["bad", {"decision": "good", "rationale": "r", "forces": []}, None],
+        },
+    })
+    out = renderer.generate_agents_md(bp)
+    assert "good" in out  # must not crash
+
+
+def test_violation_signals_with_non_string_entries_filtered():
+    bp = _bp(decisions={
+        "architectural_style": {"chosen": "Layered", "rationale": "x"},
+        "trade_offs": [{
+            "accept": "x", "benefit": "y",
+            "violation_signals": [{"dict": "entry"}, "real signal", 42, None],
+        }],
+        "key_decisions": [],
+        "out_of_scope": [],
+        "decision_chain": {},
+    })
+    patterns = renderer._build_patterns_rule(bp)
+    # Only the single valid string survives.
+    assert patterns["body"].count("Violation signal:") == 1
+    assert "real signal" in patterns["body"]
