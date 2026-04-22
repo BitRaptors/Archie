@@ -18,71 +18,80 @@ from pathlib import Path
 PRE_VALIDATE_HOOK = r'''#!/usr/bin/env bash
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 RULES_FILE="$PROJECT_ROOT/.archie/rules.json"
-[ ! -f "$RULES_FILE" ] && exit 0
+PLATFORM_RULES_FILE="$PROJECT_ROOT/.archie/platform_rules.json"
+# Fail open if no rules at all.
+if [ ! -f "$RULES_FILE" ] && [ ! -f "$PLATFORM_RULES_FILE" ]; then
+    exit 0
+fi
 TOOL_INPUT=$(cat || true)
 [ -z "$TOOL_INPUT" ] && exit 0
-FILE_PATH=$(echo "$TOOL_INPUT" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(d.get('tool_input',{}).get('file_path', d.get('tool_input',{}).get('path','')))
-except: print('')
-" 2>/dev/null || echo "")
-TOOL_NAME=$(echo "$TOOL_INPUT" | python3 -c "
-import sys, json
-try: print(json.load(sys.stdin).get('tool_name',''))
-except: print('')
-" 2>/dev/null || echo "")
-case "$TOOL_NAME" in Write|Edit|MultiEdit) ;; *) exit 0 ;; esac
-[ -z "$FILE_PATH" ] && exit 0
-# Skip files outside project root
-case "$FILE_PATH" in "$PROJECT_ROOT"*) ;; /*) exit 0 ;; esac
-# Get content being written
-CONTENT=$(echo "$TOOL_INPUT" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    ti = d.get('tool_input', {})
-    print(ti.get('content', '') or ti.get('new_string', ''))
-except: print('')
-" 2>/dev/null || echo "")
-export _ARCHIE_FP="$FILE_PATH"
+
+# Stash the whole tool-call JSON in a temp file so Python can parse it
+# without shell quoting corrupting backslashes, newlines, or quotes in content.
+TOOL_JSON=$(mktemp)
+printf '%s' "$TOOL_INPUT" > "$TOOL_JSON"
+export _ARCHIE_TOOL_JSON="$TOOL_JSON"
 export _ARCHIE_ROOT="$PROJECT_ROOT"
 export _ARCHIE_RULES="$RULES_FILE"
-# Write content to temp file to avoid shell escaping issues
-_ARCHIE_CONTENT_FILE=$(mktemp)
-echo "$CONTENT" > "$_ARCHIE_CONTENT_FILE"
-export _ARCHIE_CONTENT_FILE
-trap "rm -f $_ARCHIE_CONTENT_FILE" EXIT
+export _ARCHIE_PLATFORM_RULES="$PLATFORM_RULES_FILE"
+trap 'rm -f "$TOOL_JSON"' EXIT
+
 python3 << 'PYEOF'
 import json, sys, os, re, fnmatch
 
-fp = os.environ.get("_ARCHIE_FP", "")
+tool_json_file = os.environ.get("_ARCHIE_TOOL_JSON", "")
+project_root = os.environ.get("_ARCHIE_ROOT", ".")
 rules_file = os.environ.get("_ARCHIE_RULES", "")
-content_file = os.environ.get("_ARCHIE_CONTENT_FILE", "")
-content = ""
-if content_file:
-    try:
-        content = open(content_file).read()
-    except:
-        pass
+platform_rules_file = os.environ.get("_ARCHIE_PLATFORM_RULES", "")
 
-if not fp or not rules_file:
+try:
+    with open(tool_json_file) as f:
+        data = json.load(f)
+except Exception:
     sys.exit(0)
 
-rules = []
-for rpath in [rules_file, rules_file.replace("rules.json", "platform_rules.json")]:
-    try:
-        data = json.load(open(rpath))
-        rules.extend(data.get("rules", []) if isinstance(data, dict) else data)
-    except: pass
+tool_name = data.get("tool_name", "")
+if tool_name not in ("Write", "Edit", "MultiEdit"):
+    sys.exit(0)
 
-# Make file path relative to project root
-project_root = os.environ.get("_ARCHIE_ROOT", ".")
+ti = data.get("tool_input", {})
+fp = ti.get("file_path", "") or ti.get("path", "")
+if not fp:
+    sys.exit(0)
+
+# Skip absolute paths that live outside the project root.
+if fp.startswith("/") and not fp.startswith(project_root):
+    sys.exit(0)
+
+# Extract the content being written (Write.content, Edit.new_string,
+# MultiEdit.edits[*].new_string).
+content = ti.get("content", "") or ti.get("new_string", "")
+if not content and ti.get("edits"):
+    content = "\n".join(e.get("new_string", "") for e in ti["edits"])
+
+rules = []
+for rpath in (rules_file, platform_rules_file):
+    if not rpath or not os.path.isfile(rpath):
+        continue
+    try:
+        loaded = json.load(open(rpath))
+        rules.extend(loaded.get("rules", []) if isinstance(loaded, dict) else loaded)
+    except Exception:
+        pass
+
 rel_path = fp
 if fp.startswith(project_root):
     rel_path = fp[len(project_root):].lstrip("/")
 filename = os.path.basename(fp)
+
+def any_match(patterns, text):
+    for p in patterns:
+        try:
+            if re.search(p, text):
+                return True
+        except re.error:
+            continue
+    return False
 
 errors = []
 warns = []
@@ -93,57 +102,52 @@ for r in rules:
     sev = r.get("severity", "warn")
     conf = r.get("confidence", 1.0)
     bucket = errors if sev == "error" else warns
+    matched = False
 
-    if check == "forbidden_import":
+    if check == "file_placement":
+        dirs = r.get("allowed_dirs", [])
+        if dirs and not any(fp.startswith(d) or rel_path.startswith(d) for d in dirs):
+            matched = True
+
+    elif check == "naming":
+        pat = r.get("pattern", "")
+        if pat and not re.search(pat, filename):
+            matched = True
+
+    elif check == "forbidden_import":
         applies_to = r.get("applies_to", "")
         if applies_to and rel_path.startswith(applies_to) and content:
-            for pat in r.get("forbidden_patterns", []):
-                try:
-                    if re.search(pat, content):
-                        bucket.append((desc, conf))
-                        break
-                except re.error:
-                    pass
+            matched = any_match(r.get("forbidden_patterns", []), content)
 
     elif check == "required_pattern":
         file_pat = r.get("file_pattern", "")
         if file_pat and fnmatch.fnmatch(filename, file_pat) and content:
             required = r.get("required_in_content", [])
             if required and not any(req in content for req in required):
-                bucket.append((desc, conf))
+                matched = True
 
     elif check == "forbidden_content":
         applies_to = r.get("applies_to", "")
         if (not applies_to or rel_path.startswith(applies_to)) and content:
-            for pat in r.get("forbidden_patterns", []):
-                try:
-                    if re.search(pat, content):
-                        bucket.append((desc, conf))
-                        break
-                except re.error:
-                    pass
+            matched = any_match(r.get("forbidden_patterns", []), content)
 
     elif check == "architectural_constraint":
         file_pat = r.get("file_pattern", "")
         if file_pat and fnmatch.fnmatch(filename, file_pat) and content:
-            for pat in r.get("forbidden_patterns", []):
-                try:
-                    if re.search(pat, content):
-                        bucket.append((desc, conf))
-                        break
-                except re.error:
-                    pass
+            matched = any_match(r.get("forbidden_patterns", []), content)
 
     elif check == "file_naming":
         applies_to = r.get("applies_to", "")
         file_pat = r.get("file_pattern", "")
-        if applies_to and fnmatch.fnmatch(rel_path, applies_to):
-            if file_pat:
-                try:
-                    if not re.match(file_pat, filename):
-                        bucket.append((desc, conf))
-                except re.error:
-                    pass
+        if applies_to and fnmatch.fnmatch(rel_path, applies_to) and file_pat:
+            try:
+                if not re.match(file_pat, filename):
+                    matched = True
+            except re.error:
+                pass
+
+    if matched:
+        bucket.append((desc, conf))
 
 for w, c in warns[:5]:
     tag = f" (confidence {int(c * 100)}%)" if c < 1.0 else ""

@@ -184,116 +184,173 @@ def _inject_context_script() -> str:
 
 def _pre_validate_script() -> str:
     return r'''#!/usr/bin/env bash
-# Claude Code hook: PreToolUse — validate file placement and naming rules.
+# Claude Code hook: PreToolUse — validate file placement, naming, and content rules.
 set -euo pipefail
 
-RULES_FILE=".archie/rules.json"
-STATS_FILE=".archie/stats.jsonl"
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+RULES_FILE="$PROJECT_ROOT/.archie/rules.json"
+PLATFORM_RULES_FILE="$PROJECT_ROOT/.archie/platform_rules.json"
+STATS_FILE="$PROJECT_ROOT/.archie/stats.jsonl"
 
-# Fail open: if rules file is missing, exit silently.
-if [ ! -f "$RULES_FILE" ]; then
+# Fail open: if no rules at all, exit silently.
+if [ ! -f "$RULES_FILE" ] && [ ! -f "$PLATFORM_RULES_FILE" ]; then
     exit 0
 fi
 
-# Read stdin (Claude sends JSON with tool call info).
-INPUT="$(cat)"
+INPUT="$(cat || true)"
+[ -z "$INPUT" ] && exit 0
 
-# Extract tool_name and file_path using python3.
-eval "$(echo "$INPUT" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-tool_name = data.get('tool_name', '')
-file_path = data.get('tool_input', {}).get('file_path', '')
-# Shell-safe output
-print(f'TOOL_NAME=\"{tool_name}\"')
-print(f'FILE_PATH=\"{file_path}\"')
-" 2>/dev/null || echo 'TOOL_NAME=""; FILE_PATH=""')"
+# Write tool JSON to a temp file so Python can parse it safely
+# (shell escaping of `content` with backslashes/quotes is unreliable).
+TOOL_JSON=$(mktemp)
+printf '%s' "$INPUT" > "$TOOL_JSON"
+export _ARCHIE_TOOL_JSON="$TOOL_JSON"
+export _ARCHIE_ROOT="$PROJECT_ROOT"
+export _ARCHIE_RULES="$RULES_FILE"
+export _ARCHIE_PLATFORM_RULES="$PLATFORM_RULES_FILE"
+export _ARCHIE_STATS="$STATS_FILE"
+trap 'rm -f "$TOOL_JSON"' EXIT
 
-# Only check Write, Edit, MultiEdit tools.
-case "$TOOL_NAME" in
-    Write|Edit|MultiEdit) ;;
-    *) exit 0 ;;
-esac
+python3 << 'PYEOF'
+import json, sys, os, re, fnmatch, datetime
 
-if [ -z "$FILE_PATH" ]; then
-    exit 0
-fi
+tool_json_file = os.environ.get("_ARCHIE_TOOL_JSON", "")
+project_root = os.environ.get("_ARCHIE_ROOT", ".")
+rules_file = os.environ.get("_ARCHIE_RULES", "")
+platform_rules_file = os.environ.get("_ARCHIE_PLATFORM_RULES", "")
+stats_file = os.environ.get("_ARCHIE_STATS", "")
 
-# Validate against rules.
-RESULT="$(python3 -c "
-import json, sys, re, os, datetime
+try:
+    with open(tool_json_file) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(0)
 
-rules_file = '$RULES_FILE'
-file_path = '$FILE_PATH'
-tool_name = '$TOOL_NAME'
-stats_file = '$STATS_FILE'
+tool_name = data.get("tool_name", "")
+if tool_name not in ("Write", "Edit", "MultiEdit"):
+    sys.exit(0)
 
-with open(rules_file) as f:
-    rules = json.load(f)
+tool_input = data.get("tool_input", {})
+file_path = tool_input.get("file_path", "") or tool_input.get("path", "")
+if not file_path:
+    sys.exit(0)
+
+# Skip absolute paths outside project root.
+if file_path.startswith("/") and not file_path.startswith(project_root):
+    sys.exit(0)
+
+# Extract new content (Write.content, Edit.new_string, MultiEdit.edits[*].new_string).
+content = tool_input.get("content", "") or tool_input.get("new_string", "")
+if not content and tool_input.get("edits"):
+    content = "\n".join(e.get("new_string", "") for e in tool_input["edits"])
+
+# Load all rules from rules.json and platform_rules.json.
+rules = []
+for rpath in (rules_file, platform_rules_file):
+    if not rpath or not os.path.isfile(rpath):
+        continue
+    try:
+        loaded = json.load(open(rpath))
+        rules.extend(loaded.get("rules", []) if isinstance(loaded, dict) else loaded)
+    except Exception:
+        pass
 
 filename = os.path.basename(file_path)
+rel_path = file_path
+if file_path.startswith(project_root):
+    rel_path = file_path[len(project_root):].lstrip("/")
+
+def any_match(patterns, text):
+    for p in patterns:
+        try:
+            if re.search(p, text):
+                return True
+        except re.error:
+            continue
+    return False
+
 violations = []
 
-for rule in rules:
-    rule_type = rule.get('check') or rule.get('type', '')
-    severity = rule.get('severity', 'warning')
-    rid = rule.get('id', 'unknown')
-    desc = rule.get('description', '')
+for r in rules:
+    check = r.get("check") or r.get("type", "")
+    severity = r.get("severity", "warn")
+    rid = r.get("id", "unknown")
+    desc = r.get("description", "")
 
-    # Check file_placement rules.
-    if rule_type == 'file_placement':
-        allowed_dirs = rule.get('allowed_dirs', [])
-        if allowed_dirs:
-            matched = False
-            for d in allowed_dirs:
-                if file_path.startswith(d):
+    matched = False
+    if check == "file_placement":
+        dirs = r.get("allowed_dirs", [])
+        if dirs and not any(file_path.startswith(d) for d in dirs):
+            matched = True
+
+    elif check == "naming":
+        pat = r.get("pattern", "")
+        if pat and not re.search(pat, filename):
+            matched = True
+
+    elif check == "file_naming":
+        applies_to = r.get("applies_to", "")
+        file_pattern = r.get("file_pattern", "")
+        if applies_to and fnmatch.fnmatch(rel_path, applies_to) and file_pattern:
+            try:
+                if not re.match(file_pattern, filename):
                     matched = True
-                    break
-            if not matched:
-                violations.append((severity, rid, desc, file_path))
+            except re.error:
+                pass
 
-    # Check naming rules.
-    if rule_type == 'naming':
-        pattern = rule.get('pattern', '')
-        if pattern:
-            if not re.search(pattern, filename):
-                violations.append((severity, rid, desc, file_path))
+    elif check == "forbidden_import":
+        applies_to = r.get("applies_to", "")
+        if applies_to and rel_path.startswith(applies_to) and content:
+            if any_match(r.get("forbidden_patterns", []), content):
+                matched = True
 
-# Log to stats file.
-os.makedirs(os.path.dirname(stats_file) if os.path.dirname(stats_file) else '.', exist_ok=True)
+    elif check == "forbidden_content":
+        applies_to = r.get("applies_to", "")
+        if content and (not applies_to or rel_path.startswith(applies_to)):
+            if any_match(r.get("forbidden_patterns", []), content):
+                matched = True
+
+    elif check == "required_pattern":
+        file_pattern = r.get("file_pattern", "")
+        if file_pattern and fnmatch.fnmatch(filename, file_pattern) and content:
+            required = r.get("required_in_content", [])
+            if required and not any(req in content for req in required):
+                matched = True
+
+    elif check == "architectural_constraint":
+        file_pattern = r.get("file_pattern", "")
+        if file_pattern and fnmatch.fnmatch(filename, file_pattern) and content:
+            if any_match(r.get("forbidden_patterns", []), content):
+                matched = True
+
+    if matched:
+        violations.append((severity, rid, desc, file_path))
+
+# Best-effort stats logging.
+if stats_file and violations:
+    try:
+        d = os.path.dirname(stats_file)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(stats_file, "a") as f:
+            for sev, rid, desc, fp in violations:
+                f.write(json.dumps({
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "rule_id": rid,
+                    "severity": sev,
+                    "file_path": fp,
+                    "tool": tool_name,
+                }) + "\n")
+    except Exception:
+        pass
+
+has_error = any(s == "error" for s, _, _, _ in violations)
 for sev, rid, desc, fp in violations:
-    entry = {
-        'timestamp': datetime.datetime.utcnow().isoformat(),
-        'rule_id': rid,
-        'severity': sev,
-        'file_path': fp,
-        'tool': tool_name,
-    }
-    with open(stats_file, 'a') as f:
-        f.write(json.dumps(entry) + '\n')
-
-# Determine exit.
-has_error = any(s == 'error' for s, _, _, _ in violations)
-messages = []
-for sev, rid, desc, fp in violations:
-    if sev == 'error':
-        messages.append(f'[Archie BLOCKED] {rid}: {desc} (file: {fp}) — please ask the user before proceeding.')
+    if sev == "error":
+        print(f"[Archie BLOCKED] {rid}: {desc} (file: {fp}) — please ask the user before proceeding.")
     else:
-        messages.append(f'[Archie WARNING] {rid}: {desc} (file: {fp})')
+        print(f"[Archie WARNING] {rid}: {desc} (file: {fp})")
 
-if messages:
-    print('\n'.join(messages))
-
-if has_error:
-    sys.exit(2)
-sys.exit(0)
-" 2>/dev/null)"
-
-EXIT_CODE=$?
-
-if [ -n "$RESULT" ]; then
-    echo "$RESULT"
-fi
-
-exit $EXIT_CODE
+sys.exit(2 if has_error else 0)
+PYEOF
 '''
