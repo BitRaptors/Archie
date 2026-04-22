@@ -59,21 +59,82 @@ Exit.
 
 ---
 
+## Phase 0.5: Select mode (full vs incremental)
+
+Ask the user whether to regenerate every folder's CLAUDE.md, or only the folders touched since the last deep scan. Incremental is cheaper and faster for routine catch-up; full is right after major structural changes.
+
+**Deep-scan deltas note**: if you're executing this file from `/archie-deep-scan` Step 7, the mode was already decided earlier in that command (the `SCAN_MODE` variable). Skip this phase — use `SCAN_MODE` directly.
+
+### Step A: Ask for the mode
+
+Call `AskUserQuestion`:
+
+- **question:** "Regenerate all folder CLAUDE.md files, or only folders changed since the last deep scan?"
+- **header:** "Mode"
+- **multiSelect:** false
+- **options** (exactly these three labels and descriptions):
+  1. label `Auto` — description `Detect changes vs the last deep scan. Run incremental if few files changed; full otherwise. Recommended.`
+  2. label `Full` — description `Regenerate every folder's CLAUDE.md. Right after major structural changes, rename waves, or when you want a clean slate. Slower.`
+  3. label `Incremental` — description `Only re-enrich folders containing files that changed since the last deep scan. Fast, preserves unchanged enrichments.`
+
+Map the answer: Auto → `MODE=auto`, Full → `MODE=full`, Incremental → `MODE=incremental`. Expose `MODE` for Phase 1.
+
+### Step B: Resolve Auto
+
+If `MODE=auto`, run detect-changes to pick full or incremental based on change ratio:
+
+```bash
+python3 .archie/intent_layer.py deep-scan-state "$PWD" detect-changes
+```
+
+Parse the JSON output. Set `MODE` to the returned `mode` field (`full` or `incremental`). Print the `reason` to the user so they know why: *"Detected: {mode} ({reason})"*.
+
+If `detect-changes` returns `mode=full` with `reason="no previous deep scan"` — the `last_deep_scan.json` baseline doesn't exist. This shouldn't happen in practice (the blueprint check in Phase 0 implies a deep scan happened), but if it does, proceed with `MODE=full`.
+
+### Step C: Handle the no-op case
+
+If `MODE=incremental` and `affected_folders` is empty (user just ran deep-scan, nothing has changed since), print:
+
+> No folders have changed since the last deep scan. Every folder's CLAUDE.md is already current. Nothing to regenerate.
+
+Exit gracefully. This is a success, not an error.
+
+Otherwise expose `AFFECTED_FOLDERS` (comma-separated) for Phase 1.
+
+---
+
 ## Phase 1: Prepare the folder DAG
+
+**If `MODE=incremental`**, mark only the affected folders + their ancestor chain as dirty:
+
+```bash
+python3 .archie/intent_layer.py prepare "$PWD" --only-folders "$AFFECTED_FOLDERS"
+```
+
+`AFFECTED_FOLDERS` is the comma-separated list from Phase 0.5 Step B (e.g. `openmeter/billing,openmeter/ledger/entry`). The script marks those folders and every qualifying ancestor as dirty; `next-ready` will only return dirty folders, so unchanged folders keep their existing CLAUDE.md untouched.
+
+**If `MODE=full`**, prepare the whole DAG:
 
 ```bash
 python3 .archie/intent_layer.py prepare "$PWD"
+```
+
+### Reset state and ensure enrichments dir exists
+
+```bash
 python3 .archie/intent_layer.py reset-state "$PWD"
 mkdir -p "$PWD/.archie/enrichments"
 ```
 
 This builds `.archie/enrich_batches.json` — the parent→children dependency graph over every folder with source files (plus structural parents). Leaves are processed first, then parents receive summaries of their children.
 
-Print a one-line progress note to the user: *"Preparing intent layer — N folders queued, processed bottom-up."*  Derive N from:
+Print a one-line progress note to the user: *"Preparing intent layer — N folders queued ({mode}), processed bottom-up."*  Derive N from:
 
 ```bash
 python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query '.folders|length'
 ```
+
+In incremental mode N is the size of the dirty subset (affected folders + ancestors), not the total qualifying folders — that's expected.
 
 (Wave count is emergent — it depends on the DAG depth and becomes visible as you loop through `next-ready` calls in Phase 2.)
 

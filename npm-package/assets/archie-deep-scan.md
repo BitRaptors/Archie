@@ -1195,13 +1195,15 @@ Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD
 
 1. **Skip the precondition check (Phase 0).** The blueprint was just produced in Steps 5–6, so the hard-requirement check in `/archie-intent-layer` Phase 0 is a no-op in this context. Do not re-run it.
 
-2. **SCAN_MODE = "incremental" → pass `--only-folders`.** When the preamble set `SCAN_MODE=incremental`, replace the Phase 1 `prepare` call with:
+2. **Skip the mode selector (Phase 0.5).** The deep-scan already decided `SCAN_MODE` in its own preamble — don't ask the user again. In Phase 1 of `/archie-intent-layer`, treat `MODE=incremental` as equivalent to `SCAN_MODE=incremental`, and `MODE=full` as `SCAN_MODE=full`.
+
+3. **SCAN_MODE = "incremental" → pass `--only-folders`.** When the preamble set `SCAN_MODE=incremental`, the Phase 1 `prepare` call becomes:
 
    ```bash
    python3 .archie/intent_layer.py prepare "$PROJECT_ROOT" --only-folders AFFECTED_FOLDER1,AFFECTED_FOLDER2,...
    ```
 
-   Use the comma-separated `affected_folders` list from the detect-changes output. `next-ready` will then only return dirty folders and their ancestors — waves will be much smaller than a full scan.
+   Use the comma-separated `affected_folders` list from the detect-changes output you captured earlier in the deep-scan run. `next-ready` will then only return dirty folders and their ancestors — waves will be much smaller than a full scan.
 
 3. **Batch-processing compact checkpoint.**
 
