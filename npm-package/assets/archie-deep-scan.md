@@ -1175,86 +1175,37 @@ TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 **If START_STEP > 7, skip this step.**
 
-**If `INTENT_LAYER=no` (user opted out in Step E), skip this entire step.** Print a one-line note to the user: *"Intent Layer skipped (no per-folder CLAUDE.md generated). Root CLAUDE.md + rule files still written."* Then proceed to Step 8. The `intent_layer` telemetry step will record zero elapsed time (its `started_at == completed_at`) and carry `"skipped": true` (see Step 10).
-
-This step generates per-folder CLAUDE.md files with AI-generated architectural descriptions using bottom-up DAG scheduling. State is tracked automatically in `.archie/enrich_state.json`.
+**If `INTENT_LAYER=no` (user opted out in Step E), skip this entire step.** Print a one-line note to the user: *"Intent Layer skipped (no per-folder CLAUDE.md generated). Root CLAUDE.md + rule files still written. You can run `/archie-intent-layer` later if you change your mind."* Then proceed to Step 8. The `intent_layer` telemetry step will record zero elapsed time (its `started_at == completed_at`) and carry `"skipped": true` (see Step 10).
 
 **If `INTENT_LAYER=yes`, execute this step fully. Do NOT ask the user whether to run, skip, or reduce scope. Do NOT offer alternatives. Run all batches as instructed below.**
 
-### If SCAN_MODE = "incremental":
+### Shared pipeline
 
-Only re-enrich folders containing changed files + their parent chain. Unchanged folders keep their existing CLAUDE.md.
+**This step runs the exact same pipeline as the standalone `/archie-intent-layer` command.** The canonical description lives there (Phases 1–4): prepare the DAG → loop `next-ready` / `suggest-batches` / Sonnet subagent per batch / `save-enrichment` → `merge` enrichments into per-folder CLAUDE.md files.
 
-1. Prepare with `--only-folders` using the `affected_folders` from the preamble:
-```bash
-python3 .archie/intent_layer.py prepare "$PROJECT_ROOT" --only-folders AFFECTED_FOLDER1,AFFECTED_FOLDER2,...
-python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
-mkdir -p "$PROJECT_ROOT/.archie/enrichments"
-```
+Do NOT duplicate or reinterpret that logic here. Follow Phases 1–4 of `/archie-intent-layer` using `PROJECT_ROOT` in place of `$PWD`, with the deep-scan-specific deltas below layered on top.
 
-Replace `AFFECTED_FOLDER1,AFFECTED_FOLDER2,...` with the comma-separated `affected_folders` list from the detect-changes output. This marks only those folders + their ancestors as dirty. The `next-ready` command will only return dirty folders.
+### Deep-scan-specific deltas
 
-Then proceed with the same wave processing as full mode (step 2 below). The waves will be much smaller since only dirty folders are included.
+1. **Skip the precondition check (Phase 0).** The blueprint was just produced in Steps 5–6, so the hard-requirement check in `/archie-intent-layer` Phase 0 is a no-op in this context. Do not re-run it.
 
-### If SCAN_MODE = "full" (default):
+2. **SCAN_MODE = "incremental" → pass `--only-folders`.** When the preamble set `SCAN_MODE=incremental`, replace the Phase 1 `prepare` call with:
 
-1. Prepare the folder DAG and reset state:
-```bash
-python3 .archie/intent_layer.py prepare "$PROJECT_ROOT"
-python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
-mkdir -p "$PROJECT_ROOT/.archie/enrichments"
-```
-
-2. Process in readiness waves. The script tracks done folders automatically.
-
-   **Repeat until done:**
-
-   a. Get ready folders:
    ```bash
-   python3 .archie/intent_layer.py next-ready "$PROJECT_ROOT"
+   python3 .archie/intent_layer.py prepare "$PROJECT_ROOT" --only-folders AFFECTED_FOLDER1,AFFECTED_FOLDER2,...
    ```
-   The script reads done state from `.archie/enrich_state.json` automatically. First call returns all leaf folders.
 
-   b. If the ready list is empty (`[]`), all folders are done. Proceed to step 3.
+   Use the comma-separated `affected_folders` list from the detect-changes output. `next-ready` will then only return dirty folders and their ancestors — waves will be much smaller than a full scan.
 
-   c. Get batches for the ready folders:
+3. **Batch-processing compact checkpoint.**
+
+   **✓ Compact Checkpoint B** — between Intent Layer waves. After every wave's `save-enrichment` commands have all returned (so no subagent is in flight and all completed folders are persisted in `enrich_state.json`), this is a safe compaction boundary. Suggested frequency: every 3 waves when the project has >20 folders. On small projects (<20 folders) ignore this checkpoint. Procedure: `/compact` → `/archie-deep-scan --continue` → Resume Prelude sees `last_completed=6` and re-enters Step 7, which calls `next-ready` and resumes from the next wave using disk state alone.
+
+4. **Mark step complete at the end.** After Phase 3 (`merge`) and Phase 4 (cleanup) of the standalone command, record completion:
+
    ```bash
-   python3 .archie/intent_layer.py suggest-batches "$PROJECT_ROOT" <ready1> <ready2> ...
+   python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
    ```
-   Output is JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `batch_id`) to reference batches. Do NOT write ad-hoc Python to inspect this — use the output directly.
-
-   d. For each batch, generate the prompt and spawn a subagent:
-   ```bash
-   python3 .archie/intent_layer.py prompt "$PROJECT_ROOT" --folders <comma-separated> --child-summaries "$PROJECT_ROOT/.archie/enrichments/" > /tmp/archie_intent_prompt_$PROJECT_NAME.txt
-   ```
-   Read the prompt file. Spawn a Sonnet subagent (`model: "sonnet"`) with the prompt content. The subagent must return ONLY valid JSON with folder paths as keys.
-   **Spawn ALL batches in a wave in parallel.**
-
-   e. After each subagent completes, save its COMPLETE output text to a temp file, then use the save-enrichment command to extract JSON and mark folders as done:
-   ```
-   Write /tmp/archie_enrichment_<batch_id>.json with the subagent's COMPLETE output text
-   ```
-   ```bash
-   python3 .archie/intent_layer.py save-enrichment "$PROJECT_ROOT" <batch_id> /tmp/archie_enrichment_<batch_id>.json
-   ```
-   This extracts the JSON, saves it to `.archie/enrichments/<batch_id>.json`, and automatically marks the folders as done.
-
-   **IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT write inline Python to process agent output. The save-enrichment command handles everything including conversation envelopes, code fences, multi-block merging, and escape issues.**
-
-   f. **✓ Compact Checkpoint B** — between Intent Layer waves. After every wave's `save-enrichment` commands have all returned (so no subagent is in flight and all completed folders are persisted in `enrich_state.json`), this is a safe compaction boundary. Suggested frequency: every 3 waves when the project has >20 folders. On small projects (<20 folders) ignore this checkpoint. Procedure: `/compact` → `/archie-deep-scan --continue` → Resume Prelude sees `last_completed=6` and re-enters Step 7, which calls `next-ready` and resumes from the next wave using disk state alone.
-
-   g. Go to (a) for the next wave.
-
-3. Merge enrichments into CLAUDE.md files:
-```bash
-python3 .archie/intent_layer.py merge "$PROJECT_ROOT"
-```
-
----
-
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7
-```
 
 ---
 
