@@ -1183,7 +1183,13 @@ TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 **This step runs the exact same pipeline as the standalone `/archie-intent-layer` command.** The canonical description lives there (Phases 1–4): prepare the DAG → loop `next-ready` / `suggest-batches` / Sonnet subagent per batch / `save-enrichment` → `merge` enrichments into per-folder CLAUDE.md files.
 
-Do NOT duplicate or reinterpret that logic here. Follow Phases 1–4 of `/archie-intent-layer` using `PROJECT_ROOT` in place of `$PWD`, with the deep-scan-specific deltas below layered on top.
+**Load the canonical prose into context before starting** — slash-command bodies are not cross-loaded automatically, so you must Read the file yourself:
+
+```
+Read .claude/commands/archie-intent-layer.md
+```
+
+Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD`, with the deep-scan-specific deltas below layered on top. Do NOT reinterpret or re-derive the pipeline logic — follow what the file says.
 
 ### Deep-scan-specific deltas
 

@@ -72,7 +72,7 @@ This builds `.archie/enrich_batches.json` — the parent→children dependency g
 Print a one-line progress note to the user: *"Preparing intent layer — N folders queued, processed bottom-up."*  Derive N from:
 
 ```bash
-python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query .folders|length
+python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query '.folders|length'
 ```
 
 (Wave count is emergent — it depends on the DAG depth and becomes visible as you loop through `next-ready` calls in Phase 2.)
@@ -169,7 +169,7 @@ Re-run this command after major structural changes, or let /archie-deep-scan reg
 Derive N (count of enriched folders) from `.archie/enrich_state.json`:
 
 ```bash
-python3 .archie/intent_layer.py inspect "$PWD" enrich_state.json --query .done|length
+python3 .archie/intent_layer.py inspect "$PWD" enrich_state.json --query '.done|length'
 ```
 
 To list the enriched folder paths themselves:
