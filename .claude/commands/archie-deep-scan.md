@@ -24,16 +24,13 @@ If you need data not covered by these commands, proceed without it or ask the us
 Check the user's message (ARGUMENTS) for flags:
 
 **If `--from N` is present** (e.g., `/archie-deep-scan --from 5`):
-1. Set START_STEP = N (the number after --from)
+1. Set `START_STEP = N` (the number after --from) and `RESUME_ACTION=resume` (so the Resume Prelude rehydrates shell variables from `deep_scan_state.run_context`).
 2. Validate prerequisites exist:
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" check-prereqs N
 ```
 3. If check fails, tell the user which files are missing and which earlier step to run.
-4. If check passes, proceed. Set state:
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
-```
+4. If check passes, proceed. Do NOT call `deep-scan-state init` — it would wipe the state the Resume Prelude needs to read.
 
 **If `--continue` is present:**
 1. Read state (no prompt — `--continue` is an explicit opt-in):
@@ -270,9 +267,18 @@ At every "✓ Step N complete" boundary, all state needed to resume lives on dis
 
 After a `/compact`, running `/archie-deep-scan --continue` re-enters via the **Resume Prelude** below, which rehydrates every shell variable from disk before jumping to the next step. No conversation memory required.
 
-## Resume Prelude (runs whenever `--continue` or `--from N` is supplied)
+## Resume Prelude (runs whenever `RESUME_ACTION=resume`)
 
-Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context. Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
+Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context.
+
+`RESUME_ACTION=resume` is set by the Preamble in any of these cases:
+- `--continue` flag was passed (explicit opt-in)
+- `--from N` flag was passed (explicit opt-in; also sets `START_STEP=N`)
+- **No flag was passed, partial state was detected, and the user chose "Resume"** at the interactive prompt (the bare-invocation path added in v2.4)
+
+In all three cases, the variables `SCOPE`, `INTENT_LAYER`, `SCAN_MODE`, `MONOREPO_TYPE`, `WORKSPACES`, `PROJECT_ROOT`, `PROJECT_NAME` need to be rehydrated from `deep_scan_state.run_context` — they were set during the original run and persisted to disk. Without this block, the resumed run has no idea what scope was chosen, whether Intent Layer was opt-in, etc.
+
+Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
 
 ```bash
 # 1. Read last_completed via dedicated CLI. A fresh run returns "null" → normalise to 0.
@@ -1276,7 +1282,9 @@ Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD
 
 1. **Skip the precondition check (Phase 0).** The blueprint was just produced in Steps 5–6, so the hard-requirement check in `/archie-intent-layer` Phase 0 is a no-op in this context. Do not re-run it.
 
-2. **Auto-resume when deep-scan is in `--continue` mode.** If this invocation of deep-scan is itself a resume (the Resume Prelude found `last_completed >= 6`), pass `RESUME_INTENT=continue` to the Intent Layer — the Phase 0.25 reconciliation will pick up whatever was mid-flight when the prior run compacted/died. For fresh deep-scan runs, `RESUME_INTENT=ask` is fine; Phase 0.25 will see no partial state and set `RESUME_MODE=fresh` automatically.
+2. **Auto-resume when this deep-scan itself is resuming.** If the Preamble set `RESUME_ACTION=resume` (from `--continue`, `--from N`, or the user picking "Resume" at the bare-invocation prompt), pass `RESUME_INTENT=continue` to the Intent Layer. Phase 0.25 in the intent-layer skips its own reconciliation prompt and auto-resumes from the on-disk done list.
+
+   For fresh deep-scan runs (`RESUME_ACTION=fresh`), pass `RESUME_INTENT=ask`. Phase 0.25 will either see no partial state (the Preamble's Fresh-start path already reset it) or — in the rare case where enrichments survived the reset — ask the user. The Fresh-start path in the Preamble explicitly resets enrich_state + enrichments/, so this should be a no-op in practice.
 
 3. **Skip the mode selector (Phase 0.5).** The deep-scan already decided `SCAN_MODE` in its own preamble — don't ask the user again. In Phase 1 of `/archie-intent-layer`, treat `MODE=incremental` as equivalent to `SCAN_MODE=incremental`, and `MODE=full` as `SCAN_MODE=full`.
 
