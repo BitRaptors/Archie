@@ -231,6 +231,19 @@ In incremental mode N is the size of the dirty subset (affected folders + ancest
 
 For `RESUME_MODE=resume` and `RESUME_MODE=fresh` the flow is identical: `next-ready` reads the done list from disk and returns only folders that still need enrichment. The difference is just the starting point of the done list (non-empty for resume, empty for fresh).
 
+### Status-line labeling (honor the current mode)
+
+When you spawn subagents via the Agent tool and when you narrate progress to the user, label the run according to `RESUME_MODE` so status lines are accurate:
+
+| RESUME_MODE | MODE | Label to use |
+|---|---|---|
+| `fresh` | `full` | `"Intent Layer — full generation"` |
+| `fresh` | `incremental` | `"Intent Layer — incremental generation"` |
+| `resume` | (either) | `"Intent Layer — resume"` (optionally append counts: `"resume (6 remaining)"`) |
+| `finalize_partial` | — | `"Intent Layer — finalize partial"` (this phase is skipped anyway) |
+
+Do NOT use "full regeneration" during a resume — the resume path only touches folders that weren't already done, not every folder.
+
 Loop until every folder is enriched.
 
 ### Each iteration:
