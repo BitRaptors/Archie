@@ -1228,7 +1228,9 @@ Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD
 
 1. **Skip the precondition check (Phase 0).** The blueprint was just produced in Steps 5–6, so the hard-requirement check in `/archie-intent-layer` Phase 0 is a no-op in this context. Do not re-run it.
 
-2. **Skip the mode selector (Phase 0.5).** The deep-scan already decided `SCAN_MODE` in its own preamble — don't ask the user again. In Phase 1 of `/archie-intent-layer`, treat `MODE=incremental` as equivalent to `SCAN_MODE=incremental`, and `MODE=full` as `SCAN_MODE=full`.
+2. **Auto-resume when deep-scan is in `--continue` mode.** If this invocation of deep-scan is itself a resume (the Resume Prelude found `last_completed >= 6`), pass `RESUME_INTENT=continue` to the Intent Layer — the Phase 0.25 reconciliation will pick up whatever was mid-flight when the prior run compacted/died. For fresh deep-scan runs, `RESUME_INTENT=ask` is fine; Phase 0.25 will see no partial state and set `RESUME_MODE=fresh` automatically.
+
+3. **Skip the mode selector (Phase 0.5).** The deep-scan already decided `SCAN_MODE` in its own preamble — don't ask the user again. In Phase 1 of `/archie-intent-layer`, treat `MODE=incremental` as equivalent to `SCAN_MODE=incremental`, and `MODE=full` as `SCAN_MODE=full`.
 
 3. **SCAN_MODE = "incremental" → pass `--only-folders`.** When the preamble set `SCAN_MODE=incremental`, the Phase 1 `prepare` call becomes:
 

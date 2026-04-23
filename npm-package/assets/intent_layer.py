@@ -1283,8 +1283,18 @@ def cmd_merge(root: Path):
 
     patched = 0
     created = 0
+    skipped_missing = 0
     for folder_path, enrichment_data in sorted(all_enrichments.items()):
-        claude_md_path = root / folder_path / "CLAUDE.md"
+        # Defensive: skip enrichments whose folder no longer exists on disk.
+        # Happens after resume if the repo was restructured between runs, or
+        # when finalize-partial ingests orphan /tmp enrichments for folders
+        # that never landed anywhere real.
+        folder_abs = root / folder_path
+        if not folder_abs.is_dir():
+            skipped_missing += 1
+            continue
+
+        claude_md_path = folder_abs / "CLAUDE.md"
         ai_section = _render_enrichment_section(enrichment_data)
         dir_name = folder_path.rsplit("/", 1)[-1] if "/" in folder_path else folder_path
 
@@ -1333,13 +1343,15 @@ def cmd_merge(root: Path):
             claude_md_path.write_text(content)
             patched += 1
         else:
-            # Create new CLAUDE.md
+            # Folder exists (we verified above), but no CLAUDE.md yet — create it.
             content = f"# {dir_name}\n\n{ai_section}\n"
-            claude_md_path.parent.mkdir(parents=True, exist_ok=True)
             claude_md_path.write_text(content)
             created += 1
 
-    print(f"Enrichment merge: {patched} patched, {created} created", file=sys.stderr)
+    summary = f"Enrichment merge: {patched} patched, {created} created"
+    if skipped_missing:
+        summary += f", {skipped_missing} skipped (folder no longer exists)"
+    print(summary, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

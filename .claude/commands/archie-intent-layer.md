@@ -9,6 +9,14 @@ Use this when the user skipped Intent Layer during `/archie-deep-scan` (chose "N
 **CRITICAL CONSTRAINT: Never write inline Python.**
 Do NOT use `python3 -c "..."` for inspection, parsing, or transformation. Every operation uses a dedicated `.archie/*.py` command. If you need data not covered by these commands, proceed without it or ask the user. NEVER improvise Python.
 
+### Flags (optional)
+
+If invoked as `/archie-intent-layer --continue` → set `RESUME_INTENT=continue` before anything else. Skip the Phase 0 AskUserQuestion if partial state is detected.
+
+If invoked as `/archie-intent-layer --finalize-partial` → set `RESUME_INTENT=finalize`. Skip the Phase 0 AskUserQuestion if partial state is detected.
+
+Otherwise → `RESUME_INTENT=ask`.
+
 ---
 
 ## Phase 0: Precondition check
@@ -59,7 +67,76 @@ Exit.
 
 ---
 
+## Phase 0.25: Detect and reconcile partial state
+
+If a previous `/archie-intent-layer` run was interrupted (hit a usage cap, got compacted, Ctrl+C'd), persistent state survives on disk. Before starting a fresh loop, check whether we can continue from where it stopped.
+
+### Detect partial state
+
+```bash
+python3 .archie/intent_layer.py inspect "$PWD" enrich_state.json --query '.done|length' 2>/dev/null
+python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query '.folders|length' 2>/dev/null
+```
+
+- Both return numeric N > 0 **and** `enrich_state.json.done|length > 0` → **partial state exists**. Continue to the resume-mode picker.
+- Either is `null` / missing / 0 → **no partial state**. Set `RESUME_MODE=fresh` and skip to Phase 0.5.
+
+### Sweep /tmp for orphan enrichments (BEFORE asking the user)
+
+If a previous orchestrator crashed between "subagent wrote /tmp file" and "orchestrator ran save-enrichment", `/tmp` may contain batch outputs that never got registered. Ingest them so they count toward the resume numbers:
+
+```bash
+for tmp in /tmp/archie_enrichment_*.json; do
+    [ -f "$tmp" ] || continue
+    batch_id=$(basename "$tmp" .json | sed 's/^archie_enrichment_//')
+    # save-enrichment is idempotent — overwriting an existing
+    # .archie/enrichments/<id>.json with the same content is safe,
+    # and appending already-done folders to the state is a set-like op.
+    python3 .archie/intent_layer.py save-enrichment "$PWD" "$batch_id" "$tmp" 2>/dev/null || true
+done
+```
+
+Re-read `.done|length` after the sweep so the user sees accurate numbers.
+
+### Resolve RESUME_MODE
+
+Three paths depending on `RESUME_INTENT`:
+
+**If `RESUME_INTENT=continue`** → `RESUME_MODE=resume`. Skip the prompt.
+
+**If `RESUME_INTENT=finalize`** → `RESUME_MODE=finalize_partial`. Skip the prompt.
+
+**If `RESUME_INTENT=ask`** → call `AskUserQuestion`:
+
+- **question:** "A previous Intent Layer run was interrupted. {N_DONE} of {N_TOTAL} folders are already enriched. What do you want to do?"
+- **header:** "Resume"
+- **multiSelect:** false
+- **options** (exactly these three labels):
+  1. label `Resume` — description `Pick up where we stopped. Keeps completed enrichments, processes remaining folders, merges everything. Use when you can continue.`
+  2. label `Finalize partial` — description `Merge what's already enriched into per-folder CLAUDE.md files and skip the unfinished folders. Fast, ends in one step. Use when you hit a usage cap and cannot continue.`
+  3. label `Fresh start` — description `Discard progress and run from scratch with the mode picker. Use only after major structural changes — you lose the work done so far.`
+
+Map the answer: Resume → `RESUME_MODE=resume`, Finalize partial → `RESUME_MODE=finalize_partial`, Fresh start → `RESUME_MODE=fresh`.
+
+### Check for baseline drift (warn on resume/finalize)
+
+If `RESUME_MODE` is `resume` or `finalize_partial`, verify the last deep-scan baseline hasn't moved since the state was written:
+
+```bash
+python3 .archie/intent_layer.py inspect "$PWD" last_deep_scan.json --query .commit_sha
+```
+
+If this SHA differs from what the state was built against (compare via `git log` on the current HEAD), warn:
+
+> **Note:** the blueprint baseline has moved since this Intent Layer run started. The completed enrichments may reference components that no longer exist. Continue if you trust the overlap; otherwise re-run `/archie-deep-scan` then `/archie-intent-layer` fresh.
+
+Do not block. The user asked to continue; they can judge. The defensive `cmd_merge` skip-missing-folders keeps this safe in the worst case.
+
+---
+
 ## Phase 0.5: Select mode (full vs incremental)
+
+**Skip this phase entirely if `RESUME_MODE` is `resume` or `finalize_partial`.** When resuming, the mode was already decided during the prior run and encoded in the existing `enrich_batches.json`. For `finalize_partial` there's no wave loop anyway — only merge runs.
 
 Ask the user whether to regenerate every folder's CLAUDE.md, or only the folders touched since the last deep scan. Incremental is cheaper and faster for routine catch-up; full is right after major structural changes.
 
@@ -105,6 +182,14 @@ Otherwise expose `AFFECTED_FOLDERS` (comma-separated) for Phase 1.
 
 ## Phase 1: Prepare the folder DAG
 
+**Dispatch based on `RESUME_MODE`:**
+
+- **`RESUME_MODE=resume`** → **skip `prepare` AND skip `reset-state`.** The existing `enrich_batches.json` is still valid; `enrich_state.json.done` is what we want to preserve. Just ensure the enrichments dir exists (`mkdir -p`) and jump to Phase 2.
+- **`RESUME_MODE=finalize_partial`** → skip this entire phase. Jump to Phase 3 (merge) — no new subagents will spawn.
+- **`RESUME_MODE=fresh`** → run the full prepare + reset flow below.
+
+### Fresh-start prepare (`RESUME_MODE=fresh` only)
+
 **If `MODE=incremental`**, mark only the affected folders + their ancestor chain as dirty:
 
 ```bash
@@ -141,6 +226,10 @@ In incremental mode N is the size of the dirty subset (affected folders + ancest
 ---
 
 ## Phase 2: Process folders bottom-up (parallel per wave)
+
+**Skip this entire phase if `RESUME_MODE=finalize_partial`** — no new subagents spawn; jump straight to Phase 3 (merge) with whatever's already in `.archie/enrichments/`.
+
+For `RESUME_MODE=resume` and `RESUME_MODE=fresh` the flow is identical: `next-ready` reads the done list from disk and returns only folders that still need enrichment. The difference is just the starting point of the done list (non-empty for resume, empty for fresh).
 
 Loop until every folder is enriched.
 
