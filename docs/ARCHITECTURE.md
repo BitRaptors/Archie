@@ -49,14 +49,14 @@ The core workflow:
 3. **Store** — architectural synthesis lands in `blueprint.json`; concrete problems land in the shared, compounding `findings.json` store (4-field shape with id-stable upsert).
 4. **Render** — deterministic JSON-to-Markdown generation of CLAUDE.md, AGENTS.md, optional per-folder context, and rule files.
 5. **Enforce** — Claude Code hooks validate every file write against extracted rules.
-6. **Share** (optional) — `/archie-share` uploads a bundle to a hosted React viewer at `archie-viewer.vercel.app` via a Supabase edge function.
+6. **Share** (optional) — `/archie-share` has three modes. **Default** uploads a bundle to BitRaptors' Supabase edge function and renders via the hosted React viewer at `archie-viewer.vercel.app`. **Enterprise (stored credentials)** uploads directly to the customer's own S3 bucket via pure-stdlib sigv4 signing — BitRaptors is never in the data path; the GET URL rides in the share URL's fragment (never transmitted to any server); the viewer fetches client-side from the customer bucket. **Enterprise (paste URL)** is the same flow but with a per-share presigned PUT URL minted by the customer's InfoSec, so no credentials ever live on the dev's laptop.
 
 Archie has four user-facing slash commands (+ one local inspector):
 
 - **`/archie-scan`** — architecture health check (1–3 min). Runs deterministic scanner for data gathering, then AI acts as a senior architect: analyzes dependencies, finds pattern drift, identifies complexity hotspots, proposes enforceable rules. Writes concrete findings to the shared `.archie/findings.json` store with id-stable upsert. Single AI synthesis, 3 parallel Sonnet agents below it.
 - **`/archie-deep-scan`** — comprehensive baseline (15–20 min). Full 2-wave multi-agent analysis (3–4 parallel Sonnet fact-gatherers + one Opus reasoner). Produces complete blueprint and all outputs. Supports `--incremental` (changed files only, 3–6 min), `--continue` (resume interrupted run), `--from N` (resume from step N), `--reconfigure` (re-prompt monorepo scope). Auto-detects monorepos and offers parallel sub-project analysis. Intent Layer (per-folder CLAUDE.md) is **opt-in** via an interactive prompt at Step E.
 - **`/archie-intent-layer`** — standalone per-folder CLAUDE.md regeneration. Phase 0.5 asks Full/Incremental/Auto upfront (Auto uses `detect-changes` against the `last_deep_scan.json` baseline). Hard-requires `blueprint.json` — otherwise tells the user to run `/archie-deep-scan` first, no degraded path. **Shares its Phases 1–4 pipeline with `/archie-deep-scan` Step 7** (single source of truth); deep-scan Reads this file and layers its own deltas (telemetry, SCAN_MODE mapping, Compact Checkpoint B).
-- **`/archie-share`** — uploads blueprint + findings + scan report to the shared viewer and returns a URL.
+- **`/archie-share`** — uploads blueprint + findings + scan report and returns a URL. Dual-mode at share time: default (BitRaptors Supabase, unchanged) or enterprise (BYO customer S3 bucket, zero BitRaptors storage). Enterprise mode supports either stored credentials (one-time `share_setup.py`) or per-share presigned PUT URL paste. See [Share Pipeline](#share-pipeline-archie-share) for the full architecture.
 - **`/archie-viewer`** — local HTML inspector (served from `viewer.py`) with 7 tabs: Dashboard, Scan Reports, Blueprint, Rules, Files, Dependencies, Workspace.
 
 ---
@@ -113,7 +113,7 @@ archie/
     intent_layer.py             # Generate per-folder CLAUDE.md with local patterns
   rules/
     extractor.py                # Extract file_placement + naming rules from blueprint -> rules.json
-  standalone/                   # Zero-dependency scripts (19 files, exported to target projects)
+  standalone/                   # Zero-dependency scripts (20 files, exported to target projects)
     _common.py                  # IgnoreMatcher, BulkMatcher, DECISION_RE, normalize_blueprint
     scanner.py                  # File tree, import graph, framework detection, skeleton extraction, bulk manifest
     renderer.py                 # Generate CLAUDE.md, AGENTS.md, rule files from blueprint
@@ -131,7 +131,8 @@ archie/
     refresh.py                  # File change detection (hash comparison)
     extract_output.py           # rules / deep-drift / recent-files / save-duplications subcommands
     telemetry.py                # Per-run step-level wall-clock timing + steps-count action
-    upload.py                   # Build share bundle + POST to Supabase edge function
+    upload.py                   # Build share bundle; default mode POSTs to Supabase, enterprise modes do sigv4-PUT or presigned-PUT to customer bucket + build fragment-embedded viewer URL
+    share_setup.py              # Enterprise share setup wizard: writes ~/.archie/share-profile.json (chmod 600) from flags
     lint_gate.py                # Opt-in external linter gate (ruff / eslint / golangci-lint / semgrep) behind .archie/enforcement.json
 
 npm-package/
@@ -173,7 +174,7 @@ tests/                          # 30 test files, ~4,000 LOC
   test_refresh_e2e.py
   test_ignore_patterns.py
   test_health_append.py, test_normalize.py, test_inspect.py
-  test_telemetry.py, test_upload.py
+  test_telemetry.py, test_upload.py, test_share_setup.py
 
 docs/
   ARCHITECTURE.md               # This file
@@ -651,7 +652,7 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 
 ## Standalone Scripts
 
-19 zero-dependency Python scripts in `archie/standalone/`. These are exported to target projects via `npx @bitraptors/archie`.
+20 zero-dependency Python scripts in `archie/standalone/`. These are exported to target projects via `npx @bitraptors/archie`.
 
 | Script | Purpose |
 |--------|---------|
@@ -672,7 +673,8 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 | `refresh.py` | File change detection (hash comparison) |
 | `extract_output.py` | Subcommands: `rules`, `deep-drift`, `recent-files`, `save-duplications` |
 | `telemetry.py` | Per-run step-level wall-clock timing → `.archie/telemetry/<command>_<ts>.json`. Subcommands: `mark`, `finish`, `extra`, `read`, `write`, `clear`, `steps-count` |
-| `upload.py` | Build share bundle + POST to Supabase edge function |
+| `upload.py` | Build share bundle. Default mode POSTs raw bundle to Supabase edge function. Enterprise modes wrap bundle in `{bundle, created_at}` envelope and either (a) sigv4-PUT directly to customer S3 bucket + generate presigned GET URL (`--mode enterprise-creds`), or (b) do plain HTTP PUT to a customer-provided presigned URL (`--mode enterprise-paste --put-url ... --get-url ...`). All modes produce a URL; enterprise modes encode the GET URL in the viewer URL's fragment. |
+| `share_setup.py` | One-time setup wizard for enterprise share Mode 2A. Accepts `--bucket --region --access-key-id --secret-access-key [--key-prefix] [--presign-expires-seconds]` and writes `~/.archie/share-profile.json` with `chmod 600`. Per-user (not per-project). |
 | `lint_gate.py` | Opt-in external linter gate (Tier 3). Invoked by `post-lint.sh`; reads `.archie/enforcement.json`; auto-detects ruff / eslint / golangci-lint / semgrep based on project config files + binary on PATH; per-kind config overrides; `target: "parent"` dispatch for package-aware linters (golangci-lint) |
 
 ---
@@ -686,7 +688,7 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 1. **Clean install** — removes old `.py` scripts from `.archie/`, old slash commands from commands dir, old hooks from `.claude/hooks/`, and hook section from `.claude/settings.local.json`
 2. Create commands directory (default `.claude/commands/`) and `.archie/` in the target project
 3. Copy 5 slash commands (`archie-scan.md`, `archie-deep-scan.md`, `archie-intent-layer.md`, `archie-share.md`, `archie-viewer.md`)
-4. Copy 19 standalone Python scripts to `.archie/` (including `lint_gate.py` for the opt-in external linter gate)
+4. Copy 20 standalone Python scripts to `.archie/` (including `lint_gate.py` for the opt-in external linter gate and `share_setup.py` for enterprise share profile setup)
 5. Copy `platform_rules.json`
 6. Copy `.archieignore` default (only if not already present — preserves user customisations)
 7. Copy `.archiebulk` default (only if not already present)
@@ -722,7 +724,30 @@ Developer assistance skills (`check-architecture`, `check-naming`, `how-to-imple
 
 ## Share Pipeline (`/archie-share`)
 
-Upload a blueprint + findings + scan report to a hosted React viewer.
+Upload a blueprint + findings + scan report to a hosted React viewer. Three modes — picked interactively at share time.
+
+### Mode overview
+
+| Mode | Where blueprint lives | Credentials on dev disk | URL shape | BitRaptors stores |
+|---|---|---|---|---|
+| **Default** | BitRaptors Supabase | none | `archie-viewer.vercel.app/r/{token}` | Full bundle JSON |
+| **Enterprise — stored credentials** (Mode 2A) | Customer's S3 bucket | AWS access key/secret in `~/.archie/share-profile.json` (`chmod 600`) | `archie-viewer.vercel.app/r/ext#{base64url(presigned-GET)}` | **Nothing** |
+| **Enterprise — paste URL** (Mode 2B) | Customer's bucket (any S3-compatible / Azure / GCS) | None — InfoSec mints presigned PUT per share | `archie-viewer.vercel.app/r/ext#{base64url(GET)}` | **Nothing** |
+
+Default is the out-of-the-box behavior. Enterprise modes are for teams whose InfoSec blocks uploading architecture data to third-party infrastructure.
+
+### Key architectural property — URL fragment carries the GET URL
+
+The URL fragment (`#...`) is a browser-only construct — never transmitted to any server in HTTP requests. In enterprise modes:
+
+1. Archie uploads the bundle directly to the customer's bucket.
+2. Archie base64url-encodes the GET URL (presigned in Mode 2A, customer-supplied in Mode 2B) into the share URL's fragment.
+3. When a teammate opens the URL, their browser loads the static viewer JS from Vercel but the fragment never goes over the network.
+4. The viewer reads `window.location.hash` client-side, decodes the GET URL, and `fetch()`s the blueprint directly from the customer bucket.
+
+Net effect: **BitRaptors' only role in enterprise mode is serving static JS from Vercel**. No data at rest, no pointer storage, no metadata captured.
+
+### Default flow (unchanged)
 
 ```
 Local project                    Supabase (upload function)              Supabase DB
@@ -747,7 +772,75 @@ User shares URL  -->  React viewer  -->  GET /functions/v1/blueprint?token=… -
                         (CoverPage preview + ReportPage details)
 ```
 
+### Enterprise Mode 2A — stored credentials
+
+Setup (one-time):
+
+```bash
+python3 .archie/share_setup.py \
+  --bucket acme-archie-shares \
+  --region us-east-1 \
+  --access-key-id AKIA… \
+  --secret-access-key … \
+  [--key-prefix archie-shares/] \
+  [--presign-expires-seconds 604800]
+```
+
+`share_setup.py` writes `~/.archie/share-profile.json` with `chmod 600` (owner read/write only). The file never lives in the project directory — it's per-user, not per-project.
+
+Flow:
+
+```
+Local project                        Customer S3 bucket
+  |                                           |
+  archie-share (mode=enterprise-creds)        |
+  |                                           |
+  python3 .archie/upload.py --mode=...        |
+  |     _read_share_profile()                 |
+  |     _build_enterprise_bundle()            |
+  |     _sigv4_sign_put() --------> PUT /archie-shares/<uuid>.json
+  |                                           |
+  |     _sigv4_presign_get()   <-- returns presigned GET URL (7-day expiry)
+  |                                           |
+  |     _build_enterprise_share_url()         |
+  Print:  archie-viewer.vercel.app/r/ext#<base64url(get_url)>
+
+Teammate opens URL:
+  Browser --> Vercel (static JS only) --> fetches blueprint directly
+                                          from customer bucket via fragment-decoded URL
+```
+
+SigV4 signing is pure stdlib (`hashlib`, `hmac`, `urllib.parse`, `datetime`) — no boto3. Implementation validated against AWS's canonical presigned-GET test vector (signature `aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404`).
+
+Scope: AWS virtual-hosted-style (`{bucket}.s3.{region}.amazonaws.com`). S3-compatible services (R2, B2, Minio, Wasabi) use different DNS shapes and need a future `endpoint_url` profile override. Non-AWS users should use Mode 2B.
+
+### Enterprise Mode 2B — per-share presigned PUT URL
+
+No setup, no credentials persisted. Per-share workflow:
+
+```
+Dev:                                 InfoSec:
+  /archie-share                       acme-archie-url-mint (Lambda/script/ticket)
+      picks enterprise-paste               generates presigned PUT + GET pair
+      prompts for URLs                     — URLs expire (typically 1h)
+  pastes URLs     <------------------- hands over
+  |
+  python3 .archie/upload.py \
+    --mode=enterprise-paste \
+    --put-url "<PRESIGNED_PUT>" \
+    --get-url "<PRESIGNED_GET>"
+  |
+  HTTP PUT --------> customer bucket (via presigned PUT URL)
+  |
+  _build_enterprise_share_url(GET)
+  Print:  archie-viewer.vercel.app/r/ext#<base64url(get_url)>
+```
+
+Cloud-agnostic by design — Mode 2B is the recommended path for Azure Blob, GCS, Artifactory, or any HTTP-PUT-accepting endpoint. InfoSec keeps full control over URL lifetime and audit trail via their own minter.
+
 ### Upload bundle (`upload.py::build_bundle`)
+
+Shared across all three modes:
 
 ```python
 {
@@ -758,21 +851,38 @@ User shares URL  -->  React viewer  -->  GET /functions/v1/blueprint?token=… -
   "rules_proposed": {...},
   "scan_report": "...",
   "semantic_duplications": [...],        # structured, from semantic_duplications.json
-  "findings": [...]                       # from findings.json (shared store)
+  "findings": [...]                      # from findings.json (shared store)
 }
 ```
 
+In enterprise modes, the bundle is wrapped in an envelope `{bundle, created_at}` before upload so the viewer's `ReportResponse` shape matches both flows. `created_at` is the scan timestamp (`blueprint.meta.scanned_at` / `last_scan`), not the upload time, so re-shares show a stable date.
+
 ### Supabase edge functions (`share/supabase/functions/`)
+
+Used only in default mode — not touched by enterprise modes.
 
 - **`upload/index.ts`** — accepts JSON up to 5 MB, validates `blueprint` field, generates 24-char token, inserts `{token, bundle, size_bytes}` into the `reports` table.
 - **`blueprint/index.ts`** — fetches bundle by token, returns `{bundle, created_at}`.
 
 ### React viewer (`share/viewer/`)
 
-Two routes:
+Two routes, three fetch paths:
 
 - **`/r/{token}`** — Cover page (`CoverPage.tsx`): executive summary, top-6 findings, headline metrics, hero CTA to full report.
 - **`/r/{token}/details`** — Details page (`ReportPage.tsx`): full blueprint with sidebar navigation. Sections: Executive Summary, System Health, Architecture Diagram, Workspace Topology, Architecture Rules, Development Rules, Key Decisions, Trade-offs, Implementation Guidelines, Communications, Components, **Integrations** (split out from Communications into its own Inventory section), Technology Stack, Deployment, Architectural Problems, Pitfalls.
+
+`fetchReport(token)` in `share/viewer/src/lib/api.ts` routes on the token value:
+
+- Any token OTHER than the sentinel `ext` → GET `${SUPABASE}/blueprint?token=X` (default flow, unchanged)
+- Token `ext` → read `window.location.hash`, base64url-decode to the GET URL, fetch directly from customer bucket with CORS + 403-expired error messaging
+
+The sentinel routing means **zero behavioral change for existing share URLs** — anything without the `ext` token falls through to the legacy Supabase path.
+
+### Customer bucket setup (enterprise)
+
+The customer's bucket needs CORS allowing `https://archie-viewer.vercel.app` (so the browser can `fetch()` cross-origin) plus an IAM user with narrow `s3:PutObject` + `s3:GetObject` scoped to the prefix. See [`docs/enterprise-share-setup.md`](enterprise-share-setup.md) for the CORS policy template, IAM policy template, and step-by-step walkthrough for an InfoSec team.
+
+The `/archie-share` slash command also offers a **"Help me ask InfoSec for a bucket"** option — the agent asks three context questions (company name, preferred bucket name, cloud provider) and composes a ready-to-paste request with the CORS + IAM JSON inlined, adapted to AWS / Azure / GCS.
 
 ### Backward compatibility
 
@@ -1105,5 +1215,5 @@ python3 scripts/verify_sync.py
 This verifies all canonical files, asset copies, and `archie.mjs` references are consistent. It catches missing copies, orphan assets, and dead installer references, then reports:
 
 ```
-SYNC CHECK PASSED — 19 scripts, 5 commands, all in sync.
+SYNC CHECK PASSED — 20 scripts, 5 commands, all in sync.
 ```
