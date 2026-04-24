@@ -99,14 +99,18 @@ python3 .archie/intent_layer.py scan-config "$PWD" read
 - **Exit 1 (no config) or scope is `single` or `whole`** → there's one blueprint at the repo root. Use `TARGET="$PWD"`.
 - **scope is `per-package`** → multiple workspace-level blueprints exist.
   - If exactly one workspace is listed → use that one: `TARGET="$PWD/<workspace>"`.
-  - If multiple → ask the user:
-    > You have per-package blueprints in: `<workspace-1>`, `<workspace-2>`, ...
-    > Which one should I share? (number/name/`all`)
-    If they answer `all`, loop and upload each separately.
+  - If multiple → ask the user which to share.
+    - **N ≤ 4 workspaces:** use `AskUserQuestion` with `multiSelect: true`. One option per workspace, label `<workspace-name>`, description `Path: <path>`. Map the user's checkbox picks to workspace paths.
+    - **N ≥ 5 workspaces:** `AskUserQuestion` caps at 4 — fall back to a free-form prompt:
+      > You have per-package blueprints in: `<workspace-1>`, `<workspace-2>`, ...
+      > Which one should I share? (number/name/`all`)
+    - If the user picks more than one (multi-select picks, or `all`), loop and upload each separately.
 - **scope is `hybrid`** → root has a monorepo-wide blueprint AND each listed workspace has its own.
-  - Ask the user:
-    > Share the monorepo-wide blueprint, or a specific workspace?
-    > Options: `root`, `<workspace-1>`, `<workspace-2>`, ...
+  - Ask the user which blueprints to share (they may want root + one workspace in the same share run).
+    - **(1 + N) ≤ 4 options** (root plus workspaces): use `AskUserQuestion` with `multiSelect: true`. First option label `Monorepo-wide (root)`, one option per workspace labeled by workspace name. Loop over the user's picks and upload each.
+    - **(1 + N) ≥ 5 options:** fall back to a free-form prompt:
+      > Share the monorepo-wide blueprint, or specific workspaces?
+      > Options: `root`, `<workspace-1>`, `<workspace-2>`, ... (comma-separated, or `all`)
   - `root` → `TARGET="$PWD"`. Workspace name → `TARGET="$PWD/<workspace>"`.
 
 ## Run

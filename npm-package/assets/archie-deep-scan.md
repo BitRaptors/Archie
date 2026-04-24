@@ -173,7 +173,10 @@ Then call `AskUserQuestion` with the scope choice:
 Map the answer: Whole → `whole`, Per-package → `per-package`, Hybrid → `hybrid`, Single → `single`.
 
 - If `whole` or `single` → `WORKSPACES=[]`
-- If `per-package` or `hybrid` → ask which workspaces to include as a free-form follow-up: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PWD`.
+- If `per-package` or `hybrid` → ask which workspaces to include.
+  - **N ≤ 4 workspaces:** use `AskUserQuestion` with `multiSelect: true`. One option per workspace, label `{name} ({type})`, description `Path: {path}`. Map the user's checkbox picks back to paths.
+  - **N ≥ 5 workspaces:** `AskUserQuestion` caps options at 4 — fall back to a free-form follow-up: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PWD`.
+  - Either way, honor `all` as a shortcut for every workspace.
 
 If `per-package` or `hybrid`, also call `AskUserQuestion` for run mode:
 
