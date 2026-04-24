@@ -109,7 +109,11 @@ def cmd_prepare(root: Path, only_folders: list[str] | None = None):
     scan = _load_json(root / ".archie" / "scan.json")
     files = scan.get("file_tree", [])
 
-    # Collect directories that have source files
+    # Collect directories that have source files. Files tagged by .archiebulk
+    # as generated/bulk content (ent codegen, protobuf stubs, minified JS, etc.)
+    # don't need folder-level CLAUDE.md guidance — an agent editing a dir that
+    # contains ONLY generated code isn't writing architecture, it's running a
+    # codegen tool. Filter them here so the DAG only covers hand-authored code.
     dir_files: dict[str, list[str]] = defaultdict(list)
     for f in files:
         p = f.get("path", "")
@@ -117,11 +121,14 @@ def cmd_prepare(root: Path, only_folders: list[str] | None = None):
             parent = str(Path(p).parent)
         else:
             continue  # skip root files
+        if f.get("bulk"):
+            continue  # bulk-tagged files are inventory-only — no enrichment target
         dir_files[parent].append(p)
 
     # Filter: skip only enrichment-irrelevant directories (build, dist, etc.)
-    # Any folder with at least 1 source file qualifies — wherever we code, we
-    # need a CLAUDE.md.  Safety valve: depth > 8 with exactly 1 file is noise.
+    # Any folder with at least 1 hand-authored file qualifies — wherever we
+    # write code by hand, we need a CLAUDE.md.  Safety valve: depth > 8 with
+    # exactly 1 file is noise.
     qualifying = []
     for d, flist in sorted(dir_files.items()):
         if not flist:
