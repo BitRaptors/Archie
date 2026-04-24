@@ -176,6 +176,35 @@ def test_build_enterprise_bundle_envelope_shape():
     assert "T" in envelope["created_at"]
 
 
+def test_build_enterprise_bundle_uses_scan_timestamp_when_available():
+    """created_at should reflect when the scan ran, not when the share uploads.
+    Otherwise re-sharing the same blueprint makes the viewer's 'date' drift."""
+    bundle = {
+        "blueprint": {
+            "meta": {
+                "repository": "test/repo",
+                "scanned_at": "2026-01-15T10:30:00+00:00",
+            }
+        }
+    }
+    envelope = json.loads(_build_enterprise_bundle(bundle))
+    assert envelope["created_at"] == "2026-01-15T10:30:00+00:00"
+
+
+def test_build_enterprise_bundle_falls_back_to_last_scan_then_now():
+    """last_scan is the next-best signal; 'now' only when blueprint lacks meta."""
+    # last_scan field (older blueprints)
+    bundle_legacy = {"blueprint": {"meta": {"last_scan": "2025-12-01T08:00:00Z"}}}
+    assert (
+        json.loads(_build_enterprise_bundle(bundle_legacy))["created_at"]
+        == "2025-12-01T08:00:00Z"
+    )
+    # no meta at all → "now"-ish (contains 'T', tz info)
+    bundle_bare = {"blueprint": {}}
+    envelope = json.loads(_build_enterprise_bundle(bundle_bare))
+    assert "T" in envelope["created_at"]
+
+
 def test_build_enterprise_share_url_encodes_get_url_in_fragment():
     """The GET URL must be base64url-encoded into the fragment of a /r/ext URL."""
     get_url = "https://acme-archie-shares.s3.amazonaws.com/abc.json?X-Amz-Signature=xyz&expires=123"
@@ -562,6 +591,46 @@ def test_enterprise_upload_creds_end_to_end():
     # Body is the bundle envelope
     envelope = json.loads(put_req.data.decode("utf-8"))
     assert envelope["bundle"] == bundle
+
+
+def test_enterprise_upload_creds_normalizes_key_prefix():
+    """A key_prefix without trailing slash must not produce `shares<uuid>.json`.
+    Regression guard for a UX bug the audit caught: `shares` (no slash) used
+    to produce keys like `sharesUUID.json` with no separator."""
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    # No trailing slash on prefix
+    profile = {
+        "bucket": "acme",
+        "region": "us-east-1",
+        "access_key_id": "AKIA",
+        "secret_access_key": "secret",
+        "key_prefix": "shares",  # no trailing slash
+    }
+    bundle = {"blueprint": {}}
+
+    with patch("urllib.request.urlopen", return_value=FakeResponse()) as mock_urlopen:
+        enterprise_upload_creds(bundle, profile)
+
+    put_req = mock_urlopen.call_args[0][0]
+    # Separator-slash must exist between prefix and UUID
+    assert "/shares/" in put_req.full_url
+    # Must not produce the degenerate "sharesUUID.json" pattern
+    assert "/sharesUUID" not in put_req.full_url
+    # Leading slash in prefix should also be stripped (test both directions)
+    profile2 = {**profile, "key_prefix": "/shares/"}
+    with patch("urllib.request.urlopen", return_value=FakeResponse()) as mock2:
+        enterprise_upload_creds(bundle, profile2)
+    put_req2 = mock2.call_args[0][0]
+    assert "//shares/" not in put_req2.full_url  # no double slash
 
 
 def test_enterprise_upload_creds_returns_none_on_put_failure():

@@ -2,6 +2,8 @@
 
 This guide walks your InfoSec / platform team through configuring an AWS S3 bucket that Archie can upload to. Once set up, your developers run `/archie-share`, pick the enterprise option, and the blueprint lands in **your** bucket. BitRaptors' infrastructure is never in the data path — only a static JS viewer served from Vercel.
 
+> **Scope: AWS S3 only.** Mode 2A (stored credentials) assumes virtual-hosted-style AWS S3 URLs (`{bucket}.s3.{region}.amazonaws.com`). S3-compatible services (Cloudflare R2, Backblaze B2, Minio, Wasabi) use different DNS shapes and are not currently supported. Azure Blob and GCS use different signing schemes and are not supported. For non-AWS storage, use **Mode 2B (paste presigned PUT URL)** — your InfoSec generates the presigned URL for whatever storage you use, and Archie does a plain HTTP PUT to it.
+
 ## Architecture in one diagram
 
 ```

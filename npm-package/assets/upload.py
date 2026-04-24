@@ -242,10 +242,21 @@ def _build_enterprise_bundle(bundle: dict) -> bytes:
 
     The viewer's fetchReport() returns a ReportResponse of the same shape, so
     enterprise + default modes render identically once the blob is fetched.
+
+    `created_at` is the scan timestamp (when the blueprint was produced), not
+    the upload time, so the viewer shows a stable date across re-shares of the
+    same blueprint. Falls back to "now" only when the blueprint lacks meta.
     """
+    blueprint = bundle.get("blueprint") or {}
+    meta = blueprint.get("meta") or {}
+    created_at = (
+        meta.get("scanned_at")
+        or meta.get("last_scan")
+        or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    )
     envelope = {
         "bundle": bundle,
-        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "created_at": created_at,
     }
     return json.dumps(envelope).encode("utf-8")
 
@@ -514,7 +525,13 @@ def enterprise_upload_creds(bundle: dict, profile: dict) -> str | None:
     key_prefix = profile.get("key_prefix") or DEFAULT_KEY_PREFIX
     expires = int(profile.get("presign_expires_seconds") or DEFAULT_PRESIGN_EXPIRES_SECONDS)
 
-    object_key = f"{key_prefix.lstrip('/')}{uuid.uuid4()}.json"
+    # Normalize prefix: no leading slash, exactly one trailing slash. Catches
+    # both "shares" (missing separator → sharesUUID.json) and "/shares/"
+    # (leading slash breaks S3 keys).
+    normalized_prefix = key_prefix.strip("/")
+    if normalized_prefix:
+        normalized_prefix += "/"
+    object_key = f"{normalized_prefix}{uuid.uuid4()}.json"
     host = f"{bucket}.s3.{region}.amazonaws.com"
     body = _build_enterprise_bundle(bundle)
 
