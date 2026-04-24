@@ -64,7 +64,10 @@ Present the user with:
 Wait for the user's answer.
 
 - If `whole` or `single` → `WORKSPACES=[]`
-- If `per-package` or `hybrid` → ask the user which workspaces to include. Accept comma-separated numbers (`1,3,5`) or `all`. Resolve to paths relative to `$PROJECT_ROOT`.
+- If `per-package` or `hybrid` → ask the user which workspaces to include.
+  - **When N ≤ 4 workspaces:** use `AskUserQuestion` with `multiSelect: true`. One option per workspace, label `{name} ({type})`, description `Path: {path}`. Map the user's checkbox picks back to paths.
+  - **When N ≥ 5 workspaces:** `AskUserQuestion`'s 4-option maximum doesn't fit — fall back to a free-form prompt: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PROJECT_ROOT`.
+  - Either way, also honor `all` as a shortcut for every workspace.
 
 Persist the choice:
 

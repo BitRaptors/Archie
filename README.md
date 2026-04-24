@@ -33,7 +33,7 @@ Use `--commands-dir` to install command files to a custom directory (default: `.
 | `/archie-scan` | Architecture health check. Runs deterministic scanner for data, then AI analyzes the architecture like a senior architect: finds dependency violations, pattern drift, complexity hotspots, proposes enforceable rules. Writes concrete problems to `.archie/findings.json` (a shared 4-field store). Each scan builds on prior knowledge — recurring findings bump a `confirmed_in_scan` counter, resolved ones flip `status`, new ones get fresh ids. | 1-3 min |
 | `/archie-deep-scan` | Comprehensive architecture baseline. Full 2-wave multi-agent analysis (3-4 Sonnet agents + Opus reasoning) producing blueprint, optional per-folder CLAUDE.md, rules, findings, pitfalls, and health metrics. Wave 2 upgrades scan-triage drafts to canonical and emits class-of-problem pitfalls. Intent Layer (per-folder enrichment) is opt-in via an interactive prompt. Supports `--incremental`, `--continue`, and `--from N`. | 15-20 min |
 | `/archie-intent-layer` | Standalone per-folder CLAUDE.md regeneration. Use when you skipped Intent Layer during deep-scan or need to refresh after structural changes. Asks Full / Incremental / Auto upfront and shares its pipeline with deep-scan's Step 7 (single source of truth). Hard-requires `blueprint.json` — tells you to run `/archie-deep-scan` first if missing. | 3-15 min |
-| `/archie-share` | Upload a blueprint + findings + scan report to a hosted viewer for teammates to review. Returns a shareable URL. | seconds |
+| `/archie-share` | Upload a blueprint + findings + scan report to a hosted viewer for teammates to review. Returns a shareable URL. Three modes: **default** (BitRaptors Supabase, one-click), **enterprise — stored credentials** (BYO S3 bucket, set up once), **enterprise — paste URL** (per-share presigned PUT URL, zero credentials on disk). In enterprise modes, BitRaptors stores nothing — blueprints land directly in your bucket and the viewer fetches from there via a URL fragment. | seconds |
 
 Run `/archie-deep-scan` once to establish a baseline. Then use `/archie-scan` for ongoing checks — each scan compounds on previous knowledge. Use `/archie-share` to hand a snapshot to anyone with a browser.
 
@@ -348,6 +348,18 @@ Archie uses three layered pattern files to decide what the scanner sees and what
 
 The `.archiebulk` tier gives AI agents structural inventory (e.g. "this project has 248 Android layouts across 24 screens") without burning analytical budget on reading boilerplate contents. All patterns use gitignore syntax — `**/res/layout/**` matches at any depth. Claude can edit any of the three files on demand.
 
+### Enterprise Share Modes
+
+For teams whose InfoSec policy doesn't allow uploading architecture data to third-party infrastructure, `/archie-share` supports two enterprise modes alongside the default:
+
+- **Default** — upload to the BitRaptors Supabase share service. Existing behavior, unchanged.
+- **Enterprise (stored credentials)** — `python3 .archie/share_setup.py --bucket <name> --region <r> --access-key-id AKIA… --secret-access-key …` writes `~/.archie/share-profile.json` with `chmod 600`. From then on `/archie-share` uploads directly to your S3 bucket via sigv4-signed PUT (pure Python stdlib, no boto3). Returns a viewer URL like `https://archie-viewer.vercel.app/r/ext#<base64url-encoded-presigned-GET-URL>`. **BitRaptors stores nothing** — the GET URL lives entirely in the URL fragment (which browsers never transmit to any server), and the viewer fetches the blueprint directly from your bucket client-side.
+- **Enterprise (paste URL)** — no credentials stored. InfoSec mints a presigned PUT URL on demand (Lambda, script, or ticket-driven) and the dev pastes it into `/archie-share`. Archie does a plain HTTP PUT and wraps the matching GET URL into the share URL fragment. Strongest audit story at the cost of one extra step per share.
+
+Customer-side setup walkthrough (CORS policy template, IAM policy template, step-by-step) is in [`docs/enterprise-share-setup.md`](docs/enterprise-share-setup.md) — hand it to your InfoSec team and Archie guides you through the request composition if you pick the "Help me ask InfoSec for a bucket" option during `/archie-share`.
+
+Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3-compatible services (R2, B2, Minio, Wasabi), Azure Blob, and GCS should use Mode 2B (paste URL) since they need different DNS shapes or signing schemes.
+
 ## What It Generates
 
 | Output | Purpose |
@@ -490,7 +502,7 @@ archie/              Python package (CLI + engine + coordinator + standalone)
   hooks/             Claude Code hook generation and enforcement
   renderer/          Output generation (CLAUDE.md, per-folder context)
   rules/             Rule extraction and management
-  standalone/        Zero-dependency scripts (19 files, copied to target projects via npm)
+  standalone/        Zero-dependency scripts (20 files, copied to target projects via npm)
 npm-package/         NPM distribution (npx @bitraptors/archie)
   bin/archie.mjs     Installer entry point
   assets/            Canonical copies of standalone scripts + commands + archieignore/archiebulk defaults

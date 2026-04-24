@@ -72,7 +72,10 @@ Then call `AskUserQuestion` with the scope choice:
 Map the answer: Whole → `whole`, Per-package → `per-package`, Hybrid → `hybrid`, Single → `single`.
 
 - If `whole` or `single` → `WORKSPACES=[]`
-- If `per-package` or `hybrid` → ask which workspaces to include as a free-form follow-up: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PWD`.
+- If `per-package` or `hybrid` → ask which workspaces to include.
+  - **N ≤ 4 workspaces:** use `AskUserQuestion` with `multiSelect: true`. One option per workspace, label `{name} ({type})`, description `Path: {path}`. Map the user's checkbox picks back to paths.
+  - **N ≥ 5 workspaces:** `AskUserQuestion` caps options at 4 — fall back to a free-form follow-up: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PWD`.
+  - Either way, honor `all` as a shortcut for every workspace.
 
 Persist the choice:
 
@@ -596,13 +599,17 @@ Print the summary to the user. Include:
 6. Path to full report
 
 The rule adoption prompt:
-> **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
-> Adopted rules take effect immediately. Skipped rules remain in `/archie-viewer` → Rules tab.
 
-**Wait for the user's response.** Then process:
+- **N = 0 proposed rules** → skip adoption entirely and tell the user nothing was proposed this scan.
+- **N ≤ 4 proposed rules** → use `AskUserQuestion` with `multiSelect: true`. One option per rule, label `Rule N — <short description>`, description `<full rule text> · severity: <severity> · confidence: <conf>`. Map the user's checkbox picks to rule IDs. If they select none of the options (empty result), treat as `none`.
+- **N ≥ 5 proposed rules** → `AskUserQuestion` caps at 4 — fall back to a free-form prompt:
+  > **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
+  > Adopted rules take effect immediately. Skipped rules remain in `/archie-viewer` → Rules tab.
 
-- Numbers → adopt those rules into `.archie/rules.json` with `"source": "scan-adopted"` (keep AI confidence)
+Either way, support `all` as a shortcut. **Wait for the user's response.** Then process:
+
+- Selected numbers / checkbox picks → adopt those rules into `.archie/rules.json` with `"source": "scan-adopted"` (keep AI confidence)
 - `all` → adopt every proposed rule
-- `none` → skip (rules stay in proposed_rules.json)
+- `none` (or empty selection) → skip (rules stay in proposed_rules.json)
 
 Print confirmation: `Adopted N rules, skipped M (available in /archie-viewer → Rules tab). Scan #N complete — blueprint evolved.`
