@@ -24,24 +24,23 @@ If you need data not covered by these commands, proceed without it or ask the us
 Check the user's message (ARGUMENTS) for flags:
 
 **If `--from N` is present** (e.g., `/archie-deep-scan --from 5`):
-1. Set START_STEP = N (the number after --from)
+1. Set `START_STEP = N` (the number after --from) and `RESUME_ACTION=resume` (so the Resume Prelude rehydrates shell variables from `deep_scan_state.run_context`).
 2. Validate prerequisites exist:
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" check-prereqs N
 ```
 3. If check fails, tell the user which files are missing and which earlier step to run.
-4. If check passes, proceed. Set state:
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
-```
+4. If check passes, proceed. Do NOT call `deep-scan-state init` — it would wipe the state the Resume Prelude needs to read.
 
 **If `--continue` is present:**
-1. Read state:
+1. Read state (no prompt — `--continue` is an explicit opt-in):
 ```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" read
+LAST=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state.json --query .last_completed 2>/dev/null)
+STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state.json --query .status 2>/dev/null)
+[ -z "$LAST" ] || [ "$LAST" = "null" ] && LAST=0
 ```
-2. If status is "none" or "completed": print "No interrupted run found. Starting fresh from step 1." Set START_STEP = 1.
-3. If status is "in_progress": Set START_STEP = last_completed + 1. Print "Resuming deep scan from step {START_STEP}."
+2. If `LAST == 0` or `STATUS == "completed"`: print "No interrupted run found. Starting fresh from step 1." Set `START_STEP=1`, `RESUME_ACTION=fresh`, and run `deep-scan-state init` below.
+3. Otherwise: Set `START_STEP = LAST + 1`, `RESUME_ACTION=resume`. Print `"Resuming deep scan from step {START_STEP}."`. Skip the init call.
 
 **If `--incremental` is present:**
 1. Check if `.archie/blueprint.json` exists. If not: print "No existing blueprint — running full baseline instead." Set SCAN_MODE = "full", START_STEP = 1, and proceed as default.
@@ -58,13 +57,59 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" detect-changes
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
 ```
 
-**If no flags (default — full baseline):**
-1. Set SCAN_MODE = "full"
-2. Set START_STEP = 1
-3. Initialize fresh state:
+**If no flags (default — detect interrupted run, otherwise full baseline):**
+
+Before assuming a fresh run, check whether a previous deep-scan was left unfinished. If so, offer the user a choice instead of silently wiping their work.
+
+1. Read state:
 ```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
+LAST=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state.json --query .last_completed 2>/dev/null)
+STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state.json --query .status 2>/dev/null)
+[ -z "$LAST" ] || [ "$LAST" = "null" ] && LAST=0
 ```
+
+2. **If `LAST == 0` or `STATUS == "completed"`** → no interrupted run. Proceed as fresh:
+   - Set `SCAN_MODE=full`, `START_STEP=1`, `RESUME_ACTION=fresh`.
+   - Initialize state: `python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init`.
+
+3. **Otherwise** (`LAST > 0` and `STATUS == "in_progress"`) → an interrupted run exists. Figure out which step stopped it and where enrichment state stands:
+   ```bash
+   ENRICH_DONE=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_state.json --query '.done|length' 2>/dev/null)
+   [ -z "$ENRICH_DONE" ] || [ "$ENRICH_DONE" = "null" ] && ENRICH_DONE=0
+   ```
+   Build a human-readable label for the last completed step:
+   | LAST | step_name |
+   |---|---|
+   | 1 | scanner |
+   | 2 | read accumulated knowledge |
+   | 3 | Wave 1 analytical agents |
+   | 4 | Wave 1 merge |
+   | 5 | Wave 2 reasoning agent |
+   | 6 | AI rule synthesis |
+   | 7 | Intent Layer |
+   | 8 | Cleanup |
+   | 9 | Drift detection |
+
+   Call `AskUserQuestion`:
+   - **question:** (build dynamically) `"A previous deep-scan stopped after Step {LAST} ({step_name})."` — and if `ENRICH_DONE > 0`, append `" The Intent Layer got {ENRICH_DONE} folders in before stopping."` — then `"What do you want to do?"`
+   - **header:** "Resume"
+   - **multiSelect:** false
+   - **options** (exactly these two labels):
+     1. label `Resume` — description `Continue from Step {LAST+1}. Preserves all completed work, including any partial Intent Layer batches. Recommended.`
+     2. label `Fresh start` — description `Discard all progress and restart from Step 1. Erases the interrupted blueprint, Wave 1 outputs, and the partial Intent Layer state. Use only if the codebase changed significantly.`
+
+   Map the answer:
+   - `Resume` → Set `START_STEP = LAST + 1`, `RESUME_ACTION=resume`. Skip `init`. Print `"Resuming from Step {START_STEP}."`.
+   - `Fresh start` → Reset everything and start over:
+     ```bash
+     python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
+     python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
+     rm -f /tmp/archie_enrichment_*.json
+     ```
+     `reset-state` wipes both `.archie/enrich_state.json` and the `.archie/enrichments/` directory — no `rm -rf` needed in the slash-command layer (keeps the command inside the default Bash permission allowlist so this runs prompt-free).
+     Set `SCAN_MODE=full`, `START_STEP=1`, `RESUME_ACTION=fresh`. Print `"Starting fresh. Previous progress discarded."`.
+
+4. Regardless of branch above, `RESUME_ACTION` is now set. It gates the Resume Prelude (below) and the Step 7 delta (passes `RESUME_INTENT` to the Intent Layer).
 
 **For every step below:**
 - If the step number < START_STEP, skip it entirely.
@@ -222,9 +267,18 @@ At every "✓ Step N complete" boundary, all state needed to resume lives on dis
 
 After a `/compact`, running `/archie-deep-scan --continue` re-enters via the **Resume Prelude** below, which rehydrates every shell variable from disk before jumping to the next step. No conversation memory required.
 
-## Resume Prelude (runs whenever `--continue` or `--from N` is supplied)
+## Resume Prelude (runs whenever `RESUME_ACTION=resume`)
 
-Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context. Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
+Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context.
+
+`RESUME_ACTION=resume` is set by the Preamble in any of these cases:
+- `--continue` flag was passed (explicit opt-in)
+- `--from N` flag was passed (explicit opt-in; also sets `START_STEP=N`)
+- **No flag was passed, partial state was detected, and the user chose "Resume"** at the interactive prompt (the bare-invocation path added in v2.4)
+
+In all three cases, the variables `SCOPE`, `INTENT_LAYER`, `SCAN_MODE`, `MONOREPO_TYPE`, `WORKSPACES`, `PROJECT_ROOT`, `PROJECT_NAME` need to be rehydrated from `deep_scan_state.run_context` — they were set during the original run and persisted to disk. Without this block, the resumed run has no idea what scope was chosen, whether Intent Layer was opt-in, etc.
+
+Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
 
 ```bash
 # 1. Read last_completed via dedicated CLI. A fresh run returns "null" → normalise to 0.
@@ -245,7 +299,7 @@ if [ "$LAST" -gt 0 ]; then
     [ "$MONOREPO_TYPE" = "null" ] || [ -z "$MONOREPO_TYPE" ] && MONOREPO_TYPE=none
     # WORKSPACES as newline-separated (matches the scope picker's original shape).
     WORKSPACES=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.workspaces --list 2>/dev/null)
-    PROJECT_NAME=$(basename "$PROJECT_ROOT")
+    PROJECT_NAME="${PROJECT_ROOT##*/}"
 
     # 3. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
     if [ -n "$FROM_STEP" ]; then
@@ -1228,7 +1282,11 @@ Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD
 
 1. **Skip the precondition check (Phase 0).** The blueprint was just produced in Steps 5–6, so the hard-requirement check in `/archie-intent-layer` Phase 0 is a no-op in this context. Do not re-run it.
 
-2. **Skip the mode selector (Phase 0.5).** The deep-scan already decided `SCAN_MODE` in its own preamble — don't ask the user again. In Phase 1 of `/archie-intent-layer`, treat `MODE=incremental` as equivalent to `SCAN_MODE=incremental`, and `MODE=full` as `SCAN_MODE=full`.
+2. **Auto-resume when this deep-scan itself is resuming.** If the Preamble set `RESUME_ACTION=resume` (from `--continue`, `--from N`, or the user picking "Resume" at the bare-invocation prompt), pass `RESUME_INTENT=continue` to the Intent Layer. Phase 0.25 in the intent-layer skips its own reconciliation prompt and auto-resumes from the on-disk done list.
+
+   For fresh deep-scan runs (`RESUME_ACTION=fresh`), pass `RESUME_INTENT=ask`. Phase 0.25 will either see no partial state (the Preamble's Fresh-start path already reset it) or — in the rare case where enrichments survived the reset — ask the user. The Fresh-start path in the Preamble explicitly resets enrich_state + enrichments/, so this should be a no-op in practice.
+
+3. **Skip the mode selector (Phase 0.5).** The deep-scan already decided `SCAN_MODE` in its own preamble — don't ask the user again. In Phase 1 of `/archie-intent-layer`, treat `MODE=incremental` as equivalent to `SCAN_MODE=incremental`, and `MODE=full` as `SCAN_MODE=full`.
 
 3. **SCAN_MODE = "incremental" → pass `--only-folders`.** When the preamble set `SCAN_MODE=incremental`, the Phase 1 `prepare` call becomes:
 
