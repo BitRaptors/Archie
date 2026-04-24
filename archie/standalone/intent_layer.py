@@ -555,11 +555,20 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
         # build JSON in bash (which would require inline python for the
         # workspaces array). Reads workspaces from --workspaces-file as a
         # newline-separated list.
+        #
+        # NOTE: `project_root` is intentionally NOT a persisted field. The
+        # Resume Prelude always rehydrates PROJECT_ROOT="$PWD" — the slash
+        # command invocation contract requires the agent to be at the repo
+        # root anyway (state lives in <root>/.archie/deep_scan_state.json,
+        # so you can't find the state from anywhere else). Storing the
+        # absolute path would leak machine-specific info (e.g. /Users/foo/)
+        # into committable state files. The flag is accepted + silently
+        # discarded for backward-compat with older slash-command prose
+        # that still passes --project-root.
         fields: dict[str, str | None] = {
             "scope": None,
             "intent_layer": None,
             "scan_mode": None,
-            "project_root": None,
             "monorepo_type": None,
             "start_step": None,
         }
@@ -576,13 +585,18 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
                 continue
             if a.startswith("--"):
                 key = a[2:].replace("-", "_")
+                # Silently accept (and drop) --project-root so callers on
+                # older slash-command prose don't error out.
+                if key == "project_root" and i + 1 < len(argv):
+                    i += 2
+                    continue
                 if key in fields and i + 1 < len(argv):
                     fields[key] = argv[i + 1]
                     i += 2
                     continue
             i += 1
         payload: dict = {}
-        for k in ("scope", "intent_layer", "scan_mode", "project_root", "monorepo_type"):
+        for k in ("scope", "intent_layer", "scan_mode", "monorepo_type"):
             v = fields[k]
             if v is not None:
                 payload[k] = v
@@ -600,6 +614,10 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
             context = {}
         for k, v in payload.items():
             context[k] = v
+        # Defensive cleanup: if an older version of Archie wrote a machine-
+        # specific project_root into this file, scrub it now so the state
+        # becomes committable.
+        context.pop("project_root", None)
         state["run_context"] = context
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(json.dumps(state, indent=2))

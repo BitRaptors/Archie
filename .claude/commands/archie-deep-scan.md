@@ -229,11 +229,12 @@ echo "$WORKSPACES" | python3 .archie/intent_layer.py deep-scan-state "$PWD" save
     --scope "$SCOPE" \
     --intent-layer "$INTENT_LAYER" \
     --scan-mode "$SCAN_MODE" \
-    --project-root "$PWD" \
     --monorepo-type "$MONOREPO_TYPE" \
     --start-step "$START_STEP" \
     --workspaces-from-stdin
 ```
+
+Note: `PROJECT_ROOT` is not persisted — `$PWD` at resume time is the authoritative value (slash commands are always invoked from the repo root, and the state file itself lives under `<root>/.archie/`). Persisting the absolute path would leak machine-specific info (e.g. `/Users/foo/...`) into a state file users may commit. The `save-run-context` subcommand silently accepts `--project-root` for backward compat with older installs but discards the value.
 
 This is a no-op on `--continue` runs because the Resume Prelude already rehydrated these variables. Safe to call every time.
 
@@ -262,7 +263,7 @@ Shell-variable fallback: the existing `TELEMETRY_STEPN_START` shell variables ar
 
 At every "✓ Step N complete" boundary, all state needed to resume lives on disk:
 
-- `.archie/deep_scan_state.json` — last completed step + `run_context` (scope, intent_layer, scan_mode, workspaces, monorepo_type, project_root, start_step)
+- `.archie/deep_scan_state.json` — last completed step + `run_context` (scope, intent_layer, scan_mode, workspaces, monorepo_type, start_step). Note: `project_root` is deliberately NOT persisted — the Resume Prelude sets `PROJECT_ROOT="$PWD"` directly, which avoids leaking machine-specific absolute paths into committable state.
 - `.archie/telemetry/_current_run.json` — every step's start/completed timestamp + extras
 - `.archie/archie_config.json` — persisted scope picker answer (whole/per-package/hybrid/single)
 - `.archie/blueprint_raw.json`, `.archie/blueprint.json`, `.archie/findings.json` — pipeline output as it accumulates
@@ -279,7 +280,7 @@ Execute this block **before any other step** when resuming. It rehydrates every 
 - `--from N` flag was passed (explicit opt-in; also sets `START_STEP=N`)
 - **No flag was passed, partial state was detected, and the user chose "Resume"** at the interactive prompt (the bare-invocation path added in v2.4)
 
-In all three cases, the variables `SCOPE`, `INTENT_LAYER`, `SCAN_MODE`, `MONOREPO_TYPE`, `WORKSPACES`, `PROJECT_ROOT`, `PROJECT_NAME` need to be rehydrated from `deep_scan_state.run_context` — they were set during the original run and persisted to disk. Without this block, the resumed run has no idea what scope was chosen, whether Intent Layer was opt-in, etc.
+In all three cases, the variables `SCOPE`, `INTENT_LAYER`, `SCAN_MODE`, `MONOREPO_TYPE`, `WORKSPACES`, `PROJECT_NAME` need to be rehydrated from `deep_scan_state.run_context` — they were set during the original run and persisted to disk. Without this block, the resumed run has no idea what scope was chosen, whether Intent Layer was opt-in, etc. `PROJECT_ROOT` is NOT persisted (would leak machine-specific paths into committable state) — it's set to `$PWD` at resume time. In the common case (slash command invoked from the repo root, which is how Claude Code is typically used) that's correct. If `$PWD` differs from where the `.archie/` directory lives — e.g. the user invoked `/archie-deep-scan --continue` from a subdirectory — the `inspect` call below will fail to find state at `$PWD/.archie/deep_scan_state.json`, `LAST` stays at 0, and the Resume Prelude falls through to a fresh Phase 0 with no corruption. Symlinked `.archie/` directories resolve correctly because `$PWD/.archie/*` follows symlinks on read.
 
 Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
 
@@ -289,9 +290,10 @@ LAST=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --que
 [ -z "$LAST" ] || [ "$LAST" = "null" ] && LAST=0
 
 # 2. If we have real state, rehydrate every shell variable from run_context.
+# PROJECT_ROOT always comes from $PWD — it is intentionally not persisted to
+# disk so `.archie/deep_scan_state.json` stays machine-agnostic.
 if [ "$LAST" -gt 0 ]; then
-    PROJECT_ROOT=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.project_root 2>/dev/null)
-    [ "$PROJECT_ROOT" = "null" ] && PROJECT_ROOT=""
+    PROJECT_ROOT="$PWD"
     SCOPE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.scope 2>/dev/null)
     [ "$SCOPE" = "null" ] && SCOPE=""
     INTENT_LAYER=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.intent_layer 2>/dev/null)
