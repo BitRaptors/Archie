@@ -265,9 +265,13 @@ The script reads done state from `.archie/enrich_state.json` automatically. Firs
 
 **b. Split the ready list into batches:**
 
+Pipe the JSON output of `next-ready` directly into `suggest-batches`. Do NOT try to pass ready folders as positional argv — with large DAGs (100+ ready folders) bash word-splitting / ARG_MAX / unquoted-variable expansion all fail silently and produce zero batches:
+
 ```bash
-python3 .archie/intent_layer.py suggest-batches "$PWD" <ready1> <ready2> ...
+python3 .archie/intent_layer.py next-ready "$PWD" | python3 .archie/intent_layer.py suggest-batches "$PWD"
 ```
+
+Argv still works for small test cases (`suggest-batches "$PWD" <ready1> <ready2>`) but the stdin pipe is the canonical pattern for production runs.
 
 Output is a JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `batch_id`) to reference batches.
 

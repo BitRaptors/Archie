@@ -1521,6 +1521,23 @@ if __name__ == "__main__":
         cmd_next_ready(root, done)
     elif subcmd == "suggest-batches":
         ready = sys.argv[3:] if len(sys.argv) > 3 else []
+        # For large DAGs (hundreds of ready folders), passing paths through
+        # bash argv is fragile — shell word-splitting, ARG_MAX limits, and
+        # unquoted variable expansion all fail in ways that produce a silent
+        # empty argv. When argv has no folders and stdin isn't a TTY, read a
+        # JSON array from stdin instead (the canonical output of next-ready).
+        if not ready and not sys.stdin.isatty():
+            raw = sys.stdin.read().strip()
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    print(f"suggest-batches: stdin is not valid JSON: {e}", file=sys.stderr)
+                    sys.exit(2)
+                if not isinstance(parsed, list):
+                    print(f"suggest-batches: stdin JSON must be an array of folder paths, got {type(parsed).__name__}", file=sys.stderr)
+                    sys.exit(2)
+                ready = [str(x) for x in parsed]
         cmd_suggest_batches(root, ready)
     elif subcmd == "save-enrichment":
         if len(sys.argv) < 5:
