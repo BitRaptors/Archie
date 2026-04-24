@@ -1,6 +1,6 @@
 {
   "name": "@bitraptors/archie",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "AI-powered architecture enforcement for Claude Code. Zero dependencies.",
   "bin": {
     "archie": "./bin/archie.mjs"
