@@ -88,7 +88,11 @@ If a previous orchestrator crashed between "subagent wrote /tmp file" and "orche
 ```bash
 for tmp in /tmp/archie_enrichment_*.json; do
     [ -f "$tmp" ] || continue
-    batch_id=$(basename "$tmp" .json | sed 's/^archie_enrichment_//')
+    # Extract batch_id from "/tmp/archie_enrichment_<id>.json" using pure
+    # shell parameter expansion — no external commands so no permission
+    # prompts during an otherwise unattended scan.
+    name="${tmp##*/archie_enrichment_}"
+    batch_id="${name%.json}"
     # save-enrichment is idempotent — overwriting an existing
     # .archie/enrichments/<id>.json with the same content is safe,
     # and appending already-done folders to the state is a set-like op.

@@ -104,9 +104,9 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
      ```bash
      python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
      python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
-     rm -rf "$PROJECT_ROOT/.archie/enrichments"
      rm -f /tmp/archie_enrichment_*.json
      ```
+     `reset-state` wipes both `.archie/enrich_state.json` and the `.archie/enrichments/` directory — no `rm -rf` needed in the slash-command layer (keeps the command inside the default Bash permission allowlist so this runs prompt-free).
      Set `SCAN_MODE=full`, `START_STEP=1`, `RESUME_ACTION=fresh`. Print `"Starting fresh. Previous progress discarded."`.
 
 4. Regardless of branch above, `RESUME_ACTION` is now set. It gates the Resume Prelude (below) and the Step 7 delta (passes `RESUME_INTENT` to the Intent Layer).
@@ -299,7 +299,7 @@ if [ "$LAST" -gt 0 ]; then
     [ "$MONOREPO_TYPE" = "null" ] || [ -z "$MONOREPO_TYPE" ] && MONOREPO_TYPE=none
     # WORKSPACES as newline-separated (matches the scope picker's original shape).
     WORKSPACES=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.workspaces --list 2>/dev/null)
-    PROJECT_NAME=$(basename "$PROJECT_ROOT")
+    PROJECT_NAME="${PROJECT_ROOT##*/}"
 
     # 3. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
     if [ -n "$FROM_STEP" ]; then

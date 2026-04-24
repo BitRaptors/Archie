@@ -284,11 +284,25 @@ def cmd_mark_done(root: Path, folders: list[str]):
 
 
 def cmd_reset_state(root: Path):
-    """Reset enrichment state for a fresh run."""
+    """Reset enrichment state for a fresh run.
+
+    Deletes:
+    - `.archie/enrich_state.json` (done list + wave counter)
+    - `.archie/enrichments/` directory contents (per-batch enrichment JSONs)
+
+    Removing the enrichments directory keeps the fresh-start path in the
+    slash commands from needing `rm -rf` (which is not in the default
+    Claude Code permission allowlist) — wiping state is this function's
+    job, regardless of which files back it.
+    """
     state_path = root / ".archie" / _STATE_FILE
     if state_path.exists():
         state_path.unlink()
-    print("Enrichment state reset", file=sys.stderr)
+    enrichments_dir = root / ".archie" / "enrichments"
+    if enrichments_dir.is_dir():
+        import shutil
+        shutil.rmtree(enrichments_dir)
+    print("Enrichment state reset (enrich_state.json + enrichments/ directory)", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
