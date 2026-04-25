@@ -1,212 +1,253 @@
-# Plan: Richer rules — surface architectural depth at the right moment
+# Plan: Richer rules — alignment loop with structured triggers
 
 Generated: 2026-04-25 (v2.4.4 baseline)
+Supersedes: an earlier draft of this file that framed the problem as "more enforceable rules". The framing was wrong; this is a rewrite.
 
-## Context
+## Why we started this
 
-Real-world signal from openmeter: of 36 AI-synthesized rules, ~15 are codegen/build housekeeping (don't edit `ent/db/*`, run `make gen-api` after TypeSpec changes, include `-tags=dynamic`) and the remaining ~21 "architectural" rules are still single-line forbid/require statements. None capture the depth that the blueprint already has — `decisions.decision_chain`, `trade_offs.violation_signals`, `pitfalls.fix_direction` (ordered steps!), `implementation_guidelines.usage_example` (real code).
+Real-world signal from the openmeter project: of 36 AI-synthesized rules in `.archie/rules.json`, ~15 are codegen/build housekeeping (don't edit `ent/db/*`, run `make gen-api` after TypeSpec changes, include `-tags=dynamic`) and the remaining ~21 "architectural" rules are single-line forbid/require statements. None capture the depth that the blueprint already has — `decisions.decision_chain`, `decisions.trade_offs[].violation_signals`, `pitfalls[].fix_direction` (ordered steps!), `implementation_guidelines[].usage_example` (real code).
 
-The synthesizer is locked in a "rule = regex" frame. Three things reinforce this:
+All 36 rules came from `/archie-deep-scan` Step 6 (Sonnet rule synthesis). Zero from the mechanical extractor, zero from `platform_rules.json`. The depth limit is in the AI prompt + the rule schema reinforcing each other into a "rule = regex" frame.
 
-1. **Schema bias.** A rule has `check`, `forbidden_patterns`, `required_in_content`, `applies_to`. No field for "5-step recipe" or "cloneable template." Sonnet compresses every architectural insight into one-line `description` + a regex.
-2. **Prompt bias.** Step 6 of `/archie-deep-scan` asks for "architectural rules." Sonnet interprets that narrowly. Path of least resistance is "never edit generated code" (100% confidence, mechanical to enforce, easy to phrase).
-3. **No prompt-time recipe surface.** Even rich rules surface only at edit time. An agent starting feature work ("add a new domain") sees nothing telling them HOW to do it — just rules they'll trip on AFTER they start writing code.
+## What we actually want
 
-## Goal
+Archie has a semantic map of the codebase — components, decisions, patterns, tradeoffs, the way this team writes code. The job isn't *blocking bad edits at the regex layer*. It's keeping the coding agent moving in the same direction the codebase is already moving, by:
 
-A coding agent in openmeter (or any Archie-using project) starting a feature should see:
+1. **Nudging** — at architectural decision points (drafting a plan, creating a new file, writing a function signature), surface the relevant patterns from the existing codebase as context. The agent writes code that *naturally* fits because it has the right examples.
 
-- **Before they write any code:** the recipe — what file shape, what existing example to mirror, which decisions constrain this work.
-- **As they write each file:** the regex-checked invariants (current state) PLUS the architectural rationale (decision chain + tradeoff signals) PLUS a canonical example from the codebase.
-- **At the end:** the existing forbid/require checks block obvious mistakes.
+2. **Catching divergence** — at the same moments, compare what the agent is doing against what the codebase already does. Flag the difference. Severity is driven by what blueprint section got crossed.
 
-Not: replace the current rules. Add complementary artifact types and connect existing blueprint richness to existing surfaces.
+These two together form a continuous **architectural alignment loop**: the agent has freedom, but at every decision point it sees the existing pattern AND gets caught when it veers off.
 
-## Phases
+## Severity gradient (the blueprint already encodes it)
 
-### Phase 0 — Diagnostics (free, ~1-2 hours, no shipping)
+| Crossed | Maps to | Response |
+|---|---|---|
+| `decisions.key_decisions` | `decision_violation` | **Block** — exit 2 with explanation. Load-bearing architectural commitments cannot silently violate. |
+| `pitfalls` | `pitfall_triggered` | **Block** — exit 2. Walking into a documented trap. |
+| `decisions.trade_offs[].violation_signals` | `tradeoff_undermined` | **Warn** — exit 0 prominent. Agent might have a reason, but it has to be conscious. |
+| `components.patterns`, `implementation_guidelines` | `pattern_divergence` | **Inform** — exit 0 quiet. Stylistic mismatch, not wrong. |
+| `rules.json` (mechanical, regex-checkable) | `mechanical_violation` | **Block** — exit 2 fast. Existing behavior, unchanged. |
 
-Pre-flight checks before touching anything. Some may eliminate work in later phases.
+Same detection mechanism produces all five outcomes. The blueprint section determines which.
 
-- **Why didn't `rules/extractor.py` contribute to openmeter?** Run it against `openmeter/.archie/blueprint.json` standalone. If it produces output, find why that output isn't merged into `rules.json`. If it produces nothing, find why — bad blueprint shape? Disabled? Removed from pipeline? This is a "free" channel for deterministic structural rules; if we can fix it cheaply, do it.
-- **Is `platform_rules.json` loaded?** Trace whether `pre-validate.sh` reads platform rules at all in the openmeter install. The 30 universal checks should be hitting every project; verify they are.
-- **Source-field bug.** All 36 of openmeter's rules are missing the `source` field (Sonnet's Step 6 raw output doesn't tag origin). Trivial fix: post-process Step 6 output to stamp `source: "deep-baseline"` on every emitted rule. Lets us trace lineage in `rules.json` itself.
+## Trigger model: structured, not keyword
 
-Output: a short note in this plan documenting what we found and which (if any) of these we're fixing alongside Phase 1. Don't expand scope — stay focused on the depth question.
+Free-form NL prompts are too noisy for load-bearing architectural checks. Real prompts paraphrase wildly — "let's add support for promotions" / "build out the promotion feature" / "set up a new module for discounts" all mean "new domain", but a fixed keyword list catches maybe 25% of them.
 
-### Phase 1 — Connect blueprint richness to edit-time (Angle 3, ~1 day)
+**Anchor triggers to structured surfaces** — actions, file paths, code shapes, plan text, diffs — not free-form text. The agent's *actions* are far more structured than its *words*.
 
-The cheapest uplift. Today's rules are flat strings; the blueprint has the depth. Wire them together.
+| Hook | Input | Trigger surface | Latency budget |
+|---|---|---|---|
+| UserPromptSubmit | Free-form NL | **Topical context only** — keep current `inject-context.sh` keyword behavior for noise-tolerant prose rules. **Do not fire severity-graded checks here.** | Hot |
+| ExitPlanMode | Plan text (concrete artifact) | AI classifier subagent (Haiku) | Generous (user just submitted a plan) |
+| PreToolUse Write | File path + intended content | Path-glob + dir-shape match (deterministic) | Hot |
+| PreToolUse Edit | File path + diff | Path-glob + AST-shape match via tree-sitter (deterministic) | Hot |
+| PreToolUse Bash on `git commit` | Full diff | AI classifier subagent (Haiku) on diff | Generous |
+| PostToolUse ExitPlanMode | Approved plan | Existing `post-plan-review.sh` extended with classifier output | Generous |
 
-**Schema change** (additive, backward-compatible):
+The asymmetry **is** the design: cheap deterministic detection on the hot path (every edit), expensive semantic classification only at moments where there's a single concrete artifact to reason about (plan, commit).
+
+## Pre-computed index
+
+The blueprint is too rich to scan on every edit. At deep-scan time generate `.archie/rule_index.json`:
 
 ```json
 {
-  "id": "tx-001",
-  "description": "Wrap helpers accepting *entdb.Client in entutils.Tx...",
-  ...existing fields...,
-  "see_also": [
-    "decisions.key_decisions[3]",
-    "pitfalls[7]",
-    "implementation_guidelines[2]"
+  "by_path_glob": {
+    "openmeter/*/": ["pattern-domain-shape", "decision-layer-001"],
+    "openmeter/billing/charges/adapter/": ["decision-tx-001"],
+    "openmeter/ent/db/**": ["mechanical-gen-001"]
+  },
+  "by_code_shape": {
+    "function_takes_entdb_client": ["decision-tx-001"],
+    "uses_context_TODO_or_Background": ["pitfall-ctx-001", "tradeoff-ctx-propagation"],
+    "directory_lacks_service_go": ["pattern-domain-shape", "decision-layer-001"]
+  },
+  "for_classifier": [
+    "decision-1", "decision-3", "pattern-7", "pitfall-2", "..."
   ]
 }
 ```
 
-`see_also` is an array of dotted-path references into `blueprint.json`. Optional. Older rules without it work unchanged.
+- `by_path_glob` and `by_code_shape` feed the hot-path edit-time hooks (O(1) lookup, then deterministic check).
+- `for_classifier` is the candidate list passed to the AI classifier at plan/commit time.
 
-**Step 6 prompt update**: when emitting each rule, instruct Sonnet to identify the 1-3 blueprint sections that motivate the rule (the decision that forces it, the pitfall it prevents, the guideline that demonstrates the right shape) and emit them as `see_also` paths. Sonnet already wrote those blueprint sections in Wave 2 — it knows where they are.
+No `by_keyword` map for severity-graded checks. Keyword matching that exists today (`inject-context.sh`) stays untouched for noise-tolerant prose rule injection at prompt time.
 
-**Renderer update** (`pre-validate.sh` + `inject-context.sh` + the rule-rendering path in `renderer.py`):
+## Phases
 
-When a rule with `see_also` fires, follow the pointers and inline the referenced content. The agent now sees:
+### Phase 0 — Diagnostics (1-2 hr, no shipping)
 
-```
-RULE tx-001 [error]: Wrap helpers accepting *entdb.Client in entutils.Tx
-WHY (decision[3]): Database transactions span the full charge lifecycle to keep ledger and invoice state consistent...
-EXAMPLE (guideline[2]):
-  func (a *adapter) AdvanceCharges(ctx, in) error {
-      return entutils.Tx(ctx, a.db, func(tx *entdb.Tx) error { ... })
-  }
-PITFALL avoided (pitfall[7]): Helpers that accept *entdb.Client without wrapping cause partial commits when the outer transaction fails...
-```
+- **Why didn't `rules/extractor.py` contribute to openmeter?** Run it standalone against openmeter's `blueprint.json`. If it produces output, find why that output isn't merged. If it produces nothing, find why — bad blueprint shape, disabled, removed from pipeline.
+- **Is `platform_rules.json` actually loaded?** Trace whether `pre-validate.sh` reads it in the openmeter install.
+- **Source-field tagging bug.** All 36 of openmeter's rules are missing the `source` field. Trivial: post-process Step 6 output to stamp `source: "deep-baseline"`. Lets us trace lineage.
 
-Instead of just "Wrap helpers accepting `*entdb.Client` in `entutils.Tx`."
+Output: short notes documenting findings, fold the cheap fixes into Phase 1.
 
-**Files touched**:
-- `archie/standalone/renderer.py` — schema awareness for `see_also`, blueprint-pointer resolution helper
-- `archie/standalone/check_rules.py` (or `pre-validate.sh` directly) — inline pointer expansion at injection time
-- `.claude/commands/archie-deep-scan.md` Step 6 prompt — add the see_also instruction
-- `tests/test_rules_see_also.py` (new) — schema validation, pointer resolution, missing-pointer fallback, multiple-pointer case
+### Phase 1 — Severity-graded blueprint pointers in rules (~2 days, ships as 2.5.0)
 
-**Backward compat**: existing `rules.json` files without `see_also` work as today. Existing blueprints without the referenced sections (older ones) — pointer resolution returns empty, rule renders as before. Zero regression.
+Cheapest big win. Most of the blueprint's architectural depth is already there; rules just don't reference it.
 
-**Ship as 2.4.5 (patch).** Risk-free additive change.
-
-### Phase 2 — Three artifacts from Step 6 (Angle 2, ~2-3 days)
-
-After Phase 1 ships and we see the uplift in real projects, restructure Step 6 to produce richer artifacts directly instead of compressing them.
-
-**Step 6 prompt rewrite**: replace "propose architectural rules" with three sub-asks. Each gets its own JSON output:
-
-```
-Sub-ask 1: rules.json (today's shape — forbid/require checks)
-  "What enforcement-time invariants in this codebase need a regex check at the
-  point of edit? One-line, narrow `applies_to`, high confidence only."
-
-Sub-ask 2: recipes.json (NEW)
-  "When a developer adds a NEW {domain, feature, integration, handler, etc.} to
-  this codebase, what is the procedural recipe? List the exact files to create,
-  the order, the canonical example to mirror. 3-7 steps each. Tied to keywords
-  the user might say at the start of feature work."
-
-Sub-ask 3: layering.json (NEW)
-  "What is the import-allowed matrix between component groups? Which group may
-  import from which? Output an explicit allow/deny graph. This generates
-  `forbidden_import` rules deterministically AND surfaces as a prose section."
-```
-
-Each output is consumed differently:
-
-- `rules.json` → today's `pre-validate.sh` (edit-time regex checks). Unchanged.
-- `recipes.json` → NEW prompt-time injection in Phase 3.
-- `layering.json` → renders into `.claude/rules/layering.md` (always-loaded prose) AND deterministically generates `forbidden_import` rules (programmatic, not Sonnet-dependent — closes the gap from Phase 0's deterministic-extractor question).
-
-**Files touched**:
-- `archie/standalone/finalize.py` — new schema validators for `recipes.json` and `layering.json`
-- `archie/standalone/renderer.py` — render layering into `.claude/rules/layering.md`, render recipes preview into `.claude/rules/recipes.md` (the deeper UX is in Phase 3)
-- `.claude/commands/archie-deep-scan.md` Step 6 prompt — three sub-asks, three output files
-- `tests/test_step6_artifacts.py` (new) — each sub-output has a clean schema + survives the synthesis loop
-
-**Backward compat**: deep-scans on older blueprints just produce `rules.json` (sub-ask 1) and skip the others if Sonnet returns empty. No change to consumers that don't read recipes/layering yet.
-
-**Ship as 2.5.0 (minor — adds new public output files).** Real new capability.
-
-### Phase 3 — Prompt-time recipe injection (Angle 1, ~1 week)
-
-The deepest change and the highest-leverage one for "actual development effort." After Phase 2, `recipes.json` exists but isn't yet surfaced where it matters.
-
-**Recipe schema**:
+**Schema additions** (additive, backward-compat):
 
 ```json
 {
-  "id": "new-domain",
-  "trigger_keywords": ["new domain", "add domain", "create package"],
-  "intent": "Add a new domain package under openmeter/<name>/",
-  "steps": [
-    "Create `openmeter/<name>/service.go` with a Service interface...",
-    "Create `openmeter/<name>/adapter/ent_adapter.go` mirroring openmeter/billing/adapter/...",
-    "Create `openmeter/<name>/httpdriver/handler.go` using pkg/framework/transport/httptransport.Handler[Request,Response]",
-    "Register wire provider in `app/common/<name>.go`",
-    "Add Kafka topic registration if cross-binary events are needed (see kafka-001)"
+  "id": "tx-001",
+  "description": "...",
+  "severity_class": "decision_violation",   // NEW: maps to the response gradient
+  "see_also": [                             // NEW: pointers into blueprint sections
+    "decisions.key_decisions[3]",
+    "pitfalls[7]",
+    "implementation_guidelines[2]"
   ],
-  "canonical_example": "openmeter/billing/",
-  "see_also": [
-    "decisions.key_decisions[1]",
-    "implementation_guidelines[0]"
-  ],
-  "related_rules": ["layer-001", "layer-002", "kafka-001"]
+  ...existing fields stay...
 }
 ```
 
-**Hook integration**: extend `pre-turn.sh` (or add a new `inject-recipe.sh` for the UserPromptSubmit event). On every user prompt, keyword-match against `recipes.json`. If a match fires, inject the full recipe into the agent's context BEFORE any code is written.
+`severity_class` makes the gradient explicit on every rule. `see_also` carries the depth.
 
-The agent now sees, at the START of feature work:
+**Step 6 prompt update**: when emitting each rule, instruct Sonnet to (a) classify the severity, (b) identify the 1-3 blueprint sections that motivate it, (c) emit them as `see_also` paths. Sonnet wrote those sections in Wave 2 — it knows where they are.
 
-> User said: "Let's add a new domain for promotions"
-> [Archie injection] Recipe `new-domain` matched. Steps: 1) ... 2) ... 3) ... Canonical example: openmeter/billing/. Related rules: layer-001 (Service interface required), layer-002 (Wire providers in app/common/), kafka-001 (Kafka topic provisioning). See decision[1] and guideline[0] for rationale.
+**Renderer + hook update**: `pre-validate.sh` follows `see_also` pointers and inlines the referenced content. The agent now sees:
 
-This converts Archie from a "block bad edits" tool into a "guide good edits" tool.
+```
+RULE tx-001 [decision_violation]: Wrap helpers accepting *entdb.Client in entutils.Tx
+  WHY (decisions.key_decisions[3]): Database transactions span the full charge lifecycle...
+  EXAMPLE (implementation_guidelines[2]): func (a *adapter) AdvanceCharges(ctx, in) error { return entutils.Tx(... ) }
+  PITFALL avoided (pitfalls[7]): Helpers accepting *entdb.Client without wrapping cause partial commits...
+```
 
-**Files touched**:
-- `archie/standalone/install_hooks.py` — register the new hook (or extend `pre-turn.sh`)
-- `.claude/hooks/inject-recipe.sh` (new) — keyword match, inline injection
-- `archie/standalone/recipes.py` (new, optional) — load + match logic if shell-only is too brittle. Probably yes — keyword matching across N recipes with synonyms is cleaner in Python.
-- `tests/test_recipes.py` — schema validation, keyword matching, edge cases (multiple recipes match, no match, malformed file)
-- Permission allowlist update in `install_hooks.py` if a new script enters the allowlist
+Backward compat: existing rules without `see_also`/`severity_class` work as today.
 
-**Backward compat**: projects without `recipes.json` see no behavior change. The hook fails open (silent no-op). Existing scan/deep-scan workflows untouched.
+**Files touched**: `archie/standalone/renderer.py`, `archie/standalone/check_rules.py` (or `pre-validate.sh`), `.claude/commands/archie-deep-scan.md` Step 6 prompt, `tests/test_rules_see_also.py` (new).
 
-**Ship as 2.6.0 (minor — new feature surface).** This is the biggest UX shift.
+### Phase 2 — Pre-computed trigger index + structured edit-time triggers (~3-4 days, ships as 2.6.0)
+
+This is where the alignment loop actually replaces keyword matching for load-bearing checks.
+
+**Step 6 produces trigger annotations** for every blueprint section it emits. Decisions, patterns, pitfalls each get:
+
+```json
+{
+  "id": "tx-001",
+  "triggers": {
+    "path_glob": ["openmeter/billing/charges/**/adapter/**"],
+    "code_shape": [
+      {
+        "kind": "function_signature",
+        "must_match": "func * (... *entdb.Client, ...) ...",
+        "must_not_be_inside": "entutils.Tx(...)"
+      }
+    ]
+  }
+}
+```
+
+Sonnet writes these alongside the artifact. Path-glob is straightforward; code-shape uses a small DSL that maps to tree-sitter queries (already in the codebase for skeleton extraction).
+
+**Index generator** (new step in `/archie-deep-scan`, between Steps 6 and 7): walks every artifact's triggers, writes `.archie/rule_index.json`. ~150 lines.
+
+**Hook updates**:
+- `pre-validate.sh` reads the index. For an edit:
+  1. O(1) path-glob lookup → get candidate IDs
+  2. Tree-sitter parse of the diff → match `code_shape` triggers → get more candidate IDs
+  3. For each candidate: load the artifact, check if it actually fires
+  4. Severity gate: response per `severity_class`
+- Edit-time response is identical to today (block on `mechanical_violation` / `decision_violation` / `pitfall_triggered`, warn on `tradeoff_undermined`, inform on `pattern_divergence`)
+
+**Code-shape matchers**: small Python library wrapping tree-sitter queries. Detectors for: `function_takes(type)`, `function_calls(name)`, `function_does_not_call(name)`, `directory_has_file(name)`, `directory_lacks_file(name)`, `import_uses(symbol)`. Roughly 200 lines, reusable across all artifacts.
+
+**Files touched**: `archie/standalone/intent_layer.py` or new `archie/standalone/rule_index.py`, `archie/standalone/code_shape.py` (new), `archie/standalone/check_rules.py` updates, `.claude/commands/archie-deep-scan.md` Step 6 prompt expanded with trigger requirements, `tests/test_rule_index.py` + `tests/test_code_shape.py` (new).
+
+Backward compat: artifacts without triggers are skipped at edit-time, still surface via session-load `.claude/rules/*.md`.
+
+### Phase 3 — AI classifier at plan-time + commit-time (~3-4 days, ships as 2.7.0)
+
+Plan and commit are the highest-leverage moments — single concrete artifact, generous latency budget.
+
+**Classifier subagent**: small Haiku call. Input:
+- The plan text (or commit diff)
+- Candidate artifact list from `for_classifier` in the index
+- Severity classes per artifact
+
+Output: structured diagnostic per artifact:
+
+```json
+{
+  "diagnostics": [
+    {
+      "artifact_id": "decision-3",
+      "severity_class": "decision_violation",
+      "verdict": "violates",
+      "evidence": "Plan creates openmeter/promotions/ but does not include service.go with Service interface",
+      "suggested_fix": "Add 'Create openmeter/promotions/service.go with type Service interface { ... }' as step 1"
+    },
+    {
+      "artifact_id": "pattern-7",
+      "severity_class": "pattern_divergence",
+      "verdict": "diverges",
+      "evidence": "Plan uses fmt.Errorf for domain errors; existing handlers use models.GenericValidationError",
+      "suggested_fix": "Wrap domain errors in models.GenericValidationError"
+    }
+  ],
+  "highest_severity": "decision_violation"
+}
+```
+
+**Hook updates**:
+- `post-plan-review.sh` (extends existing): runs classifier, blocks (exit 2) if any `decision_violation` or `pitfall_triggered` in diagnostics. Renders the structured diagnostic as the rejection message — actionable, references real artifact IDs and files to mirror.
+- `pre-commit-review.sh` (extends existing): same classifier on the diff. Last line of defense.
+
+**Latency**: one Haiku call per plan submit / per commit. Plans happen ~hourly, commits maybe 5-10x per hour during active work. Cost is negligible compared to the value.
+
+**Files touched**: `archie/standalone/arch_review.py` extended (or new `align_check.py`), `.claude/hooks/post-plan-review.sh` + `pre-commit-review.sh` updates, `tests/test_align_check.py` (new — fixture-driven, mocking the classifier).
+
+Backward compat: projects without the index (older deep-scans) skip the classifier. Existing arch-review behavior preserved.
+
+### Phase 4 (optional, future) — UserPromptSubmit done right
+
+If real-world use shows we want earlier intervention than plan time, revisit UserPromptSubmit with embeddings or a tiny classifier. Skip until Phases 1-3 are validated.
 
 ## Sequencing rationale
 
-| Phase | Cost | Risk | Uplift | Order |
+| Phase | Cost | Risk | Uplift | Ship |
 |---|---|---|---|---|
-| Phase 0 | 1-2 hr | None | Clarity + maybe free wins | First |
-| Phase 1 | ~1 day | Low (additive) | High (immediately makes existing rules richer) | Second |
-| Phase 2 | 2-3 days | Med (new schemas) | High (unlocks recipes + layering as data) | Third |
-| Phase 3 | ~1 week | Med (new hook surface) | Very high (where the user's real ask lives) | Fourth |
+| 0 | 1-2 hr | None | Clarity, free fixes | Folded into 2.5.0 |
+| 1 | ~2 days | Low (additive schema) | High (existing rules become rich) | 2.5.0 |
+| 2 | ~3-4 days | Med (new index, code-shape detectors) | Very high (structured edit-time triggers) | 2.6.0 |
+| 3 | ~3-4 days | Med (AI classifier, plan/commit catch) | Highest for "the agent goes off-track and we catch it" | 2.7.0 |
 
-Phase 1 first because it gives 80% of the perceived depth uplift at 10% of the cost — by simply linking what's already in the blueprint to what's already injected at edit time. Phase 2 is the schema work that lets Phase 3 exist. Phase 3 is the biggest UX shift but only works on top of Phase 2's outputs.
-
-We can pause after any phase. Phase 1 alone is shippable as a noticeable improvement to v2.4.5.
+Phase 1 first because cheapest and immediately makes existing rules richer at edit time. Phase 2 builds the structured-trigger machinery (replaces today's regex for the hot path). Phase 3 closes the catch loop at plan and commit time. Pause-points after each phase — every one is independently shippable.
 
 ## Cross-cutting concerns
 
-- **npm-package sync.** Every Phase touches scripts that need mirroring to `npm-package/assets/`. `scripts/verify_sync.py` catches misses.
-- **Permission audit.** No new shell tools. Phase 3's hook should reuse the allowlisted `python3 .archie/*.py *` pattern. Verify with the audit grep before each release.
-- **Tests.** Each Phase ships with tests (no skipping). At minimum: Phase 1 schema + pointer resolution + fallback; Phase 2 three-output validation; Phase 3 keyword-match + injection rendering.
-- **Real-world validation.** After each Phase, sync the updated scripts into `~/DEV/gbr/openmeter` and run `/archie-scan` (Phase 1) or `/archie-deep-scan --from 6` (Phase 2) or a fresh feature prompt (Phase 3). Confirm the agent sees richer context. The plan succeeds when openmeter's rule view stops feeling shallow.
+- **npm-package sync.** Every phase touches scripts that mirror to `npm-package/assets/`. `scripts/verify_sync.py` catches misses.
+- **Permission audit.** Phase 2's index lookup is `python3 .archie/check_rules.py` which is allowlisted (`python3 .archie/*.py *`). No new shell tools. Phase 3's hook spawns a subagent via `Agent(*)` which is also allowlisted. Verify with the permission audit before each release.
+- **Tests.** Each phase ships with tests — schema validation (Phase 1), index generation + code-shape matching (Phase 2), classifier output parsing + severity gating (Phase 3).
+- **Real-world validation.** After each phase, sync into `~/DEV/gbr/openmeter` and verify: (Phase 1) `pre-validate.sh` shows decision/pitfall pointers when relevant rules fire; (Phase 2) editing `openmeter/billing/charges/adapter/foo.go` to add a `*entdb.Client` function without `entutils.Tx` triggers `decision-tx-001` deterministically; (Phase 3) writing a plan that creates `openmeter/promotions/` without a Service interface gets blocked at ExitPlanMode with structured rejection.
 
-## Open questions (decide before implementing each phase)
+## Open questions (decide per phase)
 
-1. **Phase 1 — pointer syntax.** `decisions.key_decisions[3]` (dotted) vs JSON Pointer (`/decisions/key_decisions/3`) vs JSONPath (`$.decisions.key_decisions[3]`). Lean toward dotted — already used in scan-config inspect queries. Consistent with existing tooling.
-2. **Phase 2 — should `layering.json` also produce mechanical `forbidden_import` rules?** Yes — closes the deterministic-extractor gap from Phase 0. Adds value with zero AI cost on subsequent runs.
-3. **Phase 3 — keyword matcher: substring vs token vs embedding?** Start with substring matching against an explicit `trigger_keywords` array (cheapest, deterministic, debuggable). Embedding-based matching is a future enhancement if substring proves too brittle.
-4. **Phase 3 — recipe rendering format.** Inline as prose? Numbered checklist? Separate context-injection block? Lean toward "prose with a clear `## ARCHIE RECIPE: <id>` header" so the agent can reference back to it during the work.
-5. **Should we add `recipes.json` to the share bundle?** Probably yes (Phase 3) — a teammate viewing the share viewer should see "this is the recipe they're following," not just rules. Small renderer addition.
+1. **Phase 1 — pointer syntax.** `decisions.key_decisions[3]` (dotted) vs JSON Pointer. Lean dotted (consistent with existing `inspect --query` tool).
+2. **Phase 2 — code-shape DSL.** Hand-rolled small spec mapped to tree-sitter queries vs adopting an existing tool (semgrep would also work). Lean hand-rolled — fewer deps, narrower surface, easier for Sonnet to emit consistently.
+3. **Phase 3 — classifier model.** Haiku for cost or Sonnet for accuracy? Lean Haiku — fast, cheap, the structured output schema constrains the model enough.
+4. **Phase 3 — block vs warn for `tradeoff_undermined`.** Currently warn. Open question whether some tradeoffs (security, correctness) should block instead. Probably configurable per project.
+5. **Index regeneration triggers.** Today the index is generated at `/archie-deep-scan`. Should `/archie-scan` also rebuild it (cheaper, more frequent)? Probably yes for small updates.
+
+## What this delivers
+
+The agent in openmeter (or any Archie-using project) writing a feature now experiences:
+
+- **Before any code is written** (plan time): if the plan crosses a decision or triggers a pitfall, classifier catches it, plan blocked with structured explanation. Agent revises with awareness of the constraint.
+- **As each edit happens** (edit time): pre-validate.sh fires deterministically on path/code-shape triggers. Decision/pitfall violations block. Tradeoff signals warn. Pattern divergences inform. Each message includes the referenced blueprint section so the agent sees the why and the canonical example.
+- **At commit** (last line of defense): full-diff classifier catches anything edit-time hooks missed (multi-file structural problems, contradictions across the patch). Blocks commit on hard violations.
+
+The "shallow rules" diagnosis from openmeter resolves not by enriching `rules.json` flatly, but by **lifting the architectural enforcement out of regex-on-single-file and into structured triggers + semantic comparison anchored in the blueprint**. The depth that already exists in `decisions`, `pitfalls`, `tradeoffs`, `implementation_guidelines` becomes load-bearing instead of cosmetic.
 
 ## Out of scope
 
-- Embedding-based recipe matching (Phase 3 substring is enough).
-- Templates as a separate artifact from recipes (overlap is high; recipe + canonical_example covers the same ground).
-- Live recipe updates from PR feedback (loop where merged PRs feed back into recipes). Future work.
-- Cross-project recipe sharing (e.g. "this Go-fx project follows the standard fx recipe"). Single-project for now.
-
-## Checkpoints
-
-- After Phase 0: brief writeup in this doc + decisions on Phase 1 schema.
-- After Phase 1: openmeter's `rules.json` rules show pointer-followed depth in `.claude/rules/*.md`. Ship 2.4.5.
-- After Phase 2: openmeter has a `recipes.json` and `layering.json` after `/archie-deep-scan --from 6`. Ship 2.5.0.
-- After Phase 3: agent in openmeter sees the recipe BEFORE writing code. Ship 2.6.0.
+- Embedding-based recipe matching (Phase 4 if ever).
+- Recipes as a separate artifact type — the patterns + decisions + classifier together cover the same ground without a new schema.
+- Live updates from PR feedback (continuous-learning loop). Future.
+- Cross-project pattern sharing.
