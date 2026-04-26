@@ -71,7 +71,7 @@ The blueprint is too rich to scan on every edit. At deep-scan time generate `.ar
 ```
 
 - `by_path_glob` and `by_code_shape` feed the hot-path edit-time hooks (O(1) lookup, then deterministic check).
-- `for_classifier` is the candidate list passed to the AI classifier at plan/commit time.
+- `for_classifier` is the *architectural* rule set (semantic content: `description` + `why` + `example`) passed to the classifier at plan/commit time. This isn't a narrow shortlist for performance — it's the separation between "regex-checkable mechanical rules" (not useful pre-code) and "semantic architectural rules" (the ones that need reasoning over intent). Typically 30-40 of the 50.
 
 No `by_keyword` map for severity-graded checks. Keyword matching that exists today (`inject-context.sh`) stays untouched for noise-tolerant prose rule injection at prompt time.
 
@@ -187,14 +187,27 @@ Sonnet writes these alongside the artifact. Path-glob is straightforward; code-s
 
 Backward compat: artifacts without triggers are skipped at edit-time, still surface via session-load `.claude/rules/*.md`.
 
-### Phase 3 — AI classifier at plan-time + commit-time (~3-4 days, ships as 2.7.0)
+### Phase 3 — Semantic comparison at plan-time + commit-time (~3-4 days, ships as 2.7.0)
 
-Plan and commit are the highest-leverage moments — single concrete artifact, generous latency budget.
+Plan and commit are the highest-leverage moments — single concrete artifact, generous latency budget. This phase does what edit-time hooks structurally can't: **compares the plan's semantic meaning against each architectural rule's semantic content**.
 
-**Classifier subagent**: small Haiku call. Input:
+The setup: blueprint rules carry their *meaning* (`description` + `why` + `example`), not just their name. The plan carries its *intent* in natural language. An LLM reads both and reasons across paraphrase — no shared keywords or matching paths required.
+
+Concrete example. Rule `layer-ui-no-domain` says "UI layer must not contain domain logic." Plan says "Add a discount calculator to ui/components/CheckoutForm.tsx." Zero keyword overlap, no path-glob signal, no code yet for tree-sitter to parse. Edit-time hooks see nothing. The classifier reads "discount calculator in CheckoutForm" and the rule's `why` ("pricing decisions belong in domain/, UI receives computed results") and produces:
+
+```json
+{
+  "rule": "layer-ui-no-domain",
+  "verdict": "violates",
+  "evidence": "Step 1 puts discount calculation inside CheckoutForm.tsx (UI layer). Computing 15% off is domain logic.",
+  "suggested_fix": "Move calculation to domain/billing/promotions/, expose via service, form reads computedTotal."
+}
+```
+
+**Classifier subagent**: single Haiku call. Input:
 - The plan text (or commit diff)
-- Candidate artifact list from `for_classifier` in the index
-- Severity classes per artifact
+- The architectural rule set with full semantic content (`description` + `why` + `example`) — typically 30-40 of the 50 rules; mechanical regex rules are excluded since they don't apply pre-code
+- Severity classes per rule
 
 Output: structured diagnostic per artifact:
 
@@ -224,7 +237,14 @@ Output: structured diagnostic per artifact:
 - `post-plan-review.sh` (extends existing): runs classifier, blocks (exit 2) if any `decision_violation` or `pitfall_triggered` in diagnostics. Renders the structured diagnostic as the rejection message — actionable, references real artifact IDs and files to mirror.
 - `pre-commit-review.sh` (extends existing): same classifier on the diff. Last line of defense.
 
-**Latency**: one Haiku call per plan submit / per commit. Plans happen ~hourly, commits maybe 5-10x per hour during active work. Cost is negligible compared to the value.
+**Latency / cost**: one Haiku call per plan submit / per commit. ~5K tokens of rule content + plan/diff fits in a single prompt comfortably. Plans happen ~hourly, commits 5-10x per hour during active work. Per-call cost negligible (~fraction of a cent).
+
+**Why this is the load-bearing phase, not just a "nice to have":**
+- Edit-time catches structural violations (an import line crossing layers, a function signature missing `entutils.Tx`).
+- Plan-time catches *intent* violations before any code exists — a plan to put domain logic in UI never reaches edit-time because the plan itself gets rejected.
+- Commit-time catches semantic leakage that has no structural marker — UI re-implementing pricing in inline arithmetic, no imports involved, just primitives that happen to encode business rules.
+
+The three together cover the spectrum: deterministic on the hot path (Phase 2), semantic at the moments where there's a single concrete artifact and a generous budget (Phase 3).
 
 **Files touched**: `archie/standalone/arch_review.py` extended (or new `align_check.py`), `.claude/hooks/post-plan-review.sh` + `pre-commit-review.sh` updates, `tests/test_align_check.py` (new — fixture-driven, mocking the classifier).
 
