@@ -75,6 +75,31 @@ The blueprint is too rich to scan on every edit. At deep-scan time generate `.ar
 
 No `by_keyword` map for severity-graded checks. Keyword matching that exists today (`inject-context.sh`) stays untouched for noise-tolerant prose rule injection at prompt time.
 
+## Scan's role in the loop
+
+`/archie-deep-scan` (slow, 15-20 min) establishes the architectural baseline — blueprint, rules, intent files, index. `/archie-scan` (fast, 1-3 min) is the **iteration loop** that keeps the rule set fresh between deep-scans. Without scan staying in the picture, the rule set ages out the moment the codebase moves.
+
+In the new model, scan does three things:
+
+**1. Proposes new rules in the same shape as deep-scan.** Scan's existing AI step (the senior-architect pass) already spots drift — recently-added files diverging from a pattern, new pitfalls emerging, decisions being silently violated. Today it emits flat single-line rules. Going forward it emits the new shape: structured trigger (path-glob / code-shape / classifier candidate), `see_also` pointers, and a `source: "scan"` provenance tag so users can tell scan-born rules from deep-scan baseline ones.
+
+**2. Infers severity from the blueprint anchor, doesn't invent it.** Scan tries to anchor each proposed rule to a blueprint section:
+
+| Anchor | Severity | Rationale |
+|---|---|---|
+| `decisions.key_decisions[*]` or `pitfalls[*]` | `decision_violation` / `pitfall_triggered` (block) | Rule clarifies an existing load-bearing artifact. |
+| `decisions.trade_offs[*].violation_signals` | `tradeoff_undermined` (warn) | Rule formalizes a known tradeoff signal. |
+| `components.patterns` or `implementation_guidelines` | `pattern_divergence` (inform) | Rule captures stylistic pattern. |
+| No anchor (genuinely new pattern not in blueprint) | `pattern_divergence` (inform) | Default lowest-severity until reasoned about. |
+
+Scan never promotes a rule to `decision_violation` on its own — promotion happens at the next deep-scan, when the rule gets reasoned about with full Wave-2 context (decision chain, tradeoffs, pitfalls). This keeps scan fast and prevents premature blocking.
+
+**3. Adjusts existing rules, not just adds.** Scan can also propose *diffs* to existing rules: trigger too broad (false positives in the recent diff history), trigger too narrow (real divergence missed), `see_also` pointer stale (referenced section moved or got rewritten). Each adjustment carries the same provenance tag (`source: "scan-amended"`). Deep-scan reconciles these on its next run.
+
+**4. Updates the trigger index.** Phase 2's `.archie/rule_index.json` is regenerated whenever rules change. Scan rebuilds the index after appending/amending — cheap operation (a few hundred ms) that keeps the hot-path lookups in sync without waiting for the next deep-scan.
+
+The split is clean: deep-scan is the slow, expensive *reasoning* pass that establishes architectural depth; scan is the fast, frequent *maintenance* pass that keeps the rule set live and the trigger index fresh. Both produce rules in the same shape — only severity-promotion authority and reasoning depth differ.
+
 ## Phases
 
 ### Phase 0 — Diagnostics (1-2 hr, no shipping)
