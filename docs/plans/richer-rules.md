@@ -40,11 +40,10 @@ Free-form NL prompts are too noisy for load-bearing architectural checks. Real p
 | Hook | Input | Trigger surface | Latency budget |
 |---|---|---|---|
 | UserPromptSubmit | Free-form NL | **Topical context only** — keep current `inject-context.sh` keyword behavior for noise-tolerant prose rules. **Do not fire severity-graded checks here.** | Hot |
-| ExitPlanMode | Plan text (concrete artifact) | AI classifier subagent (Haiku) | Generous (user just submitted a plan) |
 | PreToolUse Write | File path + intended content | Path-glob + dir-shape match (deterministic) | Hot |
 | PreToolUse Edit | File path + diff | Path-glob + AST-shape match via tree-sitter (deterministic) | Hot |
-| PreToolUse Bash on `git commit` | Full diff | AI classifier subagent (Haiku) on diff | Generous |
-| PostToolUse ExitPlanMode | Approved plan | Existing `post-plan-review.sh` extended with classifier output | Generous |
+| PostToolUse ExitPlanMode | Plan text | Haiku classifier reads plan + full architectural rule set (existing `post-plan-review.sh` extended) | Generous |
+| PreToolUse Bash on `git commit` | Full staged diff | Haiku classifier reads diff + full architectural rule set | Generous |
 
 The asymmetry **is** the design: cheap deterministic detection on the hot path (every edit), expensive semantic classification only at moments where there's a single concrete artifact to reason about (plan, commit).
 
@@ -156,9 +155,26 @@ RULE tx-001 [decision_violation]: Wrap helpers accepting *entdb.Client in entuti
 
 No blueprint read, no pointer resolution. Hook reads rule, prints rule, exits per `severity_class`.
 
-Backward compat: existing rules without `severity_class` default to `mechanical_violation` (today's behavior). Missing `why`/`example` simply omit those lines in the message.
+Backward compat: existing rules without `severity_class` default to `mechanical_violation` and render with description-only message. **No in-place migration of existing rules.json** — users on prior Archie versions run a fresh `/archie-deep-scan` to regenerate `rules.json` in the new shape. This is the same upgrade path users already follow when blueprint structure changes (cheaper than building a one-shot migrator that has to handle every prior schema variant).
 
-**Files touched**: `archie/standalone/renderer.py`, `archie/standalone/check_rules.py` (or `pre-validate.sh`), `.claude/commands/archie-deep-scan.md` Step 6 prompt, `tests/test_rule_shape.py` (new — schema validation + agent-message rendering).
+**Extractor retirement.** `archie/rules/extractor.py::extract_rules()` is removed in this phase along with its callers in `archie/cli/init_command.py` (lines 16, 106, 115) and the corresponding `tests/test_rule_extractor.py` cases. Reasons: (a) the deep-scan slash command never called it, (b) its `allowed_dirs` lookup is stale (reads `allowed_dirs`/`directories`, blueprint produces `location`), (c) Step 6's `architectural_constraint` rules cover placement+naming richer with full semantic content. The other extractor.py functions (`load_rules`, `save_rules`, `promote_rule`, `demote_rule`) are kept — they're used by `archie rules promote/demote` CLI and `check_command.py`. README.md and ARCHITECTURE.md sections that mention "Blueprint extraction" are updated to reflect the new pipeline (Step 6 is the rule producer). After retirement, fresh `archie init` produces empty `rules.json` until the user runs `/archie-deep-scan` or `/archie-scan` — same as projects today that don't run the CLI init flow.
+
+**Test plan** (new file `tests/test_rule_shape.py`):
+
+1. **Schema validation** — every rule in a new-shape `rules.json` parses; `severity_class` is one of the five allowed enums; `source` is one of `deep_scan` / `scan` / `scan-amended` / `adopted`; `description` is non-empty.
+2. **Backward-compat rendering** — old-shape rule (no `severity_class` / `why` / `example`) renders the agent message correctly: shows `description`, defaults severity to `mechanical_violation`, omits WHY/EXAMPLE blocks (no empty lines).
+3. **New-shape rendering** — full rule (all five fields) renders as the spec at lines 145-155: header line with `RULE id [severity_class]: description`, then `WHY:` block, then `EXAMPLE:` block. Multi-line `why` and `example` indent correctly.
+4. **Severity gating** — given a fired rule, `pre-validate.sh` exits 2 for `decision_violation`/`pitfall_triggered`/`mechanical_violation`, exits 0 with `WARN:` prefix for `tradeoff_undermined`, exits 0 with `INFO:` prefix for `pattern_divergence`.
+5. **Source-field stamping** — `extract_output.py cmd_rules` stamps `source = "deep_scan"` on rules emitted without one (defense-in-depth against Sonnet omitting it). Rules that already have a `source` are not overwritten.
+6. **Regression**: openmeter's 36 existing old-shape rules render without crashing when the new hook is run against them (proves backward compat works on real-world data).
+
+**Files touched**:
+- Canonical: `archie/standalone/check_rules.py`, `archie/standalone/extract_output.py`, `archie/standalone/install_hooks.py` (PRE_VALIDATE_HOOK rendering of `why`/`example`), `archie/standalone/renderer.py` (only if rules render into per-folder `.claude/rules/*.md`), `.claude/commands/archie-deep-scan.md` (Step 6 prompt schema)
+- npm-package mirrors: `npm-package/assets/check_rules.py`, `npm-package/assets/extract_output.py`, `npm-package/assets/install_hooks.py`, `npm-package/assets/renderer.py`, `npm-package/assets/archie-deep-scan.md`
+- Removed: `archie/rules/extractor.py::extract_rules()`, callers in `archie/cli/init_command.py:16,106,115`, `tests/test_rule_extractor.py` (the extract_rules-specific cases)
+- New: `tests/test_rule_shape.py`
+- Doc updates: `CLAUDE.md` (the Rules System section), `README.md` (the Rules section at line 457), `docs/ARCHITECTURE.md` (section 1 at line 560)
+- Sync verification: `scripts/verify_sync.py` after every batch of canonical→asset changes
 
 ### Phase 2 — Pre-computed trigger index + structured edit-time triggers (~3-4 days, ships as 2.6.0)
 
@@ -196,7 +212,12 @@ Sonnet writes these alongside the artifact. Path-glob is straightforward; code-s
 
 **Code-shape matchers**: small Python library wrapping tree-sitter queries. Detectors for: `function_takes(type)`, `function_calls(name)`, `function_does_not_call(name)`, `directory_has_file(name)`, `directory_lacks_file(name)`, `import_uses(symbol)`. Roughly 200 lines, reusable across all artifacts.
 
-**Files touched**: `archie/standalone/intent_layer.py` or new `archie/standalone/rule_index.py`, `archie/standalone/code_shape.py` (new), `archie/standalone/check_rules.py` updates, `.claude/commands/archie-deep-scan.md` Step 6 prompt expanded with trigger requirements, `tests/test_rule_index.py` + `tests/test_code_shape.py` (new).
+**Files touched**:
+- Canonical: new `archie/standalone/rule_index.py` (or extend `intent_layer.py`), new `archie/standalone/code_shape.py`, `archie/standalone/check_rules.py` (consume index), `.claude/commands/archie-deep-scan.md` (Step 6 prompt expanded with trigger requirements + index-build step between Steps 6 and 7)
+- npm-package mirrors: `npm-package/assets/rule_index.py`, `npm-package/assets/code_shape.py`, `npm-package/assets/check_rules.py`, `npm-package/assets/archie-deep-scan.md`
+- New: `tests/test_rule_index.py`, `tests/test_code_shape.py`
+- Sync verification: `scripts/verify_sync.py`
+- Installer: `npm-package/bin/archie.mjs` references for any new asset (verify_sync.py catches this)
 
 Backward compat: artifacts without triggers are skipped at edit-time, still surface via session-load `.claude/rules/*.md`.
 
@@ -219,7 +240,7 @@ Concrete example. Rule `layer-ui-no-domain` says "UI layer must not contain doma
 
 **Classifier subagent**: single Haiku call. Input:
 - The plan text (or commit diff)
-- The architectural rule set with full semantic content (`description` + `why` + `example`) — typically 30-40 of the 50 rules; mechanical regex rules are excluded since they don't apply pre-code
+- The architectural rule set with full semantic content (`description` + `why` + `example`) — every rule whose `severity_class` is not `mechanical_violation`. No narrowing, no shortlisting. For openmeter that's ~25-30 of the 36 rules; mechanical regex rules (don't-edit-generated-files, file-naming-regex) are excluded since they don't apply pre-code.
 - Severity classes per rule
 
 Output: structured diagnostic per artifact:
@@ -228,14 +249,14 @@ Output: structured diagnostic per artifact:
 {
   "diagnostics": [
     {
-      "artifact_id": "decision-3",
+      "rule_id": "decision-3",
       "severity_class": "decision_violation",
       "verdict": "violates",
       "evidence": "Plan creates openmeter/promotions/ but does not include service.go with Service interface",
       "suggested_fix": "Add 'Create openmeter/promotions/service.go with type Service interface { ... }' as step 1"
     },
     {
-      "artifact_id": "pattern-7",
+      "rule_id": "pattern-7",
       "severity_class": "pattern_divergence",
       "verdict": "diverges",
       "evidence": "Plan uses fmt.Errorf for domain errors; existing handlers use models.GenericValidationError",
@@ -259,7 +280,11 @@ Output: structured diagnostic per artifact:
 
 The three together cover the spectrum: deterministic on the hot path (Phase 2), semantic at the moments where there's a single concrete artifact and a generous budget (Phase 3).
 
-**Files touched**: `archie/standalone/arch_review.py` extended (or new `align_check.py`), `.claude/hooks/post-plan-review.sh` + `pre-commit-review.sh` updates, `tests/test_align_check.py` (new — fixture-driven, mocking the classifier).
+**Files touched**:
+- Canonical: `archie/standalone/arch_review.py` extended (or new `archie/standalone/align_check.py`), `archie/standalone/install_hooks.py` (post-plan-review and pre-commit-review hook bodies)
+- npm-package mirrors: `npm-package/assets/arch_review.py` (or `align_check.py`), `npm-package/assets/install_hooks.py`
+- New: `tests/test_align_check.py` (fixture-driven, mocking the classifier with canned diagnostic outputs)
+- Sync verification: `scripts/verify_sync.py`
 
 Backward compat: projects without the index (older deep-scans) skip the classifier. Existing arch-review behavior preserved.
 
@@ -281,7 +306,7 @@ Phase 1 first because cheapest and immediately makes existing rules richer at ed
 ## Cross-cutting concerns
 
 - **npm-package sync.** Every phase touches scripts that mirror to `npm-package/assets/`. `scripts/verify_sync.py` catches misses.
-- **Permission audit.** Phase 2's index lookup is `python3 .archie/check_rules.py` which is allowlisted (`python3 .archie/*.py *`). No new shell tools. Phase 3's hook spawns a subagent via `Agent(*)` which is also allowlisted. Verify with the permission audit before each release.
+- **Permission audit.** Verified 2026-04-27 against `npm-package/assets/install_hooks.py:364-401` (the 29-entry allowlist installer): `Bash(python3 .archie/*.py *)` is line 366, `Agent(*)` is line 400. So Phase 2's index lookup (`python3 .archie/check_rules.py`) and Phase 3's classifier subagent spawn (`Agent(*)`) need no new allowlist entries. Re-verify before each release in case the allowlist changes.
 - **Tests.** Each phase ships with tests — schema validation (Phase 1), index generation + code-shape matching (Phase 2), classifier output parsing + severity gating (Phase 3).
 - **Real-world validation.** After each phase, sync into `~/DEV/gbr/openmeter` and verify: (Phase 1) `pre-validate.sh` renders `description + why + example` inline when relevant rules fire, no blueprint read; (Phase 2) editing `openmeter/billing/charges/adapter/foo.go` to add a `*entdb.Client` function without `entutils.Tx` triggers `decision-tx-001` deterministically; (Phase 3) writing a plan that creates `openmeter/promotions/` without a Service interface gets blocked at ExitPlanMode with structured rejection.
 
