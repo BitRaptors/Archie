@@ -102,13 +102,17 @@ The split is clean: deep-scan is the slow, expensive *reasoning* pass that estab
 
 ## Phases
 
-### Phase 0 — Diagnostics (1-2 hr, no shipping)
+### Phase 0 — Diagnostics (DONE 2026-04-27)
 
-- **Why didn't `rules/extractor.py` contribute to openmeter?** Run it standalone against openmeter's `blueprint.json`. If it produces output, find why that output isn't merged. If it produces nothing, find why — bad blueprint shape, disabled, removed from pipeline.
-- **Is `platform_rules.json` actually loaded?** Trace whether `pre-validate.sh` reads it in the openmeter install.
-- **Source-field tagging bug.** All 36 of openmeter's rules are missing the `source` field. Trivial: post-process Step 6 output to stamp `source: "deep-baseline"`. Lets us trace lineage.
+Findings, recorded so we don't re-diagnose:
 
-Output: short notes documenting findings, fold the cheap fixes into Phase 1.
+**1. `rules/extractor.py` is wired into the wrong code path.** It runs from `archie/cli/init_command.py` (the CLI `archie init` flow), not from the `/archie-deep-scan` slash command. The slash command pipeline goes Step 6 (Sonnet AI synthesis) → `extract_output.py rules` → `rules.json`, with no extractor call anywhere. Run standalone on openmeter's `blueprint.json` it does produce 21 rules (12 placement + 9 naming) — but with a second bug: it reads `fpr.get("allowed_dirs", fpr.get("directories", []))` while the actual blueprint shape produced by Wave 2 has `location` (singular). All 12 placement rules come back with empty `allowed_dirs`, so even if merged they wouldn't enforce anything. Fix in Phase 1: either (a) update extractor to read `location` and call it from the slash command path, or (b) accept that Step 6 covers placement+naming via `architectural_constraint` and retire the extractor. Lean (b) — Step 6's coverage is already richer.
+
+**2. `platform_rules.json` IS wired correctly.** Both `pre-validate.sh` (line 21 of `install_hooks.py`) and `check_rules.py` (line 416) read it. Openmeter has 30 active platform rules (god-function, force-unwrap, layer rules per platform, etc.). Plan's earlier "zero from platform_rules" framing was misleading — they're orthogonal (universal anti-patterns), not disabled. No fix needed.
+
+**3. `source` field is missing because nobody stamps it.** Step 6's prompt schema in `archie-deep-scan.md` (lines 1166-1186) doesn't include `source` as a field, and `extract_output.py cmd_rules` writes Sonnet's output verbatim without post-hoc stamping. Fix in Phase 1: (a) add `"source": "deep_scan"` to the rule schema in the Step 6 prompt, AND (b) stamp `source = "deep_scan"` defensively in `cmd_rules` for any rule missing it (defense-in-depth — can't trust the model to emit every field).
+
+**Cheap fixes folded into Phase 1**: source-field stamp (both prompt + post-hoc), retire the unused extractor wiring (or update its blueprint key mapping if we want to keep it for `archie init`).
 
 ### Phase 1 — Inline rule shape with severity + content (~2 days, ships as 2.5.0)
 
