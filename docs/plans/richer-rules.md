@@ -81,7 +81,7 @@ No `by_keyword` map for severity-graded checks. Keyword matching that exists tod
 
 In the new model, scan does three things:
 
-**1. Proposes new rules in the same shape as deep-scan.** Scan's existing AI step (the senior-architect pass) already spots drift — recently-added files diverging from a pattern, new pitfalls emerging, decisions being silently violated. Today it emits flat single-line rules. Going forward it emits the new shape: structured trigger (path-glob / code-shape / classifier candidate), `see_also` pointers, and a `source: "scan"` provenance tag so users can tell scan-born rules from deep-scan baseline ones.
+**1. Proposes new rules in the same shape as deep-scan.** Scan's existing AI step (the senior-architect pass) already spots drift — recently-added files diverging from a pattern, new pitfalls emerging, decisions being silently violated. Today it emits flat single-line rules. Going forward it emits the new shape: inline `description + why + example`, `severity_class`, structured `triggers` (path-glob / code-shape / classifier candidate), and a `source: "scan"` provenance tag so users can tell scan-born rules from deep-scan baseline ones.
 
 **2. Infers severity from the blueprint anchor, doesn't invent it.** Scan tries to anchor each proposed rule to a blueprint section:
 
@@ -94,7 +94,7 @@ In the new model, scan does three things:
 
 Scan never promotes a rule to `decision_violation` on its own — promotion happens at the next deep-scan, when the rule gets reasoned about with full Wave-2 context (decision chain, tradeoffs, pitfalls). This keeps scan fast and prevents premature blocking.
 
-**3. Adjusts existing rules, not just adds.** Scan can also propose *diffs* to existing rules: trigger too broad (false positives in the recent diff history), trigger too narrow (real divergence missed), `see_also` pointer stale (referenced section moved or got rewritten). Each adjustment carries the same provenance tag (`source: "scan-amended"`). Deep-scan reconciles these on its next run.
+**3. Adjusts existing rules, not just adds.** Scan can also propose *diffs* to existing rules: trigger too broad (false positives in the recent diff history), trigger too narrow (real divergence missed), `why` text out of date (referenced decision text was rewritten in the latest deep-scan). Each adjustment carries the provenance tag `source: "scan-amended"`. Deep-scan reconciles these on its next run.
 
 **4. Updates the trigger index.** Phase 2's `.archie/rule_index.json` is regenerated whenever rules change. Scan rebuilds the index after appending/amending — cheap operation (a few hundred ms) that keeps the hot-path lookups in sync without waiting for the next deep-scan.
 
@@ -110,42 +110,51 @@ The split is clean: deep-scan is the slow, expensive *reasoning* pass that estab
 
 Output: short notes documenting findings, fold the cheap fixes into Phase 1.
 
-### Phase 1 — Severity-graded blueprint pointers in rules (~2 days, ships as 2.5.0)
+### Phase 1 — Inline rule shape with severity + content (~2 days, ships as 2.5.0)
 
-Cheapest big win. Most of the blueprint's architectural depth is already there; rules just don't reference it.
+Cheapest big win. Most of the blueprint's architectural depth is already there; rules just don't carry it. Sonnet at Step 6 already writes both the blueprint sections and the rule — it just needs to inline the content directly into the rule instead of flattening it. **No pointers, no indirection** — the rule is what the agent sees, so it carries exactly the strings that go into the message.
 
 **Schema additions** (additive, backward-compat):
 
 ```json
 {
   "id": "tx-001",
-  "description": "...",
-  "severity_class": "decision_violation",   // NEW: maps to the response gradient
-  "see_also": [                             // NEW: pointers into blueprint sections
-    "decisions.key_decisions[3]",
-    "pitfalls[7]",
-    "implementation_guidelines[2]"
-  ],
-  ...existing fields stay...
+  "severity_class": "decision_violation",
+  "description": "Wrap helpers accepting *entdb.Client in entutils.Tx",
+  "why": "Database transactions span the full charge lifecycle. Helpers that accept a raw *entdb.Client without wrapping in entutils.Tx cause partial commits when an error occurs mid-flow, leaving inconsistent state in billing tables.",
+  "example": "func (a *adapter) AdvanceCharges(ctx, in) error { return entutils.Tx(ctx, a.client, func(tx *entdb.Tx) error { ... }) }",
+  "source": "deep_scan",
+  ...existing fields stay (id, triggers come in Phase 2)...
 }
 ```
 
-`severity_class` makes the gradient explicit on every rule. `see_also` carries the depth.
+Three new load-bearing fields:
+- `severity_class` — maps to the response gradient (`decision_violation`, `pitfall_triggered`, `tradeoff_undermined`, `pattern_divergence`, `mechanical_violation`)
+- `why` — the reasoning, copy-pasted from the blueprint section that motivated the rule (decision text, pitfall description, tradeoff signal, pattern rationale)
+- `example` — canonical code shape, copy-pasted from `implementation_guidelines.usage_example` when present
+- `source` — provenance tag (`deep_scan`, `scan`, `scan-amended`)
 
-**Step 6 prompt update**: when emitting each rule, instruct Sonnet to (a) classify the severity, (b) identify the 1-3 blueprint sections that motivate it, (c) emit them as `see_also` paths. Sonnet wrote those sections in Wave 2 — it knows where they are.
+**Why no `see_also` pointers.** The agent doesn't read pointers; it reads the rejection message. Either the content lives in the rule and gets shown directly, or it doesn't reach the agent at all. Indirection would mean the hook has to load `blueprint.json`, parse it, walk a path expression, and resolve fragments on every rule fire — extra file read, extra parser, extra failure mode (stale pointer when blueprint changes). Inlining is one file, one read, no resolver code.
 
-**Renderer + hook update**: `pre-validate.sh` follows `see_also` pointers and inlines the referenced content. The agent now sees:
+**Step 6 prompt update**: when emitting each rule, instruct Sonnet to (a) classify the severity from which blueprint section motivated the rule, (b) inline the relevant `why` text from that section, (c) inline the canonical code shape from `implementation_guidelines.usage_example` when applicable, (d) stamp `source: "deep_scan"`. Sonnet wrote those sections in Wave 2 — copying the content forward costs nothing at generation time.
+
+**Renderer + hook update**: `pre-validate.sh` reads the new fields directly from the rule. Agent sees:
 
 ```
 RULE tx-001 [decision_violation]: Wrap helpers accepting *entdb.Client in entutils.Tx
-  WHY (decisions.key_decisions[3]): Database transactions span the full charge lifecycle...
-  EXAMPLE (implementation_guidelines[2]): func (a *adapter) AdvanceCharges(ctx, in) error { return entutils.Tx(... ) }
-  PITFALL avoided (pitfalls[7]): Helpers accepting *entdb.Client without wrapping cause partial commits...
+  WHY: Database transactions span the full charge lifecycle. Helpers that accept a raw
+       *entdb.Client without wrapping in entutils.Tx cause partial commits when an error
+       occurs mid-flow, leaving inconsistent state in billing tables.
+  EXAMPLE: func (a *adapter) AdvanceCharges(ctx, in) error {
+             return entutils.Tx(ctx, a.client, func(tx *entdb.Tx) error { ... })
+           }
 ```
 
-Backward compat: existing rules without `see_also`/`severity_class` work as today.
+No blueprint read, no pointer resolution. Hook reads rule, prints rule, exits per `severity_class`.
 
-**Files touched**: `archie/standalone/renderer.py`, `archie/standalone/check_rules.py` (or `pre-validate.sh`), `.claude/commands/archie-deep-scan.md` Step 6 prompt, `tests/test_rules_see_also.py` (new).
+Backward compat: existing rules without `severity_class` default to `mechanical_violation` (today's behavior). Missing `why`/`example` simply omit those lines in the message.
+
+**Files touched**: `archie/standalone/renderer.py`, `archie/standalone/check_rules.py` (or `pre-validate.sh`), `.claude/commands/archie-deep-scan.md` Step 6 prompt, `tests/test_rule_shape.py` (new — schema validation + agent-message rendering).
 
 ### Phase 2 — Pre-computed trigger index + structured edit-time triggers (~3-4 days, ships as 2.6.0)
 
@@ -270,11 +279,11 @@ Phase 1 first because cheapest and immediately makes existing rules richer at ed
 - **npm-package sync.** Every phase touches scripts that mirror to `npm-package/assets/`. `scripts/verify_sync.py` catches misses.
 - **Permission audit.** Phase 2's index lookup is `python3 .archie/check_rules.py` which is allowlisted (`python3 .archie/*.py *`). No new shell tools. Phase 3's hook spawns a subagent via `Agent(*)` which is also allowlisted. Verify with the permission audit before each release.
 - **Tests.** Each phase ships with tests — schema validation (Phase 1), index generation + code-shape matching (Phase 2), classifier output parsing + severity gating (Phase 3).
-- **Real-world validation.** After each phase, sync into `~/DEV/gbr/openmeter` and verify: (Phase 1) `pre-validate.sh` shows decision/pitfall pointers when relevant rules fire; (Phase 2) editing `openmeter/billing/charges/adapter/foo.go` to add a `*entdb.Client` function without `entutils.Tx` triggers `decision-tx-001` deterministically; (Phase 3) writing a plan that creates `openmeter/promotions/` without a Service interface gets blocked at ExitPlanMode with structured rejection.
+- **Real-world validation.** After each phase, sync into `~/DEV/gbr/openmeter` and verify: (Phase 1) `pre-validate.sh` renders `description + why + example` inline when relevant rules fire, no blueprint read; (Phase 2) editing `openmeter/billing/charges/adapter/foo.go` to add a `*entdb.Client` function without `entutils.Tx` triggers `decision-tx-001` deterministically; (Phase 3) writing a plan that creates `openmeter/promotions/` without a Service interface gets blocked at ExitPlanMode with structured rejection.
 
 ## Open questions (decide per phase)
 
-1. **Phase 1 — pointer syntax.** `decisions.key_decisions[3]` (dotted) vs JSON Pointer. Lean dotted (consistent with existing `inspect --query` tool).
+1. **Phase 1 — duplication risk.** Inlining `why` and `example` into rules duplicates content from `blueprint.json`. Mitigation: same Sonnet pass writes both, so they stay in sync at deep-scan time; scan amends both via `source: "scan-amended"` if the blueprint changes mid-cycle. Acceptable cost for the simpler hot path.
 2. **Phase 2 — code-shape DSL.** Hand-rolled small spec mapped to tree-sitter queries vs adopting an existing tool (semgrep would also work). Lean hand-rolled — fewer deps, narrower surface, easier for Sonnet to emit consistently.
 3. **Phase 3 — classifier model.** Haiku for cost or Sonnet for accuracy? Lean Haiku — fast, cheap, the structured output schema constrains the model enough.
 4. **Phase 3 — block vs warn for `tradeoff_undermined`.** Currently warn. Open question whether some tradeoffs (security, correctness) should block instead. Probably configurable per project.
