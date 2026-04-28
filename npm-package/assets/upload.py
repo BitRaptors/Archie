@@ -189,12 +189,57 @@ def build_bundle(project_root: Path) -> dict:
     elif isinstance(findings_store, list):
         bundle["findings"] = findings_store
 
-    # Structured semantic duplications from Agent C — "near-twin" functions,
-    # reimplementations, same logic under different names. Distinct from
-    # health.json's textual duplicates (which are line-identical copy-paste).
+    # Structured semantic duplications. Two upstream sources, merged here so
+    # the share viewer always sees a single authoritative count regardless of
+    # which scan path produced them:
+    #
+    #   1. .archie/semantic_duplications.json — Agent C's output via
+    #      /archie-scan Phase 4d. Present when /archie-scan ran AFTER the
+    #      Agent C step was added.
+    #   2. .archie/drift_report.json deep_findings tagged
+    #      "semantic_duplication" — /archie-deep-scan's deep-drift agent.
+    #      This was getting silently dropped: the file existed, the findings
+    #      were tagged, but upload.py never looked at them. Visible symptom
+    #      was "0 semantic reimplementations" on the share cover for projects
+    #      whose dups came from deep-drift only.
+    #
+    # Distinct from health.json's textual duplicates (line-identical copy-
+    # paste). Both sources describe near-twin functions / reimplementations.
+    duplications: list = []
+    saw_any_source = False
     sem = _read_json(archie_dir / "semantic_duplications.json")
     if sem and isinstance(sem.get("duplications"), list):
-        bundle["semantic_duplications"] = sem["duplications"]
+        saw_any_source = True
+        duplications.extend(sem["duplications"])
+
+    drift = _read_json(archie_dir / "drift_report.json")
+    if isinstance(drift, dict):
+        deep_findings = drift.get("deep_findings") or []
+        if isinstance(deep_findings, list):
+            saw_any_source = True
+            for f in deep_findings:
+                if not isinstance(f, dict):
+                    continue
+                # The deep-drift agent tags entries via a `type` field
+                # ("semantic_duplication", "missing_pattern", etc.). Some
+                # older / hand-rolled outputs use a `tags` array instead;
+                # accept both shapes so the count is robust to schema drift.
+                ftype = f.get("type")
+                tags = f.get("tags") or []
+                is_sem = (
+                    (isinstance(ftype, str) and "semantic_duplication" in ftype)
+                    or (isinstance(tags, list)
+                        and any(isinstance(t, str) and "semantic_duplication" in t for t in tags))
+                )
+                if is_sem:
+                    duplications.append(f)
+    # Set the field whenever either source provided ANY signal — including
+    # the explicit "structured zero" case (empty list with both sources
+    # checked). Without saw_any_source, an empty result here would drop the
+    # field entirely and let the share viewer fall through to its prose
+    # heuristic, which can return non-zero from unrelated scan_report text.
+    if saw_any_source:
+        bundle["semantic_duplications"] = duplications
 
     return bundle
 
