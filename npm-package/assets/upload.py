@@ -206,14 +206,17 @@ def build_bundle(project_root: Path) -> dict:
     # Distinct from health.json's textual duplicates (line-identical copy-
     # paste). Both sources describe near-twin functions / reimplementations.
     duplications: list = []
+    saw_any_source = False
     sem = _read_json(archie_dir / "semantic_duplications.json")
     if sem and isinstance(sem.get("duplications"), list):
+        saw_any_source = True
         duplications.extend(sem["duplications"])
 
     drift = _read_json(archie_dir / "drift_report.json")
     if isinstance(drift, dict):
         deep_findings = drift.get("deep_findings") or []
         if isinstance(deep_findings, list):
+            saw_any_source = True
             for f in deep_findings:
                 if not isinstance(f, dict):
                     continue
@@ -230,7 +233,12 @@ def build_bundle(project_root: Path) -> dict:
                 )
                 if is_sem:
                     duplications.append(f)
-    if duplications:
+    # Set the field whenever either source provided ANY signal — including
+    # the explicit "structured zero" case (empty list with both sources
+    # checked). Without saw_any_source, an empty result here would drop the
+    # field entirely and let the share viewer fall through to its prose
+    # heuristic, which can return non-zero from unrelated scan_report text.
+    if saw_any_source:
         bundle["semantic_duplications"] = duplications
 
     return bundle
