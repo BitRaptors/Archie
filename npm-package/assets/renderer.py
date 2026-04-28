@@ -940,9 +940,13 @@ def generate_claude_md(bp: dict) -> str:
         ("pitfalls", "Documented traps with evidence + fix direction"),
         ("dev-rules", "Coding-time imperatives (patterns, anti-patterns, boundaries, wiring)"),
         ("infrastructure", "CI / signing / distribution / secrets / env setup / registry auth"),
+        ("enforcement", "Every rule the pre-edit hook + plan/commit classifier consults, grouped by severity"),
         ("frontend", "UI architecture, state, routing (when applicable)"),
     ]
-    # Filter to topics that have backing data in the blueprint
+    # Filter to topics that have backing data in the blueprint. The
+    # enforcement topic is always advertised (even when blueprint doesn't
+    # describe it directly) — its presence is determined by rules.json
+    # / platform_rules.json existence at render time.
     has_topic = {
         "architecture": bool(_get(bp, "components", "components") or _get(bp, "architecture_rules", "file_placement_rules")),
         "patterns": bool(_get(bp, "communication", "patterns") or _get(bp, "decisions", "key_decisions") or _get(bp, "decisions", "trade_offs")),
@@ -951,6 +955,7 @@ def generate_claude_md(bp: dict) -> str:
         "pitfalls": bool(bp.get("pitfalls")),
         "dev-rules": bool(bp.get("development_rules")),
         "infrastructure": bool(bp.get("infrastructure_rules")),
+        "enforcement": True,
         "frontend": bool(_as_dict(bp.get("frontend")).get("framework")),
     }
 
@@ -963,18 +968,19 @@ def generate_claude_md(bp: dict) -> str:
             lines.append(f"- [`.claude/rules/{topic}.md`](.claude/rules/{topic}.md) — {blurb}")
     lines.append("")
 
-    # Enforcement Rules — surface the rules.json existence and what it does.
-    # The pre-edit hook reads it on every Write/Edit/MultiEdit; the
-    # plan/commit classifier reads it on ExitPlanMode + git commit.
+    # Enforcement Rules — pointer + brief explanation. The full browsable
+    # rule set is rendered as `.claude/rules/enforcement.md` (also linked
+    # in the Architectural Rules block above). Source of truth on disk:
+    # .archie/rules.json + .archie/platform_rules.json.
     lines.append("## Enforcement Rules")
     lines.append("")
     lines.append(
-        "[`.archie/rules.json`](.archie/rules.json) holds the project's enforcement rules — "
-        "each carries `severity_class` (block / warn / inform), inline `why`, and an `example` "
-        "of the canonical shape. The pre-edit hook (`PRE_VALIDATE_HOOK`) consults them on "
-        "every Write / Edit / MultiEdit; the plan + commit classifiers (`align_check.py`) "
-        "reason over them at `ExitPlanMode` and `git commit`. Read the file when you want "
-        "to know what will fire before you make a change."
+        "[`.claude/rules/enforcement.md`](.claude/rules/enforcement.md) lists every rule "
+        "the pre-edit hook (`PRE_VALIDATE_HOOK`) and plan/commit classifier "
+        "(`align_check.py`) consult, grouped by severity. The underlying source on disk "
+        "is [`.archie/rules.json`](.archie/rules.json) (project-specific) plus "
+        "[`.archie/platform_rules.json`](.archie/platform_rules.json) (universal anti-"
+        "patterns shipped with Archie)."
     )
     lines.append("")
 
@@ -1013,11 +1019,155 @@ def generate_agents_md(bp: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Enforcement rules topic file (.claude/rules/enforcement.md)
+#
+# Renders the full contents of `.archie/rules.json` + `.archie/platform_rules.json`
+# so an agent / human can scan everything that might fire at edit-, plan-,
+# or commit-time without leaving session context. Grouped by severity_class
+# so the most consequential rules surface first.
+# ---------------------------------------------------------------------------
+
+
+def _severity_label_for_render(rule: dict) -> str:
+    """Resolve a rule's severity_class with backward-compat fallback to legacy
+    `severity` ("error" → mechanical_violation, "warn" → tradeoff_undermined)."""
+    sc = rule.get("severity_class")
+    if sc:
+        return sc
+    if rule.get("severity") == "error":
+        return "mechanical_violation"
+    return "tradeoff_undermined"
+
+
+_SEVERITY_RENDER_ORDER = [
+    "decision_violation",
+    "pitfall_triggered",
+    "mechanical_violation",
+    "tradeoff_undermined",
+    "pattern_divergence",
+]
+
+_SEVERITY_HEADINGS = {
+    "decision_violation": "Decision Violations (block)",
+    "pitfall_triggered": "Pitfalls (block)",
+    "mechanical_violation": "Mechanical Violations (block)",
+    "tradeoff_undermined": "Tradeoff Signals (warn)",
+    "pattern_divergence": "Pattern Divergence (inform)",
+}
+
+
+def _render_one_enforcement_rule(rule: dict) -> list[str]:
+    rid = rule.get("id", "?")
+    sev_class = _severity_label_for_render(rule)
+    desc = rule.get("description", "")
+    why = rule.get("why") or rule.get("rationale") or ""
+    example = rule.get("example") or ""
+    source = rule.get("source", "")
+    triggers = rule.get("triggers") or {}
+    applies_to = rule.get("applies_to", "")
+    check = rule.get("check", "")
+
+    out = [f"### `{rid}` — {desc}"]
+    out.append("")
+    meta_bits = []
+    if source:
+        meta_bits.append(f"*source: `{source}`*")
+    if applies_to:
+        meta_bits.append(f"*scope: `{applies_to}`*")
+    if check:
+        meta_bits.append(f"*check: `{check}`*")
+    if meta_bits:
+        out.append(" · ".join(meta_bits))
+        out.append("")
+    if why:
+        out.append(f"**Why:** {why}")
+        out.append("")
+    if example:
+        out.append("**Example:**")
+        out.append("")
+        out.append("```")
+        out.append(example)
+        out.append("```")
+        out.append("")
+    # Triggers — surface path_glob + code_shape for new-shape rules
+    if isinstance(triggers, dict):
+        path_globs = triggers.get("path_glob") or []
+        if isinstance(path_globs, str):
+            path_globs = [path_globs]
+        if path_globs:
+            out.append("**Path glob:** " + ", ".join(f"`{g}`" for g in path_globs))
+            out.append("")
+        code_shapes = triggers.get("code_shape") or []
+        if isinstance(code_shapes, list) and code_shapes:
+            out.append("<details><summary>Code-shape trigger</summary>")
+            out.append("")
+            out.append("```json")
+            out.append(json.dumps(code_shapes, indent=2))
+            out.append("```")
+            out.append("")
+            out.append("</details>")
+            out.append("")
+    return out
+
+
+def build_enforcement_rules_topic(rules: list[dict]) -> str | None:
+    """Render the full enforcement rule set as a topic file.
+
+    Groups by severity_class. New-shape rules surface their `why` /
+    `example` / `triggers` inline; old-shape rules fall back to
+    `rationale` and any legacy `applies_to` / `check` fields.
+    """
+    if not rules:
+        return None
+
+    valid = [r for r in rules if isinstance(r, dict) and r.get("id")]
+    if not valid:
+        return None
+
+    by_severity: dict[str, list[dict]] = defaultdict(list)
+    for r in valid:
+        by_severity[_severity_label_for_render(r)].append(r)
+
+    lines = []
+    counts = ", ".join(
+        f"{len(by_severity[k])} {k}" for k in _SEVERITY_RENDER_ORDER if by_severity.get(k)
+    )
+    lines.append(f"## Enforcement Rules ({len(valid)} total)")
+    lines.append("")
+    lines.append(
+        "Every rule the pre-edit hook (`PRE_VALIDATE_HOOK`) and the plan/"
+        "commit classifier (`align_check.py`) consults. Grouped by severity."
+    )
+    if counts:
+        lines.append("")
+        lines.append(f"_{counts}_")
+    lines.append("")
+
+    # Render in severity order so the blocking ones surface first
+    for sev in _SEVERITY_RENDER_ORDER:
+        bucket = by_severity.get(sev) or []
+        if not bucket:
+            continue
+        lines.append(f"## {_SEVERITY_HEADINGS[sev]}")
+        lines.append("")
+        for rule in bucket:
+            lines.extend(_render_one_enforcement_rule(rule))
+
+    return "\n".join(lines).rstrip()
+
+
+# ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
-def generate_all(bp: dict) -> dict:
+def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
     """Generate all output files from a blueprint dict.
+
+    `enforcement_rules` is the merged contents of `.archie/rules.json` +
+    `.archie/platform_rules.json` — when present, an additional
+    `.claude/rules/enforcement.md` topic file gets emitted with every
+    rule grouped by severity_class. Pass `None` (or omit) when rendering
+    a blueprint without access to those files.
 
     Returns {path: content} for every output file.
     """
@@ -1051,6 +1201,13 @@ def generate_all(bp: dict) -> dict:
         topic = rf["topic"]
         files[f".claude/rules/{topic}.md"] = _render_claude(rf)
 
+    # Enforcement rules topic — only emitted when caller passes the rules
+    # list (typically loaded from .archie/rules.json + platform_rules.json).
+    if enforcement_rules:
+        body = build_enforcement_rules_topic(enforcement_rules)
+        if body:
+            files[".claude/rules/enforcement.md"] = body
+
     return files
 
 
@@ -1071,7 +1228,25 @@ def main():
         sys.exit(1)
 
     bp = json.loads(blueprint_path.read_text())
-    files = generate_all(bp)
+
+    # Load enforcement rules from .archie/rules.json + platform_rules.json
+    # so the renderer can emit a browsable enforcement.md topic file.
+    # Both files are optional; missing-or-malformed cases produce no
+    # enforcement.md and don't fail the render.
+    enforcement_rules: list[dict] = []
+    for fname in ("rules.json", "platform_rules.json"):
+        path = project_root / ".archie" / fname
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        items = data if isinstance(data, list) else data.get("rules", [])
+        if isinstance(items, list):
+            enforcement_rules.extend(r for r in items if isinstance(r, dict))
+
+    files = generate_all(bp, enforcement_rules=enforcement_rules)
 
     # Write all files. CLAUDE.md and AGENTS.md may coexist with hand-authored
     # content — those go through render_mergeable which preserves user content
