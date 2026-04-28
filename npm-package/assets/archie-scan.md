@@ -227,7 +227,13 @@ You are analyzing the HEALTH and COMPLEXITY of a codebase. You have access to he
    - Top-20% share: <0.5 good, 0.5-0.7 moderate, >0.7 high
    - Verbosity: <0.05 good, 0.05-0.15 moderate, >0.15 high
 
-2. **Trend analysis:** Compare against health_history.json. Are things improving or degrading? Which metrics moved most? Is LOC growth justified?
+2. **Trend analysis:** Read the prior baseline + deltas with one command (do NOT improvise inline Python — the file's shape has changed across versions and ad-hoc reads break):
+
+   ```bash
+   python3 .archie/measure_health.py "$PWD" --compare-history
+   ```
+
+   Stdout: JSON with `runs`, `current`, `previous`, `deltas` for erosion / gini / top20_share / verbosity / total_loc. Stderr: a one-line summary with arrows. From that, decide: are things improving or degrading? Which metrics moved most? Is LOC growth justified?
 
 3. **Complexity hotspots:** Identify functions with CC > 10. Assess from skeletons first — the function signature and surrounding context usually explain the complexity. Only Read a function's source if you can't determine from the skeleton whether the complexity is justified.
 
