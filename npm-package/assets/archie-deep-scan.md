@@ -1264,6 +1264,30 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > }
 > ```
 >
+> ## Phase 2 — `triggers` block (RECOMMENDED for every rule)
+>
+> The pre-validate hook narrows candidate rules at edit time using a small structured block called `triggers`. When you can express the rule's *applicability* and *violation signal* as a path glob + content regex, write them here. The hook will fire the rule deterministically without calling any AI. Rules without `triggers` are still candidates for Phase 3 (plan/commit-time semantic comparison) but skip the hot edit-time path.
+>
+> ```json
+> "triggers": {
+>   "path_glob": ["openmeter/billing/charges/**/adapter/**"],
+>   "code_shape": [
+>     {
+>       "kind": "regex_in_content",
+>       "must_match": ["func \\w+ \\(.*\\*entdb\\.Client.*\\)"],
+>       "must_not_match": ["entutils\\.Tx\\("]
+>     }
+>   ]
+> }
+> ```
+>
+> - `path_glob`: array of glob patterns. `*` matches within a path segment, `**` matches across. Trailing `/` matches as a directory prefix. The rule is a candidate for an edit only if the file's relative path matches at least one glob.
+> - `code_shape`: array of structured matchers. Each entry currently uses `kind: "regex_in_content"`. The shape fires when **any** `must_match` pattern matches the diff/content AND **none** of the `must_not_match` patterns matches.
+> - Both arrays are AND-combined: path_glob narrows file applicability, code_shape narrows content. Either alone is fine — omit the other key entirely if not relevant.
+> - **Trigger-only rules are valid.** A rule with `triggers` but no `check` field uses the trigger as the violation detector — if the trigger fires, the rule is violated, severity per `severity_class`. Use this for layering / pattern / decision rules where the regex IS the structural test.
+> - **Trigger + check** is also fine: triggers narrow candidacy, the existing `check` field runs the deterministic check.
+> - **No triggers** = Phase 3 only. The rule stays semantic; the edit-time hook ignores it; the plan/commit classifier reasons about it.
+>
 > ## What to produce:
 >
 > **Deep architectural rules** — invariants an AI coding agent might accidentally violate. These are the most valuable. Derive them from decision chains, trade-offs, pitfalls, and pattern descriptions. Examples: "ViewModel must never reference View/Context", "Repository must use IO dispatcher", "Fragments must use DI delegation not direct construction".
@@ -1277,7 +1301,8 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > - **`why` is required and must be inlined from the blueprint** — copy the language verbatim or near-verbatim, do not paraphrase. This is what the agent reads at edit-time.
 > - **`example` is required as a key** but may be an empty string when the rule is purely about what NOT to do and no positive code shape applies.
 > - **`source: "deep_scan"`** on every rule. The post-process stamps it defensively but prefer to emit it.
-> - If you include `forbidden_patterns`, every entry must be a valid regex
+> - **Add `triggers` whenever the rule has a structural signature** (file path + content pattern). Trigger regexes are more robust than the older `forbidden_patterns` because path_glob + content combine cleanly. Rules with no structural signature (purely semantic) stay trigger-less and fire only at plan/commit time via Phase 3.
+> - If you include `forbidden_patterns` or `triggers.code_shape`, every regex must be valid Python `re` syntax.
 > - Include an `"id"` field for each rule (e.g., "dep-001", "arch-001", "ban-001")
 > - The `description` must explain WHAT is forbidden in one sentence
 > - Do NOT force mechanical fields — most rules will be `decision_violation` / `pitfall_triggered` / `tradeoff_undermined` / `pattern_divergence` with no `check`. Only add the regex fields when a meaningful pattern exists, and pair them with `severity_class: "mechanical_violation"`.
@@ -1302,6 +1327,12 @@ python3 .archie/extract_output.py rules /tmp/archie_rules_$PROJECT_NAME.json "$P
 ```
 
 **IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT copy the agent's transcript. Always use the pre-installed scripts on the file the agent already wrote.**
+
+Build the Phase 2 trigger index so the pre-validate hook can narrow candidates fast on every edit:
+
+```bash
+python3 .archie/rule_index.py build "$PROJECT_ROOT"
+```
 
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6

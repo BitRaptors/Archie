@@ -198,6 +198,91 @@ def any_match(patterns, text):
             continue
     return False
 
+# ----- Phase 2 trigger primitives ----------------------------------------
+# Inline (no sibling import — the hook runs as a heredoc that can't sys.path).
+# Mirror the semantics of code_shape.py: regex-based path glob and
+# code_shape_match. Sonnet emits these alongside each rule's `triggers`
+# block at /archie-deep-scan Step 6 and /archie-scan Step 4.
+
+def _coerce_list(v):
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, list):
+        return [str(x) for x in v if x]
+    return []
+
+def _path_glob_match(rel_path, pattern):
+    if not pattern:
+        return False
+    if pattern.endswith("/") and "*" not in pattern:
+        return rel_path.startswith(pattern) or rel_path == pattern.rstrip("/")
+    out = ["^"]
+    i = 0; n = len(pattern)
+    while i < n:
+        c = pattern[i]
+        if c == "*":
+            if i + 1 < n and pattern[i + 1] == "*":
+                left_slash = i > 0 and pattern[i - 1] == "/"
+                right_slash = i + 2 < n and pattern[i + 2] == "/"
+                if left_slash and right_slash:
+                    out[-1] = "(?:/.*)?/"
+                    i += 3; continue
+                if right_slash:
+                    out.append("(?:.*/)?"); i += 3; continue
+                if left_slash:
+                    out[-1] = "(?:/.*)?"; i += 2; continue
+                out.append(".*"); i += 2; continue
+            out.append("[^/]*"); i += 1; continue
+        if c in r".+?^$()[]{}|\\":
+            out.append("\\" + c)
+        else:
+            out.append(c)
+        i += 1
+    out.append("$")
+    try:
+        return bool(re.match("".join(out), rel_path))
+    except re.error:
+        return False
+
+def _code_shape_match(content, shape):
+    if not isinstance(shape, dict) or shape.get("kind", "regex_in_content") != "regex_in_content":
+        return False
+    must_match = _coerce_list(shape.get("must_match"))
+    must_not = _coerce_list(shape.get("must_not_match"))
+    if not must_match:
+        return False
+    if not any_match(must_match, content):
+        return False
+    if must_not and any_match(must_not, content):
+        return False
+    return True
+
+def _trigger_fires(rule, rel_path, content):
+    """Return (has_triggers, fires) for a rule's triggers block.
+
+    has_triggers=False: legacy rule, falls through to existing check field.
+    has_triggers=True, fires=True: trigger matched — rule is candidate.
+    has_triggers=True, fires=False: trigger present but didn't match — skip.
+    """
+    triggers = rule.get("triggers")
+    if not isinstance(triggers, dict):
+        return False, True  # legacy
+    globs = _coerce_list(triggers.get("path_glob"))
+    shapes = triggers.get("code_shape") or []
+    if not isinstance(shapes, list):
+        shapes = []
+    if not globs and not shapes:
+        # Empty triggers block -> classifier-only rule, never fires at edit time
+        return True, False
+    if globs and not any(_path_glob_match(rel_path, g) for g in globs):
+        return True, False
+    if shapes and not any(_code_shape_match(content, s) for s in shapes):
+        return True, False
+    return True, True
+
+
 errors = []   # list of (rule, conf) — blocking
 warns = []    # list of (rule, conf) — non-blocking warn (tradeoff_undermined)
 infos = []    # list of (rule, conf) — non-blocking info (pattern_divergence)
@@ -206,6 +291,11 @@ for r in rules:
     check = r.get("check", "")
     conf = r.get("confidence", 1.0)
     matched = False
+
+    has_triggers, trigger_fires = _trigger_fires(r, rel_path, content)
+    if has_triggers and not trigger_fires:
+        # Trigger present but didn't match — rule isn't a candidate for this edit
+        continue
 
     if check == "file_placement":
         dirs = r.get("allowed_dirs", [])
@@ -248,6 +338,11 @@ for r in rules:
                     matched = True
             except re.error:
                 pass
+
+    elif not check and has_triggers and trigger_fires:
+        # Phase 2: trigger-only rule (no `check` field). The trigger IS the
+        # mechanical detector. If the trigger fired, the rule is violated.
+        matched = True
 
     if not matched:
         continue
@@ -292,14 +387,35 @@ PYEOF
 
 
 POST_PLAN_HOOK = r'''#!/usr/bin/env bash
-# Archie post-plan review — triggers architectural review after plan approval
+# Archie post-plan review — Phase 3 semantic comparison.
+# Pipes the PostToolUse ExitPlanMode envelope to align_check.py, which
+# pulls the plan text, runs the architectural-rule classifier (Haiku
+# via claude CLI), and exits 2 if any decision_violation or
+# pitfall_triggered fires. Falls back to advisory mode (exit 0 + rule
+# context) if claude CLI is unavailable.
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 [ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
+TOOL_INPUT=$(cat || true)
+[ -z "$TOOL_INPUT" ] && exit 0
+ALIGN="$PROJECT_ROOT/.archie/align_check.py"
+if [ -f "$ALIGN" ]; then
+    printf '%s' "$TOOL_INPUT" | python3 "$ALIGN" plan "$PROJECT_ROOT"
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        exit $rc
+    fi
+fi
+# Always emit the existing prose review prompt as additional context for
+# the in-conversation Claude (kept for projects that want both the hard
+# classifier verdict and the advisory rule context).
 python3 "$PROJECT_ROOT/.archie/arch_review.py" plan "$PROJECT_ROOT"
 '''
 
 PRE_COMMIT_HOOK = r'''#!/usr/bin/env bash
-# Archie pre-commit review — triggers architectural review before git commit
+# Archie pre-commit review — Phase 3 semantic comparison on the staged diff.
+# Same flow as POST_PLAN_HOOK: align_check.py classifier first (blocks
+# on decision_violation / pitfall_triggered), then existing arch_review
+# prose for context.
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 [ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
 # Only fire for git commit commands
@@ -310,6 +426,14 @@ try: print(json.load(sys.stdin).get('tool_input',{}).get('command',''))
 except: print('')
 " 2>/dev/null || echo "")
 case "$COMMAND" in *git\ commit*|*git\ -C*commit*) ;; *) exit 0 ;; esac
+ALIGN="$PROJECT_ROOT/.archie/align_check.py"
+if [ -f "$ALIGN" ]; then
+    python3 "$ALIGN" commit "$PROJECT_ROOT"
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        exit $rc
+    fi
+fi
 python3 "$PROJECT_ROOT/.archie/arch_review.py" diff "$PROJECT_ROOT"
 '''
 

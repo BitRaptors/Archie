@@ -299,6 +299,23 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 
 **`source` is always `"scan"`** for scan-proposed rules. The post-process stamp will preserve this; do not emit `"source": "deep_scan"`.
 
+**`triggers` (RECOMMENDED when the rule has a structural signature).** Same shape as deep-scan Step 6:
+
+```json
+"triggers": {
+  "path_glob": ["src/api/**"],
+  "code_shape": [
+    {
+      "kind": "regex_in_content",
+      "must_match": ["import .* from '@/domain'"],
+      "must_not_match": []
+    }
+  ]
+}
+```
+
+`path_glob` narrows the file set, `code_shape` narrows the content. A trigger-only rule (no `check` field) treats the trigger itself as the violation detector at edit time — Sonnet should prefer this for layering / pattern / decision rules. Pure-semantic rules (no structural signature) skip the `triggers` block entirely; they'll fire only at plan/commit time via Phase 3.
+
 Confidence calibration:
 - 0.9-1.0: Verified invariant — N files follow pattern with 0-1 exceptions, you read the files.
 - 0.7-0.9: Strong pattern with some exceptions, clear architectural intent.
@@ -629,8 +646,14 @@ The rule adoption prompt:
 
 Either way, support `all` as a shortcut. **Wait for the user's response.** Then process:
 
-- Selected numbers / checkbox picks → adopt those rules into `.archie/rules.json` with `"source": "scan-adopted"` (keep AI confidence)
+- Selected numbers / checkbox picks → adopt those rules into `.archie/rules.json` with `"source": "scan-adopted"` (keep AI confidence + any `triggers` block emitted by Agent C)
 - `all` → adopt every proposed rule
 - `none` (or empty selection) → skip (rules stay in proposed_rules.json)
+
+After adoption, rebuild the Phase 2 trigger index so the pre-validate hook picks up newly-adopted rules immediately:
+
+```bash
+python3 .archie/rule_index.py build "$PWD"
+```
 
 Print confirmation: `Adopted N rules, skipped M (available in /archie-viewer → Rules tab). Scan #N complete — blueprint evolved.`
