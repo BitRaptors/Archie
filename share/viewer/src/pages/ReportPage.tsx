@@ -92,6 +92,7 @@ export default function ReportPage() {
       'diagram',
       'workspace-topology',
       'archrules',
+      'enforcement-rules',
       'devrules',
       'decisions',
       'tradeoffs',
@@ -227,6 +228,17 @@ export default function ReportPage() {
     ...(archRules.development_rules || []),
     ...(bp.development_rules || [])
   ]
+  // Phase 1 enforcement rules — pulled from rules.json / proposed_rules.json
+  // via upload.py's bundle.rules_adopted / .rules_proposed. Both shapes
+  // accepted: `{ rules: [...] }` (current) or raw `[...]` (defensive).
+  const _rulesArray = (raw: any): any[] => {
+    if (!raw) return []
+    if (Array.isArray(raw)) return raw
+    if (typeof raw === 'object' && Array.isArray(raw.rules)) return raw.rules
+    return []
+  }
+  const enforcementRules = _rulesArray(bundle?.rules_adopted)
+  const proposedEnforcementRules = _rulesArray(bundle?.rules_proposed)
   // Blueprint exposes `communication` (singular) as an object with
   // `patterns[]` and `integrations[]`. Patterns flow into the Communications
   // section; integrations get their own inventory section so third-party
@@ -322,7 +334,7 @@ export default function ReportPage() {
           </div>
 
           {/* Rules */}
-          {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0) && (
+          {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0 || enforcementRules.length > 0 || proposedEnforcementRules.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
               {(filePlacement.length > 0 || naming.length > 0) && (
@@ -331,6 +343,14 @@ export default function ReportPage() {
                   onClick={() => scrollToSection('archrules')}
                   icon={HelpCircle}
                   label="Architecture Rules"
+                />
+              )}
+              {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0) && (
+                <NavButton
+                  active={activeSection === 'enforcement-rules'}
+                  onClick={() => scrollToSection('enforcement-rules')}
+                  icon={Shield}
+                  label="Enforcement Rules"
                 />
               )}
               {developmentRules.length > 0 && (
@@ -612,6 +632,13 @@ export default function ReportPage() {
           {(filePlacement.length > 0 || naming.length > 0) && (
             <section id="archrules" className="scroll-mt-24">
               <Sections.ArchRulesSection filePlacement={filePlacement} naming={naming} />
+            </section>
+          )}
+
+          {/* 4b. Enforcement Rules — rules.json + proposed_rules.json (Phase 1 inline shape) */}
+          {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0) && (
+            <section id="enforcement-rules" className="scroll-mt-24">
+              <Sections.RulesSection adopted={enforcementRules} proposed={proposedEnforcementRules} />
             </section>
           )}
 
