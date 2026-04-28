@@ -92,6 +92,50 @@ if fp.startswith(project_root):
     rel_path = fp[len(project_root):].lstrip("/")
 filename = os.path.basename(fp)
 
+# ----- Severity helpers (Phase 1 inline rule shape) -----------------------
+# severity_class drives exit code + label. Falls back to legacy `severity`
+# (error/warn) when severity_class is missing — old-shape rules still work.
+SEVERITY_BLOCKING = {"decision_violation", "pitfall_triggered", "mechanical_violation"}
+SEVERITY_WARN = {"tradeoff_undermined"}
+SEVERITY_INFO = {"pattern_divergence"}
+
+def severity_label(rule):
+    sc = rule.get("severity_class", "")
+    if sc:
+        return sc
+    # legacy fallback
+    return "mechanical_violation" if rule.get("severity") == "error" else "tradeoff_undermined"
+
+def is_blocking(rule):
+    sc = rule.get("severity_class", "")
+    if sc:
+        return sc in SEVERITY_BLOCKING
+    return rule.get("severity") == "error"
+
+def render_rule_message(rule, prefix="  "):
+    """Render the rule's agent-facing message: header + WHY + EXAMPLE blocks.
+
+    Reads new-shape fields (`why`, `example`) when present, falls back to
+    legacy `rationale` so old-shape rules still produce a useful message.
+    """
+    rid = rule.get("id", "unknown")
+    sev = severity_label(rule)
+    desc = rule.get("description", "")
+    why = rule.get("why", "") or rule.get("rationale", "")
+    example = rule.get("example", "")
+    lines = [f"{prefix}RULE {rid} [{sev}]: {desc}"]
+    if why:
+        first = True
+        for ln in why.splitlines() or [why]:
+            lines.append(f"{prefix}  {'WHY: ' if first else '     '}{ln}")
+            first = False
+    if example:
+        first = True
+        for ln in example.splitlines() or [example]:
+            lines.append(f"{prefix}  {'EXAMPLE: ' if first else '         '}{ln}")
+            first = False
+    return "\n".join(lines)
+
 # ----- Tier 4: path-aware rule injection, deduped per turn ----------------
 already_injected = set()
 if turn_file and os.path.isfile(turn_file):
@@ -117,14 +161,24 @@ for r in rules:
 if to_inject:
     print(f"[Archie] Rules applying to {rel_path}:")
     for r, how in to_inject:
-        rid = r.get("id", "unknown")
-        sev = r.get("severity", "warn")
-        desc = r.get("description", "")
-        rationale = r.get("rationale", "")
         tag = " (global)" if how == "always" else ""
-        print(f"  [{sev}] {rid}{tag}: {desc}")
-        if rationale:
-            print(f"    ↳ {rationale}")
+        # Header line with tag, then full message via shared renderer
+        rid = r.get("id", "unknown")
+        sev = severity_label(r)
+        desc = r.get("description", "")
+        print(f"  RULE {rid}{tag} [{sev}]: {desc}")
+        why = r.get("why", "") or r.get("rationale", "")
+        example = r.get("example", "")
+        if why:
+            first = True
+            for ln in why.splitlines() or [why]:
+                print(f"    {'WHY: ' if first else '     '}{ln}")
+                first = False
+        if example:
+            first = True
+            for ln in example.splitlines() or [example]:
+                print(f"    {'EXAMPLE: ' if first else '         '}{ln}")
+                first = False
 
 if newly_injected and turn_file:
     try:
@@ -144,15 +198,13 @@ def any_match(patterns, text):
             continue
     return False
 
-errors = []
-warns = []
+errors = []   # list of (rule, conf) — blocking
+warns = []    # list of (rule, conf) — non-blocking warn (tradeoff_undermined)
+infos = []    # list of (rule, conf) — non-blocking info (pattern_divergence)
 
 for r in rules:
     check = r.get("check", "")
-    desc = r.get("description", "")
-    sev = r.get("severity", "warn")
     conf = r.get("confidence", 1.0)
-    bucket = errors if sev == "error" else warns
     matched = False
 
     if check == "file_placement":
@@ -197,15 +249,42 @@ for r in rules:
             except re.error:
                 pass
 
-    if matched:
-        bucket.append((desc, conf))
+    if not matched:
+        continue
 
-for w, c in warns[:5]:
-    tag = f" (confidence {int(c * 100)}%)" if c < 1.0 else ""
-    print(f"[Archie] Warning{tag}: {w}")
-for e, c in errors:
-    tag = f" (confidence {int(c * 100)}%)" if c < 1.0 else ""
-    print(f"[Archie] BLOCKED{tag}: {e}")
+    sc = r.get("severity_class", "")
+    if sc in SEVERITY_BLOCKING or (not sc and r.get("severity") == "error"):
+        errors.append((r, conf))
+    elif sc in SEVERITY_INFO:
+        infos.append((r, conf))
+    else:
+        warns.append((r, conf))
+
+def render_fired(rule, conf, prefix_label):
+    rid = rule.get("id", "unknown")
+    sev = severity_label(rule)
+    desc = rule.get("description", "")
+    why = rule.get("why", "") or rule.get("rationale", "")
+    example = rule.get("example", "")
+    confidence_tag = f" (confidence {int(conf * 100)}%)" if conf < 1.0 else ""
+    print(f"[Archie] {prefix_label}{confidence_tag} {rid} [{sev}]: {desc}")
+    if why:
+        first = True
+        for ln in why.splitlines() or [why]:
+            print(f"  {'WHY: ' if first else '     '}{ln}")
+            first = False
+    if example:
+        first = True
+        for ln in example.splitlines() or [example]:
+            print(f"  {'EXAMPLE: ' if first else '         '}{ln}")
+            first = False
+
+for r, c in infos[:5]:
+    render_fired(r, c, "INFO")
+for r, c in warns[:5]:
+    render_fired(r, c, "WARN")
+for r, c in errors:
+    render_fired(r, c, "BLOCKED")
 if errors:
     sys.exit(2)
 PYEOF

@@ -452,20 +452,22 @@ All hooks fail open: missing rules/config/marker files → hooks exit 0 silently
 
 ## Rules
 
-Rules come from three sources:
+Rules come from two AI-synthesized sources plus a universal platform set.
 
-1. **Blueprint extraction** (`rules/extractor.py`) — Deterministically extracts `file_placement` and `naming` rules from the blueprint's `architecture_rules` and `components` sections.
+1. **`/archie-deep-scan` Step 6** (Sonnet rule synthesis) — The architectural baseline. Each rule carries inline semantic content the agent reads at edit time: `severity_class` (decision_violation / pitfall_triggered / tradeoff_undermined / pattern_divergence / mechanical_violation), `description`, `why` (reasoning copy-pasted from the motivating blueprint section), `example` (canonical code shape), `source: "deep_scan"`. Mechanical rules also carry regex `check` fields. Tagged with `keywords` for prompt-time matching and `applies_to`/`always_inject` for path-scoped surfacing.
 
-2. **AI-proposed rules** (`/archie-scan` + `/archie-deep-scan`) — The AI proposes architectural rules with deep rationale tracing back to decision chains and trade-offs. Each rule includes a confidence score (0-1), a `keywords` array for prompt-time matching, and either a path scope (`applies_to` prefix) or an `always_inject: true` flag for critical globals. Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by Claude Code during scans. Source tracking distinguishes `deep-baseline`, `scan-adopted`, and `scan-inferred` rules.
+2. **`/archie-scan`** (Sonnet senior-architect pass) — Proposes new rules in the same shape (`source: "scan"`) by spotting drift in recently-changed files, or amends existing ones (`source: "scan-amended"`). Severity is inferred from the blueprint anchor; scan never promotes a rule to blocking on its own — that happens at the next deep-scan with full Wave-2 reasoning.
 
-3. **Platform rules** (`platform_rules.json`) — 30 predefined architectural checks installed with every project, categorized by concern:
+3. **Platform rules** (`platform_rules.json`) — 30 predefined universal checks installed with every project, categorized by concern:
    - **Erosion** — God-functions, growing complexity, monster files
    - **Decay** — Empty catches, disabled tests, TODO/HACK markers, debug breakpoints
    - **Security** — Hardcoded secrets, eval/exec, plaintext API keys in logs
    - **Architecture** — Layer violations (Android ViewModel/Context, Fragment/network, Swift view-layer networking, React components fetching data), DI anti-patterns, TypeScript `any`, React DOM manipulation, array index keys, Python mutable defaults, star imports, bare except
    - **Safety** — Python `TYPE_CHECKING` guards, Swift force unwraps / force try
 
-Each rule has a severity (`warn` for advisory, `error` for blocking). Severity can be changed from `/archie-viewer` or by Claude Code during scans.
+The pre-edit hook (`pre-validate.sh`) reads `severity_class` to gate the response: blocking severities (`decision_violation`, `pitfall_triggered`, `mechanical_violation`) exit 2 with the agent-facing message, `tradeoff_undermined` warns (exit 0 prominent), `pattern_divergence` informs (exit 0 quiet). Old-shape rules without `severity_class`/`why`/`example` still work via `severity` + `rationale` fallbacks for backward compat. Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by Claude Code during scans.
+
+The deterministic blueprint extractor was retired in v2.5.0 — Step 6's AI synthesis covers placement+naming with semantic content the extractor couldn't express. Fresh `archie init` writes an empty `rules.json`; the user runs `/archie-deep-scan` or `/archie-scan` to populate it.
 
 ## Health Metrics
 

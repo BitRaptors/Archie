@@ -84,14 +84,16 @@ Blueprint JSON (`blueprint.json`) contains: `meta`, `architecture_rules`, `decis
 
 ## Rules System
 
-Rules come from two sources:
+Rules come from two sources, both AI-synthesized:
 
-1. **Blueprint extraction** (`archie/rules/extractor.py`) — Deterministically extracts `file_placement` and `naming` rules from the blueprint.
-2. **AI-proposed rules** (`/archie-scan`) — The scan AI proposes rules with check types: `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, `file_naming`.
+1. **`/archie-deep-scan` Step 6** (Sonnet) — Produces the architectural rule baseline from the blueprint. Each rule carries inline semantic content: `severity_class` (decision_violation / pitfall_triggered / tradeoff_undermined / pattern_divergence / mechanical_violation), `description`, `why` (the reasoning copy-pasted from the motivating blueprint section), `example` (canonical code from `implementation_guidelines.usage_example` when present), and `source: "deep_scan"`. Mechanical rules (regex-checkable housekeeping) also carry `check` + `forbidden_patterns`/`required_in_content` fields.
+2. **`/archie-scan`** (Sonnet senior-architect pass) — Proposes new rules in the same shape, tagged `source: "scan"` for review. Severity is inferred from the blueprint anchor, never invented.
 
-Additionally, `platform_rules.json` provides predefined architectural checks installed with every project.
+Additionally, `platform_rules.json` provides universal anti-pattern checks (god functions, force-unwraps, layer rules per platform) installed with every project.
 
-The `/archie-deep-scan` Wave 2 (Opus reasoning) produces deeper architectural context in the blueprint: decision chains, trade-offs with violation signals, pitfalls with causal chains. These inform the AI's analysis during `/archie-scan` but are not extracted as mechanical check rules.
+`pre-validate.sh` reads `severity_class` to gate the response: `decision_violation` / `pitfall_triggered` / `mechanical_violation` block (exit 2), `tradeoff_undermined` warns (exit 0 prominent), `pattern_divergence` informs (exit 0 quiet). The agent sees the rule's `description` + `WHY:` block + `EXAMPLE:` block at edit time — no blueprint read required, no pointer indirection. Old-shape rules (no `severity_class`/`why`/`example`) still work via `severity` + `rationale` fallbacks.
+
+The deterministic blueprint extractor (`archie/rules/extractor.py::extract_rules`) was retired in v2.5.0 — its `allowed_dirs` lookup was stale and Step 6 covers placement+naming with full semantic content. Fresh `archie init` writes an empty `rules.json`; users run `/archie-deep-scan` or `/archie-scan` to populate it.
 
 ## File Sync
 

@@ -1155,23 +1155,45 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >
 > Produce 20-40 architectural rules. Each rule captures an architectural insight that a coding agent must respect when planning or making changes.
 >
-> **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `rationale` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*.
+> **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `why` and `example` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*. The hook also surfaces these inline at edit time when the rule applies, so the agent sees the canonical reasoning + example without any extra lookup.
 >
 > **Secondary enforcement is mechanical (optional):** if a rule can also be expressed as a regex, add `check` + `forbidden_patterns`/`required_in_content` fields so the pre-edit hook catches obvious violations instantly. Most rules won't have this — that's fine. Don't force regex where it doesn't fit.
 >
 > Return ONLY valid JSON: `{"rules": [...]}`.
 >
-> ## Rule schema
+> ## Rule schema (Phase 1 inline shape)
 >
 > **Required fields** (every rule):
 > ```json
-> {"id": "dep-001", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning chain", "severity": "error|warn"}
+> {
+>   "id": "dep-001",
+>   "severity_class": "decision_violation",
+>   "description": "What is forbidden/required (one sentence)",
+>   "why": "Inlined reasoning copied from the blueprint section that motivates this rule (decision text, pitfall description, tradeoff signal, or pattern rationale). 2-4 sentences. The agent sees this verbatim.",
+>   "example": "Inlined canonical code from implementation_guidelines.usage_example when applicable. Empty string if no code example fits.",
+>   "source": "deep_scan"
+> }
 > ```
+>
+> **Severity classes** — pick exactly one based on which blueprint section motivates the rule:
+> - `decision_violation` — rule clarifies a `decisions.key_decisions[*]` invariant. Hook **blocks** (exit 2) on violation.
+> - `pitfall_triggered` — rule guards against a `pitfalls[*]` trap. Hook **blocks** (exit 2).
+> - `tradeoff_undermined` — rule formalizes a `decisions.trade_offs[*].violation_signals` signal. Hook **warns** (exit 0, prominent).
+> - `pattern_divergence` — rule captures a `components.patterns` or `implementation_guidelines` style. Hook **informs** (exit 0, quiet).
+> - `mechanical_violation` — rule is regex-checkable housekeeping (don't-edit-generated, file-naming-regex). Hook **blocks** (exit 2). Use this with the optional mechanical fields below.
+>
+> **The `why` field is the most important field.** Inline 2-4 sentences directly from the blueprint section that motivated the rule — do NOT paraphrase or summarize, copy the language Sonnet wrote in Wave 2 verbatim or near-verbatim. The agent reads this at edit time as the rejection/warning explanation, so the inlined text *is* the agent's understanding of why the rule exists. Examples (good):
+> - "We chose SQLite for the local-first constraint. Introducing any ORM or remote database would undermine the zero-config deployment model and force connection management the architecture doesn't support."
+> - "ViewModels must stay framework-agnostic because the decision chain roots in testability — if a ViewModel references Android Context, it can't be unit-tested without instrumentation, which breaks the fast-feedback development loop."
+>
+> **The `example` field** carries the canonical code shape, copied from `implementation_guidelines.usage_example` when present. If the rule is structural (a layering or pattern rule with a Wave-2 example), copy that example verbatim. If the rule is purely about *what NOT to do* (forbidden imports, mechanical no-edit) and there's no positive example, leave `example` as an empty string.
+>
+> **`source` field** — always emit `"source": "deep_scan"` for rules produced in this step. The post-process step also stamps it defensively if you forget.
 >
 > **Prompt-time matching** (RECOMMENDED for every rule):
 > - `"keywords"`: 2-5 terms an AI would use when describing a task this rule governs (e.g. `["datetime", "timestamp"]`, `["migration"]`, `["handler", "endpoint"]`). The `UserPromptSubmit` hook matches these against the user's prompt and surfaces the rule BEFORE the agent writes code. Without keywords the hook falls back to noisy description-token extraction — always emit keywords.
 >
-> **Optional mechanical fields** (add ONLY when a meaningful regex exists):
+> **Optional mechanical fields** (add ONLY when a meaningful regex exists; pair with `severity_class: "mechanical_violation"`):
 > - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, `file_naming`
 > - `"applies_to"`: directory prefix (string-prefix match, NOT a glob) — e.g. `"backend/"`
 > - `"file_pattern"`: glob on basename for `required_pattern` / `architectural_constraint`, OR regex on basename for `file_naming`
@@ -1185,23 +1207,61 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > - `architectural_constraint`: requires `file_pattern` (glob) + `forbidden_patterns`
 > - `file_naming`: requires `applies_to` (path glob) + `file_pattern` (regex on basename)
 >
-> ## The `rationale` field (REQUIRED — this is the most important field)
->
-> This tells the AI reviewer WHY this rule exists — the architectural reasoning chain. Write 1-3 sentences tracing the constraint back to a root decision, trade-off, or pitfall from the blueprint. Examples:
-> - "We chose SQLite for the local-first constraint. Introducing any ORM or remote database would undermine the zero-config deployment model and force connection management the architecture doesn't support."
-> - "ViewModels must stay framework-agnostic because the decision chain roots in testability — if a ViewModel references Android Context, it can't be unit-tested without instrumentation, which breaks the fast-feedback development loop."
-> - "Feature modules are isolated to enable independent deployment. Cross-feature imports create hidden coupling that prevents releasing features independently."
->
 > ## Examples
 >
-> Rationale-only rule with prompt-time keywords (most rules will look like this):
+> Architectural rule (most rules look like this — semantic, no mechanical check):
 > ```json
-> {"id": "arch-001", "description": "Business logic must not depend on UI framework classes", "rationale": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.", "severity": "error", "keywords": ["viewmodel", "domain", "business logic", "context"]}
+> {
+>   "id": "arch-001",
+>   "severity_class": "decision_violation",
+>   "description": "Business logic must not depend on UI framework classes",
+>   "why": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.",
+>   "example": "class CartViewModel(private val cart: CartRepository) { fun checkout(): Result<Order> = cart.placeOrder() }",
+>   "source": "deep_scan",
+>   "keywords": ["viewmodel", "domain", "business logic", "context"]
+> }
 > ```
 >
-> Rule with full mechanical enforcement AND prompt-time keywords:
+> Pitfall rule (blocks because walking into a documented trap):
 > ```json
-> {"id": "dep-001", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.", "severity": "error", "keywords": ["domain", "presentation", "import"], "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
+> {
+>   "id": "ctx-001",
+>   "severity_class": "pitfall_triggered",
+>   "description": "Never use context.TODO() or context.Background() inside request handlers",
+>   "why": "Pitfall #7: handlers that swallow the request context lose cancellation, deadlines, and tracing. Downstream calls become orphans on client disconnect, leaving partial state in DB. Always thread through the handler's incoming ctx.",
+>   "example": "func (h *handler) Charge(ctx context.Context, in ChargeIn) error { return h.svc.Process(ctx, in) }",
+>   "source": "deep_scan",
+>   "keywords": ["context", "handler", "request"]
+> }
+> ```
+>
+> Tradeoff signal rule (warns — agent might have a reason):
+> ```json
+> {
+>   "id": "cache-001",
+>   "severity_class": "tradeoff_undermined",
+>   "description": "Avoid sync I/O inside the cache hot path",
+>   "why": "We chose an in-memory cache for sub-ms reads. Tradeoff signal: any blocking I/O in Get/Set undermines the latency budget that justified the choice. Async or skip the cache.",
+>   "example": "",
+>   "source": "deep_scan",
+>   "keywords": ["cache", "io", "latency"]
+> }
+> ```
+>
+> Mechanical rule (regex check, blocks instantly):
+> ```json
+> {
+>   "id": "dep-001",
+>   "severity_class": "mechanical_violation",
+>   "description": "Domain layer must not import from presentation layer",
+>   "why": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.",
+>   "example": "",
+>   "source": "deep_scan",
+>   "keywords": ["domain", "presentation", "import"],
+>   "check": "forbidden_import",
+>   "applies_to": "domain/",
+>   "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]
+> }
 > ```
 >
 > ## What to produce:
@@ -1213,11 +1273,14 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ## Critical:
 > - Every rule must be specific to THIS project — never generic programming advice
 > - Focus on what an AI coding agent would get wrong without knowing this codebase
+> - **`severity_class` is required.** Pick the one that matches which blueprint section motivated the rule.
+> - **`why` is required and must be inlined from the blueprint** — copy the language verbatim or near-verbatim, do not paraphrase. This is what the agent reads at edit-time.
+> - **`example` is required as a key** but may be an empty string when the rule is purely about what NOT to do and no positive code shape applies.
+> - **`source: "deep_scan"`** on every rule. The post-process stamps it defensively but prefer to emit it.
 > - If you include `forbidden_patterns`, every entry must be a valid regex
 > - Include an `"id"` field for each rule (e.g., "dep-001", "arch-001", "ban-001")
 > - The `description` must explain WHAT is forbidden in one sentence
-> - The `rationale` must explain WHY — trace it back to a decision, trade-off, or pitfall from the blueprint
-> - Do NOT force mechanical fields — if the insight is "don't put orchestration logic in repositories", that's a rationale-only rule
+> - Do NOT force mechanical fields — most rules will be `decision_violation` / `pitfall_triggered` / `tradeoff_undermined` / `pattern_divergence` with no `check`. Only add the regex fields when a meaningful pattern exists, and pair them with `severity_class: "mechanical_violation"`.
 
 **IMPORTANT: If `.archie/rules.json` already exists (from previous scans), read it first. The new rules must be MERGED with existing rules — do not overwrite user-adopted rules.**
 
