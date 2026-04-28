@@ -663,6 +663,37 @@ def _build_infrastructure_rule(bp: dict):
     }
 
 
+# Keywords that mark a command as "essential" — what an agent reaches for
+# in 80% of sessions. Anything not matching one of these gets pushed to
+# the technology.md catalog and out of the lean root file.
+_ESSENTIAL_COMMAND_KEYWORDS = (
+    "build", "test", "lint", "fmt", "format", "run", "serve", "start", "dev", "up",
+)
+_ESSENTIAL_COMMAND_LIMIT = 8
+
+
+def _essential_commands(run_commands: dict) -> dict:
+    """Curate a lean subset of run_commands for the root CLAUDE.md / AGENTS.md.
+
+    Scores each command by keyword match (build / test / lint / fmt / run /
+    serve / start / dev / up) and prefers exact matches and shorter names —
+    so `build` outranks `build-server` and `test` outranks `test-nocache`.
+    Capped at 8 entries regardless of project size; the full catalog lives
+    in `.claude/rules/technology.md`.
+    """
+    scored: list[tuple[tuple[bool, int], str, str]] = []
+    for k, v in run_commands.items():
+        kl = k.lower()
+        for kw in _ESSENTIAL_COMMAND_KEYWORDS:
+            if kw in kl:
+                # Sort key: exact-name match wins, then shorter name wins.
+                # Negative length so larger tuple = higher priority on desc sort.
+                scored.append(((kl == kw, -len(k)), k, v))
+                break
+    scored.sort(reverse=True)
+    return {k: v for _, k, v in scored[:_ESSENTIAL_COMMAND_LIMIT]}
+
+
 def _build_technology_rule(bp: dict):
     """Tech stack, project structure, code templates, testing tooling.
 
@@ -707,6 +738,20 @@ def _build_technology_rule(bp: dict):
         lines.append("")
         lines.append("```")
         lines.append(project_structure)
+        lines.append("```")
+        lines.append("")
+
+    # Run Commands — the FULL catalog. The lean root only surfaces the
+    # essential subset (build / test / lint / fmt / run/serve/up); the
+    # rest live here so agents looking for a specific make target know
+    # where to find it.
+    if run_commands:
+        lines.append("## Run Commands")
+        lines.append("")
+        lines.append("```bash")
+        for cmd_name, cmd_value in run_commands.items():
+            lines.append(f"# {cmd_name}")
+            lines.append(cmd_value)
         lines.append("```")
         lines.append("")
 
@@ -917,17 +962,27 @@ def generate_claude_md(bp: dict) -> str:
             lines.append("")
 
 
-    # Commands
+    # Commands — only the essential subset (build / test / lint / fmt /
+    # run / serve / up) at the root. Full catalog lives in technology.md
+    # so a project with 35 make targets doesn't bloat session context.
     run_commands = _get(bp, "technology", "run_commands", default={}) or {}
     if run_commands:
+        essential = _essential_commands(run_commands)
         lines.append("## Commands")
         lines.append("")
-        lines.append("```bash")
-        for cmd_name, cmd_value in run_commands.items():
-            lines.append(f"# {cmd_name}")
-            lines.append(cmd_value)
-        lines.append("```")
-        lines.append("")
+        if essential:
+            lines.append("```bash")
+            for cmd_name, cmd_value in essential.items():
+                lines.append(f"# {cmd_name}")
+                lines.append(cmd_value)
+            lines.append("```")
+            lines.append("")
+        if len(run_commands) > len(essential):
+            lines.append(
+                f"_Full catalog ({len(run_commands)} commands) in "
+                f"[`.claude/rules/technology.md`](.claude/rules/technology.md)._"
+            )
+            lines.append("")
 
     # Deep links into topic files. Only list the files we actually emit
     # (some are conditional on blueprint content) so this section never
