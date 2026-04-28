@@ -1236,16 +1236,30 @@ function renderRules() {
   html += '</div>';
   html += '</div>';
 
+  // Phase 1 rule shape helpers — derive legacy severity from severity_class
+  // when the new shape is in use. Keeps the existing severity dropdown
+  // working while letting new-shape rules render correctly.
+  function severityFromClass(sc) {
+    if (sc === 'decision_violation' || sc === 'pitfall_triggered' || sc === 'mechanical_violation') return 'error';
+    if (sc === 'tradeoff_undermined') return 'warn';
+    if (sc === 'pattern_divergence') return 'info';
+    return null;
+  }
+
   // Rule cards
   html += '<div id="rulesList">';
   ruleList.forEach((rule, i) => {
-    const sev = rule.severity || 'warn';
+    const sevClass = rule.severity_class || '';
+    const sev = rule.severity || severityFromClass(sevClass) || 'warn';
     const enabled = rule.enabled !== false;
     const src = rule.source || 'blueprint';
     const scope = rule.applies_to || rule.file_pattern || '';
     const id = rule.id || 'rule-' + i;
     const desc = rule.description || '';
-    const rationale = rule.rationale || '';
+    // Phase 1 inline shape: prefer `why` over legacy `rationale`.
+    const rationale = rule.why || rule.rationale || '';
+    const example = rule.example || '';
+    const triggers = rule.triggers && (rule.triggers.path_glob || rule.triggers.code_shape) ? rule.triggers : null;
     const check = rule.check || '';
 
     html += '<div class="rounded-xl border border-papaya-400/60 bg-white p-4 mb-3 flex items-start gap-4 transition-all hover:shadow-md rule-card" data-severity="' + sev + '" data-rule-index="' + i + '">';
@@ -1267,11 +1281,32 @@ function renderRules() {
     html += '<div class="flex-1 min-w-0">';
     html += '<div class="text-[10px] font-bold text-ink/30 uppercase tracking-wider">' + esc(id) + '</div>';
     html += '<div class="font-bold text-ink text-sm mt-1">' + esc(desc) + '</div>';
+    if (sevClass) {
+      html += '<span class="text-[10px] font-mono text-ink/60 bg-papaya-300/30 px-2 py-0.5 rounded mt-1 inline-block">' + esc(sevClass) + '</span>';
+    }
     if (rationale) {
-      html += '<div class="text-xs text-ink/60 mt-1 leading-relaxed">' + esc(rationale) + '</div>';
+      html += '<div class="text-xs text-ink/60 mt-1 leading-relaxed"><span class="font-bold text-ink/40">WHY:</span> ' + esc(rationale) + '</div>';
+    }
+    if (example) {
+      html += '<pre class="text-[11px] font-mono text-ink/70 bg-papaya-300/20 px-2 py-1 rounded mt-1 overflow-x-auto whitespace-pre-wrap"><span class="font-bold text-ink/40">EXAMPLE:</span> ' + esc(example) + '</pre>';
     }
     if (scope) {
       html += '<span class="text-[10px] font-mono text-teal bg-teal/5 px-2 py-0.5 rounded mt-2 inline-block">' + esc(scope) + '</span>';
+    }
+    if (triggers) {
+      html += '<details class="mt-2">';
+      html += '<summary class="text-[10px] text-ink/30 cursor-pointer hover:text-ink/50">Trigger details</summary>';
+      html += '<div class="mt-1 text-[10px] text-ink/40 font-mono">';
+      if (triggers.path_glob) {
+        const pg = Array.isArray(triggers.path_glob) ? triggers.path_glob : [triggers.path_glob];
+        html += 'path_glob: ' + esc(pg.join(', '));
+      }
+      if (triggers.code_shape) {
+        const cs = Array.isArray(triggers.code_shape) ? triggers.code_shape : [triggers.code_shape];
+        html += (triggers.path_glob ? '<br>' : '') + 'code_shape: ' + esc(JSON.stringify(cs));
+      }
+      html += '</div>';
+      html += '</details>';
     }
     if (check) {
       html += '<details class="mt-2">';
@@ -1315,9 +1350,11 @@ function renderRules() {
     html += '</div>';
     html += '<div class="space-y-3">';
     pendingProposed.forEach((rule, idx) => {
-      const sev = rule.severity || 'warn';
+      const sevClass = rule.severity_class || '';
+      const sev = rule.severity || severityFromClass(sevClass) || 'warn';
       const desc = rule.description || '';
-      const rationale = rule.rationale || '';
+      const rationale = rule.why || rule.rationale || '';
+      const example = rule.example || '';
       const rid = rule.id || 'proposed-' + idx;
       const scope = rule.applies_to || rule.file_pattern || '';
       const conf = rule.confidence;
@@ -1333,8 +1370,14 @@ function renderRules() {
       html += '<div class="flex-1 min-w-0">';
       html += '<div class="text-[10px] font-bold text-ink/30 uppercase tracking-wider">' + esc(rid) + '</div>';
       html += '<div class="font-bold text-ink/70 text-sm mt-1">' + esc(desc) + '</div>';
+      if (sevClass) {
+        html += '<span class="text-[10px] font-mono text-ink/60 bg-papaya-300/30 px-2 py-0.5 rounded mt-1 inline-block">' + esc(sevClass) + '</span>';
+      }
       if (rationale) {
-        html += '<div class="text-xs text-ink/50 mt-1 leading-relaxed italic">' + esc(rationale) + '</div>';
+        html += '<div class="text-xs text-ink/50 mt-1 leading-relaxed italic"><span class="font-bold not-italic text-ink/40">WHY:</span> ' + esc(rationale) + '</div>';
+      }
+      if (example) {
+        html += '<pre class="text-[11px] font-mono text-ink/60 bg-papaya-300/15 px-2 py-1 rounded mt-1 overflow-x-auto whitespace-pre-wrap"><span class="font-bold text-ink/40">EXAMPLE:</span> ' + esc(example) + '</pre>';
       }
       if (scope) {
         html += '<span class="text-[10px] font-mono text-teal/70 bg-teal/5 px-2 py-0.5 rounded mt-2 inline-block">' + esc(scope) + '</span>';
