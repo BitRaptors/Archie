@@ -1,7 +1,6 @@
 """Implementation of `archie init` — runs the full local pipeline."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import click
@@ -13,7 +12,7 @@ from archie.coordinator.runner import check_claude_cli, run_subagents
 from archie.engine.scan import run_scan
 from archie.hooks.generator import install_git_hook, install_hooks
 from archie.renderer.render import render_outputs
-from archie.rules.extractor import extract_rules, save_rules
+from archie.rules.extractor import save_rules
 
 
 def run_init(repo_path: Path, local_only: bool = False) -> None:
@@ -101,23 +100,16 @@ def run_init(repo_path: Path, local_only: bool = False) -> None:
         for rel_path in sorted(rendered_files.keys()):
             click.echo(f"  {rel_path}")
 
-        # 6d. Extract and save rules
-        click.echo("Extracting rules from blueprint...")
-        rules = extract_rules(blueprint)
-        save_rules(root, rules)
-        click.echo(f"  Rules extracted: {len(rules)}")
+        # 6d. Initialize empty rules.json — rules are now produced by
+        #     /archie-deep-scan Step 6 (Sonnet rule synthesis), not by
+        #     mechanical blueprint extraction. The retired extractor's
+        #     allowed_dirs lookup was stale and Step 6's coverage is richer.
+        save_rules(root, [])
+        click.echo("  Initialized empty .archie/rules.json (run /archie-deep-scan to populate)")
     else:
-        # --- Local-only: just extract rules from existing blueprint ---
-        blueprint_path = archie_dir / "blueprint.json"
-        if blueprint_path.exists():
-            click.echo("Extracting rules from blueprint...")
-            blueprint = json.loads(blueprint_path.read_text(encoding="utf-8"))
-            rules = extract_rules(blueprint)
-            save_rules(root, rules)
-            click.echo(f"  Rules extracted: {len(rules)}")
-        else:
-            click.echo("No blueprint found, saving empty rules...")
-            save_rules(root, [])
+        # --- Local-only: initialize empty rules.json ---
+        save_rules(root, [])
+        click.echo("Initialized empty .archie/rules.json (run /archie-deep-scan to populate)")
 
     # 7. Summary
     click.echo("")

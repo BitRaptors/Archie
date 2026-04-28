@@ -104,24 +104,40 @@ def _get_blueprint_context(root: Path) -> str:
 
 
 def _get_rules_summary(root: Path) -> str:
-    """Extract architectural rules with rationale for AI reviewer."""
+    """Extract architectural rules with semantic content for the AI reviewer.
+
+    Reads new-shape fields (`severity_class`, `why`, `example`) when present,
+    falls back to legacy `severity` + `rationale` so old rules.json still
+    produces a useful summary.
+    """
     rules_data = _load_json(root / ".archie" / "rules.json")
     rules = rules_data.get("rules", []) if isinstance(rules_data, dict) else []
     if not rules:
         return ""
 
     parts = ["## Architectural Rules"]
-    parts.append("Evaluate changes against each rule's rationale — the intent matters more than any regex pattern.\n")
+    parts.append(
+        "Evaluate the change against each rule's *intent* (the WHY block). "
+        "Block any decision_violation or pitfall_triggered. Warn on tradeoff_undermined. "
+        "Pattern_divergence is informational unless the divergence is structural.\n"
+    )
     for r in rules:
-        if isinstance(r, dict):
-            desc = r.get("description", "")
-            rationale = r.get("rationale", "")
-            sev = r.get("severity", "warn")
-            applies = r.get("applies_to", "") or r.get("file_pattern", "")
-            scope = f" (scope: `{applies}`)" if applies else ""
-            parts.append(f"- **[{sev}]** {desc}{scope}")
-            if rationale:
-                parts.append(f"  *Why:* {rationale}")
+        if not isinstance(r, dict):
+            continue
+        rid = r.get("id", "")
+        severity_class = r.get("severity_class", "")
+        sev = severity_class or r.get("severity", "warn")
+        desc = r.get("description", "")
+        why = r.get("why", "") or r.get("rationale", "")
+        example = r.get("example", "")
+        applies = r.get("applies_to", "") or r.get("file_pattern", "")
+        scope = f" (scope: `{applies}`)" if applies else ""
+        header = f"- **[{sev}]** {rid}: {desc}{scope}" if rid else f"- **[{sev}]** {desc}{scope}"
+        parts.append(header)
+        if why:
+            parts.append(f"  *Why:* {why}")
+        if example:
+            parts.append(f"  *Example:* {example}")
 
     return "\n".join(parts)
 

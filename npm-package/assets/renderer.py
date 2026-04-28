@@ -579,30 +579,42 @@ def _build_pitfalls_rule(bp: dict):
 
 
 def _build_dev_rules_rule(bp: dict):
-    """Development rules grouped by category."""
+    """Development rules grouped by category.
+
+    Renders BOTH `development_rules` (coding-time rules — the load-bearing
+    section the agent reads when writing code) and `infrastructure_rules`
+    (ops/build/onboarding — relevant once during setup, never during edit).
+    The two are kept in distinct H2 sections so the agent can scan
+    "Development Rules" without wading through CI/distribution noise.
+    """
     dev_rules = bp.get("development_rules") or []
-    if not dev_rules:
+    infra_rules = bp.get("infrastructure_rules") or []
+    if not dev_rules and not infra_rules:
         return None
 
-    by_category = defaultdict(list)
-    for dr in dev_rules:
-        cat = (dr.get("category") or "").strip() or "general"
-        by_category[cat].append(dr)
+    def _render_grouped(rules, heading):
+        if not rules:
+            return []
+        by_category = defaultdict(list)
+        for dr in rules:
+            cat = (dr.get("category") or "").strip() or "general"
+            by_category[cat].append(dr)
+        out = [f"## {heading}", ""]
+        for cat_name in sorted(by_category.keys()):
+            sub = cat_name.replace("_", " ").title()
+            out.append(f"### {sub}")
+            out.append("")
+            for dr in by_category[cat_name]:
+                if dr.get("source"):
+                    out.append(f"- {dr.get('rule', '')} *(source: `{dr['source']}`)*")
+                else:
+                    out.append(f"- {dr.get('rule', '')}")
+            out.append("")
+        return out
 
     lines = []
-    lines.append("## Development Rules")
-    lines.append("")
-
-    for cat_name in sorted(by_category.keys()):
-        heading = cat_name.replace("_", " ").title()
-        lines.append(f"### {heading}")
-        lines.append("")
-        for dr in by_category[cat_name]:
-            if dr.get("source"):
-                lines.append(f"- {dr.get('rule', '')} *(source: `{dr['source']}`)*")
-            else:
-                lines.append(f"- {dr.get('rule', '')}")
-        lines.append("")
+    lines.extend(_render_grouped(dev_rules, "Development Rules"))
+    lines.extend(_render_grouped(infra_rules, "Infrastructure Rules"))
 
     return {
         "topic": "dev-rules",
@@ -1010,26 +1022,33 @@ def generate_agents_md(bp: dict) -> str:
                     lines.append("```")
                     lines.append("")
 
-    # 6. Development Rules
-    dev_rules = bp.get("development_rules") or []
-    if dev_rules:
-        by_rule_cat = defaultdict(list)
-        for dr in dev_rules:
+    # 6. Development Rules + Infrastructure Rules
+    # Two sections: coding-time rules (development_rules) come first because
+    # they're what the agent reads when writing code. Infrastructure rules
+    # (CI, distribution, signing, secrets) follow as a clearly-labeled
+    # separate H2 — onboarding/ops info, not coding guidance.
+    def _render_rules_block(rules, heading):
+        if not rules:
+            return
+        by_cat = defaultdict(list)
+        for dr in rules:
             cat = (dr.get("category") or "").strip() or "general"
-            by_rule_cat[cat].append(dr)
-
-        lines.append("## Development Rules")
+            by_cat[cat].append(dr)
+        lines.append(f"## {heading}")
         lines.append("")
-        for cat_name in sorted(by_rule_cat.keys()):
-            heading = cat_name.replace("_", " ").title()
-            lines.append(f"### {heading}")
+        for cat_name in sorted(by_cat.keys()):
+            sub = cat_name.replace("_", " ").title()
+            lines.append(f"### {sub}")
             lines.append("")
-            for dr in by_rule_cat[cat_name]:
+            for dr in by_cat[cat_name]:
                 if dr.get("source"):
                     lines.append(f"- {dr.get('rule', '')} *(source: `{dr['source']}`)*")
                 else:
                     lines.append(f"- {dr.get('rule', '')}")
             lines.append("")
+
+    _render_rules_block(bp.get("development_rules") or [], "Development Rules")
+    _render_rules_block(bp.get("infrastructure_rules") or [], "Infrastructure Rules")
 
     # 7. Boundaries
     lines.append("## Boundaries")

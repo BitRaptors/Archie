@@ -676,24 +676,54 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > - **Library-specific**: Package registry, build/publish pipeline, versioning strategy
 > - List all deployment-related KEY FILES found in the repository
 >
-> ### 6. Development Rules
-> Imperative rules inferred from tooling config. Each MUST cite a source file.
+> ### 6. Development Rules + Infrastructure Rules
 >
-> Sources to check:
-> - Package manager lockfiles (poetry.lock, yarn.lock, pnpm-lock.yaml)
-> - Pre-commit/quality checks (.pre-commit-config.yaml, husky, lint-staged)
-> - CI enforcement (.github/workflows/, Makefile, tox.ini)
-> - Linting/formatting mandates (ruff.toml, .eslintrc, prettier, editorconfig)
-> - Environment setup (setup.sh, Makefile, docker-compose.yml, .env.example)
-> - Testing requirements (CI configs, pytest.ini, jest.config)
-> - Git conventions (.gitignore, commit hooks, branch protection)
+> Two SEPARATE output buckets. Each rule belongs in exactly one. The split is load-bearing — `development_rules` is what a coding agent reads at edit-time; `infrastructure_rules` is onboarding/ops info that the same agent never consults when writing code. Mixing them buries the coding rules in noise.
 >
-> State each as: "Always X" or "Never Y", cite the source file.
+> #### `development_rules` — coding-time rules
 >
-> **CRITICAL**: Every rule MUST be specific to THIS project. Generic rules are WORTHLESS.
-> GOOD: "Always register new routes in api/app.py — uses explicit include_router()" (source: api/app.py)
-> GOOD: "Never import from infrastructure/ in domain/ — dependency rule enforced by layer structure" (source: directory layout)
-> BAD: "Use descriptive variable names", "Follow SOLID principles", "Write unit tests"
+> Rules a coding agent must follow when **writing, editing, or refactoring** code in this project. Each must answer at least one of:
+> - "When I add a new <thing> (screen, repository, route, module), what must I do?"
+> - "When I touch <area>, what must I avoid?"
+> - "What boundary must I respect when changing <component>?"
+>
+> **Inclusion test:** would a coding agent change the file it's editing because of this rule? If no, it does NOT belong here — push it to `infrastructure_rules`.
+>
+> **Source priority:** actual code files first (real `.kt`, `.swift`, `.py`, `.ts` etc., the patterns visible there). Config files only when they map directly to a coding-time decision (e.g. a Gradle plugin that requires registering Fragments in NavGraph IS a coding rule; a CI YAML telling you which gradle tasks to run is NOT).
+>
+> Categories:
+> - `pattern_to_follow` — a positive convention visible in existing code
+> - `anti_pattern` — a thing the codebase carefully AVOIDS
+> - `boundary` — a layer/module separation that must hold
+> - `wiring` — what to register/connect when adding a feature (DI, navigation, routing, plugins)
+> - `data_flow` — how data moves and where to plug in
+>
+> GOOD examples:
+> - "Always extend TraceViewModel<T> for screen ViewModels — gives Firebase Performance traces per loading cycle" (source: util/perf/TraceViewModel.kt; usage: DashboardViewModel, SettingsViewModel)
+> - "Always register new Fragments in res/navigation/navigation_main.xml and use Safe Args (navArgs() delegates) for type-safe nav arguments" (source: app/build.gradle.kts safeArgsPlugin + DashboardFragmentArgs)
+> - "Never import from infrastructure/ in domain/ — dependency rule enforced by layer structure" (source: directory layout, no existing violations)
+>
+> BAD examples (push to infrastructure_rules instead):
+> - "Always run `assemble{BuildType} cleanTestDebugUnitTest` in CI" — CI orchestration
+> - "Always store keystores as Azure DevOps secure files named …" — signing infra
+> - "Never commit local.properties" — onboarding gotcha, not coding rule
+>
+> #### `infrastructure_rules` — ops / build / onboarding
+>
+> Rules and gotchas about CI, distribution, signing, secrets, env setup, branch protection, dependency-registry auth — the kind of thing a developer needs to know once during onboarding or when touching pipelines / build configs, but not when writing a feature.
+>
+> Categories:
+> - `ci_cd` — CI orchestration, pipeline triggers, mandatory tasks
+> - `distribution` — App Store, Play Store, AppCenter, npm publish, etc.
+> - `signing` — keystores, certificates, code-signing identities
+> - `secrets` — env vars, secret-file conventions, `.gitignore` of sensitive paths
+> - `env_setup` — `.env` files, local-only files, dev-machine prereqs
+> - `dependency_registry` — auth to private registries (e.g. GitHub Packages, internal Artifactory), JitPack/private Maven repos
+> - `git` — branch protection, PR-trigger conventions, commit hooks
+>
+> Every rule MUST cite its source file. State each as "Always X" or "Never Y".
+>
+> **CRITICAL**: Both buckets must be specific to THIS project. Generic rules are WORTHLESS in either bucket.
 >
 > Return JSON:
 > ```json
@@ -718,7 +748,10 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >     "key_files": []
 >   },
 >   "development_rules": [
->     {"category": "dependency_management|testing|code_style|ci_cd|environment|git", "rule": "Always/Never ...", "source": "file_that_proves_it"}
+>     {"category": "pattern_to_follow|anti_pattern|boundary|wiring|data_flow", "rule": "Always/Never ...", "source": "file_that_proves_it"}
+>   ],
+>   "infrastructure_rules": [
+>     {"category": "ci_cd|distribution|signing|secrets|env_setup|dependency_registry|git", "rule": "Always/Never ...", "source": "file_that_proves_it"}
 >   ]
 > }
 > ```
@@ -1155,23 +1188,45 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >
 > Produce 20-40 architectural rules. Each rule captures an architectural insight that a coding agent must respect when planning or making changes.
 >
-> **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `rationale` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*.
+> **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `why` and `example` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*. The hook also surfaces these inline at edit time when the rule applies, so the agent sees the canonical reasoning + example without any extra lookup.
 >
 > **Secondary enforcement is mechanical (optional):** if a rule can also be expressed as a regex, add `check` + `forbidden_patterns`/`required_in_content` fields so the pre-edit hook catches obvious violations instantly. Most rules won't have this — that's fine. Don't force regex where it doesn't fit.
 >
 > Return ONLY valid JSON: `{"rules": [...]}`.
 >
-> ## Rule schema
+> ## Rule schema (Phase 1 inline shape)
 >
 > **Required fields** (every rule):
 > ```json
-> {"id": "dep-001", "description": "What is forbidden/required", "rationale": "Why — the architectural reasoning chain", "severity": "error|warn"}
+> {
+>   "id": "dep-001",
+>   "severity_class": "decision_violation",
+>   "description": "What is forbidden/required (one sentence)",
+>   "why": "Inlined reasoning copied from the blueprint section that motivates this rule (decision text, pitfall description, tradeoff signal, or pattern rationale). 2-4 sentences. The agent sees this verbatim.",
+>   "example": "Inlined canonical code from implementation_guidelines.usage_example when applicable. Empty string if no code example fits.",
+>   "source": "deep_scan"
+> }
 > ```
+>
+> **Severity classes** — pick exactly one based on which blueprint section motivates the rule:
+> - `decision_violation` — rule clarifies a `decisions.key_decisions[*]` invariant. Hook **blocks** (exit 2) on violation.
+> - `pitfall_triggered` — rule guards against a `pitfalls[*]` trap. Hook **blocks** (exit 2).
+> - `tradeoff_undermined` — rule formalizes a `decisions.trade_offs[*].violation_signals` signal. Hook **warns** (exit 0, prominent).
+> - `pattern_divergence` — rule captures a `components.patterns` or `implementation_guidelines` style. Hook **informs** (exit 0, quiet).
+> - `mechanical_violation` — rule is regex-checkable housekeeping (don't-edit-generated, file-naming-regex). Hook **blocks** (exit 2). Use this with the optional mechanical fields below.
+>
+> **The `why` field is the most important field.** Inline 2-4 sentences directly from the blueprint section that motivated the rule — do NOT paraphrase or summarize, copy the language Sonnet wrote in Wave 2 verbatim or near-verbatim. The agent reads this at edit time as the rejection/warning explanation, so the inlined text *is* the agent's understanding of why the rule exists. Examples (good):
+> - "We chose SQLite for the local-first constraint. Introducing any ORM or remote database would undermine the zero-config deployment model and force connection management the architecture doesn't support."
+> - "ViewModels must stay framework-agnostic because the decision chain roots in testability — if a ViewModel references Android Context, it can't be unit-tested without instrumentation, which breaks the fast-feedback development loop."
+>
+> **The `example` field** carries the canonical code shape, copied from `implementation_guidelines.usage_example` when present. If the rule is structural (a layering or pattern rule with a Wave-2 example), copy that example verbatim. If the rule is purely about *what NOT to do* (forbidden imports, mechanical no-edit) and there's no positive example, leave `example` as an empty string.
+>
+> **`source` field** — always emit `"source": "deep_scan"` for rules produced in this step. The post-process step also stamps it defensively if you forget.
 >
 > **Prompt-time matching** (RECOMMENDED for every rule):
 > - `"keywords"`: 2-5 terms an AI would use when describing a task this rule governs (e.g. `["datetime", "timestamp"]`, `["migration"]`, `["handler", "endpoint"]`). The `UserPromptSubmit` hook matches these against the user's prompt and surfaces the rule BEFORE the agent writes code. Without keywords the hook falls back to noisy description-token extraction — always emit keywords.
 >
-> **Optional mechanical fields** (add ONLY when a meaningful regex exists):
+> **Optional mechanical fields** (add ONLY when a meaningful regex exists; pair with `severity_class: "mechanical_violation"`):
 > - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, `file_naming`
 > - `"applies_to"`: directory prefix (string-prefix match, NOT a glob) — e.g. `"backend/"`
 > - `"file_pattern"`: glob on basename for `required_pattern` / `architectural_constraint`, OR regex on basename for `file_naming`
@@ -1185,24 +1240,86 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > - `architectural_constraint`: requires `file_pattern` (glob) + `forbidden_patterns`
 > - `file_naming`: requires `applies_to` (path glob) + `file_pattern` (regex on basename)
 >
-> ## The `rationale` field (REQUIRED — this is the most important field)
->
-> This tells the AI reviewer WHY this rule exists — the architectural reasoning chain. Write 1-3 sentences tracing the constraint back to a root decision, trade-off, or pitfall from the blueprint. Examples:
-> - "We chose SQLite for the local-first constraint. Introducing any ORM or remote database would undermine the zero-config deployment model and force connection management the architecture doesn't support."
-> - "ViewModels must stay framework-agnostic because the decision chain roots in testability — if a ViewModel references Android Context, it can't be unit-tested without instrumentation, which breaks the fast-feedback development loop."
-> - "Feature modules are isolated to enable independent deployment. Cross-feature imports create hidden coupling that prevents releasing features independently."
->
 > ## Examples
 >
-> Rationale-only rule with prompt-time keywords (most rules will look like this):
+> Architectural rule (most rules look like this — semantic, no mechanical check):
 > ```json
-> {"id": "arch-001", "description": "Business logic must not depend on UI framework classes", "rationale": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.", "severity": "error", "keywords": ["viewmodel", "domain", "business logic", "context"]}
+> {
+>   "id": "arch-001",
+>   "severity_class": "decision_violation",
+>   "description": "Business logic must not depend on UI framework classes",
+>   "why": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.",
+>   "example": "class CartViewModel(private val cart: CartRepository) { fun checkout(): Result<Order> = cart.placeOrder() }",
+>   "source": "deep_scan",
+>   "keywords": ["viewmodel", "domain", "business logic", "context"]
+> }
 > ```
 >
-> Rule with full mechanical enforcement AND prompt-time keywords:
+> Pitfall rule (blocks because walking into a documented trap):
 > ```json
-> {"id": "dep-001", "description": "Domain layer must not import from presentation layer", "rationale": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.", "severity": "error", "keywords": ["domain", "presentation", "import"], "check": "forbidden_import", "applies_to": "domain/", "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]}
+> {
+>   "id": "ctx-001",
+>   "severity_class": "pitfall_triggered",
+>   "description": "Never use context.TODO() or context.Background() inside request handlers",
+>   "why": "Pitfall #7: handlers that swallow the request context lose cancellation, deadlines, and tracing. Downstream calls become orphans on client disconnect, leaving partial state in DB. Always thread through the handler's incoming ctx.",
+>   "example": "func (h *handler) Charge(ctx context.Context, in ChargeIn) error { return h.svc.Process(ctx, in) }",
+>   "source": "deep_scan",
+>   "keywords": ["context", "handler", "request"]
+> }
 > ```
+>
+> Tradeoff signal rule (warns — agent might have a reason):
+> ```json
+> {
+>   "id": "cache-001",
+>   "severity_class": "tradeoff_undermined",
+>   "description": "Avoid sync I/O inside the cache hot path",
+>   "why": "We chose an in-memory cache for sub-ms reads. Tradeoff signal: any blocking I/O in Get/Set undermines the latency budget that justified the choice. Async or skip the cache.",
+>   "example": "",
+>   "source": "deep_scan",
+>   "keywords": ["cache", "io", "latency"]
+> }
+> ```
+>
+> Mechanical rule (regex check, blocks instantly):
+> ```json
+> {
+>   "id": "dep-001",
+>   "severity_class": "mechanical_violation",
+>   "description": "Domain layer must not import from presentation layer",
+>   "why": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.",
+>   "example": "",
+>   "source": "deep_scan",
+>   "keywords": ["domain", "presentation", "import"],
+>   "check": "forbidden_import",
+>   "applies_to": "domain/",
+>   "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]
+> }
+> ```
+>
+> ## Phase 2 — `triggers` block (RECOMMENDED for every rule)
+>
+> The pre-validate hook narrows candidate rules at edit time using a small structured block called `triggers`. When you can express the rule's *applicability* and *violation signal* as a path glob + content regex, write them here. The hook will fire the rule deterministically without calling any AI. Rules without `triggers` are still candidates for Phase 3 (plan/commit-time semantic comparison) but skip the hot edit-time path.
+>
+> ```json
+> "triggers": {
+>   "path_glob": ["openmeter/billing/charges/**/adapter/**"],
+>   "code_shape": [
+>     {
+>       "kind": "regex_in_content",
+>       "must_match": ["func \\w+ \\(.*\\*entdb\\.Client.*\\)"],
+>       "must_not_match": ["entutils\\.Tx\\("]
+>     }
+>   ]
+> }
+> ```
+>
+> - `path_glob`: array of glob patterns. `*` matches within a path segment, `**` matches across. Trailing `/` matches as a directory prefix. The rule is a candidate for an edit only if the file's relative path matches at least one glob.
+> - `code_shape`: array of structured matchers. Each entry currently uses `kind: "regex_in_content"`. The shape fires when **any** `must_match` pattern matches the diff/content AND **none** of the `must_not_match` patterns matches.
+> - Both arrays are AND-combined: path_glob narrows file applicability, code_shape narrows content. Either alone is fine — omit the other key entirely if not relevant.
+> - **Trigger-only rules are valid.** A rule with `triggers` but no `check` field uses the trigger as the violation detector — if the trigger fires, the rule is violated, severity per `severity_class`. Use this for layering / pattern / decision rules where the regex IS the structural test.
+> - **Trigger + check** is also fine: triggers narrow candidacy, the existing `check` field runs the deterministic check.
+> - **No triggers** = Phase 3 only. The rule stays semantic; the edit-time hook ignores it; the plan/commit classifier reasons about it.
 >
 > ## What to produce:
 >
@@ -1213,11 +1330,15 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ## Critical:
 > - Every rule must be specific to THIS project — never generic programming advice
 > - Focus on what an AI coding agent would get wrong without knowing this codebase
-> - If you include `forbidden_patterns`, every entry must be a valid regex
+> - **`severity_class` is required.** Pick the one that matches which blueprint section motivated the rule.
+> - **`why` is required and must be inlined from the blueprint** — copy the language verbatim or near-verbatim, do not paraphrase. This is what the agent reads at edit-time.
+> - **`example` is required as a key** but may be an empty string when the rule is purely about what NOT to do and no positive code shape applies.
+> - **`source: "deep_scan"`** on every rule. The post-process stamps it defensively but prefer to emit it.
+> - **Add `triggers` whenever the rule has a structural signature** (file path + content pattern). Trigger regexes are more robust than the older `forbidden_patterns` because path_glob + content combine cleanly. Rules with no structural signature (purely semantic) stay trigger-less and fire only at plan/commit time via Phase 3.
+> - If you include `forbidden_patterns` or `triggers.code_shape`, every regex must be valid Python `re` syntax.
 > - Include an `"id"` field for each rule (e.g., "dep-001", "arch-001", "ban-001")
 > - The `description` must explain WHAT is forbidden in one sentence
-> - The `rationale` must explain WHY — trace it back to a decision, trade-off, or pitfall from the blueprint
-> - Do NOT force mechanical fields — if the insight is "don't put orchestration logic in repositories", that's a rationale-only rule
+> - Do NOT force mechanical fields — most rules will be `decision_violation` / `pitfall_triggered` / `tradeoff_undermined` / `pattern_divergence` with no `check`. Only add the regex fields when a meaningful pattern exists, and pair them with `severity_class: "mechanical_violation"`.
 
 **IMPORTANT: If `.archie/rules.json` already exists (from previous scans), read it first. The new rules must be MERGED with existing rules — do not overwrite user-adopted rules.**
 
@@ -1239,6 +1360,12 @@ python3 .archie/extract_output.py rules /tmp/archie_rules_$PROJECT_NAME.json "$P
 ```
 
 **IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT copy the agent's transcript. Always use the pre-installed scripts on the file the agent already wrote.**
+
+Build the Phase 2 trigger index so the pre-validate hook can narrow candidates fast on every edit:
+
+```bash
+python3 .archie/rule_index.py build "$PROJECT_ROOT"
+```
 
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6

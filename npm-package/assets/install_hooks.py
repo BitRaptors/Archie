@@ -68,7 +68,18 @@ if not fp:
     sys.exit(0)
 
 # Skip absolute paths that live outside the project root.
-if fp.startswith("/") and not fp.startswith(project_root):
+# Resolve symlinks on both sides — on macOS, git rev-parse returns
+# /private/var/... while tool_input may carry /var/... for tmp paths,
+# and any user with a symlinked project root would silently bypass
+# the hook without this normalization.
+def _real(p):
+    try:
+        return os.path.realpath(p)
+    except Exception:
+        return p
+fp_real = _real(fp) if fp.startswith("/") else fp
+project_root_real = _real(project_root)
+if fp_real.startswith("/") and not fp_real.startswith(project_root_real):
     sys.exit(0)
 
 # Extract the content being written (Write.content, Edit.new_string,
@@ -88,9 +99,53 @@ for rpath in (rules_file, platform_rules_file):
         pass
 
 rel_path = fp
-if fp.startswith(project_root):
-    rel_path = fp[len(project_root):].lstrip("/")
+if fp_real.startswith(project_root_real):
+    rel_path = fp_real[len(project_root_real):].lstrip("/")
 filename = os.path.basename(fp)
+
+# ----- Severity helpers (Phase 1 inline rule shape) -----------------------
+# severity_class drives exit code + label. Falls back to legacy `severity`
+# (error/warn) when severity_class is missing — old-shape rules still work.
+SEVERITY_BLOCKING = {"decision_violation", "pitfall_triggered", "mechanical_violation"}
+SEVERITY_WARN = {"tradeoff_undermined"}
+SEVERITY_INFO = {"pattern_divergence"}
+
+def severity_label(rule):
+    sc = rule.get("severity_class", "")
+    if sc:
+        return sc
+    # legacy fallback
+    return "mechanical_violation" if rule.get("severity") == "error" else "tradeoff_undermined"
+
+def is_blocking(rule):
+    sc = rule.get("severity_class", "")
+    if sc:
+        return sc in SEVERITY_BLOCKING
+    return rule.get("severity") == "error"
+
+def render_rule_message(rule, prefix="  "):
+    """Render the rule's agent-facing message: header + WHY + EXAMPLE blocks.
+
+    Reads new-shape fields (`why`, `example`) when present, falls back to
+    legacy `rationale` so old-shape rules still produce a useful message.
+    """
+    rid = rule.get("id", "unknown")
+    sev = severity_label(rule)
+    desc = rule.get("description", "")
+    why = rule.get("why", "") or rule.get("rationale", "")
+    example = rule.get("example", "")
+    lines = [f"{prefix}RULE {rid} [{sev}]: {desc}"]
+    if why:
+        first = True
+        for ln in why.splitlines() or [why]:
+            lines.append(f"{prefix}  {'WHY: ' if first else '     '}{ln}")
+            first = False
+    if example:
+        first = True
+        for ln in example.splitlines() or [example]:
+            lines.append(f"{prefix}  {'EXAMPLE: ' if first else '         '}{ln}")
+            first = False
+    return "\n".join(lines)
 
 # ----- Tier 4: path-aware rule injection, deduped per turn ----------------
 already_injected = set()
@@ -117,14 +172,24 @@ for r in rules:
 if to_inject:
     print(f"[Archie] Rules applying to {rel_path}:")
     for r, how in to_inject:
-        rid = r.get("id", "unknown")
-        sev = r.get("severity", "warn")
-        desc = r.get("description", "")
-        rationale = r.get("rationale", "")
         tag = " (global)" if how == "always" else ""
-        print(f"  [{sev}] {rid}{tag}: {desc}")
-        if rationale:
-            print(f"    ↳ {rationale}")
+        # Header line with tag, then full message via shared renderer
+        rid = r.get("id", "unknown")
+        sev = severity_label(r)
+        desc = r.get("description", "")
+        print(f"  RULE {rid}{tag} [{sev}]: {desc}")
+        why = r.get("why", "") or r.get("rationale", "")
+        example = r.get("example", "")
+        if why:
+            first = True
+            for ln in why.splitlines() or [why]:
+                print(f"    {'WHY: ' if first else '     '}{ln}")
+                first = False
+        if example:
+            first = True
+            for ln in example.splitlines() or [example]:
+                print(f"    {'EXAMPLE: ' if first else '         '}{ln}")
+                first = False
 
 if newly_injected and turn_file:
     try:
@@ -144,16 +209,104 @@ def any_match(patterns, text):
             continue
     return False
 
-errors = []
-warns = []
+# ----- Phase 2 trigger primitives ----------------------------------------
+# Inline (no sibling import — the hook runs as a heredoc that can't sys.path).
+# Mirror the semantics of code_shape.py: regex-based path glob and
+# code_shape_match. Sonnet emits these alongside each rule's `triggers`
+# block at /archie-deep-scan Step 6 and /archie-scan Step 4.
+
+def _coerce_list(v):
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, list):
+        return [str(x) for x in v if x]
+    return []
+
+def _path_glob_match(rel_path, pattern):
+    if not pattern:
+        return False
+    if pattern.endswith("/") and "*" not in pattern:
+        return rel_path.startswith(pattern) or rel_path == pattern.rstrip("/")
+    out = ["^"]
+    i = 0; n = len(pattern)
+    while i < n:
+        c = pattern[i]
+        if c == "*":
+            if i + 1 < n and pattern[i + 1] == "*":
+                left_slash = i > 0 and pattern[i - 1] == "/"
+                right_slash = i + 2 < n and pattern[i + 2] == "/"
+                if left_slash and right_slash:
+                    out[-1] = "(?:/.*)?/"
+                    i += 3; continue
+                if right_slash:
+                    out.append("(?:.*/)?"); i += 3; continue
+                if left_slash:
+                    out[-1] = "(?:/.*)?"; i += 2; continue
+                out.append(".*"); i += 2; continue
+            out.append("[^/]*"); i += 1; continue
+        if c in r".+?^$()[]{}|\\":
+            out.append("\\" + c)
+        else:
+            out.append(c)
+        i += 1
+    out.append("$")
+    try:
+        return bool(re.match("".join(out), rel_path))
+    except re.error:
+        return False
+
+def _code_shape_match(content, shape):
+    if not isinstance(shape, dict) or shape.get("kind", "regex_in_content") != "regex_in_content":
+        return False
+    must_match = _coerce_list(shape.get("must_match"))
+    must_not = _coerce_list(shape.get("must_not_match"))
+    if not must_match:
+        return False
+    if not any_match(must_match, content):
+        return False
+    if must_not and any_match(must_not, content):
+        return False
+    return True
+
+def _trigger_fires(rule, rel_path, content):
+    """Return (has_triggers, fires) for a rule's triggers block.
+
+    has_triggers=False: legacy rule, falls through to existing check field.
+    has_triggers=True, fires=True: trigger matched — rule is candidate.
+    has_triggers=True, fires=False: trigger present but didn't match — skip.
+    """
+    triggers = rule.get("triggers")
+    if not isinstance(triggers, dict):
+        return False, True  # legacy
+    globs = _coerce_list(triggers.get("path_glob"))
+    shapes = triggers.get("code_shape") or []
+    if not isinstance(shapes, list):
+        shapes = []
+    if not globs and not shapes:
+        # Empty triggers block -> classifier-only rule, never fires at edit time
+        return True, False
+    if globs and not any(_path_glob_match(rel_path, g) for g in globs):
+        return True, False
+    if shapes and not any(_code_shape_match(content, s) for s in shapes):
+        return True, False
+    return True, True
+
+
+errors = []   # list of (rule, conf) — blocking
+warns = []    # list of (rule, conf) — non-blocking warn (tradeoff_undermined)
+infos = []    # list of (rule, conf) — non-blocking info (pattern_divergence)
 
 for r in rules:
     check = r.get("check", "")
-    desc = r.get("description", "")
-    sev = r.get("severity", "warn")
     conf = r.get("confidence", 1.0)
-    bucket = errors if sev == "error" else warns
     matched = False
+
+    has_triggers, trigger_fires = _trigger_fires(r, rel_path, content)
+    if has_triggers and not trigger_fires:
+        # Trigger present but didn't match — rule isn't a candidate for this edit
+        continue
 
     if check == "file_placement":
         dirs = r.get("allowed_dirs", [])
@@ -197,15 +350,47 @@ for r in rules:
             except re.error:
                 pass
 
-    if matched:
-        bucket.append((desc, conf))
+    elif not check and has_triggers and trigger_fires:
+        # Phase 2: trigger-only rule (no `check` field). The trigger IS the
+        # mechanical detector. If the trigger fired, the rule is violated.
+        matched = True
 
-for w, c in warns[:5]:
-    tag = f" (confidence {int(c * 100)}%)" if c < 1.0 else ""
-    print(f"[Archie] Warning{tag}: {w}")
-for e, c in errors:
-    tag = f" (confidence {int(c * 100)}%)" if c < 1.0 else ""
-    print(f"[Archie] BLOCKED{tag}: {e}")
+    if not matched:
+        continue
+
+    sc = r.get("severity_class", "")
+    if sc in SEVERITY_BLOCKING or (not sc and r.get("severity") == "error"):
+        errors.append((r, conf))
+    elif sc in SEVERITY_INFO:
+        infos.append((r, conf))
+    else:
+        warns.append((r, conf))
+
+def render_fired(rule, conf, prefix_label):
+    rid = rule.get("id", "unknown")
+    sev = severity_label(rule)
+    desc = rule.get("description", "")
+    why = rule.get("why", "") or rule.get("rationale", "")
+    example = rule.get("example", "")
+    confidence_tag = f" (confidence {int(conf * 100)}%)" if conf < 1.0 else ""
+    print(f"[Archie] {prefix_label}{confidence_tag} {rid} [{sev}]: {desc}")
+    if why:
+        first = True
+        for ln in why.splitlines() or [why]:
+            print(f"  {'WHY: ' if first else '     '}{ln}")
+            first = False
+    if example:
+        first = True
+        for ln in example.splitlines() or [example]:
+            print(f"  {'EXAMPLE: ' if first else '         '}{ln}")
+            first = False
+
+for r, c in infos[:5]:
+    render_fired(r, c, "INFO")
+for r, c in warns[:5]:
+    render_fired(r, c, "WARN")
+for r, c in errors:
+    render_fired(r, c, "BLOCKED")
 if errors:
     sys.exit(2)
 PYEOF
@@ -213,14 +398,35 @@ PYEOF
 
 
 POST_PLAN_HOOK = r'''#!/usr/bin/env bash
-# Archie post-plan review — triggers architectural review after plan approval
+# Archie post-plan review — Phase 3 semantic comparison.
+# Pipes the PostToolUse ExitPlanMode envelope to align_check.py, which
+# pulls the plan text, runs the architectural-rule classifier (Haiku
+# via claude CLI), and exits 2 if any decision_violation or
+# pitfall_triggered fires. Falls back to advisory mode (exit 0 + rule
+# context) if claude CLI is unavailable.
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 [ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
+TOOL_INPUT=$(cat || true)
+[ -z "$TOOL_INPUT" ] && exit 0
+ALIGN="$PROJECT_ROOT/.archie/align_check.py"
+if [ -f "$ALIGN" ]; then
+    printf '%s' "$TOOL_INPUT" | python3 "$ALIGN" plan "$PROJECT_ROOT"
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        exit $rc
+    fi
+fi
+# Always emit the existing prose review prompt as additional context for
+# the in-conversation Claude (kept for projects that want both the hard
+# classifier verdict and the advisory rule context).
 python3 "$PROJECT_ROOT/.archie/arch_review.py" plan "$PROJECT_ROOT"
 '''
 
 PRE_COMMIT_HOOK = r'''#!/usr/bin/env bash
-# Archie pre-commit review — triggers architectural review before git commit
+# Archie pre-commit review — Phase 3 semantic comparison on the staged diff.
+# Same flow as POST_PLAN_HOOK: align_check.py classifier first (blocks
+# on decision_violation / pitfall_triggered), then existing arch_review
+# prose for context.
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 [ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
 # Only fire for git commit commands
@@ -231,6 +437,14 @@ try: print(json.load(sys.stdin).get('tool_input',{}).get('command',''))
 except: print('')
 " 2>/dev/null || echo "")
 case "$COMMAND" in *git\ commit*|*git\ -C*commit*) ;; *) exit 0 ;; esac
+ALIGN="$PROJECT_ROOT/.archie/align_check.py"
+if [ -f "$ALIGN" ]; then
+    python3 "$ALIGN" commit "$PROJECT_ROOT"
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        exit $rc
+    fi
+fi
 python3 "$PROJECT_ROOT/.archie/arch_review.py" diff "$PROJECT_ROOT"
 '''
 

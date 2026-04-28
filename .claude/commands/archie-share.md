@@ -12,45 +12,58 @@ Before uploading, check whether an enterprise profile already exists:
 test -f ~/.archie/share-profile.json && echo "PROFILE_EXISTS" || echo "PROFILE_MISSING"
 ```
 
-Then ask the user which target to use. Present options based on whether a profile is set up:
+Then ask the user which target to use. Present options based on whether a profile is set up — use `AskUserQuestion` (single-choice picker) consistently with the rest of Archie.
 
 If `PROFILE_EXISTS`:
 
-> Which share target?
->
-> 1. **Default** — Upload to the BitRaptors share service (our Supabase). Fastest, one-click, recommended for OSS / non-sensitive projects.
-> 2. **Enterprise (stored credentials)** — Upload to your pre-configured bucket at `~/.archie/share-profile.json`. Fully automated. Data never touches BitRaptors infra.
-> 3. **Enterprise (paste URL)** — Upload to any bucket via a fresh presigned PUT URL you provide now. Zero credentials stored.
-> 4. **Re-run setup** — Update `~/.archie/share-profile.json` with new credentials.
-> 5. **Help me ask InfoSec for a bucket** — Compose a ready-to-paste request with CORS + IAM policy snippets tailored to my situation.
->
-> Pick `1`, `2`, `3`, `4`, or `5`. (Default: `1`.)
+Call `AskUserQuestion`:
+- **question:** "Which share target?"
+- **header:** "Share"
+- **multiSelect:** false
+- **options** (exactly these four labels):
+  1. label `Default` — description `Upload to the BitRaptors share service (our Supabase). Fastest, one-click. Recommended for OSS / non-sensitive projects.`
+  2. label `Enterprise (stored)` — description `Upload to your pre-configured bucket at ~/.archie/share-profile.json. Fully automated. Data never touches BitRaptors infra.`
+  3. label `Enterprise (paste URL)` — description `Upload to any bucket via a fresh presigned PUT URL you provide now. Zero credentials stored.`
+  4. label `Manage profile` — description `Re-run setup with new credentials, or compose a request to InfoSec for a different bucket.`
+
+Map: `Default` → `MODE=default`. `Enterprise (stored)` → `MODE=enterprise-creds`. `Enterprise (paste URL)` → `MODE=enterprise-paste`. `Manage profile` → ask a follow-up `AskUserQuestion` with two options:
+- **question:** "What do you want to do?"
+- **header:** "Profile"
+- **multiSelect:** false
+- **options:**
+  1. label `Re-run setup` — description `Update ~/.archie/share-profile.json with new bucket + credentials. Loops back to the share target picker after.`
+  2. label `Ask InfoSec` — description `Compose a ready-to-paste request with CORS + IAM policy snippets tailored to your situation. No upload happens — for prepping a new bucket.`
+
+Map: `Re-run setup` → `MODE=setup`. `Ask InfoSec` → `MODE=ask-infosec`.
 
 If `PROFILE_MISSING`:
 
-> Which share target?
->
-> 1. **Default** — Upload to the BitRaptors share service (our Supabase). Fastest, one-click, recommended for OSS / non-sensitive projects.
-> 2. **Enterprise (paste URL)** — Upload to any bucket via a presigned PUT URL you provide now. Zero credentials stored.
-> 3. **Set up enterprise (stored credentials)** — I already have bucket + AWS credentials from InfoSec. Store them for future use.
-> 4. **Help me ask InfoSec for a bucket** — Compose a ready-to-paste request with CORS + IAM policy snippets tailored to my situation. Use this if you don't have a bucket yet.
->
-> Pick `1`, `2`, `3`, or `4`. (Default: `1`.)
+Call `AskUserQuestion`:
+- **question:** "Which share target?"
+- **header:** "Share"
+- **multiSelect:** false
+- **options** (exactly these four labels):
+  1. label `Default` — description `Upload to the BitRaptors share service (our Supabase). Fastest, one-click. Recommended for OSS / non-sensitive projects.`
+  2. label `Enterprise (paste URL)` — description `Upload to any bucket via a presigned PUT URL you provide now. Zero credentials stored.`
+  3. label `Set up enterprise` — description `I already have bucket + AWS credentials from InfoSec. Store them in ~/.archie/share-profile.json for future use.`
+  4. label `Ask InfoSec` — description `Compose a ready-to-paste request with CORS + IAM policy snippets tailored to your situation. Use this if you don't have a bucket yet.`
+
+Map: `Default` → `MODE=default`. `Enterprise (paste URL)` → `MODE=enterprise-paste`. `Set up enterprise` → `MODE=setup`. `Ask InfoSec` → `MODE=ask-infosec`.
 
 ### Handling the choice
 
-- **Default** → `MODE=default`. No extra flags. Proceed to "Resolve target blueprint".
+- **`Default`** → `MODE=default`. No extra flags. Proceed to "Resolve target blueprint".
 
-- **Enterprise (stored credentials)** → `MODE=enterprise-creds`. No extra flags needed — upload.py reads `~/.archie/share-profile.json` directly.
+- **`Enterprise (stored)`** → `MODE=enterprise-creds`. No extra flags needed — upload.py reads `~/.archie/share-profile.json` directly.
 
-- **Enterprise (paste URL)** → Ask for two URLs:
+- **`Enterprise (paste URL)`** → Ask for two URLs:
   > Paste the **PUT URL** (Archie uploads the blueprint JSON here):
   >
   > Paste the **GET URL** (viewer fetches from here; packed into the share URL's fragment):
 
   Pass them as args on the upload.py command line. Double-quote them — presigned URLs contain `&` and `=`.
 
-- **Set up enterprise / Re-run setup** → Ask for bucket + credentials:
+- **`Set up enterprise`** or **`Re-run setup`** → Ask for bucket + credentials:
   > Bucket name (e.g. `acme-archie-shares`):
   >
   > Region (e.g. `us-east-1`):
@@ -67,7 +80,7 @@ If `PROFILE_MISSING`:
   ```
   Security note: tell the user their credentials will appear in the command string for this shell invocation. For the highest security, they should edit `~/.archie/share-profile.json` directly instead — see `docs/enterprise-share-setup.md` for the JSON schema.
 
-- **Help me ask InfoSec for a bucket** → Compose a tailored request. First ask the user 3 quick context questions (one at a time, OR as a batched prompt — whichever flows better):
+- **`Ask InfoSec`** → Compose a tailored request. First ask the user 3 quick context questions (one at a time, OR as a batched prompt — whichever flows better):
 
   > 1. Company / org name? (e.g. `Acme Corp` — used in the greeting and bucket name suggestion)
   > 2. Preferred bucket name? (default: `<company>-archie-shares`, e.g. `acme-archie-shares`)

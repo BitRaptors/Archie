@@ -31,7 +31,13 @@ from merge import extract_json_from_text  # noqa: E402
 # ---------------------------------------------------------------------------
 
 def cmd_rules(input_file: str, output_path: str):
-    """Extract rules JSON from raw agent output, merge with existing rules, save."""
+    """Extract rules JSON from raw agent output, merge with existing rules, save.
+
+    Defensively stamps `source: "deep_scan"` on any new rule emitted without one,
+    so downstream tooling and humans can trace lineage even if the model omits
+    the field. Existing `source` values (e.g., `adopted`, `scan`, `scan-amended`)
+    are never overwritten.
+    """
     text = Path(input_file).read_text()
     data = extract_json_from_text(text)
     if not data:
@@ -39,6 +45,17 @@ def cmd_rules(input_file: str, output_path: str):
         sys.exit(1)
 
     new_rules = data.get("rules", [])
+
+    # Stamp source defensively on every new rule that doesn't carry one.
+    # Phase 1 contract: rules produced by Step 6 (Sonnet rule synthesis) are
+    # `deep_scan`. The model is asked to emit this field but we don't trust it.
+    stamped = 0
+    for r in new_rules:
+        if isinstance(r, dict) and not r.get("source"):
+            r["source"] = "deep_scan"
+            stamped += 1
+    if stamped:
+        print(f"  Stamped source=deep_scan on {stamped} rule(s)", file=sys.stderr)
 
     # Merge with existing rules — preserve user-adopted rules from /archie-scan
     out = Path(output_path)

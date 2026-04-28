@@ -1276,21 +1276,182 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Enforcement Rules — renders rules.json / proposed_rules.json contents.
+//
+// These are the agent-facing architectural rules surfaced by the pre-edit hook
+// and the plan/commit classifier. Distinct from the "Architecture Rules" block
+// above (which is blueprint metadata: file_placement_rules + naming_conventions)
+// and from "Development Rules" (which is short prose guidance from the
+// blueprint). This section reads the new Phase 1 inline shape:
+// `severity_class`, `why`, `example`, `triggers`, `source` — falling back to
+// legacy `severity` + `rationale` for old-shape rules so pre-2.5 shares
+// still render correctly.
+// ---------------------------------------------------------------------------
+
+function severityFromClass(sc: string | undefined): 'error' | 'warn' | 'info' | null {
+  if (sc === 'decision_violation' || sc === 'pitfall_triggered' || sc === 'mechanical_violation') return 'error'
+  if (sc === 'tradeoff_undermined') return 'warn'
+  if (sc === 'pattern_divergence') return 'info'
+  return null
+}
+
+function severityBadgeClass(sev: string): string {
+  if (sev === 'error') return 'bg-brandy/10 text-brandy border-brandy/20'
+  if (sev === 'info') return 'bg-teal/10 text-teal border-teal/20'
+  return 'bg-tangerine/10 text-tangerine border-tangerine/20'
+}
+
+function EnforcementRuleCard({ rule, dim = false }: { rule: any; dim?: boolean }) {
+  const sevClass: string = rule?.severity_class || ''
+  const sev: string = rule?.severity || severityFromClass(sevClass) || 'warn'
+  const id: string = rule?.id || '?'
+  const desc: string = rule?.description || ''
+  const why: string = rule?.why || rule?.rationale || ''
+  const example: string = rule?.example || ''
+  const source: string = rule?.source || ''
+  const scope: string = rule?.applies_to || rule?.file_pattern || ''
+  const triggers = rule?.triggers && (rule.triggers.path_glob || rule.triggers.code_shape) ? rule.triggers : null
+
+  return (
+    <div className={cn(
+      'p-5 rounded-2xl border transition-all hover:shadow-md',
+      dim ? 'border-dashed border-papaya-400/40 bg-papaya-50/40' : theme.surface.panel,
+    )}>
+      <div className="flex items-start gap-3 flex-wrap mb-2">
+        <span className={cn('text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border', severityBadgeClass(sev))}>
+          {sev}
+        </span>
+        <code className={cn(codeInlineClassName, 'text-[10px]')}>{id}</code>
+        {sevClass && (
+          <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wide text-ink/60 border-papaya-400/40">
+            {sevClass}
+          </Badge>
+        )}
+        {source && (
+          <Badge variant="outline" className="ml-auto text-[9px] font-bold uppercase tracking-wider text-ink/40 border-ink/10">
+            {source}
+          </Badge>
+        )}
+      </div>
+      {desc && (
+        <p className={cn('text-sm font-semibold leading-snug mb-2', dim ? 'text-ink/70' : 'text-ink')}>
+          <AutoCode text={desc} />
+        </p>
+      )}
+      {why && (
+        <div className="bg-white/60 border border-papaya-400/40 p-3 rounded-xl mb-2">
+          <span className="text-[9px] font-black text-ink/40 uppercase tracking-widest block mb-1">Why</span>
+          <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={why} /></p>
+        </div>
+      )}
+      {example && (
+        <div className="bg-papaya-300/15 border border-papaya-400/30 p-3 rounded-xl mb-2">
+          <span className="text-[9px] font-black text-ink/40 uppercase tracking-widest block mb-1">Example</span>
+          <pre className="text-xs font-mono text-ink/70 whitespace-pre-wrap break-words"><AutoCode text={example} /></pre>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2 mt-2">
+        {scope && (
+          <code className={cn(codeInlineClassName, 'text-[10px]')}>{scope}</code>
+        )}
+        {triggers?.path_glob && (Array.isArray(triggers.path_glob) ? triggers.path_glob : [triggers.path_glob]).map((g: string, j: number) => (
+          <code key={j} className={cn(codeInlineClassName, 'text-[10px] text-teal/80')}>{g}</code>
+        ))}
+      </div>
+      {triggers?.code_shape && Array.isArray(triggers.code_shape) && triggers.code_shape.length > 0 && (
+        <details className="mt-2">
+          <summary className="text-[10px] text-ink/40 cursor-pointer hover:text-ink/60">Trigger details</summary>
+          <pre className="text-[11px] font-mono text-ink/60 bg-ink/5 p-2 rounded mt-1 whitespace-pre-wrap">{JSON.stringify(triggers.code_shape, null, 2)}</pre>
+        </details>
+      )}
+    </div>
+  )
+}
+
+export function RulesSection({ adopted, proposed }: { adopted: any[]; proposed: any[] }) {
+  if (adopted.length === 0 && proposed.length === 0) return null
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Enforcement Rules"
+        icon={Shield}
+        hint="Architectural rules the pre-edit hook and plan/commit classifier surface to the coding agent. New-shape rules carry their reasoning (`why`) and a canonical example inline."
+      />
+      {adopted.length > 0 && (
+        <div className="space-y-3">
+          {adopted.map((r: any, i: number) => (
+            <EnforcementRuleCard key={`adopted-${i}`} rule={r} />
+          ))}
+        </div>
+      )}
+      {proposed.length > 0 && (
+        <div className="mt-6 space-y-3">
+          <div className="text-[10px] font-black text-ink/30 uppercase tracking-widest">
+            Proposed (not yet adopted)
+          </div>
+          {proposed.map((r: any, i: number) => (
+            <EnforcementRuleCard key={`proposed-${i}`} rule={r} dim />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function _renderRuleRow(r: any, i: number, accent: string) {
+  const text = typeof r === 'string' ? r : r.rule || JSON.stringify(r)
+  const cat: string = typeof r === 'object' && r ? (r.category || '') : ''
+  const source: string = typeof r === 'object' && r ? (r.source || '') : ''
+  return (
+    <div key={i} className={cn("p-5 rounded-2xl border flex items-start gap-4 transition-all hover:bg-white/50", theme.surface.panel, accent)}>
+      <div className={cn("p-2 rounded-xl shrink-0", accent.includes('teal') ? 'bg-teal/10 text-teal' : 'bg-brandy/10 text-brandy')}>
+        <Shield className="w-4 h-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        {cat && (
+          <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-wider mb-2 text-ink/60 border-ink/10">
+            {cat.replace(/_/g, ' ')}
+          </Badge>
+        )}
+        <div className="text-sm text-ink/80 leading-relaxed font-medium">
+          <AutoCode text={text} />
+        </div>
+        {source && (
+          <div className="text-[10px] font-mono text-ink/40 mt-2">
+            source: <code className={cn(codeInlineClassName, 'text-[10px]')}>{source}</code>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function DevelopmentRulesSection({ rules }: { rules: any[] }) {
   return (
     <section className="space-y-4">
-      <SectionHeader title="Development Rules" icon={Shield} />
+      <SectionHeader
+        title="Development Rules"
+        icon={Shield}
+        hint="Patterns and boundaries the coding agent consults when writing, editing, or refactoring code."
+      />
       <div className="space-y-3">
-        {rules.map((r: any, i: number) => (
-          <div key={i} className={cn("p-5 rounded-2xl border flex items-start gap-4 transition-all hover:border-brandy/30 hover:bg-white/50", theme.surface.panel)}>
-             <div className="p-2 rounded-xl bg-brandy/10 text-brandy shrink-0">
-               <Shield className="w-4 h-4" />
-             </div>
-             <div className="text-sm text-ink/80 leading-relaxed font-medium">
-               <AutoCode text={typeof r === 'string' ? r : r.rule || JSON.stringify(r)} />
-             </div>
-          </div>
-        ))}
+        {rules.map((r, i) => _renderRuleRow(r, i, 'hover:border-brandy/30'))}
+      </div>
+    </section>
+  )
+}
+
+export function InfrastructureRulesSection({ rules }: { rules: any[] }) {
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Infrastructure Rules"
+        icon={Shield}
+        hint="CI, distribution, signing, secrets, dependency-registry auth — the things you need to know once during onboarding or when touching pipelines / build configs."
+      />
+      <div className="space-y-3">
+        {rules.map((r, i) => _renderRuleRow(r, i, 'hover:border-teal/30 border-papaya-400/40 bg-papaya-50/40'))}
       </div>
     </section>
   )
