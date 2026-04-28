@@ -62,7 +62,16 @@ VALID_SEVERITY_CLASSES = {
     "pattern_divergence",
     "mechanical_violation",
 }
-VALID_SOURCES = {"deep_scan", "scan", "scan-amended", "adopted", "blueprint"}
+VALID_SOURCES = {
+    "deep_scan",
+    "scan",
+    "scan-amended",
+    "scan-proposed",
+    "scan-adopted",
+    "scan-inferred",
+    "adopted",
+    "blueprint",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +307,84 @@ def test_cmd_rules_preserves_adopted_rules(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. Regression — openmeter's real rules.json shape doesn't crash
+# 7. check_rules + arch_review handle severity_class
+# ---------------------------------------------------------------------------
+
+
+_CHECK_RULES_PATH = REPO_ROOT / "archie" / "standalone" / "check_rules.py"
+_spec_cr = importlib.util.spec_from_file_location("_archie_check_rules", _CHECK_RULES_PATH)
+assert _spec_cr and _spec_cr.loader
+_check_rules = importlib.util.module_from_spec(_spec_cr)
+_spec_cr.loader.exec_module(_check_rules)
+
+
+@pytest.mark.parametrize(
+    "rule,expected",
+    [
+        ({"severity_class": "decision_violation"}, "error"),
+        ({"severity_class": "pitfall_triggered"}, "error"),
+        ({"severity_class": "mechanical_violation"}, "error"),
+        ({"severity_class": "tradeoff_undermined"}, "warn"),
+        ({"severity_class": "pattern_divergence"}, "info"),
+        ({"severity": "error"}, "error"),  # legacy shape
+        ({"severity": "warn"}, "warn"),  # legacy shape
+        ({}, "warn"),  # nothing → warn default
+        ({"severity_class": "unknown", "severity": "error"}, "error"),  # unknown class falls back
+    ],
+)
+def test_check_rules_effective_severity(rule, expected):
+    """check_rules.py must bucket new-shape rule violations correctly so the
+    summary at the end of `archie check` doesn't show 0 errors when
+    decision_violation rules fired."""
+    assert _check_rules._effective_severity(rule) == expected
+
+
+_ARCH_REVIEW_PATH = REPO_ROOT / "archie" / "standalone" / "arch_review.py"
+_spec_ar = importlib.util.spec_from_file_location("_archie_arch_review", _ARCH_REVIEW_PATH)
+assert _spec_ar and _spec_ar.loader
+_arch_review = importlib.util.module_from_spec(_spec_ar)
+_spec_ar.loader.exec_module(_arch_review)
+
+
+def test_arch_review_summary_renders_new_shape(tmp_path):
+    """arch_review.py — used by post-plan-review and pre-commit-review hooks —
+    must render the new-shape WHY + EXAMPLE blocks for the AI reviewer, with
+    fallback to legacy rationale for old-shape rules."""
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    (archie / "rules.json").write_text(json.dumps({
+        "rules": [
+            {
+                "id": "new-1",
+                "severity_class": "decision_violation",
+                "description": "Wrap helpers in entutils.Tx",
+                "why": "Transactions span the full charge lifecycle.",
+                "example": "func ... { return entutils.Tx(...) }",
+            },
+            {
+                "id": "old-1",
+                "severity": "error",
+                "description": "Never edit ent/db/",
+                "rationale": "Generated files get overwritten.",
+            },
+        ]
+    }))
+    summary = _arch_review._get_rules_summary(tmp_path)
+    # New-shape rule: shows severity_class as label, why + example
+    assert "decision_violation" in summary
+    assert "new-1" in summary
+    assert "Transactions span" in summary
+    assert "entutils.Tx" in summary
+    # Old-shape rule: shows legacy severity, rationale falls into Why slot
+    assert "old-1" in summary
+    assert "Generated files get overwritten" in summary
+    # Header acknowledges the gradient
+    assert "decision_violation" in summary
+    assert "tradeoff_undermined" in summary
+
+
+# ---------------------------------------------------------------------------
+# 8. Regression — openmeter's real rules.json shape doesn't crash
 # ---------------------------------------------------------------------------
 
 

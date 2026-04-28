@@ -69,6 +69,32 @@ def _matches_dir_prefix(rel_path: str, prefix: str) -> bool:
     return rel_path.startswith(prefix + "/") or rel_path == prefix
 
 
+# Maps Phase 1 severity_class -> legacy severity bucket for violation summary.
+# decision_violation / pitfall_triggered / mechanical_violation -> error (blocking)
+# tradeoff_undermined -> warn
+# pattern_divergence -> info
+_SEVERITY_CLASS_TO_LEGACY = {
+    "decision_violation": "error",
+    "pitfall_triggered": "error",
+    "mechanical_violation": "error",
+    "tradeoff_undermined": "warn",
+    "pattern_divergence": "info",
+}
+
+
+def _effective_severity(rule: dict) -> str:
+    """Resolve a rule's effective legacy-style severity (error/warn/info).
+
+    Phase 1 inline-shape rules carry `severity_class` and may omit `severity`.
+    Old-shape rules carry only `severity` (error|warn). This helper unifies
+    both so violation buckets stay consistent across the rule shape transition.
+    """
+    sc = rule.get("severity_class", "")
+    if sc and sc in _SEVERITY_CLASS_TO_LEGACY:
+        return _SEVERITY_CLASS_TO_LEGACY[sc]
+    return rule.get("severity", "warn")
+
+
 
 def _compute_functions_from_skeletons(
     repo: Path, skeletons: dict
@@ -150,7 +176,7 @@ def _check_complexity_threshold(
         if fn["cc"] > threshold:
             violations.append({
                 "rule_id": rule["id"],
-                "severity": rule.get("severity", "warn"),
+                "severity": _effective_severity(rule),
                 "file": fn["path"],
                 "line": fn["line"],
                 "message": (
@@ -188,7 +214,7 @@ def _check_size_threshold(
         if max_lines is not None and line_count > max_lines:
             violations.append({
                 "rule_id": rule["id"],
-                "severity": rule.get("severity", "warn"),
+                "severity": _effective_severity(rule),
                 "file": rel_path,
                 "line": 1,
                 "message": (
@@ -200,7 +226,7 @@ def _check_size_threshold(
         if max_methods is not None and method_count > max_methods:
             violations.append({
                 "rule_id": rule["id"],
-                "severity": rule.get("severity", "warn"),
+                "severity": _effective_severity(rule),
                 "file": rel_path,
                 "line": 1,
                 "message": (
@@ -254,7 +280,7 @@ def _check_forbidden_import(
                 if pat.search(stripped):
                     violations.append({
                         "rule_id": rule["id"],
-                        "severity": rule.get("severity", "warn"),
+                        "severity": _effective_severity(rule),
                         "file": rel_path,
                         "line": line_no,
                         "message": (
@@ -294,7 +320,7 @@ def _check_required_pattern(
             if required not in content:
                 violations.append({
                     "rule_id": rule["id"],
-                    "severity": rule.get("severity", "warn"),
+                    "severity": _effective_severity(rule),
                     "file": rel_path,
                     "line": 1,
                     "message": (
@@ -334,7 +360,7 @@ def _check_forbidden_content(
                 if pat.search(line):
                     violations.append({
                         "rule_id": rule["id"],
-                        "severity": rule.get("severity", "warn"),
+                        "severity": _effective_severity(rule),
                         "file": rel_path,
                         "line": line_no,
                         "message": (
@@ -383,7 +409,7 @@ def _check_architectural_constraint(
                         msg += f" — {rationale}"
                     violations.append({
                         "rule_id": rule["id"],
-                        "severity": rule.get("severity", "error"),
+                        "severity": _effective_severity(rule),
                         "file": rel_path,
                         "line": line_no,
                         "message": msg,

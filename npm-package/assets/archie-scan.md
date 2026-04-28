@@ -275,8 +275,29 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 
 4. **Validate existing rules:** Check from skeletons and scan data. Only Read a source file if you need to confirm a rule violation that isn't obvious from the skeleton. Check if any proposed rules have become more or less valid since they were proposed (adjust confidence).
 
-**Rule schema:**
-Required: `{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "error|warn", "confidence": 0.85}`
+**Rule schema (Phase 1 inline shape — same as deep-scan):**
+```json
+{
+  "id": "scan-NNN",
+  "severity_class": "pattern_divergence",
+  "description": "What is forbidden/required (one sentence)",
+  "why": "Inlined reasoning. Where possible, copy from the blueprint section that motivates the rule (the decision text, pitfall description, tradeoff signal, or pattern rationale). For genuinely new patterns not yet in the blueprint, write 2-4 sentences explaining the architectural intent.",
+  "example": "Inlined canonical code shape (or empty string if the rule is purely about what NOT to do).",
+  "source": "scan",
+  "confidence": 0.85
+}
+```
+
+**Severity_class — anchor to the blueprint, never invent.** Try to anchor each proposed rule to a blueprint section, then map:
+- `decisions.key_decisions[*]` or `pitfalls[*]` → `decision_violation` / `pitfall_triggered` (block)
+- `decisions.trade_offs[*].violation_signals` → `tradeoff_undermined` (warn)
+- `components.patterns` or `implementation_guidelines` → `pattern_divergence` (inform)
+- **Genuinely new pattern not yet in the blueprint** → `pattern_divergence` (inform — lowest severity, default)
+- **Mechanical (regex-checkable housekeeping)** → `mechanical_violation` (block) — pair with the optional check fields below
+
+**Scan never promotes a rule to `decision_violation` or `pitfall_triggered` on its own.** Only deep-scan does, with full Wave-2 reasoning. If you're unsure whether a pattern is load-bearing enough to justify blocking, default to `pattern_divergence` and let the next deep-scan reason about it.
+
+**`source` is always `"scan"`** for scan-proposed rules. The post-process stamp will preserve this; do not emit `"source": "deep_scan"`.
 
 Confidence calibration:
 - 0.9-1.0: Verified invariant — N files follow pattern with 0-1 exceptions, you read the files.
@@ -289,7 +310,7 @@ Be honest. A wrong rule with high confidence is worse than a right rule with low
 Prompt-time matching (RECOMMENDED for every rule):
 - `"keywords"`: 2-5 terms that would appear in a user prompt touching this rule. The `UserPromptSubmit` hook keyword-matches these against the prompt and surfaces matching rules to the agent before it writes code. Pick terms an AI would use when describing the task (e.g., `["datetime", "timestamp", "utcnow"]`, `["migration", "alembic"]`, `["handler", "route", "endpoint"]`). Omitting keywords leaves the hook to fall back to description-token extraction, which is noisy.
 
-Optional mechanical fields (add ONLY when a meaningful regex exists):
+Optional mechanical fields (add ONLY when a meaningful regex exists; pair with `severity_class: "mechanical_violation"`):
 - `"check"`: one of `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, `file_naming`
 - `"applies_to"`: directory prefix (e.g. `"backend/"`) scoping the rule to files under that path. String-prefix match, NOT a glob.
 - `"file_pattern"`: glob matched against the basename (e.g. `"*_migration.py"`) OR regex for `file_naming` checks.
@@ -308,7 +329,7 @@ Check-type requirements:
 {
   "pattern_findings": [{"pattern": "...", "followers": N, "outliers": ["..."], "severity": "warn|error", "confidence": 0.85}],
   "duplications": [{"function": "...", "locations": ["..."], "recommendation": "..."}],
-  "proposed_rules": [{"id": "scan-NNN", "description": "...", "rationale": "...", "severity": "...", "confidence": 0.85}],
+  "proposed_rules": [{"id": "scan-NNN", "severity_class": "pattern_divergence", "description": "...", "why": "...", "example": "...", "source": "scan", "confidence": 0.85}],
   "existing_rule_violations": [{"rule_id": "...", "violated_by": "...", "details": "..."}],
   "rule_confidence_updates": [{"rule_id": "...", "old_confidence": 0.7, "new_confidence": 0.85, "reason": "..."}]
 }
