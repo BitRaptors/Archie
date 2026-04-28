@@ -452,6 +452,65 @@ def main() -> None:
     repo = Path(sys.argv[1]).resolve()
     archie_dir = repo / ".archie"
 
+    # --compare-history: read health_history.json, print prev vs curr with deltas
+    # so the slash-command agent doesn't have to improvise inline Python (which
+    # gets shape-fragile across the list/dict variants this file has had).
+    if "--compare-history" in sys.argv:
+        history_path = archie_dir / "health_history.json"
+        if not history_path.exists():
+            print("{}", flush=True)
+            print("No health_history.json yet — first scan baseline.", file=sys.stderr)
+            sys.exit(0)
+        try:
+            raw = json.loads(history_path.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            print("{}", flush=True)
+            print(f"Could not parse health_history.json: {e}", file=sys.stderr)
+            sys.exit(0)
+        # Accept both shapes the file has had over time: a flat list of entries,
+        # or a dict with a `history` / `runs` key wrapping the list.
+        if isinstance(raw, list):
+            history = raw
+        elif isinstance(raw, dict):
+            history = raw.get("history") or raw.get("runs") or []
+        else:
+            history = []
+        if not isinstance(history, list) or not history:
+            print("{}", flush=True)
+            print("health_history.json is empty.", file=sys.stderr)
+            sys.exit(0)
+        # Last entry is the current scan; second-to-last is the prior baseline.
+        curr = history[-1] if isinstance(history[-1], dict) else {}
+        prev = history[-2] if len(history) >= 2 and isinstance(history[-2], dict) else {}
+        metric_keys = ("erosion", "gini", "top20_share", "verbosity", "total_loc")
+        deltas = {}
+        for k in metric_keys:
+            cv = curr.get(k)
+            pv = prev.get(k) if prev else None
+            if isinstance(cv, (int, float)) and isinstance(pv, (int, float)):
+                deltas[k] = round(cv - pv, 6)
+        result = {
+            "runs": len(history),
+            "current": {k: curr.get(k) for k in metric_keys + ("scan_type", "ts", "timestamp")
+                        if curr.get(k) is not None},
+            "previous": {k: prev.get(k) for k in metric_keys + ("scan_type", "ts", "timestamp")
+                         if prev and prev.get(k) is not None} if prev else None,
+            "deltas": deltas,
+        }
+        json.dump(result, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        # Stderr summary so the agent gets a fast read without parsing JSON
+        if prev:
+            parts = [f"runs={len(history)}"]
+            for k in metric_keys:
+                if k in deltas:
+                    arrow = "↑" if deltas[k] > 0 else ("↓" if deltas[k] < 0 else "=")
+                    parts.append(f"{k}: {prev.get(k)} {arrow} {curr.get(k)} (Δ={deltas[k]})")
+            print("Health trend: " + " · ".join(parts), file=sys.stderr)
+        else:
+            print(f"Health: first run logged ({len(history)} entry total)", file=sys.stderr)
+        sys.exit(0)
+
     # --append-history: read health.json, append entry to health_history.json, exit
     if "--append-history" in sys.argv:
         health_path = archie_dir / "health.json"
