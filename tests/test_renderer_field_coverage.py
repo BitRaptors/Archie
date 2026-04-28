@@ -12,6 +12,13 @@ behavior — specifically the three fields that used to be silently dropped:
 The renderer is the canonical bridge between the blueprint and what
 agents see at session start. Dropping enforcement-relevant fields here
 leaks them out of the entire delivery chain.
+
+Since the AGENTS.md / CLAUDE.md split was unified (AGENTS.md is now a
+lean copy of CLAUDE.md, and the rich content lives in topic files under
+.claude/rules/), assertions that used to target AGENTS.md inline content
+now check the COMBINED rendered surface — every file the agent reads at
+session start. The test contract is "must surface SOMEWHERE the agent
+sees," not "must be inline in this specific file."
 """
 
 from __future__ import annotations
@@ -26,6 +33,12 @@ _RENDERER = Path(__file__).resolve().parent.parent / "archie" / "standalone" / "
 _SPEC = importlib.util.spec_from_file_location("standalone_renderer", _RENDERER)
 renderer = importlib.util.module_from_spec(_SPEC)  # type: ignore[arg-type]
 _SPEC.loader.exec_module(renderer)  # type: ignore[union-attr]
+
+
+def _all_rendered(bp: dict) -> str:
+    """Concatenate every file `generate_all` emits — what an agent sees
+    across the lean root + topic files + per-folder context."""
+    return "\n\n".join(renderer.generate_all(bp).values())
 
 
 def _bp(**overrides) -> dict:
@@ -95,7 +108,7 @@ def test_integrations_render_in_agents_md():
             "pattern_selection_guide": [],
         },
     )
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert "## Integrations" in out
     assert "PostgreSQL via Ent" in out
     assert "primary datastore" in out
@@ -105,7 +118,7 @@ def test_integrations_render_in_agents_md():
 def test_integrations_absent_no_section():
     """No integrations array → no Integrations heading."""
     bp = _bp()
-    agents = renderer.generate_agents_md(bp)
+    agents = _all_rendered(bp)
     patterns = renderer._build_patterns_rule(bp)
     assert "## Integrations" not in agents
     if patterns:
@@ -120,7 +133,7 @@ def test_integrations_without_integration_point_still_render():
             "pattern_selection_guide": [],
         },
     )
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert "Stripe" in out
     assert "payments" in out
 
@@ -167,7 +180,7 @@ def test_violation_signals_render_in_agents_md():
         "out_of_scope": [],
         "decision_chain": {},
     })
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert "Multi-tenant leakage risk" in out
     assert "Zero cross-tenant data exposure" in out
     assert "Violation signal" in out
@@ -217,7 +230,7 @@ def test_violation_keywords_render_in_decision_chain():
             ],
         },
     })
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert "Namespace-scoped multi-tenancy" in out
     assert "Violation keyword" in out
     assert "Ent query without .Namespace predicate" in out
@@ -250,7 +263,7 @@ def test_violation_keywords_render_recursively():
             ],
         },
     })
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert "outer-kw" in out
     assert "inner-kw" in out
 
@@ -266,7 +279,7 @@ def test_decision_chain_without_violation_keywords_still_renders():
             "forces": [{"decision": "D", "rationale": "rat", "forces": []}],
         },
     })
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert "**D**: rat" in out
     assert "Violation keyword" not in out
 
@@ -284,7 +297,7 @@ def test_integrations_with_non_dict_elements_does_not_crash():
         "pattern_selection_guide": [],
     })
     # Must not raise.
-    agents = renderer.generate_agents_md(bp)
+    agents = _all_rendered(bp)
     patterns = renderer._build_patterns_rule(bp)
     # Only the valid dict entry should render.
     assert "Real" in agents
@@ -336,7 +349,7 @@ def test_violation_keywords_as_string_does_not_produce_per_char_bullets():
             "forces": [{"decision": "D", "rationale": "r", "violation_keywords": "one kw"}],
         },
     })
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert out.count("Violation keyword:") == 1
     assert "one kw" in out
 
@@ -352,7 +365,7 @@ def test_violation_keywords_empty_string_is_skipped():
             "forces": [{"decision": "D", "rationale": "r", "violation_keywords": ["", "valid", "   "]}],
         },
     })
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert out.count("Violation keyword:") == 1
     assert "`valid`" in out
 
@@ -365,7 +378,7 @@ def test_malformed_trade_off_entry_is_skipped():
         "out_of_scope": [],
         "decision_chain": {},
     })
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert "ok" in out
     assert "yes" in out
     patterns = renderer._build_patterns_rule(bp)
@@ -383,7 +396,7 @@ def test_malformed_decision_chain_force_is_skipped():
             "forces": ["bad", {"decision": "good", "rationale": "r", "forces": []}, None],
         },
     })
-    out = renderer.generate_agents_md(bp)
+    out = _all_rendered(bp)
     assert "good" in out  # must not crash
 
 
