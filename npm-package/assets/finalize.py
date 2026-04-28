@@ -146,9 +146,27 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
     print(f"  {comp_count} components, {pattern_count} patterns, {decision_count} decisions", file=sys.stderr)
 
     # ── 3. Render ──────────────────────────────────────────────────────────
+    # Load enforcement rules (rules.json + platform_rules.json) if they
+    # already exist on disk — they may not on the first deep-scan pass
+    # (rules.json is generated at Step 6, finalize runs at Step 5), but
+    # any subsequent invocation (incremental scan, manual finalize re-run,
+    # the post-Step-6 render step) finds them and emits enforcement.md.
+    enforcement_rules: list = []
+    for fname in ("rules.json", "platform_rules.json"):
+        path = archie_dir / fname
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        items = data if isinstance(data, list) else data.get("rules", [])
+        if isinstance(items, list):
+            enforcement_rules.extend(r for r in items if isinstance(r, dict))
+
     generate_all = _import_sibling("renderer").generate_all
 
-    files = generate_all(bp)
+    files = generate_all(bp, enforcement_rules=enforcement_rules)
     for rel_path, content in files.items():
         full_path = root / rel_path
         full_path.parent.mkdir(parents=True, exist_ok=True)

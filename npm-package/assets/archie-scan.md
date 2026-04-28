@@ -650,10 +650,11 @@ Either way, support `all` as a shortcut. **Wait for the user's response.** Then 
 - `all` → adopt every proposed rule
 - `none` (or empty selection) → skip (rules stay in proposed_rules.json)
 
-After adoption, rebuild the Phase 2 trigger index so the pre-validate hook picks up newly-adopted rules immediately:
+After adoption, rebuild the Phase 2 trigger index so the pre-validate hook picks up newly-adopted rules immediately, then refresh the rendered topic files (re-emits `.claude/rules/enforcement.md` so adopted rules show up there too):
 
 ```bash
 python3 .archie/rule_index.py build "$PWD"
+python3 .archie/renderer.py "$PWD"
 ```
 
 Print confirmation: `Adopted N rules, skipped M (available in /archie-viewer → Rules tab). Scan #N complete — blueprint evolved.`
