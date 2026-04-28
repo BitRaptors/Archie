@@ -391,6 +391,46 @@ def test_arch_review_summary_renders_new_shape(tmp_path):
 OPENMETER_RULES_PATH = Path("/Users/hamutarto/DEV/gbr/openmeter/.archie/rules.json")
 
 
+def test_hook_resolves_symlinked_project_root(tmp_path: Path) -> None:
+    """Regression: macOS resolves /var -> /private/var, and any user with
+    a symlinked project root would silently bypass the hook because
+    `git rev-parse --show-toplevel` returned the realpath while the
+    tool's file_path stayed unresolved. Ensures the hook normalizes
+    both sides before comparing."""
+    # Create the real directory + a symlink pointing at it
+    real_root = tmp_path / "real"
+    real_root.mkdir()
+    link_root = tmp_path / "via_link"
+    link_root.symlink_to(real_root, target_is_directory=True)
+
+    rule = {
+        "id": "symlink-test",
+        "severity_class": "decision_violation",
+        "description": "x",
+        "why": "y",
+        "check": "forbidden_content",
+        "applies_to": "src/",
+        "forbidden_patterns": ["BAD"],
+    }
+    # Use the symlinked root for the project setup, but the tool input
+    # passes the REAL path (mimicking the macOS /var vs /private/var case)
+    proc = _run_hook(
+        link_root,
+        rules=[rule],
+        tool_input=_make_tool_input(str(real_root / "src" / "foo.go"), "BAD content"),
+    )
+    assert proc.returncode == 2, (
+        f"hook silently bypassed symlinked root: rc={proc.returncode} "
+        f"stdout={proc.stdout!r}"
+    )
+    assert "symlink-test" in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# 8. Regression — openmeter's real rules.json shape doesn't crash
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.skipif(
     not OPENMETER_RULES_PATH.exists(),
     reason="openmeter checkout not present; skip real-world regression",

@@ -68,7 +68,18 @@ if not fp:
     sys.exit(0)
 
 # Skip absolute paths that live outside the project root.
-if fp.startswith("/") and not fp.startswith(project_root):
+# Resolve symlinks on both sides — on macOS, git rev-parse returns
+# /private/var/... while tool_input may carry /var/... for tmp paths,
+# and any user with a symlinked project root would silently bypass
+# the hook without this normalization.
+def _real(p):
+    try:
+        return os.path.realpath(p)
+    except Exception:
+        return p
+fp_real = _real(fp) if fp.startswith("/") else fp
+project_root_real = _real(project_root)
+if fp_real.startswith("/") and not fp_real.startswith(project_root_real):
     sys.exit(0)
 
 # Extract the content being written (Write.content, Edit.new_string,
@@ -88,8 +99,8 @@ for rpath in (rules_file, platform_rules_file):
         pass
 
 rel_path = fp
-if fp.startswith(project_root):
-    rel_path = fp[len(project_root):].lstrip("/")
+if fp_real.startswith(project_root_real):
+    rel_path = fp_real[len(project_root_real):].lstrip("/")
 filename = os.path.basename(fp)
 
 # ----- Severity helpers (Phase 1 inline rule shape) -----------------------
