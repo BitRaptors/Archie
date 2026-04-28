@@ -1367,6 +1367,12 @@ Build the Phase 2 trigger index so the pre-validate hook can narrow candidates f
 python3 .archie/rule_index.py build "$PROJECT_ROOT"
 ```
 
+Refresh the rendered topic files now that `rules.json` exists. This re-emits `.claude/rules/enforcement.md` (and refreshes the other topic files / CLAUDE.md / AGENTS.md idempotently — merge markers preserve any hand-edits):
+
+```bash
+python3 .archie/renderer.py "$PROJECT_ROOT"
+```
+
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 ```

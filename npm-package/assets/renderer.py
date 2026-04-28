@@ -349,6 +349,30 @@ def _build_patterns_rule(bp: dict):
             lines.append(f"- **{scenario}** -> {pattern}")
         lines.append("")
 
+    # Decision Chain — the rooted forces tree, rendered with
+    # violation_keywords under each force. These are the concrete code-
+    # pattern fingerprints that would breach a decision; surfacing them
+    # next to the "why" is the whole point of the chain.
+    decision_chain = _get(bp, "decisions", "decision_chain", default={}) or {}
+    if decision_chain.get("root"):
+        lines.append("## Decision Chain")
+        lines.append("")
+        lines.append(f"**Root constraint:** {decision_chain['root']}")
+        lines.append("")
+
+        def _render_chain(forces, indent=0):
+            for f in (forces or []):
+                if not isinstance(f, dict):
+                    continue
+                prefix = "  " * indent + "- "
+                lines.append(f"{prefix}**{f.get('decision', '')}**: {f.get('rationale', '')}")
+                for kw in _str_list(f.get("violation_keywords")):
+                    lines.append(f"{'  ' * (indent + 1)}- *Violation keyword:* `{kw}`")
+                _render_chain(f.get("forces", []), indent + 1)
+
+        _render_chain(decision_chain.get("forces", []))
+        lines.append("")
+
     # Key Decisions
     key_decs = _get(bp, "decisions", "key_decisions", default=[]) or []
     if key_decs:
@@ -578,48 +602,198 @@ def _build_pitfalls_rule(bp: dict):
     }
 
 
-def _build_dev_rules_rule(bp: dict):
-    """Development rules grouped by category.
+def _render_grouped_rules(rules: list, heading: str) -> list[str]:
+    """Render a grouped-by-category list of imperative rules. Shared helper
+    used by both development_rules and infrastructure_rules renderers."""
+    if not rules:
+        return []
+    by_category = defaultdict(list)
+    for dr in rules:
+        cat = (dr.get("category") or "").strip() or "general"
+        by_category[cat].append(dr)
+    out = [f"## {heading}", ""]
+    for cat_name in sorted(by_category.keys()):
+        sub = cat_name.replace("_", " ").title()
+        out.append(f"### {sub}")
+        out.append("")
+        for dr in by_category[cat_name]:
+            if dr.get("source"):
+                out.append(f"- {dr.get('rule', '')} *(source: `{dr['source']}`)*")
+            else:
+                out.append(f"- {dr.get('rule', '')}")
+        out.append("")
+    return out
 
-    Renders BOTH `development_rules` (coding-time rules — the load-bearing
-    section the agent reads when writing code) and `infrastructure_rules`
-    (ops/build/onboarding — relevant once during setup, never during edit).
-    The two are kept in distinct H2 sections so the agent can scan
-    "Development Rules" without wading through CI/distribution noise.
-    """
+
+def _build_dev_rules_rule(bp: dict):
+    """Development rules — coding-time rules a coding agent consults
+    when writing or refactoring code. Infrastructure rules live in
+    their own topic file (`infrastructure.md`) so this surface stays
+    focused on what the agent reads at edit time."""
     dev_rules = bp.get("development_rules") or []
-    infra_rules = bp.get("infrastructure_rules") or []
-    if not dev_rules and not infra_rules:
+    if not dev_rules:
         return None
 
-    def _render_grouped(rules, heading):
-        if not rules:
-            return []
-        by_category = defaultdict(list)
-        for dr in rules:
-            cat = (dr.get("category") or "").strip() or "general"
-            by_category[cat].append(dr)
-        out = [f"## {heading}", ""]
-        for cat_name in sorted(by_category.keys()):
-            sub = cat_name.replace("_", " ").title()
-            out.append(f"### {sub}")
-            out.append("")
-            for dr in by_category[cat_name]:
-                if dr.get("source"):
-                    out.append(f"- {dr.get('rule', '')} *(source: `{dr['source']}`)*")
-                else:
-                    out.append(f"- {dr.get('rule', '')}")
-            out.append("")
-        return out
-
-    lines = []
-    lines.extend(_render_grouped(dev_rules, "Development Rules"))
-    lines.extend(_render_grouped(infra_rules, "Infrastructure Rules"))
+    lines = _render_grouped_rules(dev_rules, "Development Rules")
 
     return {
         "topic": "dev-rules",
         "body": "\n".join(lines).rstrip(),
         "description": "Development rules: imperative do/don't rules from codebase signals",
+        "always_apply": True,
+        "globs": [],
+    }
+
+
+def _build_infrastructure_rule(bp: dict):
+    """Infrastructure rules — CI / signing / distribution / secrets / env_setup
+    / dependency_registry / git. Onboarding-time and pipeline-touching info,
+    deliberately separate from `dev-rules.md` so coding agents don't wade
+    through CI YAML noise when looking for coding patterns."""
+    infra_rules = bp.get("infrastructure_rules") or []
+    if not infra_rules:
+        return None
+    lines = _render_grouped_rules(infra_rules, "Infrastructure Rules")
+    return {
+        "topic": "infrastructure",
+        "body": "\n".join(lines).rstrip(),
+        "description": "Infrastructure rules: CI, signing, distribution, secrets, env setup, registry auth",
+        "always_apply": False,
+        "globs": [],
+    }
+
+
+# Keywords that mark a command as "essential" — what an agent reaches for
+# in 80% of sessions. Anything not matching one of these gets pushed to
+# the technology.md catalog and out of the lean root file.
+_ESSENTIAL_COMMAND_KEYWORDS = (
+    "build", "test", "lint", "fmt", "format", "run", "serve", "start", "dev", "up",
+)
+_ESSENTIAL_COMMAND_LIMIT = 8
+
+
+def _essential_commands(run_commands: dict) -> dict:
+    """Curate a lean subset of run_commands for the root CLAUDE.md / AGENTS.md.
+
+    Scores each command by keyword match (build / test / lint / fmt / run /
+    serve / start / dev / up) and prefers exact matches and shorter names —
+    so `build` outranks `build-server` and `test` outranks `test-nocache`.
+    Capped at 8 entries regardless of project size; the full catalog lives
+    in `.claude/rules/technology.md`.
+    """
+    scored: list[tuple[tuple[bool, int], str, str]] = []
+    for k, v in run_commands.items():
+        kl = k.lower()
+        for kw in _ESSENTIAL_COMMAND_KEYWORDS:
+            if kw in kl:
+                # Sort key: exact-name match wins, then shorter name wins.
+                # Negative length so larger tuple = higher priority on desc sort.
+                scored.append(((kl == kw, -len(k)), k, v))
+                break
+    scored.sort(reverse=True)
+    return {k: v for _, k, v in scored[:_ESSENTIAL_COMMAND_LIMIT]}
+
+
+def _build_technology_rule(bp: dict):
+    """Tech stack, project structure, code templates, testing tooling.
+
+    Surfaces what was previously only in AGENTS.md so a single topic file
+    captures the project's tech footprint. Agents land here when the question
+    is "what stack are we on / where does what live / how do tests run."
+    """
+    stack = _get(bp, "technology", "stack", default=[]) or []
+    project_structure = _get(bp, "technology", "project_structure")
+    templates = _get(bp, "technology", "templates", default=[]) or []
+    run_commands = _get(bp, "technology", "run_commands", default={}) or {}
+    test_commands = {
+        k: v for k, v in run_commands.items()
+        if any(t in k.lower() for t in ("test", "lint", "check", "verify"))
+    }
+    test_stack = [
+        e for e in stack
+        if (e.get("category") or "").lower() in ("testing", "linting")
+    ]
+
+    if not (stack or project_structure or templates or test_commands or test_stack):
+        return None
+
+    lines: list[str] = []
+
+    # Tech Stack — grouped by category for fast scanning
+    if stack:
+        lines.append("## Tech Stack")
+        lines.append("")
+        by_cat = defaultdict(list)
+        for entry in stack:
+            version = f" {entry['version']}" if entry.get("version") else ""
+            by_cat[entry.get("category", "Other")].append(f"{entry.get('name', '')}{version}")
+        for cat in sorted(by_cat.keys()):
+            techs = ", ".join(by_cat[cat])
+            lines.append(f"- **{cat}:** {techs}")
+        lines.append("")
+
+    # Project Structure — ASCII tree (Wave-1 generated)
+    if project_structure:
+        lines.append("## Project Structure")
+        lines.append("")
+        lines.append("```")
+        lines.append(project_structure)
+        lines.append("```")
+        lines.append("")
+
+    # Run Commands — the FULL catalog. The lean root only surfaces the
+    # essential subset (build / test / lint / fmt / run/serve/up); the
+    # rest live here so agents looking for a specific make target know
+    # where to find it.
+    if run_commands:
+        lines.append("## Run Commands")
+        lines.append("")
+        lines.append("```bash")
+        for cmd_name, cmd_value in run_commands.items():
+            lines.append(f"# {cmd_name}")
+            lines.append(cmd_value)
+        lines.append("```")
+        lines.append("")
+
+    # Code Templates — concrete shapes for adding new components
+    if templates:
+        lines.append("## Code Templates")
+        lines.append("")
+        for tmpl in templates[:6]:
+            code = tmpl.get("code")
+            if not code:
+                continue
+            lines.append(f"### {tmpl.get('component_type', '')}: {tmpl.get('description', '')}")
+            lines.append("")
+            if tmpl.get("file_path_template"):
+                lines.append(f"File: `{tmpl['file_path_template']}`")
+                lines.append("")
+            lines.append("```")
+            lines.append(code)
+            lines.append("```")
+            lines.append("")
+
+    # Testing
+    if test_stack or test_commands:
+        lines.append("## Testing")
+        lines.append("")
+        if test_stack:
+            for entry in test_stack:
+                version = f" {entry['version']}" if entry.get("version") else ""
+                lines.append(f"- **{entry.get('name', '')}{version}** — {entry.get('purpose', '')}")
+            lines.append("")
+        if test_commands:
+            lines.append("```bash")
+            for cmd_name, cmd_value in test_commands.items():
+                lines.append(f"# {cmd_name}")
+                lines.append(cmd_value)
+            lines.append("```")
+            lines.append("")
+
+    return {
+        "topic": "technology",
+        "body": "\n".join(lines).rstrip(),
+        "description": "Tech stack, project structure, code templates, testing tooling",
         "always_apply": True,
         "globs": [],
     }
@@ -684,19 +858,23 @@ def generate_claude_md(bp: dict) -> str:
             lines.append(ad["rationale"])
         lines.append("")
 
-    # Decision chain (compact — root + top-level forces)
+    # Decision chain (compact — root + top-level forces). Skips
+    # malformed force entries (non-dicts) defensively.
     dc = _get(bp, "decisions", "decision_chain", default={}) or {}
     if dc.get("root"):
         lines.append(f"**Root constraint:** {dc['root']}")
         for f in (dc.get("forces") or [])[:5]:
+            if not isinstance(f, dict):
+                continue
             lines.append(f"- → {f.get('decision', '')}")
         lines.append("")
 
-    # Trade-offs summary (top 3)
+    # Trade-offs summary (top 3). Skips malformed entries (non-dicts).
     trade_offs = _get(bp, "decisions", "trade_offs", default=[]) or []
-    if trade_offs:
+    valid_trade_offs = [to for to in trade_offs if isinstance(to, dict)]
+    if valid_trade_offs:
         lines.append("**Key trade-offs:**")
-        for to in trade_offs[:3]:
+        for to in valid_trade_offs[:3]:
             accept = to.get("accept", "") or to.get("accepted", "")
             benefit = to.get("benefit", "") or to.get("gained", "")
             lines.append(f"- {accept} → {benefit}")
@@ -784,29 +962,93 @@ def generate_claude_md(bp: dict) -> str:
             lines.append("")
 
 
-    # Commands
+    # Commands — only the essential subset (build / test / lint / fmt /
+    # run / serve / up) at the root. Full catalog lives in technology.md
+    # so a project with 35 make targets doesn't bloat session context.
     run_commands = _get(bp, "technology", "run_commands", default={}) or {}
     if run_commands:
+        essential = _essential_commands(run_commands)
         lines.append("## Commands")
         lines.append("")
-        lines.append("```bash")
-        for cmd_name, cmd_value in run_commands.items():
-            lines.append(f"# {cmd_name}")
-            lines.append(cmd_value)
-        lines.append("```")
-        lines.append("")
+        if essential:
+            lines.append("```bash")
+            for cmd_name, cmd_value in essential.items():
+                lines.append(f"# {cmd_name}")
+                lines.append(cmd_value)
+            lines.append("```")
+            lines.append("")
+        if len(run_commands) > len(essential):
+            lines.append(
+                f"_Full catalog ({len(run_commands)} commands) in "
+                f"[`.claude/rules/technology.md`](.claude/rules/technology.md)._"
+            )
+            lines.append("")
 
-    # Key Rules pointer
-    lines.append("## Key Rules")
+    # Deep links into topic files. Only list the files we actually emit
+    # (some are conditional on blueprint content) so this section never
+    # advertises a file that doesn't exist on disk.
+    available_topics: list[tuple[str, str]] = [
+        ("architecture", "Components, file placement, naming conventions"),
+        ("patterns", "Communication patterns, integrations, key decisions, trade-offs (with violation signals)"),
+        ("technology", "Tech stack, project structure, code templates, testing tooling"),
+        ("guidelines", "Implementation guidelines for existing capabilities"),
+        ("pitfalls", "Documented traps with evidence + fix direction"),
+        ("dev-rules", "Coding-time imperatives (patterns, anti-patterns, boundaries, wiring)"),
+        ("infrastructure", "CI / signing / distribution / secrets / env setup / registry auth"),
+        ("enforcement", "Every rule the pre-edit hook + plan/commit classifier consults, grouped by severity"),
+        ("frontend", "UI architecture, state, routing (when applicable)"),
+    ]
+    # Filter to topics that have backing data in the blueprint. The
+    # enforcement topic is always advertised (even when blueprint doesn't
+    # describe it directly) — its presence is determined by rules.json
+    # / platform_rules.json existence at render time.
+    has_topic = {
+        "architecture": bool(_get(bp, "components", "components") or _get(bp, "architecture_rules", "file_placement_rules")),
+        "patterns": bool(_get(bp, "communication", "patterns") or _get(bp, "decisions", "key_decisions") or _get(bp, "decisions", "trade_offs")),
+        "technology": bool(_get(bp, "technology", "stack") or _get(bp, "technology", "project_structure") or _get(bp, "technology", "templates")),
+        "guidelines": bool(bp.get("implementation_guidelines")),
+        "pitfalls": bool(bp.get("pitfalls")),
+        "dev-rules": bool(bp.get("development_rules")),
+        "infrastructure": bool(bp.get("infrastructure_rules")),
+        "enforcement": True,
+        "frontend": bool(_as_dict(bp.get("frontend")).get("framework")),
+    }
+
+    lines.append("## Architectural Rules")
     lines.append("")
-    lines.append("Detailed architecture rules are split into topic files under `.claude/rules/`:")
+    lines.append("Detailed rules live as topic files under `.claude/rules/`. Read the relevant one when the task touches that surface:")
     lines.append("")
-    lines.append("- `architecture.md` — Components, file placement, naming conventions")
-    lines.append("- `patterns.md` — Communication patterns, key decisions")
-    lines.append("- `guidelines.md` — Implementation guidelines")
-    lines.append("- `pitfalls.md` — Common pitfalls, error mapping")
-    lines.append("- `dev-rules.md` — Development rules (always/never imperatives)")
-    lines.append("- `frontend.md` — Frontend rules (when applicable)")
+    for topic, blurb in available_topics:
+        if has_topic.get(topic):
+            lines.append(f"- [`.claude/rules/{topic}.md`](.claude/rules/{topic}.md) — {blurb}")
+    lines.append("")
+
+    # Enforcement Rules — pointer + brief explanation. The full browsable
+    # rule set is rendered as `.claude/rules/enforcement.md` (also linked
+    # in the Architectural Rules block above). Source of truth on disk:
+    # .archie/rules.json + .archie/platform_rules.json.
+    lines.append("## Enforcement Rules")
+    lines.append("")
+    lines.append(
+        "[`.claude/rules/enforcement.md`](.claude/rules/enforcement.md) lists every rule "
+        "the pre-edit hook (`PRE_VALIDATE_HOOK`) and plan/commit classifier "
+        "(`align_check.py`) consult, grouped by severity. The underlying source on disk "
+        "is [`.archie/rules.json`](.archie/rules.json) (project-specific) plus "
+        "[`.archie/platform_rules.json`](.archie/platform_rules.json) (universal anti-"
+        "patterns shipped with Archie)."
+    )
+    lines.append("")
+
+    # Per-folder context — intent layer files. Claude Code auto-loads the
+    # nearest CLAUDE.md, so just naming the convention is enough.
+    lines.append("## Per-folder Context")
+    lines.append("")
+    lines.append(
+        "Every meaningful folder has its own `CLAUDE.md` (Archie's intent layer). "
+        "Claude Code auto-loads the nearest one, so when editing a file under "
+        "`some/component/`, look there first for the local invariants, anti-patterns, "
+        "and adjacent code that uses the same shape."
+    )
     lines.append("")
 
     # Footer
@@ -817,346 +1059,170 @@ def generate_claude_md(bp: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# AGENTS.md (mirrors generate_agents_md exactly — 12 sections)
+# AGENTS.md
+#
+# Same content as CLAUDE.md, written to a second file so multi-agent setups
+# (Cursor, Codex, Aider, Continue) find it under the vendor-neutral name.
+# Single source of truth at the generator level — no drift, half the code
+# to maintain. Hand-edits to either file survive via the merge-marker
+# protocol in render_mergeable.
 # ---------------------------------------------------------------------------
 
 def generate_agents_md(bp: dict) -> str:
-    """Generate AGENTS.md with 12 sections following GitHub's agent file guidelines."""
-    timestamp = datetime.now(timezone.utc).isoformat()
-    repo = _get(bp, "meta", "repository", default="Unknown Repository") or "Unknown Repository"
+    """Generate AGENTS.md — identical to CLAUDE.md by design."""
+    return generate_claude_md(bp).replace("# CLAUDE.md", "# AGENTS.md", 1)
+
+
+# ---------------------------------------------------------------------------
+# Enforcement rules topic file (.claude/rules/enforcement.md)
+#
+# Renders the full contents of `.archie/rules.json` + `.archie/platform_rules.json`
+# so an agent / human can scan everything that might fire at edit-, plan-,
+# or commit-time without leaving session context. Grouped by severity_class
+# so the most consequential rules surface first.
+# ---------------------------------------------------------------------------
+
+
+def _severity_label_for_render(rule: dict) -> str:
+    """Resolve a rule's severity_class with backward-compat fallback to legacy
+    `severity` ("error" → mechanical_violation, "warn" → tradeoff_undermined)."""
+    sc = rule.get("severity_class")
+    if sc:
+        return sc
+    if rule.get("severity") == "error":
+        return "mechanical_violation"
+    return "tradeoff_undermined"
+
+
+_SEVERITY_RENDER_ORDER = [
+    "decision_violation",
+    "pitfall_triggered",
+    "mechanical_violation",
+    "tradeoff_undermined",
+    "pattern_divergence",
+]
+
+_SEVERITY_HEADINGS = {
+    "decision_violation": "Decision Violations (block)",
+    "pitfall_triggered": "Pitfalls (block)",
+    "mechanical_violation": "Mechanical Violations (block)",
+    "tradeoff_undermined": "Tradeoff Signals (warn)",
+    "pattern_divergence": "Pattern Divergence (inform)",
+}
+
+
+def _render_one_enforcement_rule(rule: dict) -> list[str]:
+    rid = rule.get("id", "?")
+    sev_class = _severity_label_for_render(rule)
+    desc = rule.get("description", "")
+    why = rule.get("why") or rule.get("rationale") or ""
+    example = rule.get("example") or ""
+    source = rule.get("source", "")
+    triggers = rule.get("triggers") or {}
+    applies_to = rule.get("applies_to", "")
+    check = rule.get("check", "")
+
+    out = [f"### `{rid}` — {desc}"]
+    out.append("")
+    meta_bits = []
+    if source:
+        meta_bits.append(f"*source: `{source}`*")
+    if applies_to:
+        meta_bits.append(f"*scope: `{applies_to}`*")
+    if check:
+        meta_bits.append(f"*check: `{check}`*")
+    if meta_bits:
+        out.append(" · ".join(meta_bits))
+        out.append("")
+    if why:
+        out.append(f"**Why:** {why}")
+        out.append("")
+    if example:
+        out.append("**Example:**")
+        out.append("")
+        out.append("```")
+        out.append(example)
+        out.append("```")
+        out.append("")
+    # Triggers — surface path_glob + code_shape for new-shape rules
+    if isinstance(triggers, dict):
+        path_globs = triggers.get("path_glob") or []
+        if isinstance(path_globs, str):
+            path_globs = [path_globs]
+        if path_globs:
+            out.append("**Path glob:** " + ", ".join(f"`{g}`" for g in path_globs))
+            out.append("")
+        code_shapes = triggers.get("code_shape") or []
+        if isinstance(code_shapes, list) and code_shapes:
+            out.append("<details><summary>Code-shape trigger</summary>")
+            out.append("")
+            out.append("```json")
+            out.append(json.dumps(code_shapes, indent=2))
+            out.append("```")
+            out.append("")
+            out.append("</details>")
+            out.append("")
+    return out
+
+
+def build_enforcement_rules_topic(rules: list[dict]) -> str | None:
+    """Render the full enforcement rule set as a topic file.
+
+    Groups by severity_class. New-shape rules surface their `why` /
+    `example` / `triggers` inline; old-shape rules fall back to
+    `rationale` and any legacy `applies_to` / `check` fields.
+    """
+    if not rules:
+        return None
+
+    valid = [r for r in rules if isinstance(r, dict) and r.get("id")]
+    if not valid:
+        return None
+
+    by_severity: dict[str, list[dict]] = defaultdict(list)
+    for r in valid:
+        by_severity[_severity_label_for_render(r)].append(r)
 
     lines = []
-
-    lines.append("# AGENTS.md")
+    counts = ", ".join(
+        f"{len(by_severity[k])} {k}" for k in _SEVERITY_RENDER_ORDER if by_severity.get(k)
+    )
+    lines.append(f"## Enforcement Rules ({len(valid)} total)")
     lines.append("")
-    lines.append(f"> Agent guidance for **{repo}**")
-    lines.append(f"> Generated: {timestamp}")
-    lines.append("")
-
-    # Overview
-    summary = _get(bp, "meta", "executive_summary")
-    if summary:
-        lines.append(summary)
+    lines.append(
+        "Every rule the pre-edit hook (`PRE_VALIDATE_HOOK`) and the plan/"
+        "commit classifier (`align_check.py`) consults. Grouped by severity."
+    )
+    if counts:
         lines.append("")
-
-    lines.append("---")
+        lines.append(f"_{counts}_")
     lines.append("")
 
-    # 1. Tech Stack
-    stack = _get(bp, "technology", "stack", default=[]) or []
-    if stack:
-        lines.append("## Tech Stack")
+    # Render in severity order so the blocking ones surface first
+    for sev in _SEVERITY_RENDER_ORDER:
+        bucket = by_severity.get(sev) or []
+        if not bucket:
+            continue
+        lines.append(f"## {_SEVERITY_HEADINGS[sev]}")
         lines.append("")
-        by_cat = defaultdict(list)
-        for entry in stack:
-            version = f" {entry['version']}" if entry.get("version") else ""
-            by_cat[entry.get("category", "Other")].append(f"{entry.get('name', '')}{version}")
-        for cat in sorted(by_cat.keys()):
-            techs = ", ".join(by_cat[cat])
-            lines.append(f"- **{cat}:** {techs}")
-        lines.append("")
+        for rule in bucket:
+            lines.extend(_render_one_enforcement_rule(rule))
 
-    # Integrations — external services with their architectural entry points.
-    # Surfaced at AGENTS.md load time so agents know which seam owns each
-    # integration (e.g. "ClickHouse is only accessed via streaming.Connector").
-    integrations = _get(bp, "communication", "integrations", default=[]) or []
-    valid_integrations = [ig for ig in integrations if isinstance(ig, dict)]
-    if valid_integrations:
-        lines.append("## Integrations")
-        lines.append("")
-        for ig in valid_integrations:
-            service = ig.get("service") or ig.get("name") or ""
-            purpose = ig.get("purpose") or ""
-            point = ig.get("integration_point") or ""
-            if not service:
-                continue
-            tail = f" (via `{point}`)" if point else ""
-            if purpose:
-                lines.append(f"- **{service}** — {purpose}{tail}")
-            else:
-                lines.append(f"- **{service}**{tail}")
-        lines.append("")
-
-    # Key Decisions
-    ad = _get(bp, "decisions", "architectural_style", default={}) or {}
-    key_decs = _get(bp, "decisions", "key_decisions", default=[]) or []
-    trade_offs = _get(bp, "decisions", "trade_offs", default=[]) or []
-    out_of_scope = _get(bp, "decisions", "out_of_scope", default=[]) or []
-    has_decisions = ad.get("chosen") or key_decs or trade_offs or out_of_scope
-    if has_decisions:
-        lines.append("## Key Decisions")
-        lines.append("")
-        if ad.get("chosen"):
-            lines.append(f"**Architecture:** {ad['chosen']}")
-            if ad.get("rationale"):
-                lines.append(f"  - *{ad['rationale']}*")
-            lines.append("")
-        for dec in key_decs:
-            lines.append(f"- **{dec.get('title', '')}:** {dec.get('chosen', '')}")
-            if dec.get("rationale"):
-                lines.append(f"  - *{dec['rationale']}*")
-            alternatives = dec.get("alternatives_rejected") or []
-            if alternatives:
-                lines.append(f"  - Rejected: {', '.join(alternatives)}")
-            if dec.get("forced_by"):
-                lines.append(f"  - Forced by: {dec['forced_by']}")
-            if dec.get("enables"):
-                lines.append(f"  - Enables: {dec['enables']}")
-        if key_decs:
-            lines.append("")
-        if trade_offs:
-            lines.append("**Trade-offs:**")
-            lines.append("")
-            for to in trade_offs:
-                if not isinstance(to, dict):
-                    continue
-                accept = to.get("accept", "") or to.get("accepted", "")
-                benefit = to.get("benefit", "") or to.get("gained", "")
-                lines.append(f"- **{accept}** → {benefit}")
-                # violation_signals tell agents which code patterns would
-                # undo the trade-off — surface them so they're visible at
-                # AGENTS.md load time, not just in the rule files.
-                for sig in _str_list(to.get("violation_signals")):
-                    lines.append(f"  - *Violation signal:* {sig}")
-            lines.append("")
-        if out_of_scope:
-            lines.append("**Out of scope:**")
-            for item in out_of_scope:
-                lines.append(f"- {item}")
-            lines.append("")
-
-    # Decision Chain
-    decision_chain = _get(bp, "decisions", "decision_chain", default={}) or {}
-    if decision_chain.get("root"):
-        lines.append("## Decision Chain")
-        lines.append("")
-        lines.append(f"**Root constraint:** {decision_chain['root']}")
-        lines.append("")
-        def _render_chain(forces, indent=0):
-            for f in (forces or []):
-                if not isinstance(f, dict):
-                    continue
-                prefix = "  " * indent + "- "
-                lines.append(f"{prefix}**{f.get('decision', '')}**: {f.get('rationale', '')}")
-                # violation_keywords are concrete code-pattern fingerprints
-                # that would breach this decision. They're the enforcement
-                # surface of the chain — worth surfacing so agents see the
-                # "don't do X" signal next to the "here's why" reasoning.
-                for kw in _str_list(f.get("violation_keywords")):
-                    lines.append(f"{'  ' * (indent + 1)}- *Violation keyword:* `{kw}`")
-                _render_chain(f.get("forces", []), indent + 1)
-        _render_chain(decision_chain.get("forces", []))
-        lines.append("")
-
-    # 2. Deployment
-    dep = _as_dict(bp.get("deployment"))
-    has_deployment = dep.get("runtime_environment") or dep.get("compute_services") or dep.get("ci_cd")
-    if has_deployment:
-        lines.append("## Deployment")
-        lines.append("")
-        if dep.get("runtime_environment"):
-            lines.append(f"**Runs on:** {dep['runtime_environment']}")
-        if dep.get("compute_services"):
-            lines.append(f"**Compute:** {', '.join(_as_list(dep['compute_services']))}")
-        if dep.get("container_runtime"):
-            container = dep["container_runtime"]
-            if dep.get("orchestration"):
-                container += f" + {dep['orchestration']}"
-            lines.append(f"**Container:** {container}")
-        if dep.get("ci_cd"):
-            lines.append("**CI/CD:**")
-            for item in _as_list(dep["ci_cd"]):
-                lines.append(f"- {_clean_str_item(item)}")
-        if dep.get("distribution"):
-            lines.append("**Distribution:**")
-            for item in _as_list(dep["distribution"]):
-                lines.append(f"- {_clean_str_item(item)}")
-        lines.append("")
-
-    # 3. Commands
-    run_commands = _get(bp, "technology", "run_commands", default={}) or {}
-    if run_commands:
-        lines.append("## Commands")
-        lines.append("")
-        lines.append("```bash")
-        for cmd_name, cmd_value in run_commands.items():
-            lines.append(f"# {cmd_name}")
-            lines.append(cmd_value)
-        lines.append("```")
-        lines.append("")
-
-    # 4. Project Structure
-    project_structure = _get(bp, "technology", "project_structure")
-    if project_structure:
-        lines.append("## Project Structure")
-        lines.append("")
-        lines.append("```")
-        lines.append(project_structure)
-        lines.append("```")
-        lines.append("")
-
-    # 5. Code Style
-    naming = _get(bp, "architecture_rules", "naming_conventions", default=[]) or []
-    templates = _get(bp, "technology", "templates", default=[]) or []
-    has_code_style = naming or templates
-    if has_code_style:
-        lines.append("## Code Style")
-        lines.append("")
-
-        if naming:
-            for nc in naming:
-                examples = ", ".join(f"`{e}`" for e in (nc.get("examples") or [])[:4])
-                lines.append(f"- **{nc.get('scope', '')}:** {nc.get('pattern', '')} (e.g. {examples})")
-            lines.append("")
-
-        if templates:
-            for tmpl in templates[:3]:
-                code = tmpl.get("code")
-                if code:
-                    lines.append(f"### {tmpl.get('component_type', '')}: {tmpl.get('description', '')}")
-                    lines.append("")
-                    lines.append(f"File: `{tmpl.get('file_path_template', '')}`")
-                    lines.append("")
-                    lines.append("```")
-                    lines.append(code)
-                    lines.append("```")
-                    lines.append("")
-
-    # 6. Development Rules + Infrastructure Rules
-    # Two sections: coding-time rules (development_rules) come first because
-    # they're what the agent reads when writing code. Infrastructure rules
-    # (CI, distribution, signing, secrets) follow as a clearly-labeled
-    # separate H2 — onboarding/ops info, not coding guidance.
-    def _render_rules_block(rules, heading):
-        if not rules:
-            return
-        by_cat = defaultdict(list)
-        for dr in rules:
-            cat = (dr.get("category") or "").strip() or "general"
-            by_cat[cat].append(dr)
-        lines.append(f"## {heading}")
-        lines.append("")
-        for cat_name in sorted(by_cat.keys()):
-            sub = cat_name.replace("_", " ").title()
-            lines.append(f"### {sub}")
-            lines.append("")
-            for dr in by_cat[cat_name]:
-                if dr.get("source"):
-                    lines.append(f"- {dr.get('rule', '')} *(source: `{dr['source']}`)*")
-                else:
-                    lines.append(f"- {dr.get('rule', '')}")
-            lines.append("")
-
-    _render_rules_block(bp.get("development_rules") or [], "Development Rules")
-    _render_rules_block(bp.get("infrastructure_rules") or [], "Infrastructure Rules")
-
-    # 7. Boundaries
-    lines.append("## Boundaries")
-    lines.append("")
-    lines.append("### Always")
-    lines.append("")
-    always_items = [
-        "Run tests before committing",
-        "Follow file placement rules (see `.claude/rules/architecture.md`)",
-    ]
-    for item in always_items:
-        lines.append(f"- {item}")
-    lines.append("")
-    lines.append("### Ask First")
-    lines.append("")
-    ask_items = [
-        "Database schema changes",
-        "Adding new dependencies",
-        "Modifying CI/CD configuration",
-        "Changes to deployment configuration",
-    ]
-    for item in ask_items:
-        lines.append(f"- {item}")
-    lines.append("")
-    lines.append("### Never")
-    lines.append("")
-    never_items = [
-        "Commit secrets or API keys",
-        "Edit vendor/node_modules directories",
-        "Remove failing tests without authorization",
-    ]
-    # Add project-specific nevers from pitfalls. Accepts both the new
-    # 4-field shape (fix_direction as str or list) and the legacy
-    # shape (recommendation).
-    pitfalls = bp.get("pitfalls") or []
-    for pitfall in pitfalls[:3]:
-        candidates: list[str] = []
-        fix = pitfall.get("fix_direction")
-        if isinstance(fix, str) and fix:
-            candidates.append(fix)
-        elif isinstance(fix, list):
-            candidates.extend(s for s in fix if isinstance(s, str) and s)
-        rec = pitfall.get("recommendation")
-        if isinstance(rec, str) and rec:
-            candidates.append(rec)
-        for cand in candidates:
-            if "never" in cand.lower():
-                never_items.append(cand)
-                break
-    # Add out-of-scope items as nevers
-    oos = _get(bp, "decisions", "out_of_scope", default=[]) or []
-    for item in oos[:5]:
-        never_items.append(item)
-    for item in never_items:
-        lines.append(f"- {item}")
-    lines.append("")
-
-    # 8. Testing
-    test_commands = {k: v for k, v in run_commands.items()
-                     if any(t in k.lower() for t in ("test", "lint", "check", "verify"))}
-    test_stack = [e for e in stack
-                  if (e.get("category") or "").lower() in ("testing", "linting")]
-    if test_commands or test_stack:
-        lines.append("## Testing")
-        lines.append("")
-        if test_stack:
-            for entry in test_stack:
-                version = f" {entry['version']}" if entry.get("version") else ""
-                lines.append(f"- **{entry.get('name', '')}{version}** — {entry.get('purpose', '')}")
-            lines.append("")
-        if test_commands:
-            lines.append("```bash")
-            for cmd_name, cmd_value in test_commands.items():
-                lines.append(f"# {cmd_name}")
-                lines.append(cmd_value)
-            lines.append("```")
-            lines.append("")
-
-    # 9. Pitfalls & Gotchas
-    if pitfalls:
-        lines.append("## Pitfalls & Gotchas")
-        lines.append("")
-        for pitfall in pitfalls:
-            lines.extend(_render_pitfall_lines(pitfall))
-        lines.append("")
-
-
-    # 12. File Placement Quick Reference
-    where = _get(bp, "quick_reference", "where_to_put_code", default={}) or {}
-    if where:
-        lines.append("## File Placement")
-        lines.append("")
-        for comp_type, loc in where.items():
-            lines.append(f"- **{comp_type}** \u2192 `{loc}`")
-        lines.append("")
-
-    lines.append("---")
-    lines.append("*Auto-generated from structured architecture analysis.*")
-
-    return "\n".join(lines)
+    return "\n".join(lines).rstrip()
 
 
 # ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
-def generate_all(bp: dict) -> dict:
+def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
     """Generate all output files from a blueprint dict.
+
+    `enforcement_rules` is the merged contents of `.archie/rules.json` +
+    `.archie/platform_rules.json` — when present, an additional
+    `.claude/rules/enforcement.md` topic file gets emitted with every
+    rule grouped by severity_class. Pass `None` (or omit) when rendering
+    a blueprint without access to those files.
 
     Returns {path: content} for every output file.
     """
@@ -1165,10 +1231,12 @@ def generate_all(bp: dict) -> dict:
     builders = [
         _build_architecture_rule,
         _build_patterns_rule,
+        _build_technology_rule,
         _build_frontend_rule,
         _build_guidelines_rule,
         _build_pitfalls_rule,
         _build_dev_rules_rule,
+        _build_infrastructure_rule,
     ]
 
     for builder in builders:
@@ -1176,14 +1244,24 @@ def generate_all(bp: dict) -> dict:
         if result is not None:
             rule_files.append(result)
 
+    # Generate the lean root content ONCE so CLAUDE.md and AGENTS.md share
+    # the same body (including the same timestamp) — only the H1 differs.
+    claude_body = generate_claude_md(bp)
     files = {
-        "CLAUDE.md": generate_claude_md(bp),
-        "AGENTS.md": generate_agents_md(bp),
+        "CLAUDE.md": claude_body,
+        "AGENTS.md": claude_body.replace("# CLAUDE.md", "# AGENTS.md", 1),
     }
 
     for rf in rule_files:
         topic = rf["topic"]
         files[f".claude/rules/{topic}.md"] = _render_claude(rf)
+
+    # Enforcement rules topic — only emitted when caller passes the rules
+    # list (typically loaded from .archie/rules.json + platform_rules.json).
+    if enforcement_rules:
+        body = build_enforcement_rules_topic(enforcement_rules)
+        if body:
+            files[".claude/rules/enforcement.md"] = body
 
     return files
 
@@ -1205,7 +1283,25 @@ def main():
         sys.exit(1)
 
     bp = json.loads(blueprint_path.read_text())
-    files = generate_all(bp)
+
+    # Load enforcement rules from .archie/rules.json + platform_rules.json
+    # so the renderer can emit a browsable enforcement.md topic file.
+    # Both files are optional; missing-or-malformed cases produce no
+    # enforcement.md and don't fail the render.
+    enforcement_rules: list[dict] = []
+    for fname in ("rules.json", "platform_rules.json"):
+        path = project_root / ".archie" / fname
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        items = data if isinstance(data, list) else data.get("rules", [])
+        if isinstance(items, list):
+            enforcement_rules.extend(r for r in items if isinstance(r, dict))
+
+    files = generate_all(bp, enforcement_rules=enforcement_rules)
 
     # Write all files. CLAUDE.md and AGENTS.md may coexist with hand-authored
     # content — those go through render_mergeable which preserves user content
