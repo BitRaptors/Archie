@@ -94,6 +94,7 @@ export default function ReportPage() {
       'archrules',
       'enforcement-rules',
       'devrules',
+      'infrarules',
       'decisions',
       'tradeoffs',
       'guidelines',
@@ -228,6 +229,13 @@ export default function ReportPage() {
     ...(archRules.development_rules || []),
     ...(bp.development_rules || [])
   ]
+  // Infrastructure rules — split out from development_rules in the new
+  // schema. CI, signing, distribution, secrets, dependency-registry auth.
+  // Old shares without infrastructure_rules render unchanged (empty array).
+  const infrastructureRules = [
+    ...(archRules.infrastructure_rules || []),
+    ...(bp.infrastructure_rules || [])
+  ]
   // Phase 1 enforcement rules — pulled from rules.json / proposed_rules.json
   // via upload.py's bundle.rules_adopted / .rules_proposed. Both shapes
   // accepted: `{ rules: [...] }` (current) or raw `[...]` (defensive).
@@ -334,7 +342,7 @@ export default function ReportPage() {
           </div>
 
           {/* Rules */}
-          {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0 || enforcementRules.length > 0 || proposedEnforcementRules.length > 0) && (
+          {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0 || enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || infrastructureRules.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
               {(filePlacement.length > 0 || naming.length > 0) && (
@@ -359,6 +367,14 @@ export default function ReportPage() {
                   onClick={() => scrollToSection('devrules')}
                   icon={Shield}
                   label="Development Rules"
+                />
+              )}
+              {infrastructureRules.length > 0 && (
+                <NavButton
+                  active={activeSection === 'infrarules'}
+                  onClick={() => scrollToSection('infrarules')}
+                  icon={Shield}
+                  label="Infrastructure Rules"
                 />
               )}
             </div>
@@ -642,10 +658,17 @@ export default function ReportPage() {
             </section>
           )}
 
-          {/* 5. Development Rules */}
+          {/* 5. Development Rules — coding-time guidance */}
           {developmentRules.length > 0 && (
             <section id="devrules" className="scroll-mt-24">
               <Sections.DevelopmentRulesSection rules={developmentRules} />
+            </section>
+          )}
+
+          {/* 5b. Infrastructure Rules — CI / signing / distribution / secrets */}
+          {infrastructureRules.length > 0 && (
+            <section id="infrarules" className="scroll-mt-24">
+              <Sections.InfrastructureRulesSection rules={infrastructureRules} />
             </section>
           )}
 

@@ -1399,21 +1399,59 @@ export function RulesSection({ adopted, proposed }: { adopted: any[]; proposed: 
   )
 }
 
+function _renderRuleRow(r: any, i: number, accent: string) {
+  const text = typeof r === 'string' ? r : r.rule || JSON.stringify(r)
+  const cat: string = typeof r === 'object' && r ? (r.category || '') : ''
+  const source: string = typeof r === 'object' && r ? (r.source || '') : ''
+  return (
+    <div key={i} className={cn("p-5 rounded-2xl border flex items-start gap-4 transition-all hover:bg-white/50", theme.surface.panel, accent)}>
+      <div className={cn("p-2 rounded-xl shrink-0", accent.includes('teal') ? 'bg-teal/10 text-teal' : 'bg-brandy/10 text-brandy')}>
+        <Shield className="w-4 h-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        {cat && (
+          <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-wider mb-2 text-ink/60 border-ink/10">
+            {cat.replace(/_/g, ' ')}
+          </Badge>
+        )}
+        <div className="text-sm text-ink/80 leading-relaxed font-medium">
+          <AutoCode text={text} />
+        </div>
+        {source && (
+          <div className="text-[10px] font-mono text-ink/40 mt-2">
+            source: <code className={cn(codeInlineClassName, 'text-[10px]')}>{source}</code>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function DevelopmentRulesSection({ rules }: { rules: any[] }) {
   return (
     <section className="space-y-4">
-      <SectionHeader title="Development Rules" icon={Shield} />
+      <SectionHeader
+        title="Development Rules"
+        icon={Shield}
+        hint="Patterns and boundaries the coding agent consults when writing, editing, or refactoring code."
+      />
       <div className="space-y-3">
-        {rules.map((r: any, i: number) => (
-          <div key={i} className={cn("p-5 rounded-2xl border flex items-start gap-4 transition-all hover:border-brandy/30 hover:bg-white/50", theme.surface.panel)}>
-             <div className="p-2 rounded-xl bg-brandy/10 text-brandy shrink-0">
-               <Shield className="w-4 h-4" />
-             </div>
-             <div className="text-sm text-ink/80 leading-relaxed font-medium">
-               <AutoCode text={typeof r === 'string' ? r : r.rule || JSON.stringify(r)} />
-             </div>
-          </div>
-        ))}
+        {rules.map((r, i) => _renderRuleRow(r, i, 'hover:border-brandy/30'))}
+      </div>
+    </section>
+  )
+}
+
+export function InfrastructureRulesSection({ rules }: { rules: any[] }) {
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Infrastructure Rules"
+        icon={Shield}
+        hint="CI, distribution, signing, secrets, dependency-registry auth — the things you need to know once during onboarding or when touching pipelines / build configs."
+      />
+      <div className="space-y-3">
+        {rules.map((r, i) => _renderRuleRow(r, i, 'hover:border-teal/30 border-papaya-400/40 bg-papaya-50/40'))}
       </div>
     </section>
   )

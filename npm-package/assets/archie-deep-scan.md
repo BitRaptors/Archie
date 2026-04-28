@@ -676,24 +676,54 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > - **Library-specific**: Package registry, build/publish pipeline, versioning strategy
 > - List all deployment-related KEY FILES found in the repository
 >
-> ### 6. Development Rules
-> Imperative rules inferred from tooling config. Each MUST cite a source file.
+> ### 6. Development Rules + Infrastructure Rules
 >
-> Sources to check:
-> - Package manager lockfiles (poetry.lock, yarn.lock, pnpm-lock.yaml)
-> - Pre-commit/quality checks (.pre-commit-config.yaml, husky, lint-staged)
-> - CI enforcement (.github/workflows/, Makefile, tox.ini)
-> - Linting/formatting mandates (ruff.toml, .eslintrc, prettier, editorconfig)
-> - Environment setup (setup.sh, Makefile, docker-compose.yml, .env.example)
-> - Testing requirements (CI configs, pytest.ini, jest.config)
-> - Git conventions (.gitignore, commit hooks, branch protection)
+> Two SEPARATE output buckets. Each rule belongs in exactly one. The split is load-bearing — `development_rules` is what a coding agent reads at edit-time; `infrastructure_rules` is onboarding/ops info that the same agent never consults when writing code. Mixing them buries the coding rules in noise.
 >
-> State each as: "Always X" or "Never Y", cite the source file.
+> #### `development_rules` — coding-time rules
 >
-> **CRITICAL**: Every rule MUST be specific to THIS project. Generic rules are WORTHLESS.
-> GOOD: "Always register new routes in api/app.py — uses explicit include_router()" (source: api/app.py)
-> GOOD: "Never import from infrastructure/ in domain/ — dependency rule enforced by layer structure" (source: directory layout)
-> BAD: "Use descriptive variable names", "Follow SOLID principles", "Write unit tests"
+> Rules a coding agent must follow when **writing, editing, or refactoring** code in this project. Each must answer at least one of:
+> - "When I add a new <thing> (screen, repository, route, module), what must I do?"
+> - "When I touch <area>, what must I avoid?"
+> - "What boundary must I respect when changing <component>?"
+>
+> **Inclusion test:** would a coding agent change the file it's editing because of this rule? If no, it does NOT belong here — push it to `infrastructure_rules`.
+>
+> **Source priority:** actual code files first (real `.kt`, `.swift`, `.py`, `.ts` etc., the patterns visible there). Config files only when they map directly to a coding-time decision (e.g. a Gradle plugin that requires registering Fragments in NavGraph IS a coding rule; a CI YAML telling you which gradle tasks to run is NOT).
+>
+> Categories:
+> - `pattern_to_follow` — a positive convention visible in existing code
+> - `anti_pattern` — a thing the codebase carefully AVOIDS
+> - `boundary` — a layer/module separation that must hold
+> - `wiring` — what to register/connect when adding a feature (DI, navigation, routing, plugins)
+> - `data_flow` — how data moves and where to plug in
+>
+> GOOD examples:
+> - "Always extend TraceViewModel<T> for screen ViewModels — gives Firebase Performance traces per loading cycle" (source: util/perf/TraceViewModel.kt; usage: DashboardViewModel, SettingsViewModel)
+> - "Always register new Fragments in res/navigation/navigation_main.xml and use Safe Args (navArgs() delegates) for type-safe nav arguments" (source: app/build.gradle.kts safeArgsPlugin + DashboardFragmentArgs)
+> - "Never import from infrastructure/ in domain/ — dependency rule enforced by layer structure" (source: directory layout, no existing violations)
+>
+> BAD examples (push to infrastructure_rules instead):
+> - "Always run `assemble{BuildType} cleanTestDebugUnitTest` in CI" — CI orchestration
+> - "Always store keystores as Azure DevOps secure files named …" — signing infra
+> - "Never commit local.properties" — onboarding gotcha, not coding rule
+>
+> #### `infrastructure_rules` — ops / build / onboarding
+>
+> Rules and gotchas about CI, distribution, signing, secrets, env setup, branch protection, dependency-registry auth — the kind of thing a developer needs to know once during onboarding or when touching pipelines / build configs, but not when writing a feature.
+>
+> Categories:
+> - `ci_cd` — CI orchestration, pipeline triggers, mandatory tasks
+> - `distribution` — App Store, Play Store, AppCenter, npm publish, etc.
+> - `signing` — keystores, certificates, code-signing identities
+> - `secrets` — env vars, secret-file conventions, `.gitignore` of sensitive paths
+> - `env_setup` — `.env` files, local-only files, dev-machine prereqs
+> - `dependency_registry` — auth to private registries (e.g. GitHub Packages, internal Artifactory), JitPack/private Maven repos
+> - `git` — branch protection, PR-trigger conventions, commit hooks
+>
+> Every rule MUST cite its source file. State each as "Always X" or "Never Y".
+>
+> **CRITICAL**: Both buckets must be specific to THIS project. Generic rules are WORTHLESS in either bucket.
 >
 > Return JSON:
 > ```json
@@ -718,7 +748,10 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >     "key_files": []
 >   },
 >   "development_rules": [
->     {"category": "dependency_management|testing|code_style|ci_cd|environment|git", "rule": "Always/Never ...", "source": "file_that_proves_it"}
+>     {"category": "pattern_to_follow|anti_pattern|boundary|wiring|data_flow", "rule": "Always/Never ...", "source": "file_that_proves_it"}
+>   ],
+>   "infrastructure_rules": [
+>     {"category": "ci_cd|distribution|signing|secrets|env_setup|dependency_registry|git", "rule": "Always/Never ...", "source": "file_that_proves_it"}
 >   ]
 > }
 > ```
