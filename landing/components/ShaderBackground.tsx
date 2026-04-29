@@ -1,10 +1,13 @@
-"use strict";
 "use client";
 
 import { ShaderGradientCanvas, ShaderGradient } from "shadergradient";
 
+// shadergradient ships without type definitions, so the prop bag is loosely typed.
+// Spreading via Record<string, unknown> avoids `any` while preserving the runtime shape.
+type ShaderGradientProps = Record<string, unknown>;
+
 export function ShaderBackground() {
-    const gradientProps: any = {
+    const gradientProps: ShaderGradientProps = {
         animate: "on",
         axesHelper: "off",
         brightness: 1.2,
