@@ -7,7 +7,7 @@ export function Frame3UnderTheHood() {
     <section
       id="frame-3"
       aria-labelledby="frame-3-headline"
-      className="relative py-32 md:py-40 px-4 bg-deep-space-blue-100 overflow-hidden border-t-4 border-sky-blue"
+      className="relative py-20 md:py-28 px-4 bg-deep-space-blue-100 overflow-hidden border-t-4 border-sky-blue"
     >
       {/* Vertical watermark */}
       <div
@@ -27,7 +27,7 @@ export function Frame3UnderTheHood() {
 
         <h2
           id="frame-3-headline"
-          className="text-3xl md:text-5xl lg:text-6xl font-black text-white uppercase tracking-tight mb-6 max-w-5xl"
+          className="text-3xl md:text-4xl lg:text-5xl font-black text-white uppercase tracking-tight mb-4 max-w-5xl"
         >
           Multi-wave AI analysis.
           <br />
@@ -36,13 +36,13 @@ export function Frame3UnderTheHood() {
           </span>
         </h2>
 
-        <p className="text-lg md:text-xl text-gray-300 font-mono max-w-3xl mb-16 md:mb-20">
+        <p className="text-base md:text-lg text-gray-300 font-mono max-w-3xl mb-12 md:mb-16">
           Archie runs the same analysis a senior architect would — then embeds the
           conclusions where agents work.
         </p>
 
         {/* Two-column: build phase | enforce phase */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12">
           {/* Build phase — pipeline */}
           <div>
             <div className="mb-6">
@@ -72,17 +72,24 @@ export function Frame3UnderTheHood() {
         </div>
 
         {/* Maintenance loop strip */}
-        <div className="mt-16 md:mt-20 border-2 border-neon/40 bg-black/40 px-6 py-5 flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-6">
-          <span className="text-neon font-mono text-xs uppercase tracking-[0.3em] flex-shrink-0">
-            /archie-scan
-          </span>
-          <span className="text-gray-300 font-mono text-sm md:text-base">
-            Senior-architect pass on the diff. New findings become new rules. The model
-            sharpens with every run.
-          </span>
-          <span className="text-gray-500 font-mono text-[10px] uppercase tracking-widest md:ml-auto flex-shrink-0">
-            1-3 min, run often
-          </span>
+        <div className="mt-10 md:mt-14 border-2 border-neon/40 bg-black/40 px-6 py-5">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-neon font-mono text-xs uppercase tracking-[0.3em]">
+              /archie-scan
+            </span>
+            <span className="text-amber-flame font-mono text-[10px] uppercase tracking-[0.3em] px-2 py-0.5 border border-amber-flame/40 bg-amber-flame/10">
+              On-demand grounding
+            </span>
+            <span className="text-gray-500 font-mono text-[10px] uppercase tracking-widest ml-auto">
+              1-3 min, run often
+            </span>
+          </div>
+          <p className="text-gray-300 font-mono text-sm md:text-base leading-relaxed">
+            Three specialist agents (architecture, health, patterns){" "}
+            <span className="text-neon">pull files on demand</span> against the existing
+            index to ground every finding in real code. New findings become new rules.
+            The model sharpens with every run.
+          </p>
         </div>
       </div>
     </section>

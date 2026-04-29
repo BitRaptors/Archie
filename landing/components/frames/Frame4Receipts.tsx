@@ -9,7 +9,7 @@ export function Frame4Receipts() {
     <section
       id="frame-4"
       aria-labelledby="frame-4-headline"
-      className="relative py-32 md:py-40 px-4 bg-black overflow-hidden border-t-4 border-blue-green"
+      className="relative py-20 md:py-28 px-4 bg-black overflow-hidden border-t-4 border-blue-green"
     >
       <div className="absolute top-0 right-0 w-[50%] h-full bg-[radial-gradient(circle_at_70%_50%,#023047_0%,transparent_70%)] opacity-30 pointer-events-none" />
 
@@ -31,7 +31,7 @@ export function Frame4Receipts() {
 
         <h2
           id="frame-4-headline"
-          className="text-3xl md:text-5xl lg:text-6xl font-black text-white uppercase tracking-tight mb-6 max-w-5xl"
+          className="text-3xl md:text-4xl lg:text-5xl font-black text-white uppercase tracking-tight mb-4 max-w-5xl"
         >
           This is what semantic
           <br />
@@ -40,7 +40,7 @@ export function Frame4Receipts() {
           </span>
         </h2>
 
-        <p className="text-lg md:text-xl text-gray-300 font-mono max-w-3xl mb-16">
+        <p className="text-base md:text-lg text-gray-300 font-mono max-w-3xl mb-12">
           No marketing screenshots. Real output from real codebases.
         </p>
 

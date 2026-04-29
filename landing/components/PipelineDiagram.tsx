@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { ArrowDown, Boxes, Cpu, Layers, Network, Sparkles } from "lucide-react"
+import { ArrowDown, Boxes, Cpu, FileCode, Layers, Network, Sparkles } from "lucide-react"
 
 const WAVE_1_AGENTS = [
   { name: "Structure", desc: "components, layers, placement", icon: Layers },
@@ -19,10 +19,16 @@ function PhaseCard({
   step: string
   title: string
   desc: string
-  accent?: "sky-blue" | "neon"
+  accent?: "sky-blue" | "neon" | "princeton-orange"
 }) {
-  const border = accent === "neon" ? "border-neon" : "border-sky-blue"
-  const text = accent === "neon" ? "text-neon" : "text-sky-blue"
+  const border =
+    accent === "neon" ? "border-neon" : accent === "princeton-orange" ? "border-princeton-orange" : "border-sky-blue"
+  const text =
+    accent === "neon"
+      ? "text-neon"
+      : accent === "princeton-orange"
+        ? "text-princeton-orange"
+        : "text-sky-blue"
   return (
     <div className={`border-2 ${border} bg-deep-space-blue-100 p-5`}>
       <div className={`font-mono text-xs uppercase tracking-widest ${text} mb-2`}>{step}</div>
@@ -35,17 +41,38 @@ function PhaseCard({
 export function PipelineDiagram() {
   return (
     <div className="flex flex-col gap-3">
-      <PhaseCard step="STEP 1" title="Deterministic scan" desc="file tree, frameworks, layer detection" />
+      <div className="border-2 border-sky-blue bg-deep-space-blue-100 p-5">
+        <div className="font-mono text-xs uppercase tracking-widest text-sky-blue mb-2">
+          STEP 1 — Structural index
+        </div>
+        <div className="font-black text-white text-lg uppercase tracking-tight mb-1">
+          Indexes the whole repo
+        </div>
+        <div className="font-mono text-xs text-gray-300 leading-relaxed">
+          File tree, import graph, framework signals, skeletons of every source file
+          (signatures + imports). Deterministic, no AI yet — the foundation that grounds
+          everything else.
+        </div>
+      </div>
 
       <ArrowDown className="w-4 h-4 text-sky-blue mx-auto" aria-hidden="true" />
 
       {/* Wave 1: parallel agents */}
       <div className="border-2 border-sky-blue bg-deep-space-blue-100 p-5">
-        <div className="font-mono text-xs uppercase tracking-widest text-sky-blue mb-2">
-          Step 2 — Wave 1
+        <div className="flex items-center gap-2 mb-2">
+          <span className="font-mono text-xs uppercase tracking-widest text-sky-blue">
+            Step 2 — Wave 1
+          </span>
+          <span className="text-amber-flame font-mono text-[10px] uppercase tracking-[0.3em] px-2 py-0.5 border border-amber-flame/40 bg-amber-flame/10">
+            Grounded reads
+          </span>
         </div>
-        <div className="font-black text-white text-lg uppercase tracking-tight mb-3">
-          Parallel Sonnet agents
+        <div className="font-black text-white text-lg uppercase tracking-tight mb-1">
+          Parallel specialist agents
+        </div>
+        <div className="font-mono text-xs text-gray-300 leading-relaxed mb-3">
+          Each agent reads the index + pulls source files on demand to ground every
+          claim in real code.
         </div>
         <motion.div
           className="grid grid-cols-2 gap-2"
@@ -80,10 +107,34 @@ export function PipelineDiagram() {
 
       <PhaseCard
         step="STEP 3 — Wave 2"
-        title="Opus reasoning"
+        title="Architectural reasoning"
         desc="decision chains, trade-offs, pitfalls with causal links"
-        accent="neon"
+        accent="sky-blue"
       />
+
+      <ArrowDown className="w-4 h-4 text-princeton-orange mx-auto" aria-hidden="true" />
+
+      {/* Step 4 — rule generation. This is what produces the rule shown to the right. */}
+      <div className="border-2 border-princeton-orange bg-deep-space-blue-100 p-5">
+        <div className="flex items-start gap-3">
+          <FileCode className="w-5 h-5 text-princeton-orange flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-mono text-xs uppercase tracking-widest text-princeton-orange mb-2">
+              Step 4 — Rule generation
+            </div>
+            <div className="font-black text-white text-lg uppercase tracking-tight mb-1">
+              Rule synthesis → rules.json
+            </div>
+            <div className="font-mono text-xs text-gray-300 leading-relaxed">
+              every rule carries{" "}
+              <span className="text-princeton-orange">severity_class</span>,{" "}
+              <span className="text-princeton-orange">WHY</span>, and{" "}
+              <span className="text-princeton-orange">EXAMPLE</span> — semantic content the agent
+              reads at edit time
+            </div>
+          </div>
+        </div>
+      </div>
 
       <ArrowDown className="w-4 h-4 text-neon mx-auto" aria-hidden="true" />
 
@@ -91,7 +142,14 @@ export function PipelineDiagram() {
         <div className="flex items-start gap-3">
           <Sparkles className="w-5 h-5 text-neon flex-shrink-0 mt-0.5" />
           <div className="flex-1">
-            <div className="font-mono text-xs uppercase tracking-widest text-neon mb-2">STEP 4</div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="font-mono text-xs uppercase tracking-widest text-neon">
+                STEP 5
+              </span>
+              <span className="text-amber-flame font-mono text-[10px] uppercase tracking-[0.3em] px-2 py-0.5 border border-amber-flame/40 bg-amber-flame/10">
+                Optional
+              </span>
+            </div>
             <div className="font-black text-white text-lg uppercase tracking-tight mb-1">
               Intent layer
             </div>

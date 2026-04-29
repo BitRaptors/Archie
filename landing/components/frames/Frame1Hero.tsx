@@ -6,8 +6,6 @@ import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { ShaderBackground } from "@/components/ShaderBackground"
 import { ProductBadge } from "@/components/ProductBadge"
-import { DecayCurve } from "@/components/DecayCurve"
-import { StatBlock } from "@/components/StatBlock"
 import { useReducedMotion } from "@/hooks/useReducedMotion"
 
 if (typeof window !== "undefined") {
@@ -25,8 +23,8 @@ export function Frame1Hero() {
       const heading = ref.current!.querySelector(".hero-heading")
       if (!heading) return
       gsap.to(heading, {
-        x: () => -((heading as HTMLElement).scrollWidth - window.innerWidth) / 4,
-        rotation: -3,
+        x: () => -((heading as HTMLElement).scrollWidth - window.innerWidth) / 6,
+        rotation: -2,
         ease: "none",
         scrollTrigger: {
           trigger: heading,
@@ -44,7 +42,7 @@ export function Frame1Hero() {
       ref={ref}
       id="frame-1"
       aria-labelledby="frame-1-headline"
-      className="min-h-screen relative flex flex-col px-4 overflow-hidden"
+      className="relative min-h-screen flex flex-col justify-center overflow-hidden px-4 py-16"
     >
       <ShaderBackground />
       <div
@@ -64,44 +62,35 @@ export function Frame1Hero() {
         Erosion
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col justify-center max-w-7xl mx-auto w-full pt-24 pb-16">
+      <div className="relative z-10 max-w-7xl mx-auto w-full">
         <ProductBadge />
         <h1
           id="frame-1-headline"
-          className="hero-heading text-4xl md:text-7xl lg:text-8xl font-black uppercase tracking-tighter mix-blend-difference text-neon mb-12 max-w-6xl"
+          className="hero-heading text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black uppercase tracking-tighter mix-blend-difference text-neon mb-8 max-w-6xl leading-[0.95]"
         >
           Agent-built codebases
           <br />
-          erode faster than agents
-          <br />
-          can patch them.
+          tend to erode over time.
         </h1>
-        <p className="text-xl md:text-2xl text-gray-300 mb-12 max-w-3xl border-l-4 border-neon pl-6 bg-black/40 py-6 backdrop-blur-sm">
-          Without semantic understanding, every PR drifts a little further from the
-          architecture you started with — and agents have no way to know.
+        <p className="text-base md:text-lg text-gray-300 mb-8 max-w-2xl border-l-4 border-neon pl-4 md:pl-6 bg-black/40 py-4 md:py-5 backdrop-blur-sm">
+          Without an architecturally sound foundation, they can quickly become
+          unmaintainable, and the speed agents bring to development starts to fade.
         </p>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 items-start">
-          <div className="lg:col-span-3 border-2 border-neon/30 bg-black/60 p-6 backdrop-blur-sm">
-            <DecayCurve />
-          </div>
-          <div className="lg:col-span-2">
-            <StatBlock />
-          </div>
-        </div>
-
-        <div className="mt-16 flex items-center gap-6">
-          <a
-            href="https://github.com/BitRaptors/Archie"
-            className="inline-flex items-center gap-3 px-6 py-4 md:px-8 md:py-5 bg-deep-space-blue text-neon font-bold text-base md:text-lg uppercase tracking-wider border-2 border-neon shadow-[8px_8px_0px_0px_#39ff14] hover:shadow-[4px_4px_0px_0px_#39ff14] hover:translate-x-1 hover:translate-y-1 hover:bg-neon hover:text-deep-space-blue transition-all"
-          >
-            <Github className="w-6 h-6" />
-            Analyze your first repo →
-          </a>
-          <span className="text-gray-400 font-mono text-xs uppercase tracking-[0.3em] hidden md:block">
-            Or scroll to see how ↓
+        <p className="text-xl md:text-2xl lg:text-3xl font-black uppercase tracking-tight text-white mb-10 max-w-3xl leading-tight">
+          You can&apos;t develop what you{" "}
+          <span className="text-neon underline decoration-neon decoration-4 underline-offset-[6px]">
+            can&apos;t understand.
           </span>
-        </div>
+        </p>
+
+        <a
+          href="https://github.com/BitRaptors/Archie"
+          className="inline-flex items-center gap-3 px-5 py-3 md:px-6 md:py-4 bg-deep-space-blue text-neon font-bold text-sm md:text-base uppercase tracking-wider border-2 border-neon shadow-[8px_8px_0px_0px_#39ff14] hover:shadow-[4px_4px_0px_0px_#39ff14] hover:translate-x-1 hover:translate-y-1 hover:bg-neon hover:text-deep-space-blue transition-all w-fit"
+        >
+          <Github className="w-5 h-5" />
+          Analyze your first repo →
+        </a>
       </div>
     </header>
   )

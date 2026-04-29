@@ -32,8 +32,8 @@ export function PillarCard({ variant, accent, icon, label, description }: Props)
         "group relative bg-deep-space-blue-100 border-2",
         border,
         shadow,
-        isHero ? "p-12" : "p-8",
-        "transition-all flex flex-col gap-4",
+        isHero ? "p-8 md:p-10" : "p-6 md:p-7",
+        "transition-all flex flex-col gap-3 md:gap-4",
       ].join(" ")}
     >
       <div className={`${accentText} transition-transform duration-200 group-hover:rotate-[5deg]`}>
