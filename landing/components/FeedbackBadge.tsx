@@ -7,8 +7,13 @@ export function FeedbackBadge() {
   const [hovered, setHovered] = useState(false)
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-center pointer-events-none overflow-visible">
-      {/* Raptor easter egg */}
+    <div
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      className="fixed bottom-6 right-6 z-50 flex flex-col items-center pointer-events-auto overflow-visible"
+    >
+      {/* Raptor easter egg — pointer-events-none so it doesn't capture clicks
+          and you can move the cursor onto it without leaving the wrapper. */}
       <motion.div
         initial={{ y: 60, opacity: 0 }}
         animate={{ y: hovered ? -40 : 60, opacity: hovered ? 1 : 0 }}
@@ -20,6 +25,7 @@ export function FeedbackBadge() {
         <img
           src="/raptor.svg"
           alt=""
+          loading="eager"
           className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(57,255,20,0.5)]"
         />
       </motion.div>
@@ -28,9 +34,7 @@ export function FeedbackBadge() {
         href="https://github.com/BitRaptors/Archie/issues"
         target="_blank"
         rel="noopener noreferrer"
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-        className="pointer-events-auto relative z-10 transform hover:-translate-y-1 hover:scale-105 transition-all"
+        className="relative z-10 transform hover:-translate-y-1 hover:scale-105 transition-all"
       >
         <div className="bg-neon text-black font-black uppercase tracking-widest px-4 py-2 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center gap-1 text-xs">
           <div className="flex items-center gap-2 border-b border-black/20 pb-1 w-full justify-center">
