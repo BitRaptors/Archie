@@ -1,11 +1,8 @@
-import { Activity, ArrowUpRight, CalendarCheck, Github, Timer } from "lucide-react"
+import { Activity, CalendarCheck, Minimize2, Timer } from "lucide-react"
 import { CopyableCommand } from "@/components/CopyableCommand"
 import { PillarCard } from "@/components/PillarCard"
-import { fetchStars } from "@/lib/github"
 
-export async function Frame5Outcomes() {
-  const stars = await fetchStars()
-
+export function Frame5Outcomes() {
   return (
     <section
       id="frame-5"
@@ -43,8 +40,8 @@ export async function Frame5Outcomes() {
           </p>
         </div>
 
-        {/* 3 money mechanisms */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8 md:mb-10">
+        {/* 4 money mechanisms */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5 mb-8 md:mb-10">
           <PillarCard
             variant="supporting"
             accent="sky-blue"
@@ -66,6 +63,13 @@ export async function Frame5Outcomes() {
             label="Cut validation overhead"
             description="Agents land grounded code. Reclaim weeks of dev time from validating AI output."
           />
+          <PillarCard
+            variant="supporting"
+            accent="blue-green"
+            icon={<Minimize2 className="w-7 h-7" strokeWidth={2} />}
+            label="Less pointless complexity"
+            description="Agents respect existing patterns instead of inventing new ones. Fewer bad decisions and bad code make it into production."
+          />
         </div>
 
         {/* CTA — single row layout, no rotation, tight */}
@@ -79,21 +83,22 @@ export async function Frame5Outcomes() {
                 Three minutes to install. Compounding returns from day one.
               </p>
             </div>
-            <div className="flex flex-col gap-3 items-stretch md:items-end w-full md:w-auto">
+            <div className="w-full md:w-auto">
               <CopyableCommand command="npx @bitraptors/archie ." />
-              <a
-                href="https://github.com/BitRaptors/Archie"
-                className="inline-flex items-center gap-2 text-sky-blue font-mono text-xs uppercase tracking-widest hover:text-neon transition-colors group justify-end"
-              >
-                <Github className="w-4 h-4" />
-                View on GitHub
-                <ArrowUpRight className="w-4 h-4 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                {stars !== null && stars >= 50 && (
-                  <span className="text-amber-flame ml-1">★ {stars}</span>
-                )}
-              </a>
             </div>
           </div>
+        </div>
+
+        {/* Compatibility note — sits outside the CTA so it has room to breathe */}
+        <div className="mt-5 flex justify-center">
+          <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-gray-400 px-3 py-1.5 border border-amber-flame/30 bg-amber-flame/5">
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-amber-flame animate-pulse"
+              aria-hidden="true"
+            />
+            Currently atop Claude Code ·{" "}
+            <span className="text-amber-flame">others coming</span>
+          </span>
         </div>
       </div>
     </section>

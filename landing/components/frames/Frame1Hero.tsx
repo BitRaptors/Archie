@@ -72,16 +72,21 @@ export function Frame1Hero() {
           <br />
           tend to erode over time.
         </h1>
-        <p className="text-base md:text-lg text-gray-300 mb-8 max-w-2xl border-l-4 border-neon pl-4 md:pl-6 bg-black/40 py-4 md:py-5 backdrop-blur-sm">
+        {/* Body — problem + Archie pivot, one flowing paragraph */}
+        <p className="text-base md:text-lg text-gray-300 mb-6 max-w-3xl leading-relaxed border-l-2 border-neon/60 pl-4 md:pl-5">
           Without an architecturally sound foundation, they can quickly become
-          unmaintainable, and the speed agents bring to development starts to fade.
+          unmaintainable, and the speed agents bring to development starts to fade.{" "}
+          <span className="text-white">
+            That&apos;s why we built{" "}
+            <span className="text-neon font-black">Archie</span>: live semantic
+            documentation for your codebase that also acts as an enforcement layer.
+          </span>
         </p>
 
-        <p className="text-xl md:text-2xl lg:text-3xl font-black uppercase tracking-tight text-white mb-10 max-w-3xl leading-tight">
-          You can&apos;t develop what you{" "}
-          <span className="text-neon underline decoration-neon decoration-4 underline-offset-[6px]">
-            can&apos;t understand.
-          </span>
+        {/* Principle — quieter than the hero, sentence-case, one neon accent */}
+        <p className="text-xl md:text-2xl font-black text-white mb-10 max-w-3xl leading-tight">
+          You can&apos;t build what you{" "}
+          <span className="text-neon">can&apos;t understand</span>.
         </p>
 
         <a
