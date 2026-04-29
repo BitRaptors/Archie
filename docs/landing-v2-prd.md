@@ -486,7 +486,7 @@ Empty states are features. Each empty state has:
 ## 7. Technical Requirements
 
 ### Stack (no changes from v1)
-- Next.js 15 (App Router, RSC where possible)
+- Next.js 15 (App Router, **RSC by default, `"use client"` opt-in per component**)
 - React 19
 - Tailwind v4 (`@theme` block in `globals.css`)
 - Framer Motion 11+ (animations)
@@ -494,11 +494,168 @@ Empty states are features. Each empty state has:
 - Lenis (smooth scroll)
 - Lucide React (icons)
 
-### Performance Budgets
+### Server vs. Client Component Split
+
+**RSC by default. Add `"use client"` only when the component needs:**
+- React state/effects (`useState`, `useEffect`, `useRef`)
+- Browser APIs (`window`, `matchMedia`, `clipboard`)
+- GSAP, Framer Motion, or any animation library
+
+**Server components (no `"use client"`):**
+- `ProductBadge` — static text + dot
+- `StatBlock` — static markup (parallax wrapper handles motion at parent level)
+- `SeverityLegend` — static table
+- Plain frame headlines and section labels
+- Footer
+
+**Client components (`"use client"`):**
+- `PillarCard` — hover transitions (could be CSS-only and stay RSC; revisit during build)
+- `PipelineDiagram` — scroll-triggered arrow draw-ins
+- `DecayCurve` — scroll-triggered SVG draw-in
+- `CopyableCommand` — clipboard API + state
+- `ArtifactCard` — modal trigger + hover state
+- `ShaderBackground` — WebGL + animation loop
+- Modal viewer (existing v1 component)
+- Top-level page wrapper for `Lenis` smooth scroll + `ScrollProgressBar`
+
+**Bundle savings target:** ~30-50KB JS from RSC-eligible components.
+
+### Shared Hooks
+
+- **`hooks/useReducedMotion.ts`** — single source for `prefers-reduced-motion` detection. Returns `boolean`, listens for media query changes via `matchMedia('(prefers-reduced-motion: reduce)')`. All animated components import this hook instead of duplicating the matchMedia boilerplate. DRY, testable in isolation.
+
+### Type Safety: AccentColor
+
+```ts
+// lib/design-tokens.ts
+export type AccentColor = 'neon' | 'sky-blue' | 'amber-flame' | 'princeton-orange' | 'blue-green'
+
+export const ACCENT_BORDER: Record<AccentColor, string> = {
+  'neon': 'border-neon',
+  'sky-blue': 'border-sky-blue',
+  'amber-flame': 'border-amber-flame',
+  'princeton-orange': 'border-princeton-orange',
+  'blue-green': 'border-blue-green',
+}
+
+export const ACCENT_TEXT: Record<AccentColor, string> = { /* ... */ }
+export const ACCENT_SHADOW: Record<AccentColor, string> = { /* ... */ }
+```
+
+Every component prop typed as `accent: AccentColor`. Compile errors on typos. No string-literal accent props anywhere.
+
+### Animation Constants
+
+```ts
+// constants/animation.ts
+export const FADE_UP = {
+  initial: { y: 100, opacity: 0 },
+  whileInView: { y: 0, opacity: 1 },
+  viewport: { once: false, margin: '-15%' },
+  transition: { duration: 1.5, ease: 'power4.out' },
+}
+
+export const CARD_HOVER = { transition: '0.2s ease' }
+export const SPRING = { type: 'spring', stiffness: 260, damping: 20 } as const
+export const SCROLL_SCRUB = { scrub: 1, start: 'top center', end: 'bottom top' }
+export const STAGGER_MS = 100
+```
+
+All components import from this single file. DESIGN.md and `constants/animation.ts` stay in sync; tests import the same constants.
+
+### Page Initialization Sequence
+
+```
+                ┌──────────────────────────────────────┐
+                │   app/layout.tsx (server)            │
+                │   ├─ Inter, Space_Mono fonts         │
+                │   └─ <SmoothScroll />  (client)      │
+                │       └─ Lenis context provider      │
+                └──────────────┬───────────────────────┘
+                               │
+                ┌──────────────▼───────────────────────┐
+                │   app/page.tsx (client wrapper)      │
+                │   ├─ <ScrollProgressBar />           │
+                │   ├─ <FeedbackBadge />  (raptor)     │
+                │   └─ <main>                          │
+                │       ├─ <Frame1Hero />   (client)   │
+                │       ├─ <Frame2Thesis /> (RSC)      │
+                │       ├─ <Frame3UnderTheHood />      │
+                │       ├─ <Frame4Receipts />          │
+                │       └─ <Frame5Outcomes />          │
+                └──────────────┬───────────────────────┘
+                               │
+                ┌──────────────▼───────────────────────┐
+                │   On hydrate (each client component) │
+                │   ├─ useReducedMotion() reads OS     │
+                │   ├─ GSAP ScrollTrigger registers    │
+                │   └─ Framer Motion observers attach  │
+                └──────────────────────────────────────┘
+```
+
+### Scroll-Trigger Lifecycle
+
+```
+   User scrolls
+       │
+       ▼
+   ┌─────────────────────────────────────────┐
+   │  Lenis intercepts scroll event          │
+   │  (smooth interpolation, RAF loop)       │
+   └──────────────┬──────────────────────────┘
+                  │
+                  ▼
+   ┌─────────────────────────────────────────┐
+   │  Element crosses ScrollTrigger viewport │
+   └──────────────┬──────────────────────────┘
+                  │
+                  ▼
+       ┌──────────┴──────────┐
+       │                     │
+   useReducedMotion()    useReducedMotion()
+   = true                = false
+       │                     │
+       ▼                     ▼
+  ┌─────────┐         ┌──────────────────┐
+  │ Render  │         │ Branch by trigger│
+  │ at final│         │ type:            │
+  │ state.  │         │ - fade-up: GSAP  │
+  │ No      │         │ - scrub: GSAP    │
+  │ animate │         │ - parallax: GSAP │
+  └─────────┘         │ - draw-in: FM    │
+                      │   stroke-dash    │
+                      └──────────────────┘
+```
+
+When `useReducedMotion()` returns `true`, ScrollTrigger registrations are skipped entirely on mount. No animations, just final rendered state. Implements PRD §6 reduced-motion policy.
+
+### GitHub Stars Fetch (Frame 5 CTA)
+
+```ts
+// landing/app/page.tsx (or a server util)
+async function fetchStars(): Promise<number | null> {
+  try {
+    const res = await fetch('https://api.github.com/repos/BitRaptors/Archie', {
+      next: { revalidate: 86400 } // 24h cache
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.stargazers_count ?? null
+  } catch {
+    return null
+  }
+}
+```
+
+If `fetchStars()` returns `null` (rate limit, network failure, schema change), Frame 5 omits the badge entirely. Build never breaks on a marketing-data fetch.
+
+### Performance Budgets (aspirational, not enforced)
 - LCP < 2.5s on a 4G connection
 - Total JS bundle < 250KB gzipped (excluding fonts)
 - No CLS issues from late-loading shader background
 - Hero image / shader: use CSS-only effects where possible to avoid blocking
+
+**Enforcement:** intentionally not gated in v2 (matches v1 pragmatism). Phase 5 polish PR includes a manual Lighthouse run against the deployed preview as a sanity check, but doesn't block merge if scores miss. Re-evaluate enforcement if v3 introduces perf-sensitive interactions.
 
 ### Accessibility (concrete commitments)
 
@@ -583,14 +740,30 @@ Update `layout.tsx`:
 - `example-files.ts` + `example-data.json` — refresh content to reflect v2.5+ output (`decision_chain`, `severity_class`, etc.)
 
 ### What's New
-- `components/PipelineDiagram.tsx` — Frame 3 left column (build phase visualization)
-- `components/RuleCard.tsx` — Frame 3 right column (enforcement structure)
-- `components/SeverityLegend.tsx` — Frame 3 severity gates
-- `components/PillarCard.tsx` — Frame 2 four pillars (also reusable in Frame 5)
-- `components/OutcomeCard.tsx` — Frame 5 outcomes (or unify with PillarCard)
-- `components/DecayCurve.tsx` — Frame 1 hero visual
-- `components/ArtifactCard.tsx` — Frame 4 receipt cards
-- `components/CopyableCommand.tsx` — Frame 5 CTA `npx` block
+
+**Frame components** — one file per frame. `app/page.tsx` becomes ~80 lines (5 imports + wrappers).
+- `components/frames/Frame1Hero.tsx` — Frame 1 (problem)
+- `components/frames/Frame2Thesis.tsx` — Frame 2 (thesis + 4 pillars)
+- `components/frames/Frame3UnderTheHood.tsx` — Frame 3 (mechanism)
+- `components/frames/Frame4Receipts.tsx` — Frame 4 (artifacts; deferred per phasing)
+- `components/frames/Frame5Outcomes.tsx` — Frame 5 (outcomes + CTA)
+
+**Shared components:**
+- `components/PillarCard.tsx` — **unified** for Frame 2 pillars AND Frame 5 outcomes. Props: `variant: 'hero' | 'supporting'`, `accent: AccentColor`, `icon: LucideIcon`, `label: string`, `description: string`. Single source of truth for the hero+3-supporting pattern.
+- `components/PipelineDiagram.tsx` — Frame 3 left column (build phase visualization, inline SVG)
+- `components/RuleCard.tsx` — Frame 3 right column (enforcement structure preview)
+- `components/SeverityLegend.tsx` — Frame 3 severity gates table
+- `components/DecayCurve.tsx` — Frame 1 hero visual (inline SVG, animated)
+- `components/ArtifactCard.tsx` — Frame 4 receipt cards (terminal-style, accent-color variant)
+- `components/CopyableCommand.tsx` — Frame 5 CTA `npx` block (idle / copied state per §6)
+- `components/ProductBadge.tsx` — Frame 1 small product label above hero
+- `components/StatBlock.tsx` — Frame 1 Qodo research stats (parallax preserved from v1)
+
+**Modules:**
+- `lib/design-tokens.ts` — exports `AccentColor` union type and accent → Tailwind class lookup
+- `constants/animation.ts` — centralized animation timing/easing (FADE_UP, CARD_HOVER, SPRING, SCROLL_SCRUB)
+- `hooks/useReducedMotion.ts` — shared `prefers-reduced-motion` hook (per §7)
+- `lib/github.ts` — `fetchStars()` with try-catch + 24h revalidate (per §7)
 
 ### Asset Requirements
 - New OG image (1200x630) reflecting Frame 2 thesis
@@ -621,10 +794,9 @@ Update `layout.tsx`:
 - Implement the hook (decay curve, stat block) and the under-the-hood frame (pipeline diagram + rule card)
 - These are the most visually custom — biggest design risk concentrated here
 
-### Phase 4 — Frame 4 (1 PR)
-- Refresh `example-files.ts` with v2.5+ content
-- Implement the three-artifact carousel
-- Wire the modal expansion (reuse v1 modal)
+### Phase 4 — Frame 4 (1 PR, **deferred until Gabor provides content**)
+- **Blocked by:** Gabor reviewing the layout in Phases 1-3 and providing real artifacts (per TODOS.md). v2 ships with Frame 4 as a placeholder showing "Coming soon — see Frame 5 for now" until content lands. Avoids shipping mocked content the visitor will perceive as fake.
+- When unblocked: Refresh `example-files.ts` with v2.5+ content, implement the three-artifact carousel, wire the modal expansion (reuse v1 modal).
 
 ### Phase 5 — Polish (1 PR)
 - Animation tuning (scroll-scrub feel, fade-up timing)
@@ -663,12 +835,12 @@ All open questions from the initial PRD draft were resolved during plan-design-r
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 9 issues, 0 critical gaps |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR (PLAN) | score: 5/10 → 9/10, 13 decisions |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
 **UNRESOLVED:** 0
-**VERDICT:** DESIGN CLEARED — eng review required before implementation.
+**VERDICT:** DESIGN + ENG CLEARED — ready to implement.
 
 ---
 
@@ -680,3 +852,6 @@ All open questions from the initial PRD draft were resolved during plan-design-r
 - Pricing / tiers — Archie is OSS
 - Customer testimonials — none yet
 - Blog / changelog integration — separate page if/when needed
+- **Automated tests** — explicitly skipped for v2 to match v1's lean baseline. Marketing landing pages iterate visually; test churn would exceed test value. State-bearing logic (`useReducedMotion`, `fetchStars`, `CopyableCommand`) is small enough to verify by manual smoke testing each phase. Revisit if v3 introduces interactive flows.
+- **E2E test suite (Playwright)** — same rationale as above. Phase 5 polish PR includes a manual Lighthouse + a11y audit pass instead.
+- **Visual regression / snapshot testing (Chromatic, etc.)** — designs will iterate; snapshots would constantly diff.
