@@ -15,8 +15,8 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Archie — Semantic understanding for your codebase",
-  description: "Live semantic documentation that enforces itself. Stop your agents from eroding your architecture.",
+  title: "Archie",
+  description: "Deeply analyze your codebase and integrate directly into Claude Code.",
   icons: {
     icon: "/archie-logo.svg",
   },
