@@ -97,7 +97,10 @@ _BLUEPRINT_SCHEMA_EXAMPLE = r"""
         "name": "REST API",
         "when_to_use": "Client-server communication",
         "how_it_works": "JSON over HTTP with resource-based URLs",
-        "examples": ["GET /api/users", "POST /api/orders"]
+        "examples": ["GET /api/users", "POST /api/orders"],
+        "applicable_when": "",
+        "do_not_apply_when": [],
+        "scope": []
       }
     ],
     "integrations": [
@@ -113,10 +116,11 @@ _BLUEPRINT_SCHEMA_EXAMPLE = r"""
       "new business logic": "src/services/",
       "new database model": "src/models/"
     },
-    "pattern_selection": {
-      "long-running task": "Background job via worker queue",
-      "real-time update": "WebSocket or SSE"
-    },
+    "pattern_selection": [
+      {"scenario": "long-running task", "pattern": "Background job via worker queue", "scope": []},
+      {"scenario": "real-time update", "pattern": "WebSocket or SSE", "scope": []},
+      {"scenario": "concurrent mutation of a single entity row", "pattern": "Per-key advisory lock inside transaction", "scope": ["<domain-A>", "<domain-B>"]}
+    ],
     "error_mapping": [
       {"error": "NotFoundError", "status_code": 404, "description": "Resource does not exist"}
     ]
@@ -192,6 +196,9 @@ _BLUEPRINT_SCHEMA_EXAMPLE = r"""
       "pattern_description": "Session-based auth with JWT tokens stored in httpOnly cookies",
       "key_files": ["src/lib/auth.ts", "src/middleware.ts"],
       "usage_example": "const session = await getServerSession(authOptions)",
+      "applicable_when": "src/app/layout.tsx wraps the entire tree in <SessionProvider> — useSession() is therefore safe to call from any descendant client component",
+      "do_not_apply_when": ["Caller is a server component or middleware — context is unavailable there; getServerSession() is the correct API", "Component renders in test isolation without SessionProvider — context is null and the hook throws"],
+      "scope": [],
       "tips": ["Always check session in middleware, not in individual routes"]
     }
   ],
@@ -295,12 +302,27 @@ _SECTION_GUIDANCE: dict[str, str] = {
         "    - \"when_to_use\": str — scenario description\n"
         "    - \"how_it_works\": str — technical description\n"
         "    - \"examples\": array of concrete usage strings (e.g. \"GET /api/users\")\n"
+        "    - \"applicable_when\": str — the verifiable invariant that makes this pattern correct.\n"
+        "        MUST cite a code artifact (schema annotation, type signature, struct tag, structural invariant).\n"
+        "        NOT prose like \"per-customer operations\" — those pattern-match too easily across domains.\n"
+        "        Empty string (\"\") if no schema/code-level invariant applies (e.g. for generic patterns like REST).\n"
+        "    - \"do_not_apply_when\": array of strings — concrete anti-indicators (each citable against code).\n"
+        "        Examples of contexts in the corpus where this shape would silently break.\n"
+        "        Empty array if the pattern is universally safe.\n"
+        "    - \"scope\": array of strings — component names from components.components[].name where this\n"
+        "        pattern legitimately applies. Empty array means \"applies repo-wide\".\n"
         "- \"integrations\": array of {\"service\": str, \"purpose\": str, \"integration_point\": str}\n"
         "- \"pattern_selection_guide\": array of {\"scenario\": str, \"pattern\": str, \"rationale\": str}\n"
         "\n"
-        "Example pattern:\n"
+        "Example pattern (generic — empty invariant fields):\n"
         "```json\n"
-        "{\"name\": \"REST API\", \"when_to_use\": \"Client-server communication\", \"how_it_works\": \"JSON over HTTP with resource-based URLs\", \"examples\": [\"GET /api/users\", \"POST /api/orders\"]}\n"
+        "{\"name\": \"REST API\", \"when_to_use\": \"Client-server communication\", \"how_it_works\": \"JSON over HTTP\", \"examples\": [\"GET /api/users\"], \"applicable_when\": \"\", \"do_not_apply_when\": [], \"scope\": []}\n"
+        "```\n"
+        "\n"
+        "Example pattern (invariant-bound — fields populated; placeholder paths shown to keep this\n"
+        "language-agnostic — substitute the actual files for the codebase you are analyzing):\n"
+        "```json\n"
+        "{\"name\": \"Per-key advisory lock\", \"when_to_use\": \"Serialize concurrent mutations of the same logical entity\", \"how_it_works\": \"Acquire a database advisory lock keyed on (namespace, entityID) inside a transaction; lock auto-releases on commit/rollback\", \"examples\": [\"<lib>/lock.<ext>\", \"<domain>/service/write.<ext>\"], \"applicable_when\": \"<schema>/<entity>.<ext>:<line> declares a UNIQUE index on the lock-key columns — (namespace, entityID) maps to at most one row\", \"do_not_apply_when\": [\"Schema index for the proposed key is NOT unique — multiple rows can share the key, so a single lock would serialize unrelated rows\"], \"scope\": [\"<domain-A>\", \"<domain-B>\"]}\n"
         "```"
     ),
     "technology": (
@@ -366,11 +388,59 @@ _SECTION_GUIDANCE: dict[str, str] = {
         "- \"pattern_description\": str — 1-3 sentences on how it was built\n"
         "- \"key_files\": array of actual file paths involved\n"
         "- \"usage_example\": str — code snippet or invocation pattern\n"
+        "- \"applicable_when\": str — the verifiable invariant that makes this pattern correct in THIS\n"
+        "    codebase. MUST cite a concrete code artifact at <file>:<line>. The shape of the citation\n"
+        "    varies by language and paradigm; the requirement is that it be falsifiable against the\n"
+        "    corpus, not free-form prose. Common shapes:\n"
+        "      • Schema annotation: a unique/foreign-key/NOT-NULL/index constraint the pattern relies on\n"
+        "      • Type signature: a function returning Result/Option/Either; an exhaustive enum or sealed type;\n"
+        "        a generic bound that constrains callers\n"
+        "      • Lifecycle / framework state: a hook/effect called under a required Provider; a handler\n"
+        "        registered before bus start; a composable inside a known scope\n"
+        "      • Ownership / concurrency: a borrow scope, a held-lock interval, a transaction-active context\n"
+        "      • Structural: a single registration point + an iterating consumer; a sealed hierarchy +\n"
+        "        an exhaustive match; a conventional placement enforced by build/lint config\n"
+        "    Do NOT use prose like \"per-customer\" or \"in the auth flow\" — those pattern-match across\n"
+        "    contexts where the invariant doesn't hold. If you cannot cite a code artifact, leave empty (\"\").\n"
+        "- \"do_not_apply_when\": array of strings — concrete anti-indicators (each citable against code).\n"
+        "    Cases visible in the corpus where this pattern's shape is used WITHOUT the invariant holding,\n"
+        "    or contexts where applying it would silently break. Empty array if universally safe.\n"
+        "- \"scope\": array of strings — component names from components.components[].name where this\n"
+        "    pattern is RELEVANT WHEN EDITING (producers, consumers, boundary participants — not just\n"
+        "    where the source file lives). Empty array means \"applies repo-wide\". The renderer translates\n"
+        "    non-empty scope into rule-file globs so out-of-scope edits never load the entry.\n"
+        "    Conservative default: leave empty unless there is verifiable evidence the pattern is\n"
+        "    component-bound (no regression vs. today).\n"
         "- \"tips\": array of gotcha strings for this capability\n"
         "\n"
-        "Example:\n"
+        "Two illustrative examples — each grounds applicable_when in a different invariant shape, to\n"
+        "show that the field is paradigm-agnostic. Pick whichever shape fits the codebase you are\n"
+        "analyzing; do not force a schema annotation if the codebase has none.\n"
+        "\n"
+        "Example A (lifecycle / framework state — typical for UI codebases):\n"
         "```json\n"
-        "{\"capability\": \"Authentication\", \"category\": \"auth\", \"libraries\": [\"next-auth 5.0\"], \"pattern_description\": \"Session-based auth with JWT tokens\", \"key_files\": [\"src/lib/auth.ts\"], \"usage_example\": \"const session = await getServerSession(authOptions)\", \"tips\": [\"Check session in middleware, not in routes\"]}\n"
+        "{\"capability\": \"Auth session via context hook\", \"category\": \"auth\",\n"
+        " \"libraries\": [\"<framework>@<version>\"],\n"
+        " \"pattern_description\": \"useSession() reads from a context populated by SessionProvider; provider hydrates from cookie on mount.\",\n"
+        " \"key_files\": [\"src/auth/provider.<ext>\", \"src/auth/use-session.<ext>\"],\n"
+        " \"usage_example\": \"const { user } = useSession()\",\n"
+        " \"applicable_when\": \"src/app/layout.<ext>:14 wraps the entire tree in <SessionProvider> — the hook is therefore safe to call from any descendant.\",\n"
+        " \"do_not_apply_when\": [\"Caller is a server component or middleware — context is unavailable; the server-side equivalent (e.g. getServerSession) is the correct API\", \"Test renders the component in isolation without SessionProvider — context is null and the hook throws\"],\n"
+        " \"scope\": [],\n"
+        " \"tips\": [\"Provider must be the outermost wrapper; nesting it under Suspense causes hydration mismatches.\"]}\n"
+        "```\n"
+        "\n"
+        "Example B (schema-bound — typical for DB-backed services):\n"
+        "```json\n"
+        "{\"capability\": \"Per-key serialization for write paths\", \"category\": \"persistence\",\n"
+        " \"libraries\": [\"<advisory-lock-lib>\"],\n"
+        " \"pattern_description\": \"Acquire a per-row advisory lock keyed on (namespace, entityID) inside a transaction before mutating the entity.\",\n"
+        " \"key_files\": [\"<lib>/lock.<ext>\", \"<domain>/service/write.<ext>\"],\n"
+        " \"usage_example\": \"locker.Acquire(ctx, key); /* mutate; commit releases */\",\n"
+        " \"applicable_when\": \"<schema>/<entity>.<ext>:<line> declares a UNIQUE index on the lock-key columns — (namespace, entityID) maps to at most one row.\",\n"
+        " \"do_not_apply_when\": [\"Schema index for the proposed key is NOT unique — multiple rows can legitimately share the key, so a single advisory lock would serialize unrelated rows\", \"Operation mutates one row only — built-in row-level locking (e.g. SELECT FOR UPDATE) suffices, no cross-row invariant to protect\"],\n"
+        " \"scope\": [\"<domain-A>\", \"<domain-B>\"],\n"
+        " \"tips\": [\"Lock must be inside an active transaction — auto-released on commit/rollback.\"]}\n"
         "```"
     ),
     "deployment": (
@@ -429,8 +499,17 @@ _SECTION_GUIDANCE: dict[str, str] = {
         "You MUST return a JSON object with these exact keys:\n"
         "- \"where_to_put_code\": dict mapping task descriptions to directory paths\n"
         "    e.g. {\"new API endpoint\": \"src/api/routes/\", \"new service\": \"src/services/\"}\n"
-        "- \"pattern_selection\": dict mapping scenarios to recommended patterns\n"
-        "    e.g. {\"long-running task\": \"Background job via worker queue\"}\n"
+        "- \"pattern_selection\": array of objects, each with ALL of:\n"
+        "    - \"scenario\": str — when this applies (e.g. \"long-running task\")\n"
+        "    - \"pattern\": str — recommended pattern (e.g. \"Background job via worker queue\")\n"
+        "    - \"scope\": array of component names from components.components[].name where this entry\n"
+        "        legitimately applies. Empty array means \"applies repo-wide\". Same semantics as the\n"
+        "        scope field on implementation_guidelines and communication.patterns: the renderer\n"
+        "        translates non-empty scope into rule-file globs, so out-of-scope edits never load\n"
+        "        the entry. Use this to keep domain-specific recommendations out of the menu shown to\n"
+        "        agents editing unrelated components — for example a concurrency primitive whose\n"
+        "        invariant only holds within certain domains.\n"
+        "    Example: [{\"scenario\": \"long-running task\", \"pattern\": \"Background job via worker queue\", \"scope\": []}, {\"scenario\": \"concurrent mutation of one entity row\", \"pattern\": \"Per-key advisory lock\", \"scope\": [\"<domain-A>\", \"<domain-B>\"]}]\n"
         "- \"error_mapping\": array of {\"error\": str, \"status_code\": int, \"description\": str}\n"
         "    e.g. {\"error\": \"NotFoundError\", \"status_code\": 404, \"description\": \"Resource does not exist\"}"
     ),

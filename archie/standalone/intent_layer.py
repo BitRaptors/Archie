@@ -10,6 +10,8 @@ Subcommands:
   suggest-batches — Group ready folders into efficient subagent batches
   prompt         — Generate intent layer prompt for folder(s)
   merge          — Create/patch CLAUDE.md files with generated content
+  inject-scoped  — Project blueprint scoped patterns/guidelines into per-folder
+                   CLAUDE.md (component root only) for path-based hard filtering
 
 Run:
   python3 intent_layer.py prepare /path/to/repo [--only-folders folder1,folder2,...]
@@ -18,6 +20,7 @@ Run:
   python3 intent_layer.py prompt /path/to/repo --folder src/lib
   python3 intent_layer.py prompt /path/to/repo --folders src/api/routes,src/api/middleware
   python3 intent_layer.py merge /path/to/repo
+  python3 intent_layer.py inject-scoped /path/to/repo
 
 Zero dependencies beyond Python 3.9+ stdlib.
 """
@@ -1061,6 +1064,8 @@ def cmd_prompt(root: Path, folders: list[str], child_summaries_dir: str | None =
 
 _AI_START = "<!-- archie:ai-start -->"
 _AI_END = "<!-- archie:ai-end -->"
+_SCOPED_START = "<!-- archie:scoped-start -->"
+_SCOPED_END = "<!-- archie:scoped-end -->"
 
 
 _MAX_CLAUDE_MD_LINES = 100  # budget per folder — density over completeness
@@ -1394,6 +1399,213 @@ def cmd_merge(root: Path):
 
 
 # ---------------------------------------------------------------------------
+# inject-scoped — project blueprint scoped patterns/guidelines into per-folder
+# CLAUDE.md so Claude Code's per-folder autoloading filters them at the loader
+# level (hard filter), not via agent self-discipline (soft filter). Items with
+# scope=[] (repo-wide) are NOT injected — they already live in global rules.md.
+# ---------------------------------------------------------------------------
+
+def _str_list(val) -> list[str]:
+    """Coerce a value to a list of non-empty strings."""
+    if isinstance(val, list):
+        return [s for s in val if isinstance(s, str) and s.strip()]
+    if isinstance(val, str) and val.strip():
+        return [val]
+    return []
+
+
+def _render_scoped_guideline(gl: dict) -> list[str]:
+    """Render one implementation_guideline as compact scoped markdown."""
+    cap = gl.get("capability", "")
+    if not cap:
+        return []
+    cat = gl.get("category", "")
+    heading = f"#### {cap}" + (f" [{cat}]" if cat else "")
+    out = [heading]
+    if gl.get("pattern_description"):
+        out.append(f"Pattern: {gl['pattern_description']}")
+    libs = gl.get("libraries") or []
+    if libs:
+        out.append(f"Libraries: {', '.join(f'`{l}`' for l in libs)}")
+    key_files = gl.get("key_files") or []
+    if key_files:
+        out.append(f"Key files: {', '.join(f'`{f}`' for f in key_files)}")
+    if gl.get("usage_example"):
+        out.append(f"Example: `{gl['usage_example']}`")
+    if gl.get("applicable_when"):
+        out.append(f"**Applicable when:** {gl['applicable_when']}")
+    do_not = _str_list(gl.get("do_not_apply_when"))
+    if do_not:
+        out.append("**Do NOT apply when:**")
+        for d in do_not:
+            out.append(f"  - {d}")
+    out.append("")
+    return out
+
+
+def _render_scoped_pattern(pat: dict) -> list[str]:
+    """Render one communication.patterns entry as compact scoped markdown."""
+    name = pat.get("name", "")
+    if not name:
+        return []
+    out = [f"#### {name}"]
+    if pat.get("when_to_use"):
+        out.append(f"- **When:** {pat['when_to_use']}")
+    if pat.get("how_it_works"):
+        out.append(f"- **How:** {pat['how_it_works']}")
+    if pat.get("applicable_when"):
+        out.append(f"- **Applicable when:** {pat['applicable_when']}")
+    do_not = _str_list(pat.get("do_not_apply_when"))
+    if do_not:
+        out.append("- **Do NOT apply when:**")
+        for d in do_not:
+            out.append(f"  - {d}")
+    out.append("")
+    return out
+
+
+def _render_scoped_section(component_name: str, blueprint: dict) -> str:
+    """Render the marker-bracketed scoped section for a component.
+
+    Returns the empty string when no implementation_guidelines or
+    communication.patterns are scoped to this component — caller should then
+    leave the file alone (no markers, no empty section).
+    """
+    igs = blueprint.get("implementation_guidelines") or []
+    patterns = (blueprint.get("communication") or {}).get("patterns") or []
+
+    in_scope_igs = [
+        g for g in igs
+        if isinstance(g, dict) and component_name in _str_list(g.get("scope"))
+    ]
+    in_scope_patterns = [
+        p for p in patterns
+        if isinstance(p, dict) and component_name in _str_list(p.get("scope"))
+    ]
+
+    if not in_scope_igs and not in_scope_patterns:
+        return ""
+
+    lines = [_SCOPED_START, ""]
+    lines.append("## Scoped Architecture Rules")
+    lines.append("")
+    lines.append(f"*From blueprint — these rules are scoped to the `{component_name}` component.*")
+    lines.append("")
+
+    if in_scope_igs:
+        lines.append("### Implementation Guidelines")
+        lines.append("")
+        for gl in in_scope_igs:
+            lines.extend(_render_scoped_guideline(gl))
+
+    if in_scope_patterns:
+        lines.append("### Communication Patterns")
+        lines.append("")
+        for pat in in_scope_patterns:
+            lines.extend(_render_scoped_pattern(pat))
+
+    lines.append(_SCOPED_END)
+    return "\n".join(lines)
+
+
+def _patch_scoped_section(content: str, scoped_section: str) -> str:
+    """Insert/replace the scoped section in a CLAUDE.md body.
+
+    If markers exist, replace between them. Otherwise append after any AI
+    section, or to the end. If scoped_section is empty, REMOVE any existing
+    scoped block (so that re-running after scope shrinks cleans up stale
+    blocks).
+    """
+    has_markers = _SCOPED_START in content and _SCOPED_END in content
+    if not scoped_section:
+        if not has_markers:
+            return content
+        # Strip the existing block (and any trailing whitespace it leaves).
+        pattern = re.compile(
+            r"\n*" + re.escape(_SCOPED_START) + r".*?" + re.escape(_SCOPED_END) + r"\n*",
+            re.DOTALL,
+        )
+        return pattern.sub("\n", content).rstrip() + "\n"
+
+    if has_markers:
+        pattern = re.compile(
+            re.escape(_SCOPED_START) + r".*?" + re.escape(_SCOPED_END),
+            re.DOTALL,
+        )
+        return pattern.sub(scoped_section, content)
+
+    # Append: prefer to land after the AI section if present, else at end.
+    if _AI_END in content:
+        return content.replace(_AI_END, _AI_END + "\n\n" + scoped_section, 1)
+    return content.rstrip() + "\n\n" + scoped_section + "\n"
+
+
+def cmd_inject_scoped(root: Path):
+    """Project blueprint scoped patterns into per-folder CLAUDE.md.
+
+    For each component in the blueprint, locate its root folder
+    (component.location) and inject any implementation_guidelines or
+    communication.patterns whose scope contains the component's name into
+    that folder's CLAUDE.md, between scoped-block markers.
+
+    Idempotent: re-running replaces the marker-bracketed block in place.
+    No-op for components whose scope set is empty (nothing to project).
+    Skips components whose CLAUDE.md doesn't exist (no folder to attach to).
+    """
+    blueprint = _load_json(root / ".archie" / "blueprint.json")
+    if not blueprint:
+        print("Error: .archie/blueprint.json not found or empty.", file=sys.stderr)
+        sys.exit(1)
+
+    components = _get_components(blueprint)
+    if not components:
+        print("No components in blueprint — nothing to project.", file=sys.stderr)
+        return
+
+    injected = 0
+    cleared = 0
+    skipped_missing = 0
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+        name = comp.get("name") or ""
+        location = (comp.get("location") or comp.get("path") or "").strip().rstrip("/")
+        if not name or not location:
+            continue
+
+        folder_abs = root / location
+        if not folder_abs.is_dir():
+            skipped_missing += 1
+            continue
+
+        claude_md_path = folder_abs / "CLAUDE.md"
+        scoped_section = _render_scoped_section(name, blueprint)
+
+        if claude_md_path.exists():
+            old = claude_md_path.read_text()
+            new = _patch_scoped_section(old, scoped_section)
+            if new != old:
+                claude_md_path.write_text(new)
+                if scoped_section:
+                    injected += 1
+                else:
+                    cleared += 1
+        elif scoped_section:
+            # Folder has no CLAUDE.md (intent_layer didn't cover it) but the
+            # blueprint says scoped rules apply here. Create a minimal file
+            # so the rules land somewhere — without it, the hard filter has
+            # no delivery.
+            dir_name = location.rsplit("/", 1)[-1] if "/" in location else location
+            claude_md_path.write_text(f"# {dir_name}\n\n{scoped_section}\n")
+            injected += 1
+
+    summary = f"Scoped injection: {injected} updated, {cleared} cleared (no longer scoped)"
+    if skipped_missing:
+        summary += f", {skipped_missing} skipped (component location does not exist)"
+    print(summary, file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # inspect subcommand
 # ---------------------------------------------------------------------------
 
@@ -1635,6 +1847,8 @@ if __name__ == "__main__":
         cmd_scan_config(root, action)
     elif subcmd == "merge":
         cmd_merge(root)
+    elif subcmd == "inject-scoped":
+        cmd_inject_scoped(root)
     elif subcmd == "inspect":
         if len(sys.argv) < 4:
             print("Usage: inspect /path/to/repo <filename> [--query .key.path] [--list]", file=sys.stderr)

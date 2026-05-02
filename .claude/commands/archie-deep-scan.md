@@ -609,12 +609,62 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 8. Pattern Selection Guide
 > For common scenarios in this codebase, which pattern should be used and why?
 >
+> ### 9. Pattern preconditions (REQUIRED — do not skip)
+>
+> A pattern that "looks right" in one part of a codebase may silently break in another part that has the same call shape but a different invariant (e.g. an advisory lock keyed on `(namespace, X)` where the schema's index on `(namespace, X)` is unique in one entity but non-unique in another — the same call serializes unrelated rows in the second case). The defense is to make the precondition explicit and code-grounded.
+>
+> For each pattern that depends on a structural invariant (schema constraint, type-system guarantee, lifecycle state, ownership rule, concurrency primitive, structural contract), populate:
+>
+> - `applicable_when`: the **verifiable invariant** that makes this pattern correct in THIS codebase. MUST cite a concrete code artifact at `<file>:<line>` — pick whichever invariant shape fits the language and paradigm. Common shapes:
+>   - **Schema annotation:** a unique/foreign-key/NOT-NULL/index constraint that the pattern relies on
+>   - **Type signature:** a function returning Result/Option/Either; an exhaustive enum or sealed type; a generic bound that constrains callers
+>   - **Lifecycle / framework state:** a hook called under a required Provider; a handler registered before bus start; a composable inside a known scope
+>   - **Ownership / concurrency:** borrow scope, lock-held interval, transaction-active context
+>   - **Structural:** single registration point + iterating consumer; sealed hierarchy + exhaustive match; conventional placement enforced by build/lint config
+>   The requirement is that the citation is **falsifiable against the corpus**, not the invariant *shape*. Do NOT use prose like "per-customer", "per-user", "in the auth flow" — those pattern-match across contexts where the invariant doesn't hold. If you cannot cite a code artifact, leave empty (`""`) — better empty than vague.
+>
+> - `do_not_apply_when`: array of concrete anti-indicators. Each MUST be falsifiable against schema/code. Include any places in the corpus where the same shape is used WITHOUT the invariant holding — those are the real-world `do_not_apply_when` anchors.
+>
+> - `scope`: array of component names from `components.components[].name` where this pattern is **relevant when editing** — including producers, consumers, and boundary participants, NOT just where the source file lives. Example: a registry pattern defined in component `core` but consumed by `feature-A` and `feature-B` has scope `["core", "feature-A", "feature-B"]`. Empty array means "applies repo-wide". **Conservative default:** if uncertain, leave `[]` — the rule loads everywhere (no regression vs. today). Only narrow scope when there is verifiable evidence the pattern is component-bound.
+>
+> For **generic** patterns (REST, WebSocket, Event Bus, generic logging) where no codebase-specific invariant applies, leave `applicable_when` as `""`, `do_not_apply_when` as `[]`, `scope` as `[]`. Do NOT invent preconditions.
+>
+> **Two illustrative examples** — each grounds `applicable_when` in a different invariant shape, to show the field is paradigm-agnostic. Pick whichever shape fits the codebase you are analyzing; do not force a schema annotation if there is no schema. Placeholder paths (`<schema>/<entity>.<ext>`, `<domain-A>`) are shown to keep these examples language-neutral — substitute concrete files and components for the actual codebase.
+>
+> *Example 1 (lifecycle / framework state — typical for UI codebases):*
+> ```json
+> {
+>   "name": "Context-backed session hook",
+>   "when_to_use": "Read the current user inside any component below the root provider",
+>   "how_it_works": "useSession() reads from a context populated by SessionProvider; provider hydrates from cookie on mount",
+>   "examples": ["src/auth/use-session.<ext>", "src/auth/provider.<ext>"],
+>   "applicable_when": "src/app/layout.<ext>:14 wraps the entire tree in <SessionProvider> — the hook is therefore safe to call from any descendant client component",
+>   "do_not_apply_when": ["Caller is a server component or middleware — context is unavailable; the server-side equivalent (e.g. getServerSession) is the correct API", "Test renders the component in isolation without SessionProvider — context is null and the hook throws"],
+>   "scope": []
+> }
+> ```
+>
+> *Example 2 (schema-bound — typical for DB-backed services):*
+> ```json
+> {
+>   "name": "Per-key advisory lock",
+>   "when_to_use": "Serialize concurrent mutations of the same logical entity",
+>   "how_it_works": "Acquire a database advisory lock keyed on (namespace, entityID) inside a transaction; lock auto-releases on commit/rollback",
+>   "examples": ["<lib>/lock.<ext>", "<domain>/service/write.<ext>"],
+>   "applicable_when": "<schema>/<entity>.<ext>:<line> declares a UNIQUE index on the lock-key columns — the (namespace, entityID) tuple maps to at most one row in the locked entity's table",
+>   "do_not_apply_when": ["Schema index for the proposed key is NOT unique — multiple rows can legitimately share the key, so a single advisory lock would serialize unrelated rows", "Operation mutates one row only — built-in row-level locking (e.g. SELECT FOR UPDATE) suffices, no cross-row invariant to protect"],
+>   "scope": ["<domain-A>", "<domain-B>"]
+> }
+> ```
+>
+> Both shapes are valid. The requirement isn't a specific invariant *type* — it's that the citation lets a reader verify the precondition by looking at the cited code.
+>
 > Return JSON:
 > ```json
 > {
 >   "communication": {
 >     "patterns": [
->       {"name": "", "when_to_use": "", "how_it_works": "", "examples": []}
+>       {"name": "", "when_to_use": "", "how_it_works": "", "examples": [], "applicable_when": "", "do_not_apply_when": [], "scope": []}
 >     ],
 >     "integrations": [
 >       {"service": "", "purpose": "", "integration_point": ""}
@@ -624,7 +674,9 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >     ]
 >   },
 >   "quick_reference": {
->     "pattern_selection": {"scenario": "pattern"},
+>     "pattern_selection": [
+>       {"scenario": "", "pattern": "", "scope": []}
+>     ],
 >     "error_mapping": [{"error": "", "status_code": 0, "description": ""}]
 >   }
 > }
@@ -1077,7 +1129,20 @@ Tell the Reasoning agent:
 > - **pattern_description**: Architecture pattern, main service/class, data flow
 > - **key_files**: Actual file paths (MUST exist in file_tree)
 > - **usage_example**: Realistic code snippet. A single line is fine when the pattern genuinely is one-line (`logger.track(Event.X)`). Multi-line (typically 3-10 lines) when clarity demands it — use real newlines, not `;` chains. Show the full pattern a developer would actually write.
+> - **applicable_when**: The verifiable invariant that makes this pattern correct in THIS codebase. MUST cite a concrete code artifact at `<file>:<line>` — pick whichever invariant shape fits the language and paradigm: schema annotation (unique/foreign-key/NOT-NULL/index), type signature (Result/Option/exhaustive enum/generic bound), lifecycle state (hook under a Provider, handler registered before bus start), ownership/concurrency (borrow scope, lock-held interval, transaction-active context), or structural contract (single registration point + iterating consumer, sealed hierarchy + exhaustive match). The requirement is that the citation is **falsifiable against the corpus**, not its invariant shape. NOT prose. "Per-customer operations" / "in the auth flow" / "during request handling" are NOT preconditions — they pattern-match across domains where the invariant doesn't hold. If the capability has no codebase-specific invariant (e.g. generic logging, generic HTTP middleware), leave empty (`""`).
+> - **do_not_apply_when**: Array of concrete anti-indicators (each citable against code). You have the cross-cutting view — when this capability's shape (lock key, registry key, validator key, hook usage, lifetime contract) WOULD be wrong elsewhere in the corpus, name those places. Empty array if the pattern is universally safe.
+> - **scope**: Array of component names from `components.components[].name` where this pattern is RELEVANT WHEN EDITING — producers, consumers, boundary participants. In whole/single mode, use actual component names. In per-package mode, leave empty `[]` (the package boundary is the scope). Empty array means "applies repo-wide". Conservative default: leave empty unless there is verifiable evidence the pattern is component-bound (no regression vs. today).
 > - **tips**: Gotchas specific to this implementation
+>
+> ### 10. Communication patterns enrichment (cross-cutting)
+>
+> Wave 1's Patterns agent produced `communication.patterns` with `applicable_when`, `do_not_apply_when`, and `scope`. Re-emit that array with `do_not_apply_when` enriched from your cross-corpus view: when a pattern's shape is used somewhere in the corpus WITHOUT the invariant holding, name those places. For each pattern, also verify `scope` is **relevance-based, not location-based** — list every component that interacts with the pattern at edit-time (producers, consumers, transactional-boundary participants), not just where the source file lives. If you have nothing to add over Wave 1, copy the array through verbatim.
+>
+> ### 11. Compound learning — read existing per-folder CLAUDE.md anti-patterns
+>
+> Maintainers sometimes hand-edit per-folder `CLAUDE.md` files with anti-pattern guardrails — e.g. *"No <pattern> here — <local invariant fact contradicts it>."* These are gold for `do_not_apply_when` because the invariant has already been condensed into prose by someone who knows the codebase. Use the Read or Glob tool to scan all `<PROJECT_ROOT>/**/CLAUDE.md` files (excluding `<PROJECT_ROOT>/CLAUDE.md` itself and anything under `.claude/`, `.archie/`, `node_modules/`, `.venv/`). For any `## Anti-Patterns` or `## Anti-pattern` section, look for `No <pattern>` / `Do NOT <pattern>` / `Avoid <pattern>` style bullets, fuzzy-match the bullet's pattern name to your `implementation_guidelines[].capability` or `communication.patterns[].name`, and append the bullet's reasoning (citing the source `<folder>/CLAUDE.md`) to the matched entry's `do_not_apply_when`. Do NOT invent matches — if no clean match exists, skip it.
+>
+> **Important — avoid self-amplification.** Per-folder `CLAUDE.md` files may contain `<!-- archie:scoped-start -->` ... `<!-- archie:scoped-end -->` blocks that were *injected by Archie itself in the previous run* (Step 9.5 — projection of blueprint-level scoped rules into the component's CLAUDE.md). Anything between those markers came FROM the blueprint, not from a maintainer. **Skip those blocks entirely** when extracting maintainer guardrails — incorporating them would feed the blueprint's own output back into itself across runs, monotonically growing `do_not_apply_when`. Only the prose OUTSIDE the scoped markers (and outside the `<!-- archie:ai-* -->` AI-generated block, which is also Archie's own output) counts as maintainer-curated knowledge.
 >
 > Return JSON:
 > ```json
@@ -1125,8 +1190,13 @@ Tell the Reasoning agent:
 >   ],
 >   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
 >   "implementation_guidelines": [
->     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
->   ]
+>     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "applicable_when": "", "do_not_apply_when": [], "scope": [], "tips": []}
+>   ],
+>   "communication": {
+>     "patterns": [
+>       {"name": "", "when_to_use": "", "how_it_works": "", "examples": [], "applicable_when": "", "do_not_apply_when": [], "scope": []}
+>     ]
+>   }
 > }
 > ```
 
@@ -1438,7 +1508,15 @@ Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD
 
    **✓ Compact Checkpoint B** — between Intent Layer waves. After every wave's `save-enrichment` commands have all returned (so no subagent is in flight and all completed folders are persisted in `enrich_state.json`), this is a safe compaction boundary. Suggested frequency: every 3 waves when the project has >20 folders. On small projects (<20 folders) ignore this checkpoint. Procedure: `/compact` → `/archie-deep-scan --continue` → Resume Prelude sees `last_completed=6` and re-enters Step 7, which calls `next-ready` and resumes from the next wave using disk state alone.
 
-4. **Mark step complete at the end.** After Phase 3 (`merge`) and Phase 4 (cleanup) of the standalone command, record completion:
+4. **Project blueprint scoped patterns into per-folder CLAUDE.md.** After Phase 3 (`merge`) writes the AI-generated per-folder CLAUDE.md files, project the blueprint's scoped `implementation_guidelines` and `communication.patterns` into the matching component-root CLAUDE.md files. This is the hard-filter delivery: scoped rules land in the component's CLAUDE.md (between `<!-- archie:scoped-start --> ... <!-- archie:scoped-end -->` markers) and Claude Code's per-folder autoloading does the path-based filtering — they never load on out-of-scope edits.
+
+   ```bash
+   python3 .archie/intent_layer.py inject-scoped "$PROJECT_ROOT"
+   ```
+
+   Idempotent: re-running replaces the marker block in place. If a pattern's scope shrinks between runs, the stale block is cleared from out-of-scope CLAUDE.md files. Patterns with `scope: []` (repo-wide) are NOT projected — they already live in global rules and would only duplicate.
+
+5. **Mark step complete at the end.** After the inject-scoped step, record completion:
 
    ```bash
    python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7

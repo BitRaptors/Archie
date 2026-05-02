@@ -293,20 +293,44 @@ def _build_architecture_rule(bp: dict):
     }
 
 
+def _render_communication_pattern_block(pat: dict) -> list[str]:
+    """Render one communication.patterns entry as markdown lines."""
+    lines: list[str] = [f"### {pat.get('name', '')}"]
+    scope = _str_list(pat.get("scope"))
+    if scope:
+        lines.append(f"- **Scope:** {', '.join(f'`{s}`' for s in scope)}")
+    lines.append(f"- **When:** {pat.get('when_to_use', '')}")
+    lines.append(f"- **How:** {pat.get('how_it_works', '')}")
+    if pat.get("applicable_when"):
+        lines.append(f"- **Applicable when:** {pat['applicable_when']}")
+    do_not = _str_list(pat.get("do_not_apply_when"))
+    if do_not:
+        lines.append("- **Do NOT apply when:**")
+        for item in do_not:
+            lines.append(f"  - {item}")
+    lines.append("")
+    return lines
+
+
 def _build_patterns_rule(bp: dict):
-    """Communication patterns, pattern selection, decisions."""
+    """Communication patterns, pattern selection, decisions.
+
+    Single repo-wide ``patterns.md`` rule file. Each pattern entry renders
+    its ``scope``, ``applicable_when``, and ``do_not_apply_when`` inline so
+    a coding agent reading the rule sees the boundary conditions explicitly.
+    The file is always loaded; agents are expected to read the inline
+    Scope/Applicable-when/Do-NOT-apply-when lines and self-filter.
+    """
     lines = []
 
     # Communication Patterns
-    patterns = _get(bp, "communication", "patterns", default=[]) or []
-    if patterns:
+    raw_patterns = _get(bp, "communication", "patterns", default=[]) or []
+    valid_patterns = [p for p in raw_patterns if isinstance(p, dict)]
+    if valid_patterns:
         lines.append("## Communication Patterns")
         lines.append("")
-        for pat in patterns:
-            lines.append(f"### {pat.get('name', '')}")
-            lines.append(f"- **When:** {pat.get('when_to_use', '')}")
-            lines.append(f"- **How:** {pat.get('how_it_works', '')}")
-            lines.append("")
+        for pat in valid_patterns:
+            lines.extend(_render_communication_pattern_block(pat))
 
     # Integrations — external services and their architectural entry points.
     # Critical for agents editing code that touches ingestion, billing, search,
@@ -340,13 +364,33 @@ def _build_patterns_rule(bp: dict):
             lines.append(f"| {psg.get('scenario', '')} | {psg.get('pattern', '')} | {psg.get('rationale', '')} |")
         lines.append("")
 
-    # Quick Reference: Pattern Selection
-    ps = _get(bp, "quick_reference", "pattern_selection", default={}) or {}
-    if ps:
+    # Quick Reference: Pattern Selection. Two shapes supported:
+    #   legacy: dict {scenario: pattern}
+    #   new:    list [{scenario, pattern, scope}]
+    # Each entry renders ``scope`` inline when present so an agent reading
+    # the lookup table sees which components the entry applies to.
+    ps = _get(bp, "quick_reference", "pattern_selection", default=None)
+    quickref_lines: list[str] = []
+    if isinstance(ps, dict) and ps:
+        for scenario, pattern in ps.items():
+            quickref_lines.append(f"- **{scenario}** -> {pattern}")
+    elif isinstance(ps, list) and ps:
+        for entry in ps:
+            if not isinstance(entry, dict):
+                continue
+            scenario = entry.get("scenario", "")
+            pattern = entry.get("pattern", "")
+            if not scenario or not pattern:
+                continue
+            entry_scope = _str_list(entry.get("scope"))
+            line = f"- **{scenario}** -> {pattern}"
+            if entry_scope:
+                line += f"  *(scope: {', '.join(entry_scope)})*"
+            quickref_lines.append(line)
+    if quickref_lines:
         lines.append("## Quick Pattern Lookup")
         lines.append("")
-        for scenario, pattern in ps.items():
-            lines.append(f"- **{scenario}** -> {pattern}")
+        lines.extend(quickref_lines)
         lines.append("")
 
     # Decision Chain — the rooted forces tree, rendered with
@@ -488,41 +532,64 @@ def _build_frontend_rule(bp: dict):
     }
 
 
+def _render_guideline_block(gl: dict) -> list[str]:
+    """Render one implementation_guidelines entry as markdown lines."""
+    lines: list[str] = []
+    cat_tag = f" [{gl['category']}]" if gl.get("category") else ""
+    lines.append(f"### {gl['capability']}{cat_tag}")
+    scope = _str_list(gl.get("scope"))
+    if scope:
+        lines.append(f"**Scope:** {', '.join(f'`{s}`' for s in scope)}")
+    libs = gl.get("libraries") or []
+    if libs:
+        lines.append(f"Libraries: {', '.join(f'`{lib}`' for lib in libs)}")
+    if gl.get("pattern_description"):
+        lines.append(f"Pattern: {gl['pattern_description']}")
+    key_files = gl.get("key_files") or []
+    if key_files:
+        lines.append(f"Key files: {', '.join(f'`{f}`' for f in key_files)}")
+    if gl.get("usage_example"):
+        lines.append(f"Example: `{gl['usage_example']}`")
+    if gl.get("applicable_when"):
+        lines.append(f"**Applicable when:** {gl['applicable_when']}")
+    do_not = _str_list(gl.get("do_not_apply_when"))
+    if do_not:
+        lines.append("**Do NOT apply when:**")
+        for item in do_not:
+            lines.append(f"  - {item}")
+    tips = gl.get("tips") or []
+    if tips:
+        for tip in tips:
+            lines.append(f"- {tip}")
+    lines.append("")
+    return lines
+
+
 def _build_guidelines_rule(bp: dict):
-    """Implementation guidelines."""
-    lines = []
+    """Implementation guidelines.
 
+    Single repo-wide ``guidelines.md`` rule file. Each guideline renders its
+    ``scope``, ``applicable_when``, and ``do_not_apply_when`` inline so a
+    coding agent reading the rule sees the boundary conditions explicitly.
+    """
     guidelines = bp.get("implementation_guidelines") or []
-    if guidelines:
-        lines.append("## Implementation Guidelines")
-        lines.append("")
-        for gl in guidelines:
-            if not gl.get("capability"):
-                continue
-            cat_tag = f" [{gl['category']}]" if gl.get("category") else ""
-            lines.append(f"### {gl['capability']}{cat_tag}")
-            libs = gl.get("libraries") or []
-            if libs:
-                lines.append(f"Libraries: {', '.join(f'`{lib}`' for lib in libs)}")
-            if gl.get("pattern_description"):
-                lines.append(f"Pattern: {gl['pattern_description']}")
-            key_files = gl.get("key_files") or []
-            if key_files:
-                lines.append(f"Key files: {', '.join(f'`{f}`' for f in key_files)}")
-            if gl.get("usage_example"):
-                lines.append(f"Example: `{gl['usage_example']}`")
-            tips = gl.get("tips") or []
-            if tips:
-                for tip in tips:
-                    lines.append(f"- {tip}")
-            lines.append("")
+    if not guidelines:
+        return None
 
-    if not lines:
+    body_lines: list[str] = ["## Implementation Guidelines", ""]
+    rendered = False
+    for gl in guidelines:
+        if not gl.get("capability"):
+            continue
+        body_lines.extend(_render_guideline_block(gl))
+        rendered = True
+
+    if not rendered:
         return None
 
     return {
         "topic": "guidelines",
-        "body": "\n".join(lines).rstrip(),
+        "body": "\n".join(body_lines).rstrip(),
         "description": "Implementation guidelines for existing capabilities",
         "always_apply": True,
         "globs": [],
