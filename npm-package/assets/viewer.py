@@ -977,9 +977,23 @@ function renderBlueprint() {
         c += '<div class="text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Patterns</div>';
         pats.forEach(p => {
           c += '<div class="mb-3 p-3 rounded-lg bg-papaya-100/30">';
+          c += '<div class="flex items-center gap-2 flex-wrap">';
           c += '<div class="font-bold text-sm text-ink">' + esc(p.name || '') + '</div>';
+          // Scope pills — empty array (or absent) means repo-wide.
+          if (Array.isArray(p.scope) && p.scope.length) {
+            p.scope.forEach(s => {
+              c += '<span class="text-[10px] font-mono text-teal bg-teal/10 px-2 py-0.5 rounded">' + esc(s) + '</span>';
+            });
+          }
+          c += '</div>';
           if (p.when_to_use) c += '<div class="text-xs text-ink/60 mt-1"><span class="font-semibold">When:</span> ' + esc(p.when_to_use) + '</div>';
           if (p.how_it_works) c += '<div class="text-xs text-ink/60 mt-1"><span class="font-semibold">How:</span> ' + esc(p.how_it_works) + '</div>';
+          if (p.applicable_when) c += '<div class="text-xs text-ink/70 mt-1"><span class="font-semibold text-teal">Applicable when:</span> ' + esc(p.applicable_when) + '</div>';
+          if (Array.isArray(p.do_not_apply_when) && p.do_not_apply_when.length) {
+            c += '<div class="text-xs text-ink/70 mt-1"><span class="font-semibold text-tangerine">Do NOT apply when:</span><ul class="list-disc list-inside ml-2 mt-0.5">';
+            p.do_not_apply_when.forEach(d => { c += '<li>' + esc(d) + '</li>'; });
+            c += '</ul></div>';
+          }
           c += '</div>';
         });
         c += '</div>';
@@ -1082,14 +1096,46 @@ function renderBlueprint() {
       html += bpCard('pitfalls', 'Pitfalls', pits.length, c, 'Classes of problem rooted in architectural decisions — the trap itself, not each instance.');
     }
 
-    // Implementation Guidelines
+    // Implementation Guidelines — card layout (was a 4-column table that hid
+    // applicable_when / do_not_apply_when / scope / key_files / usage_example /
+    // tips behind a tooltip-less ellipsis). The new fields carry the precondition
+    // contract, so they need real screen real estate.
     if (sections.find(s => s.id === 'guidelines')) {
-      let c = '<table class="w-full text-xs"><thead><tr>' + th('Capability') + th('Category') + th('Libraries') + th('Pattern') + '</tr></thead><tbody>';
+      let c = '';
       impl.forEach(g => {
+        c += '<div class="mb-3 p-3 rounded-lg bg-papaya-100/30">';
+        c += '<div class="flex items-center gap-2 flex-wrap mb-1">';
+        c += '<div class="font-bold text-sm text-ink">' + esc(g.capability || '') + '</div>';
+        if (g.category) c += '<span class="text-[10px] font-mono text-ink/60 bg-ink/5 px-2 py-0.5 rounded">' + esc(g.category) + '</span>';
+        // Scope pills for hard-filter-aware reading.
+        if (Array.isArray(g.scope) && g.scope.length) {
+          g.scope.forEach(s => {
+            c += '<span class="text-[10px] font-mono text-teal bg-teal/10 px-2 py-0.5 rounded">' + esc(s) + '</span>';
+          });
+        }
+        c += '</div>';
         const libs = (g.libraries || []).join(', ');
-        c += '<tr>' + td(g.capability || '--') + td(g.category || '--') + td(libs || '--') + td(g.pattern_description || '--') + '</tr>';
+        if (libs) c += '<div class="text-xs text-ink/60 mt-1"><span class="font-semibold">Libraries:</span> ' + esc(libs) + '</div>';
+        if (g.pattern_description) c += '<div class="text-xs text-ink/60 mt-1"><span class="font-semibold">Pattern:</span> ' + esc(g.pattern_description) + '</div>';
+        if (Array.isArray(g.key_files) && g.key_files.length) {
+          c += '<div class="text-xs text-ink/60 mt-1"><span class="font-semibold">Key files:</span> ';
+          c += g.key_files.map(f => '<code class="font-mono text-[11px]">' + esc(f) + '</code>').join(', ');
+          c += '</div>';
+        }
+        if (g.usage_example) c += '<div class="text-xs text-ink/60 mt-1"><span class="font-semibold">Example:</span> <code class="font-mono text-[11px]">' + esc(g.usage_example) + '</code></div>';
+        if (g.applicable_when) c += '<div class="text-xs text-ink/70 mt-1"><span class="font-semibold text-teal">Applicable when:</span> ' + esc(g.applicable_when) + '</div>';
+        if (Array.isArray(g.do_not_apply_when) && g.do_not_apply_when.length) {
+          c += '<div class="text-xs text-ink/70 mt-1"><span class="font-semibold text-tangerine">Do NOT apply when:</span><ul class="list-disc list-inside ml-2 mt-0.5">';
+          g.do_not_apply_when.forEach(d => { c += '<li>' + esc(d) + '</li>'; });
+          c += '</ul></div>';
+        }
+        if (Array.isArray(g.tips) && g.tips.length) {
+          c += '<div class="text-xs text-ink/60 mt-1"><span class="font-semibold">Tips:</span><ul class="list-disc list-inside ml-2 mt-0.5">';
+          g.tips.forEach(t => { c += '<li>' + esc(t) + '</li>'; });
+          c += '</ul></div>';
+        }
+        c += '</div>';
       });
-      c += '</tbody></table>';
       html += bpCard('guidelines', 'Implementation Guidelines', impl.length, c);
     }
 
