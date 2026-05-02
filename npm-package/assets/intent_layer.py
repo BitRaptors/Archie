@@ -1560,6 +1560,14 @@ def _build_symbol_index(root: Path, skip_dirs: set[str]) -> dict[str, str]:
     return index
 
 
+# Demotion threshold — if a pattern's resolved scope spans >= this fraction
+# of all blueprint components, it's effectively repo-wide. Repo-wide patterns
+# already live in global rules.md (loaded for every edit), so fanning them
+# out into every per-folder CLAUDE.md just duplicates the same text. Tune by
+# editing this constant; set to 1.0 to disable demotion entirely.
+_REPO_WIDE_DEMOTE_RATIO = 0.5
+
+
 def _resolve_scope_value(
     value: str,
     components: list[dict],
@@ -1662,30 +1670,45 @@ def cmd_inject_scoped(root: Path):
     component_to_igs: dict[str, list[dict]] = {}
     component_to_patterns: dict[str, list[dict]] = {}
     unresolved: list[tuple[str, str, str]] = []  # (kind, item_name, scope_value)
+    demoted: list[tuple[str, str, int]] = []  # (kind, item_name, resolved_count)
+
+    total_components = max(1, sum(
+        1 for c in components if isinstance(c, dict) and c.get("name") and (c.get("location") or c.get("path"))
+    ))
+    demote_threshold = max(2, int(total_components * _REPO_WIDE_DEMOTE_RATIO))
+
+    def _aggregate(item, kind, scope_values):
+        """Resolve, then keep/demote/drop based on coverage threshold."""
+        targets: set[str] = set()
+        for s in scope_values:
+            cn = _resolve_scope_value(s, components, comp_by_name, symbol_index)
+            if cn:
+                targets.add(cn)
+            else:
+                unresolved.append((kind, item.get("capability") or item.get("name") or "?", s))
+        # Demotion: if the pattern resolves to too many components, treat it
+        # as repo-wide (the global rule file already carries it via inline
+        # scope text). Skip per-folder injection to avoid mass duplication.
+        if len(targets) >= demote_threshold:
+            demoted.append((kind, item.get("capability") or item.get("name") or "?", len(targets)))
+            return None
+        return targets
 
     for ig in blueprint.get("implementation_guidelines") or []:
         if not isinstance(ig, dict) or not ig.get("capability"):
             continue
-        targets: set[str] = set()
-        for s in _str_list(ig.get("scope")):
-            comp_name = _resolve_scope_value(s, components, comp_by_name, symbol_index)
-            if comp_name:
-                targets.add(comp_name)
-            else:
-                unresolved.append(("guideline", ig.get("capability", "?"), s))
+        targets = _aggregate(ig, "guideline", _str_list(ig.get("scope")))
+        if targets is None:
+            continue
         for cn in targets:
             component_to_igs.setdefault(cn, []).append(ig)
 
     for pat in (blueprint.get("communication") or {}).get("patterns") or []:
         if not isinstance(pat, dict) or not pat.get("name"):
             continue
-        targets = set()
-        for s in _str_list(pat.get("scope")):
-            comp_name = _resolve_scope_value(s, components, comp_by_name, symbol_index)
-            if comp_name:
-                targets.add(comp_name)
-            else:
-                unresolved.append(("pattern", pat.get("name", "?"), s))
+        targets = _aggregate(pat, "pattern", _str_list(pat.get("scope")))
+        if targets is None:
+            continue
         for cn in targets:
             component_to_patterns.setdefault(cn, []).append(pat)
 
@@ -1735,6 +1758,19 @@ def cmd_inject_scoped(root: Path):
     if skipped_missing:
         summary += f", {skipped_missing} skipped (component location does not exist)"
     print(summary, file=sys.stderr)
+
+    if demoted:
+        # Patterns that fanned out across >=50% of components: too broad to be
+        # called "scoped." They live in global rules.md instead, where they
+        # already render with inline scope text.
+        names = ", ".join(f"{name!r} ({count} comps)" for _, name, count in demoted[:5])
+        more = f" (+{len(demoted) - 5} more)" if len(demoted) > 5 else ""
+        print(
+            f"  ({len(demoted)} pattern(s) demoted to repo-wide because they "
+            f"span >= {demote_threshold} of {total_components} components: "
+            f"{names}{more})",
+            file=sys.stderr,
+        )
 
     if unresolved:
         # Group by scope value so users can see the most common offenders

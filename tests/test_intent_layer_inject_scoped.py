@@ -354,3 +354,109 @@ def test_resolver_unresolved_summary_emitted(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "could not be resolved" in err, "stderr must mention unresolved scope"
     assert "BogusOne" in err or "BogusTwo" in err, "top-offenders summary must include the value"
+
+
+# ---------------------------------------------------------------------------
+# Repo-wide demotion — patterns spanning >= 50% of components are treated as
+# repo-wide. They live in global rules.md (loaded everywhere) and skip
+# per-folder injection to avoid duplicating the same text into many files.
+# ---------------------------------------------------------------------------
+
+def test_demotes_pattern_spanning_majority_of_components(tmp_path, capsys):
+    """A pattern that resolves to >= 50% of components must NOT be injected
+    per-folder. The global rule file already carries it."""
+    # Six components, four of them seeded with classes referenced by the
+    # pattern's scope. 4/6 = 67% — over the 50% threshold.
+    bp_components = []
+    for c in ["billing", "customer", "ledger", "app", "auth", "ops"]:
+        d = tmp_path / "src" / c
+        bp_components.append({"name": c, "location": f"src/{c}", "responsibility": c})
+        d.mkdir(parents=True)
+        _seed_ai_claude_md(d, c)
+    # Drop classes into 4 of the 6 components.
+    for c, cls in [("billing", "Foo"), ("customer", "Bar"), ("ledger", "Baz"), ("app", "Qux")]:
+        (tmp_path / "src" / c / f"{cls}.kt").write_text(
+            f"package x\n\nclass {cls} {{ }}\n"
+        )
+
+    bp = {
+        "components": {"components": bp_components},
+        "implementation_guidelines": [
+            {
+                "capability": "Universal logging",
+                "category": "analytics",
+                "libraries": ["logrus"],
+                "pattern_description": "Used everywhere.",
+                "key_files": [],
+                "usage_example": "log.info(...)",
+                "applicable_when": "any code that does I/O",
+                "do_not_apply_when": [],
+                "scope": ["Foo", "Bar", "Baz", "Qux"],
+                "tips": [],
+            },
+        ],
+        "communication": {"patterns": []},
+    }
+    (tmp_path / ".archie").mkdir(exist_ok=True)
+    (tmp_path / ".archie" / "blueprint.json").write_text(json.dumps(bp))
+
+    intent_layer.cmd_inject_scoped(tmp_path)
+
+    # No CLAUDE.md should have a scoped block — pattern was demoted.
+    for c in ["billing", "customer", "ledger", "app", "auth", "ops"]:
+        body = (tmp_path / "src" / c / "CLAUDE.md").read_text()
+        assert "<!-- archie:scoped-start -->" not in body, (
+            f"{c} should NOT have a scoped block (pattern was over-scoped → demoted)"
+        )
+        assert "Universal logging" not in body, (
+            f"demoted pattern's text must not appear in {c}/CLAUDE.md"
+        )
+    # CLI must report the demotion so users see what happened.
+    err = capsys.readouterr().err
+    assert "demoted to repo-wide" in err, "demotion summary must appear on stderr"
+    assert "Universal logging" in err, "demoted item name should be reported"
+
+
+def test_keeps_narrowly_scoped_pattern(tmp_path):
+    """Patterns scoped to a minority of components stay scoped — only
+    overscoped ones get demoted. Regression guard against over-aggressive
+    demotion."""
+    bp_components = []
+    for c in ["billing", "customer", "ledger", "app", "auth", "ops"]:
+        d = tmp_path / "src" / c
+        bp_components.append({"name": c, "location": f"src/{c}", "responsibility": c})
+        d.mkdir(parents=True)
+        _seed_ai_claude_md(d, c)
+    # Pattern scope resolves to exactly 2 of 6 components (33%, under 50%).
+    (tmp_path / "src" / "billing" / "OnlyTwoFoo.kt").write_text("class OnlyTwoFoo {}\n")
+    (tmp_path / "src" / "customer" / "OnlyTwoBar.kt").write_text("class OnlyTwoBar {}\n")
+
+    bp = {
+        "components": {"components": bp_components},
+        "implementation_guidelines": [
+            {
+                "capability": "Narrow pattern",
+                "category": "persistence",
+                "libraries": [],
+                "pattern_description": "Only billing+customer.",
+                "key_files": [],
+                "usage_example": "x.do()",
+                "applicable_when": "only in billing or customer",
+                "do_not_apply_when": [],
+                "scope": ["OnlyTwoFoo", "OnlyTwoBar"],
+                "tips": [],
+            },
+        ],
+        "communication": {"patterns": []},
+    }
+    (tmp_path / ".archie").mkdir(exist_ok=True)
+    (tmp_path / ".archie" / "blueprint.json").write_text(json.dumps(bp))
+
+    intent_layer.cmd_inject_scoped(tmp_path)
+
+    for c in ["billing", "customer"]:
+        body = (tmp_path / "src" / c / "CLAUDE.md").read_text()
+        assert "Narrow pattern" in body, f"{c} should have the scoped pattern"
+    for c in ["ledger", "app", "auth", "ops"]:
+        body = (tmp_path / "src" / c / "CLAUDE.md").read_text()
+        assert "Narrow pattern" not in body, f"{c} is out of scope; must not receive the pattern"

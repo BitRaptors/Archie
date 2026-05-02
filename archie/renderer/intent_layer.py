@@ -398,6 +398,11 @@ _VAL_MODULE_RE = re.compile(
     r"\bval\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*module\b"
 )
 
+# Mirrors ``archie.standalone.intent_layer._REPO_WIDE_DEMOTE_RATIO``. A pattern
+# whose resolved scope spans >= this fraction of all components is treated as
+# repo-wide and not duplicated per-folder.
+_REPO_WIDE_DEMOTE_RATIO = 0.5
+
 
 def _build_symbol_index(root: Path) -> dict[str, str]:
     """Walk source files once; map declared identifier -> first-seen rel path."""
@@ -472,6 +477,9 @@ def _resolve_blueprint_scoped_items(
             return _component_for_path(rel)
         return None
 
+    total_components = max(1, len(comp_by_name))
+    demote_threshold = max(2, int(total_components * _REPO_WIDE_DEMOTE_RATIO))
+
     for ig in blueprint.get("implementation_guidelines") or []:
         if not isinstance(ig, dict) or not ig.get("capability"):
             continue
@@ -480,6 +488,10 @@ def _resolve_blueprint_scoped_items(
             cn = _resolve(s)
             if cn:
                 targets.add(cn)
+        # Demote effectively-repo-wide patterns: they live in global rules
+        # (loaded for every edit) and don't need per-folder duplication.
+        if len(targets) >= demote_threshold:
+            continue
         for cn in targets:
             component_to_igs.setdefault(cn, []).append(ig)
 
@@ -491,6 +503,8 @@ def _resolve_blueprint_scoped_items(
             cn = _resolve(s)
             if cn:
                 targets.add(cn)
+        if len(targets) >= demote_threshold:
+            continue
         for cn in targets:
             component_to_patterns.setdefault(cn, []).append(pat)
 
