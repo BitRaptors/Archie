@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path, PurePosixPath
 
 
@@ -62,6 +63,13 @@ def generate_folder_context(
     # Build reverse import graph
     reverse_graph = _build_reverse_graph(import_graph)
 
+    # Pre-resolve scope values to a per-component item map. We do this once
+    # so each folder's render is a dict lookup rather than a re-resolution.
+    project_root = scan_path.parent.parent if scan_path.parent.name == ".archie" else scan_path.parent
+    component_to_igs, component_to_patterns = _resolve_blueprint_scoped_items(
+        blueprint, components, project_root,
+    )
+
     results: dict[str, str] = {}
     for dir_path, files in sorted(dir_files.items()):
         if len(files) < _MIN_FILES:
@@ -75,6 +83,8 @@ def generate_folder_context(
             import_graph=import_graph,
             reverse_graph=reverse_graph,
             blueprint=blueprint,
+            component_to_igs=component_to_igs,
+            component_to_patterns=component_to_patterns,
         )
         key = f"{dir_path}/CLAUDE.md" if dir_path else "CLAUDE.md"
         results[key] = content
@@ -198,26 +208,18 @@ def _relevant_rules(
     return placement_lines, naming_lines
 
 
-def _scoped_block_lines(component_name: str, blueprint: dict) -> list[str]:
+def _scoped_block_lines(
+    component_name: str,
+    in_scope_igs: list[dict],
+    in_scope_patterns: list[dict],
+) -> list[str]:
     """Render the scoped-rules block for a component, or empty list if none.
 
-    Mirrors the standalone intent_layer's ``cmd_inject_scoped`` rendering so
-    the deterministic ``archie render`` flow surfaces the same hard-filter
-    content as the AI-driven slash-command flow. Identifies in-scope items
-    by exact component-name membership in the pattern's ``scope`` field.
+    Caller is responsible for resolving scope values to per-component item
+    lists first (via ``_resolve_blueprint_scoped_items``). The resolver is
+    lenient — it handles both literal component names and concrete code
+    symbols (class / interface / object / Koin val module).
     """
-    igs = blueprint.get("implementation_guidelines") or []
-    patterns = (blueprint.get("communication") or {}).get("patterns") or []
-
-    def _scope_of(item: dict) -> list[str]:
-        raw = item.get("scope")
-        if not isinstance(raw, list):
-            return []
-        return [s for s in raw if isinstance(s, str) and s.strip()]
-
-    in_scope_igs = [g for g in igs if isinstance(g, dict) and component_name in _scope_of(g)]
-    in_scope_patterns = [p for p in patterns if isinstance(p, dict) and component_name in _scope_of(p)]
-
     if not in_scope_igs and not in_scope_patterns:
         return []
 
@@ -297,6 +299,8 @@ def _render_folder_md(
     import_graph: dict[str, list[str]],
     reverse_graph: dict[str, list[str]],
     blueprint: dict | None = None,
+    component_to_igs: dict[str, list[dict]] | None = None,
+    component_to_patterns: dict[str, list[dict]] | None = None,
 ) -> str:
     dir_name = PurePosixPath(dir_path).name if dir_path else "(root)"
     lines: list[str] = []
@@ -354,8 +358,140 @@ def _render_folder_md(
     if blueprint and comp:
         comp_location = (comp.get("location") or "").strip("/")
         if dir_path == comp_location:
-            scoped_lines = _scoped_block_lines(comp.get("name", ""), blueprint)
+            comp_name = comp.get("name", "")
+            igs = (component_to_igs or {}).get(comp_name, [])
+            pats = (component_to_patterns or {}).get(comp_name, [])
+            scoped_lines = _scoped_block_lines(comp_name, igs, pats)
             if scoped_lines:
                 lines.extend(scoped_lines)
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Lenient scope resolver (mirror of standalone/intent_layer.py). Walks the
+# project root once, indexes class / interface / object / enum / Koin
+# `val foo = module {}` declarations, then resolves blueprint scope values
+# (which Wave 2 often emits as concrete code symbols rather than literal
+# component names) to the owning component via file→directory→component.
+# ---------------------------------------------------------------------------
+
+_RESOLVER_SOURCE_EXTS = {
+    ".kt", ".kts", ".java", ".scala",
+    ".py",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".swift",
+    ".go", ".rs",
+    ".rb", ".cs", ".php",
+}
+
+_RESOLVER_SKIP_DIRS = {
+    ".archie", ".claude", "node_modules", ".venv", ".git",
+    "vendor", "dist", "build", "target", ".next", ".nuxt",
+    "__pycache__",
+}
+
+_DECL_RE = re.compile(
+    r"\b(?:class|interface|object|enum|trait|struct|protocol|record)\s+([A-Z][A-Za-z0-9_]*)\b"
+)
+_VAL_MODULE_RE = re.compile(
+    r"\bval\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*module\b"
+)
+
+
+def _build_symbol_index(root: Path) -> dict[str, str]:
+    """Walk source files once; map declared identifier -> first-seen rel path."""
+    index: dict[str, str] = {}
+    if not root.is_dir():
+        return index
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in _RESOLVER_SOURCE_EXTS:
+            continue
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
+        if any(part in _RESOLVER_SKIP_DIRS for part in rel.parts):
+            continue
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        rel_str = str(rel)
+        for m in _DECL_RE.finditer(content):
+            index.setdefault(m.group(1), rel_str)
+        for m in _VAL_MODULE_RE.finditer(content):
+            index.setdefault(m.group(1), rel_str)
+    return index
+
+
+def _resolve_blueprint_scoped_items(
+    blueprint: dict,
+    components_by_dir: dict[str, dict],
+    project_root: Path,
+) -> tuple[dict[str, list[dict]], dict[str, list[dict]]]:
+    """Aggregate blueprint scoped items per component name.
+
+    Returns ``(component_to_igs, component_to_patterns)`` — keys are
+    component names, values are the items that resolve to that component.
+    Resolution chain: literal component name match -> symbol index lookup
+    (class/interface/object/val module) -> dropped silently if neither.
+    """
+    component_to_igs: dict[str, list[dict]] = {}
+    component_to_patterns: dict[str, list[dict]] = {}
+
+    # Build name lookup + reverse map (location -> component name).
+    comp_by_name: dict[str, dict] = {}
+    for c in components_by_dir.values():
+        if isinstance(c, dict) and c.get("name"):
+            comp_by_name[c["name"]] = c
+    if not comp_by_name:
+        return component_to_igs, component_to_patterns
+
+    symbol_index = _build_symbol_index(project_root)
+
+    def _component_for_path(rel_path: str) -> str | None:
+        parent = str(PurePosixPath(rel_path).parent)
+        # Longest-prefix match against component locations.
+        best, best_len = None, -1
+        for loc, comp in components_by_dir.items():
+            if not loc:
+                continue
+            if parent == loc or parent.startswith(loc + "/"):
+                if len(loc) > best_len:
+                    best, best_len = comp.get("name"), len(loc)
+        return best
+
+    def _resolve(value: str) -> str | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        if value in comp_by_name:
+            return value
+        rel = symbol_index.get(value)
+        if rel:
+            return _component_for_path(rel)
+        return None
+
+    for ig in blueprint.get("implementation_guidelines") or []:
+        if not isinstance(ig, dict) or not ig.get("capability"):
+            continue
+        targets: set[str] = set()
+        for s in ig.get("scope") or []:
+            cn = _resolve(s)
+            if cn:
+                targets.add(cn)
+        for cn in targets:
+            component_to_igs.setdefault(cn, []).append(ig)
+
+    for pat in (blueprint.get("communication") or {}).get("patterns") or []:
+        if not isinstance(pat, dict) or not pat.get("name"):
+            continue
+        targets = set()
+        for s in pat.get("scope") or []:
+            cn = _resolve(s)
+            if cn:
+                targets.add(cn)
+        for cn in targets:
+            component_to_patterns.setdefault(cn, []).append(pat)
+
+    return component_to_igs, component_to_patterns

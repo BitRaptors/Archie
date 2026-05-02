@@ -225,3 +225,132 @@ def test_extract_skips_repo_root_claude_md(tmp_path):
     payload = json.loads((tmp_path / ".archie" / "maintainer_guardrails.json").read_text())
     sources = {entry["source"] for entry in payload["guardrails"]}
     assert sources == {"src/lib/CLAUDE.md"}
+
+
+# ---------------------------------------------------------------------------
+# Lenient scope resolver — class/interface/object/Koin-val identifiers must
+# map back to a component via the file they're declared in. The literal
+# component-name path stays as a backwards-compat fallback.
+# ---------------------------------------------------------------------------
+
+def _seed_with_kt_class(folder: Path, class_name: str) -> None:
+    """Drop a Kotlin source file with a class declaration into the folder."""
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{class_name}.kt").write_text(
+        f"package com.example.{folder.name}\n\nclass {class_name} {{\n    val x = 1\n}}\n"
+    )
+
+
+def test_resolves_class_name_to_component(tmp_path):
+    """Scope value 'NetworkDatasourceImpl' must land in the component
+    whose location contains the file declaring that class."""
+    _seed_with_kt_class(tmp_path / "src" / "billing", "BillingService")
+    _seed_with_kt_class(tmp_path / "src" / "app", "AppRegistry")
+    _write_blueprint(tmp_path, lockr_scope=[])
+    # Override blueprint with a guideline whose scope is a CLASS NAME, not a component name
+    bp = json.loads((tmp_path / ".archie" / "blueprint.json").read_text())
+    bp["implementation_guidelines"][0]["scope"] = ["BillingService"]
+    (tmp_path / ".archie" / "blueprint.json").write_text(json.dumps(bp))
+    _seed_ai_claude_md(tmp_path / "src" / "billing", "billing")
+    _seed_ai_claude_md(tmp_path / "src" / "app", "app")
+
+    intent_layer.cmd_inject_scoped(tmp_path)
+
+    billing_md = (tmp_path / "src" / "billing" / "CLAUDE.md").read_text()
+    app_md = (tmp_path / "src" / "app" / "CLAUDE.md").read_text()
+    assert "<!-- archie:scoped-start -->" in billing_md, "class-name scope must resolve to billing"
+    assert "Per-key advisory lock" in billing_md
+    assert "<!-- archie:scoped-start -->" not in app_md, "app should NOT receive: BillingService is in billing"
+
+
+def test_resolves_koin_val_module(tmp_path):
+    """Koin `val FooModule = module {}` declarations must resolve too."""
+    folder = tmp_path / "src" / "billing"
+    folder.mkdir(parents=True)
+    (folder / "Modules.kt").write_text(
+        "package com.example.billing\n\nimport org.koin.dsl.module\n\nval BillingModules = module {\n    single { 1 }\n}\n"
+    )
+    _write_blueprint(tmp_path, lockr_scope=[])
+    bp = json.loads((tmp_path / ".archie" / "blueprint.json").read_text())
+    bp["implementation_guidelines"][0]["scope"] = ["BillingModules"]
+    (tmp_path / ".archie" / "blueprint.json").write_text(json.dumps(bp))
+    _seed_ai_claude_md(folder, "billing")
+
+    intent_layer.cmd_inject_scoped(tmp_path)
+
+    billing_md = (folder / "CLAUDE.md").read_text()
+    assert "Per-key advisory lock" in billing_md, (
+        "Koin val module declaration must resolve via _VAL_MODULE_RE"
+    )
+
+
+def test_falls_back_to_direct_component_name(tmp_path):
+    """Backwards compat: literal component names still resolve via the
+    fast path, even when no source file declares them."""
+    _write_blueprint(tmp_path, lockr_scope=["billing"])  # 'billing' is the literal component name
+    _seed_ai_claude_md(tmp_path / "src" / "billing", "billing")
+    _seed_ai_claude_md(tmp_path / "src" / "app", "app")
+
+    intent_layer.cmd_inject_scoped(tmp_path)
+
+    billing_md = (tmp_path / "src" / "billing" / "CLAUDE.md").read_text()
+    assert "Per-key advisory lock" in billing_md
+
+
+def test_unresolvable_scope_value_does_not_crash(tmp_path):
+    """Prose values like 'All Fragments under page_*' must drop silently."""
+    _write_blueprint(tmp_path, lockr_scope=[])
+    bp = json.loads((tmp_path / ".archie" / "blueprint.json").read_text())
+    bp["implementation_guidelines"][0]["scope"] = [
+        "All Fragments under page_*", "ThisDoesNotExist"
+    ]
+    (tmp_path / ".archie" / "blueprint.json").write_text(json.dumps(bp))
+    _seed_ai_claude_md(tmp_path / "src" / "billing", "billing")
+    _seed_ai_claude_md(tmp_path / "src" / "app", "app")
+
+    intent_layer.cmd_inject_scoped(tmp_path)
+
+    # No component received the pattern, so neither CLAUDE.md should have it.
+    for c in ("billing", "app"):
+        body = (tmp_path / "src" / c / "CLAUDE.md").read_text()
+        assert "<!-- archie:scoped-start -->" not in body, (
+            f"{c} should not have a scoped block when all scope values are unresolvable"
+        )
+
+
+def test_aggregates_multiple_classes_into_same_component(tmp_path):
+    """A pattern with scope=[ClassA, ClassB] both declared in the same
+    component must produce ONE block, not two."""
+    folder = tmp_path / "src" / "billing"
+    _seed_with_kt_class(folder, "BillingService")
+    _seed_with_kt_class(folder, "BillingRepo")
+    _write_blueprint(tmp_path, lockr_scope=[])
+    bp = json.loads((tmp_path / ".archie" / "blueprint.json").read_text())
+    bp["implementation_guidelines"][0]["scope"] = ["BillingService", "BillingRepo"]
+    (tmp_path / ".archie" / "blueprint.json").write_text(json.dumps(bp))
+    _seed_ai_claude_md(folder, "billing")
+
+    intent_layer.cmd_inject_scoped(tmp_path)
+
+    billing_md = (folder / "CLAUDE.md").read_text()
+    assert billing_md.count("<!-- archie:scoped-start -->") == 1, (
+        "single component must receive a single block even when multiple scope values resolve to it"
+    )
+    assert billing_md.count("Per-key advisory lock") == 1, (
+        "the same pattern must not be rendered twice in one component"
+    )
+
+
+def test_resolver_unresolved_summary_emitted(tmp_path, capsys):
+    """The CLI must report unresolved scope values so users can see what
+    Wave 2 wrote that didn't map to any component."""
+    _write_blueprint(tmp_path, lockr_scope=[])
+    bp = json.loads((tmp_path / ".archie" / "blueprint.json").read_text())
+    bp["implementation_guidelines"][0]["scope"] = ["BogusOne", "BogusTwo"]
+    (tmp_path / ".archie" / "blueprint.json").write_text(json.dumps(bp))
+    _seed_ai_claude_md(tmp_path / "src" / "billing", "billing")
+
+    intent_layer.cmd_inject_scoped(tmp_path)
+    err = capsys.readouterr().err
+    assert "could not be resolved" in err, "stderr must mention unresolved scope"
+    assert "BogusOne" in err or "BogusTwo" in err, "top-offenders summary must include the value"

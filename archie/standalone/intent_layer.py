@@ -1467,25 +1467,18 @@ def _render_scoped_pattern(pat: dict) -> list[str]:
     return out
 
 
-def _render_scoped_section(component_name: str, blueprint: dict) -> str:
-    """Render the marker-bracketed scoped section for a component.
+def _render_scoped_section_from_items(
+    component_name: str,
+    in_scope_igs: list[dict],
+    in_scope_patterns: list[dict],
+) -> str:
+    """Render the marker-bracketed scoped section for a component, given
+    pre-resolved item lists.
 
-    Returns the empty string when no implementation_guidelines or
-    communication.patterns are scoped to this component — caller should then
-    leave the file alone (no markers, no empty section).
+    Caller is responsible for resolving scope values to components first
+    (via ``_resolve_scope_value`` + aggregation). Returns the empty string
+    when both lists are empty — signal to caller to leave the file alone.
     """
-    igs = blueprint.get("implementation_guidelines") or []
-    patterns = (blueprint.get("communication") or {}).get("patterns") or []
-
-    in_scope_igs = [
-        g for g in igs
-        if isinstance(g, dict) and component_name in _str_list(g.get("scope"))
-    ]
-    in_scope_patterns = [
-        p for p in patterns
-        if isinstance(p, dict) and component_name in _str_list(p.get("scope"))
-    ]
-
     if not in_scope_igs and not in_scope_patterns:
         return ""
 
@@ -1509,6 +1502,92 @@ def _render_scoped_section(component_name: str, blueprint: dict) -> str:
 
     lines.append(_SCOPED_END)
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Lenient scope resolver — maps scope identifiers (component name, class name,
+# Koin module val) to a component name. Wave 2 in the wild prefers concrete
+# code symbols over component descriptors ("NetworkDatasourceImpl" rather
+# than "Domain and Data Layer"); the resolver handles both so the agent's
+# choice doesn't break hard-filter delivery.
+# ---------------------------------------------------------------------------
+
+# Source-file extensions whose contents we scan for symbol declarations.
+_RESOLVER_SOURCE_EXTS = {
+    ".kt", ".kts", ".java", ".scala",
+    ".py",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".swift",
+    ".go", ".rs",
+    ".rb", ".cs", ".php",
+}
+
+# Top-level type declarations.
+_DECL_RE = re.compile(
+    r"\b(?:class|interface|object|enum|trait|struct|protocol|record)\s+([A-Z][A-Za-z0-9_]*)\b"
+)
+# Koin / Spring / similar val-module declarations.
+_VAL_MODULE_RE = re.compile(
+    r"\bval\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*module\b"
+)
+
+
+def _build_symbol_index(root: Path, skip_dirs: set[str]) -> dict[str, str]:
+    """Walk source files once and index identifier -> first-seen rel path.
+
+    First-match wins for ambiguous names. Skip lists prevent walking into
+    .archie/, .claude/, build/, node_modules/ and similar.
+    """
+    index: dict[str, str] = {}
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in _RESOLVER_SOURCE_EXTS:
+            continue
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
+        if any(part in skip_dirs for part in rel.parts):
+            continue
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        rel_str = str(rel)
+        for m in _DECL_RE.finditer(content):
+            index.setdefault(m.group(1), rel_str)
+        for m in _VAL_MODULE_RE.finditer(content):
+            index.setdefault(m.group(1), rel_str)
+    return index
+
+
+def _resolve_scope_value(
+    value: str,
+    components: list[dict],
+    comp_by_name: dict[str, dict],
+    symbol_index: dict[str, str],
+) -> str | None:
+    """Map a scope identifier to a component name, or None if unresolvable.
+
+    Resolution chain (first hit wins):
+      1. Exact match against ``components.components[].name`` (literal mode —
+         backwards compat with strict-mode blueprints).
+      2. Symbol index hit (class / interface / object / val module) → look up
+         the matching file's directory in the components list.
+      3. Otherwise unresolvable; caller drops it.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    # 1. Direct name match.
+    if value in comp_by_name:
+        return value
+    # 2. Symbol index → file → component.
+    rel = symbol_index.get(value)
+    if rel:
+        parent = str(Path(rel).parent)
+        comp = _find_component_for_dir(parent, components)
+        if comp and comp.get("name"):
+            return comp["name"]
+    return None
 
 
 def _patch_scoped_section(content: str, scoped_section: str) -> str:
@@ -1546,14 +1625,19 @@ def _patch_scoped_section(content: str, scoped_section: str) -> str:
 def cmd_inject_scoped(root: Path):
     """Project blueprint scoped patterns into per-folder CLAUDE.md.
 
-    For each component in the blueprint, locate its root folder
-    (component.location) and inject any implementation_guidelines or
-    communication.patterns whose scope contains the component's name into
-    that folder's CLAUDE.md, between scoped-block markers.
+    Two-pass:
+      1. Build a symbol index of source files (one walk over the repo) and
+         resolve every scope value through the resolver chain (component
+         name -> class/interface/object -> Koin val module). Aggregate per
+         component name.
+      2. For every component, render and inject (or clear) its scoped block.
+         Re-runs replace marker-bracketed blocks in place; scope-shrink
+         clears stale blocks; the AI section is preserved.
 
-    Idempotent: re-running replaces the marker-bracketed block in place.
-    No-op for components whose scope set is empty (nothing to project).
-    Skips components whose CLAUDE.md doesn't exist (no folder to attach to).
+    Lenient by design: Wave 2 in the wild often emits class names rather
+    than literal component names. The resolver maps either form back to a
+    component, so the hard-filter delivery fires regardless of which
+    identifier style the agent picks.
     """
     blueprint = _load_json(root / ".archie" / "blueprint.json")
     if not blueprint:
@@ -1565,6 +1649,49 @@ def cmd_inject_scoped(root: Path):
         print("No components in blueprint — nothing to project.", file=sys.stderr)
         return
 
+    comp_by_name = {c["name"]: c for c in components if isinstance(c, dict) and c.get("name")}
+
+    # Pass 1 — walk source tree once, index symbol declarations.
+    symbol_index = _build_symbol_index(root, _GUARDRAIL_SKIP_DIRS)
+
+    # Pass 1b — resolve every scope value, aggregate items per target
+    # component. A pattern with scope spanning multiple components lands a
+    # copy of itself in each component's bucket; the per-component renderer
+    # takes care of de-duping (a pattern is only added once per bucket
+    # because we coalesce target-component sets).
+    component_to_igs: dict[str, list[dict]] = {}
+    component_to_patterns: dict[str, list[dict]] = {}
+    unresolved: list[tuple[str, str, str]] = []  # (kind, item_name, scope_value)
+
+    for ig in blueprint.get("implementation_guidelines") or []:
+        if not isinstance(ig, dict) or not ig.get("capability"):
+            continue
+        targets: set[str] = set()
+        for s in _str_list(ig.get("scope")):
+            comp_name = _resolve_scope_value(s, components, comp_by_name, symbol_index)
+            if comp_name:
+                targets.add(comp_name)
+            else:
+                unresolved.append(("guideline", ig.get("capability", "?"), s))
+        for cn in targets:
+            component_to_igs.setdefault(cn, []).append(ig)
+
+    for pat in (blueprint.get("communication") or {}).get("patterns") or []:
+        if not isinstance(pat, dict) or not pat.get("name"):
+            continue
+        targets = set()
+        for s in _str_list(pat.get("scope")):
+            comp_name = _resolve_scope_value(s, components, comp_by_name, symbol_index)
+            if comp_name:
+                targets.add(comp_name)
+            else:
+                unresolved.append(("pattern", pat.get("name", "?"), s))
+        for cn in targets:
+            component_to_patterns.setdefault(cn, []).append(pat)
+
+    # Pass 2 — for every component, write or clear its scoped block. We
+    # iterate ALL components (not just the ones that received items) so
+    # that scope-shrink across runs cleans up stale blocks.
     injected = 0
     cleared = 0
     skipped_missing = 0
@@ -1582,7 +1709,9 @@ def cmd_inject_scoped(root: Path):
             continue
 
         claude_md_path = folder_abs / "CLAUDE.md"
-        scoped_section = _render_scoped_section(name, blueprint)
+        igs = component_to_igs.get(name, [])
+        pats = component_to_patterns.get(name, [])
+        scoped_section = _render_scoped_section_from_items(name, igs, pats)
 
         if claude_md_path.exists():
             old = claude_md_path.read_text()
@@ -1606,6 +1735,19 @@ def cmd_inject_scoped(root: Path):
     if skipped_missing:
         summary += f", {skipped_missing} skipped (component location does not exist)"
     print(summary, file=sys.stderr)
+
+    if unresolved:
+        # Group by scope value so users can see the most common offenders
+        # without scrolling through every (kind, item) pair.
+        by_value: dict[str, int] = {}
+        for _, _, value in unresolved:
+            by_value[value] = by_value.get(value, 0) + 1
+        top = sorted(by_value.items(), key=lambda kv: -kv[1])
+        print(
+            f"  ({len(unresolved)} scope values could not be resolved to a component; "
+            f"top offenders: {', '.join(f'{v!r}×{n}' for v, n in top[:5])})",
+            file=sys.stderr,
+        )
 
 
 # ---------------------------------------------------------------------------
