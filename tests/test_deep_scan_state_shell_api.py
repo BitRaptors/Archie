@@ -124,10 +124,16 @@ def test_save_run_context_persists_all_fields(tmp_path):
     assert rc["scope"] == "hybrid"
     assert rc["intent_layer"] == "no"
     assert rc["scan_mode"] == "incremental"
-    assert rc["project_root"] == str(tmp_path)
     assert rc["monorepo_type"] == "turborepo"
     assert rc["start_step"] == 3
     assert rc["workspaces"] == ["a/b", "c/d"]
+    # `project_root` is intentionally NOT persisted to avoid leaking
+    # machine-specific absolute paths into committable state. The Resume
+    # Prelude reconstructs it from $PWD on resume. CLI accepts the flag
+    # for backwards-compat callers but drops the value before write.
+    assert "project_root" not in rc, (
+        "project_root must not be persisted; Resume Prelude rebuilds from $PWD"
+    )
 
 
 def test_save_run_context_workspaces_skip_empty_lines(tmp_path):
