@@ -74,6 +74,7 @@ def generate_folder_context(
             naming_conventions=naming_conventions,
             import_graph=import_graph,
             reverse_graph=reverse_graph,
+            blueprint=blueprint,
         )
         key = f"{dir_path}/CLAUDE.md" if dir_path else "CLAUDE.md"
         results[key] = content
@@ -197,6 +198,88 @@ def _relevant_rules(
     return placement_lines, naming_lines
 
 
+def _scoped_block_lines(component_name: str, blueprint: dict) -> list[str]:
+    """Render the scoped-rules block for a component, or empty list if none.
+
+    Mirrors the standalone intent_layer's ``cmd_inject_scoped`` rendering so
+    the deterministic ``archie render`` flow surfaces the same hard-filter
+    content as the AI-driven slash-command flow. Identifies in-scope items
+    by exact component-name membership in the pattern's ``scope`` field.
+    """
+    igs = blueprint.get("implementation_guidelines") or []
+    patterns = (blueprint.get("communication") or {}).get("patterns") or []
+
+    def _scope_of(item: dict) -> list[str]:
+        raw = item.get("scope")
+        if not isinstance(raw, list):
+            return []
+        return [s for s in raw if isinstance(s, str) and s.strip()]
+
+    in_scope_igs = [g for g in igs if isinstance(g, dict) and component_name in _scope_of(g)]
+    in_scope_patterns = [p for p in patterns if isinstance(p, dict) and component_name in _scope_of(p)]
+
+    if not in_scope_igs and not in_scope_patterns:
+        return []
+
+    lines = ["## Scoped Architecture Rules", ""]
+    lines.append(f"*From blueprint — these rules are scoped to the `{component_name}` component.*")
+    lines.append("")
+
+    if in_scope_igs:
+        lines.append("### Implementation Guidelines")
+        lines.append("")
+        for gl in in_scope_igs:
+            cap = gl.get("capability", "")
+            if not cap:
+                continue
+            cat = gl.get("category", "")
+            heading = f"#### {cap}" + (f" [{cat}]" if cat else "")
+            lines.append(heading)
+            if gl.get("pattern_description"):
+                lines.append(f"Pattern: {gl['pattern_description']}")
+            libs = gl.get("libraries") or []
+            if libs:
+                lines.append(f"Libraries: {', '.join(f'`{l}`' for l in libs)}")
+            kf = gl.get("key_files") or []
+            if kf:
+                lines.append(f"Key files: {', '.join(f'`{f}`' for f in kf)}")
+            if gl.get("usage_example"):
+                lines.append(f"Example: `{gl['usage_example']}`")
+            if gl.get("applicable_when"):
+                lines.append(f"**Applicable when:** {gl['applicable_when']}")
+            do_not = gl.get("do_not_apply_when") or []
+            do_not = [d for d in do_not if isinstance(d, str) and d.strip()]
+            if do_not:
+                lines.append("**Do NOT apply when:**")
+                for d in do_not:
+                    lines.append(f"  - {d}")
+            lines.append("")
+
+    if in_scope_patterns:
+        lines.append("### Communication Patterns")
+        lines.append("")
+        for pat in in_scope_patterns:
+            name = pat.get("name", "")
+            if not name:
+                continue
+            lines.append(f"#### {name}")
+            if pat.get("when_to_use"):
+                lines.append(f"- **When:** {pat['when_to_use']}")
+            if pat.get("how_it_works"):
+                lines.append(f"- **How:** {pat['how_it_works']}")
+            if pat.get("applicable_when"):
+                lines.append(f"- **Applicable when:** {pat['applicable_when']}")
+            do_not = pat.get("do_not_apply_when") or []
+            do_not = [d for d in do_not if isinstance(d, str) and d.strip()]
+            if do_not:
+                lines.append("- **Do NOT apply when:**")
+                for d in do_not:
+                    lines.append(f"  - {d}")
+            lines.append("")
+
+    return lines
+
+
 def _filename_hint(path: str) -> str:
     """Generate a brief hint from a filename."""
     stem = PurePosixPath(path).stem
@@ -213,6 +296,7 @@ def _render_folder_md(
     naming_conventions: list[dict],
     import_graph: dict[str, list[str]],
     reverse_graph: dict[str, list[str]],
+    blueprint: dict | None = None,
 ) -> str:
     dir_name = PurePosixPath(dir_path).name if dir_path else "(root)"
     lines: list[str] = []
@@ -263,5 +347,15 @@ def _render_folder_md(
         if imported_by:
             lines.append(f"- **Imported by:** {', '.join(sorted(imported_by))}")
         lines.append("")
+
+    # Scoped Architecture Rules — only emit at the component's root location.
+    # Nested subfolders inherit the section via Claude Code's per-folder
+    # ancestor-loading, so duplicating it deeper would just bloat token usage.
+    if blueprint and comp:
+        comp_location = (comp.get("location") or "").strip("/")
+        if dir_path == comp_location:
+            scoped_lines = _scoped_block_lines(comp.get("name", ""), blueprint)
+            if scoped_lines:
+                lines.extend(scoped_lines)
 
     return "\n".join(lines)

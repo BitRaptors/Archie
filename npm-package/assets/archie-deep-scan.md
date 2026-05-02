@@ -992,6 +992,14 @@ Before Wave 2:
 
 Either way, after Wave 2 the store reflects accumulated knowledge across every prior scan and deep-scan run.
 
+**Maintainer guardrails — extract before Wave 2 (deterministic preprocessing):**
+
+```bash
+python3 .archie/intent_layer.py extract-guardrails "$PROJECT_ROOT"
+```
+
+This scans every per-folder `CLAUDE.md` (excluding `.archie/`, `.claude/`, `node_modules/`, etc.), strips Archie's own marker blocks (`<!-- archie:ai-* -->`, `<!-- archie:scoped-* -->`) so the loop reads only maintainer prose, extracts bullets under any `## Anti-Patterns` section, and writes `.archie/maintainer_guardrails.json`. Wave 2 §11 (compound learning) reads that file rather than globbing CLAUDE.md directly — the deterministic extraction guarantees no self-amplification across runs (Archie's previous output cannot feed back into itself, by construction). On the first deep-scan ever (no per-folder CLAUDE.md exist yet), the file is written as `{"version": 1, "guardrails": []}` — Wave 2 sees an empty guardrails array and §11 is a no-op for that run.
+
 ### If SCAN_MODE = "incremental":
 
 Spawn an **Opus subagent** (`model: "opus"`) with scoped context:
@@ -1138,11 +1146,20 @@ Tell the Reasoning agent:
 >
 > Wave 1's Patterns agent produced `communication.patterns` with `applicable_when`, `do_not_apply_when`, and `scope`. Re-emit that array with `do_not_apply_when` enriched from your cross-corpus view: when a pattern's shape is used somewhere in the corpus WITHOUT the invariant holding, name those places. For each pattern, also verify `scope` is **relevance-based, not location-based** — list every component that interacts with the pattern at edit-time (producers, consumers, transactional-boundary participants), not just where the source file lives. If you have nothing to add over Wave 1, copy the array through verbatim.
 >
-> ### 11. Compound learning — read existing per-folder CLAUDE.md anti-patterns
+> ### 11. Compound learning — fold maintainer-curated anti-patterns into `do_not_apply_when`
 >
-> Maintainers sometimes hand-edit per-folder `CLAUDE.md` files with anti-pattern guardrails — e.g. *"No <pattern> here — <local invariant fact contradicts it>."* These are gold for `do_not_apply_when` because the invariant has already been condensed into prose by someone who knows the codebase. Use the Read or Glob tool to scan all `<PROJECT_ROOT>/**/CLAUDE.md` files (excluding `<PROJECT_ROOT>/CLAUDE.md` itself and anything under `.claude/`, `.archie/`, `node_modules/`, `.venv/`). For any `## Anti-Patterns` or `## Anti-pattern` section, look for `No <pattern>` / `Do NOT <pattern>` / `Avoid <pattern>` style bullets, fuzzy-match the bullet's pattern name to your `implementation_guidelines[].capability` or `communication.patterns[].name`, and append the bullet's reasoning (citing the source `<folder>/CLAUDE.md`) to the matched entry's `do_not_apply_when`. Do NOT invent matches — if no clean match exists, skip it.
+> Maintainers sometimes hand-edit per-folder `CLAUDE.md` files with anti-pattern guardrails — e.g. *"No <pattern> here — <local invariant fact contradicts it>."* These are gold for `do_not_apply_when` because someone who knows the codebase has already condensed the invariant into prose.
 >
-> **Important — avoid self-amplification.** Per-folder `CLAUDE.md` files may contain `<!-- archie:scoped-start -->` ... `<!-- archie:scoped-end -->` blocks that were *injected by Archie itself in the previous run* (Step 9.5 — projection of blueprint-level scoped rules into the component's CLAUDE.md). Anything between those markers came FROM the blueprint, not from a maintainer. **Skip those blocks entirely** when extracting maintainer guardrails — incorporating them would feed the blueprint's own output back into itself across runs, monotonically growing `do_not_apply_when`. Only the prose OUTSIDE the scoped markers (and outside the `<!-- archie:ai-* -->` AI-generated block, which is also Archie's own output) counts as maintainer-curated knowledge.
+> **Read the deterministic extractor's output, not the raw CLAUDE.md files.** Before this step, the deep-scan pipeline runs `intent_layer.py extract-guardrails` (see Step 7), which strips Archie's own marker blocks (`<!-- archie:ai-* -->`, `<!-- archie:scoped-* -->`) and writes the cleaned bullets to `.archie/maintainer_guardrails.json`. **Read that file** — do NOT glob `CLAUDE.md` directly. The extractor guarantees only maintainer prose is in scope; the JSON shape is `{guardrails: [{source: "<rel-path>/CLAUDE.md", items: [text, text, ...]}]}`.
+>
+> For each bullet, fuzzy-match its pattern name to your `implementation_guidelines[].capability` or `communication.patterns[].name`. If a clean match exists, include the bullet's reasoning (with citation `(see <source>)`) in the matched entry's `do_not_apply_when` array. **Do NOT invent matches** — if no clean match exists, skip it.
+>
+> **Regeneration semantics — emit the FULL `do_not_apply_when` array each run, not a delta.** The array you write is the complete list for that pattern, comprising:
+>
+> 1. Anti-indicators you derived from the corpus this run (the inverse of `applicable_when`, plus call-sites where the same shape would be wrong).
+> 2. Maintainer guardrails currently present in `.archie/maintainer_guardrails.json` that fuzzy-match this pattern.
+>
+> Do **not** preserve previous-blueprint entries that no longer have a current source. The previous blueprint's `do_not_apply_when` is informational only — entries from prior runs that are no longer corpus-derived AND no longer in the extractor's output have aged out and must drop. This prevents the array from growing monotonically across runs even when the underlying violation has been fixed.
 >
 > Return JSON:
 > ```json

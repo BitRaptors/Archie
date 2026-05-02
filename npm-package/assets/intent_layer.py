@@ -12,6 +12,9 @@ Subcommands:
   merge          — Create/patch CLAUDE.md files with generated content
   inject-scoped  — Project blueprint scoped patterns/guidelines into per-folder
                    CLAUDE.md (component root only) for path-based hard filtering
+  extract-guardrails — Scan per-folder CLAUDE.md for maintainer-curated
+                   anti-pattern bullets, strip Archie's own marker blocks,
+                   write .archie/maintainer_guardrails.json for Wave 2 §11
 
 Run:
   python3 intent_layer.py prepare /path/to/repo [--only-folders folder1,folder2,...]
@@ -1606,6 +1609,120 @@ def cmd_inject_scoped(root: Path):
 
 
 # ---------------------------------------------------------------------------
+# extract-maintainer-guardrails — scan per-folder CLAUDE.md for human-curated
+# anti-patterns. Strips Archie's own marker blocks (ai + scoped) deterministically
+# so the output only carries maintainer prose. Wave 2 §11 reads the resulting
+# JSON instead of LLM-globbing CLAUDE.md, eliminating the self-amplification
+# class of failure (Archie's previous output cannot feed back into itself).
+# ---------------------------------------------------------------------------
+
+# Directories to skip when scanning for CLAUDE.md files
+_GUARDRAIL_SKIP_DIRS = {
+    ".archie", ".claude", "node_modules", ".venv", ".git",
+    "vendor", "dist", "build", "target", ".next", ".nuxt",
+    "__pycache__",
+}
+
+# Regex matching common anti-pattern section headings: "## Anti-Patterns",
+# "## Anti-pattern", "## Anti Patterns", "## anti-patterns", etc.
+_ANTI_HEADING_RE = re.compile(
+    r"^\s*#{2,4}\s+anti[-\s]?patterns?\s*$", re.IGNORECASE
+)
+_NEXT_HEADING_RE = re.compile(r"^\s*#{2,4}\s+\S")
+_BULLET_RE = re.compile(r"^\s*[-*]\s+(.+?)\s*$")
+
+
+def _strip_archie_blocks(content: str) -> str:
+    """Remove Archie's own marker blocks (AI + scoped) from CLAUDE.md content.
+
+    Anything between ``<!-- archie:ai-* -->`` or ``<!-- archie:scoped-* -->``
+    is Archie's output, not maintainer prose, and must not feed back into
+    Wave 2's compound-learning loop.
+    """
+    for start, end in ((_AI_START, _AI_END), (_SCOPED_START, _SCOPED_END)):
+        pattern = re.compile(
+            re.escape(start) + r".*?" + re.escape(end),
+            re.DOTALL,
+        )
+        content = pattern.sub("", content)
+    return content
+
+
+def _extract_anti_pattern_bullets(content: str) -> list[str]:
+    """Return the bullet items under any ## Anti-Patterns section.
+
+    Handles single or multiple anti-pattern sections per file. Stops at the
+    next section heading (any ## or deeper).
+    """
+    items: list[str] = []
+    in_section = False
+    for raw_line in content.splitlines():
+        if _ANTI_HEADING_RE.match(raw_line):
+            in_section = True
+            continue
+        if in_section and _NEXT_HEADING_RE.match(raw_line):
+            in_section = False
+            continue
+        if not in_section:
+            continue
+        m = _BULLET_RE.match(raw_line)
+        if m:
+            text = m.group(1).strip()
+            if text:
+                items.append(text)
+    return items
+
+
+def _is_skipped_path(rel_path: Path) -> bool:
+    """True if this folder is under a skip-list ancestor."""
+    return any(part in _GUARDRAIL_SKIP_DIRS for part in rel_path.parts)
+
+
+def cmd_extract_guardrails(root: Path):
+    """Write maintainer guardrails to .archie/maintainer_guardrails.json.
+
+    Wave 2 §11 reads this file rather than globbing CLAUDE.md directly, so
+    the compound-learning loop sees only deterministically-cleaned input
+    and cannot pick up Archie's own previous output.
+    """
+    out_path = root / ".archie" / "maintainer_guardrails.json"
+    guardrails: list[dict] = []
+
+    for path in sorted(root.rglob("CLAUDE.md")):
+        rel = path.relative_to(root)
+        # Skip the repo-root CLAUDE.md (Archie generates that one entirely;
+        # there's no maintainer Anti-Patterns layer there).
+        if rel == Path("CLAUDE.md"):
+            continue
+        if _is_skipped_path(rel.parent):
+            continue
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        cleaned = _strip_archie_blocks(raw)
+        items = _extract_anti_pattern_bullets(cleaned)
+        if items:
+            guardrails.append({
+                "source": str(rel),
+                "items": items,
+            })
+
+    payload = {
+        "version": 1,
+        "guardrails": guardrails,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2))
+    print(
+        f"Maintainer guardrails: {len(guardrails)} CLAUDE.md files contributed "
+        f"({sum(len(g['items']) for g in guardrails)} bullets total) "
+        f"-> {out_path.relative_to(root)}",
+        file=sys.stderr,
+    )
+
+
+# ---------------------------------------------------------------------------
 # inspect subcommand
 # ---------------------------------------------------------------------------
 
@@ -1849,6 +1966,8 @@ if __name__ == "__main__":
         cmd_merge(root)
     elif subcmd == "inject-scoped":
         cmd_inject_scoped(root)
+    elif subcmd == "extract-guardrails":
+        cmd_extract_guardrails(root)
     elif subcmd == "inspect":
         if len(sys.argv) < 4:
             print("Usage: inspect /path/to/repo <filename> [--query .key.path] [--list]", file=sys.stderr)
