@@ -173,14 +173,15 @@ export function AutoCode({ text }: { text: string }): ReactNode {
 
     const groups = m.groups || {}
     if (groups.objWithPath) {
-      // Object(path) shape — captured groups inside OBJECT_WITH_PATH_RE are at
-      // m[1] (identifier) and m[2] (path).
-      parts.push(makeTooltip(m[1], m[2], getKey()))
+      // Wrapping OBJECT_WITH_PATH_RE in a named group shifts its inner
+      // captures down by one: m[1] = the whole "<id> (<path>)" alternative,
+      // m[2] = identifier, m[3] = path.
+      parts.push(makeTooltip(m[2], m[3], getKey()))
     } else {
-      // Standalone long path — m[3] = directory prefix, m[4] = basename + optional :line.
-      // Visible chip carries the basename; popover carries the full path.
-      const dir = m[3] ?? ''
-      const basename = m[4] ?? ''
+      // STANDALONE_LONG_PATH_RE wrapped in a named group: m[4] = the whole
+      // "<dir><basename>" alternative, m[5] = directory prefix, m[6] = basename.
+      const dir = m[5] ?? ''
+      const basename = m[6] ?? ''
       parts.push(makeTooltip(basename, dir + basename, getKey()))
     }
     last = m.index! + m[0].length
