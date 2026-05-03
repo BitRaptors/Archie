@@ -76,33 +76,44 @@ const tooltipPopoverClassName =
   'group-hover:opacity-100 group-focus-within:opacity-100'
 
 /**
- * Matches the "<Identifier> (<path-with-extension>[:line[-line]])" shape:
+ * Matches the "<Identifier> (<path-with-/>)" shape — accepts both file paths
+ * (with extension and optional :line) AND directory paths (trailing slash):
  *   BabyWeatherAnalyticsManager (app/src/.../BabyWeatherAnalyticsManager.kt)
  *   LocationDataSource (app/src/.../LocationDataSource.kt:80)
  *   FooBar (lib/foo/bar.go:18-21)
+ *   AppStartService (app/src/main/.../appstart/)        ← directory ref
+ *   LocalisationManager (app/src/main/.../localisation/) ← directory ref
  *
  * Captured groups: 1 = identifier (rendered visibly), 2 = full path
- * (carried into the tooltip's title attribute, never rendered as text).
+ * (rendered into the hover popover, hidden inline).
+ *
+ * Constraint: the parenthesised content must contain at least one `/` and
+ * no spaces — keeps prose like "(no slashes here)" or "(bar) baz" out.
  */
 const OBJECT_WITH_PATH_RE =
-  /\b([A-Za-z_][A-Za-z0-9_]*)\s*\(([A-Za-z0-9_.\-/]*\/[A-Za-z0-9_.\-/]+\.[a-z]{1,5}(?::\d+(?:-\d+)?)?)\)/g
+  /\b([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)\s]*\/[^)\s]*)\)/g
 
 /**
- * Matches a standalone long file path in prose (no parens). Triggers when the
- * path has at least 3 directory segments before the basename — short paths
- * like `src/foo.kt` are left intact. Captured groups:
- *   1 = directory portion (rendered as the tooltip's prefix, hidden in chip)
- *   2 = basename + optional :line[-line] (rendered visibly as the chip text)
+ * Matches a standalone long path in prose (no parens). Triggers when the path
+ * has at least 3 directory segments before the basename — short paths like
+ * `src/foo.kt` are left intact. Accepts file paths AND directory paths
+ * (trailing slash, no basename).
+ *
+ * Captured groups:
+ *   1 = directory portion (rendered as the tooltip's prefix)
+ *   2 = basename + optional :line[-line], OR empty string for trailing-slash dirs
+ *       (rendered visibly as the chip text)
  *
  * Examples that match:
- *   app/src/main/java/com/.../FooViewModel.kt
- *   common/domain/repository/subscription/SubscriptionRepositoryImpl.kt:32
+ *   app/src/main/java/com/.../FooViewModel.kt           → chip "FooViewModel.kt"
+ *   common/.../SubscriptionRepositoryImpl.kt:32          → chip "...kt:32"
+ *   app/src/main/java/com/bitraptors/babyweather/util/   → chip "util/"
  * Examples that don't match (too short — kept inline as <code>):
  *   src/foo.kt
  *   util/Bar.kt
  */
 const STANDALONE_LONG_PATH_RE =
-  /\b((?:[A-Za-z0-9_.\-]+\/){3,})([A-Za-z0-9_.\-]+\.[a-z]{1,5}(?::\d+(?:-\d+)?)?)\b/g
+  /\b((?:[A-Za-z0-9_.\-]+\/){3,})([A-Za-z0-9_.\-]+(?:\.[a-z]{1,5}(?::\d+(?:-\d+)?)?)?\/?)/g
 
 /**
  * Build a tooltip element: a chip-styled trigger showing ``visible`` text,
