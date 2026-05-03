@@ -50,30 +50,40 @@ function wrapPlain(segment: string): string {
 
 // ── React helper (for plain text in JSX) ──
 
-import { createElement, Fragment, type ReactNode } from 'react'
+import { createElement, Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
+/** Loud chip-shaped inline code. Used for explicit `<code>` slots in card
+ *  chrome (scope badges, location cells, rule patterns) where the chip is the
+ *  whole content of its container. Dense in prose — see `codeInlineSubtleClassName`. */
 export const codeInlineClassName =
   'inline rounded-md bg-[#e4f1f5] px-1.5 py-0.5 font-mono text-[0.92em] font-semibold text-[#4b98ad] box-decoration-clone'
 
-/** Trigger chip — same chip styling, plus dotted underline + cursor:help to advertise the tooltip. */
+/** Quiet inline code for *prose*. AutoCode produces many of these per
+ *  paragraph — a Kotlin description can have 15+ PascalCase identifiers — so
+ *  the loud teal pill turns descriptions into a wall of chips. We keep
+ *  monospace + accent color (still distinguishes from prose) but drop the
+ *  background pill, padding, and rounded corners. */
+export const codeInlineSubtleClassName =
+  'inline font-mono text-[0.92em] font-semibold text-[#1a7d95]'
+
+/** Trigger chip — keeps the loud pill so the dotted underline + chip together
+ *  advertise that this token has a tooltip the user can hover. Tooltips are
+ *  rare enough per paragraph (1-3) that the loud styling reads as a signal,
+ *  not noise. */
 const codeWithTooltipTriggerClassName =
   codeInlineClassName +
   ' cursor-help underline decoration-dotted decoration-[#4b98ad]/40 underline-offset-2'
 
-/** Wrapper around the trigger that hosts the popover. Uses Tailwind `group`
- *  so the popover only appears on hover/focus. ``inline-block`` keeps the
- *  whole assembly inline with surrounding prose. */
-const codeWithTooltipWrapperClassName = 'group relative inline-block align-baseline'
-
-/** Popover bubble — hidden by default, shown on group-hover/focus. Wraps
- *  long paths instead of forcing horizontal overflow. */
-const tooltipPopoverClassName =
-  'pointer-events-none absolute left-0 top-full z-50 mt-1 ' +
-  'max-w-[min(36rem,calc(100vw-2rem))] break-all whitespace-normal ' +
+/** Popover bubble rendered through a portal at document.body. Fixed
+ *  positioning + portal escape every overflow-hidden ancestor and every
+ *  ancestor `.group:hover` selector that previously triggered every chip's
+ *  popover at once. */
+const tooltipPopoverPortalClassName =
+  'pointer-events-none fixed z-[1000] ' +
+  'max-w-[min(36rem,calc(100vw-1rem))] break-all whitespace-normal ' +
   'rounded-md bg-ink/95 px-2.5 py-1.5 ' +
-  'font-mono text-[11px] leading-snug text-papaya-50 shadow-lg ' +
-  'opacity-0 transition-opacity duration-100 ' +
-  'group-hover:opacity-100 group-focus-within:opacity-100'
+  'font-mono text-[11px] leading-snug text-papaya-50 shadow-lg'
 
 /**
  * Matches the "<Identifier> (<path-with-/>)" shape — accepts both file paths
@@ -94,10 +104,10 @@ const OBJECT_WITH_PATH_RE =
   /\b([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)\s]*\/[^)\s]*)\)/g
 
 /**
- * Matches a standalone long path in prose (no parens). Triggers when the path
- * has at least 3 directory segments before the basename — short paths like
- * `src/foo.kt` are left intact. Accepts file paths AND directory paths
- * (trailing slash, no basename).
+ * Matches a standalone slash path in prose (no parens). Any path with at
+ * least one directory segment collapses — both long file paths and short
+ * directory references like `sdk/location` or `app/CLAUDE.md`. The user's
+ * directive is "show only the object name", so short paths collapse too.
  *
  * Captured groups:
  *   1 = directory portion (rendered as the tooltip's prefix)
@@ -108,45 +118,179 @@ const OBJECT_WITH_PATH_RE =
  *   app/src/main/java/com/.../FooViewModel.kt           → chip "FooViewModel.kt"
  *   common/.../SubscriptionRepositoryImpl.kt:32          → chip "...kt:32"
  *   app/src/main/java/com/bitraptors/babyweather/util/   → chip "util/"
- * Examples that don't match (too short — kept inline as <code>):
- *   src/foo.kt
- *   util/Bar.kt
+ *   sdk/location                                         → chip "location"
+ *   app/CLAUDE.md                                        → chip "CLAUDE.md"
  */
 const STANDALONE_LONG_PATH_RE =
-  /\b((?:[A-Za-z0-9_.\-]+\/){3,})([A-Za-z0-9_.\-]+(?:\.[a-z]{1,5}(?::\d+(?:-\d+)?)?)?\/?)/g
+  /\b((?:[A-Za-z0-9_.\-]+\/)+)([A-Za-z0-9_.\-]+(?:\.[a-z]{1,5}(?::\d+(?:-\d+)?)?)?\/?)/g
 
 /**
- * Build a tooltip element: a chip-styled trigger showing ``visible`` text,
- * with a hover popover bearing the ``hoverPath`` content. Native title= is
- * also set as a fallback for non-pointer browsers and accessibility tools.
+ * Matches a dotted package — three or more all-lowercase segments separated
+ * by dots, e.g. `com.bitraptors.babyweather.util` or `hu.bitraptors.login`.
+ * The leaf segment is shown as the chip and the full package goes into the
+ * hover popover, mirroring how slash paths collapse. The all-lowercase
+ * constraint avoids eating `Foo.kt`-style filenames or `Map.Entry`-style
+ * type references.
+ *
+ * Captured groups:
+ *   1 = the entire dotted package (used as both match value and tooltip)
  */
-function makeTooltip(visible: string, hoverPath: string, key: string | number): ReactNode {
-  return createElement(
+const DOTTED_PACKAGE_RE =
+  /\b([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){2,})\b/g
+
+/**
+ * Chip-styled trigger that shows ``visible`` inline and reveals ``hover`` in
+ * a portaled popover on mouse-enter / focus. The popover is rendered at
+ * document.body via createPortal — that escapes every `overflow-hidden`
+ * ancestor (so edge-of-cell chips don't get clipped) and avoids the
+ * accidental "all popovers on" behavior that came from sharing the
+ * `.group:hover .group-hover\:opacity-100` selector with ancestor cards
+ * that themselves use `group`.
+ *
+ * Position is computed from the trigger's bounding rect, then clamped to
+ * the viewport with a small margin so the popover always lands on screen.
+ */
+function TooltipChip({ visible, hover, className }: { visible: string; hover: string; className?: string }): ReactNode {
+  const triggerRef = useRef<HTMLSpanElement | null>(null)
+  const popRef = useRef<HTMLSpanElement | null>(null)
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+
+  // Measure & clamp once the popover has rendered so we know its size.
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current || !popRef.current) return
+    const trig = triggerRef.current.getBoundingClientRect()
+    const pop = popRef.current.getBoundingClientRect()
+    const margin = 8
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
+    let left = trig.left
+    let top = trig.bottom + 4
+    // Horizontal clamp: keep within viewport.
+    if (left + pop.width + margin > vw) left = Math.max(margin, vw - pop.width - margin)
+    if (left < margin) left = margin
+    // Vertical flip: if no room below, place above.
+    if (top + pop.height + margin > vh && trig.top - pop.height - 4 > margin) {
+      top = trig.top - pop.height - 4
+    }
+    // If neither fits cleanly, keep below but clamp to viewport.
+    if (top + pop.height + margin > vh) top = Math.max(margin, vh - pop.height - margin)
+
+    setPos({ left, top })
+  }, [open, hover])
+
+  const show = () => setOpen(true)
+  const hide = () => {
+    setOpen(false)
+    setPos(null)
+  }
+
+  const trigger = createElement(
     'span',
-    { key, className: codeWithTooltipWrapperClassName },
-    createElement(
-      'span',
-      {
-        key: 'trigger',
-        className: codeWithTooltipTriggerClassName,
-        tabIndex: 0,
-        title: hoverPath,
-      },
-      visible,
-    ),
-    createElement(
-      'span',
-      { key: 'popover', className: tooltipPopoverClassName, role: 'tooltip' },
-      hoverPath,
-    ),
+    {
+      ref: triggerRef,
+      className: className
+        ? `${codeWithTooltipTriggerClassName} ${className}`
+        : codeWithTooltipTriggerClassName,
+      tabIndex: 0,
+      title: hover,
+      onMouseEnter: show,
+      onMouseLeave: hide,
+      onFocus: show,
+      onBlur: hide,
+    },
+    visible,
   )
+
+  const popover =
+    open && typeof document !== 'undefined'
+      ? createPortal(
+          createElement(
+            'span',
+            {
+              ref: popRef,
+              role: 'tooltip',
+              className: tooltipPopoverPortalClassName,
+              // Hide visually until measured so we don't flash at (0,0).
+              style: pos
+                ? { left: pos.left, top: pos.top }
+                : { left: -9999, top: -9999, opacity: 0 },
+            },
+            hover,
+          ),
+          document.body,
+        )
+      : null
+
+  return createElement(Fragment, null, trigger, popover)
+}
+
+/**
+ * Compute the "leaf" of a path or dotted package — the part a reader cares
+ * about (file/object name) when the rest is bookkeeping (directory chain or
+ * package qualifier).
+ *
+ *   app/src/main/foo/Bar.kt           → Bar.kt
+ *   app/src/main/foo/Bar.kt:32        → Bar.kt:32
+ *   app/src/.../localisation/         → localisation/
+ *   com.bitraptors.babyweather.util   → util
+ *   CLAUDE.md                         → CLAUDE.md   (already a leaf)
+ *
+ * Returns the input unchanged when there's nothing to strip.
+ */
+function pathLeaf(path: string): string {
+  const trimmed = path.trim()
+  if (!trimmed) return trimmed
+
+  if (trimmed.includes('/')) {
+    const hadTrailingSlash = trimmed.endsWith('/')
+    const body = hadTrailingSlash ? trimmed.slice(0, -1) : trimmed
+    const last = body.slice(body.lastIndexOf('/') + 1)
+    if (!last) return trimmed
+    return hadTrailingSlash ? last + '/' : last
+  }
+
+  // Dotted package — only collapse when there are 2+ dots (3+ segments) so
+  // ordinary `Foo.kt`-style filenames are left alone.
+  const parts = trimmed.split('.')
+  if (parts.length >= 3) {
+    return parts[parts.length - 1] || trimmed
+  }
+  return trimmed
+}
+
+/**
+ * Reusable view: render a single path or package as just its leaf, with the
+ * full string revealed on hover. The atomic primitive every section that
+ * shows file/object identifiers should reach for.
+ *
+ *   <PathChip path="app/src/main/foo/Bar.kt" />
+ *     → chip "Bar.kt", hover popover "app/src/main/foo/Bar.kt"
+ *
+ * When the input has no qualifier to strip (already a leaf), renders as a
+ * plain code chip with no tooltip — keeps short tokens unobtrusive.
+ */
+export function PathChip({ path, className }: { path: string; className?: string }): ReactNode {
+  if (!path) return null
+  const leaf = pathLeaf(path)
+  if (leaf === path) {
+    return createElement(
+      'code',
+      { className: className ? `${codeInlineClassName} ${className}` : codeInlineClassName },
+      path,
+    )
+  }
+  return createElement(TooltipChip, { visible: leaf, hover: path, className })
 }
 
 /** A merged regex that finds whichever path-collapse pattern matches first
  *  in a left-to-right scan. We tag the alternatives by named groups so the
  *  caller can dispatch on which one fired. */
 const COLLAPSE_RE = new RegExp(
-  '(?<objWithPath>' + OBJECT_WITH_PATH_RE.source + ')|(?<longPath>' + STANDALONE_LONG_PATH_RE.source + ')',
+  '(?<objWithPath>' + OBJECT_WITH_PATH_RE.source + ')' +
+    '|(?<longPath>' + STANDALONE_LONG_PATH_RE.source + ')' +
+    '|(?<dottedPkg>' + DOTTED_PACKAGE_RE.source + ')',
   'g',
 )
 
@@ -176,7 +320,7 @@ export function AutoCode({ text }: { text: string }): ReactNode {
       let bLast = 0
       for (const cm of between.matchAll(COMBINED_RE)) {
         if (cm.index! > bLast) parts.push(between.slice(bLast, cm.index!))
-        parts.push(createElement('code', { key: getKey(), className: codeInlineClassName }, cm[0]))
+        parts.push(createElement('code', { key: getKey(), className: codeInlineSubtleClassName }, cm[0]))
         bLast = cm.index! + cm[0].length
       }
       if (bLast < between.length) parts.push(between.slice(bLast))
@@ -184,16 +328,21 @@ export function AutoCode({ text }: { text: string }): ReactNode {
 
     const groups = m.groups || {}
     if (groups.objWithPath) {
-      // Wrapping OBJECT_WITH_PATH_RE in a named group shifts its inner
-      // captures down by one: m[1] = the whole "<id> (<path>)" alternative,
-      // m[2] = identifier, m[3] = path.
-      parts.push(makeTooltip(m[2], m[3], getKey()))
-    } else {
-      // STANDALONE_LONG_PATH_RE wrapped in a named group: m[4] = the whole
-      // "<dir><basename>" alternative, m[5] = directory prefix, m[6] = basename.
+      // OBJECT_WITH_PATH_RE inside a named group: identifier+path captures
+      // are at m[2] and m[3]. Visible identifier comes from prose, so we
+      // can't ask PathChip to derive it — we keep the explicit pairing.
+      parts.push(createElement(TooltipChip, { key: getKey(), visible: m[2], hover: m[3] }))
+    } else if (groups.longPath) {
+      // STANDALONE_LONG_PATH_RE inside a named group: m[5] = directory
+      // prefix, m[6] = basename. Delegate to PathChip so every collapse
+      // call site (prose paths, explicit lists) shares one component.
       const dir = m[5] ?? ''
       const basename = m[6] ?? ''
-      parts.push(makeTooltip(basename, dir + basename, getKey()))
+      parts.push(createElement(PathChip, { key: getKey(), path: dir + basename }))
+    } else {
+      // DOTTED_PACKAGE_RE inside a named group. PathChip handles the leaf
+      // computation for dotted packages too.
+      parts.push(createElement(PathChip, { key: getKey(), path: groups.dottedPkg! }))
     }
     last = m.index! + m[0].length
   }
@@ -202,7 +351,7 @@ export function AutoCode({ text }: { text: string }): ReactNode {
     let bLast = 0
     for (const cm of tail.matchAll(COMBINED_RE)) {
       if (cm.index! > bLast) parts.push(tail.slice(bLast, cm.index!))
-      parts.push(createElement('code', { key: getKey(), className: codeInlineClassName }, cm[0]))
+      parts.push(createElement('code', { key: getKey(), className: codeInlineSubtleClassName }, cm[0]))
       bLast = cm.index! + cm[0].length
     }
     if (bLast < tail.length) parts.push(tail.slice(bLast))

@@ -258,9 +258,13 @@ export default function ReportPage() {
     ...((commObj.patterns || []).map((p: any) => ({
       type: p.name || 'Pattern',
       protocol: 'pattern',
-      description: [p.description, p.when_to_use && `When: ${p.when_to_use}`]
-        .filter(Boolean)
-        .join(' '),
+      // Legacy shape: some old shares stored a flat `description`. New
+      // patterns split it into `how_it_works` (the body) and `when_to_use`
+      // (the trigger). Keep description as a fallback for legacy bundles;
+      // the section renders how_it_works / when_to_use as their own blocks.
+      description: p.description || '',
+      how_it_works: p.how_it_works,
+      when_to_use: p.when_to_use,
       // Carry the precondition fields through so the Communications card
       // can surface them. Wave 2 grounds these in code citations and
       // they're the load-bearing signal for misapplication detection at
@@ -268,7 +272,6 @@ export default function ReportPage() {
       applicable_when: p.applicable_when,
       do_not_apply_when: p.do_not_apply_when,
       scope: p.scope,
-      how_it_works: p.how_it_works,
     }))),
   ]
   // Integrations: `{service, purpose, integration_point}` in the blueprint.
