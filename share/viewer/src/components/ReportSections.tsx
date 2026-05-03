@@ -1170,7 +1170,7 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
             (Array.isArray(g.rationale) && g.rationale.length > 0);
           
           return (
-            <div key={i} className={cn("rounded-3xl border overflow-hidden transition-all hover:shadow-xl", theme.surface.panel)}>
+            <div key={i} className={cn("rounded-3xl border overflow-hidden transition-all hover:shadow-xl min-w-0", theme.surface.panel)}>
               <div className={cn(
                 "p-6 flex items-center justify-between bg-white/40",
                 hasContent && "border-b border-papaya-400/20"
@@ -1208,20 +1208,22 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                   )}
 
                   {g.applicable_when && (
-                    <div>
+                    <div className="min-w-0">
                       <span className="text-[10px] font-black text-teal uppercase tracking-[0.2em] block mb-2">Applicable when</span>
-                      <p className="text-sm text-ink/80 leading-relaxed"><AutoCode text={g.applicable_when} /></p>
+                      <p className="text-sm text-ink/80 leading-relaxed break-words [&_code]:break-all"><AutoCode text={g.applicable_when} /></p>
                     </div>
                   )}
 
                   {Array.isArray(g.do_not_apply_when) && g.do_not_apply_when.length > 0 && (
-                    <div>
+                    <div className="min-w-0">
                       <span className="text-[10px] font-black text-tangerine uppercase tracking-[0.2em] block mb-2">Do NOT apply when</span>
                       <ul className="space-y-2 text-sm text-ink/80">
                         {g.do_not_apply_when.map((d: any, j: number) => (
-                          <li key={j} className="flex items-start gap-3">
+                          <li key={j} className="flex items-start gap-3 min-w-0">
                             <div className="w-1.5 h-1.5 rounded-full bg-tangerine mt-2 shrink-0" />
-                            <span><AutoCode text={typeof d === 'string' ? d : JSON.stringify(d)} /></span>
+                            <span className="flex-1 min-w-0 break-words [&_code]:break-all">
+                              <AutoCode text={typeof d === 'string' ? d : JSON.stringify(d)} />
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -1496,7 +1498,7 @@ export function CommunicationsSection({ communications }: { communications: any[
       <SectionHeader title="Communications" icon={Activity} />
       <div className="grid gap-4 md:grid-cols-2">
         {communications.map((c: any, i: number) => (
-          <div key={i} className={cn("p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg", theme.surface.panel)}>
+          <div key={i} className={cn("p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg min-w-0 overflow-hidden", theme.surface.panel)}>
             <div className="flex items-center gap-2 mb-4">
                <div className="p-2 rounded-xl bg-ink/5">
                  <Zap className="w-4 h-4 text-tangerine" />
@@ -1526,20 +1528,22 @@ export function CommunicationsSection({ communications }: { communications: any[
               )}
 
               {c.applicable_when && (
-                <div className="pt-3 border-t border-teal/10">
+                <div className="pt-3 border-t border-teal/10 min-w-0">
                   <span className="text-[9px] font-black uppercase tracking-widest text-teal block mb-1">Applicable when</span>
-                  <p className="text-xs text-ink/75 leading-relaxed"><AutoCode text={c.applicable_when} /></p>
+                  <p className="text-xs text-ink/75 leading-relaxed break-words [&_code]:break-all"><AutoCode text={c.applicable_when} /></p>
                 </div>
               )}
 
               {Array.isArray(c.do_not_apply_when) && c.do_not_apply_when.length > 0 && (
-                <div className="pt-3 border-t border-tangerine/10">
+                <div className="pt-3 border-t border-tangerine/10 min-w-0">
                   <span className="text-[9px] font-black uppercase tracking-widest text-tangerine block mb-2">Do NOT apply when</span>
                   <ul className="space-y-1.5 text-xs text-ink/75">
                     {c.do_not_apply_when.map((d: string, j: number) => (
-                      <li key={j} className="flex items-start gap-2">
-                        <span className="text-tangerine mt-0.5">•</span>
-                        <AutoCode text={d} />
+                      <li key={j} className="flex items-start gap-2 min-w-0">
+                        <span className="text-tangerine mt-0.5 shrink-0">•</span>
+                        <span className="flex-1 min-w-0 break-words leading-relaxed [&_code]:break-all">
+                          <AutoCode text={d} />
+                        </span>
                       </li>
                     ))}
                   </ul>
