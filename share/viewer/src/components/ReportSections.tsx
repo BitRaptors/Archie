@@ -1161,6 +1161,8 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
           const hasContent =
             description ||
             code ||
+            g.applicable_when ||
+            (Array.isArray(g.do_not_apply_when) && g.do_not_apply_when.length > 0) ||
             (Array.isArray(g.steps) && g.steps.length > 0) ||
             (Array.isArray(g.tips) && g.tips.length > 0) ||
             (Array.isArray(g.libraries) && g.libraries.length > 0) ||
@@ -1179,11 +1181,22 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                   </div>
                   <h3 className="font-bold text-lg text-ink leading-tight">{g.capability || g.category || g.title || 'Guideline'}</h3>
                 </div>
-                {g.category && g.capability && (
-                  <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-ink/30 border-papaya-400">
-                    {g.category}
-                  </Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {g.category && g.capability && (
+                    <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-ink/30 border-papaya-400">
+                      {g.category}
+                    </Badge>
+                  )}
+                  {Array.isArray(g.scope) && g.scope.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {g.scope.map((s: string, j: number) => (
+                        <Badge key={j} variant="outline" className="text-[10px] font-mono text-teal border-teal/20 bg-teal/5">
+                          {s}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {hasContent && (
@@ -1191,6 +1204,27 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                   {description && (
                     <div className="prose prose-sm max-w-none text-ink/70 leading-relaxed italic border-l-2 border-teal/20 pl-6">
                       <AutoCode text={typeof description === 'string' ? description : JSON.stringify(description)} />
+                    </div>
+                  )}
+
+                  {g.applicable_when && (
+                    <div>
+                      <span className="text-[10px] font-black text-teal uppercase tracking-[0.2em] block mb-2">Applicable when</span>
+                      <p className="text-sm text-ink/80 leading-relaxed"><AutoCode text={g.applicable_when} /></p>
+                    </div>
+                  )}
+
+                  {Array.isArray(g.do_not_apply_when) && g.do_not_apply_when.length > 0 && (
+                    <div>
+                      <span className="text-[10px] font-black text-tangerine uppercase tracking-[0.2em] block mb-2">Do NOT apply when</span>
+                      <ul className="space-y-2 text-sm text-ink/80">
+                        {g.do_not_apply_when.map((d: any, j: number) => (
+                          <li key={j} className="flex items-start gap-3">
+                            <div className="w-1.5 h-1.5 rounded-full bg-tangerine mt-2 shrink-0" />
+                            <span><AutoCode text={typeof d === 'string' ? d : JSON.stringify(d)} /></span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
 
@@ -1477,7 +1511,41 @@ export function CommunicationsSection({ communications }: { communications: any[
             
             <div className="space-y-4">
               {c.description && <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={c.description} /></p>}
-              
+
+              {Array.isArray(c.scope) && c.scope.length > 0 && (
+                <div>
+                  <span className="text-[9px] font-black uppercase text-ink/30 block mb-2">Scope</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {c.scope.map((s: string, j: number) => (
+                      <Badge key={j} variant="outline" className="text-[10px] font-mono text-teal border-teal/20 bg-teal/5">
+                        {s}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {c.applicable_when && (
+                <div className="pt-3 border-t border-teal/10">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-teal block mb-1">Applicable when</span>
+                  <p className="text-xs text-ink/75 leading-relaxed"><AutoCode text={c.applicable_when} /></p>
+                </div>
+              )}
+
+              {Array.isArray(c.do_not_apply_when) && c.do_not_apply_when.length > 0 && (
+                <div className="pt-3 border-t border-tangerine/10">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-tangerine block mb-2">Do NOT apply when</span>
+                  <ul className="space-y-1.5 text-xs text-ink/75">
+                    {c.do_not_apply_when.map((d: string, j: number) => (
+                      <li key={j} className="flex items-start gap-2">
+                        <span className="text-tangerine mt-0.5">•</span>
+                        <AutoCode text={d} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-papaya-400/20">
                 {c.sender && (
                   <div>

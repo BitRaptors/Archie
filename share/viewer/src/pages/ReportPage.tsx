@@ -261,6 +261,14 @@ export default function ReportPage() {
       description: [p.description, p.when_to_use && `When: ${p.when_to_use}`]
         .filter(Boolean)
         .join(' '),
+      // Carry the precondition fields through so the Communications card
+      // can surface them. Wave 2 grounds these in code citations and
+      // they're the load-bearing signal for misapplication detection at
+      // edit time — dropping them would silently strip the contract.
+      applicable_when: p.applicable_when,
+      do_not_apply_when: p.do_not_apply_when,
+      scope: p.scope,
+      how_it_works: p.how_it_works,
     }))),
   ]
   // Integrations: `{service, purpose, integration_point}` in the blueprint.
