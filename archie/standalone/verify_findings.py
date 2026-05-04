@@ -117,14 +117,31 @@ def _read_findings_store(archie_dir: Path) -> list[dict]:
 _FILE_REF_RE = re.compile(r"[A-Za-z0-9_./\-]+\.[a-zA-Z]{1,5}(?::\d+(?:-\d+)?)?")
 
 
+def _looks_like_path(s: str) -> bool:
+    """Heuristic: treat a token as a file path if it contains a slash OR
+    matches the file-with-extension regex. Rejects bare prose like
+    "the function does X" — without this gate, every quoted sentence would
+    end up in the file list and burn a Haiku call on garbage."""
+    if not s:
+        return False
+    cleaned = s.split(":")[0].strip()
+    if not cleaned:
+        return False
+    if "/" in cleaned:
+        return True
+    return _FILE_REF_RE.fullmatch(cleaned) is not None
+
+
 def _extract_file_paths(finding: dict) -> list[str]:
     """Collect every file path referenced in triggering_call_site, evidence,
-    and applies_to. Deduped, line numbers stripped."""
+    and applies_to. Deduped, line numbers stripped, prose filtered out."""
     seen: set[str] = set()
     out: list[str] = []
 
-    def _add(p: str) -> None:
-        p = p.split(":")[0].strip()
+    def _add(raw: str) -> None:
+        if not _looks_like_path(raw):
+            return
+        p = raw.split(":")[0].strip()
         if p and p not in seen:
             seen.add(p)
             out.append(p)
