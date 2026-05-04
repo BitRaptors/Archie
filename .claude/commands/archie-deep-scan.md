@@ -1113,9 +1113,17 @@ Tell the Reasoning agent:
 > What this codebase does NOT do. For each item, optionally note which decision makes it out of scope.
 >
 > ### 6. Findings (primary: new; secondary: upgrade existing)
-> Findings describe **instances**: concrete problems observed in specific files.
+> Findings describe **instances**: concrete problems observed in specific files. **Pitfalls** describe **classes**: architectural traps with no current call-site instance (yet) but rooted in a decision/pattern that makes them likely. The two streams are not interchangeable — mis-filing a class-of-problem as a finding tells a maintainer to "fix this now" when there's nothing to fix, eroding trust in the report.
 >
-> **Primary goal — emit NEW findings.** You have the overall picture (all Wave 1 output plus source files). Your highest-leverage work is surfacing problems that are NOT already in findings.json — things only visible from the whole-system view: cross-component coupling, pattern breakdowns that individual agents miss, constraint violations implied by the decision chain, gaps between what the blueprint claims and what the code does. Spend the bulk of your cognitive budget here. For each new finding: next-free `f_NNNN` id, `first_seen` = today, `confirmed_in_scan` = 1, `depth: "canonical"`, `source: "deep:synthesis"`.
+> **REQUIRED — triggering_call_site (new field, blocks emission as a finding).** Every finding MUST carry a `triggering_call_site` string: a verbatim code quote at `<file>:<line>` showing **a real caller in the corpus that actually triggers the failure mode under current code**. Not a function whose signature *could* trigger it — a caller whose actual argument or surrounding context demonstrates the problem firing right now. If you cannot quote such a call site (because the cited invariant is universally enforced, the suspect helper is only ever called via a tx-bound adapter, the missing wrapper exists at every call site, etc.), the entry is a **risk class**, not a current problem.
+>
+> Risk classes go into `pitfalls` (forward-looking, durable in the blueprint), NOT `findings` (active, fix-this-now in `findings.json`). Make the choice **explicitly at emission time**: ask *"can I quote a verbatim caller in this corpus that fires the failure mode?"* — yes ⇒ finding; no ⇒ pitfall. The viewer renders findings under "Architectural Problems" (treated as a triage queue) and pitfalls under "Pitfalls" (forward-looking guardrails) — mis-filing degrades both signals.
+>
+> The `f_0001` shape we are guarding against: AI sees an AGENTS.md mandate, finds two helpers with the suspect signature, lists a fallback mechanism that *would* trigger silent failure if the helpers were misused — but never walks one level out to verify whether any caller actually misuses them. Every fact is true; the conclusion is unverified. The triggering-call-site rule forces that verification step at synthesis time.
+>
+> **APPROACH — anchor synthesis to documented invariants.** Instead of speculatively asking *"what could go wrong?"*, walk the documented invariants in AGENTS.md, root `CLAUDE.md`, per-folder `CLAUDE.md` (Anti-Patterns and Patterns sections — `.archie/maintainer_guardrails.json` if available), and `blueprint.pitfalls`. For each invariant, ask: *"is there code in this corpus that violates it? Quote it verbatim."* If yes ⇒ that quote is the `triggering_call_site` of a finding. If the invariant is real but uniformly enforced ⇒ no finding (and no need to re-emit a pitfall already in the store). This adversarial framing converts the loose "find problems" task into a falsifiable evidence-gathering pass.
+>
+> **Primary goal — emit NEW findings.** You have the overall picture (all Wave 1 output plus source files). Your highest-leverage work is surfacing problems that are NOT already in findings.json — things only visible from the whole-system view: cross-component coupling, pattern breakdowns that individual agents miss, constraint violations implied by the decision chain, gaps between what the blueprint claims and what the code does. Spend the bulk of your cognitive budget here. For each new finding: next-free `f_NNNN` id, `first_seen` = today, `confirmed_in_scan` = 1, `depth: "canonical"`, `source: "deep:synthesis"`, AND a non-empty `triggering_call_site`.
 >
 > **Novelty check before emitting.** Before you add a "new" finding, verify it is genuinely new: scan the existing store for any entry with overlapping `problem_statement` meaning OR overlapping `applies_to` files. If the same problem is already tracked under a different wording, DO NOT mint a new id — instead upgrade the existing entry (see below). A new finding must describe something the store doesn't already cover.
 >
@@ -1193,6 +1201,7 @@ Tell the Reasoning agent:
 >       "id": "f_NNNN",
 >       "problem_statement": "",
 >       "evidence": [],
+>       "triggering_call_site": "<rel/path/to/file.ext>:<line>\\n<verbatim code quote of the caller that fires the failure mode here>",
 >       "root_cause": "",
 >       "fix_direction": ["step 1", "step 2", "step 3"],
 >       "severity": "error|warn|info",

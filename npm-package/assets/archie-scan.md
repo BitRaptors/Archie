@@ -466,6 +466,7 @@ A run whose output is dominated by reconfirmations is a valid result only when t
 
 - `problem_statement` is specific. "Code is complex" is not a finding; "3 route handlers exceed 500 SLOC with cyclomatic complexity > 20" is.
 - `evidence` is non-empty and concrete: file paths with line numbers, counts, pattern observations. No `evidence` → drop the finding.
+- `triggering_call_site` is non-empty and quotes a verbatim caller in the corpus that ACTUALLY fires the failure mode under current code. **Not** a function whose signature *could* trigger it — a caller whose actual argument or surrounding context demonstrates the problem firing right now. If you cannot quote such a site (because the suspect helper is only ever called via a tx-bound adapter, the missing wrapper exists at every call site, etc.), the entry is a **risk class** — emit it as a *pitfall* via the deep-scan path instead of a finding here. Findings without a `triggering_call_site` are silently dropped by the verifier downstream.
 - `root_cause` names the architectural decision, pattern choice, or constraint driving the problem. "Needs refactoring" is not a root cause.
 - `fix_direction` is actionable and tactical (single sentence).
 
@@ -480,6 +481,7 @@ No upper cap on `findings.json` — rank-clip happens only at render time in `sc
   "id": "f_NNNN",
   "problem_statement": "One sentence, specific.",
   "evidence": ["src/file.py:42", "pattern observed in 7 modules", "..."],
+  "triggering_call_site": "src/file.py:84\n<verbatim code quote of the caller that fires the failure mode here>",
   "root_cause": "Names a decision/pattern/constraint, specific to this codebase.",
   "fix_direction": "Single tactical sentence.",
   "severity": "error | warn | info",
@@ -492,6 +494,8 @@ No upper cap on `findings.json` — rank-clip happens only at render time in `sc
   "status": "active"
 }
 ```
+
+**`triggering_call_site` — finding-vs-pitfall classification gate.** This is a required, non-empty field for any finding. It must contain a verbatim quote of code from the corpus that ACTUALLY triggers the failure mode under current code — typically the file path, line number, and a short verbatim code snippet showing the caller whose argument or surrounding context demonstrates the problem firing right now. Not "the helper signature could trigger it"; not "AGENTS.md mandates X"; a real caller in current code that fires the failure. If you cannot quote one (because the suspect helper is only ever called via a tx-bound adapter, the missing wrapper exists at every call site, the cited invariant is universally enforced, etc.), the entry is a **risk class**, not a current problem — *do not emit it as a finding here*. Risk classes belong in `pitfalls` (deep-scan path); the verifier downstream silently drops findings without a real `triggering_call_site`.
 
 `source` maps to the agent: Agent A → `scan:structure`, Agent B → `scan:health`, Agent C → `scan:patterns`.
 
