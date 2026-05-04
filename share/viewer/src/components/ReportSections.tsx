@@ -133,7 +133,8 @@ function hasRichShape(f: Finding): boolean {
   return Boolean(
     (f.evidence && f.evidence.length > 0) ||
     f.root_cause ||
-    (Array.isArray(f.fix_direction) ? f.fix_direction.length > 0 : Boolean(f.fix_direction))
+    (Array.isArray(f.fix_direction) ? f.fix_direction.length > 0 : Boolean(f.fix_direction)) ||
+    f.triggering_call_site
   )
 }
 
@@ -216,6 +217,12 @@ function RichFindingBody({ f }: { f: Finding }) {
   return (
     <div className="mt-3 space-y-3">
       {f.description && <Prose value={f.description} className="text-sm text-ink/70 leading-relaxed" />}
+      {f.triggering_call_site && (
+        <div className="rounded-2xl border border-tangerine/20 bg-tangerine/5 p-3">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-tangerine/70 mb-1.5">Triggering call site</div>
+          <pre className="text-xs font-mono text-ink/80 leading-snug whitespace-pre-wrap break-words [&_code]:break-all">{f.triggering_call_site}</pre>
+        </div>
+      )}
       {f.evidence && f.evidence.length > 0 && (
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-1.5">Evidence</div>
@@ -258,7 +265,9 @@ function FindingMeta({ f }: { f: Finding }) {
   if (typeof f.confidence === 'number') bits.push(`confidence ${f.confidence}`)
   if (f.applies_to && f.applies_to.length > 0) bits.push(`applies to ${f.applies_to.length} location${f.applies_to.length === 1 ? '' : 's'}`)
   if (f.pitfall_id) bits.push(`pitfall ${f.pitfall_id}`)
-  if (bits.length === 0 && (!f.applies_to || f.applies_to.length === 0)) return null
+  if (f.pending_demotion) bits.push('pending demotion (verifier flagged once)')
+  if (f.pending_promotion) bits.push('pending promotion (verifier confirmed once)')
+  if (bits.length === 0 && !f.last_verdict_reason && (!f.applies_to || f.applies_to.length === 0)) return null
   return (
     <div className="mt-3 pt-3 border-t border-ink/5 text-[11px] text-ink/40 flex flex-wrap gap-x-3 gap-y-1">
       {bits.map((b, i) => (
@@ -274,6 +283,12 @@ function FindingMeta({ f }: { f: Finding }) {
               </li>
             ))}
           </ul>
+        </details>
+      )}
+      {f.last_verdict_reason && (
+        <details className="basis-full mt-1">
+          <summary className="cursor-pointer text-ink/40 hover:text-ink/60">verifier note</summary>
+          <p className="mt-1 text-ink/55 italic leading-relaxed">{f.last_verdict_reason}</p>
         </details>
       )}
     </div>

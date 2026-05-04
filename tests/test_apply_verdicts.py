@@ -111,6 +111,16 @@ def test_keep_on_dropped_finding_re_emerges_immediately() -> None:
     assert "dropped_at" not in out
 
 
+def test_demote_on_dropped_finding_stays_dropped() -> None:
+    """Contradictory verdict — drop already said premise unsound; a later
+    demote verdict shouldn't accidentally re-activate the finding via the
+    `unknown prior status` fallback. Stay dropped."""
+    f = {"id": "f_1", "status": "dropped", "dropped_at": "earlier"}
+    out = apply_verdicts._apply_one(f, _verdict("demote"), set(), NOW)
+    assert out["status"] == "dropped"
+    assert out.get("dropped_at") == "earlier"
+
+
 # ---------------------------------------------------------------------------
 # _apply_one — active + demote (hysteresis)
 # ---------------------------------------------------------------------------

@@ -158,11 +158,15 @@ def _apply_one(finding: dict, verdict: dict, recent_files: set[str], now: str) -
             out.pop("pending_promotion", None)
         return out
 
-    # Re-emergence: a previously-dropped finding that the verifier now
-    # confirms is real. Reactivate.
-    if prior_status == "dropped" and v == "keep":
-        out["status"] = "active"
-        out.pop("dropped_at", None)
+    # Dropped is sticky except for `keep` (re-emergence — verifier now
+    # confirms it's real, something changed in the corpus). A `demote`
+    # verdict on a dropped finding is contradictory (drop already said
+    # "premise unsound") and is ignored — stay dropped.
+    if prior_status == "dropped":
+        if v == "keep":
+            out["status"] = "active"
+            out.pop("dropped_at", None)
+        # else: stay dropped, no transition
         return out
 
     # Resolved is sticky unless the verifier says the failure mode is

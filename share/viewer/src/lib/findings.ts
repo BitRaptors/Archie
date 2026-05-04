@@ -29,6 +29,19 @@ export interface Finding {
   confidence?: number
   status?: string
   pitfall_id?: string
+  // Verifier-pipeline fields. `triggering_call_site` is the verbatim caller
+  // quote the synthesizer is required to provide — surfacing it tells the
+  // user exactly where the failure fires. The verdict_* fields are the
+  // backward-check audit trail; `pending_*` flags surface borderline
+  // entries the hysteresis layer is tracking but hasn't transitioned yet.
+  triggering_call_site?: string
+  verdict_history?: string[]
+  last_verdict_reason?: string
+  last_verdict_confidence?: number
+  pending_demotion?: boolean
+  pending_promotion?: boolean
+  demoted_at?: string
+  dropped_at?: string
 }
 
 /** Normalize a structured finding (from findings.json) into the Finding shape
@@ -51,6 +64,18 @@ export function normalizeStructuredFinding(raw: any): Finding {
     confidence: typeof raw?.confidence === 'number' ? raw.confidence : undefined,
     status: raw?.status || undefined,
     pitfall_id: raw?.pitfall_id || undefined,
+    triggering_call_site: raw?.triggering_call_site
+      ? String(raw.triggering_call_site)
+      : undefined,
+    verdict_history: Array.isArray(raw?.verdict_history) ? raw.verdict_history.map(String) : undefined,
+    last_verdict_reason: raw?.last_verdict_reason ? String(raw.last_verdict_reason) : undefined,
+    last_verdict_confidence: typeof raw?.last_verdict_confidence === 'number'
+      ? raw.last_verdict_confidence
+      : undefined,
+    pending_demotion: raw?.pending_demotion === true,
+    pending_promotion: raw?.pending_promotion === true,
+    demoted_at: raw?.demoted_at ? String(raw.demoted_at) : undefined,
+    dropped_at: raw?.dropped_at ? String(raw.dropped_at) : undefined,
   }
 }
 

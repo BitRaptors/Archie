@@ -566,7 +566,8 @@ The report should include:
 ## Findings
 [ONLY findings with `status: "active"` after 4b-verify ran. Findings with `status: "demoted"` (verifier-routed to risk class, no current instance) and `status: "dropped"` (verifier rejected premise) MUST be filtered out — they belong in the verifier-suppression line below, not the user-facing findings list.]
 [Within the active set: rank by severity then confidence]
-[Each finding: what's wrong, which file, evidence from the code, why it matters]
+[Each finding: what's wrong, the verbatim `triggering_call_site` (where the failure fires — render as a fenced code block right under the title), evidence from the code, why it matters. The triggering_call_site quote is the highest-signal field — it tells the user exactly which line to look at — so include it prominently.]
+[If a finding carries `pending_demotion: true`, append a small italic note: *"verifier flagged this for demotion once; awaiting confirmation next scan."* (and similarly for `pending_promotion`). This surfaces borderline cases the hysteresis layer is tracking.]
 [Mark which findings are NEW vs. RECURRING vs. RESOLVED since last scan]
 
 If `.archie/findings.json` carries any entries with `status: "demoted"` or `status: "dropped"` from this scan's `apply_verdicts.py` run (look for `demoted_at` / `dropped_at` matching today's timestamp), append a single line under the Findings heading:
