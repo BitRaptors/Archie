@@ -1264,6 +1264,15 @@ python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
 
 This single command: merges the Reasoning agent's output into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
 
+**Backward-check the findings against actual code.** After finalize writes `.archie/findings.json`, run the Haiku verifier and apply hysteresis. The verifier reads each finding's required `triggering_call_site` field, walks one level out from the cited caller, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (a file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
+
+```bash
+python3 .archie/verify_findings.py "$PROJECT_ROOT"
+python3 .archie/apply_verdicts.py "$PROJECT_ROOT"
+```
+
+Both scripts are idempotent and graceful: if the claude CLI is unreachable, every Haiku call times out, or `findings.json` is empty, both no-op cleanly. Findings whose status flips to `demoted` or `dropped` here will be filtered out of any user-facing rendering automatically (status-driven filter) — only `status: active` reaches the report.
+
 After finalize completes, regenerate the dependency graph (the blueprint now has component definitions, which enables cross-component edge detection):
 
 ```bash

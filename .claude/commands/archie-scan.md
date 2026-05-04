@@ -517,6 +517,17 @@ No upper cap on `findings.json` — rank-clip happens only at render time in `sc
 
 Write to `.archie/findings.json`. `scanned_at` must match the date/time you compute in 4c. `scan_count` matches `blueprint.meta.scan_count` after 4a evolved it.
 
+### 4b-verify: Backward-check findings against actual code
+
+After 4b writes the candidate findings store, run the Haiku verifier + apply hysteresis. The verifier reads each finding's `triggering_call_site` (the verbatim caller quote the synthesizer was required to produce in the schema), reads the cited files, walks one level out, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
+
+```bash
+python3 .archie/verify_findings.py "$PWD"
+python3 .archie/apply_verdicts.py "$PWD"
+```
+
+Both scripts are idempotent; if `verify_findings.py` couldn't run (claude CLI missing, every Haiku call timed out, etc.) `apply_verdicts.py` no-ops cleanly. Findings whose status flips to `demoted` or `dropped` here will be filtered out of 4c's "Findings" section automatically — only `status: active` shows up in the user-facing report.
+
 ### 4c: Write Scan Report
 
 Get the current date/time and scan number from the blueprint (`meta.scan_count`):
@@ -553,9 +564,14 @@ The report should include:
 [functions that got more complex since last scan]
 
 ## Findings
-[ALL findings from agents A, B, C — ranked by severity then confidence]
+[ONLY findings with `status: "active"` after 4b-verify ran. Findings with `status: "demoted"` (verifier-routed to risk class, no current instance) and `status: "dropped"` (verifier rejected premise) MUST be filtered out — they belong in the verifier-suppression line below, not the user-facing findings list.]
+[Within the active set: rank by severity then confidence]
 [Each finding: what's wrong, which file, evidence from the code, why it matters]
 [Mark which findings are NEW vs. RECURRING vs. RESOLVED since last scan]
+
+If `.archie/findings.json` carries any entries with `status: "demoted"` or `status: "dropped"` from this scan's `apply_verdicts.py` run (look for `demoted_at` / `dropped_at` matching today's timestamp), append a single line under the Findings heading:
+
+> *Verifier suppressed N candidate(s) this scan: M demoted to risk-class (no current call-site instance), K dropped (premise unsound for this codebase).*
 
 ## Blueprint Evolution
 [What changed in the blueprint this scan — new components, updated confidence, resolved pitfalls, new rules added]
