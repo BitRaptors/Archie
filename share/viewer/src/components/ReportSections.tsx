@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 
 import type { Finding } from '@/lib/findings'
 import { isSemanticDupFinding, normalizePitfall, severityColor } from '@/lib/findings'
-import { AutoCode, PathChip, codeInlineClassName } from '@/lib/autocode'
+import { AutoCode, PathChip, Prose, codeInlineClassName } from '@/lib/autocode'
 
 export function WorkspaceTopologySection({ topology }: { topology: any }) {
   const members: any[] = Array.isArray(topology?.members) ? topology.members : []
@@ -188,14 +188,13 @@ export function FindingsList({
                 <RichFindingBody f={f} />
               ) : (
                 f.description && (
-                  <p
+                  <Prose
+                    value={f.description}
                     className={cn(
                       'text-sm text-ink/60 mt-1 leading-relaxed',
                       truncate && 'line-clamp-3'
                     )}
-                  >
-                    <AutoCode text={f.description} />
-                  </p>
+                  />
                 )
               )}
               {rich && <FindingMeta f={f} />}
@@ -216,11 +215,7 @@ function RichFindingBody({ f }: { f: Finding }) {
   const fixList = Array.isArray(fix) ? fix : (typeof fix === 'string' && fix ? [fix] : [])
   return (
     <div className="mt-3 space-y-3">
-      {f.description && (
-        <p className="text-sm text-ink/70 leading-relaxed">
-          <AutoCode text={f.description} />
-        </p>
-      )}
+      {f.description && <Prose value={f.description} className="text-sm text-ink/70 leading-relaxed" />}
       {f.evidence && f.evidence.length > 0 && (
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-1.5">Evidence</div>
@@ -237,7 +232,7 @@ function RichFindingBody({ f }: { f: Finding }) {
       {f.root_cause && (
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-1.5">Root Cause</div>
-          <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={f.root_cause} /></p>
+          <Prose value={f.root_cause} className="text-sm text-ink/70 leading-relaxed" />
         </div>
       )}
       {fixList.length > 0 && (
@@ -846,7 +841,7 @@ export function ComponentsSection({ components }: { components: any[] }) {
               <div className="px-6 pb-6 pt-2 border-t border-papaya-400/30 bg-white/30 backdrop-blur-sm space-y-6">
                 {c.responsibility && (
                    <div className="prose prose-sm max-w-none text-ink/70 leading-relaxed italic">
-                     <AutoCode text={c.responsibility} />
+                     <Prose value={c.responsibility} />
                    </div>
                 )}
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -887,11 +882,7 @@ export function TradeOffsSection({ tradeoffs }: { tradeoffs: any[] }) {
       <div className="grid gap-4">
         {tradeoffs.map((t: any, i: number) => (
           <div key={i} className={cn("p-6 rounded-3xl border transition-all hover:bg-white/50", theme.surface.panel)}>
-            {t.accept && (
-              <p className="text-lg font-bold text-ink mb-2">
-                <AutoCode text={t.accept} />
-              </p>
-            )}
+            {t.accept && <Prose value={t.accept} className="text-lg font-bold text-ink mb-2" />}
             {t.benefit && (
               <div className="flex gap-2 items-start text-sm text-ink/70 mb-3">
                 <Zap className="w-4 h-4 text-tangerine shrink-0 mt-0.5" />
@@ -947,24 +938,24 @@ export function KeyDecisionsSection({ decisions }: { decisions: any[] }) {
               <div className="w-2 h-2 rounded-full bg-tangerine" />
               <h3 className="font-bold text-xl text-ink leading-none"><AutoCode text={d.title} /></h3>
             </div>
-            {d.chosen && <p className="text-lg text-ink font-medium mb-4"><AutoCode text={d.chosen} /></p>}
+            {d.chosen && <Prose value={d.chosen} className="text-lg text-ink font-medium mb-4" />}
             {d.rationale && (
               <div className="bg-white/50 border border-papaya-400 p-4 rounded-2xl mb-6">
                 <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest block mb-2">Rationale</span>
-                <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={d.rationale} /></p>
+                <Prose value={d.rationale} className="text-sm text-ink/70 leading-relaxed" />
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {d.forced_by && (
                 <div>
                   <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest block mb-1">Forced by</span>
-                  <p className="text-sm font-semibold text-ink/80"><AutoCode text={d.forced_by} /></p>
+                  <Prose value={d.forced_by} className="text-sm font-semibold text-ink/80" />
                 </div>
               )}
               {d.enables && (
                 <div>
                   <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest block mb-1">Enables</span>
-                  <p className="text-sm font-semibold text-ink/80"><AutoCode text={d.enables} /></p>
+                  <Prose value={d.enables} className="text-sm font-semibold text-ink/80" />
                 </div>
               )}
             </div>
@@ -1112,7 +1103,7 @@ export function ArchRulesSection({ filePlacement, naming }: { filePlacement: any
                       )}
                       {r.location && <PathChip path={r.location} className="text-xs" />}
                     </div>
-                    {r.description && <p className="text-sm text-ink/70"><AutoCode text={r.description} /></p>}
+                    {r.description && <Prose value={r.description} className="text-sm text-ink/70" />}
                     {r.naming_pattern && (
                       <div className="mt-2 flex items-center gap-2">
                          <span className="text-[9px] font-black uppercase text-ink/30">Pattern</span>
@@ -1136,7 +1127,7 @@ export function ArchRulesSection({ filePlacement, naming }: { filePlacement: any
                      <span className="text-sm font-bold text-ink">{r.scope}</span>
                      <code className={cn(codeInlineClassName, "text-[10px]")}>{r.pattern}</code>
                    </div>
-                   {r.description && <p className="text-sm text-ink/60"><AutoCode text={r.description} /></p>}
+                   {r.description && <Prose value={r.description} className="text-sm text-ink/60" />}
                    {Array.isArray(r.examples) && r.examples.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {r.examples.map((e: string, j: number) => (
@@ -1209,14 +1200,14 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                 <div className="p-8 space-y-6">
                   {description && (
                     <div className="prose prose-sm max-w-none text-ink/70 leading-relaxed italic border-l-2 border-teal/20 pl-6">
-                      <AutoCode text={typeof description === 'string' ? description : JSON.stringify(description)} />
+                      <Prose value={description} />
                     </div>
                   )}
 
                   {g.applicable_when && (
                     <div className="min-w-0">
                       <span className="text-[10px] font-black text-teal uppercase tracking-[0.2em] block mb-2">Applicable when</span>
-                      <p className="text-sm text-ink/80 leading-relaxed break-words [&_code]:break-all"><AutoCode text={g.applicable_when} /></p>
+                      <Prose value={g.applicable_when} className="text-sm text-ink/80 leading-relaxed break-words [&_code]:break-all" />
                     </div>
                   )}
 
@@ -1289,7 +1280,7 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                           <div className="text-sm text-ink/80 font-medium">
                             <AutoCode text={typeof step === 'string' ? step : step.title || step.content || JSON.stringify(step)} />
                             {step.description && (
-                              <p className="mt-1 text-xs text-ink/40 font-normal leading-relaxed"><AutoCode text={step.description} /></p>
+                              <Prose value={step.description} className="mt-1 text-xs text-ink/40 font-normal leading-relaxed" />
                             )}
                           </div>
                         </div>
@@ -1382,15 +1373,11 @@ function EnforcementRuleCard({ rule, dim = false }: { rule: any; dim?: boolean }
           </Badge>
         )}
       </div>
-      {desc && (
-        <p className={cn('text-sm font-semibold leading-snug mb-2', dim ? 'text-ink/70' : 'text-ink')}>
-          <AutoCode text={desc} />
-        </p>
-      )}
+      {desc && <Prose value={desc} className={cn('text-sm font-semibold leading-snug mb-2', dim ? 'text-ink/70' : 'text-ink')} />}
       {why && (
         <div className="bg-white/60 border border-papaya-400/40 p-3 rounded-xl mb-2">
           <span className="text-[9px] font-black text-ink/40 uppercase tracking-widest block mb-1">Why</span>
-          <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={why} /></p>
+          <Prose value={why} className="text-sm text-ink/70 leading-relaxed" />
         </div>
       )}
       {example && (
@@ -1527,25 +1514,19 @@ export function CommunicationsSection({ communications }: { communications: any[
             </div>
             
             <div className="space-y-4">
-              {c.how_it_works && (
-                <p className="text-sm text-ink/70 leading-relaxed">
-                  <AutoCode text={c.how_it_works} />
-                </p>
-              )}
+              {c.how_it_works && <Prose value={c.how_it_works} className="text-sm text-ink/70 leading-relaxed" />}
 
               {c.when_to_use && (
                 <p className="text-xs text-ink/55 leading-relaxed min-w-0 break-words [&_code]:break-all">
                   <span className="font-black uppercase tracking-widest text-[10px] text-ink/40 mr-1.5">When</span>
-                  <AutoCode text={c.when_to_use} />
+                  <AutoCode text={typeof c.when_to_use === 'string' ? c.when_to_use : String(c.when_to_use)} />
                 </p>
               )}
 
               {/* Legacy shape: bundles created before patterns were split into
                   how_it_works/when_to_use stored prose in `description`. */}
               {c.description && !c.how_it_works && !c.when_to_use && (
-                <p className="text-sm text-ink/70 leading-relaxed">
-                  <AutoCode text={c.description} />
-                </p>
+                <Prose value={c.description} className="text-sm text-ink/70 leading-relaxed" />
               )}
 
               {Array.isArray(c.scope) && c.scope.length > 0 && (
@@ -1564,7 +1545,7 @@ export function CommunicationsSection({ communications }: { communications: any[
               {c.applicable_when && (
                 <div className="pt-3 border-t border-teal/10 min-w-0">
                   <span className="text-[9px] font-black uppercase tracking-widest text-teal block mb-1">Applicable when</span>
-                  <p className="text-xs text-ink/75 leading-relaxed break-words [&_code]:break-all"><AutoCode text={c.applicable_when} /></p>
+                  <Prose value={c.applicable_when} className="text-xs text-ink/75 leading-relaxed break-words [&_code]:break-all" />
                 </div>
               )}
 
@@ -1660,20 +1641,14 @@ export function IntegrationsSection({
               </Badge>
             </div>
 
-            {i.purpose && (
-              <p className="text-sm text-ink/70 leading-relaxed min-w-0 break-words">
-                <AutoCode text={i.purpose} />
-              </p>
-            )}
+            {i.purpose && <Prose value={i.purpose} className="text-sm text-ink/70 leading-relaxed min-w-0 break-words" />}
 
             {i.integration_point && (
               <div className="pt-3 border-t border-papaya-400/20">
                 <div className="text-[9px] font-black uppercase text-ink/30 tracking-widest mb-1">
                   Integration point
                 </div>
-                <p className="text-[12px] text-ink/70 leading-snug min-w-0 break-words">
-                  <AutoCode text={i.integration_point} />
-                </p>
+                <Prose value={i.integration_point} className="text-[12px] text-ink/70 leading-snug min-w-0 break-words" />
               </div>
             )}
           </div>
