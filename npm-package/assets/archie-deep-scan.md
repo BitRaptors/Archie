@@ -609,12 +609,77 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 > ### 8. Pattern Selection Guide
 > For common scenarios in this codebase, which pattern should be used and why?
 >
+> ### 9. Pattern preconditions (REQUIRED — do not skip)
+>
+> A pattern that "looks right" in one part of a codebase may silently break in another part that has the same call shape but a different invariant (e.g. an advisory lock keyed on `(namespace, X)` where the schema's index on `(namespace, X)` is unique in one entity but non-unique in another — the same call serializes unrelated rows in the second case). The defense is to make the precondition explicit and code-grounded.
+>
+> For each pattern that depends on a structural invariant (schema constraint, type-system guarantee, lifecycle state, ownership rule, concurrency primitive, structural contract), populate:
+>
+> - `applicable_when`: the **verifiable invariant** that makes this pattern correct in THIS codebase. MUST cite a concrete code artifact at `<file>:<line>` — pick whichever invariant shape fits the language and paradigm. Common shapes:
+>   - **Schema annotation:** a unique/foreign-key/NOT-NULL/index constraint that the pattern relies on
+>   - **Type signature:** a function returning Result/Option/Either; an exhaustive enum or sealed type; a generic bound that constrains callers
+>   - **Lifecycle / framework state:** a hook called under a required Provider; a handler registered before bus start; a composable inside a known scope
+>   - **Ownership / concurrency:** borrow scope, lock-held interval, transaction-active context
+>   - **Structural:** single registration point + iterating consumer; sealed hierarchy + exhaustive match; conventional placement enforced by build/lint config
+>   The requirement is that the citation is **falsifiable against the corpus**, not the invariant *shape*. Do NOT use prose like "per-customer", "per-user", "in the auth flow" — those pattern-match across contexts where the invariant doesn't hold.
+>
+>   **Empty by default — fill ONLY when misapplying the pattern in a context where the cited invariant does NOT hold would produce silently incorrect code.** That's the openmeter lockr test: cited `(namespace, customerID)` UNIQUE index ⇒ applying to a non-unique key silently serializes unrelated rows. The failure mode is articulable in one sentence and verifiable by reading the cited file:line.
+>
+>   **REQUIRED SHAPE — category-then-evidence, never raw description.** The predicate must name the **class of callers, components, or situations** the invariant guards or excludes — a categorical noun phrase a future agent can pattern-match against an unfamiliar component. The citation grounds the category by showing where the invariant is declared (or where it would be violated for `do_not_apply_when`); the citation does NOT replace the category. Read every entry as: `<categorical predicate> — <file:line>: <evidence that the predicate holds / fails here>`. If you can substitute any other component name into the predicate and the sentence still parses meaningfully, the shape is right; if it only makes sense about ONE specific file, you wrote trivia, not a rule.
+>
+>   **Reject these as `applicable_when` (leave empty instead) — they read as fuzzy circular text:**
+>     - **Pattern-name restatements**: e.g. *"A class needs to receive a dependency without constructing it directly"* (= "use DI when you want DI"); *"A feature is locked behind the 'pro' entitlement and you need to render the gated UI"* (= "use Pro gating when you want to gate by Pro"); *"Any user-facing string"* (= "use the i18n system for all strings"). Restating `when_to_use` adds nothing.
+>     - **Use-case lists masquerading as preconditions**: e.g. *"A service must react to whole-app foreground/background — GPS start/stop, analytics events, RevenueCat refresh"* — that's enumerating consumers, not stating an invariant.
+>     - **"Any X" universals**: e.g. *"Any ViewModel that participates in Loading/Success state"* — if the answer to "when does this apply?" is "everywhere this kind of thing exists," it's not a precondition.
+>     - **Recipe pointers**: e.g. *"The destination Fragment is registered in navigation_main.xml"* (without that, the recipe doesn't even compile — it's not a precondition, it's a step). Citing a registration site is OK ONLY if there's a real misapplication failure mode tied to that site.
+>     - **Per-instance trivia masquerading as a category** (the most common failure mode — read this carefully): a description of what ONE specific file does, with a citation tacked on. The citation is concrete, but the predicate names a single entity instead of a class of cases, so a reader looking at any other file cannot decide whether the rule applies.
+>       *BAD:* *"BabyWeatherAnalyticsManager uses an internal AtomicBoolean singleton and its own initialize() — exposed through analyticsModule but not constructed via Koin injection."* — true, falsifiable, useless. It's a fact about one file, not a category. A new component reading this can't ask "do I match?" because the predicate is the entity itself.
+>       *GOOD (same content, categorical shape):* *"Component manages its own initialization lifecycle (manual `initialize()` outside DI; Koin only exposes the already-built instance) — `BabyWeatherAnalyticsManager` (analyticsModule) and `LocalisationHelper` (`DomainModules.kt:18-21`) both follow this shape."* The predicate is now a class of cases ("manages its own init lifecycle"); the citations are evidence the class is real in the corpus. Any future component asking "is my init lifecycle DI-managed?" can answer.
+>
+>   **Fill applicable_when when there's a real boundary** — patterns where one type of consumer must use this and another type must NOT. Citing `APIService.kt:13 declares @Header("Authorization")` works because anonymous endpoints (which lack that header) MUST NOT route through `tokenCheck` — applying it would block public calls behind auth. That's the openmeter shape.
+>
+> - `do_not_apply_when`: array of concrete anti-indicators. Each entry follows the same **category-then-evidence** shape as `applicable_when`: lead with a categorical noun phrase describing the kind of caller/context where the pattern misapplies, then back it with a citation. Each MUST be falsifiable against schema/code. Include any places in the corpus where the same shape is used WITHOUT the invariant holding — those are the real-world `do_not_apply_when` anchors. Reject the same per-instance trivia shape: *"`FooManager` does X in `Foo.kt:42`"* without a class of cases is a fact, not a rule.
+>
+> - `scope`: array of component names from `components.components[].name` where this pattern is **relevant when editing** — including producers, consumers, and boundary participants, NOT just where the source file lives. Example: a registry pattern defined in component `core` but consumed by `feature-A` and `feature-B` has scope `["core", "feature-A", "feature-B"]`. Empty array means "applies repo-wide". **Conservative default:** if uncertain, leave `[]` — the rule loads everywhere (no regression vs. today). Only narrow scope when there is verifiable evidence the pattern is component-bound.
+>
+> For **generic** patterns (REST, WebSocket, Event Bus, generic logging) where no codebase-specific invariant applies, leave `applicable_when` as `""`, `do_not_apply_when` as `[]`, `scope` as `[]`. Do NOT invent preconditions.
+>
+> **Two illustrative examples** — each grounds `applicable_when` in a different invariant shape, to show the field is paradigm-agnostic. Pick whichever shape fits the codebase you are analyzing; do not force a schema annotation if there is no schema. Placeholder paths (`<schema>/<entity>.<ext>`, `<domain-A>`) are shown to keep these examples language-neutral — substitute concrete files and components for the actual codebase.
+>
+> *Example 1 (lifecycle / framework state — typical for UI codebases):*
+> ```json
+> {
+>   "name": "Context-backed session hook",
+>   "when_to_use": "Read the current user inside any component below the root provider",
+>   "how_it_works": "useSession() reads from a context populated by SessionProvider; provider hydrates from cookie on mount",
+>   "examples": ["src/auth/use-session.<ext>", "src/auth/provider.<ext>"],
+>   "applicable_when": "src/app/layout.<ext>:14 wraps the entire tree in <SessionProvider> — the hook is therefore safe to call from any descendant client component",
+>   "do_not_apply_when": ["Caller is a server component or middleware — context is unavailable; the server-side equivalent (e.g. getServerSession) is the correct API", "Test renders the component in isolation without SessionProvider — context is null and the hook throws"],
+>   "scope": []
+> }
+> ```
+>
+> *Example 2 (schema-bound — typical for DB-backed services):*
+> ```json
+> {
+>   "name": "Per-key advisory lock",
+>   "when_to_use": "Serialize concurrent mutations of the same logical entity",
+>   "how_it_works": "Acquire a database advisory lock keyed on (namespace, entityID) inside a transaction; lock auto-releases on commit/rollback",
+>   "examples": ["<lib>/lock.<ext>", "<domain>/service/write.<ext>"],
+>   "applicable_when": "<schema>/<entity>.<ext>:<line> declares a UNIQUE index on the lock-key columns — the (namespace, entityID) tuple maps to at most one row in the locked entity's table",
+>   "do_not_apply_when": ["Schema index for the proposed key is NOT unique — multiple rows can legitimately share the key, so a single advisory lock would serialize unrelated rows", "Operation mutates one row only — built-in row-level locking (e.g. SELECT FOR UPDATE) suffices, no cross-row invariant to protect"],
+>   "scope": ["<domain-A>", "<domain-B>"]
+> }
+> ```
+>
+> Both shapes are valid. The requirement isn't a specific invariant *type* — it's that the citation lets a reader verify the precondition by looking at the cited code.
+>
 > Return JSON:
 > ```json
 > {
 >   "communication": {
 >     "patterns": [
->       {"name": "", "when_to_use": "", "how_it_works": "", "examples": []}
+>       {"name": "", "when_to_use": "", "how_it_works": "", "examples": [], "applicable_when": "", "do_not_apply_when": [], "scope": []}
 >     ],
 >     "integrations": [
 >       {"service": "", "purpose": "", "integration_point": ""}
@@ -624,7 +689,9 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 >     ]
 >   },
 >   "quick_reference": {
->     "pattern_selection": {"scenario": "pattern"},
+>     "pattern_selection": [
+>       {"scenario": "", "pattern": "", "scope": []}
+>     ],
 >     "error_mapping": [{"error": "", "status_code": 0, "description": ""}]
 >   }
 > }
@@ -940,6 +1007,14 @@ Before Wave 2:
 
 Either way, after Wave 2 the store reflects accumulated knowledge across every prior scan and deep-scan run.
 
+**Maintainer guardrails — extract before Wave 2 (deterministic preprocessing):**
+
+```bash
+python3 .archie/intent_layer.py extract-guardrails "$PROJECT_ROOT"
+```
+
+This scans every per-folder `CLAUDE.md` (excluding `.archie/`, `.claude/`, `node_modules/`, etc.), strips Archie's own marker blocks (`<!-- archie:ai-* -->`, `<!-- archie:scoped-* -->`) so the loop reads only maintainer prose, extracts bullets under any `## Anti-Patterns` section, and writes `.archie/maintainer_guardrails.json`. Wave 2 §11 (compound learning) reads that file rather than globbing CLAUDE.md directly — the deterministic extraction guarantees no self-amplification across runs (Archie's previous output cannot feed back into itself, by construction). On the first deep-scan ever (no per-folder CLAUDE.md exist yet), the file is written as `{"version": 1, "guardrails": []}` — Wave 2 sees an empty guardrails array and §11 is a no-op for that run.
+
 ### If SCAN_MODE = "incremental":
 
 Spawn an **Opus subagent** (`model: "opus"`) with scoped context:
@@ -1076,8 +1151,32 @@ Tell the Reasoning agent:
 > - **libraries**: Libraries used with versions (from tech stack)
 > - **pattern_description**: Architecture pattern, main service/class, data flow
 > - **key_files**: Actual file paths (MUST exist in file_tree)
-> - **usage_example**: Realistic code snippet. A single line is fine when the pattern genuinely is one-line (`logger.track(Event.X)`). Multi-line (typically 3-10 lines) when clarity demands it — use real newlines, not `;` chains. Show the full pattern a developer would actually write.
+> - **usage_example**: Realistic code snippet that a developer would actually write. **Multi-line is the default**: use **real `\n` newlines** in the JSON string. Reserve a one-liner ONLY for patterns that are *genuinely* one-line — a single function call like `logger.track(Event.X)`, a single annotation, a single import. **Anything with multiple statements, control flow, multiple parameters past the first, a `;` separator, an inline `// comment`, or that exceeds ~80 characters MUST be multi-line.** A one-liner crammed with `;` chains, mid-line `// inline comment`, or 3+ chained statements is wrong even if it parses — split it across lines as if writing real code in an editor. The renderer (`<pre><code>` block) preserves newlines correctly, so a 10-line example will render as 10 lines, not as a 200-character horizontal scroll.
+> - **applicable_when**: The verifiable invariant that makes this pattern correct in THIS codebase. MUST cite a concrete code artifact at `<file>:<line>` — pick whichever invariant shape fits the language and paradigm: schema annotation (unique/foreign-key/NOT-NULL/index), type signature (Result/Option/exhaustive enum/generic bound), lifecycle state (hook under a Provider, handler registered before bus start), ownership/concurrency (borrow scope, lock-held interval, transaction-active context), or structural contract (single registration point + iterating consumer, sealed hierarchy + exhaustive match). The requirement is that the citation is **falsifiable against the corpus**, not its invariant shape. NOT prose. "Per-customer operations" / "in the auth flow" / "during request handling" are NOT preconditions — they pattern-match across domains where the invariant doesn't hold. If the capability has no codebase-specific invariant (e.g. generic logging, generic HTTP middleware), leave empty (`""`). **REQUIRED SHAPE — category-then-evidence:** lead with a categorical noun phrase naming the **class of callers/situations** the invariant guards (substitutable across components — if the predicate only makes sense about ONE specific file, you wrote trivia), then back it with the `<file>:<line>` citation. *BAD:* `"BabyWeatherAnalyticsManager uses internal AtomicBoolean singleton and its own initialize() — exposed through analyticsModule but not constructed via Koin injection."` (one-file fact, no category to match against). *GOOD:* `"Component manages its own initialization lifecycle (manual initialize() outside DI; Koin only exposes the already-built instance) — BabyWeatherAnalyticsManager (analyticsModule), LocalisationHelper (DomainModules.kt:18-21)."` (named class of cases + citations as evidence).
+> - **do_not_apply_when**: Array of concrete anti-indicators (each citable against code) and each following the same **category-then-evidence** shape as `applicable_when`: a categorical noun phrase + citation, never a per-file description. You have the cross-cutting view — when this capability's shape (lock key, registry key, validator key, hook usage, lifetime contract) WOULD be wrong elsewhere in the corpus, name those classes of cases (with citations as evidence). Empty array if the pattern is universally safe.
+> - **scope**: Array of identifiers naming where this pattern is RELEVANT WHEN EDITING — producers, consumers, boundary participants. Each identifier may be **(a) a component name from `components.components[].name`**, OR **(b) a concrete code symbol** — class, interface, object, enum, or Koin `val Foo = module {}` declaration — that the resolver can map back to a component via the file it's declared in. Concrete code symbols are often more useful at edit time (a developer recognises `NetworkDatasourceImpl` faster than `Domain and Data Layer`); both forms are accepted, mix freely. Avoid prose like `"All Fragments under page_*"` — the resolver cannot map prose, and unresolved values are dropped silently. In per-package mode, leave empty `[]` (the package boundary is the scope). Empty array means "applies repo-wide". Conservative default: leave empty unless there is verifiable evidence the pattern is component-bound (no regression vs. today).
+>
+>     **Threshold rule — use `scope: []` for near-universal patterns.** If a pattern would resolve to **at least half** of the blueprint's components (e.g. MVVM convention used in every Fragment+ViewModel pair, a tracing decorator on every ViewModel, a Repository pattern used by every data layer consumer), set `scope: []` and let it live repo-wide. Enumerating consumers in such cases just duplicates the same content into every per-folder `CLAUDE.md`. The renderer treats fan-outs ≥50% as repo-wide and skips per-folder injection regardless, so over-enumeration produces no extra signal — only the global rule file `guidelines.md` / `patterns.md` (loaded for every edit) carries it. Reserve scope enumeration for patterns that genuinely cluster in a minority of components.
 > - **tips**: Gotchas specific to this implementation
+>
+> ### 10. Communication patterns enrichment (cross-cutting)
+>
+> Wave 1's Patterns agent produced `communication.patterns` with `applicable_when`, `do_not_apply_when`, and `scope`. Re-emit that array with `do_not_apply_when` enriched from your cross-corpus view: when a pattern's shape is used somewhere in the corpus WITHOUT the invariant holding, name those places. For each pattern, also verify `scope` is **relevance-based, not location-based** — list every component that interacts with the pattern at edit-time (producers, consumers, transactional-boundary participants), not just where the source file lives. If you have nothing to add over Wave 1, copy the array through verbatim.
+>
+> ### 11. Compound learning — fold maintainer-curated anti-patterns into `do_not_apply_when`
+>
+> Maintainers sometimes hand-edit per-folder `CLAUDE.md` files with anti-pattern guardrails — e.g. *"No <pattern> here — <local invariant fact contradicts it>."* These are gold for `do_not_apply_when` because someone who knows the codebase has already condensed the invariant into prose.
+>
+> **Read the deterministic extractor's output, not the raw CLAUDE.md files.** Before this step, the deep-scan pipeline runs `intent_layer.py extract-guardrails` (see Step 7), which strips Archie's own marker blocks (`<!-- archie:ai-* -->`, `<!-- archie:scoped-* -->`) and writes the cleaned bullets to `.archie/maintainer_guardrails.json`. **Read that file** — do NOT glob `CLAUDE.md` directly. The extractor guarantees only maintainer prose is in scope; the JSON shape is `{guardrails: [{source: "<rel-path>/CLAUDE.md", items: [text, text, ...]}]}`.
+>
+> For each bullet, fuzzy-match its pattern name to your `implementation_guidelines[].capability` or `communication.patterns[].name`. If a clean match exists, include the bullet's reasoning (with citation `(see <source>)`) in the matched entry's `do_not_apply_when` array. **Do NOT invent matches** — if no clean match exists, skip it.
+>
+> **Regeneration semantics — emit the FULL `do_not_apply_when` array each run, not a delta.** The array you write is the complete list for that pattern, comprising:
+>
+> 1. Anti-indicators you derived from the corpus this run (the inverse of `applicable_when`, plus call-sites where the same shape would be wrong).
+> 2. Maintainer guardrails currently present in `.archie/maintainer_guardrails.json` that fuzzy-match this pattern.
+>
+> Do **not** preserve previous-blueprint entries that no longer have a current source. The previous blueprint's `do_not_apply_when` is informational only — entries from prior runs that are no longer corpus-derived AND no longer in the extractor's output have aged out and must drop. This prevents the array from growing monotonically across runs even when the underlying violation has been fixed.
 >
 > Return JSON:
 > ```json
@@ -1125,8 +1224,13 @@ Tell the Reasoning agent:
 >   ],
 >   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
 >   "implementation_guidelines": [
->     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "tips": []}
->   ]
+>     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "applicable_when": "", "do_not_apply_when": [], "scope": [], "tips": []}
+>   ],
+>   "communication": {
+>     "patterns": [
+>       {"name": "", "when_to_use": "", "how_it_works": "", "examples": [], "applicable_when": "", "do_not_apply_when": [], "scope": []}
+>     ]
+>   }
 > }
 > ```
 
@@ -1438,7 +1542,15 @@ Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD
 
    **✓ Compact Checkpoint B** — between Intent Layer waves. After every wave's `save-enrichment` commands have all returned (so no subagent is in flight and all completed folders are persisted in `enrich_state.json`), this is a safe compaction boundary. Suggested frequency: every 3 waves when the project has >20 folders. On small projects (<20 folders) ignore this checkpoint. Procedure: `/compact` → `/archie-deep-scan --continue` → Resume Prelude sees `last_completed=6` and re-enters Step 7, which calls `next-ready` and resumes from the next wave using disk state alone.
 
-4. **Mark step complete at the end.** After Phase 3 (`merge`) and Phase 4 (cleanup) of the standalone command, record completion:
+4. **Project blueprint scoped patterns into per-folder CLAUDE.md.** After Phase 3 (`merge`) writes the AI-generated per-folder CLAUDE.md files, project the blueprint's scoped `implementation_guidelines` and `communication.patterns` into the matching component-root CLAUDE.md files. This is the hard-filter delivery: scoped rules land in the component's CLAUDE.md (between `<!-- archie:scoped-start --> ... <!-- archie:scoped-end -->` markers) and Claude Code's per-folder autoloading does the path-based filtering — they never load on out-of-scope edits.
+
+   ```bash
+   python3 .archie/intent_layer.py inject-scoped "$PROJECT_ROOT"
+   ```
+
+   Idempotent: re-running replaces the marker block in place. If a pattern's scope shrinks between runs, the stale block is cleared from out-of-scope CLAUDE.md files. Patterns with `scope: []` (repo-wide) are NOT projected — they already live in global rules and would only duplicate.
+
+5. **Mark step complete at the end.** After the inject-scoped step, record completion:
 
    ```bash
    python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 7

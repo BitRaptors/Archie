@@ -10,6 +10,11 @@ Subcommands:
   suggest-batches — Group ready folders into efficient subagent batches
   prompt         — Generate intent layer prompt for folder(s)
   merge          — Create/patch CLAUDE.md files with generated content
+  inject-scoped  — Project blueprint scoped patterns/guidelines into per-folder
+                   CLAUDE.md (component root only) for path-based hard filtering
+  extract-guardrails — Scan per-folder CLAUDE.md for maintainer-curated
+                   anti-pattern bullets, strip Archie's own marker blocks,
+                   write .archie/maintainer_guardrails.json for Wave 2 §11
 
 Run:
   python3 intent_layer.py prepare /path/to/repo [--only-folders folder1,folder2,...]
@@ -18,6 +23,7 @@ Run:
   python3 intent_layer.py prompt /path/to/repo --folder src/lib
   python3 intent_layer.py prompt /path/to/repo --folders src/api/routes,src/api/middleware
   python3 intent_layer.py merge /path/to/repo
+  python3 intent_layer.py inject-scoped /path/to/repo
 
 Zero dependencies beyond Python 3.9+ stdlib.
 """
@@ -1061,6 +1067,8 @@ def cmd_prompt(root: Path, folders: list[str], child_summaries_dir: str | None =
 
 _AI_START = "<!-- archie:ai-start -->"
 _AI_END = "<!-- archie:ai-end -->"
+_SCOPED_START = "<!-- archie:scoped-start -->"
+_SCOPED_END = "<!-- archie:scoped-end -->"
 
 
 _MAX_CLAUDE_MD_LINES = 100  # budget per folder — density over completeness
@@ -1394,6 +1402,505 @@ def cmd_merge(root: Path):
 
 
 # ---------------------------------------------------------------------------
+# inject-scoped — project blueprint scoped patterns/guidelines into per-folder
+# CLAUDE.md so Claude Code's per-folder autoloading filters them at the loader
+# level (hard filter), not via agent self-discipline (soft filter). Items with
+# scope=[] (repo-wide) are NOT injected — they already live in global rules.md.
+# ---------------------------------------------------------------------------
+
+def _str_list(val) -> list[str]:
+    """Coerce a value to a list of non-empty strings."""
+    if isinstance(val, list):
+        return [s for s in val if isinstance(s, str) and s.strip()]
+    if isinstance(val, str) and val.strip():
+        return [val]
+    return []
+
+
+def _render_scoped_guideline(gl: dict) -> list[str]:
+    """Render one implementation_guideline as compact scoped markdown."""
+    cap = gl.get("capability", "")
+    if not cap:
+        return []
+    cat = gl.get("category", "")
+    heading = f"#### {cap}" + (f" [{cat}]" if cat else "")
+    out = [heading]
+    if gl.get("pattern_description"):
+        out.append(f"Pattern: {gl['pattern_description']}")
+    libs = gl.get("libraries") or []
+    if libs:
+        out.append(f"Libraries: {', '.join(f'`{l}`' for l in libs)}")
+    key_files = gl.get("key_files") or []
+    if key_files:
+        out.append(f"Key files: {', '.join(f'`{f}`' for f in key_files)}")
+    if gl.get("usage_example"):
+        out.append(f"Example: `{gl['usage_example']}`")
+    if gl.get("applicable_when"):
+        out.append(f"**Applicable when:** {gl['applicable_when']}")
+    do_not = _str_list(gl.get("do_not_apply_when"))
+    if do_not:
+        out.append("**Do NOT apply when:**")
+        for d in do_not:
+            out.append(f"  - {d}")
+    out.append("")
+    return out
+
+
+def _render_scoped_pattern(pat: dict) -> list[str]:
+    """Render one communication.patterns entry as compact scoped markdown."""
+    name = pat.get("name", "")
+    if not name:
+        return []
+    out = [f"#### {name}"]
+    if pat.get("when_to_use"):
+        out.append(f"- **When:** {pat['when_to_use']}")
+    if pat.get("how_it_works"):
+        out.append(f"- **How:** {pat['how_it_works']}")
+    if pat.get("applicable_when"):
+        out.append(f"- **Applicable when:** {pat['applicable_when']}")
+    do_not = _str_list(pat.get("do_not_apply_when"))
+    if do_not:
+        out.append("- **Do NOT apply when:**")
+        for d in do_not:
+            out.append(f"  - {d}")
+    out.append("")
+    return out
+
+
+def _render_scoped_section_from_items(
+    component_name: str,
+    in_scope_igs: list[dict],
+    in_scope_patterns: list[dict],
+) -> str:
+    """Render the marker-bracketed scoped section for a component, given
+    pre-resolved item lists.
+
+    Caller is responsible for resolving scope values to components first
+    (via ``_resolve_scope_value`` + aggregation). Returns the empty string
+    when both lists are empty — signal to caller to leave the file alone.
+    """
+    if not in_scope_igs and not in_scope_patterns:
+        return ""
+
+    lines = [_SCOPED_START, ""]
+    lines.append("## Scoped Architecture Rules")
+    lines.append("")
+    lines.append(f"*From blueprint — these rules are scoped to the `{component_name}` component.*")
+    lines.append("")
+
+    if in_scope_igs:
+        lines.append("### Implementation Guidelines")
+        lines.append("")
+        for gl in in_scope_igs:
+            lines.extend(_render_scoped_guideline(gl))
+
+    if in_scope_patterns:
+        lines.append("### Communication Patterns")
+        lines.append("")
+        for pat in in_scope_patterns:
+            lines.extend(_render_scoped_pattern(pat))
+
+    lines.append(_SCOPED_END)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Lenient scope resolver — maps scope identifiers (component name, class name,
+# Koin module val) to a component name. Wave 2 in the wild prefers concrete
+# code symbols over component descriptors ("NetworkDatasourceImpl" rather
+# than "Domain and Data Layer"); the resolver handles both so the agent's
+# choice doesn't break hard-filter delivery.
+# ---------------------------------------------------------------------------
+
+# Source-file extensions whose contents we scan for symbol declarations.
+_RESOLVER_SOURCE_EXTS = {
+    ".kt", ".kts", ".java", ".scala",
+    ".py",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".swift",
+    ".go", ".rs",
+    ".rb", ".cs", ".php",
+}
+
+# Top-level type declarations.
+_DECL_RE = re.compile(
+    r"\b(?:class|interface|object|enum|trait|struct|protocol|record)\s+([A-Z][A-Za-z0-9_]*)\b"
+)
+# Koin / Spring / similar val-module declarations.
+_VAL_MODULE_RE = re.compile(
+    r"\bval\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*module\b"
+)
+
+
+def _build_symbol_index(root: Path, skip_dirs: set[str]) -> dict[str, str]:
+    """Walk source files once and index identifier -> first-seen rel path.
+
+    First-match wins for ambiguous names. Skip lists prevent walking into
+    .archie/, .claude/, build/, node_modules/ and similar.
+    """
+    index: dict[str, str] = {}
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in _RESOLVER_SOURCE_EXTS:
+            continue
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
+        if any(part in skip_dirs for part in rel.parts):
+            continue
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        rel_str = str(rel)
+        for m in _DECL_RE.finditer(content):
+            index.setdefault(m.group(1), rel_str)
+        for m in _VAL_MODULE_RE.finditer(content):
+            index.setdefault(m.group(1), rel_str)
+    return index
+
+
+# Demotion threshold — if a pattern's resolved scope spans >= this fraction
+# of all blueprint components, it's effectively repo-wide. Repo-wide patterns
+# already live in global rules.md (loaded for every edit), so fanning them
+# out into every per-folder CLAUDE.md just duplicates the same text. Tune by
+# editing this constant; set to 1.0 to disable demotion entirely.
+_REPO_WIDE_DEMOTE_RATIO = 0.5
+
+
+def _resolve_scope_value(
+    value: str,
+    components: list[dict],
+    comp_by_name: dict[str, dict],
+    symbol_index: dict[str, str],
+) -> str | None:
+    """Map a scope identifier to a component name, or None if unresolvable.
+
+    Resolution chain (first hit wins):
+      1. Exact match against ``components.components[].name`` (literal mode —
+         backwards compat with strict-mode blueprints).
+      2. Symbol index hit (class / interface / object / val module) → look up
+         the matching file's directory in the components list.
+      3. Otherwise unresolvable; caller drops it.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    # 1. Direct name match.
+    if value in comp_by_name:
+        return value
+    # 2. Symbol index → file → component.
+    rel = symbol_index.get(value)
+    if rel:
+        parent = str(Path(rel).parent)
+        comp = _find_component_for_dir(parent, components)
+        if comp and comp.get("name"):
+            return comp["name"]
+    return None
+
+
+def _patch_scoped_section(content: str, scoped_section: str) -> str:
+    """Insert/replace the scoped section in a CLAUDE.md body.
+
+    If markers exist, replace between them. Otherwise append after any AI
+    section, or to the end. If scoped_section is empty, REMOVE any existing
+    scoped block (so that re-running after scope shrinks cleans up stale
+    blocks).
+    """
+    has_markers = _SCOPED_START in content and _SCOPED_END in content
+    if not scoped_section:
+        if not has_markers:
+            return content
+        # Strip the existing block (and any trailing whitespace it leaves).
+        pattern = re.compile(
+            r"\n*" + re.escape(_SCOPED_START) + r".*?" + re.escape(_SCOPED_END) + r"\n*",
+            re.DOTALL,
+        )
+        return pattern.sub("\n", content).rstrip() + "\n"
+
+    if has_markers:
+        pattern = re.compile(
+            re.escape(_SCOPED_START) + r".*?" + re.escape(_SCOPED_END),
+            re.DOTALL,
+        )
+        return pattern.sub(scoped_section, content)
+
+    # Append: prefer to land after the AI section if present, else at end.
+    if _AI_END in content:
+        return content.replace(_AI_END, _AI_END + "\n\n" + scoped_section, 1)
+    return content.rstrip() + "\n\n" + scoped_section + "\n"
+
+
+def cmd_inject_scoped(root: Path):
+    """Project blueprint scoped patterns into per-folder CLAUDE.md.
+
+    Two-pass:
+      1. Build a symbol index of source files (one walk over the repo) and
+         resolve every scope value through the resolver chain (component
+         name -> class/interface/object -> Koin val module). Aggregate per
+         component name.
+      2. For every component, render and inject (or clear) its scoped block.
+         Re-runs replace marker-bracketed blocks in place; scope-shrink
+         clears stale blocks; the AI section is preserved.
+
+    Lenient by design: Wave 2 in the wild often emits class names rather
+    than literal component names. The resolver maps either form back to a
+    component, so the hard-filter delivery fires regardless of which
+    identifier style the agent picks.
+    """
+    blueprint = _load_json(root / ".archie" / "blueprint.json")
+    if not blueprint:
+        print("Error: .archie/blueprint.json not found or empty.", file=sys.stderr)
+        sys.exit(1)
+
+    components = _get_components(blueprint)
+    if not components:
+        print("No components in blueprint — nothing to project.", file=sys.stderr)
+        return
+
+    comp_by_name = {c["name"]: c for c in components if isinstance(c, dict) and c.get("name")}
+
+    # Pass 1 — walk source tree once, index symbol declarations.
+    symbol_index = _build_symbol_index(root, _GUARDRAIL_SKIP_DIRS)
+
+    # Pass 1b — resolve every scope value, aggregate items per target
+    # component. A pattern with scope spanning multiple components lands a
+    # copy of itself in each component's bucket; the per-component renderer
+    # takes care of de-duping (a pattern is only added once per bucket
+    # because we coalesce target-component sets).
+    component_to_igs: dict[str, list[dict]] = {}
+    component_to_patterns: dict[str, list[dict]] = {}
+    unresolved: list[tuple[str, str, str]] = []  # (kind, item_name, scope_value)
+    demoted: list[tuple[str, str, int]] = []  # (kind, item_name, resolved_count)
+
+    total_components = max(1, sum(
+        1 for c in components if isinstance(c, dict) and c.get("name") and (c.get("location") or c.get("path"))
+    ))
+    demote_threshold = max(2, int(total_components * _REPO_WIDE_DEMOTE_RATIO))
+
+    def _aggregate(item, kind, scope_values):
+        """Resolve, then keep/demote/drop based on coverage threshold."""
+        targets: set[str] = set()
+        for s in scope_values:
+            cn = _resolve_scope_value(s, components, comp_by_name, symbol_index)
+            if cn:
+                targets.add(cn)
+            else:
+                unresolved.append((kind, item.get("capability") or item.get("name") or "?", s))
+        # Demotion: if the pattern resolves to too many components, treat it
+        # as repo-wide (the global rule file already carries it via inline
+        # scope text). Skip per-folder injection to avoid mass duplication.
+        if len(targets) >= demote_threshold:
+            demoted.append((kind, item.get("capability") or item.get("name") or "?", len(targets)))
+            return None
+        return targets
+
+    for ig in blueprint.get("implementation_guidelines") or []:
+        if not isinstance(ig, dict) or not ig.get("capability"):
+            continue
+        targets = _aggregate(ig, "guideline", _str_list(ig.get("scope")))
+        if targets is None:
+            continue
+        for cn in targets:
+            component_to_igs.setdefault(cn, []).append(ig)
+
+    for pat in (blueprint.get("communication") or {}).get("patterns") or []:
+        if not isinstance(pat, dict) or not pat.get("name"):
+            continue
+        targets = _aggregate(pat, "pattern", _str_list(pat.get("scope")))
+        if targets is None:
+            continue
+        for cn in targets:
+            component_to_patterns.setdefault(cn, []).append(pat)
+
+    # Pass 2 — for every component, write or clear its scoped block. We
+    # iterate ALL components (not just the ones that received items) so
+    # that scope-shrink across runs cleans up stale blocks.
+    injected = 0
+    cleared = 0
+    skipped_missing = 0
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+        name = comp.get("name") or ""
+        location = (comp.get("location") or comp.get("path") or "").strip().rstrip("/")
+        if not name or not location:
+            continue
+
+        folder_abs = root / location
+        if not folder_abs.is_dir():
+            skipped_missing += 1
+            continue
+
+        claude_md_path = folder_abs / "CLAUDE.md"
+        igs = component_to_igs.get(name, [])
+        pats = component_to_patterns.get(name, [])
+        scoped_section = _render_scoped_section_from_items(name, igs, pats)
+
+        if claude_md_path.exists():
+            old = claude_md_path.read_text()
+            new = _patch_scoped_section(old, scoped_section)
+            if new != old:
+                claude_md_path.write_text(new)
+                if scoped_section:
+                    injected += 1
+                else:
+                    cleared += 1
+        elif scoped_section:
+            # Folder has no CLAUDE.md (intent_layer didn't cover it) but the
+            # blueprint says scoped rules apply here. Create a minimal file
+            # so the rules land somewhere — without it, the hard filter has
+            # no delivery.
+            dir_name = location.rsplit("/", 1)[-1] if "/" in location else location
+            claude_md_path.write_text(f"# {dir_name}\n\n{scoped_section}\n")
+            injected += 1
+
+    summary = f"Scoped injection: {injected} updated, {cleared} cleared (no longer scoped)"
+    if skipped_missing:
+        summary += f", {skipped_missing} skipped (component location does not exist)"
+    print(summary, file=sys.stderr)
+
+    if demoted:
+        # Patterns that fanned out across >=50% of components: too broad to be
+        # called "scoped." They live in global rules.md instead, where they
+        # already render with inline scope text.
+        names = ", ".join(f"{name!r} ({count} comps)" for _, name, count in demoted[:5])
+        more = f" (+{len(demoted) - 5} more)" if len(demoted) > 5 else ""
+        print(
+            f"  ({len(demoted)} pattern(s) demoted to repo-wide because they "
+            f"span >= {demote_threshold} of {total_components} components: "
+            f"{names}{more})",
+            file=sys.stderr,
+        )
+
+    if unresolved:
+        # Group by scope value so users can see the most common offenders
+        # without scrolling through every (kind, item) pair.
+        by_value: dict[str, int] = {}
+        for _, _, value in unresolved:
+            by_value[value] = by_value.get(value, 0) + 1
+        top = sorted(by_value.items(), key=lambda kv: -kv[1])
+        print(
+            f"  ({len(unresolved)} scope values could not be resolved to a component; "
+            f"top offenders: {', '.join(f'{v!r}×{n}' for v, n in top[:5])})",
+            file=sys.stderr,
+        )
+
+
+# ---------------------------------------------------------------------------
+# extract-maintainer-guardrails — scan per-folder CLAUDE.md for human-curated
+# anti-patterns. Strips Archie's own marker blocks (ai + scoped) deterministically
+# so the output only carries maintainer prose. Wave 2 §11 reads the resulting
+# JSON instead of LLM-globbing CLAUDE.md, eliminating the self-amplification
+# class of failure (Archie's previous output cannot feed back into itself).
+# ---------------------------------------------------------------------------
+
+# Directories to skip when scanning for CLAUDE.md files
+_GUARDRAIL_SKIP_DIRS = {
+    ".archie", ".claude", "node_modules", ".venv", ".git",
+    "vendor", "dist", "build", "target", ".next", ".nuxt",
+    "__pycache__",
+}
+
+# Regex matching common anti-pattern section headings: "## Anti-Patterns",
+# "## Anti-pattern", "## Anti Patterns", "## anti-patterns", etc.
+_ANTI_HEADING_RE = re.compile(
+    r"^\s*#{2,4}\s+anti[-\s]?patterns?\s*$", re.IGNORECASE
+)
+_NEXT_HEADING_RE = re.compile(r"^\s*#{2,4}\s+\S")
+_BULLET_RE = re.compile(r"^\s*[-*]\s+(.+?)\s*$")
+
+
+def _strip_archie_blocks(content: str) -> str:
+    """Remove Archie's own marker blocks (AI + scoped) from CLAUDE.md content.
+
+    Anything between ``<!-- archie:ai-* -->`` or ``<!-- archie:scoped-* -->``
+    is Archie's output, not maintainer prose, and must not feed back into
+    Wave 2's compound-learning loop.
+    """
+    for start, end in ((_AI_START, _AI_END), (_SCOPED_START, _SCOPED_END)):
+        pattern = re.compile(
+            re.escape(start) + r".*?" + re.escape(end),
+            re.DOTALL,
+        )
+        content = pattern.sub("", content)
+    return content
+
+
+def _extract_anti_pattern_bullets(content: str) -> list[str]:
+    """Return the bullet items under any ## Anti-Patterns section.
+
+    Handles single or multiple anti-pattern sections per file. Stops at the
+    next section heading (any ## or deeper).
+    """
+    items: list[str] = []
+    in_section = False
+    for raw_line in content.splitlines():
+        if _ANTI_HEADING_RE.match(raw_line):
+            in_section = True
+            continue
+        if in_section and _NEXT_HEADING_RE.match(raw_line):
+            in_section = False
+            continue
+        if not in_section:
+            continue
+        m = _BULLET_RE.match(raw_line)
+        if m:
+            text = m.group(1).strip()
+            if text:
+                items.append(text)
+    return items
+
+
+def _is_skipped_path(rel_path: Path) -> bool:
+    """True if this folder is under a skip-list ancestor."""
+    return any(part in _GUARDRAIL_SKIP_DIRS for part in rel_path.parts)
+
+
+def cmd_extract_guardrails(root: Path):
+    """Write maintainer guardrails to .archie/maintainer_guardrails.json.
+
+    Wave 2 §11 reads this file rather than globbing CLAUDE.md directly, so
+    the compound-learning loop sees only deterministically-cleaned input
+    and cannot pick up Archie's own previous output.
+    """
+    out_path = root / ".archie" / "maintainer_guardrails.json"
+    guardrails: list[dict] = []
+
+    for path in sorted(root.rglob("CLAUDE.md")):
+        rel = path.relative_to(root)
+        # Skip the repo-root CLAUDE.md (Archie generates that one entirely;
+        # there's no maintainer Anti-Patterns layer there).
+        if rel == Path("CLAUDE.md"):
+            continue
+        if _is_skipped_path(rel.parent):
+            continue
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        cleaned = _strip_archie_blocks(raw)
+        items = _extract_anti_pattern_bullets(cleaned)
+        if items:
+            guardrails.append({
+                "source": str(rel),
+                "items": items,
+            })
+
+    payload = {
+        "version": 1,
+        "guardrails": guardrails,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2))
+    print(
+        f"Maintainer guardrails: {len(guardrails)} CLAUDE.md files contributed "
+        f"({sum(len(g['items']) for g in guardrails)} bullets total) "
+        f"-> {out_path.relative_to(root)}",
+        file=sys.stderr,
+    )
+
+
+# ---------------------------------------------------------------------------
 # inspect subcommand
 # ---------------------------------------------------------------------------
 
@@ -1635,6 +2142,10 @@ if __name__ == "__main__":
         cmd_scan_config(root, action)
     elif subcmd == "merge":
         cmd_merge(root)
+    elif subcmd == "inject-scoped":
+        cmd_inject_scoped(root)
+    elif subcmd == "extract-guardrails":
+        cmd_extract_guardrails(root)
     elif subcmd == "inspect":
         if len(sys.argv) < 4:
             print("Usage: inspect /path/to/repo <filename> [--query .key.path] [--list]", file=sys.stderr)

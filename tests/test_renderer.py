@@ -9,6 +9,19 @@ from archie.renderer.render import render_outputs
 
 MINIMAL_BLUEPRINT = {"meta": {"repository": "test-repo", "schema_version": "2.0.0"}}
 
+# Blueprint with enough content to exercise at least one rule builder. The
+# renderer is correctly lazy — empty sections don't emit empty files — so a
+# fixture for "rule files exist" needs real architecture data.
+BLUEPRINT_WITH_RULES = {
+    "meta": {"repository": "test-repo", "schema_version": "2.0.0"},
+    "architecture_rules": {
+        "naming_conventions": [
+            {"scope": "files", "pattern": "snake_case", "examples": ["a.py"], "description": "Python uses snake_case"}
+        ],
+        "file_placement_rules": [],
+    },
+}
+
 
 def test_render_outputs_creates_claude_md(tmp_path: Path) -> None:
     """render_outputs should write CLAUDE.md to disk."""
@@ -20,8 +33,9 @@ def test_render_outputs_creates_claude_md(tmp_path: Path) -> None:
 
 
 def test_render_outputs_creates_rules(tmp_path: Path) -> None:
-    """render_outputs should create .claude/rules/ directory with rule files."""
-    render_outputs(MINIMAL_BLUEPRINT, tmp_path)
+    """render_outputs should create .claude/rules/ directory with rule files
+    when the blueprint carries content for at least one rule builder."""
+    render_outputs(BLUEPRINT_WITH_RULES, tmp_path)
     rules_dir = tmp_path / ".claude" / "rules"
     assert rules_dir.exists(), ".claude/rules/ directory was not created"
     rule_files = list(rules_dir.glob("*.md"))
@@ -30,10 +44,21 @@ def test_render_outputs_creates_rules(tmp_path: Path) -> None:
 
 def test_render_outputs_returns_file_map(tmp_path: Path) -> None:
     """render_outputs should return a dict with expected keys."""
-    result = render_outputs(MINIMAL_BLUEPRINT, tmp_path)
+    result = render_outputs(BLUEPRINT_WITH_RULES, tmp_path)
     assert isinstance(result, dict)
     assert "CLAUDE.md" in result
     assert "AGENTS.md" in result
     # Should have at least one rule file path
     claude_rule_paths = [k for k in result if k.startswith(".claude/rules/")]
     assert len(claude_rule_paths) > 0, "No .claude/rules/ entries in file map"
+
+
+def test_render_outputs_minimal_blueprint_emits_no_rule_files(tmp_path: Path) -> None:
+    """A blueprint with only meta and no architecture content should produce
+    CLAUDE.md/AGENTS.md but no rule files. Empty rule files would just bloat
+    the agent's context — the renderer correctly skips them."""
+    result = render_outputs(MINIMAL_BLUEPRINT, tmp_path)
+    assert "CLAUDE.md" in result
+    assert "AGENTS.md" in result
+    rule_paths = [k for k in result if k.startswith(".claude/rules/")]
+    assert rule_paths == [], f"minimal blueprint must not emit rule files; got {rule_paths}"

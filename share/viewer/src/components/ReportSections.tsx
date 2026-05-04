@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 
 import type { Finding } from '@/lib/findings'
 import { isSemanticDupFinding, normalizePitfall, severityColor } from '@/lib/findings'
-import { AutoCode, codeInlineClassName } from '@/lib/autocode'
+import { AutoCode, PathChip, codeInlineClassName } from '@/lib/autocode'
 
 export function WorkspaceTopologySection({ topology }: { topology: any }) {
   const members: any[] = Array.isArray(topology?.members) ? topology.members : []
@@ -274,7 +274,9 @@ function FindingMeta({ f }: { f: Finding }) {
           <summary className="cursor-pointer text-ink/40 hover:text-ink/60">show locations</summary>
           <ul className="mt-1 space-y-0.5 font-mono text-[11px]">
             {f.applies_to.map((a, i) => (
-              <li key={i} className="break-all">{a}</li>
+              <li key={i}>
+                <PathChip path={a} className="text-[11px]" />
+              </li>
             ))}
           </ul>
         </details>
@@ -622,10 +624,9 @@ export function TopHighCCList({
       </div>
       <div className="min-w-0 flex-1">
         <div className="font-bold text-ink/80 truncate">{f.name || '?'}</div>
-        <code className="text-[10px] text-ink/40 font-mono truncate block">
-          {f.path}
-          {f.line ? `:${f.line}` : ''}
-        </code>
+        <div className="text-[10px] text-ink/40 font-mono truncate block">
+          <PathChip path={`${f.path}${f.line ? `:${f.line}` : ''}`} className="text-[10px]" />
+        </div>
       </div>
     </li>
   )
@@ -790,15 +791,20 @@ export function FieldList({ label, items, mono }: { label: string; items: any[];
     <div className="space-y-2 min-w-0">
       <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mb-1">{label}</div>
       <ul className="space-y-1.5">
-        {items.map((it: any, i: number) => (
-          <li key={i} className={cn(
-            "flex items-start gap-2 text-sm",
-            mono ? 'font-mono text-[11px] text-ink/80' : 'text-ink/70'
-          )}>
-            <div className="mt-1.5 w-1 h-1 rounded-full bg-teal shrink-0" />
-            <span className="break-words overflow-hidden [word-break:break-word]">{typeof it === 'string' ? it : JSON.stringify(it)}</span>
-          </li>
-        ))}
+        {items.map((it: any, i: number) => {
+          const text = typeof it === 'string' ? it : JSON.stringify(it)
+          return (
+            <li key={i} className={cn(
+              "flex items-start gap-2 text-sm",
+              mono ? 'font-mono text-[11px] text-ink/80' : 'text-ink/70'
+            )}>
+              <div className="mt-1.5 w-1 h-1 rounded-full bg-teal shrink-0" />
+              <span className="break-words overflow-hidden [word-break:break-word]">
+                <AutoCode text={text} />
+              </span>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )
@@ -828,9 +834,9 @@ export function ComponentsSection({ components }: { components: any[] }) {
                         )}
                       </div>
                       {c.location && (
-                        <code className={cn(codeInlineClassName, "mt-1 block truncate text-[10px]")}>
-                          {c.location}
-                        </code>
+                        <div className="mt-1 block truncate">
+                          <PathChip path={c.location} className="text-[10px]" />
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1104,7 +1110,7 @@ export function ArchRulesSection({ filePlacement, naming }: { filePlacement: any
                           {r.component_type}
                         </Badge>
                       )}
-                      {r.location && <code className={cn(codeInlineClassName, "text-xs")}>{r.location}</code>}
+                      {r.location && <PathChip path={r.location} className="text-xs" />}
                     </div>
                     {r.description && <p className="text-sm text-ink/70"><AutoCode text={r.description} /></p>}
                     {r.naming_pattern && (
@@ -1161,6 +1167,8 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
           const hasContent =
             description ||
             code ||
+            g.applicable_when ||
+            (Array.isArray(g.do_not_apply_when) && g.do_not_apply_when.length > 0) ||
             (Array.isArray(g.steps) && g.steps.length > 0) ||
             (Array.isArray(g.tips) && g.tips.length > 0) ||
             (Array.isArray(g.libraries) && g.libraries.length > 0) ||
@@ -1168,7 +1176,7 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
             (Array.isArray(g.rationale) && g.rationale.length > 0);
           
           return (
-            <div key={i} className={cn("rounded-3xl border overflow-hidden transition-all hover:shadow-xl", theme.surface.panel)}>
+            <div key={i} className={cn("rounded-3xl border overflow-hidden transition-all hover:shadow-xl min-w-0", theme.surface.panel)}>
               <div className={cn(
                 "p-6 flex items-center justify-between bg-white/40",
                 hasContent && "border-b border-papaya-400/20"
@@ -1179,11 +1187,22 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                   </div>
                   <h3 className="font-bold text-lg text-ink leading-tight">{g.capability || g.category || g.title || 'Guideline'}</h3>
                 </div>
-                {g.category && g.capability && (
-                  <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-ink/30 border-papaya-400">
-                    {g.category}
-                  </Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {g.category && g.capability && (
+                    <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-ink/30 border-papaya-400">
+                      {g.category}
+                    </Badge>
+                  )}
+                  {Array.isArray(g.scope) && g.scope.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {g.scope.map((s: string, j: number) => (
+                        <Badge key={j} variant="outline" className="text-[10px] font-mono text-teal border-teal/20 bg-teal/5">
+                          {s}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {hasContent && (
@@ -1191,6 +1210,29 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                   {description && (
                     <div className="prose prose-sm max-w-none text-ink/70 leading-relaxed italic border-l-2 border-teal/20 pl-6">
                       <AutoCode text={typeof description === 'string' ? description : JSON.stringify(description)} />
+                    </div>
+                  )}
+
+                  {g.applicable_when && (
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-black text-teal uppercase tracking-[0.2em] block mb-2">Applicable when</span>
+                      <p className="text-sm text-ink/80 leading-relaxed break-words [&_code]:break-all"><AutoCode text={g.applicable_when} /></p>
+                    </div>
+                  )}
+
+                  {Array.isArray(g.do_not_apply_when) && g.do_not_apply_when.length > 0 && (
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-black text-tangerine uppercase tracking-[0.2em] block mb-2">Do NOT apply when</span>
+                      <ul className="space-y-2 text-sm text-ink/80">
+                        {g.do_not_apply_when.map((d: any, j: number) => (
+                          <li key={j} className="flex items-start gap-3 min-w-0">
+                            <div className="w-1.5 h-1.5 rounded-full bg-tangerine mt-2 shrink-0" />
+                            <span className="flex-1 min-w-0 break-words [&_code]:break-all">
+                              <AutoCode text={typeof d === 'string' ? d : JSON.stringify(d)} />
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
 
@@ -1222,10 +1264,16 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
                   {Array.isArray(g.key_files) && g.key_files.length > 0 && (
                     <div>
                       <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] block mb-2">Key Files</span>
-                      <ul className="space-y-1 text-xs font-mono text-ink/60">
-                        {g.key_files.map((f: any, j: number) => (
-                          <li key={j} className="truncate">{typeof f === 'string' ? f : f.file || f.path || JSON.stringify(f)}</li>
-                        ))}
+                      <ul className="space-y-1 text-xs font-mono text-ink/60 flex flex-wrap gap-1.5">
+                        {g.key_files.map((f: any, j: number) => {
+                          const p = typeof f === 'string' ? f : f.file || f.path || ''
+                          if (!p) return null
+                          return (
+                            <li key={j}>
+                              <PathChip path={p} className="text-xs" />
+                            </li>
+                          )
+                        })}
                       </ul>
                     </div>
                   )}
@@ -1352,11 +1400,9 @@ function EnforcementRuleCard({ rule, dim = false }: { rule: any; dim?: boolean }
         </div>
       )}
       <div className="flex flex-wrap gap-2 mt-2">
-        {scope && (
-          <code className={cn(codeInlineClassName, 'text-[10px]')}>{scope}</code>
-        )}
+        {scope && <PathChip path={scope} className="text-[10px]" />}
         {triggers?.path_glob && (Array.isArray(triggers.path_glob) ? triggers.path_glob : [triggers.path_glob]).map((g: string, j: number) => (
-          <code key={j} className={cn(codeInlineClassName, 'text-[10px] text-teal/80')}>{g}</code>
+          <PathChip key={j} path={g} className="text-[10px] text-teal/80" />
         ))}
       </div>
       {triggers?.code_shape && Array.isArray(triggers.code_shape) && triggers.code_shape.length > 0 && (
@@ -1418,8 +1464,13 @@ function _renderRuleRow(r: any, i: number, accent: string) {
           <AutoCode text={text} />
         </div>
         {source && (
-          <div className="text-[10px] font-mono text-ink/40 mt-2">
-            source: <code className={cn(codeInlineClassName, 'text-[10px]')}>{source}</code>
+          <div className="text-[10px] font-mono text-ink/40 mt-2 flex flex-wrap items-center gap-1.5">
+            <span>source:</span>
+            {source.split(';').map((p, j) => {
+              const trimmed = p.trim()
+              if (!trimmed) return null
+              return <PathChip key={j} path={trimmed} className="text-[10px]" />
+            })}
           </div>
         )}
       </div>
@@ -1462,7 +1513,7 @@ export function CommunicationsSection({ communications }: { communications: any[
       <SectionHeader title="Communications" icon={Activity} />
       <div className="grid gap-4 md:grid-cols-2">
         {communications.map((c: any, i: number) => (
-          <div key={i} className={cn("p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg", theme.surface.panel)}>
+          <div key={i} className={cn("p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg min-w-0 overflow-hidden", theme.surface.panel)}>
             <div className="flex items-center gap-2 mb-4">
                <div className="p-2 rounded-xl bg-ink/5">
                  <Zap className="w-4 h-4 text-tangerine" />
@@ -1476,8 +1527,63 @@ export function CommunicationsSection({ communications }: { communications: any[
             </div>
             
             <div className="space-y-4">
-              {c.description && <p className="text-sm text-ink/70 leading-relaxed"><AutoCode text={c.description} /></p>}
-              
+              {c.how_it_works && (
+                <p className="text-sm text-ink/70 leading-relaxed">
+                  <AutoCode text={c.how_it_works} />
+                </p>
+              )}
+
+              {c.when_to_use && (
+                <p className="text-xs text-ink/55 leading-relaxed min-w-0 break-words [&_code]:break-all">
+                  <span className="font-black uppercase tracking-widest text-[10px] text-ink/40 mr-1.5">When</span>
+                  <AutoCode text={c.when_to_use} />
+                </p>
+              )}
+
+              {/* Legacy shape: bundles created before patterns were split into
+                  how_it_works/when_to_use stored prose in `description`. */}
+              {c.description && !c.how_it_works && !c.when_to_use && (
+                <p className="text-sm text-ink/70 leading-relaxed">
+                  <AutoCode text={c.description} />
+                </p>
+              )}
+
+              {Array.isArray(c.scope) && c.scope.length > 0 && (
+                <div>
+                  <span className="text-[9px] font-black uppercase text-ink/30 block mb-2">Scope</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {c.scope.map((s: string, j: number) => (
+                      <Badge key={j} variant="outline" className="text-[10px] font-mono text-teal border-teal/20 bg-teal/5">
+                        {s}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {c.applicable_when && (
+                <div className="pt-3 border-t border-teal/10 min-w-0">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-teal block mb-1">Applicable when</span>
+                  <p className="text-xs text-ink/75 leading-relaxed break-words [&_code]:break-all"><AutoCode text={c.applicable_when} /></p>
+                </div>
+              )}
+
+              {Array.isArray(c.do_not_apply_when) && c.do_not_apply_when.length > 0 && (
+                <div className="pt-3 border-t border-tangerine/10 min-w-0">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-tangerine block mb-2">Do NOT apply when</span>
+                  <ul className="space-y-1.5 text-xs text-ink/75">
+                    {c.do_not_apply_when.map((d: string, j: number) => (
+                      <li key={j} className="flex items-start gap-2 min-w-0">
+                        <span className="text-tangerine mt-0.5 shrink-0">•</span>
+                        <span className="flex-1 min-w-0 break-words leading-relaxed [&_code]:break-all">
+                          <AutoCode text={d} />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-papaya-400/20">
                 {c.sender && (
                   <div>
@@ -1565,9 +1671,9 @@ export function IntegrationsSection({
                 <div className="text-[9px] font-black uppercase text-ink/30 tracking-widest mb-1">
                   Integration point
                 </div>
-                <code className="block font-mono text-[11px] text-ink/70 break-all leading-snug">
-                  {i.integration_point}
-                </code>
+                <p className="text-[12px] text-ink/70 leading-snug min-w-0 break-words">
+                  <AutoCode text={i.integration_point} />
+                </p>
               </div>
             )}
           </div>

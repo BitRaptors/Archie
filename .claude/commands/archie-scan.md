@@ -297,9 +297,11 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 **Severity_class — anchor to the blueprint, never invent.** Try to anchor each proposed rule to a blueprint section, then map:
 - `decisions.key_decisions[*]` or `pitfalls[*]` → `decision_violation` / `pitfall_triggered` (block)
 - `decisions.trade_offs[*].violation_signals` → `tradeoff_undermined` (warn)
-- `components.patterns` or `implementation_guidelines` → `pattern_divergence` (inform)
+- `communication.patterns[*]` or `implementation_guidelines[*]` → `pattern_divergence` (inform)
 - **Genuinely new pattern not yet in the blueprint** → `pattern_divergence` (inform — lowest severity, default)
 - **Mechanical (regex-checkable housekeeping)** → `mechanical_violation` (block) — pair with the optional check fields below
+
+**When anchoring to `communication.patterns` or `implementation_guidelines`:** if the matched entry carries `applicable_when` and/or `do_not_apply_when` fields, **copy them into `why` verbatim**. These fields are the precondition contract — the verifiable invariant that makes the pattern correct, plus the concrete cases where it would silently break. They are exactly what a coding agent needs at edit time to decide whether the rule applies. Do NOT paraphrase, summarize, or omit them — copy the language verbatim, optionally followed by your own short anchoring sentence ("This rule enforces…"). For entries without these fields (older blueprints, generic patterns), fall back to `pattern_description` / `rationale` as before.
 
 **Scan never promotes a rule to `decision_violation` or `pitfall_triggered` on its own.** Only deep-scan does, with full Wave-2 reasoning. If you're unsure whether a pattern is load-bearing enough to justify blocking, default to `pattern_divergence` and let the next deep-scan reason about it.
 
