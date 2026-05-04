@@ -306,6 +306,10 @@ const COLLAPSE_RE = new RegExp(
  */
 export function AutoCode({ text }: { text: string }): ReactNode {
   if (!text) return null
+  // Wave-2 AI output occasionally drifts from schema (e.g. a string field
+  // returning an array). Coerce here so one stray field can't unmount the
+  // whole report tree via text.matchAll() throwing.
+  if (typeof text !== 'string') text = String(text)
 
   const parts: ReactNode[] = []
   let key = 0
@@ -358,4 +362,65 @@ export function AutoCode({ text }: { text: string }): ReactNode {
   }
 
   return createElement(Fragment, null, ...parts)
+}
+
+/**
+ * Render a schema-string-or-array field as a paragraph or bullet list.
+ *
+ * Wave-2 AI sometimes returns an array where the schema declares a string
+ * (e.g. decisions[].enables, communication.patterns[].how_it_works). Every
+ * standalone-paragraph render of a blueprint string field should go through
+ * this component so a shape drift in any single field can't take down the
+ * page. Inline sites (where the field is composed mid-sentence with prose
+ * around it) should keep <AutoCode/> directly — AutoCode's String() coercion
+ * keeps those crash-safe even if the value drifts to non-string.
+ *
+ *   <Prose value={d.rationale} className="text-sm text-ink/70" />
+ *
+ * Single string → <p className={...}><AutoCode text=...></p>
+ * Array of strings → <ul className={...}>... bulleted items ...</ul>
+ * Empty/null/non-{string|array} → null (with one round-trip through String() for
+ * primitive coercions like number).
+ */
+export function Prose({
+  value,
+  className,
+  bulletClassName,
+}: {
+  value: unknown
+  className?: string
+  bulletClassName?: string
+}): ReactNode {
+  if (value == null) return null
+  if (Array.isArray(value)) {
+    const items = value
+      .map((v) => (typeof v === 'string' ? v : v == null ? '' : String(v)))
+      .filter((s) => s.length > 0)
+    if (items.length === 0) return null
+    if (items.length === 1)
+      return createElement('p', { className }, createElement(AutoCode, { text: items[0] }))
+    return createElement(
+      'ul',
+      { className: className ? `${className} space-y-1.5` : 'space-y-1.5' },
+      items.map((s, i) =>
+        createElement(
+          'li',
+          { key: i, className: 'flex items-start gap-2' },
+          createElement(
+            'span',
+            { className: bulletClassName ?? 'text-ink/30 mt-0.5 shrink-0' },
+            '•',
+          ),
+          createElement(
+            'span',
+            { className: 'flex-1 min-w-0 break-words' },
+            createElement(AutoCode, { text: s }),
+          ),
+        ),
+      ),
+    )
+  }
+  const text = typeof value === 'string' ? value : String(value)
+  if (!text) return null
+  return createElement('p', { className }, createElement(AutoCode, { text }))
 }
