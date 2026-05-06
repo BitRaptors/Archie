@@ -33,9 +33,14 @@ ARCHIE_MARKER_START = "<!-- archie:generated:start -->"
 ARCHIE_MARKER_END = "<!-- archie:generated:end -->"
 
 # Files that may coexist with hand-authored content. Everything else the
-# renderer emits (rule files under .claude/rules/) is fully Archie-owned —
-# those still get a straight overwrite because the user doesn't edit them.
-MERGEABLE_FILES = frozenset({"CLAUDE.md", "AGENTS.md"})
+# renderer emits (rule files under .claude/rules/, AGENTS.md pointer) is
+# fully Archie-owned — those still get a straight overwrite because the
+# user doesn't edit them.
+#
+# AGENTS.md is intentionally NOT mergeable: it's a thin pointer to CLAUDE.md
+# (vendor-neutral redirect for Cursor/Codex/Aider/Continue), regenerated
+# fresh every run so it can never drift from the canonical doc.
+MERGEABLE_FILES = frozenset({"CLAUDE.md"})
 
 
 def _wrap_with_markers(content: str) -> str:
@@ -1128,16 +1133,32 @@ def generate_claude_md(bp: dict) -> str:
 # ---------------------------------------------------------------------------
 # AGENTS.md
 #
-# Same content as CLAUDE.md, written to a second file so multi-agent setups
-# (Cursor, Codex, Aider, Continue) find it under the vendor-neutral name.
-# Single source of truth at the generator level — no drift, half the code
-# to maintain. Hand-edits to either file survive via the merge-marker
-# protocol in render_mergeable.
+# A thin pointer to CLAUDE.md so multi-agent setups (Cursor, Codex, Aider,
+# Continue) that look for the vendor-neutral name still find guidance.
+# Previously this duplicated the entire CLAUDE.md body, doubling the
+# auto-loaded context budget for zero new information. The pointer keeps
+# tools happy without paying that token cost twice.
 # ---------------------------------------------------------------------------
 
-def generate_agents_md(bp: dict) -> str:
-    """Generate AGENTS.md — identical to CLAUDE.md by design."""
-    return generate_claude_md(bp).replace("# CLAUDE.md", "# AGENTS.md", 1)
+_AGENTS_POINTER = """# AGENTS.md
+
+This project's canonical agent context lives in **[CLAUDE.md](./CLAUDE.md)**.
+
+Tools that look for `AGENTS.md` (Cursor, Codex, Aider, Continue, etc.) should
+read `CLAUDE.md` as the source of truth for architecture, patterns, commands,
+and enforcement rules. Per-folder context lives in nested `CLAUDE.md` files
+(Archie's intent layer); those apply to any agent regardless of vendor.
+"""
+
+
+def generate_agents_md(bp: dict) -> str:  # noqa: ARG001 — bp kept for API compat
+    """Generate AGENTS.md — a static pointer to CLAUDE.md.
+
+    The blueprint argument is unused but retained so existing callers keep
+    working. The output is identical across every project; what differs is
+    the CLAUDE.md it points to.
+    """
+    return _AGENTS_POINTER
 
 
 # ---------------------------------------------------------------------------
@@ -1311,12 +1332,12 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
         if result is not None:
             rule_files.append(result)
 
-    # Generate the lean root content ONCE so CLAUDE.md and AGENTS.md share
-    # the same body (including the same timestamp) — only the H1 differs.
-    claude_body = generate_claude_md(bp)
+    # CLAUDE.md is the canonical, blueprint-derived doc. AGENTS.md is a
+    # static pointer (full-overwrite, not mergeable) so vendor-neutral
+    # tooling resolves to the same guidance without duplicating tokens.
     files = {
-        "CLAUDE.md": claude_body,
-        "AGENTS.md": claude_body.replace("# CLAUDE.md", "# AGENTS.md", 1),
+        "CLAUDE.md": generate_claude_md(bp),
+        "AGENTS.md": generate_agents_md(bp),
     }
 
     for rf in rule_files:
