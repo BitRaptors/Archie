@@ -141,6 +141,101 @@ def test_topic_for_rule_handles_non_string_id():
     assert _topic_for_rule({"id": None}) == "misc"
 
 
+from archie.standalone.renderer import build_enforcement_directory
+
+
+def _mk(id_, topic, source, **extra):
+    return {"id": id_, "topic": topic, "_archie_source": source,
+            "description": f"desc {id_}", **extra}
+
+
+def test_build_enforcement_directory_groups_project_by_topic():
+    rules = [
+        _mk("rx-001", "concurrency", "project"),
+        _mk("rx-002", "concurrency", "project"),
+        _mk("nav-001", "navigation", "project"),
+    ]
+    out = build_enforcement_directory(rules)
+    assert "enforcement/by-topic/concurrency.md" in out
+    assert "enforcement/by-topic/navigation.md" in out
+    body = out["enforcement/by-topic/concurrency.md"]
+    assert "rx-001" in body and "rx-002" in body
+    assert "nav-001" not in body
+
+
+def test_build_enforcement_directory_routes_platform_to_universal():
+    rules = [
+        _mk("rx-001", "concurrency", "project"),
+        _mk("erosion-god-function", "complexity", "platform"),
+        _mk("decay-empty-catch", "quality", "platform"),
+    ]
+    out = build_enforcement_directory(rules)
+    assert "enforcement/universal.md" in out
+    universal = out["enforcement/universal.md"]
+    assert "erosion-god-function" in universal
+    assert "decay-empty-catch" in universal
+    # Project rule should NOT be in universal.md
+    assert "rx-001" not in universal
+    # No by-topic file for platform topic.
+    assert "enforcement/by-topic/complexity.md" not in out
+
+
+def test_build_enforcement_directory_emits_index():
+    rules = [
+        _mk("rx-001", "concurrency", "project"),
+        _mk("nav-001", "navigation", "project"),
+        _mk("erosion-god-function", "complexity", "platform"),
+    ]
+    out = build_enforcement_directory(rules)
+    idx = out["enforcement/index.md"]
+    assert "Enforcement Rules" in idx
+    # Topic table lists every project topic + universal row.
+    assert "concurrency" in idx
+    assert "navigation" in idx
+    assert "Universal" in idx
+    # Counts surface.
+    assert "1" in idx  # one rule per topic in this fixture
+
+
+def test_build_enforcement_directory_path_glob_inversion():
+    rules = [
+        _mk("rx-001", "concurrency", "project",
+            triggers={"path_glob": ["Sources/Controllers/**/*.swift"]}),
+        _mk("nav-001", "navigation", "project",
+            triggers={"path_glob": ["Sources/Controllers/**/*.swift"]}),
+        _mk("ui-001", "ui", "project",
+            triggers={"path_glob": ["Sources/Views/**/*.swift"]}),
+    ]
+    out = build_enforcement_directory(rules)
+    idx = out["enforcement/index.md"]
+    # The Controllers glob should list both concurrency and navigation.
+    controllers_section = idx.split("Sources/Controllers")[1].split("|")[0:6]
+    joined = " ".join(controllers_section)
+    assert "concurrency" in joined
+    assert "navigation" in joined
+
+
+def test_build_enforcement_directory_legacy_rules_use_fallback_heuristic():
+    """Rules with no `topic` field still get grouped via the prefix table."""
+    rules = [
+        {"id": "rx-001", "description": "x", "_archie_source": "project"},
+        {"id": "ui-001", "description": "x", "_archie_source": "project"},
+    ]
+    out = build_enforcement_directory(rules)
+    assert "enforcement/by-topic/concurrency.md" in out
+    assert "enforcement/by-topic/ui.md" in out
+
+
+def test_build_enforcement_directory_empty_input_returns_empty_dict():
+    assert build_enforcement_directory([]) == {}
+
+
+def test_build_enforcement_directory_slugifies_topic_with_spaces():
+    rules = [_mk("x-001", "Data Access", "project")]
+    out = build_enforcement_directory(rules)
+    assert "enforcement/by-topic/data-access.md" in out
+
+
 from archie.standalone.renderer import generate_all
 
 

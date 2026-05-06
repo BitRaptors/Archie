@@ -1393,6 +1393,152 @@ def build_enforcement_rules_topic(rules: list[dict]) -> str | None:
     return "\n".join(lines).rstrip()
 
 
+def _render_topic_file(topic: str, rules: list[dict]) -> str:
+    """Render a single by-topic markdown file. Rules are severity-grouped
+    in the same order as universal.md."""
+    by_severity: dict[str, list[dict]] = defaultdict(list)
+    for r in rules:
+        by_severity[_severity_label_for_render(r)].append(r)
+    lines = [f"# Enforcement: {topic} ({len(rules)} rule"
+             f"{'s' if len(rules) != 1 else ''})", ""]
+    lines.append(
+        "Topic file. Loaded on demand when an agent works on something "
+        f"in the `{topic}` area. The pre-edit hook reads "
+        "`.archie/rules.json` directly — this file is for browsing/context only."
+    )
+    lines.append("")
+    for sev in _SEVERITY_RENDER_ORDER:
+        bucket = by_severity.get(sev) or []
+        if not bucket:
+            continue
+        lines.append(f"## {_SEVERITY_HEADINGS[sev]}")
+        lines.append("")
+        for r in bucket:
+            lines.extend(_render_one_enforcement_rule(r))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_universal_file(rules: list[dict]) -> str:
+    """Render the universal.md file holding Archie-baked platform rules."""
+    by_severity: dict[str, list[dict]] = defaultdict(list)
+    for r in rules:
+        by_severity[_severity_label_for_render(r)].append(r)
+    lines = [f"# Universal Enforcement ({len(rules)} rule"
+             f"{'s' if len(rules) != 1 else ''})", ""]
+    lines.append(
+        "Anti-patterns shipped with Archie that apply to every project "
+        "regardless of stack. These come from `platform_rules.json`, not "
+        "from your project's `rules.json`."
+    )
+    lines.append("")
+    for sev in _SEVERITY_RENDER_ORDER:
+        bucket = by_severity.get(sev) or []
+        if not bucket:
+            continue
+        lines.append(f"## {_SEVERITY_HEADINGS[sev]}")
+        lines.append("")
+        for r in bucket:
+            lines.extend(_render_one_enforcement_rule(r))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_index_file(
+    project_topics: dict[str, list[dict]],
+    universal_rules: list[dict],
+    all_rules: list[dict],
+) -> str:
+    """Build enforcement/index.md with topic table + path-glob lookup table."""
+    total = sum(len(v) for v in project_topics.values()) + len(universal_rules)
+    lines = ["# Enforcement Rules — Index", ""]
+    lines.append(
+        f"This project has {total} rule{'s' if total != 1 else ''} "
+        f"across {len(project_topics)} project topic"
+        f"{'s' if len(project_topics) != 1 else ''}. Load only the topic "
+        "file(s) relevant to your task. Universal Archie anti-patterns "
+        "live in `universal.md` and apply to every project."
+    )
+    lines.append("")
+
+    # By-topic table
+    lines.append("## By topic")
+    lines.append("")
+    lines.append("| Topic | File | Rules |")
+    lines.append("|-------|------|-------|")
+    for topic in sorted(project_topics):
+        n = len(project_topics[topic])
+        lines.append(f"| {topic} | by-topic/{topic}.md | {n} |")
+    if universal_rules:
+        lines.append(f"| Universal | universal.md | {len(universal_rules)} |")
+    lines.append("")
+
+    # By-path table — invert path_glob → set of topics
+    glob_to_topics: dict[str, set[str]] = defaultdict(set)
+    for r in all_rules:
+        triggers = r.get("triggers") or {}
+        if not isinstance(triggers, dict):
+            continue
+        globs = triggers.get("path_glob") or []
+        if isinstance(globs, str):
+            globs = [globs]
+        topic = (
+            "universal" if r.get("_archie_source") == "platform"
+            else _topic_for_rule(r)
+        )
+        for g in globs:
+            if isinstance(g, str) and g:
+                glob_to_topics[g].add(topic)
+
+    if glob_to_topics:
+        lines.append("## By path")
+        lines.append("")
+        lines.append(
+            "When editing a file matching one of these globs, load the "
+            "listed topics first."
+        )
+        lines.append("")
+        lines.append("| Path glob | Topics to load |")
+        lines.append("|-----------|----------------|")
+        for g in sorted(glob_to_topics):
+            topics = ", ".join(sorted(glob_to_topics[g]))
+            lines.append(f"| `{g}` | {topics} |")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_enforcement_directory(rules: list[dict]) -> dict[str, str]:
+    """Build the enforcement/ directory file map.
+
+    Splits rules by `_archie_source` into project (→ by-topic/) and platform
+    (→ universal.md) buckets, groups project rules by topic (resolved via
+    `_topic_for_rule`), and emits an index file with a topic table plus a
+    path-glob-keyed lookup table.
+
+    Returns a dict mapping relative paths (e.g. `enforcement/index.md`,
+    `enforcement/by-topic/concurrency.md`, `enforcement/universal.md`) to
+    file contents. Returns `{}` for an empty rule list.
+    """
+    valid = [r for r in rules if isinstance(r, dict) and r.get("id")]
+    if not valid:
+        return {}
+
+    project_topics: dict[str, list[dict]] = defaultdict(list)
+    universal_rules: list[dict] = []
+    for r in valid:
+        if r.get("_archie_source") == "platform":
+            universal_rules.append(r)
+        else:
+            project_topics[_topic_for_rule(r)].append(r)
+
+    out: dict[str, str] = {}
+    for topic, bucket in project_topics.items():
+        out[f"enforcement/by-topic/{topic}.md"] = _render_topic_file(topic, bucket)
+    if universal_rules:
+        out["enforcement/universal.md"] = _render_universal_file(universal_rules)
+    out["enforcement/index.md"] = _build_index_file(project_topics, universal_rules, valid)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
