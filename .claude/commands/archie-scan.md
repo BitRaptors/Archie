@@ -466,6 +466,7 @@ A run whose output is dominated by reconfirmations is a valid result only when t
 
 - `problem_statement` is specific. "Code is complex" is not a finding; "3 route handlers exceed 500 SLOC with cyclomatic complexity > 20" is.
 - `evidence` is non-empty and concrete: file paths with line numbers, counts, pattern observations. No `evidence` → drop the finding.
+- `triggering_call_site` is non-empty and quotes a verbatim caller in the corpus that ACTUALLY fires the failure mode under current code. **Not** a function whose signature *could* trigger it — a caller whose actual argument or surrounding context demonstrates the problem firing right now. If you cannot quote such a site (because the suspect helper is only ever called via a tx-bound adapter, the missing wrapper exists at every call site, etc.), the entry is a **risk class** — emit it as a *pitfall* via the deep-scan path instead of a finding here. Findings without a `triggering_call_site` are silently dropped by the verifier downstream.
 - `root_cause` names the architectural decision, pattern choice, or constraint driving the problem. "Needs refactoring" is not a root cause.
 - `fix_direction` is actionable and tactical (single sentence).
 
@@ -480,6 +481,7 @@ No upper cap on `findings.json` — rank-clip happens only at render time in `sc
   "id": "f_NNNN",
   "problem_statement": "One sentence, specific.",
   "evidence": ["src/file.py:42", "pattern observed in 7 modules", "..."],
+  "triggering_call_site": "src/file.py:84\n<verbatim code quote of the caller that fires the failure mode here>",
   "root_cause": "Names a decision/pattern/constraint, specific to this codebase.",
   "fix_direction": "Single tactical sentence.",
   "severity": "error | warn | info",
@@ -492,6 +494,8 @@ No upper cap on `findings.json` — rank-clip happens only at render time in `sc
   "status": "active"
 }
 ```
+
+**`triggering_call_site` — finding-vs-pitfall classification gate.** This is a required, non-empty field for any finding. It must contain a verbatim quote of code from the corpus that ACTUALLY triggers the failure mode under current code — typically the file path, line number, and a short verbatim code snippet showing the caller whose argument or surrounding context demonstrates the problem firing right now. Not "the helper signature could trigger it"; not "AGENTS.md mandates X"; a real caller in current code that fires the failure. If you cannot quote one (because the suspect helper is only ever called via a tx-bound adapter, the missing wrapper exists at every call site, the cited invariant is universally enforced, etc.), the entry is a **risk class**, not a current problem — *do not emit it as a finding here*. Risk classes belong in `pitfalls` (deep-scan path); the verifier downstream silently drops findings without a real `triggering_call_site`.
 
 `source` maps to the agent: Agent A → `scan:structure`, Agent B → `scan:health`, Agent C → `scan:patterns`.
 
@@ -512,6 +516,17 @@ No upper cap on `findings.json` — rank-clip happens only at render time in `sc
 ```
 
 Write to `.archie/findings.json`. `scanned_at` must match the date/time you compute in 4c. `scan_count` matches `blueprint.meta.scan_count` after 4a evolved it.
+
+### 4b-verify: Backward-check findings against actual code
+
+After 4b writes the candidate findings store, run the Haiku verifier + apply hysteresis. The verifier reads each finding's `triggering_call_site` (the verbatim caller quote the synthesizer was required to produce in the schema), reads the cited files, walks one level out, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
+
+```bash
+python3 .archie/verify_findings.py "$PWD"
+python3 .archie/apply_verdicts.py "$PWD"
+```
+
+Both scripts are idempotent; if `verify_findings.py` couldn't run (claude CLI missing, every Haiku call timed out, etc.) `apply_verdicts.py` no-ops cleanly. Findings whose status flips to `demoted` or `dropped` here will be filtered out of 4c's "Findings" section automatically — only `status: active` shows up in the user-facing report.
 
 ### 4c: Write Scan Report
 
@@ -549,9 +564,15 @@ The report should include:
 [functions that got more complex since last scan]
 
 ## Findings
-[ALL findings from agents A, B, C — ranked by severity then confidence]
-[Each finding: what's wrong, which file, evidence from the code, why it matters]
+[ONLY findings with `status: "active"` after 4b-verify ran. Findings with `status: "demoted"` (verifier-routed to risk class, no current instance) and `status: "dropped"` (verifier rejected premise) MUST be filtered out — they belong in the verifier-suppression line below, not the user-facing findings list.]
+[Within the active set: rank by severity then confidence]
+[Each finding: what's wrong, the verbatim `triggering_call_site` (where the failure fires — render as a fenced code block right under the title), evidence from the code, why it matters. The triggering_call_site quote is the highest-signal field — it tells the user exactly which line to look at — so include it prominently.]
+[If a finding carries `pending_demotion: true`, append a small italic note: *"verifier flagged this for demotion once; awaiting confirmation next scan."* (and similarly for `pending_promotion`). This surfaces borderline cases the hysteresis layer is tracking.]
 [Mark which findings are NEW vs. RECURRING vs. RESOLVED since last scan]
+
+If `.archie/findings.json` carries any entries with `status: "demoted"` or `status: "dropped"` from this scan's `apply_verdicts.py` run (look for `demoted_at` / `dropped_at` matching today's timestamp), append a single line under the Findings heading:
+
+> *Verifier suppressed N candidate(s) this scan: M demoted to risk-class (no current call-site instance), K dropped (premise unsound for this codebase).*
 
 ## Blueprint Evolution
 [What changed in the blueprint this scan — new components, updated confidence, resolved pitfalls, new rules added]

@@ -52,7 +52,13 @@ export default function ReportPage() {
     // markdown scan_report for older bundles uploaded before findings.json
     // was included.
     if (Array.isArray(bundle?.findings) && bundle!.findings!.length > 0) {
-      const active = bundle!.findings!.filter((f: any) => (f?.status || 'active') !== 'resolved')
+      // Filter to status === "active" only. Verifier-routed entries
+      // (status: "demoted" — risk class with no current call-site instance,
+      //  status: "dropped" — premise unsound for this codebase) are
+      // intentionally hidden from the user-facing Architectural Problems
+      // list. status: "resolved" stays hidden too. Older bundles without
+      // a status default to "active" so they render unchanged.
+      const active = bundle!.findings!.filter((f: any) => (f?.status || 'active') === 'active')
       return rankFindings(active.map(normalizeStructuredFinding))
     }
     if (!bundle?.scan_report) return []

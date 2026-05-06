@@ -21,14 +21,33 @@ def _now_iso_short() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H%M")
 
 
+# Verifier-pipeline state fields owned by apply_verdicts.py. The synthesizer
+# never re-emits these on a fresh finding, so finalize must preserve them
+# from the prior entry when merging — otherwise every scan wipes the
+# verdict_history and breaks cross-run hysteresis. The new emission can
+# still override any of these fields explicitly (rare, but keeps the door
+# open for an upstream step that wants to reset state intentionally).
+_VERIFIER_PIPELINE_FIELDS = (
+    "verdict_history",
+    "last_verdict_reason",
+    "last_verdict_confidence",
+    "pending_demotion",
+    "pending_promotion",
+    "demoted_at",
+    "dropped_at",
+)
+
+
 def _merge_findings_into_store(archie_dir: Path, new_findings: list) -> int:
     """Upsert deep-scan findings into .archie/findings.json.
 
     Existing entries whose id matches one in `new_findings` are replaced by
-    the new entry — preserving `first_seen` — and their `confirmed_in_scan`
-    counter is bumped by 1. Existing entries not referenced in
-    `new_findings` are left untouched (scan is responsible for marking
-    resolution).
+    the new entry — preserving `first_seen`, `confirmed_in_scan` (bumped by
+    1), `status` when the new entry doesn't carry one, and the
+    verifier-pipeline state (verdict_history, pending_*, demoted_at,
+    dropped_at, last_verdict_*) when the new entry doesn't carry those
+    either. Existing entries not referenced in `new_findings` are left
+    untouched (scan is responsible for marking resolution).
 
     Returns the new total count.
     """
@@ -59,6 +78,12 @@ def _merge_findings_into_store(archie_dir: Path, new_findings: list) -> int:
             # Preserve resolution unless deep-scan explicitly changed it.
             if "status" not in merged and prior.get("status"):
                 merged["status"] = prior["status"]
+            # Preserve verifier-pipeline state — owned by apply_verdicts.py,
+            # never re-emitted by the synthesizer. Without this, every scan
+            # wipes verdict_history and hysteresis breaks across runs.
+            for field in _VERIFIER_PIPELINE_FIELDS:
+                if field not in merged and field in prior:
+                    merged[field] = prior[field]
             by_id[fid] = merged
         else:
             merged = dict(nf)
