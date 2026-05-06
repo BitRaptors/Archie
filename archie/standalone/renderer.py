@@ -1473,7 +1473,7 @@ def main():
     # Both files are optional; missing-or-malformed cases produce no
     # enforcement.md and don't fail the render.
     enforcement_rules: list[dict] = []
-    for fname in ("rules.json", "platform_rules.json"):
+    for fname, src in (("rules.json", "project"), ("platform_rules.json", "platform")):
         path = project_root / ".archie" / fname
         if not path.exists():
             continue
@@ -1483,7 +1483,10 @@ def main():
             continue
         items = data if isinstance(data, list) else data.get("rules", [])
         if isinstance(items, list):
-            enforcement_rules.extend(r for r in items if isinstance(r, dict))
+            for r in items:
+                if isinstance(r, dict):
+                    r.setdefault("_archie_source", src)
+                    enforcement_rules.append(r)
 
     files = generate_all(bp, enforcement_rules=enforcement_rules)
 

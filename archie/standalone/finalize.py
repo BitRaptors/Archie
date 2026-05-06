@@ -152,7 +152,7 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
     # any subsequent invocation (incremental scan, manual finalize re-run,
     # the post-Step-6 render step) finds them and emits enforcement.md.
     enforcement_rules: list = []
-    for fname in ("rules.json", "platform_rules.json"):
+    for fname, src in (("rules.json", "project"), ("platform_rules.json", "platform")):
         path = archie_dir / fname
         if not path.exists():
             continue
@@ -162,7 +162,10 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
             continue
         items = data if isinstance(data, list) else data.get("rules", [])
         if isinstance(items, list):
-            enforcement_rules.extend(r for r in items if isinstance(r, dict))
+            for r in items:
+                if isinstance(r, dict):
+                    r.setdefault("_archie_source", src)
+                    enforcement_rules.append(r)
 
     generate_all = _import_sibling("renderer").generate_all
 

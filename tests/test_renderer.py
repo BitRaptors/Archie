@@ -139,3 +139,35 @@ def test_topic_for_rule_handles_non_string_id():
     # rule["id"] is malformed (int, None) — must not crash, falls back to misc
     assert _topic_for_rule({"id": 42}) == "misc"
     assert _topic_for_rule({"id": None}) == "misc"
+
+
+from archie.standalone.renderer import generate_all
+
+
+def test_generate_all_partitions_rules_by_archie_source():
+    """generate_all should partition rules into project (by-topic/) and
+    platform (universal.md) buckets based on _archie_source."""
+    bp = {"meta": {"repository": "x", "schema_version": "2.0.0"}}
+    rules = [
+        {
+            "id": "rx-001",
+            "topic": "concurrency",
+            "description": "test",
+            "_archie_source": "project",
+        },
+        {
+            "id": "erosion-god-function",
+            "topic": "complexity",
+            "description": "test",
+            "_archie_source": "platform",
+        },
+    ]
+    files = generate_all(bp, enforcement_rules=rules)
+    assert ".claude/rules/enforcement/universal.md" in files
+    assert ".claude/rules/enforcement/by-topic/concurrency.md" in files
+    # Project rule should NOT leak into universal.md
+    assert "rx-001" not in files[".claude/rules/enforcement/universal.md"]
+    # Platform rule should NOT leak into by-topic/
+    assert "erosion-god-function" not in files[
+        ".claude/rules/enforcement/by-topic/concurrency.md"
+    ]
