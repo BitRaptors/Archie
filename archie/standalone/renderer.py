@@ -1255,7 +1255,9 @@ def _topic_for_rule(rule: dict) -> str:
     explicit = rule.get("topic")
     if isinstance(explicit, str) and explicit.strip():
         return _slugify_topic(explicit)
-    rid = rule.get("id") or ""
+    rid = rule.get("id")
+    if not isinstance(rid, str):
+        rid = ""
     # Match longest prefix first so `file-placement-` wins over `file-`.
     for prefix in sorted(_PREFIX_TO_TOPIC_FALLBACK, key=len, reverse=True):
         if rid.startswith(prefix):

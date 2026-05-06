@@ -126,3 +126,16 @@ def test_topic_for_rule_unknown_prefix_returns_misc():
 
 def test_topic_for_rule_no_id_returns_misc():
     assert _topic_for_rule({}) == "misc"
+
+
+def test_topic_for_rule_handles_malformed_topic_field():
+    assert _topic_for_rule({"id": "x-001", "topic": 42}) == "misc"
+    assert _topic_for_rule({"id": "x-001", "topic": None}) == "misc"
+    assert _topic_for_rule({"id": "x-001", "topic": ""}) == "misc"
+    assert _topic_for_rule({"id": "x-001", "topic": "   "}) == "misc"
+
+
+def test_topic_for_rule_handles_non_string_id():
+    # rule["id"] is malformed (int, None) — must not crash, falls back to misc
+    assert _topic_for_rule({"id": 42}) == "misc"
+    assert _topic_for_rule({"id": None}) == "misc"
