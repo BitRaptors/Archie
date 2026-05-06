@@ -1407,6 +1407,14 @@ def main():
 
     bp = json.loads(blueprint_path.read_text())
 
+    # Defensive: some older blueprints (and some merger paths where repo_name
+    # wasn't threaded through) leave meta.repository empty, which surfaces as
+    # "Unknown Repository" in the rendered header. Fall back to the project
+    # root directory name so the rendered doc always identifies its own repo.
+    meta = bp.setdefault("meta", {})
+    if not meta.get("repository"):
+        meta["repository"] = project_root.name
+
     # Load enforcement rules from .archie/rules.json + platform_rules.json
     # so the renderer can emit a browsable enforcement.md topic file.
     # Both files are optional; missing-or-malformed cases produce no
