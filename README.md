@@ -4,9 +4,9 @@
 [![GitHub release](https://img.shields.io/github/v/release/BitRaptors/Archie)](https://github.com/BitRaptors/Archie/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Your AI writes code. Archie makes sure it follows your architecture.
+Your AI agent is fast on day 1. By week 3, it's putting files in the wrong layer, re-implementing helpers that already exist, and quietly drifting from the architecture you carefully explained at the start. The codebase erodes; the speed advantage fades.
 
-Archie scans your codebase, builds a structured architecture blueprint, and enforces it in real-time through Claude Code hooks. When your AI agent tries to put a file in the wrong place, break a naming convention, or violate an architectural constraint, Archie catches it before the code is written.
+Archie scans your repo, builds a structured blueprint of decisions and pitfalls, and installs Claude Code hooks that block edits violating it. CLAUDE.md and AGENTS.md (root plus per-folder) load the architecture passively at session start; PreToolUse hooks are the active gate at edit time — when the agent tries to write a file that violates a decision, the hook exits with the rule plus the architectural reason, and the agent retries.
 
 Works with any language. Zero runtime dependencies for standalone scripts.
 
@@ -15,6 +15,8 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 ```bash
 npx @bitraptors/archie /path/to/your/project
 ```
+
+![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
 This copies Archie's standalone scripts and Claude Code commands into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code.
 
@@ -40,8 +42,6 @@ Run `/archie-deep-scan` once to establish a baseline. Then use `/archie-scan` fo
 There is also `/archie-viewer` for interactive local blueprint inspection (Dashboard, Scan Reports, Blueprint, Rules, Files, Dependencies, Workspace tabs).
 
 ### `/archie-scan` in action
-
-![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
 <details>
 <summary>Example scan output (this is the actual agent summary — the underlying blueprint is much richer)</summary>

@@ -23,13 +23,32 @@ BLUEPRINT_WITH_RULES = {
 }
 
 
-def test_render_outputs_creates_claude_md(tmp_path: Path) -> None:
-    """render_outputs should write CLAUDE.md to disk."""
+def test_render_outputs_creates_agents_md_canonical(tmp_path: Path) -> None:
+    """AGENTS.md is the canonical, blueprint-derived doc on disk.
+
+    AGENTS.md is the vendor-neutral standard read by Cursor, Codex, Aider,
+    Continue, Cline, Cody, and Claude Code itself, so it carries the rich
+    body. CLAUDE.md is a static pointer (covered separately).
+    """
+    render_outputs(MINIMAL_BLUEPRINT, tmp_path)
+    agents_md = tmp_path / "AGENTS.md"
+    assert agents_md.exists(), "AGENTS.md was not created"
+    content = agents_md.read_text()
+    assert "test-repo" in content
+
+
+def test_render_outputs_creates_claude_md_pointer(tmp_path: Path) -> None:
+    """CLAUDE.md is a static pointer to AGENTS.md, not a duplicate body.
+
+    Claude Code auto-loads CLAUDE.md; the pointer tells the session where
+    the canonical context lives without paying duplicate tokens.
+    """
     render_outputs(MINIMAL_BLUEPRINT, tmp_path)
     claude_md = tmp_path / "CLAUDE.md"
     assert claude_md.exists(), "CLAUDE.md was not created"
     content = claude_md.read_text()
-    assert "test-repo" in content
+    assert "AGENTS.md" in content, "pointer must reference AGENTS.md"
+    assert "test-repo" not in content, "pointer must not duplicate canonical body"
 
 
 def test_render_outputs_creates_rules(tmp_path: Path) -> None:
