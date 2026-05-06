@@ -33,14 +33,17 @@ ARCHIE_MARKER_START = "<!-- archie:generated:start -->"
 ARCHIE_MARKER_END = "<!-- archie:generated:end -->"
 
 # Files that may coexist with hand-authored content. Everything else the
-# renderer emits (rule files under .claude/rules/, AGENTS.md pointer) is
+# renderer emits (rule files under .claude/rules/, CLAUDE.md pointer) is
 # fully Archie-owned — those still get a straight overwrite because the
 # user doesn't edit them.
 #
-# AGENTS.md is intentionally NOT mergeable: it's a thin pointer to CLAUDE.md
-# (vendor-neutral redirect for Cursor/Codex/Aider/Continue), regenerated
-# fresh every run so it can never drift from the canonical doc.
-MERGEABLE_FILES = frozenset({"CLAUDE.md"})
+# AGENTS.md is canonical (vendor-neutral standard read by Cursor, Codex,
+# Aider, Continue, Cline, Cody, and Claude Code itself). CLAUDE.md is a
+# thin pointer to AGENTS.md — full-overwrite, never mergeable, so it can
+# never drift from the source of truth. Per-folder context still uses
+# CLAUDE.md (intent_layer.py) since nested context is dominantly a Claude
+# Code idiom and other tools rarely act on it.
+MERGEABLE_FILES = frozenset({"AGENTS.md"})
 
 
 def _wrap_with_markers(content: str) -> str:
@@ -887,11 +890,21 @@ def _render_claude(rule: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# CLAUDE.md (lean root file — mirrors generate_claude_md_lean exactly)
+# Canonical agent-context body (lean root file — <120 lines).
+#
+# This is what gets written to AGENTS.md (the canonical file on disk) and
+# what the viewer renders for the CLAUDE.md tab. The H1 is parameterized
+# so the same body can be branded for either filename without duplicate
+# code paths.
 # ---------------------------------------------------------------------------
 
-def generate_claude_md(bp: dict) -> str:
-    """Generate lean root CLAUDE.md (<120 lines)."""
+def _generate_agent_body(bp: dict, *, h1: str) -> str:
+    """Generate the lean blueprint-derived agent-context body.
+
+    `h1` is the H1 heading (e.g. "AGENTS.md" or "CLAUDE.md"). The rest of
+    the body is identical regardless of filename — same blueprint, same
+    sections.
+    """
     timestamp = datetime.now(timezone.utc).isoformat()
     repo = _get(bp, "meta", "repository", default="Unknown Repository") or "Unknown Repository"
     style = (_get(bp, "meta", "architecture_style")
@@ -901,7 +914,7 @@ def generate_claude_md(bp: dict) -> str:
     lines = []
 
     # Header
-    lines.append("# CLAUDE.md")
+    lines.append(f"# {h1}")
     lines.append("")
     lines.append(f"> Architecture guidance for **{repo}**")
     lines.append(f"> Style: {style}")
@@ -1131,34 +1144,54 @@ def generate_claude_md(bp: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# AGENTS.md
+# Public body generators.
 #
-# A thin pointer to CLAUDE.md so multi-agent setups (Cursor, Codex, Aider,
-# Continue) that look for the vendor-neutral name still find guidance.
-# Previously this duplicated the entire CLAUDE.md body, doubling the
-# auto-loaded context budget for zero new information. The pointer keeps
-# tools happy without paying that token cost twice.
+# Both produce the same blueprint-derived body, branded with the
+# corresponding filename in the H1. Used by:
+#   - generate_all()  → writes AGENTS.md to disk (canonical)
+#   - serve_command   → renders CLAUDE.md content for the viewer tab
+#   - external tests / tooling
+#
+# CLAUDE.md on disk is NOT this body — it's a static pointer (see
+# _CLAUDE_POINTER below). The viewer still calls generate_claude_md() to
+# preview the rich markdown; that's a display concern, not a write target.
 # ---------------------------------------------------------------------------
 
-_AGENTS_POINTER = """# AGENTS.md
-
-This project's canonical agent context lives in **[CLAUDE.md](./CLAUDE.md)**.
-
-Tools that look for `AGENTS.md` (Cursor, Codex, Aider, Continue, etc.) should
-read `CLAUDE.md` as the source of truth for architecture, patterns, commands,
-and enforcement rules. Per-folder context lives in nested `CLAUDE.md` files
-(Archie's intent layer); those apply to any agent regardless of vendor.
-"""
+def generate_agents_md(bp: dict) -> str:
+    """Generate the canonical agent-context body for AGENTS.md."""
+    return _generate_agent_body(bp, h1="AGENTS.md")
 
 
-def generate_agents_md(bp: dict) -> str:  # noqa: ARG001 — bp kept for API compat
-    """Generate AGENTS.md — a static pointer to CLAUDE.md.
+def generate_claude_md(bp: dict) -> str:
+    """Generate the same body branded as CLAUDE.md.
 
-    The blueprint argument is unused but retained so existing callers keep
-    working. The output is identical across every project; what differs is
-    the CLAUDE.md it points to.
+    Kept so the viewer and any external tooling that rendered "blueprint
+    → CLAUDE.md preview" keeps working byte-for-byte. The actual
+    on-disk CLAUDE.md is a pointer; this function is a render helper.
     """
-    return _AGENTS_POINTER
+    return _generate_agent_body(bp, h1="CLAUDE.md")
+
+
+# ---------------------------------------------------------------------------
+# CLAUDE.md (on-disk pointer)
+#
+# AGENTS.md is the vendor-neutral standard read by Cursor, Codex, Aider,
+# Continue, Cline, Cody, and Claude Code itself. It carries the canonical
+# blueprint-derived guidance. CLAUDE.md on disk redirects there so any
+# Claude Code session that auto-loads CLAUDE.md is told where the truth
+# lives in one short line — no duplication, no drift.
+# ---------------------------------------------------------------------------
+
+_CLAUDE_POINTER = """# CLAUDE.md
+
+This project's canonical agent context lives in **[AGENTS.md](./AGENTS.md)**.
+
+`AGENTS.md` is the vendor-neutral standard (Cursor, Codex, Aider, Continue,
+Cline, Cody — and Claude Code itself read it). Treat it as the source of
+truth for architecture, patterns, commands, and enforcement rules.
+Per-folder context still lives in nested `CLAUDE.md` files (Archie's
+intent layer) and applies to any agent regardless of vendor.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -1332,12 +1365,14 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
         if result is not None:
             rule_files.append(result)
 
-    # CLAUDE.md is the canonical, blueprint-derived doc. AGENTS.md is a
-    # static pointer (full-overwrite, not mergeable) so vendor-neutral
-    # tooling resolves to the same guidance without duplicating tokens.
+    # AGENTS.md is the canonical, blueprint-derived doc (vendor-neutral
+    # standard read by Cursor, Codex, Aider, Continue, Cline, Cody, and
+    # Claude Code). CLAUDE.md is a static pointer (full-overwrite, not
+    # mergeable) so any Claude Code session is told where the truth lives
+    # without paying duplicate tokens.
     files = {
-        "CLAUDE.md": generate_claude_md(bp),
         "AGENTS.md": generate_agents_md(bp),
+        "CLAUDE.md": _CLAUDE_POINTER,
     }
 
     for rf in rule_files:
