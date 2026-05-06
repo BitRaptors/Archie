@@ -1202,16 +1202,6 @@ intent layer) and applies to any agent regardless of vendor.
 """
 
 
-# ---------------------------------------------------------------------------
-# Enforcement rules topic file (.claude/rules/enforcement.md)
-#
-# Renders the full contents of `.archie/rules.json` + `.archie/platform_rules.json`
-# so an agent / human can scan everything that might fire at edit-, plan-,
-# or commit-time without leaving session context. Grouped by severity_class
-# so the most consequential rules surface first.
-# ---------------------------------------------------------------------------
-
-
 # Prefix → topic fallback for rules without an explicit `topic` field.
 # Used during the transition window for legacy rules.json files written
 # before Step 6 began emitting `topic`. New rules should always carry topic.
@@ -1353,52 +1343,6 @@ def _render_one_enforcement_rule(rule: dict) -> list[str]:
             out.append("</details>")
             out.append("")
     return out
-
-
-def build_enforcement_rules_topic(rules: list[dict]) -> str | None:
-    """Render the full enforcement rule set as a topic file.
-
-    Groups by severity_class. New-shape rules surface their `why` /
-    `example` / `triggers` inline; old-shape rules fall back to
-    `rationale` and any legacy `applies_to` / `check` fields.
-    """
-    if not rules:
-        return None
-
-    valid = [r for r in rules if isinstance(r, dict) and r.get("id")]
-    if not valid:
-        return None
-
-    by_severity: dict[str, list[dict]] = defaultdict(list)
-    for r in valid:
-        by_severity[_severity_label_for_render(r)].append(r)
-
-    lines = []
-    counts = ", ".join(
-        f"{len(by_severity[k])} {k}" for k in _SEVERITY_RENDER_ORDER if by_severity.get(k)
-    )
-    lines.append(f"## Enforcement Rules ({len(valid)} total)")
-    lines.append("")
-    lines.append(
-        "Every rule the pre-edit hook (`PRE_VALIDATE_HOOK`) and the plan/"
-        "commit classifier (`align_check.py`) consults. Grouped by severity."
-    )
-    if counts:
-        lines.append("")
-        lines.append(f"_{counts}_")
-    lines.append("")
-
-    # Render in severity order so the blocking ones surface first
-    for sev in _SEVERITY_RENDER_ORDER:
-        bucket = by_severity.get(sev) or []
-        if not bucket:
-            continue
-        lines.append(f"## {_SEVERITY_HEADINGS[sev]}")
-        lines.append("")
-        for rule in bucket:
-            lines.extend(_render_one_enforcement_rule(rule))
-
-    return "\n".join(lines).rstrip()
 
 
 def _render_topic_file(topic: str, rules: list[dict]) -> str:
@@ -1556,9 +1500,9 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
 
     `enforcement_rules` is the merged contents of `.archie/rules.json` +
     `.archie/platform_rules.json` — when present, an additional
-    `.claude/rules/enforcement.md` topic file gets emitted with every
-    rule grouped by severity_class. Pass `None` (or omit) when rendering
-    a blueprint without access to those files.
+    `.claude/rules/enforcement/` directory (index.md + by-topic/ +
+    universal.md) gets emitted with every rule grouped by severity_class.
+    Pass `None` (or omit) when rendering a blueprint without access to those files.
 
     Returns {path: content} for every output file.
     """
@@ -1623,9 +1567,9 @@ def main():
     bp = json.loads(blueprint_path.read_text())
 
     # Load enforcement rules from .archie/rules.json + platform_rules.json
-    # so the renderer can emit a browsable enforcement.md topic file.
+    # so the renderer can emit a browsable enforcement/ directory.
     # Both files are optional; missing-or-malformed cases produce no
-    # enforcement.md and don't fail the render.
+    # enforcement/ files and don't fail the render.
     enforcement_rules: list[dict] = []
     for fname, src in (("rules.json", "project"), ("platform_rules.json", "platform")):
         path = project_root / ".archie" / fname
