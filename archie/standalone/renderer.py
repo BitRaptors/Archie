@@ -1204,6 +1204,65 @@ intent layer) and applies to any agent regardless of vendor.
 # ---------------------------------------------------------------------------
 
 
+# Prefix → topic fallback for rules without an explicit `topic` field.
+# Used during the transition window for legacy rules.json files written
+# before Step 6 began emitting `topic`. New rules should always carry topic.
+_PREFIX_TO_TOPIC_FALLBACK = {
+    "rx-": "concurrency",
+    "combine-": "concurrency",
+    "nav-": "navigation",
+    "ui-": "ui",
+    "swiftui-": "ui",
+    "snapkit-": "ui",
+    "rswift-": "ui",
+    "firebase-": "data-access",
+    "mapbox-": "mapping",
+    "map-": "mapping",
+    "layer-": "layering",
+    "file-placement-": "layering",
+    "extension-filename-": "layering",
+    "arch-": "layering",
+    "model-": "layering",
+    "svc-": "services",
+    "sing-": "services",
+    "filter-": "services",
+    "dep-": "dependencies",
+    "build-": "dependencies",
+    "secret-": "security",
+    "gdpr-": "security",
+    "testing-": "testing",
+    "res-": "resources",
+    "loc-": "resources",
+    "god-controller-": "complexity",
+    "erosion-": "complexity",
+    "decay-": "quality",
+}
+
+
+def _slugify_topic(value: str) -> str:
+    """Lowercase, collapse whitespace/underscores into single hyphens, strip."""
+    s = value.strip().lower()
+    s = re.sub(r"[\s_]+", "-", s)
+    s = re.sub(r"[^a-z0-9-]", "", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s or "misc"
+
+
+def _topic_for_rule(rule: dict) -> str:
+    """Resolve a rule's topic. Prefer explicit `topic` field, fall back to
+    matching the longest known prefix in `_PREFIX_TO_TOPIC_FALLBACK`. Unknown
+    rules go to `misc`."""
+    explicit = rule.get("topic")
+    if isinstance(explicit, str) and explicit.strip():
+        return _slugify_topic(explicit)
+    rid = rule.get("id") or ""
+    # Match longest prefix first so `file-placement-` wins over `file-`.
+    for prefix in sorted(_PREFIX_TO_TOPIC_FALLBACK, key=len, reverse=True):
+        if rid.startswith(prefix):
+            return _PREFIX_TO_TOPIC_FALLBACK[prefix]
+    return "misc"
+
+
 def _severity_label_for_render(rule: dict) -> str:
     """Resolve a rule's severity_class with backward-compat fallback to legacy
     `severity` ("error" → mechanical_violation, "warn" → tradeoff_undermined)."""

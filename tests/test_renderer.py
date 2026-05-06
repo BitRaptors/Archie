@@ -81,3 +81,48 @@ def test_render_outputs_minimal_blueprint_emits_no_rule_files(tmp_path: Path) ->
     assert "AGENTS.md" in result
     rule_paths = [k for k in result if k.startswith(".claude/rules/")]
     assert rule_paths == [], f"minimal blueprint must not emit rule files; got {rule_paths}"
+
+
+from archie.standalone.renderer import _topic_for_rule
+
+
+def test_topic_for_rule_uses_topic_field_when_present():
+    rule = {"id": "rx-001", "topic": "concurrency"}
+    assert _topic_for_rule(rule) == "concurrency"
+
+
+def test_topic_for_rule_slugifies_topic_field():
+    rule = {"id": "x-001", "topic": "Data Access"}
+    assert _topic_for_rule(rule) == "data-access"
+
+
+def test_topic_for_rule_falls_back_to_known_prefix():
+    # No topic field — fall back to prefix heuristic.
+    assert _topic_for_rule({"id": "rx-001"}) == "concurrency"
+    assert _topic_for_rule({"id": "combine-002"}) == "concurrency"
+    assert _topic_for_rule({"id": "nav-001"}) == "navigation"
+    assert _topic_for_rule({"id": "ui-003"}) == "ui"
+    assert _topic_for_rule({"id": "swiftui-001"}) == "ui"
+    assert _topic_for_rule({"id": "snapkit-001"}) == "ui"
+    assert _topic_for_rule({"id": "rswift-001"}) == "ui"
+    assert _topic_for_rule({"id": "firebase-002"}) == "data-access"
+    assert _topic_for_rule({"id": "mapbox-001"}) == "mapping"
+    assert _topic_for_rule({"id": "map-003"}) == "mapping"
+    assert _topic_for_rule({"id": "layer-001"}) == "layering"
+    assert _topic_for_rule({"id": "file-placement-001"}) == "layering"
+    assert _topic_for_rule({"id": "svc-001"}) == "services"
+    assert _topic_for_rule({"id": "sing-001"}) == "services"
+    assert _topic_for_rule({"id": "model-001"}) == "layering"
+    assert _topic_for_rule({"id": "dep-001"}) == "dependencies"
+    assert _topic_for_rule({"id": "secret-001"}) == "security"
+    assert _topic_for_rule({"id": "gdpr-001"}) == "security"
+    assert _topic_for_rule({"id": "testing-001"}) == "testing"
+    assert _topic_for_rule({"id": "res-001"}) == "resources"
+
+
+def test_topic_for_rule_unknown_prefix_returns_misc():
+    assert _topic_for_rule({"id": "totally-unknown-001"}) == "misc"
+
+
+def test_topic_for_rule_no_id_returns_misc():
+    assert _topic_for_rule({}) == "misc"
