@@ -1105,22 +1105,30 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
     lines.append("")
     for topic, blurb in available_topics:
         if has_topic.get(topic):
-            lines.append(f"- [`.claude/rules/{topic}.md`](.claude/rules/{topic}.md) — {blurb}")
+            if topic == "enforcement":
+                lines.append(
+                    f"- [`.claude/rules/enforcement/index.md`]"
+                    f"(.claude/rules/enforcement/index.md) — {blurb}"
+                )
+            else:
+                lines.append(f"- [`.claude/rules/{topic}.md`](.claude/rules/{topic}.md) — {blurb}")
     lines.append("")
 
     # Enforcement Rules — pointer + brief explanation. The full browsable
-    # rule set is rendered as `.claude/rules/enforcement.md` (also linked
-    # in the Architectural Rules block above). Source of truth on disk:
-    # .archie/rules.json + .archie/platform_rules.json.
+    # rule set is rendered as `.claude/rules/enforcement/` (index +
+    # by-topic/ + universal.md), also linked in the Architectural Rules
+    # block above. Source of truth on disk: .archie/rules.json +
+    # .archie/platform_rules.json.
     lines.append("## Enforcement Rules")
     lines.append("")
     lines.append(
-        "[`.claude/rules/enforcement.md`](.claude/rules/enforcement.md) lists every rule "
-        "the pre-edit hook (`PRE_VALIDATE_HOOK`) and plan/commit classifier "
-        "(`align_check.py`) consult, grouped by severity. The underlying source on disk "
-        "is [`.archie/rules.json`](.archie/rules.json) (project-specific) plus "
-        "[`.archie/platform_rules.json`](.archie/platform_rules.json) (universal anti-"
-        "patterns shipped with Archie)."
+        "[`.claude/rules/enforcement/index.md`](.claude/rules/enforcement/index.md) "
+        "indexes every rule, grouped by topic and by path glob. Load only the topic "
+        "file(s) relevant to the file you're editing — universal anti-patterns sit in "
+        "`enforcement/universal.md`. The pre-edit hook (`PRE_VALIDATE_HOOK`) and "
+        "plan/commit classifier (`align_check.py`) read "
+        "[`.archie/rules.json`](.archie/rules.json) directly; the markdown is for "
+        "agent/human browsing only."
     )
     lines.append("")
 
@@ -1589,9 +1597,9 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
     # Enforcement rules topic — only emitted when caller passes the rules
     # list (typically loaded from .archie/rules.json + platform_rules.json).
     if enforcement_rules:
-        body = build_enforcement_rules_topic(enforcement_rules)
-        if body:
-            files[".claude/rules/enforcement.md"] = body
+        directory = build_enforcement_directory(enforcement_rules)
+        for rel_path, content in directory.items():
+            files[f".claude/rules/{rel_path}"] = content
 
     return files
 
