@@ -1304,6 +1304,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "dep-001",
+>   "topic": "layering",
 >   "severity_class": "decision_violation",
 >   "description": "What is forbidden/required (one sentence)",
 >   "why": "Inlined reasoning copied from the blueprint section that motivates this rule (decision text, pitfall description, tradeoff signal, or pattern rationale). 2-4 sentences. The agent sees this verbatim.",
@@ -1311,6 +1312,25 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >   "source": "deep_scan"
 > }
 > ```
+>
+> **The `topic` field** — a short kebab-case slug naming the conceptual area the rule governs. The renderer groups rules by topic into per-file markdown topic pages under `.claude/rules/enforcement/by-topic/<topic>.md`, so an agent can load only the topic relevant to the current task instead of the full enforcement set.
+>
+> Prefer one of these recommended cross-platform topics:
+>
+> - `data-access` — fetching, persisting, caching, ORMs, network
+> - `concurrency` — async/reactive primitives, threads, schedulers
+> - `ui` — view layer, components, styling, layout
+> - `navigation` — routing, deep links, screen transitions
+> - `layering` — file placement, dependency direction, layer rules
+> - `services` — singletons, DI, cross-cutting service patterns
+> - `state-management` — global state, stores, reactive sources
+> - `dependencies` — package managers, build, secrets handling
+> - `security` — auth, secrets, GDPR/PII, crypto
+> - `testing` — test harness, fixtures, anti-patterns
+> - `resources` — assets, i18n, localized strings
+> - `error-handling` — error propagation, fallbacks, retries
+>
+> You MAY introduce a project-specific topic when a coherent group of 3 or more rules clearly belongs together under a name not in the list (examples: `mapping`, `payments`, `auth`, `realtime`, `migrations`, `accessibility`). Use a kebab-case slug.
 >
 > **Severity classes** — pick exactly one based on which blueprint section motivates the rule:
 > - `decision_violation` — rule clarifies a `decisions.key_decisions[*]` invariant. Hook **blocks** (exit 2) on violation.
@@ -1350,6 +1370,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "arch-001",
+>   "topic": "layering",
 >   "severity_class": "decision_violation",
 >   "description": "Business logic must not depend on UI framework classes",
 >   "why": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.",
@@ -1363,6 +1384,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "ctx-001",
+>   "topic": "concurrency",
 >   "severity_class": "pitfall_triggered",
 >   "description": "Never use context.TODO() or context.Background() inside request handlers",
 >   "why": "Pitfall #7: handlers that swallow the request context lose cancellation, deadlines, and tracing. Downstream calls become orphans on client disconnect, leaving partial state in DB. Always thread through the handler's incoming ctx.",
@@ -1376,6 +1398,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "cache-001",
+>   "topic": "data-access",
 >   "severity_class": "tradeoff_undermined",
 >   "description": "Avoid sync I/O inside the cache hot path",
 >   "why": "We chose an in-memory cache for sub-ms reads. Tradeoff signal: any blocking I/O in Get/Set undermines the latency budget that justified the choice. Async or skip the cache.",
@@ -1389,6 +1412,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "dep-001",
+>   "topic": "layering",
 >   "severity_class": "mechanical_violation",
 >   "description": "Domain layer must not import from presentation layer",
 >   "why": "The domain is the stable core. UI depends on domain, never the reverse. Inverting this makes every UI refactor a domain change.",
@@ -1435,6 +1459,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > - Every rule must be specific to THIS project — never generic programming advice
 > - Focus on what an AI coding agent would get wrong without knowing this codebase
 > - **`severity_class` is required.** Pick the one that matches which blueprint section motivated the rule.
+> - **`topic` is required.** Pick from the recommended list (or a project-specific topic when justified) — the renderer groups rules into per-topic files using this slug.
 > - **`why` is required and must be inlined from the blueprint** — copy the language verbatim or near-verbatim, do not paraphrase. This is what the agent reads at edit-time.
 > - **`example` is required as a key** but may be an empty string when the rule is purely about what NOT to do and no positive code shape applies.
 > - **`source: "deep_scan"`** on every rule. The post-process stamps it defensively but prefer to emit it.
@@ -1471,7 +1496,7 @@ Build the Phase 2 trigger index so the pre-validate hook can narrow candidates f
 python3 .archie/rule_index.py build "$PROJECT_ROOT"
 ```
 
-Refresh the rendered topic files now that `rules.json` exists. This re-emits `.claude/rules/enforcement.md` (and refreshes the other topic files / CLAUDE.md / AGENTS.md idempotently — merge markers preserve any hand-edits):
+Refresh the rendered topic files now that `rules.json` exists. This re-emits the `.claude/rules/enforcement/` directory (index.md + by-topic/ + universal.md) and refreshes the other topic files / CLAUDE.md / AGENTS.md idempotently — merge markers preserve any hand-edits:
 
 ```bash
 python3 .archie/renderer.py "$PROJECT_ROOT"
