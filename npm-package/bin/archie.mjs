@@ -16,6 +16,13 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
 
+const MIN_NODE_MAJOR = 18;
+const nodeMajor = parseInt(process.versions.node.split(".")[0], 10);
+if (nodeMajor < MIN_NODE_MAJOR) {
+  console.error(`Archie requires Node ${MIN_NODE_MAJOR}+. You're on ${process.versions.node}.`);
+  process.exit(1);
+}
+
 function readPackageVersion() {
   try {
     const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
