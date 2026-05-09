@@ -97,3 +97,11 @@ def test_api_only_skips_static(project_with_blueprint: Path):
         assert resp.status == 200
     finally:
         app.shutdown()
+
+
+def test_main_exits_when_blueprint_missing(tmp_path: Path, capsys):
+    from viewer import main
+    rc = main([str(tmp_path)])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "blueprint.json not found" in captured.err
