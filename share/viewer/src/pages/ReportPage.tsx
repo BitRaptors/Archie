@@ -20,10 +20,15 @@ import { countSemanticDuplications, extractFindings, normalizeStructuredFinding,
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
-export default function ReportPage() {
+interface ReportPageProps {
+  bundle?: Bundle
+  createdAt?: string
+}
+
+export default function ReportPage({ bundle: bundleProp, createdAt: createdAtProp }: ReportPageProps = {}) {
   const { token } = useParams<{ token: string }>()
-  const [bundle, setBundle] = useState<Bundle | null>(null)
-  const [createdAt, setCreatedAt] = useState<string | null>(null)
+  const [bundle, setBundle] = useState<Bundle | null>(bundleProp ?? null)
+  const [createdAt, setCreatedAt] = useState<string | null>(createdAtProp ?? null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [activeSection, setActiveSection] = useState('')
@@ -33,6 +38,7 @@ export default function ReportPage() {
   const scrollingToRef = useRef(false)
 
   useEffect(() => {
+    if (bundleProp) return  // local mode: bundle already provided, skip fetch
     if (!token) return
     fetchReport(token)
       .then((r) => {
@@ -40,7 +46,7 @@ export default function ReportPage() {
         setCreatedAt(r.created_at)
       })
       .catch((e) => setError(e.message))
-  }, [token])
+  }, [token, bundleProp])
 
   const bp = bundle?.blueprint || {}
   const meta = bp.meta || {}
