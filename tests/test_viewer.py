@@ -41,7 +41,7 @@ def test_bundle_endpoint_returns_blueprint(project_with_blueprint: Path):
         time.sleep(0.05)
         resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/bundle", timeout=2)
         body = json.loads(resp.read())
-        assert "blueprint" in body
-        assert body["blueprint"]["components"]["components"][0]["name"] == "x"
+        assert "bundle" in body
+        assert body["bundle"]["blueprint"]["components"]["components"][0]["name"] == "x"
     finally:
         app.shutdown()
