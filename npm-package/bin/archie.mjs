@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, unlinkSy
 import { join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,6 +15,80 @@ const GREEN = "\x1b[32m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
+
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
+    return pkg.version || "0.0.0";
+  } catch { return "0.0.0"; }
+}
+
+function streamPrefix(prefix, stream) {
+  let buffer = "";
+  return (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (line.length) stream.write(`${prefix} ${line}\n`);
+    }
+  };
+}
+
+function runWithPrefix(prefix, cmd, args, opts) {
+  const result = spawnSync(cmd, args, { ...opts, stdio: "pipe", encoding: "buffer" });
+  const onOut = streamPrefix(prefix, process.stdout);
+  const onErr = streamPrefix(prefix, process.stderr);
+  if (result.stdout) onOut(result.stdout);
+  if (result.stderr) onErr(result.stderr);
+  return result.status === 0;
+}
+
+function buildLocalViewer(viewerDir, packageVersion) {
+  const marker = join(viewerDir, "dist", ".archie-version");
+  if (existsSync(marker)) {
+    const cached = readFileSync(marker, "utf8").trim();
+    if (cached === packageVersion) {
+      console.log(`  ${GREEN}✓${RESET} Local viewer up to date (v${packageVersion}) — skipping build`);
+      return true;
+    }
+  }
+
+  console.log("");
+  console.log(`${BOLD}  Local viewer setup${RESET} ${DIM}(one-time, ~45s)${RESET}`);
+  console.log(`  ${DIM}Installs React deps and builds the UI. Cached by version.${RESET}`);
+  console.log("");
+
+  const startedAt = Date.now();
+
+  console.log(`  ${CYAN}→${RESET} Installing dependencies (npm ci)`);
+  if (!runWithPrefix(`${DIM}[npm]${RESET}`, "npm", ["ci", "--silent"], { cwd: viewerDir })) {
+    console.error("");
+    console.error(`  ${BOLD}npm ci failed.${RESET} Common causes:`);
+    console.error("    - No internet / corporate proxy blocking npm registry");
+    console.error("    - Old node (<18). Run `node --version`.");
+    console.error("    - npm misconfigured. Run `npm ping`.");
+    return false;
+  }
+
+  console.log(`  ${CYAN}→${RESET} Building viewer bundle (vite build)`);
+  if (!runWithPrefix(`${DIM}[vite]${RESET}`, "npm", ["run", "build", "--silent"], { cwd: viewerDir })) {
+    console.error("");
+    console.error(`  ${BOLD}vite build failed.${RESET} See output above.`);
+    return false;
+  }
+
+  console.log(`  ${CYAN}→${RESET} Cleaning up build dependencies`);
+  rmSync(join(viewerDir, "node_modules"), { recursive: true, force: true });
+
+  console.log(`  ${CYAN}→${RESET} Writing version marker`);
+  writeFileSync(marker, packageVersion);
+
+  const elapsed = ((Date.now() - startedAt) / 1000).toFixed(0);
+  console.log("");
+  console.log(`  ${GREEN}✓${RESET} Local viewer built in ${elapsed}s`);
+  return true;
+}
 
 const args = process.argv.slice(2);
 let projectRootArg = ".";
@@ -142,9 +216,24 @@ function cpDirSync(src, dest) {
 const viewerSrc = join(ASSETS, "viewer");
 const viewerDest = join(archieDir, "viewer");
 if (existsSync(viewerSrc)) {
-  rmSync(viewerDest, { recursive: true, force: true });
+  // Refresh source files but preserve dist/ (build cache, guarded by .archie-version marker).
+  if (existsSync(viewerDest)) {
+    for (const entry of readdirSync(viewerDest, { withFileTypes: true })) {
+      if (entry.name === "dist") continue;
+      rmSync(join(viewerDest, entry.name), { recursive: true, force: true });
+    }
+  }
   cpDirSync(viewerSrc, viewerDest);
   console.log(`  ${GREEN}✓${RESET} .archie/viewer/ (React source)`);
+
+  const ok = buildLocalViewer(viewerDest, readPackageVersion());
+  if (!ok) {
+    console.error("");
+    console.error("  ⚠ Local viewer build failed. /archie-viewer will not work.");
+    console.error("  ⚠ Other Archie features still work. Re-run `npx @bitraptors/archie`");
+    console.error("    after fixing the npm/node issue above.");
+    // Don't process.exit(1) — preserve the rest of the install (scripts, hooks)
+  }
 }
 
 // 3c. Copy .archieignore (only if it doesn't exist — user may have customized)
