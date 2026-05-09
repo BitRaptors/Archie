@@ -50,6 +50,11 @@ def _make_handler(root: Path, dist_dir: Path | None):
             if parsed.path == "/api/bundle":
                 self._serve_bundle(root)
                 return
+            # Unknown /api/* paths must 404 — never fall through to the SPA so
+            # client fetches see a real error instead of HTML masquerading as JSON.
+            if parsed.path.startswith("/api/"):
+                self._send_error(404, "Not found")
+                return
             if dist_dir is None:
                 self._send_error(404, "Static disabled (--api-only)")
                 return
