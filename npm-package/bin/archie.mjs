@@ -125,6 +125,28 @@ for (const dataFile of ["platform_rules.json"]) {
   }
 }
 
+// 3e. Copy share/viewer/ source into target's .archie/viewer/ for install-time build.
+function cpDirSync(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const s = join(src, entry.name);
+    const d = join(dest, entry.name);
+    if (entry.isDirectory()) {
+      cpDirSync(s, d);
+    } else {
+      writeFileSync(d, readFileSync(s));
+    }
+  }
+}
+
+const viewerSrc = join(ASSETS, "viewer");
+const viewerDest = join(archieDir, "viewer");
+if (existsSync(viewerSrc)) {
+  rmSync(viewerDest, { recursive: true, force: true });
+  cpDirSync(viewerSrc, viewerDest);
+  console.log(`  ${GREEN}✓${RESET} .archie/viewer/ (React source)`);
+}
+
 // 3c. Copy .archieignore (only if it doesn't exist — user may have customized)
 const archieignoreSrc = join(ASSETS, "archieignore.default");
 const archieignoreDest = join(projectRoot, ".archieignore");
