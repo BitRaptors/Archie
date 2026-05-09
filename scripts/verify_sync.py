@@ -93,6 +93,12 @@ def check_viewer_source_mirror(errors: list[str]) -> None:
                 f"asset mirror npm-package/assets/viewer/{subdir}/ has stale files: "
                 f"{','.join(sorted(only_dst))}"
             )
+        for rel in sorted(set(s_files) & set(d_files)):
+            if (src / rel).read_bytes() != (dst / rel).read_bytes():
+                errors.append(
+                    f"share/viewer/{rel} != npm-package/assets/viewer/{rel} "
+                    "— run scripts/sync_viewer_assets.sh"
+                )
 
 
 def main():

@@ -69,6 +69,9 @@ def _make_handler(root: Path, dist_dir: Path | None):
             except SystemExit:
                 self._send_error(404, "blueprint.json missing")
                 return
+            except Exception as e:  # malformed blueprint.json, IO errors, etc.
+                self._send_error(500, f"build_bundle failed: {e}")
+                return
             # Wrap in the canonical ReportResponse envelope so LocalPage.tsx can
             # consume the same shape as CoverPage.tsx / ReportPage.tsx (defined
             # by share/viewer/src/lib/api.ts). created_at mirrors the scan
@@ -126,14 +129,19 @@ def _summarize(root: Path) -> str:
         parts.append("1 blueprint")
     try:
         f_data = json.loads(findings.read_text())
-        active = [x for x in f_data.get("findings", []) if x.get("status", "active") == "active"]
-        parts.append(f"{len(active)} findings")
-    except (FileNotFoundError, json.JSONDecodeError):
+        # findings.json may be either {"findings": [...]} or a bare list
+        items = f_data.get("findings", []) if isinstance(f_data, dict) else f_data
+        if isinstance(items, list):
+            active = [x for x in items if isinstance(x, dict) and x.get("status", "active") == "active"]
+            parts.append(f"{len(active)} findings")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass
     try:
         r_data = json.loads(rules.read_text())
-        parts.append(f"{len(r_data.get('rules', []))} rules adopted")
-    except (FileNotFoundError, json.JSONDecodeError):
+        rule_list = r_data.get("rules", []) if isinstance(r_data, dict) else r_data
+        if isinstance(rule_list, list):
+            parts.append(f"{len(rule_list)} rules adopted")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass
     return ", ".join(parts) if parts else "no data yet"
 
