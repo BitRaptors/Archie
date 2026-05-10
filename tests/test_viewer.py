@@ -182,6 +182,29 @@ def test_intent_layer_status_marker_only(project_with_blueprint: Path):
         app.shutdown()
 
 
+def test_ignored_rules_endpoint(project_with_blueprint: Path):
+    # Missing ignored_rules.json → empty list, no 404
+    from viewer import build_app
+    port = _free_port()
+    app = build_app(project_with_blueprint, port=port, api_only=True)
+    threading.Thread(target=app.serve_forever, daemon=True).start()
+    try:
+        time.sleep(0.05)
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ignored-rules", timeout=2)
+        body = json.loads(resp.read())
+        assert body == {"rules": []}
+        # With a populated ignored_rules.json the endpoint surfaces the rules
+        ignored_path = project_with_blueprint / ".archie" / "ignored_rules.json"
+        ignored_path.write_text(json.dumps({"rules": [
+            {"id": "ig1", "description": "old rule", "severity_class": "pattern_divergence"},
+        ]}))
+        resp2 = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ignored-rules", timeout=2)
+        body2 = json.loads(resp2.read())
+        assert body2["rules"][0]["id"] == "ig1"
+    finally:
+        app.shutdown()
+
+
 @pytest.fixture
 def project_with_rules(tmp_path: Path) -> Path:
     archie_dir = tmp_path / ".archie"

@@ -222,6 +222,9 @@ def _make_handler(root: Path, dist_dir: Path | None):
             if parsed.path == "/api/folder-claude-mds":
                 self._serve_json(_collect_folder_claude_mds(root))
                 return
+            if parsed.path == "/api/ignored-rules":
+                self._serve_json(_read_rules_file(root / ".archie" / "ignored_rules.json"))
+                return
             # Unknown /api/* paths must 404 — never fall through to the SPA so
             # client fetches see a real error instead of HTML masquerading as JSON.
             if parsed.path.startswith("/api/"):

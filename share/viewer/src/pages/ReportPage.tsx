@@ -1,6 +1,7 @@
 
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useState, useRef, useMemo, useContext } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { LocalEditContext } from '@/components/local/context/LocalEditContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -33,6 +34,12 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
   const [copied, setCopied] = useState(false)
   const [activeSection, setActiveSection] = useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [ignoredRules, setIgnoredRules] = useState<any[]>([])
+
+  // LocalEditContext is null in share mode and a real ctx in local-viewer mode.
+  // We only fetch /api/ignored-rules when localCtx is non-null so share-mode
+  // browsers never hit a 404 against archie-viewer.vercel.app.
+  const localCtx = useContext(LocalEditContext)
 
   const contentRef = useRef<HTMLDivElement>(null)
   const scrollingToRef = useRef(false)
@@ -47,6 +54,14 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       })
       .catch((e) => setError(e.message))
   }, [token, bundleProp])
+
+  useEffect(() => {
+    if (!localCtx) return
+    fetch('/api/ignored-rules')
+      .then((r) => (r.ok ? r.json() : { rules: [] }))
+      .then((j) => setIgnoredRules(Array.isArray(j?.rules) ? j.rules : []))
+      .catch(() => setIgnoredRules([]))
+  }, [localCtx])
 
   const bp = bundle?.blueprint || {}
   const meta = bp.meta || {}
@@ -365,7 +380,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           </div>
 
           {/* Rules */}
-          {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0 || enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || infrastructureRules.length > 0) && (
+          {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0 || enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0 || infrastructureRules.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
               {(filePlacement.length > 0 || naming.length > 0) && (
@@ -376,7 +391,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                   label="Architecture Rules"
                 />
               )}
-              {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0) && (
+              {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
                 <NavButton
                   active={activeSection === 'enforcement-rules'}
                   onClick={() => scrollToSection('enforcement-rules')}
@@ -674,10 +689,10 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </section>
           )}
 
-          {/* 4b. Enforcement Rules — rules.json + proposed_rules.json (Phase 1 inline shape) */}
-          {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0) && (
+          {/* 4b. Enforcement Rules — rules.json + proposed_rules.json + ignored_rules.json (Phase 1 inline shape) */}
+          {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
             <section id="enforcement-rules" className="scroll-mt-24">
-              <Sections.RulesSection adopted={enforcementRules} proposed={proposedEnforcementRules} />
+              <Sections.RulesSection adopted={enforcementRules} proposed={proposedEnforcementRules} ignored={ignoredRules} />
             </section>
           )}
 

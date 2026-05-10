@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
 // @ts-ignore
 import { Progress } from './ui/progress'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers } from 'lucide-react'
 // @ts-ignore
@@ -17,6 +17,27 @@ import remarkGfm from 'remark-gfm'
 import type { Finding } from '@/lib/findings'
 import { isSemanticDupFinding, normalizePitfall, severityColor } from '@/lib/findings'
 import { AutoCode, PathChip, Prose, codeInlineClassName } from '@/lib/autocode'
+import { LocalEditContext } from '@/components/local/context/LocalEditContext'
+
+// Lazy-import RuleControls so the share-mode bundle never pulls in editor
+// code. MaybeRuleControls short-circuits when LocalEditContext is null
+// (share mode), so the lazy chunk is only fetched in local viewer mode.
+const RuleControls = lazy(() => import('@/components/local/RuleControls'))
+
+function MaybeRuleControls({ rule, state }: { rule: any; state: 'active' | 'proposed' | 'ignored' }) {
+  const ctx = useContext(LocalEditContext)
+  if (!ctx) return null
+  return (
+    <Suspense fallback={null}>
+      <RuleControls
+        rule={rule}
+        state={state}
+        onAction={(action) => ctx.toggleRule(rule.id, action)}
+        onEdit={(patch) => ctx.editRule(rule.id, patch)}
+      />
+    </Suspense>
+  )
+}
 
 export function WorkspaceTopologySection({ topology }: { topology: any }) {
   const members: any[] = Array.isArray(topology?.members) ? topology.members : []
@@ -1356,7 +1377,7 @@ function severityBadgeClass(sev: string): string {
   return 'bg-tangerine/10 text-tangerine border-tangerine/20'
 }
 
-function EnforcementRuleCard({ rule, dim = false }: { rule: any; dim?: boolean }) {
+function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule: any; dim?: boolean; ruleState?: 'active' | 'proposed' | 'ignored' }) {
   const sevClass: string = rule?.severity_class || ''
   const sev: string = rule?.severity || severityFromClass(sevClass) || 'warn'
   const id: string = rule?.id || '?'
@@ -1387,6 +1408,7 @@ function EnforcementRuleCard({ rule, dim = false }: { rule: any; dim?: boolean }
             {source}
           </Badge>
         )}
+        <MaybeRuleControls rule={rule} state={ruleState} />
       </div>
       {desc && <Prose value={desc} className={cn('text-sm font-semibold leading-snug mb-2', dim ? 'text-ink/70' : 'text-ink')} />}
       {why && (
@@ -1417,8 +1439,8 @@ function EnforcementRuleCard({ rule, dim = false }: { rule: any; dim?: boolean }
   )
 }
 
-export function RulesSection({ adopted, proposed }: { adopted: any[]; proposed: any[] }) {
-  if (adopted.length === 0 && proposed.length === 0) return null
+export function RulesSection({ adopted, proposed, ignored = [] }: { adopted: any[]; proposed: any[]; ignored?: any[] }) {
+  if (adopted.length === 0 && proposed.length === 0 && ignored.length === 0) return null
   return (
     <section className="space-y-4">
       <SectionHeader
@@ -1429,7 +1451,7 @@ export function RulesSection({ adopted, proposed }: { adopted: any[]; proposed: 
       {adopted.length > 0 && (
         <div className="space-y-3">
           {adopted.map((r: any, i: number) => (
-            <EnforcementRuleCard key={`adopted-${i}`} rule={r} />
+            <EnforcementRuleCard key={`adopted-${i}`} rule={r} ruleState="active" />
           ))}
         </div>
       )}
@@ -1439,8 +1461,18 @@ export function RulesSection({ adopted, proposed }: { adopted: any[]; proposed: 
             Proposed (not yet adopted)
           </div>
           {proposed.map((r: any, i: number) => (
-            <EnforcementRuleCard key={`proposed-${i}`} rule={r} dim />
+            <EnforcementRuleCard key={`proposed-${i}`} rule={r} dim ruleState="proposed" />
           ))}
+        </div>
+      )}
+      {ignored.length > 0 && (
+        <div className="mt-6">
+          <h4 className="text-sm font-semibold text-papaya-400 mb-3">Ignored ({ignored.length})</h4>
+          <div className="space-y-3 opacity-70">
+            {ignored.map((r: any, i: number) => (
+              <EnforcementRuleCard key={`ignored-${i}`} rule={r} dim ruleState="ignored" />
+            ))}
+          </div>
         </div>
       )}
     </section>
