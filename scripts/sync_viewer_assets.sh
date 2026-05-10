@@ -19,4 +19,13 @@ for item in src public package.json package-lock.json vite.config.ts \
   fi
 done
 
+# Defensive .gitignore inside the mirror — root .gitignore covers node_modules/
+# and dist/ but not *.tsbuildinfo, which `npm ci && vite build` would generate
+# locally if run inside the mirror for testing.
+cat > "$DST/.gitignore" <<EOF
+node_modules/
+dist/
+*.tsbuildinfo
+EOF
+
 echo "Synced share/viewer/ → npm-package/assets/viewer/"
