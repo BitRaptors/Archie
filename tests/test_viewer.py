@@ -180,3 +180,170 @@ def test_intent_layer_status_marker_only(project_with_blueprint: Path):
         assert body == {"exists": True, "count": 0}
     finally:
         app.shutdown()
+
+
+@pytest.fixture
+def project_with_rules(tmp_path: Path) -> Path:
+    archie_dir = tmp_path / ".archie"
+    archie_dir.mkdir()
+    (archie_dir / "blueprint.json").write_text(json.dumps({"meta": {}}))
+    (archie_dir / "rules.json").write_text(json.dumps({"rules": [
+        {"id": "r1", "description": "active", "severity_class": "pattern_divergence"},
+    ]}))
+    (archie_dir / "proposed_rules.json").write_text(json.dumps({"rules": [
+        {"id": "p1", "description": "proposed", "severity_class": "pattern_divergence"},
+    ]}))
+    (archie_dir / "ignored_rules.json").write_text(json.dumps({"rules": [
+        {"id": "i1", "description": "ignored", "severity_class": "pattern_divergence"},
+    ]}))
+    return tmp_path
+
+
+def _post_rule(port: int, action: str, rule_id: str, patch: dict | None = None) -> int:
+    body = {"action": action, "rule_id": rule_id}
+    if patch is not None:
+        body["patch"] = patch
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/rules",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=2)
+        return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def _start_rule_server(project: Path):
+    from viewer import build_app
+    port = _free_port()
+    app = build_app(project, port=port, api_only=True)
+    threading.Thread(target=app.serve_forever, daemon=True).start()
+    time.sleep(0.05)
+    return app, port
+
+
+def _read_rules(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text())
+    if isinstance(data, dict):
+        return data.get("rules", [])
+    return data if isinstance(data, list) else []
+
+
+def test_rule_adopt_moves_proposed_to_active(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        status = _post_rule(port, "adopt", "p1")
+        assert status == 200
+        active = _read_rules(project_with_rules / ".archie" / "rules.json")
+        proposed = _read_rules(project_with_rules / ".archie" / "proposed_rules.json")
+        assert any(r["id"] == "p1" and r.get("source") == "scan-adopted" for r in active)
+        assert all(r["id"] != "p1" for r in proposed)
+    finally:
+        app.shutdown()
+
+
+def test_rule_reject_moves_proposed_to_ignored(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        status = _post_rule(port, "reject", "p1")
+        assert status == 200
+        proposed = _read_rules(project_with_rules / ".archie" / "proposed_rules.json")
+        ignored = _read_rules(project_with_rules / ".archie" / "ignored_rules.json")
+        assert all(r["id"] != "p1" for r in proposed)
+        assert any(r["id"] == "p1" for r in ignored)
+    finally:
+        app.shutdown()
+
+
+def test_rule_disable_moves_active_to_ignored(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        status = _post_rule(port, "disable", "r1")
+        assert status == 200
+        active = _read_rules(project_with_rules / ".archie" / "rules.json")
+        ignored = _read_rules(project_with_rules / ".archie" / "ignored_rules.json")
+        assert all(r["id"] != "r1" for r in active)
+        assert any(r["id"] == "r1" for r in ignored)
+    finally:
+        app.shutdown()
+
+
+def test_rule_enable_moves_ignored_to_active(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        status = _post_rule(port, "enable", "i1")
+        assert status == 200
+        active = _read_rules(project_with_rules / ".archie" / "rules.json")
+        ignored = _read_rules(project_with_rules / ".archie" / "ignored_rules.json")
+        assert any(r["id"] == "i1" for r in active)
+        assert all(r["id"] != "i1" for r in ignored)
+    finally:
+        app.shutdown()
+
+
+def test_rule_edit_patches_description(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        status = _post_rule(port, "edit", "r1", patch={"description": "updated desc"})
+        assert status == 200
+        active = _read_rules(project_with_rules / ".archie" / "rules.json")
+        ignored = _read_rules(project_with_rules / ".archie" / "ignored_rules.json")
+        # Rule stayed in active (no file move)
+        assert any(r["id"] == "r1" and r["description"] == "updated desc" for r in active)
+        assert all(r["id"] != "r1" for r in ignored)
+    finally:
+        app.shutdown()
+
+
+def test_rule_edit_with_invalid_severity_returns_400(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        status = _post_rule(port, "edit", "r1", patch={"severity_class": "bogus_class"})
+        assert status == 400
+        # Description unchanged
+        active = _read_rules(project_with_rules / ".archie" / "rules.json")
+        assert any(r["id"] == "r1" and r["severity_class"] == "pattern_divergence" for r in active)
+    finally:
+        app.shutdown()
+
+
+def test_rule_unknown_id_returns_409(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        # Adopt a rule that doesn't exist in proposed
+        status = _post_rule(port, "adopt", "does-not-exist")
+        assert status == 409
+    finally:
+        app.shutdown()
+
+
+def test_rule_unknown_action_returns_400(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        status = _post_rule(port, "frobnicate", "r1")
+        assert status == 400
+    finally:
+        app.shutdown()
+
+
+def test_rule_invalid_json_body_returns_400(project_with_rules: Path):
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/rules",
+            data=b"this is not json",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(req, timeout=2)
+            assert False, "expected HTTPError"
+        except urllib.error.HTTPError as e:
+            assert e.code == 400
+    finally:
+        app.shutdown()
