@@ -10,7 +10,9 @@ from __future__ import annotations
 import argparse
 import http.server
 import json
+import os
 import socket
+import subprocess
 import sys
 import webbrowser
 from pathlib import Path
@@ -92,6 +94,112 @@ def _port_available(port: int) -> bool:
         return False
 
 
+ALLOWED_SEVERITY_CLASSES = {
+    "decision_violation", "pitfall_triggered", "tradeoff_undermined",
+    "pattern_divergence", "mechanical_violation",
+}
+
+
+class _RuleActionError(Exception):
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _read_rules_file(path: Path) -> dict:
+    if not path.exists():
+        return {"rules": []}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {"rules": []}
+    if isinstance(data, dict):
+        return data
+    return {"rules": data if isinstance(data, list) else []}
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    os.replace(tmp, path)
+
+
+def _spawn_subprocess_silent(argv: list[str]) -> None:
+    try:
+        subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, FileNotFoundError):
+        pass
+
+
+def _apply_rule_action(root: Path, action: str, rule_id: str, patch: dict) -> None:
+    archie = root / ".archie"
+    rules_path = archie / "rules.json"
+    proposed_path = archie / "proposed_rules.json"
+    ignored_path = archie / "ignored_rules.json"
+
+    def find_and_pop(data: dict, rid: str):
+        rules = data.get("rules", [])
+        for i, r in enumerate(rules):
+            if r.get("id") == rid:
+                return rules.pop(i)
+        return None
+
+    if action == "adopt":
+        proposed = _read_rules_file(proposed_path)
+        rule = find_and_pop(proposed, rule_id)
+        if rule is None:
+            raise _RuleActionError(f"rule_id {rule_id} not in proposed_rules.json", 409)
+        rule["source"] = "scan-adopted"
+        rules = _read_rules_file(rules_path)
+        rules.setdefault("rules", []).append(rule)
+        _atomic_write_json(rules_path, rules)
+        _atomic_write_json(proposed_path, proposed)
+    elif action == "reject":
+        proposed = _read_rules_file(proposed_path)
+        rule = find_and_pop(proposed, rule_id)
+        if rule is None:
+            raise _RuleActionError(f"rule_id {rule_id} not in proposed_rules.json", 409)
+        ignored = _read_rules_file(ignored_path)
+        ignored.setdefault("rules", []).append(rule)
+        _atomic_write_json(ignored_path, ignored)
+        _atomic_write_json(proposed_path, proposed)
+    elif action == "disable":
+        rules = _read_rules_file(rules_path)
+        rule = find_and_pop(rules, rule_id)
+        if rule is None:
+            raise _RuleActionError(f"rule_id {rule_id} not in rules.json", 409)
+        ignored = _read_rules_file(ignored_path)
+        ignored.setdefault("rules", []).append(rule)
+        _atomic_write_json(ignored_path, ignored)
+        _atomic_write_json(rules_path, rules)
+    elif action == "enable":
+        ignored = _read_rules_file(ignored_path)
+        rule = find_and_pop(ignored, rule_id)
+        if rule is None:
+            raise _RuleActionError(f"rule_id {rule_id} not in ignored_rules.json", 409)
+        rules = _read_rules_file(rules_path)
+        rules.setdefault("rules", []).append(rule)
+        _atomic_write_json(rules_path, rules)
+        _atomic_write_json(ignored_path, ignored)
+    elif action == "edit":
+        if not isinstance(patch, dict):
+            raise _RuleActionError("patch must be an object", 400)
+        if "severity_class" in patch and patch["severity_class"] not in ALLOWED_SEVERITY_CLASSES:
+            raise _RuleActionError(
+                f"invalid severity_class — allowed: {sorted(ALLOWED_SEVERITY_CLASSES)}", 400,
+            )
+        for path in (rules_path, ignored_path):
+            data = _read_rules_file(path)
+            for rule in data.get("rules", []):
+                if rule.get("id") == rule_id:
+                    for key in ("description", "why", "example", "severity_class"):
+                        if key in patch and isinstance(patch[key], str):
+                            rule[key] = patch[key]
+                    _atomic_write_json(path, data)
+                    return
+        raise _RuleActionError(f"rule_id {rule_id} not found in rules or ignored", 404)
+
+
 def _make_handler(root: Path, dist_dir: Path | None):
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
@@ -114,6 +222,9 @@ def _make_handler(root: Path, dist_dir: Path | None):
             if parsed.path == "/api/folder-claude-mds":
                 self._serve_json(_collect_folder_claude_mds(root))
                 return
+            if parsed.path == "/api/ignored-rules":
+                self._serve_json(_read_rules_file(root / ".archie" / "ignored_rules.json"))
+                return
             # Unknown /api/* paths must 404 — never fall through to the SPA so
             # client fetches see a real error instead of HTML masquerading as JSON.
             if parsed.path.startswith("/api/"):
@@ -126,6 +237,38 @@ def _make_handler(root: Path, dist_dir: Path | None):
             if "." not in Path(parsed.path).name and parsed.path != "/":
                 self.path = "/index.html"
             super().do_GET()
+
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            if parsed.path != "/api/rules":
+                self._send_error(404, "Not found")
+                return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length)
+                body = json.loads(raw)
+            except (ValueError, json.JSONDecodeError):
+                self._send_error(400, "Invalid JSON body")
+                return
+            action = body.get("action")
+            rule_id = body.get("rule_id")
+            if action not in {"adopt", "reject", "disable", "enable", "edit"}:
+                self._send_error(400, f"Unknown action: {action}")
+                return
+            if not isinstance(rule_id, str):
+                self._send_error(400, "rule_id must be a string")
+                return
+            try:
+                _apply_rule_action(root, action, rule_id, body.get("patch") or {})
+            except _RuleActionError as e:
+                self._send_error(e.status_code, str(e))
+                return
+            except Exception as e:
+                self._send_error(500, f"Rule action failed: {e}")
+                return
+            _spawn_subprocess_silent(["python3", str(root / ".archie" / "rule_index.py"), "build", str(root)])
+            _spawn_subprocess_silent(["python3", str(root / ".archie" / "renderer.py"), str(root)])
+            self._serve_json({"ok": True})
 
         def _serve_bundle(self, root: Path):
             try:
