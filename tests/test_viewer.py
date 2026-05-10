@@ -129,3 +129,54 @@ def test_generated_files_endpoint(project_with_blueprint: Path):
         assert body["CLAUDE.md"] == "# root claude"
     finally:
         app.shutdown()
+
+
+def test_intent_layer_status_empty(project_with_blueprint: Path):
+    from viewer import build_app
+    port = _free_port()
+    app = build_app(project_with_blueprint, port=port, api_only=True)
+    threading.Thread(target=app.serve_forever, daemon=True).start()
+    try:
+        time.sleep(0.05)
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/intent-layer-status", timeout=2)
+        body = json.loads(resp.read())
+        assert body == {"exists": False, "count": 0}
+    finally:
+        app.shutdown()
+
+
+def test_intent_layer_status_with_files(project_with_blueprint: Path):
+    folder = project_with_blueprint / "src" / "x"
+    folder.mkdir(parents=True)
+    (folder / "CLAUDE.md").write_text("# x context")
+    from viewer import build_app
+    port = _free_port()
+    app = build_app(project_with_blueprint, port=port, api_only=True)
+    threading.Thread(target=app.serve_forever, daemon=True).start()
+    try:
+        time.sleep(0.05)
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/intent-layer-status", timeout=2)
+        body = json.loads(resp.read())
+        assert body == {"exists": True, "count": 1}
+        resp2 = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/folder-claude-mds", timeout=2)
+        body2 = json.loads(resp2.read())
+        assert "src/x/CLAUDE.md" in body2
+        assert body2["src/x/CLAUDE.md"] == "# x context"
+    finally:
+        app.shutdown()
+
+
+def test_intent_layer_status_marker_only(project_with_blueprint: Path):
+    state = project_with_blueprint / ".archie" / "intent_layer_state.json"
+    state.write_text(json.dumps({"processed": ["src/foo"]}))
+    from viewer import build_app
+    port = _free_port()
+    app = build_app(project_with_blueprint, port=port, api_only=True)
+    threading.Thread(target=app.serve_forever, daemon=True).start()
+    try:
+        time.sleep(0.05)
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/intent-layer-status", timeout=2)
+        body = json.loads(resp.read())
+        assert body == {"exists": True, "count": 0}
+    finally:
+        app.shutdown()

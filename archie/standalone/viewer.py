@@ -50,6 +50,33 @@ def _collect_generated_files(root: Path) -> dict[str, str]:
     return files
 
 
+def _collect_folder_claude_mds(root: Path) -> dict[str, str]:
+    result = {}
+    for claude_md in root.rglob("CLAUDE.md"):
+        if any(part in _SKIP_DIRS for part in claude_md.parts):
+            continue
+        rel = str(claude_md.relative_to(root))
+        if rel == "CLAUDE.md":
+            continue  # root CLAUDE.md is in /api/generated-files
+        result[rel] = _read_text(claude_md)
+    return result
+
+
+def _intent_layer_status(root: Path) -> dict:
+    folders = _collect_folder_claude_mds(root)
+    count = len(folders)
+    state_path = root / ".archie" / "intent_layer_state.json"
+    marker_exists = False
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text())
+            processed = state.get("processed", [])
+            marker_exists = isinstance(processed, list) and len(processed) > 0
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"exists": count > 0 or marker_exists, "count": count}
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
@@ -80,6 +107,12 @@ def _make_handler(root: Path, dist_dir: Path | None):
                 return
             if parsed.path == "/api/generated-files":
                 self._serve_json(_collect_generated_files(root))
+                return
+            if parsed.path == "/api/intent-layer-status":
+                self._serve_json(_intent_layer_status(root))
+                return
+            if parsed.path == "/api/folder-claude-mds":
+                self._serve_json(_collect_folder_claude_mds(root))
                 return
             # Unknown /api/* paths must 404 — never fall through to the SPA so
             # client fetches see a real error instead of HTML masquerading as JSON.
