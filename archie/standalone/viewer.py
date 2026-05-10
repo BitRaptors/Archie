@@ -21,6 +21,34 @@ from upload import build_bundle  # noqa: E402
 
 DEFAULT_PORT = 5847
 
+# Directory names skipped when scanning the project tree. Shared by
+# /api/generated-files and (later) the folder CLAUDE.md browser endpoint —
+# kept at module scope so both endpoints stay in sync.
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".archie", "venv",
+              ".venv", "dist", "build", ".next", ".nuxt", "coverage",
+              ".pytest_cache", ".mypy_cache"}
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def _collect_generated_files(root: Path) -> dict[str, str]:
+    files: dict[str, str] = {}
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        p = root / name
+        if p.exists():
+            files[name] = _read_text(p)
+    rules_dir = root / ".claude" / "rules"
+    if rules_dir.is_dir():
+        for f in sorted(rules_dir.rglob("*")):
+            if f.is_file():
+                files[str(f.relative_to(root))] = _read_text(f)
+    return files
+
 
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -49,6 +77,9 @@ def _make_handler(root: Path, dist_dir: Path | None):
             parsed = urlparse(self.path)
             if parsed.path == "/api/bundle":
                 self._serve_bundle(root)
+                return
+            if parsed.path == "/api/generated-files":
+                self._serve_json(_collect_generated_files(root))
                 return
             # Unknown /api/* paths must 404 — never fall through to the SPA so
             # client fetches see a real error instead of HTML masquerading as JSON.
@@ -87,7 +118,10 @@ def _make_handler(root: Path, dist_dir: Path | None):
                         scanned_at = meta.get("scanned_at")
                         if isinstance(scanned_at, str):
                             created_at = scanned_at
-            body = json.dumps({"bundle": bundle, "created_at": created_at}).encode("utf-8")
+            self._serve_json({"bundle": bundle, "created_at": created_at})
+
+        def _serve_json(self, data):
+            body = json.dumps(data).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

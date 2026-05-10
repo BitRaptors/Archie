@@ -105,3 +105,27 @@ def test_main_exits_when_blueprint_missing(tmp_path: Path, capsys):
     assert rc == 1
     captured = capsys.readouterr()
     assert "blueprint.json not found" in captured.err
+
+
+def test_generated_files_endpoint(project_with_blueprint: Path):
+    (project_with_blueprint / "CLAUDE.md").write_text("# root claude")
+    (project_with_blueprint / "AGENTS.md").write_text("# agents")
+    rules = project_with_blueprint / ".claude" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "enforcement.md").write_text("# enforcement")
+    (rules / "topic-x.md").write_text("# topic x")
+    from viewer import build_app
+    port = _free_port()
+    app = build_app(project_with_blueprint, port=port, api_only=True)
+    threading.Thread(target=app.serve_forever, daemon=True).start()
+    try:
+        time.sleep(0.05)
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/generated-files", timeout=2)
+        body = json.loads(resp.read())
+        assert "CLAUDE.md" in body
+        assert "AGENTS.md" in body
+        assert ".claude/rules/enforcement.md" in body
+        assert ".claude/rules/topic-x.md" in body
+        assert body["CLAUDE.md"] == "# root claude"
+    finally:
+        app.shutdown()
