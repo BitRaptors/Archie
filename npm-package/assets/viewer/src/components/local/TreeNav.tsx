@@ -1,3 +1,6 @@
+import { Folder, FileText } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
 interface Props {
   paths: string[]
   selected: string | null
@@ -40,12 +43,17 @@ function renderNode(
 ): JSX.Element {
   const dirNames = Array.from(node.dirs.keys()).sort()
   const files = [...node.files].sort()
+
   return (
-    <ul className="list-none space-y-0.5">
+    <ul className={cn(
+      "list-none space-y-1",
+      depth > 0 && "pl-4 ml-1 border-l border-ink/5 pt-1"
+    )}>
       {dirNames.map((name) => (
-        <li key={`d:${name}`} style={{ paddingLeft: `${depth * 12}px` }}>
-          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-ink/40 py-1.5 px-2">
-            {name}/
+        <li key={`d:${name}`}>
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.12em] text-ink/30 py-1.5 px-2">
+            <Folder className="w-3 h-3 opacity-50" />
+            <span>{name}</span>
           </div>
           {renderNode(node.dirs.get(name)!, depth + 1, selected, onSelect)}
         </li>
@@ -54,16 +62,18 @@ function renderNode(
         const label = path.split('/').pop() || path
         const isSelected = path === selected
         return (
-          <li key={`f:${path}`} style={{ paddingLeft: `${depth * 12}px` }}>
+          <li key={`f:${path}`}>
             <button
               onClick={() => onSelect(path)}
-              className={`block w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-300 ${
+              className={cn(
+                "flex items-center gap-2.5 w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-300",
                 isSelected
-                  ? 'bg-teal-500/10 text-teal-700 font-bold shadow-sm'
-                  : 'text-ink/60 hover:bg-papaya-300/30 hover:text-ink font-medium'
-              }`}
+                  ? "bg-teal-500/10 text-teal-700 font-bold shadow-sm"
+                  : "text-ink/60 hover:bg-papaya-300/30 hover:text-ink font-medium"
+              )}
             >
-              {label}
+              <FileText className={cn("w-3.5 h-3.5", isSelected ? "text-teal" : "text-ink/20")} />
+              <span className="truncate">{label}</span>
             </button>
           </li>
         )
@@ -74,5 +84,9 @@ function renderNode(
 
 export default function TreeNav({ paths, selected, onSelect }: Props) {
   const tree = buildTree(paths)
-  return renderNode(tree, 0, selected, onSelect)
+  return (
+    <div className="animate-in fade-in slide-in-from-left-4 duration-500">
+      {renderNode(tree, 0, selected, onSelect)}
+    </div>
+  )
 }
