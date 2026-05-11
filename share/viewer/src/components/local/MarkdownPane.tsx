@@ -14,7 +14,7 @@ interface Props {
 // native next to the cream + ink + teal blueprint shell.
 export default function MarkdownPane({ content }: Props) {
   return (
-    <div className="prose prose-sm max-w-none prose-headings:text-ink prose-headings:font-black prose-p:text-ink/80 prose-li:text-ink/80 prose-strong:text-ink prose-code:bg-papaya-100 prose-code:text-teal-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:hidden prose-code:after:hidden prose-a:text-teal-700 prose-a:no-underline hover:prose-a:underline prose-blockquote:border-teal-500 prose-blockquote:text-ink/70">
+    <div className="prose max-w-none lg:prose-lg prose-headings:text-ink prose-headings:font-black prose-headings:tracking-tight prose-h1:text-4xl prose-h2:text-2xl prose-p:text-ink/80 prose-p:leading-relaxed prose-li:text-ink/80 prose-strong:text-ink prose-code:bg-papaya-100 prose-code:text-teal-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:hidden prose-code:after:hidden prose-a:text-teal-700 prose-a:no-underline hover:prose-a:underline prose-blockquote:border-teal-500 prose-blockquote:text-ink/70 prose-blockquote:bg-teal-500/5 prose-blockquote:py-2 prose-blockquote:px-6 prose-blockquote:rounded-r-xl prose-blockquote:not-italic">
       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
         {content}
       </ReactMarkdown>

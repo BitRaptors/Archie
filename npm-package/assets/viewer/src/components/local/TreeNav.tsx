@@ -57,10 +57,10 @@ function renderNode(
           <li key={`f:${path}`} style={{ paddingLeft: `${depth * 12}px` }}>
             <button
               onClick={() => onSelect(path)}
-              className={`block w-full text-left px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              className={`block w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-300 ${
                 isSelected
-                  ? 'bg-teal-500/15 text-teal-700 ring-1 ring-teal-500/30'
-                  : 'text-ink/70 hover:bg-papaya-300/30 hover:text-ink'
+                  ? 'bg-teal-500/10 text-teal-700 font-bold shadow-sm'
+                  : 'text-ink/60 hover:bg-papaya-300/30 hover:text-ink font-medium'
               }`}
             >
               {label}
