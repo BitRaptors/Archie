@@ -255,130 +255,23 @@ Use `PROJECT_NAME` as the basename of `PROJECT_ROOT` for namespacing temp files 
 
 ## Telemetry conventions
 
-Every Step 1–9 records its start timestamp to disk via `telemetry.py mark` as its first action. The mark auto-closes the previous step's `completed_at`, mirroring the "next step's start = prior step's end" convention. Step 9 finishes its own completion with `telemetry.py finish`. After Step 10, `telemetry.py write` consumes the persisted `.archie/telemetry/_current_run.json` and emits the final `deep-scan_<timestamp>.json`.
-
-Shell-variable fallback: the existing `TELEMETRY_STEPN_START` shell variables are still set for readability, but they are **not load-bearing** — the disk file is the source of truth. This makes the pipeline safe to `/compact` mid-run without losing timing data.
+<!-- archie:extracted -> archie-deep-scan/fragments/telemetry-conventions.md -->
 
 ## Compact-and-resume contract
 
-At every "✓ Step N complete" boundary, all state needed to resume lives on disk:
-
-- `.archie/deep_scan_state.json` — last completed step + `run_context` (scope, intent_layer, scan_mode, workspaces, monorepo_type, start_step). Note: `project_root` is deliberately NOT persisted — the Resume Prelude sets `PROJECT_ROOT="$PWD"` directly, which avoids leaking machine-specific absolute paths into committable state.
-- `.archie/telemetry/_current_run.json` — every step's start/completed timestamp + extras
-- `.archie/archie_config.json` — persisted scope picker answer (whole/per-package/hybrid/single)
-- `.archie/blueprint_raw.json`, `.archie/blueprint.json`, `.archie/findings.json` — pipeline output as it accumulates
-- `.archie/enrich_state.json`, `.archie/enrich_batches.json` — Intent Layer DAG scheduler state (survives mid-Step-7 compaction)
-
-After a `/compact`, running `/archie-deep-scan --continue` re-enters via the **Resume Prelude** below, which rehydrates every shell variable from disk before jumping to the next step. No conversation memory required.
+<!-- archie:extracted -> archie-deep-scan/fragments/compact-resume-contract.md -->
 
 ## Resume Prelude (runs whenever `RESUME_ACTION=resume`)
 
-Execute this block **before any other step** when resuming. It rehydrates every shell variable the pipeline depends on from disk, so the orchestrator does NOT need to have carried them forward in its conversation context.
-
-`RESUME_ACTION=resume` is set by the Preamble in any of these cases:
-- `--continue` flag was passed (explicit opt-in)
-- `--from N` flag was passed (explicit opt-in; also sets `START_STEP=N`)
-- **No flag was passed, partial state was detected, and the user chose "Resume"** at the interactive prompt (the bare-invocation path added in v2.4)
-
-In all three cases, the variables `SCOPE`, `INTENT_LAYER`, `SCAN_MODE`, `MONOREPO_TYPE`, `WORKSPACES`, `PROJECT_NAME` need to be rehydrated from `deep_scan_state.run_context` — they were set during the original run and persisted to disk. Without this block, the resumed run has no idea what scope was chosen, whether Intent Layer was opt-in, etc. `PROJECT_ROOT` is NOT persisted (would leak machine-specific paths into committable state) — it's set to `$PWD` at resume time. In the common case (slash command invoked from the repo root, which is how Claude Code is typically used) that's correct. If `$PWD` differs from where the `.archie/` directory lives — e.g. the user invoked `/archie-deep-scan --continue` from a subdirectory — the `inspect` call below will fail to find state at `$PWD/.archie/deep_scan_state.json`, `LAST` stays at 0, and the Resume Prelude falls through to a fresh Phase 0 with no corruption. Symlinked `.archie/` directories resolve correctly because `$PWD/.archie/*` follows symlinks on read.
-
-Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
-
-```bash
-# 1. Read last_completed via dedicated CLI. A fresh run returns "null" → normalise to 0.
-LAST=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .last_completed 2>/dev/null)
-[ -z "$LAST" ] || [ "$LAST" = "null" ] && LAST=0
-
-# 2. If we have real state, rehydrate every shell variable from run_context.
-# PROJECT_ROOT always comes from $PWD — it is intentionally not persisted to
-# disk so `.archie/deep_scan_state.json` stays machine-agnostic.
-if [ "$LAST" -gt 0 ]; then
-    PROJECT_ROOT="$PWD"
-    SCOPE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.scope 2>/dev/null)
-    [ "$SCOPE" = "null" ] && SCOPE=""
-    INTENT_LAYER=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.intent_layer 2>/dev/null)
-    [ "$INTENT_LAYER" = "null" ] || [ -z "$INTENT_LAYER" ] && INTENT_LAYER=yes
-    SCAN_MODE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.scan_mode 2>/dev/null)
-    [ "$SCAN_MODE" = "null" ] || [ -z "$SCAN_MODE" ] && SCAN_MODE=full
-    MONOREPO_TYPE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.monorepo_type 2>/dev/null)
-    [ "$MONOREPO_TYPE" = "null" ] || [ -z "$MONOREPO_TYPE" ] && MONOREPO_TYPE=none
-    # WORKSPACES as newline-separated (matches the scope picker's original shape).
-    WORKSPACES=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.workspaces --list 2>/dev/null)
-    PROJECT_NAME="${PROJECT_ROOT##*/}"
-
-    # 3. Compute START_STEP. --from N overrides; otherwise resume at LAST+1.
-    if [ -n "$FROM_STEP" ]; then
-        START_STEP=$FROM_STEP
-    else
-        START_STEP=$((LAST + 1))
-    fi
-
-    # 4. Consistency check: telemetry _current_run.json should contain at least
-    # one step entry per completed step. Warn loudly if the two states diverge
-    # — that signals either corruption or manual intervention. Do not abort;
-    # telemetry is informational, the scan itself is still resumable from
-    # blueprint/findings on disk.
-    TELEMETRY_STEPS=$(python3 .archie/telemetry.py steps-count "$PWD" 2>/dev/null)
-    [ -z "$TELEMETRY_STEPS" ] && TELEMETRY_STEPS=0
-    if [ "$TELEMETRY_STEPS" -lt "$LAST" ]; then
-        echo "WARNING: deep_scan_state says last_completed=$LAST but telemetry has only $TELEMETRY_STEPS step marks. Final per-step timing may be incomplete. Scan output itself is not affected." >&2
-    fi
-
-    echo "Resuming from persisted state: SCOPE=$SCOPE SCAN_MODE=$SCAN_MODE INTENT_LAYER=$INTENT_LAYER last_completed=$LAST start_step=$START_STEP" >&2
-
-    # 5. Skip Phase 0 (scope resolution) — we already have the answers on disk.
-    # Jump directly to Step $START_STEP in the main pipeline below.
-else
-    # Fresh run: LAST=0 or no run_context. Fall through to Phase 0 normally.
-    : # no-op; flow continues with scope resolution below.
-fi
-```
-
-**Notes on accuracy:**
-
-- Rehydrating from disk is lossless by construction — `save-context` wrote exactly these fields, and `save-context` runs both in Step F (fresh runs) and is safe to call again if anything changes mid-run.
-- The consistency check is defensive. Under normal compact-and-resume flow, telemetry step count ≥ last_completed always holds because each step marks its start *before* calling `complete-step N`. A warning here signals something outside the happy path (manual state edit, aborted step, corrupted file).
-- `WORKSPACES` is rehydrated as a newline-separated string, matching what Step C's scope picker originally produced. Downstream iteration patterns (`while IFS= read`; `printf '%s\n' "$WORKSPACES" | ...`) work identically.
-- If `--from N` is supplied, the orchestrator sets `FROM_STEP=N` before this block runs.
+<!-- archie:extracted -> archie-deep-scan/fragments/resume-prelude.md -->
 
 ## Step 1: Run the scanner
 
-**Telemetry:** persist the step start to disk (compaction-safe), then keep the shell var for readability:
-```bash
-python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan scan
-TELEMETRY_STEP1_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-```
-
-**If START_STEP > 1, skip this step.**
-
-```bash
-python3 .archie/scanner.py "$PROJECT_ROOT"
-python3 .archie/detect_cycles.py "$PROJECT_ROOT" --full 2>/dev/null
-```
-
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 1
-```
+<!-- archie:extracted -> archie-deep-scan/steps/step-1-scanner.md -->
 
 ## Step 2: Read scan results
 
-**Telemetry:**
-```bash
-python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan read
-TELEMETRY_STEP2_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-```
-
-**If START_STEP > 2, skip this step.**
-
-Read `$PROJECT_ROOT/.archie/scan.json`. Note total files, detected frameworks, top-level directories, and `frontend_ratio`.
-
-Also read `$PROJECT_ROOT/.archie/dependency_graph.json` if it exists — it provides the resolved directory-level dependency graph with node metrics (in-degree, out-degree, file count) and cycle data. Wave 1 agents can reference this for quantitative dependency analysis.
-
-**UI layer detection:** Only spawn the dedicated UI Layer agent if `frontend_ratio` >= 0.20 (20%+ of source files are UI/frontend). A small SwiftUI menubar or a minor React admin panel in an otherwise backend/CLI/library project does NOT warrant a dedicated UI agent — the Structure agent will cover it.
-
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 2
-```
+<!-- archie:extracted -> archie-deep-scan/steps/step-2-read-scan.md -->
 
 ## Step 3: Spawn analytical agents
 
@@ -925,65 +818,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 3
 
 ## Step 4: Save Wave 1 output and merge
 
-**Telemetry:**
-```bash
-python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan merge
-TELEMETRY_STEP4_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-```
-
-**If START_STEP > 4, skip this step.**
-
-### If SCAN_MODE = "incremental":
-
-The single incremental agent's output was saved to `/tmp/archie_incremental_$PROJECT_NAME.json` in Step 3. Patch the existing blueprint:
-
-```bash
-python3 .archie/merge.py "$PROJECT_ROOT" --patch /tmp/archie_incremental_$PROJECT_NAME.json
-```
-
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 3
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
-```
-
-### If SCAN_MODE = "full" (default):
-
-**If resuming via --from or --continue:** Step 4 depends on Wave 1 agent outputs in /tmp/. These may not survive a system reboot. If merge fails with missing files, re-run from step 3: `/archie-deep-scan --from 3`
-
-**Subagent output contract (mandatory — append to each agent's prompt before spawning):**
-
-Each Wave 1 subagent must write its own output directly to a pre-specified path. The orchestrator must NEVER copy or Write the transcript itself — attempting to access `.claude/projects/.../subagents/*.jsonl` triggers a sensitive-file permission prompt on every call.
-
-Append this block to each Wave 1 agent's prompt, substituting `<OUTPUT_PATH>` with the path below:
-
-```
----
-OUTPUT CONTRACT (mandatory):
-1. Use the Write tool to save your COMPLETE output to <OUTPUT_PATH>.
-2. Write the raw output verbatim — the merge script handles JSON envelopes, code fences, and multi-block text.
-3. After Writing, reply with exactly: "Wrote <OUTPUT_PATH>"
-4. Do NOT print the output in your response body. /tmp/archie_* is already permissioned via Write(//tmp/archie_*).
-```
-
-Output paths per agent:
-- Structure agent → `/tmp/archie_sub1_$PROJECT_NAME.json`
-- Patterns agent → `/tmp/archie_sub2_$PROJECT_NAME.json`
-- Technology agent → `/tmp/archie_sub3_$PROJECT_NAME.json`
-- UI Layer agent (if spawned) → `/tmp/archie_sub4_$PROJECT_NAME.json`
-
-When each subagent's confirmation reply returns, its file is already on disk — proceed directly to the merge step below. Do NOT attempt to re-extract output from the subagent's conversation — if the confirmation is missing or file absent, skip that agent's contribution and report the failure.
-
-Then merge:
-
-```bash
-python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tmp/archie_sub2_$PROJECT_NAME.json /tmp/archie_sub3_$PROJECT_NAME.json /tmp/archie_sub4_$PROJECT_NAME.json
-```
-
-This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data). Verify the output shows non-zero component/section counts. If it says "0 sections, 0 components", the merge failed — check the agent output files.
-
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
-```
+<!-- archie:extracted -> archie-deep-scan/steps/step-4-merge.md -->
 
 ## Step 5: Wave 2 — Reasoning agent
 
@@ -1810,77 +1645,7 @@ Read `$PROJECT_ROOT/.archie/health.json` for precise numeric values and `$PROJEC
 
 Write `$PROJECT_ROOT/.archie/scan_report.md` with this exact structure (use the Write tool, do NOT shell-heredoc):
 
-```markdown
-# Archie Scan Report
-> Deep scan baseline | <today's date in YYYY-MM-DD HH:MM UTC> | <total_functions> functions / <total_loc> LOC analyzed | baseline run
-
-## Architecture Overview
-
-<2-3 paragraphs from Part 2: architecture style, key components, most important decisions. Prose, not bullets.>
-
-## Health Scores
-
-| Metric | Current | Previous | Trend | What it means |
-|--------|--------:|---------:|------:|---------------|
-| Erosion    | <erosion>    | <prev or "—"> | <up/down/flat> | <one-liner interpretation> |
-| Gini       | <gini>       | <prev or "—"> | <trend> | <one-liner> |
-| Top-20%    | <top20>      | <prev or "—"> | <trend> | <one-liner> |
-| Verbosity  | <verbosity>  | <prev or "—"> | <trend> | <one-liner> |
-| LOC        | <total_loc>  | <prev or "—"> | <trend> | <one-liner> |
-
-<one paragraph summarizing what the numbers say together>
-
-### Complexity Trajectory
-<short list of the top 5-8 high-CC functions from health.json with file:line and CC values, and what they suggest about risk concentration>
-
-## Findings
-
-Ranked by severity, grouped by novelty.
-
-### NEW (first observed this scan)
-<numbered list of findings — each: **[severity] Title.** Description. Confidence N.>
-
-### RECURRING (previously documented, still present)
-<only if prior report exists; otherwise omit this subsection>
-
-### RESOLVED
-<only if prior report exists; otherwise omit. "None" if nothing resolved.>
-
-## Proposed Rules
-
-<Any new rules proposed by Step 6 synthesis that are not yet in rules.json. Reference proposed_rules.json.>
-```
-
-Sources for Findings:
-- `drift_report.json` — mechanical and deep drift findings from Phase 1 and 2
-- `blueprint.json` — `pitfalls` (each causal chain becomes a finding), `decisions.trade_offs` with violated `violation_signals` (if any appear in drift_report)
-- Top complexity offenders from `health.json` (only if CC ≥ 15 or a cluster — don't list every high-CC function as a finding)
-
-Severity mapping:
-- `error` — decision violations, inverted dependencies, cycles across architectural boundaries
-- `warn` — pattern erosion, god-objects, pitfalls currently manifesting, trade-offs actively undermined
-- `info` — structural observations (dependency magnets, high fan-in nodes) that aren't currently broken
-
-Confidence: carry forward from drift findings when available; otherwise use 0.8-0.95 for findings grounded in direct code reading, lower for inferred ones.
-
-Verify the write:
-```bash
-test -s "$PROJECT_ROOT/.archie/scan_report.md" && wc -l "$PROJECT_ROOT/.archie/scan_report.md"
-```
-
-Expected: non-empty file with at least 30 lines.
-
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 9
-```
-
-Save baseline marker for future incremental runs (use "full" or "incremental" based on SCAN_MODE):
-```bash
-python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-baseline SCAN_MODE
-```
-(Replace SCAN_MODE with the actual mode — "full" or "incremental")
-
-End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-scan` for fast health checks. Run `/archie-deep-scan --incremental` after code changes to update the architecture analysis."**
+<!-- archie:extracted -> archie-deep-scan/templates/scan-report.md -->
 
 ## Step 10: Write telemetry
 
