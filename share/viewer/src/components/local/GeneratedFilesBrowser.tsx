@@ -10,7 +10,13 @@ export default function GeneratedFilesBrowser() {
   useEffect(() => {
     fetch('/api/generated-files')
       .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        if (!r.ok) {
+          throw new Error(
+            r.status === 404
+              ? 'This Archie viewer is out of date — /api/generated-files missing. Stop the viewer.py process and relaunch it to pick up the new endpoints.'
+              : `HTTP ${r.status}`,
+          )
+        }
         return r.json()
       })
       .then((data) => {

@@ -11,12 +11,24 @@ export default function FolderClaudeMdsBrowser() {
 
   useEffect(() => {
     fetch('/api/intent-layer-status')
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) {
+          throw new Error(
+            r.status === 404
+              ? 'This Archie viewer is out of date — /api/intent-layer-status missing. Stop the viewer.py process and relaunch it to pick up the new endpoints.'
+              : `intent-layer-status HTTP ${r.status}`,
+          )
+        }
+        return r.json()
+      })
       .then((s: { exists: boolean; count: number }) => {
         setStatus(s)
         if (s.exists) {
           return fetch('/api/folder-claude-mds')
-            .then((r) => r.json())
+            .then((r) => {
+              if (!r.ok) throw new Error(`folder-claude-mds HTTP ${r.status}`)
+              return r.json()
+            })
             .then((data: Record<string, string>) => {
               setFiles(data)
               const first = Object.keys(data)[0]
