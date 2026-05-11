@@ -370,3 +370,34 @@ def test_rule_invalid_json_body_returns_400(project_with_rules: Path):
             assert e.code == 400
     finally:
         app.shutdown()
+
+
+def test_reload_watcher_detects_py_change(tmp_path: Path, monkeypatch):
+    """The watcher must trigger os.execv when a .py file's mtime changes."""
+    import os as os_mod
+    watch_dir = tmp_path / "scripts"
+    watch_dir.mkdir()
+    target = watch_dir / "viewer.py"
+    target.write_text("print('v1')\n")
+
+    fired = threading.Event()
+    execv_calls: list[tuple] = []
+
+    def fake_execv(path, argv):
+        execv_calls.append((path, list(argv)))
+        fired.set()
+        # Park the watcher thread so it doesn't keep firing during teardown.
+        time.sleep(60)
+
+    monkeypatch.setattr(os_mod, "execv", fake_execv)
+
+    from viewer import _start_reload_watcher
+    _start_reload_watcher(watch_dir, poll_seconds=0.05)
+
+    time.sleep(0.1)
+    target.write_text("print('v2')\n")
+
+    assert fired.wait(timeout=2.0), "watcher never called os.execv"
+    path, argv = execv_calls[0]
+    assert path == sys.executable
+    assert argv[0] == sys.executable

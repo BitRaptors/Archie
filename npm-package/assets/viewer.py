@@ -14,6 +14,8 @@ import os
 import socket
 import subprocess
 import sys
+import threading
+import time
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -356,12 +358,53 @@ def _summarize(root: Path) -> str:
     return ", ".join(parts) if parts else "no data yet"
 
 
+def _start_reload_watcher(watch_dir: Path, poll_seconds: float = 1.0) -> None:
+    """Background thread: re-exec the process when any .py in watch_dir changes.
+
+    Solves a real trap: `npx @bitraptors/archie` replaces viewer.py on disk while
+    a long-running Python process keeps the old code in memory, leading to
+    silent API-version mismatches (V2 endpoints returning 404 even though the
+    new viewer.py has them). Polling-only watcher — zero deps, ~25 stat calls
+    per second is negligible. os.execv replaces the current process with a
+    fresh interpreter; the same listening port is freed and rebound on restart.
+    """
+    try:
+        initial = {p.name: p.stat().st_mtime for p in watch_dir.glob("*.py")}
+    except OSError:
+        return  # watch_dir gone — skip silently
+
+    def watcher() -> None:
+        nonlocal initial
+        while True:
+            time.sleep(poll_seconds)
+            try:
+                current = {p.name: p.stat().st_mtime for p in watch_dir.glob("*.py")}
+            except OSError:
+                continue
+            changed = [n for n, m in current.items() if initial.get(n) != m]
+            added = [n for n in current if n not in initial]
+            removed = [n for n in initial if n not in current]
+            if not (changed or added or removed):
+                continue
+            tags = changed + [f"+{n}" for n in added] + [f"-{n}" for n in removed]
+            print(f"[reload] {', '.join(tags)} changed — restarting…", file=sys.stderr)
+            try:
+                os.execv(sys.executable, [sys.executable, *sys.argv])
+            except OSError as e:
+                print(f"[reload] os.execv failed: {e}", file=sys.stderr)
+                initial = current  # avoid infinite retry storm
+
+    t = threading.Thread(target=watcher, daemon=True, name="archie-reload")
+    t.start()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Archie local viewer.")
     parser.add_argument("project_root", help="Path to the project to inspect")
     parser.add_argument("--port", type=int, default=None, help="Port (default 5847, falls back to free)")
     parser.add_argument("--no-open", action="store_true", help="Do not auto-open the browser")
     parser.add_argument("--api-only", action="store_true", help="Serve only /api/bundle (no static)")
+    parser.add_argument("--no-reload", action="store_true", help="Disable auto-reload watcher (default: on)")
     args = parser.parse_args(argv)
 
     root = Path(args.project_root).resolve()
@@ -394,6 +437,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Bundle: {_summarize(root)}")
     url = f"http://localhost:{port}/local"
     print(f"Listening on http://localhost:{port}")
+    if not args.no_reload:
+        _start_reload_watcher(Path(__file__).resolve().parent)
+        print("Auto-reload: on (--no-reload to disable)")
     if not args.no_open and not args.api_only:
         try:
             webbrowser.open(url)
