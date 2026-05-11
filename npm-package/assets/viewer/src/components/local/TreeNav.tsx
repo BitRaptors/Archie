@@ -49,15 +49,27 @@ function renderNode(
       "list-none space-y-1",
       depth > 0 && "pl-4 ml-1 border-l border-ink/5 pt-1"
     )}>
-      {dirNames.map((name) => (
-        <li key={`d:${name}`}>
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.12em] text-ink/30 py-1.5 px-2">
-            <Folder className="w-3 h-3 opacity-50" />
-            <span>{name}</span>
-          </div>
-          {renderNode(node.dirs.get(name)!, depth + 1, selected, onSelect)}
-        </li>
-      ))}
+      {dirNames.map((name) => {
+        let currentName = name
+        let currentNode = node.dirs.get(name)!
+        
+        // Squash logic: if the directory has exactly one child directory and no files, collapse it.
+        while (currentNode.dirs.size === 1 && currentNode.files.length === 0) {
+          const [nextName, nextNode] = Array.from(currentNode.dirs.entries())[0]
+          currentName += "/" + nextName
+          currentNode = nextNode
+        }
+
+        return (
+          <li key={`d:${currentName}`}>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.12em] text-ink/30 py-1.5 px-2">
+              <Folder className="w-3 h-3 opacity-50" />
+              <span>{currentName}</span>
+            </div>
+            {renderNode(currentNode, depth + 1, selected, onSelect)}
+          </li>
+        )
+      })}
       {files.map((path) => {
         const label = path.split('/').pop() || path
         const isSelected = path === selected
