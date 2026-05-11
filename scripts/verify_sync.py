@@ -98,8 +98,12 @@ def main():
         errors.append(f"DEAD REFERENCE: archie.mjs references {name} but it doesn't exist in assets/")
 
     # 6. Check: archie.mjs command list matches asset .md files
-    # (but exclude _shared/ fragments, which are cross-command includes, not standalone commands)
-    asset_mds_commands_only = {name for name in asset_mds if not name.startswith("_shared/")}
+    # (but exclude _shared/ fragments and archie-deep-scan/ subtree, which are
+    # copied recursively — not listed individually in the installer command list)
+    asset_mds_commands_only = {
+        name for name in asset_mds
+        if not name.startswith("_shared/") and not name.startswith("archie-deep-scan/")
+    }
     for name in sorted(asset_mds_commands_only - mjs_commands):
         errors.append(f"NOT IN INSTALLER: npm-package/assets/{name} exists but not in archie.mjs command list")
     for name in sorted(mjs_commands - asset_mds_commands_only):
