@@ -5,7 +5,7 @@ import { LocalEditContext } from '@/components/local/context/LocalEditContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle, Layers } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle, Layers, FileText } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
 import { formatBlueprintTitle } from '@/lib/blueprintTitle'
@@ -21,12 +21,26 @@ import { countSemanticDuplications, extractFindings, normalizeStructuredFinding,
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
+export type LocalViewKey = 'report' | 'generated' | 'folders'
+
 interface ReportPageProps {
   bundle?: Bundle
   createdAt?: string
+  // Local-viewer-only: when provided, ReportPage renders a "VIEW" section at
+  // the top of the sidebar that toggles between the blueprint, generated
+  // files, and folder CLAUDE.mds. Share mode (no localView) keeps the
+  // original sidebar unchanged.
+  localView?: {
+    active: LocalViewKey
+    setActive: (key: LocalViewKey) => void
+  }
+  // When set (only used by the local viewer for non-report tabs), replaces
+  // the blueprint sections in the main content area. The outer chrome
+  // (sidebar margin, container, padding) is preserved.
+  mainContent?: React.ReactNode
 }
 
-export default function ReportPage({ bundle: bundleProp, createdAt: createdAtProp }: ReportPageProps = {}) {
+export default function ReportPage({ bundle: bundleProp, createdAt: createdAtProp, localView, mainContent }: ReportPageProps = {}) {
   const { token } = useParams<{ token: string }>()
   const [bundle, setBundle] = useState<Bundle | null>(bundleProp ?? null)
   const [createdAt, setCreatedAt] = useState<string | null>(createdAtProp ?? null)
@@ -344,6 +358,37 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
         </div>
 
         <nav className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+          {/* VIEW — local-viewer tab switcher. Only renders when ReportPage
+              is mounted by LocalPage; share mode keeps the original sidebar. */}
+          {localView && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">View</p>
+              <NavButton
+                active={localView.active === 'report'}
+                onClick={() => { localView.setActive('report'); setIsSidebarOpen(false) }}
+                icon={Layout}
+                label="Blueprint"
+              />
+              <NavButton
+                active={localView.active === 'folders'}
+                onClick={() => { localView.setActive('folders'); setIsSidebarOpen(false) }}
+                icon={Database}
+                label="Folder Context"
+              />
+              <NavButton
+                active={localView.active === 'generated'}
+                onClick={() => { localView.setActive('generated'); setIsSidebarOpen(false) }}
+                icon={FileText}
+                label="Generated Files"
+              />
+            </div>
+          )}
+
+          {/* Blueprint-specific sections — hidden in local-viewer when the
+              user is browsing Generated Files / Folder Context, since the
+              scroll targets don't exist on those screens. */}
+          {(!localView || localView.active === 'report') && (
+          <>
           {/* Overview */}
           <div className="space-y-1">
             <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Overview</p>
@@ -534,6 +579,8 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
               label="Try Archie"
             />
           </div>
+          </>
+          )}
         </nav>
 
         <div className="p-8 bg-papaya-300/10 border-t border-papaya-300/40">
@@ -550,8 +597,13 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
 
       {/* Main Content */}
       <main className="lg:ml-72 flex flex-col min-h-screen">
+        {mainContent ? (
+          <div className="flex-1 p-6 md:p-10 lg:p-12 w-full max-w-screen-2xl mx-auto">
+            {mainContent}
+          </div>
+        ) : (
         <div className="flex-1 p-6 md:p-12 lg:p-20 xl:p-24 space-y-32 max-w-6xl w-full mx-auto" ref={contentRef}>
-          
+
           {/* Hero Section */}
           <section id="summary" className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
             <div className="space-y-4">
@@ -862,6 +914,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
              </div>
           </footer>
         </div>
+        )}
       </main>
     </div>
   )

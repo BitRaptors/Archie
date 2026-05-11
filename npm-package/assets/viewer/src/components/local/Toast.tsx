@@ -14,7 +14,7 @@ export default function Toast({ message, onDismiss }: Props) {
 
   if (!message) return null
   return (
-    <div className="fixed bottom-4 right-4 bg-papaya-700/90 text-ink-900 px-4 py-2 rounded shadow-lg z-50">
+    <div className="fixed bottom-6 right-6 bg-ink text-papaya-50 px-5 py-3 rounded-xl shadow-2xl shadow-ink/30 ring-1 ring-ink/10 z-50 text-sm font-medium animate-in fade-in slide-in-from-bottom-2 duration-300">
       {message}
     </div>
   )

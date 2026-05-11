@@ -41,10 +41,12 @@ function renderNode(
   const dirNames = Array.from(node.dirs.keys()).sort()
   const files = [...node.files].sort()
   return (
-    <ul className="list-none">
+    <ul className="list-none space-y-0.5">
       {dirNames.map((name) => (
         <li key={`d:${name}`} style={{ paddingLeft: `${depth * 12}px` }}>
-          <div className="text-papaya-300 text-xs font-semibold uppercase tracking-wide py-1">{name}/</div>
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-ink/40 py-1.5 px-2">
+            {name}/
+          </div>
           {renderNode(node.dirs.get(name)!, depth + 1, selected, onSelect)}
         </li>
       ))}
@@ -55,8 +57,10 @@ function renderNode(
           <li key={`f:${path}`} style={{ paddingLeft: `${depth * 12}px` }}>
             <button
               onClick={() => onSelect(path)}
-              className={`block w-full text-left px-2 py-1 rounded text-sm ${
-                isSelected ? 'bg-teal-900 text-papaya-100' : 'text-papaya-200 hover:bg-ink-800'
+              className={`block w-full text-left px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                isSelected
+                  ? 'bg-teal-500/15 text-teal-700 ring-1 ring-teal-500/30'
+                  : 'text-ink/70 hover:bg-papaya-300/30 hover:text-ink'
               }`}
             >
               {label}
