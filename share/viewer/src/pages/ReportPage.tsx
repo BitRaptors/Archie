@@ -358,29 +358,38 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
         </div>
 
         <nav className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-          {/* VIEW — local-viewer tab switcher. Only renders when ReportPage
-              is mounted by LocalPage; share mode keeps the original sidebar. */}
+          {/* VIEW — local-viewer horizontal segmented toggle. Strictly icon-only
+              as per user's premium design request. */}
           {localView && (
-            <div className="space-y-1">
-              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">View</p>
-              <NavButton
-                active={localView.active === 'report'}
-                onClick={() => { localView.setActive('report'); setIsSidebarOpen(false) }}
-                icon={Layout}
-                label="Blueprint"
-              />
-              <NavButton
-                active={localView.active === 'folders'}
-                onClick={() => { localView.setActive('folders'); setIsSidebarOpen(false) }}
-                icon={Database}
-                label="Folder Context"
-              />
-              <NavButton
-                active={localView.active === 'generated'}
-                onClick={() => { localView.setActive('generated'); setIsSidebarOpen(false) }}
-                icon={FileText}
-                label="Generated Files"
-              />
+            <div className="mb-8 mt-2 px-3">
+              <div className="bg-ink/[0.03] p-1.5 rounded-2xl flex items-center justify-between border border-ink/5 shadow-inner">
+                {[
+                  { id: 'report', label: 'Blueprint', icon: Layout },
+                  { id: 'folders', label: 'Folders', icon: Database },
+                  { id: 'generated', label: 'Files', icon: FileText }
+                ].map((tab) => {
+                  const isActive = localView.active === tab.id
+                  const Icon = tab.icon
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => { localView.setActive(tab.id as any); setIsSidebarOpen(false) }}
+                      title={tab.label}
+                      className={cn(
+                        "relative flex items-center justify-center w-full py-2.5 rounded-xl transition-all duration-500",
+                        isActive
+                          ? "bg-white shadow-lg shadow-ink/5 border border-papaya-300/40 text-teal z-10"
+                          : "text-ink/20 hover:text-ink/40 hover:bg-white/40"
+                      )}
+                    >
+                      <Icon className={cn("w-5 h-5 transition-transform duration-500", isActive && "scale-110")} />
+                      {isActive && (
+                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-teal/20 blur-[2px]" />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           )}
 
