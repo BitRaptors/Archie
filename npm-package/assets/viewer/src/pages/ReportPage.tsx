@@ -83,12 +83,27 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       .catch((e) => setError(e.message))
   }, [token, bundleProp])
 
+  // Local mode only: when LocalPage refetches /api/bundle after a mutation,
+  // it passes the NEW bundle as bundleProp. useState's initial value only
+  // applies on first mount, so without this sync the internal `bundle` would
+  // stay frozen at the value captured on the first render — making the UI
+  // appear stuck on stale rule states. Share mode (bundleProp === undefined)
+  // is untouched.
+  useEffect(() => {
+    if (bundleProp !== undefined) {
+      setBundle(bundleProp)
+    }
+    if (createdAtProp !== undefined) {
+      setCreatedAt(createdAtProp)
+    }
+  }, [bundleProp, createdAtProp])
+
   // Refetch ignored rules whenever the parent bundle refreshes (LocalPage
   // recreates ctx on every render after a mutation succeeds OR after a stale-
   // state recovery, so keying off bundleProp identity is enough).
   useEffect(() => {
     if (!localCtx) return
-    fetch('/api/ignored-rules')
+    fetch('/api/ignored-rules', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { rules: [] }))
       .then((j) => setIgnoredRules(Array.isArray(j?.rules) ? j.rules : []))
       .catch(() => setIgnoredRules([]))

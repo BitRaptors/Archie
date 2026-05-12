@@ -25,18 +25,15 @@ export default function LocalPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, rule_id: id }),
+        cache: 'no-store',
       })
-      // 409 means the bundle in our state is stale (the rule already moved
-      // since this tab loaded). Refresh the bundle anyway so the UI re-syncs
-      // and the user can retry on the correct lifecycle button.
-      if (res.status === 409) {
-        setToast(`Rule ${id} already moved — refreshing view.`)
-        setBundleVersion((v) => v + 1)
-        return
-      }
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
         setToast(`Failed: ${errBody.error || `HTTP ${res.status}`}`)
+        // Still refresh — backend rejected because client thought the rule
+        // was somewhere it isn't. Pulling fresh state shows the user what
+        // is actually true so the next click works.
+        setBundleVersion((v) => v + 1)
         return
       }
       setToast(`Rule ${id} ${action}d.`)
@@ -47,15 +44,12 @@ export default function LocalPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'edit', rule_id: id, patch }),
+        cache: 'no-store',
       })
-      if (res.status === 404 || res.status === 409) {
-        setToast(`Rule ${id} not editable here — refreshing view.`)
-        setBundleVersion((v) => v + 1)
-        return
-      }
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
         setToast(`Failed: ${errBody.error || `HTTP ${res.status}`}`)
+        setBundleVersion((v) => v + 1)
         return
       }
       setToast(`Rule ${id} updated.`)
@@ -64,7 +58,7 @@ export default function LocalPage() {
   }
 
   useEffect(() => {
-    fetch('/api/bundle')
+    fetch('/api/bundle', { cache: 'no-store' })
       .then((r) => {
         if (!r.ok) throw new Error(`Local bundle fetch failed (HTTP ${r.status}). Is /archie-scan run?`)
         return r.json()

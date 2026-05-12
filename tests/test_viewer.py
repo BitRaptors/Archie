@@ -401,3 +401,119 @@ def test_reload_watcher_detects_py_change(tmp_path: Path, monkeypatch):
     path, argv = execv_calls[0]
     assert path == sys.executable
     assert argv[0] == sys.executable
+
+
+def test_full_toggle_cycle_active_to_ignored_and_back(project_with_rules: Path):
+    """Disable an adopted rule → it lives in ignored only. Enable → back to active only.
+
+    This is the canonical lifecycle exercised by the local viewer's
+    DISABLE/ENABLE pill on a rule card. The previous version regressed
+    because ReportPage's internal bundle state didn't re-sync with the
+    bundleProp passed in by LocalPage after a refresh — but the backend
+    state machine itself must be airtight before the UI can be.
+    """
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        rules_path = project_with_rules / ".archie" / "rules.json"
+        ignored_path = project_with_rules / ".archie" / "ignored_rules.json"
+
+        def has(path: Path, rule_id: str) -> bool:
+            data = json.loads(path.read_text())
+            return any(r.get("id") == rule_id for r in data.get("rules", []))
+
+        # baseline: r1 is adopted, not in ignored
+        assert has(rules_path, "r1")
+        assert not has(ignored_path, "r1")
+
+        # disable: rules.json → ignored_rules.json
+        assert _post_rule(port, "disable", "r1") == 200
+        assert not has(rules_path, "r1"), "after disable, r1 must be removed from rules.json"
+        assert has(ignored_path, "r1"), "after disable, r1 must be present in ignored_rules.json"
+
+        # enable: ignored_rules.json → rules.json
+        assert _post_rule(port, "enable", "r1") == 200
+        assert has(rules_path, "r1"), "after enable, r1 must be back in rules.json"
+        assert not has(ignored_path, "r1"), "after enable, r1 must be removed from ignored_rules.json"
+
+        # full second cycle to verify the move is idempotent across multiple toggles
+        assert _post_rule(port, "disable", "r1") == 200
+        assert not has(rules_path, "r1")
+        assert has(ignored_path, "r1")
+        assert _post_rule(port, "enable", "r1") == 200
+        assert has(rules_path, "r1")
+        assert not has(ignored_path, "r1")
+    finally:
+        app.shutdown()
+
+
+def test_disable_already_ignored_rule_returns_409_state_unchanged(project_with_rules: Path):
+    """Stale-state guard: if the client thinks a rule is adopted but it was
+    moved to ignored since the last refresh, disable must return 409 AND
+    leave both files exactly as they were (no double-move, no data loss).
+    """
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        rules_path = project_with_rules / ".archie" / "rules.json"
+        ignored_path = project_with_rules / ".archie" / "ignored_rules.json"
+
+        # Set up: pre-disable r1 so it's in ignored_rules.json already
+        assert _post_rule(port, "disable", "r1") == 200
+        before_rules = rules_path.read_text()
+        before_ignored = ignored_path.read_text()
+
+        # The stale-state scenario: try to disable again (UI thinks r1 is adopted)
+        assert _post_rule(port, "disable", "r1") == 409
+        # Files must be byte-identical — no half-move, no duplicate, no data loss
+        assert rules_path.read_text() == before_rules
+        assert ignored_path.read_text() == before_ignored
+    finally:
+        app.shutdown()
+
+
+def test_enable_already_active_rule_returns_409_state_unchanged(project_with_rules: Path):
+    """Mirror of the above for the enable direction."""
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        rules_path = project_with_rules / ".archie" / "rules.json"
+        ignored_path = project_with_rules / ".archie" / "ignored_rules.json"
+
+        before_rules = rules_path.read_text()
+        before_ignored = ignored_path.read_text()
+
+        # r1 is active to start. Trying to enable returns 409 because it's not in ignored.
+        assert _post_rule(port, "enable", "r1") == 409
+        assert rules_path.read_text() == before_rules
+        assert ignored_path.read_text() == before_ignored
+    finally:
+        app.shutdown()
+
+
+def test_toggle_cycle_preserves_rule_fields(project_with_rules: Path):
+    """Move-across-files must not drop rule metadata."""
+    app, port = _start_rule_server(project_with_rules)
+    try:
+        rules_path = project_with_rules / ".archie" / "rules.json"
+        ignored_path = project_with_rules / ".archie" / "ignored_rules.json"
+
+        def find(path: Path, rule_id: str):
+            for r in json.loads(path.read_text()).get("rules", []):
+                if r.get("id") == rule_id:
+                    return r
+            return None
+
+        before = find(rules_path, "r1")
+        assert before is not None
+        original_desc = before["description"]
+        original_sev = before["severity_class"]
+
+        assert _post_rule(port, "disable", "r1") == 200
+        after_disable = find(ignored_path, "r1")
+        assert after_disable["description"] == original_desc
+        assert after_disable["severity_class"] == original_sev
+
+        assert _post_rule(port, "enable", "r1") == 200
+        after_enable = find(rules_path, "r1")
+        assert after_enable["description"] == original_desc
+        assert after_enable["severity_class"] == original_sev
+    finally:
+        app.shutdown()
