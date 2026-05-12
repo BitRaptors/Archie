@@ -1,4 +1,4 @@
-import { Folder, FileText } from 'lucide-react'
+import { Folder } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -38,11 +38,11 @@ function buildTree(paths: string[]): TreeNode {
 function renderNode(
   node: TreeNode,
   depth: number,
+  currentPath: string,
   selected: string | null,
   onSelect: (path: string) => void,
 ): JSX.Element {
   const dirNames = Array.from(node.dirs.keys()).sort()
-  const files = [...node.files].sort()
 
   return (
     <ul className={cn(
@@ -60,33 +60,24 @@ function renderNode(
           currentNode = nextNode
         }
 
+        const fullPath = currentPath ? `${currentPath}/${currentName}` : currentName
+        const isSelected = fullPath === selected
+
         return (
           <li key={`d:${currentName}`}>
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.12em] text-ink/30 py-1.5 px-2">
-              <Folder className="w-3 h-3 opacity-50" />
-              <span>{currentName}</span>
-            </div>
-            {renderNode(currentNode, depth + 1, selected, onSelect)}
-          </li>
-        )
-      })}
-      {files.map((path) => {
-        const label = path.split('/').pop() || path
-        const isSelected = path === selected
-        return (
-          <li key={`f:${path}`}>
             <button
-              onClick={() => onSelect(path)}
+              onClick={() => onSelect(fullPath)}
               className={cn(
-                "flex items-center gap-2.5 w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-300",
+                "flex items-center gap-2 w-full text-left px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-[0.12em] transition-all duration-300",
                 isSelected
-                  ? "bg-teal-500/10 text-teal-700 font-bold shadow-sm"
-                  : "text-ink/60 hover:bg-papaya-300/30 hover:text-ink font-medium"
+                  ? "bg-teal-500/10 text-teal-700 shadow-sm"
+                  : "text-ink/30 hover:bg-papaya-300/30 hover:text-ink/60"
               )}
             >
-              <FileText className={cn("w-3.5 h-3.5", isSelected ? "text-teal" : "text-ink/20")} />
-              <span className="truncate">{label}</span>
+              <Folder className={cn("w-3 h-3 transition-colors", isSelected ? "text-teal" : "opacity-50")} />
+              <span>{currentName}</span>
             </button>
+            {renderNode(currentNode, depth + 1, fullPath, selected, onSelect)}
           </li>
         )
       })}
@@ -98,7 +89,7 @@ export default function TreeNav({ paths, selected, onSelect }: Props) {
   const tree = buildTree(paths)
   return (
     <div className="animate-in fade-in slide-in-from-left-4 duration-500">
-      {renderNode(tree, 0, selected, onSelect)}
+      {renderNode(tree, 0, '', selected, onSelect)}
     </div>
   )
 }

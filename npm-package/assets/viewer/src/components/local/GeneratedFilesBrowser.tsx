@@ -21,8 +21,11 @@ export default function GeneratedFilesBrowser() {
       })
       .then((data) => {
         setFiles(data)
-        const first = Object.keys(data)[0]
-        if (first) setSelected(first)
+        const firstFile = Object.keys(data)[0]
+        if (firstFile) {
+          const folder = firstFile.split('/').slice(0, -1).join('/') || '.'
+          setSelected(folder)
+        }
       })
       .catch((e) => setError(e.message))
   }, [])
@@ -61,7 +64,14 @@ export default function GeneratedFilesBrowser() {
       <main className="flex-1 overflow-y-auto bg-white/60 backdrop-blur-xl border border-white/80 rounded-[32px] p-8 lg:p-16 shadow-2xl shadow-ink/5 custom-scrollbar relative">
         <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent rounded-[32px] pointer-events-none" />
         <div className="relative">
-          {selected && <MarkdownPane content={files[selected]} />}
+          {selected && files && (
+            <MarkdownPane 
+              files={Object.entries(files)
+                .filter(([path]) => (path.split('/').slice(0, -1).join('/') || '.') === selected)
+                .map(([path, content]) => ({ filename: path.split('/').pop()!, content }))
+              } 
+            />
+          )}
         </div>
       </main>
     </div>
