@@ -110,8 +110,24 @@ def main():
     # 2. Get actual files
     standalone_pys = {f.name for f in STANDALONE.glob("*.py") if f.name not in SKIP_FILES}
     asset_pys = {f.name for f in ASSETS.glob("*.py")}
-    asset_mds = {f.name for f in ASSETS.glob("archie-*.md")}
-    command_mds = {f.name for f in COMMANDS.glob("archie-*.md")}
+
+    # Command markdown files — both top-level (archie-*.md) and the recursive
+    # subtree under archie-deep-scan/ (introduced by the modularization
+    # refactor). Plus _shared/ which holds cross-command fragments.
+    def _collect_command_mds(base: Path) -> set[str]:
+        out: set[str] = set()
+        for p in base.glob("archie-*.md"):
+            if p.is_file():
+                out.add(p.name)
+        for sub in ("archie-deep-scan", "_shared"):
+            sub_dir = base / sub
+            if sub_dir.is_dir():
+                for p in sub_dir.rglob("*.md"):
+                    out.add(str(p.relative_to(base)))
+        return out
+
+    asset_mds = _collect_command_mds(ASSETS)
+    command_mds = _collect_command_mds(COMMANDS)
 
     # 3. Check: every standalone .py should have an asset copy
     for name in sorted(standalone_pys - asset_pys):
@@ -141,9 +157,15 @@ def main():
         errors.append(f"DEAD REFERENCE: archie.mjs references {name} but it doesn't exist in assets/")
 
     # 6. Check: archie.mjs command list matches asset .md files
-    for name in sorted(asset_mds - mjs_commands):
+    # (but exclude _shared/ fragments and archie-deep-scan/ subtree, which are
+    # copied recursively — not listed individually in the installer command list)
+    asset_mds_commands_only = {
+        name for name in asset_mds
+        if not name.startswith("_shared/") and not name.startswith("archie-deep-scan/")
+    }
+    for name in sorted(asset_mds_commands_only - mjs_commands):
         errors.append(f"NOT IN INSTALLER: npm-package/assets/{name} exists but not in archie.mjs command list")
-    for name in sorted(mjs_commands - asset_mds):
+    for name in sorted(mjs_commands - asset_mds_commands_only):
         errors.append(f"DEAD REFERENCE: archie.mjs references {name} but it doesn't exist in assets/")
 
     # 7. Check: file contents match between canonical and asset
