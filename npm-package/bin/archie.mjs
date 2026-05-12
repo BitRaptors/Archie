@@ -57,12 +57,23 @@ if (existsSync(archieDir)) {
   }
 }
 
-// Remove all archie-*.md commands from .claude/commands/
+// Remove all archie-*.md commands from .claude/commands/ and the
+// archie-deep-scan/ subtree introduced by the modular refactor.
 if (existsSync(claudeCommands)) {
   for (const f of readdirSync(claudeCommands)) {
     if (f.startsWith("archie-") && f.endsWith(".md")) {
       try { unlinkSync(join(claudeCommands, f)); cleanedCount++; } catch {}
     }
+  }
+  const deepScanDir = join(claudeCommands, "archie-deep-scan");
+  if (existsSync(deepScanDir)) {
+    try { rmSync(deepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
+  }
+  // Do NOT delete _shared/ wholesale — other tools may live alongside.
+  // Only remove the scope_resolution.md file we installed.
+  const sharedFile = join(claudeCommands, "_shared", "scope_resolution.md");
+  if (existsSync(sharedFile)) {
+    try { unlinkSync(sharedFile); cleanedCount++; } catch {}
   }
 }
 
@@ -94,6 +105,23 @@ if (cleanedCount > 0) {
   console.log(`  ${DIM}cleaned ${cleanedCount} previous Archie files${RESET}`);
 }
 
+function copyDirRecursive(srcDir, destDir) {
+  if (!existsSync(srcDir)) return [];
+  mkdirSync(destDir, { recursive: true });
+  const copied = [];
+  for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+    const srcPath = join(srcDir, entry.name);
+    const destPath = join(destDir, entry.name);
+    if (entry.isDirectory()) {
+      copied.push(...copyDirRecursive(srcPath, destPath));
+    } else if (entry.isFile()) {
+      writeFileSync(destPath, readFileSync(srcPath, "utf8"));
+      copied.push(destPath);
+    }
+  }
+  return copied;
+}
+
 // 2. Copy Claude Code commands
 for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md", "archie-share.md", "archie-intent-layer.md"]) {
   const src = join(ASSETS, cmd);
@@ -102,6 +130,29 @@ for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md", 
     writeFileSync(dest, readFileSync(src, "utf8"));
     console.log(`  ${GREEN}✓${RESET} ${commandsDirRel}/${cmd}`);
   }
+}
+
+// Copy the archie-deep-scan/ subtree (steps, fragments, templates) introduced
+// by the modular refactor. The subtree is required for /archie-deep-scan to
+// work — the router file references files inside this subtree.
+const deepScanSubtree = copyDirRecursive(
+  join(ASSETS, "archie-deep-scan"),
+  join(claudeCommands, "archie-deep-scan")
+);
+for (const p of deepScanSubtree) {
+  const rel = p.substring(claudeCommands.length + 1);
+  console.log(`  ${GREEN}✓${RESET} ${commandsDirRel}/${rel}`);
+}
+
+// Copy shared fragments referenced by multiple commands (e.g.
+// _shared/scope_resolution.md used by archie-deep-scan's Phase 0).
+const sharedSubtree = copyDirRecursive(
+  join(ASSETS, "_shared"),
+  join(claudeCommands, "_shared")
+);
+for (const p of sharedSubtree) {
+  const rel = p.substring(claudeCommands.length + 1);
+  console.log(`  ${GREEN}✓${RESET} ${commandsDirRel}/${rel}`);
 }
 
 // 3. Copy standalone Python scripts
@@ -145,7 +196,7 @@ if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
 
 // 3d. Add .gitignore entries for Archie scripts (idempotent)
 const gitignorePath = join(projectRoot, ".gitignore");
-const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/hooks/\n.claude/settings.local.json\n`;
+const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/commands/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n`;
 
 let gitignoreContent = "";
 if (existsSync(gitignorePath)) {
