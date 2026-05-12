@@ -47,7 +47,7 @@ function renderNode(
   return (
     <ul className={cn(
       "list-none space-y-0.5",
-      depth > 0 && "pl-3 ml-0.5 border-l border-ink/5 pt-0.5"
+      depth > 0 && "pl-2 ml-0.5 border-l border-ink/5"
     )}>
       {dirNames.map((name) => {
         let currentName = name

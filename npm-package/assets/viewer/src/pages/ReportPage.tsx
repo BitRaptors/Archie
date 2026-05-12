@@ -647,7 +647,11 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       {/* Main Content */}
       <main className="lg:ml-72 flex flex-col min-h-screen">
         {mainContent ? (
-          <div className="flex-1 p-6 md:p-10 lg:p-12 w-full max-w-screen-2xl mx-auto">
+          // Files mode — flush against the Archie sidebar (no max-width
+          // centering, lean horizontal padding) so the tree doesn't drift
+          // away into whitespace on wide screens. Vertical padding stays
+          // generous to keep the markdown card from kissing the top edge.
+          <div className="flex-1 w-full py-6 lg:py-8 px-4 lg:px-6">
             {mainContent}
           </div>
         ) : (

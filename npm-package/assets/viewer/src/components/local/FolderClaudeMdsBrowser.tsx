@@ -8,7 +8,7 @@ export default function FolderClaudeMdsBrowser() {
   const [files, setFiles] = useState<Record<string, string> | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [sidebarWidth, setSidebarWidth] = useState(260)
+  const [sidebarWidth, setSidebarWidth] = useState(220)
   const isResizing = useRef(false)
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export default function FolderClaudeMdsBrowser() {
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing.current) return
-      const newWidth = e.clientX - 320
+      const newWidth = e.clientX - 312
       if (newWidth > 160 && newWidth < 600) {
         setSidebarWidth(newWidth)
       }
@@ -89,8 +89,8 @@ export default function FolderClaudeMdsBrowser() {
 
   return (
     <div className="flex flex-col lg:flex-row h-[calc(100vh-8rem)]">
-      <aside 
-        className="shrink-0 overflow-y-auto pr-6 custom-scrollbar"
+      <aside
+        className="shrink-0 overflow-y-auto pr-3 custom-scrollbar"
         style={{ width: `${sidebarWidth}px` }}
       >
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4 px-2">
@@ -100,7 +100,7 @@ export default function FolderClaudeMdsBrowser() {
       </aside>
 
       {/* Resize Handle */}
-      <div 
+      <div
         className="hidden lg:block w-1 group cursor-col-resize relative z-10"
         onMouseDown={(e) => {
           e.preventDefault()
@@ -113,7 +113,7 @@ export default function FolderClaudeMdsBrowser() {
         <div className="absolute inset-y-8 left-0 w-[1px] bg-papaya-300 opacity-50 group-hover:bg-teal group-hover:opacity-100 transition-all" />
       </div>
 
-      <main className="flex-1 overflow-y-auto bg-white/60 backdrop-blur-xl border border-white/80 rounded-[32px] p-8 lg:p-16 shadow-2xl shadow-ink/5 custom-scrollbar relative ml-8">
+      <main className="flex-1 overflow-y-auto bg-white/60 backdrop-blur-xl border border-white/80 rounded-[32px] p-8 lg:p-16 shadow-2xl shadow-ink/5 custom-scrollbar relative ml-3">
         <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent rounded-[32px] pointer-events-none" />
         <div className="relative">
           {selected && files && (

@@ -6,7 +6,7 @@ export default function GeneratedFilesBrowser() {
   const [files, setFiles] = useState<Record<string, string> | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [sidebarWidth, setSidebarWidth] = useState(260)
+  const [sidebarWidth, setSidebarWidth] = useState(220)
   const isResizing = useRef(false)
 
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function GeneratedFilesBrowser() {
       // Since it's nested in ReportPage's main area (ml-72), we can just track delta 
       // or use a simpler clientX based calculation if we assume fixed layout.
       // Better: use the mouse position to set the width directly.
-      const newWidth = e.clientX - 320 // adjustment for the Archie sidebar (w-72) + padding
+      const newWidth = e.clientX - 312 // adjustment for the Archie sidebar (w-72) + padding
       if (newWidth > 160 && newWidth < 600) {
         setSidebarWidth(newWidth)
       }
@@ -108,7 +108,7 @@ export default function GeneratedFilesBrowser() {
         <div className="absolute inset-y-8 left-0 w-[1px] bg-papaya-300 opacity-50 group-hover:bg-teal group-hover:opacity-100 transition-all" />
       </div>
 
-      <main className="flex-1 overflow-y-auto bg-white/60 backdrop-blur-xl border border-white/80 rounded-[32px] p-8 lg:p-16 shadow-2xl shadow-ink/5 custom-scrollbar relative ml-8">
+      <main className="flex-1 overflow-y-auto bg-white/60 backdrop-blur-xl border border-white/80 rounded-[32px] p-8 lg:p-16 shadow-2xl shadow-ink/5 custom-scrollbar relative ml-3">
         <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent rounded-[32px] pointer-events-none" />
         <div className="relative">
           {selected && files && (
