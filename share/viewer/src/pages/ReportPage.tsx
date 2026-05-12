@@ -491,44 +491,59 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             )}
           </div>
 
-          {/* Rules */}
-          {((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0 || enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0 || infrastructureRules.length > 0) && (
-            <div className="space-y-1">
-              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
-              {(filePlacement.length > 0 || naming.length > 0) && (
-                <NavButton
-                  active={activeSection === 'archrules'}
-                  onClick={() => scrollToSection('archrules')}
-                  icon={HelpCircle}
-                  label="Architecture Rules"
-                />
-              )}
-              {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
+          {/* Rules — local mode shows ONE unified Rules section (the unified
+              rules.json + proposed_rules.json + ignored_rules.json pipeline).
+              Share mode keeps the four legacy sections so pre-3.0 shares
+              continue to render their blueprint-derived rules. */}
+          {!localCtx
+            ? (((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0 || enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0 || infrastructureRules.length > 0) && (
+              <div className="space-y-1">
+                <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
+                {(filePlacement.length > 0 || naming.length > 0) && (
+                  <NavButton
+                    active={activeSection === 'archrules'}
+                    onClick={() => scrollToSection('archrules')}
+                    icon={HelpCircle}
+                    label="Architecture Rules"
+                  />
+                )}
+                {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
+                  <NavButton
+                    active={activeSection === 'enforcement-rules'}
+                    onClick={() => scrollToSection('enforcement-rules')}
+                    icon={Shield}
+                    label="Enforcement Rules"
+                  />
+                )}
+                {developmentRules.length > 0 && (
+                  <NavButton
+                    active={activeSection === 'devrules'}
+                    onClick={() => scrollToSection('devrules')}
+                    icon={Shield}
+                    label="Development Rules"
+                  />
+                )}
+                {infrastructureRules.length > 0 && (
+                  <NavButton
+                    active={activeSection === 'infrarules'}
+                    onClick={() => scrollToSection('infrarules')}
+                    icon={Shield}
+                    label="Infrastructure Rules"
+                  />
+                )}
+              </div>
+            ))
+            : ((enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
+              <div className="space-y-1">
+                <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
                 <NavButton
                   active={activeSection === 'enforcement-rules'}
                   onClick={() => scrollToSection('enforcement-rules')}
                   icon={Shield}
-                  label="Enforcement Rules"
+                  label="Rules"
                 />
-              )}
-              {developmentRules.length > 0 && (
-                <NavButton
-                  active={activeSection === 'devrules'}
-                  onClick={() => scrollToSection('devrules')}
-                  icon={Shield}
-                  label="Development Rules"
-                />
-              )}
-              {infrastructureRules.length > 0 && (
-                <NavButton
-                  active={activeSection === 'infrarules'}
-                  onClick={() => scrollToSection('infrarules')}
-                  icon={Shield}
-                  label="Infrastructure Rules"
-                />
-              )}
-            </div>
-          )}
+              </div>
+            ))}
 
           {/* Design */}
           {(keyDecisions.length > 0 || tradeOffs.length > 0) && (
@@ -805,29 +820,34 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </section>
           )}
 
-          {/* 4. Architecture Rules */}
-          {(filePlacement.length > 0 || naming.length > 0) && (
+          {/* 4. Architecture Rules — legacy blueprint section, share mode only.
+              Local mode migrates these into the unified rules.json pipeline
+              on viewer startup, so this section never renders there. */}
+          {!localCtx && (filePlacement.length > 0 || naming.length > 0) && (
             <section id="archrules" className="scroll-mt-24">
               <Sections.ArchRulesSection filePlacement={filePlacement} naming={naming} />
             </section>
           )}
 
-          {/* 4b. Enforcement Rules — rules.json + proposed_rules.json + ignored_rules.json (Phase 1 inline shape) */}
+          {/* 4b. Rules — unified rules.json + proposed_rules.json + ignored_rules.json.
+              In local mode this is the SOLE rules surface — all rule kinds
+              (file_placement, naming_convention, coding_practice, decision,
+              pitfall) flow through this pipeline and are user-toggleable. */}
           {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
             <section id="enforcement-rules" className="scroll-mt-24">
               <Sections.RulesSection adopted={enforcementRules} proposed={proposedEnforcementRules} ignored={ignoredRules} />
             </section>
           )}
 
-          {/* 5. Development Rules — coding-time guidance */}
-          {developmentRules.length > 0 && (
+          {/* 5. Development Rules — legacy blueprint section, share mode only. */}
+          {!localCtx && developmentRules.length > 0 && (
             <section id="devrules" className="scroll-mt-24">
               <Sections.DevelopmentRulesSection rules={developmentRules} />
             </section>
           )}
 
-          {/* 5b. Infrastructure Rules — CI / signing / distribution / secrets */}
-          {infrastructureRules.length > 0 && (
+          {/* 5b. Infrastructure Rules — legacy blueprint section, share mode only. */}
+          {!localCtx && infrastructureRules.length > 0 && (
             <section id="infrarules" className="scroll-mt-24">
               <Sections.InfrastructureRulesSection rules={infrastructureRules} />
             </section>

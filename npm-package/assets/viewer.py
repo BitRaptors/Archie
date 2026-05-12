@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from upload import build_bundle  # noqa: E402
+from migrate_blueprint_rules import migrate as migrate_blueprint_rules  # noqa: E402
 
 DEFAULT_PORT = 5847
 
@@ -242,6 +243,9 @@ def _make_handler(root: Path, dist_dir: Path | None):
 
         def do_POST(self):
             parsed = urlparse(self.path)
+            if parsed.path == "/api/migrate-blueprint-rules":
+                self._serve_migrate(root)
+                return
             if parsed.path != "/api/rules":
                 self._send_error(404, "Not found")
                 return
@@ -271,6 +275,14 @@ def _make_handler(root: Path, dist_dir: Path | None):
             _spawn_subprocess_silent(["python3", str(root / ".archie" / "rule_index.py"), "build", str(root)])
             _spawn_subprocess_silent(["python3", str(root / ".archie" / "renderer.py"), str(root)])
             self._serve_json({"ok": True})
+
+        def _serve_migrate(self, root: Path):
+            try:
+                summary = migrate_blueprint_rules(root)
+            except Exception as e:
+                self._send_error(500, f"Migration failed: {e}")
+                return
+            self._serve_json({"ok": True, **summary})
 
         def _serve_bundle(self, root: Path):
             try:
@@ -431,6 +443,23 @@ def main(argv: list[str] | None = None) -> int:
         port = args.port
     else:
         port = DEFAULT_PORT if _port_available(DEFAULT_PORT) else _free_port()
+
+    # One-shot blueprint-rule migration. If a pre-3.0 blueprint still has the
+    # legacy architecture_rules / development_rules / infrastructure_rules
+    # sections, fold them into proposed_rules.json so the user can adopt them
+    # through the same UI as scan-proposed rules. Idempotent — re-running on
+    # a clean blueprint is a no-op.
+    try:
+        summary = migrate_blueprint_rules(root)
+        if summary.get("added", 0) or summary.get("sections_stripped"):
+            print(
+                f"Migrated {summary['added']} legacy blueprint rule(s) into "
+                f"proposed_rules.json; sections stripped: "
+                f"{', '.join(summary['sections_stripped'])}.",
+                file=sys.stderr,
+            )
+    except Exception as e:
+        print(f"Blueprint-rule migration skipped: {e}", file=sys.stderr)
 
     server = build_app(root, port=port, api_only=args.api_only)
     print("Starting Archie viewer…")
