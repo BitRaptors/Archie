@@ -21,22 +21,36 @@ import { countSemanticDuplications, extractFindings, normalizeStructuredFinding,
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
-export type LocalViewKey = 'report' | 'generated' | 'folders'
+export type LocalTab = 'report' | 'files'
+
+interface LocalSubNavItem {
+  id: string
+  label: string
+  icon: any
+  active: boolean
+  onClick: () => void
+}
 
 interface ReportPageProps {
   bundle?: Bundle
   createdAt?: string
-  // Local-viewer-only: when provided, ReportPage renders a "VIEW" section at
-  // the top of the sidebar that toggles between the blueprint, generated
-  // files, and folder CLAUDE.mds. Share mode (no localView) keeps the
-  // original sidebar unchanged.
+  // Local-viewer-only: when provided, ReportPage renders a segmented VIEW
+  // toggle at the top of the sidebar that switches between Blueprint and
+  // Files modes. Share mode (no localView) keeps the original sidebar
+  // unchanged.
   localView?: {
-    active: LocalViewKey
-    setActive: (key: LocalViewKey) => void
+    tab: LocalTab
+    setTab: (t: LocalTab) => void
+    // Title shown below the segmented control, above the nav items.
+    title?: string
+    // When set, replaces the blueprint sidebar sections with these items
+    // (used by the Files tab to switch between Folder Context / Generated
+    // Files in the same sidebar pattern the blueprint sections use).
+    subNav?: LocalSubNavItem[]
   }
-  // When set (only used by the local viewer for non-report tabs), replaces
-  // the blueprint sections in the main content area. The outer chrome
-  // (sidebar margin, container, padding) is preserved.
+  // When set (Files mode), replaces the blueprint sections in the main
+  // content area. The outer chrome (sidebar margin, container, padding) is
+  // preserved.
   mainContent?: React.ReactNode
 }
 
@@ -358,22 +372,22 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
         </div>
 
         <nav className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-          {/* VIEW — local-viewer horizontal segmented toggle. Strictly icon-only
-              as per user's premium design request. */}
+          {/* VIEW — local-viewer horizontal segmented toggle. Two tabs:
+              Blueprint (the existing scrollable report) and Files (folder
+              CLAUDE.mds + generated files, switched via subNav below). */}
           {localView && (
-            <div className="mb-8 mt-2 px-3">
+            <div className="mb-6 mt-2 px-3">
               <div className="bg-ink/[0.03] p-1.5 rounded-2xl flex items-center justify-between border border-ink/5 shadow-inner">
                 {[
-                  { id: 'report', label: 'Blueprint', icon: Layout },
-                  { id: 'folders', label: 'Folders', icon: Database },
-                  { id: 'generated', label: 'Files', icon: FileText }
+                  { id: 'report' as LocalTab, label: 'Blueprint', icon: Layout },
+                  { id: 'files' as LocalTab, label: 'Files', icon: FileText },
                 ].map((tab) => {
-                  const isActive = localView.active === tab.id
+                  const isActive = localView.tab === tab.id
                   const Icon = tab.icon
                   return (
                     <button
                       key={tab.id}
-                      onClick={() => { localView.setActive(tab.id as any); setIsSidebarOpen(false) }}
+                      onClick={() => { localView.setTab(tab.id); setIsSidebarOpen(false) }}
                       title={tab.label}
                       className={cn(
                         "relative flex items-center justify-center w-full py-2.5 rounded-xl transition-all duration-500",
@@ -393,10 +407,36 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </div>
           )}
 
-          {/* Blueprint-specific sections — hidden in local-viewer when the
-              user is browsing Generated Files / Folder Context, since the
-              scroll targets don't exist on those screens. */}
-          {(!localView || localView.active === 'report') && (
+          {/* Tab title — sits between the segmented control and the nav items.
+              Matches the active tab label so the icon-only toggle still gives
+              clear context. */}
+          {localView?.title && (
+            <div className="px-3 mb-6">
+              <h2 className="text-xl font-black tracking-tight text-ink">{localView.title}</h2>
+            </div>
+          )}
+
+          {/* Files-tab sub-nav — when subNav is provided, render these in
+              place of the blueprint sections. Same NavButton + section-label
+              styling so it reads as native sidebar content. */}
+          {localView?.subNav && localView.subNav.length > 0 && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Browse</p>
+              {localView.subNav.map((item) => (
+                <NavButton
+                  key={item.id}
+                  active={item.active}
+                  onClick={() => { item.onClick(); setIsSidebarOpen(false) }}
+                  icon={item.icon}
+                  label={item.label}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Blueprint-specific sections — hidden when localView.tab === 'files'
+              (the scroll targets don't exist on the Files screen). */}
+          {(!localView || localView.tab === 'report') && (
           <>
           {/* Overview */}
           <div className="space-y-1">

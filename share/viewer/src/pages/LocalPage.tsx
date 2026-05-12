@@ -1,4 +1,5 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
+import { Database, FileText } from 'lucide-react'
 import ReportPage from './ReportPage'
 import type { Bundle } from '@/lib/api'
 import { LocalEditContext, type LocalEditCtx } from '@/components/local/context/LocalEditContext'
@@ -7,12 +8,14 @@ import Toast from '@/components/local/Toast'
 const GeneratedFilesBrowser = lazy(() => import('@/components/local/GeneratedFilesBrowser'))
 const FolderClaudeMdsBrowser = lazy(() => import('@/components/local/FolderClaudeMdsBrowser'))
 
-type Tab = 'report' | 'generated' | 'folders'
+type Tab = 'report' | 'files'
+type FilesView = 'folders' | 'generated'
 
 export default function LocalPage() {
   const [bundle, setBundle] = useState<Bundle | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('report')
+  const [filesView, setFilesView] = useState<FilesView>('folders')
   const [toast, setToast] = useState<string | null>(null)
   const [bundleVersion, setBundleVersion] = useState(0)
 
@@ -67,27 +70,53 @@ export default function LocalPage() {
   }
   if (!bundle) return <div className="p-8 text-ink/60">Loading local bundle…</div>
 
-  // Non-report tabs render inside ReportPage's chrome via mainContent. The
-  // sidebar's blueprint sections collapse to just the VIEW switcher (handled
-  // in ReportPage). Share-mode never sets localView/mainContent so the share
-  // viewer renders identically to before.
-  const tabContent =
-    tab === 'generated' ? (
+  // Files tab renders one of two browsers; the sub-nav controls which.
+  const filesContent =
+    filesView === 'generated' ? (
       <Suspense fallback={<div className="p-12 text-ink/60">Loading…</div>}>
         <GeneratedFilesBrowser />
       </Suspense>
-    ) : tab === 'folders' ? (
+    ) : (
       <Suspense fallback={<div className="p-12 text-ink/60">Loading…</div>}>
         <FolderClaudeMdsBrowser />
       </Suspense>
-    ) : null
+    )
+
+  const localViewProp =
+    tab === 'report'
+      ? {
+          tab,
+          setTab,
+          title: 'Blueprint',
+        }
+      : {
+          tab,
+          setTab,
+          title: 'Files',
+          subNav: [
+            {
+              id: 'folders',
+              label: 'Folder Context',
+              icon: Database,
+              active: filesView === 'folders',
+              onClick: () => setFilesView('folders'),
+            },
+            {
+              id: 'generated',
+              label: 'Generated Files',
+              icon: FileText,
+              active: filesView === 'generated',
+              onClick: () => setFilesView('generated'),
+            },
+          ],
+        }
 
   return (
     <LocalEditContext.Provider value={ctx}>
       <ReportPage
         bundle={bundle}
-        localView={{ active: tab, setActive: setTab }}
-        mainContent={tabContent}
+        localView={localViewProp}
+        mainContent={tab === 'files' ? filesContent : null}
       />
       <Toast message={toast} onDismiss={() => setToast(null)} />
     </LocalEditContext.Provider>
