@@ -100,13 +100,28 @@ function buildLocalViewer(viewerDir, packageVersion) {
 const args = process.argv.slice(2);
 let projectRootArg = ".";
 let commandsDirArg = null;
+let projectRootExplicit = false;
+
+const USAGE = `Usage: npx @bitraptors/archie [path] [--commands-dir dir]
+
+Installs Archie tooling into the project at <path> (default: current directory).
+  path             Project directory to install into. Defaults to the cwd.
+  --commands-dir   Override .claude/commands location (advanced).
+  -h, --help       Show this help.`;
 
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--commands-dir" && i + 1 < args.length) {
+  if (args[i] === "-h" || args[i] === "--help") {
+    console.log(USAGE);
+    process.exit(0);
+  } else if (args[i] === "--commands-dir" && i + 1 < args.length) {
     commandsDirArg = args[i + 1];
     i++;
-  } else if (!args[i].startsWith("--")) {
+  } else if (args[i].startsWith("--")) {
+    console.error(`Unknown flag: ${args[i]}\n\n${USAGE}`);
+    process.exit(2);
+  } else {
     projectRootArg = args[i];
+    projectRootExplicit = true;
   }
 }
 
