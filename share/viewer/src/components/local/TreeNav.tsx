@@ -46,8 +46,8 @@ function renderNode(
 
   return (
     <ul className={cn(
-      "list-none space-y-1",
-      depth > 0 && "pl-4 ml-1 border-l border-ink/5 pt-1"
+      "list-none space-y-0.5",
+      depth > 0 && "pl-3 ml-0.5 border-l border-ink/5 pt-0.5"
     )}>
       {dirNames.map((name) => {
         let currentName = name
@@ -68,14 +68,14 @@ function renderNode(
             <button
               onClick={() => onSelect(fullPath)}
               className={cn(
-                "flex items-center gap-2 w-full text-left px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-[0.12em] transition-all duration-300",
+                "flex items-center gap-1.5 w-full text-left px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-[0.10em] transition-all duration-300",
                 isSelected
                   ? "bg-teal-500/10 text-teal-700 shadow-sm"
                   : "text-ink/30 hover:bg-papaya-300/30 hover:text-ink/60"
               )}
             >
-              <Folder className={cn("w-3 h-3 transition-colors", isSelected ? "text-teal" : "opacity-50")} />
-              <span>{currentName}</span>
+              <Folder className={cn("w-2.5 h-2.5 transition-colors", isSelected ? "text-teal" : "opacity-40")} />
+              <span className="truncate">{currentName}</span>
             </button>
             {renderNode(currentNode, depth + 1, fullPath, selected, onSelect)}
           </li>
