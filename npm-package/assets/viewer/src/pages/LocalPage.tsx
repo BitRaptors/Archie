@@ -26,6 +26,14 @@ export default function LocalPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, rule_id: id }),
       })
+      // 409 means the bundle in our state is stale (the rule already moved
+      // since this tab loaded). Refresh the bundle anyway so the UI re-syncs
+      // and the user can retry on the correct lifecycle button.
+      if (res.status === 409) {
+        setToast(`Rule ${id} already moved — refreshing view.`)
+        setBundleVersion((v) => v + 1)
+        return
+      }
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
         setToast(`Failed: ${errBody.error || `HTTP ${res.status}`}`)
@@ -40,6 +48,11 @@ export default function LocalPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'edit', rule_id: id, patch }),
       })
+      if (res.status === 404 || res.status === 409) {
+        setToast(`Rule ${id} not editable here — refreshing view.`)
+        setBundleVersion((v) => v + 1)
+        return
+      }
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
         setToast(`Failed: ${errBody.error || `HTTP ${res.status}`}`)

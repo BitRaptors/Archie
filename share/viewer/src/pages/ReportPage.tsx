@@ -83,13 +83,16 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       .catch((e) => setError(e.message))
   }, [token, bundleProp])
 
+  // Refetch ignored rules whenever the parent bundle refreshes (LocalPage
+  // recreates ctx on every render after a mutation succeeds OR after a stale-
+  // state recovery, so keying off bundleProp identity is enough).
   useEffect(() => {
     if (!localCtx) return
     fetch('/api/ignored-rules')
       .then((r) => (r.ok ? r.json() : { rules: [] }))
       .then((j) => setIgnoredRules(Array.isArray(j?.rules) ? j.rules : []))
       .catch(() => setIgnoredRules([]))
-  }, [localCtx])
+  }, [localCtx, bundleProp])
 
   const bp = bundle?.blueprint || {}
   const meta = bp.meta || {}
