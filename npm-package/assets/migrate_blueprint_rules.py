@@ -100,19 +100,27 @@ def _convert_file_placement(entry: dict) -> dict | None:
     rationale = entry.get("rationale") or entry.get("why") or ""
     if not pattern and not location:
         return None
-    desc_parts = []
-    if kind_label:
-        desc_parts.append(f"{kind_label}")
-    if pattern:
-        desc_parts.append(f"`{pattern}`")
-    if location:
-        desc_parts.append(f"under `{location}`")
-    description = " ".join(desc_parts) or "File placement convention from blueprint"
+    # Build a description that reads as a complete sentence so it makes sense
+    # standalone in the viewer's Rules card. Three patterns depending on which
+    # fields are populated.
+    subject = kind_label.strip() + ("s" if kind_label and not kind_label.endswith("s") else "")
+    if subject and pattern and location:
+        description = f"{subject} (matching `{pattern}`) must live under `{location}`"
+    elif subject and location:
+        description = f"{subject} must live under `{location}`"
+    elif pattern and location:
+        description = f"Files matching `{pattern}` must live under `{location}`"
+    elif location:
+        description = f"This kind of file must live under `{location}`"
+    elif pattern:
+        description = f"Files matching `{pattern}` must follow the codebase's placement convention"
+    else:
+        description = "File placement convention from blueprint"
     rule = {
         "kind": "file_placement",
         "severity_class": DEFAULT_SEVERITY,
         "description": description,
-        "why": rationale,
+        "why": rationale or "Migrated from blueprint's file_placement_rules — keeps layer boundaries explicit so the codebase stays navigable.",
         "source": "blueprint_migrated",
     }
     if scope:
@@ -138,11 +146,13 @@ def _convert_naming_convention(entry: dict) -> dict | None:
         example_str = ", ".join(str(e) for e in examples[:3])
     else:
         example_str = str(examples)
+    scope_phrase = f" in {scope}" if scope else ""
+    description = f"Files{scope_phrase} must follow the `{pattern}` naming convention"
     rule = {
         "kind": "naming_convention",
         "severity_class": DEFAULT_SEVERITY,
-        "description": f"Naming convention `{pattern}`" + (f" in {scope}" if scope else ""),
-        "why": rationale,
+        "description": description,
+        "why": rationale or "Migrated from blueprint's naming_conventions — keeps file/identifier names predictable so search and grep stay reliable.",
         "example": example_str,
         "source": "blueprint_migrated",
         "check": "file_naming",
