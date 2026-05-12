@@ -103,7 +103,18 @@ def _convert_file_placement(entry: dict) -> dict | None:
     # Build a description that reads as a complete sentence so it makes sense
     # standalone in the viewer's Rules card. Three patterns depending on which
     # fields are populated.
-    subject = kind_label.strip() + ("s" if kind_label and not kind_label.endswith("s") else "")
+    def _pluralize(word: str) -> str:
+        w = word.strip()
+        if not w:
+            return ""
+        if w.endswith("s"):
+            return w
+        if w.endswith("y") and len(w) >= 2 and w[-2].lower() not in "aeiou":
+            return w[:-1] + "ies"  # Repository → Repositories
+        if w.endswith(("ch", "sh", "x", "z")):
+            return w + "es"
+        return w + "s"
+    subject = _pluralize(kind_label)
     if subject and pattern and location:
         description = f"{subject} (matching `{pattern}`) must live under `{location}`"
     elif subject and location:
