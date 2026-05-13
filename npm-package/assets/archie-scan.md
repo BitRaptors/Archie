@@ -4,6 +4,18 @@ Analyze this project's architectural health using parallel agents. Each scan evo
 
 **Prerequisites:** If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` first.
 
+## Update notice (run before anything else, silent unless action needed)
+
+```bash
+python3 .archie/update_check.py check 2>/dev/null
+```
+
+If output is non-empty:
+- `UPGRADE_AVAILABLE old new` → tell the user once at the top of your reply: `"Archie {new} is available (installed: {old}). Upgrade: npx @bitraptors/archie@latest \"$PWD\""`. Then continue with the scan — do not block.
+- `JUST_UPGRADED old new` → say `"Archie upgraded {old} → {new}."` once, then proceed.
+
+If output is empty: proceed silently. This is informational only.
+
 **CRITICAL CONSTRAINT: Never write inline Python.**
 Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
 - Normalize blueprint: `python3 .archie/finalize.py "$PWD" --normalize-only`

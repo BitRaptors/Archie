@@ -42,14 +42,16 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 
 **Dispatching the sub-agents:**
 
-For each sub-agent below, Read the corresponding prompt file, then ALSO Read `grounding-rules.md`, and pass the concatenated text (agent body + blank line + grounding rules body) as the `prompt` parameter of the Agent tool call.
+For each sub-agent below, Read the corresponding prompt file, then ALSO Read `.claude/commands/archie-deep-scan/steps/step-3-wave1/grounding-rules.md`, and pass the concatenated text (agent body + blank line + grounding rules body) as the `prompt` parameter of the Agent tool call.
+
+All paths are relative to the project root (your cwd).
 
 | Sub-agent | Prompt file | Spawn when |
 |---|---|---|
-| Structure | `archie-deep-scan/steps/step-3-wave1/structure-agent.md` | Always |
-| Patterns | `archie-deep-scan/steps/step-3-wave1/patterns-agent.md` | Always |
-| Technology | `archie-deep-scan/steps/step-3-wave1/technology-agent.md` | Always |
-| UI Layer | `archie-deep-scan/steps/step-3-wave1/ui-layer-agent.md` | Only when `frontend_ratio >= 0.20` |
+| Structure | `.claude/commands/archie-deep-scan/steps/step-3-wave1/structure-agent.md` | Always |
+| Patterns | `.claude/commands/archie-deep-scan/steps/step-3-wave1/patterns-agent.md` | Always |
+| Technology | `.claude/commands/archie-deep-scan/steps/step-3-wave1/technology-agent.md` | Always |
+| UI Layer | `.claude/commands/archie-deep-scan/steps/step-3-wave1/ui-layer-agent.md` | Only when `frontend_ratio >= 0.20` |
 
 All four use `model: "sonnet"`. Dispatch in a single message so they run in parallel.
 

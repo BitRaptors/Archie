@@ -10,6 +10,18 @@ Run a comprehensive architecture analysis. Produces full blueprint, per-folder C
 
 **Prerequisites:** Run `npx @bitraptors/archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` and try again.
 
+## Update notice (run before anything else, silent unless action needed)
+
+```bash
+python3 .archie/update_check.py check 2>/dev/null
+```
+
+If output is non-empty:
+- `UPGRADE_AVAILABLE old new` → tell the user once at the top of your reply: `"Archie {new} is available (installed: {old}). Upgrade: npx @bitraptors/archie@latest \"$PWD\""`. Then continue with the scan — do not block.
+- `JUST_UPGRADED old new` → say `"Archie upgraded {old} → {new}."` once, then proceed.
+
+If output is empty: proceed silently. This is informational only.
+
 **CRITICAL CONSTRAINT: Never write inline Python.**
 Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
 - Normalize blueprint: `python3 .archie/finalize.py "$PROJECT_ROOT" --normalize-only`
@@ -123,10 +135,13 @@ Before executing any step, Read these files in order. They establish the
 conventions and Phase 0 variables (`SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`,
 `PROJECT_ROOT`, `PROJECT_NAME`) that every step assumes are in place.
 
-1. `archie-deep-scan/fragments/telemetry-conventions.md` — telemetry mark / finish / write contract used by every step.
-2. `archie-deep-scan/fragments/compact-resume-contract.md` — how the pipeline survives `/compact` mid-run via `.archie/deep_scan_state.json`.
-3. **If `RESUME_ACTION=resume`:** `archie-deep-scan/fragments/resume-prelude.md` — rehydrates shell variables from persisted state.
-4. `_shared/scope_resolution.md` — Phase 0 scope resolution. Establishes `PROJECT_ROOT`, `PROJECT_NAME`, `SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`.
+All paths below are relative to the project root (your cwd). The fragments
+live alongside this orchestrator under `.claude/commands/archie-deep-scan/`.
+
+1. `.claude/commands/archie-deep-scan/fragments/telemetry-conventions.md` — telemetry mark / finish / write contract used by every step.
+2. `.claude/commands/archie-deep-scan/fragments/compact-resume-contract.md` — how the pipeline survives `/compact` mid-run via `.archie/deep_scan_state.json`.
+3. **If `RESUME_ACTION=resume`:** `.claude/commands/archie-deep-scan/fragments/resume-prelude.md` — rehydrates shell variables from persisted state.
+4. `.claude/commands/_shared/scope_resolution.md` — Phase 0 scope resolution. Establishes `PROJECT_ROOT`, `PROJECT_NAME`, `SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`.
 
 ## Step-by-step routing
 
@@ -136,15 +151,15 @@ If `START_STEP > N` (the Preamble decided to skip earlier steps), do not Read or
 
 | Step | What it does | Load this file before starting |
 |---|---|---|
-| 1 | Run the scanner | `archie-deep-scan/steps/step-1-scanner.md` |
-| 2 | Read accumulated knowledge from prior runs | `archie-deep-scan/steps/step-2-read-scan.md` |
-| 3 | Wave 1 — spawn parallel analytical agents | `archie-deep-scan/steps/step-3-wave1/orchestration.md` |
-| 4 | Save & merge Wave 1 output | `archie-deep-scan/steps/step-4-merge.md` |
-| 5 | Wave 2 — reasoning agent (Opus) | `archie-deep-scan/steps/step-5-wave2-reasoning.md` |
-| 6 | AI rule synthesis | `archie-deep-scan/steps/step-6-rule-synthesis.md` |
-| 7 | Intent Layer — per-folder CLAUDE.md | `archie-deep-scan/steps/step-7-intent-layer.md` |
-| 8 | Cleanup | `archie-deep-scan/steps/step-8-cleanup.md` |
-| 9 | Drift detection & architectural assessment | `archie-deep-scan/steps/step-9-drift.md` |
-| 10 | Final telemetry flush | `archie-deep-scan/steps/step-10-telemetry.md` |
+| 1 | Run the scanner | `.claude/commands/archie-deep-scan/steps/step-1-scanner.md` |
+| 2 | Read accumulated knowledge from prior runs | `.claude/commands/archie-deep-scan/steps/step-2-read-scan.md` |
+| 3 | Wave 1 — spawn parallel analytical agents | `.claude/commands/archie-deep-scan/steps/step-3-wave1/orchestration.md` |
+| 4 | Save & merge Wave 1 output | `.claude/commands/archie-deep-scan/steps/step-4-merge.md` |
+| 5 | Wave 2 — reasoning agent (Opus) | `.claude/commands/archie-deep-scan/steps/step-5-wave2-reasoning.md` |
+| 6 | AI rule synthesis | `.claude/commands/archie-deep-scan/steps/step-6-rule-synthesis.md` |
+| 7 | Intent Layer — per-folder CLAUDE.md | `.claude/commands/archie-deep-scan/steps/step-7-intent-layer.md` |
+| 8 | Cleanup | `.claude/commands/archie-deep-scan/steps/step-8-cleanup.md` |
+| 9 | Drift detection & architectural assessment | `.claude/commands/archie-deep-scan/steps/step-9-drift.md` |
+| 10 | Final telemetry flush | `.claude/commands/archie-deep-scan/steps/step-10-telemetry.md` |
 
-Step 3's `orchestration.md` in turn references four sub-agent prompt files plus a shared `grounding-rules.md` — read those as the orchestration instructs.
+Step 3's `orchestration.md` in turn references four sub-agent prompt files plus a shared `grounding-rules.md` (all under `.claude/commands/archie-deep-scan/steps/step-3-wave1/`) — read those as the orchestration instructs.

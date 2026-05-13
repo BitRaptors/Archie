@@ -320,6 +320,10 @@ def write_from_disk(project_root: str | Path) -> Path | None:
     Auto-closes any still-open step with `now`. Clears the in-flight file
     on success so the next run starts fresh. Returns the output path, or
     None if there's nothing to write.
+
+    Also fires a fire-and-forget anonymous-telemetry sync via telemetry_sync.py
+    when the user has opted in. Failures here are silent — the local file is
+    the source of truth and must always succeed.
     """
     root = Path(project_root)
     state = _load_current_run(root)
@@ -333,6 +337,23 @@ def write_from_disk(project_root: str | Path) -> Path | None:
     command = state.get("command") or "deep-scan"
     out_path = write_telemetry(str(root), command, steps)
     clear_run(root)
+
+    # Anonymous, opt-in upload. No-op if telemetry is off.
+    sync_script = Path(__file__).resolve().parent / "telemetry_sync.py"
+    if sync_script.exists():
+        try:
+            import subprocess
+            subprocess.Popen(
+                [sys.executable, str(sync_script), "post-run", str(root), str(out_path)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                start_new_session=True,
+            )
+        except OSError:
+            pass
+
     return out_path
 
 
