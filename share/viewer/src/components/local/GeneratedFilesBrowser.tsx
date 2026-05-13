@@ -23,11 +23,12 @@ export default function GeneratedFilesBrowser() {
       })
       .then((data) => {
         setFiles(data)
+        // File-mode tree: select the first file directly so the main pane
+        // shows content immediately. The user wanted "see all files in the
+        // structure, click a file to see its content" — there's no "folder
+        // view" intermediate step to land on.
         const firstFile = Object.keys(data)[0]
-        if (firstFile) {
-          const folder = firstFile.split('/').slice(0, -1).join('/') || '.'
-          setSelected(folder)
-        }
+        if (firstFile) setSelected(firstFile)
       })
       .catch((e) => setError(e.message))
   }, [])
@@ -89,9 +90,9 @@ export default function GeneratedFilesBrowser() {
         style={{ width: `${sidebarWidth}px` }}
       >
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4 px-2">
-          Folders
+          Files
         </p>
-        <TreeNav paths={Object.keys(files)} selected={selected} onSelect={setSelected} />
+        <TreeNav paths={Object.keys(files)} selected={selected} onSelect={setSelected} mode="files" />
       </aside>
 
       {/* Resize Handle */}
@@ -111,12 +112,9 @@ export default function GeneratedFilesBrowser() {
       <main className="flex-1 overflow-y-auto bg-white/60 backdrop-blur-xl border border-white/80 rounded-[32px] p-8 lg:p-16 shadow-2xl shadow-ink/5 custom-scrollbar relative ml-3">
         <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent rounded-[32px] pointer-events-none" />
         <div className="relative">
-          {selected && files && (
-            <MarkdownPane 
-              files={Object.entries(files)
-                .filter(([path]) => (path.split('/').slice(0, -1).join('/') || '.') === selected)
-                .map(([path, content]) => ({ filename: path.split('/').pop()!, content }))
-              } 
+          {selected && files && files[selected] !== undefined && (
+            <MarkdownPane
+              files={[{ filename: selected, content: files[selected] }]}
             />
           )}
         </div>
