@@ -4,6 +4,16 @@ Share your architecture blueprint via a URL. Useful for showing teammates, stake
 
 **Prerequisites:** Requires `.archie/blueprint.json`. Run `/archie-scan` (or `/archie-deep-scan`) first if it doesn't exist.
 
+## Update notice (run before anything else, silent unless action needed)
+
+```bash
+python3 .archie/update_check.py check 2>/dev/null
+```
+
+If output is non-empty:
+- `UPGRADE_AVAILABLE old new` → mention once: `"Archie {new} is available (installed: {old}). Upgrade: npx @bitraptors/archie@latest \"$PWD\""`. Continue.
+- `JUST_UPGRADED old new` → say `"Archie upgraded {old} → {new}."` once, then continue.
+
 ## Pick upload target
 
 Before uploading, check whether an enterprise profile already exists:
@@ -159,3 +169,13 @@ If the upload fails (network issues, server down, bucket misconfigured, expired 
 - The share URL returned looks like `https://archie-viewer.vercel.app/r/ext#<base64url-encoded-GET-URL>`. The GET URL lives in the URL fragment (`#...`), which browsers never transmit to any server. BitRaptors sees nothing about the share.
 - The viewer fetches directly from the GET URL. The customer's bucket must allow CORS from `https://archie-viewer.vercel.app` or the viewer shows a fetch error.
 - Presigned GET URLs expire (max 7 days on AWS S3 for IAM-user-signed URLs). When a share URL stops working, re-run `/archie-share` with fresh URLs from InfoSec.
+
+## Telemetry (run after upload completes, silent if opted out)
+
+After the share URL is printed, record an anonymous event so we can track adoption. The blueprint contents are NEVER sent through this channel — only the fact that a share happened, plus the project's stack categories.
+
+```bash
+python3 .archie/telemetry_sync.py record-event --command share --outcome success --project-root "$PWD" 2>/dev/null || true
+```
+
+If the upload failed, swap `success` for `error` and pass `--error <error_class>`.

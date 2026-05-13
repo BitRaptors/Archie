@@ -5,6 +5,7 @@ import { join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { execSync, spawnSync } from "child_process";
+import { createInterface } from "readline";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -252,7 +253,7 @@ for (const p of sharedSubtree) {
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py"]) {
+for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py", "config.py", "telemetry_sync.py", "update_check.py", "analytics.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -364,6 +365,93 @@ if (hasPython) {
   console.log("");
   console.log(`  ⚠ python3 not found — hooks not installed, scanner needs Python 3.9+`);
 }
+
+// 5. First-run telemetry consent (machine-level, asked once across all installs).
+//    Skipped when stdin isn't a TTY (CI, pipes) — defaults to "off" until the
+//    user opts in interactively or via `python3 .archie/config.py set telemetry`.
+async function maybePromptTelemetry() {
+  if (!hasPython) return;
+  const configScript = join(archieDir, "config.py");
+  if (!existsSync(configScript)) return;
+
+  const check = spawnSync("python3", [configScript, "should-prompt"], { stdio: "ignore" });
+  if (check.status !== 0) return; // already prompted (or error → skip silently)
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    // Non-interactive: leave telemetry off but mark prompted=false so an
+    // interactive re-install (or `archie config set telemetry ...`) still asks.
+    return;
+  }
+
+  console.log("");
+  console.log(`${BOLD}  Help Archie improve${RESET} ${DIM}(anonymous, opt-in)${RESET}`);
+  console.log(`  ${DIM}We'd like to collect: command name, Archie version, OS/arch,${RESET}`);
+  console.log(`  ${DIM}step durations, outcome, detected stack (e.g. kotlin/gradle/android).${RESET}`);
+  console.log(`  ${DIM}Never: source code, file paths, repo names, blueprint contents.${RESET}`);
+  console.log(`  ${DIM}Change anytime: python3 .archie/config.py set telemetry off${RESET}`);
+  console.log("");
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
+
+  let tier = null;
+  try {
+    const first = (await ask(`  ${CYAN}?${RESET} Help Archie get better? ${DIM}[Y/n]${RESET} `)).trim().toLowerCase();
+    if (first === "" || first === "y" || first === "yes") {
+      tier = "community";
+    } else {
+      const second = (await ask(`  ${CYAN}?${RESET} Send anonymous metrics only ${DIM}(strips installation id)${RESET}? ${DIM}[y/N]${RESET} `)).trim().toLowerCase();
+      tier = (second === "y" || second === "yes") ? "anonymous" : "off";
+    }
+  } finally {
+    rl.close();
+  }
+
+  const apply = spawnSync("python3", [configScript, "apply-prompt-result", tier], { stdio: "ignore" });
+  if (apply.status === 0) {
+    if (tier === "off") {
+      console.log(`  ${GREEN}✓${RESET} telemetry off ${DIM}(re-enable: python3 .archie/config.py set telemetry community)${RESET}`);
+    } else {
+      console.log(`  ${GREEN}✓${RESET} telemetry: ${tier} ${DIM}(stored at ~/.archie/config.json)${RESET}`);
+      // Fire a single anonymous "install" event so we can count adoption.
+      const syncScript = join(archieDir, "telemetry_sync.py");
+      if (existsSync(syncScript)) {
+        spawnSync("python3", [syncScript, "record-install", "--version", readPackageVersion()], { stdio: "ignore" });
+      }
+    }
+  }
+}
+
+// Write a machine-level version marker so telemetry_sync can label events
+// without re-reading the npm package.json. Also records "JUST_UPGRADED" via
+// update_check.py so the next slash-command preamble can show a one-off ack.
+function writeArchieVersionMarker() {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (!home) return;
+  const archieConfigDir = join(home, ".archie");
+  const versionFile = join(archieConfigDir, "version");
+  const newVersion = readPackageVersion();
+
+  let oldVersion = "";
+  try {
+    if (existsSync(versionFile)) oldVersion = readFileSync(versionFile, "utf8").trim();
+  } catch { /* noop */ }
+
+  try {
+    mkdirSync(archieConfigDir, { recursive: true });
+    writeFileSync(versionFile, newVersion);
+  } catch { return; }
+
+  if (hasPython && oldVersion && oldVersion !== newVersion) {
+    const updateScript = join(archieDir, "update_check.py");
+    if (existsSync(updateScript)) {
+      spawnSync("python3", [updateScript, "mark-upgraded", newVersion], { stdio: "ignore" });
+    }
+  }
+}
+
+writeArchieVersionMarker();
+await maybePromptTelemetry();
 
 // Done
 console.log("");

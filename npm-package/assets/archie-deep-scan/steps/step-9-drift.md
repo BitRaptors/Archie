@@ -178,6 +178,7 @@ If `FIRST_BASELINE` (no prior scan_report.md): all findings are tagged **NEW (ba
 Read `$PROJECT_ROOT/.archie/health.json` for precise numeric values and `$PROJECT_ROOT/.archie/health_history.json` to compute trends (previous run values vs. current).
 
 Write `$PROJECT_ROOT/.archie/scan_report.md` using the template at
-`archie-deep-scan/templates/scan-report.md`. Read that file first if you
-haven't already, then substitute the project-specific values into the
-placeholders before writing the final report.
+`.claude/commands/archie-deep-scan/templates/scan-report.md` (path relative
+to the project root). Read that file first if you haven't already, then
+substitute the project-specific values into the placeholders before writing
+the final report.
