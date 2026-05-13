@@ -137,8 +137,11 @@ const claudeCommands = commandsDirArg
   ? join(projectRoot, commandsDirArg)
   : join(projectRoot, ".claude", "commands");
 const commandsDirRel = commandsDirArg || ".claude/commands";
+const claudeSkills = join(projectRoot, ".claude", "skills");
+const skillsDirRel = ".claude/skills";
 const archieDir = join(projectRoot, ".archie");
 mkdirSync(claudeCommands, { recursive: true });
+mkdirSync(claudeSkills, { recursive: true });
 mkdirSync(archieDir, { recursive: true });
 
 // 1b. Clean install — remove ALL previous Archie scripts, commands, and hooks
@@ -162,15 +165,25 @@ if (existsSync(claudeCommands)) {
       try { unlinkSync(join(claudeCommands, f)); cleanedCount++; } catch {}
     }
   }
-  const deepScanDir = join(claudeCommands, "archie-deep-scan");
-  if (existsSync(deepScanDir)) {
-    try { rmSync(deepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
+  // Legacy location (≤3.2.0): substeps used to live under .claude/commands/archie-deep-scan/.
+  // Remove if present so Claude Code stops listing them as slash commands.
+  const legacyDeepScanDir = join(claudeCommands, "archie-deep-scan");
+  if (existsSync(legacyDeepScanDir)) {
+    try { rmSync(legacyDeepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
   }
   // Do NOT delete _shared/ wholesale — other tools may live alongside.
   // Only remove the scope_resolution.md file we installed.
   const sharedFile = join(claudeCommands, "_shared", "scope_resolution.md");
   if (existsSync(sharedFile)) {
     try { unlinkSync(sharedFile); cleanedCount++; } catch {}
+  }
+}
+
+// Remove the new-location skill subtree so re-installs start clean.
+if (existsSync(claudeSkills)) {
+  const skillDeepScanDir = join(claudeSkills, "archie-deep-scan");
+  if (existsSync(skillDeepScanDir)) {
+    try { rmSync(skillDeepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
   }
 }
 
@@ -229,16 +242,18 @@ for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md", 
   }
 }
 
-// Copy the archie-deep-scan/ subtree (steps, fragments, templates) introduced
-// by the modular refactor. The subtree is required for /archie-deep-scan to
-// work — the router file references files inside this subtree.
+// Copy the archie-deep-scan/ subtree (steps, fragments, templates) to
+// .claude/skills/ instead of .claude/commands/. Claude Code lists every .md
+// under .claude/commands/ recursively as a slash command — moving the
+// substeps to skills/ keeps them invisible in the picker while the top-level
+// /archie-deep-scan router still references them by path.
 const deepScanSubtree = copyDirRecursive(
-  join(ASSETS, "archie-deep-scan"),
-  join(claudeCommands, "archie-deep-scan")
+  join(ASSETS, "skills", "archie-deep-scan"),
+  join(claudeSkills, "archie-deep-scan")
 );
 for (const p of deepScanSubtree) {
-  const rel = p.substring(claudeCommands.length + 1);
-  console.log(`  ${GREEN}✓${RESET} ${commandsDirRel}/${rel}`);
+  const rel = p.substring(claudeSkills.length + 1);
+  console.log(`  ${GREEN}✓${RESET} ${skillsDirRel}/${rel}`);
 }
 
 // Copy shared fragments referenced by multiple commands (e.g.
@@ -330,7 +345,7 @@ if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
 
 // 3d. Add .gitignore entries for Archie scripts (idempotent)
 const gitignorePath = join(projectRoot, ".gitignore");
-const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/commands/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n`;
+const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/skills/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n`;
 
 let gitignoreContent = "";
 if (existsSync(gitignorePath)) {
