@@ -8,7 +8,7 @@ import { Badge } from './ui/badge'
 import { Progress } from './ui/progress'
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers } from 'lucide-react'
+import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2 } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
 // @ts-ignore
@@ -1371,13 +1371,9 @@ function severityFromClass(sc: string | undefined): 'error' | 'warn' | 'info' | 
   return null
 }
 
-function severityBadgeClass(sev: string): string {
-  if (sev === 'error') return 'bg-brandy/10 text-brandy border-brandy/20'
-  if (sev === 'info') return 'bg-teal/10 text-teal border-teal/20'
-  return 'bg-tangerine/10 text-tangerine border-tangerine/20'
-}
-
 function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule: any; dim?: boolean; ruleState?: 'active' | 'proposed' | 'ignored' }) {
+  const [isOpen, setIsOpen] = useState(false)
+  
   const sevClass: string = rule?.severity_class || ''
   const sev: string = rule?.severity || severityFromClass(sevClass) || 'warn'
   const id: string = rule?.id || '?'
@@ -1390,91 +1386,225 @@ function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule
 
   return (
     <div className={cn(
-      'p-5 rounded-2xl border transition-all hover:shadow-md',
+      'rounded-2xl border transition-all duration-300 overflow-hidden',
       dim ? 'border-dashed border-papaya-400/40 bg-papaya-50/40' : theme.surface.panel,
+      isOpen ? 'shadow-xl ring-1 ring-teal/10' : 'hover:shadow-md hover:border-papaya-400'
     )}>
-      <div className="flex items-start gap-3 flex-wrap mb-2">
-        <span className={cn('text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border', severityBadgeClass(sev))}>
-          {sev}
-        </span>
-        <code className={cn(codeInlineClassName, 'text-[10px]')}>{id}</code>
-        {sevClass && (
-          <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wide text-ink/60 border-papaya-400/40">
-            {sevClass}
-          </Badge>
-        )}
-        {source && (
-          <Badge variant="outline" className="ml-auto text-[9px] font-bold uppercase tracking-wider text-ink/40 border-ink/10">
-            {source}
-          </Badge>
-        )}
-        <MaybeRuleControls rule={rule} state={ruleState} />
-      </div>
-      {desc && <Prose value={desc} className={cn('text-sm font-semibold leading-snug mb-2', dim ? 'text-ink/70' : 'text-ink')} />}
-      {why && (
-        <div className="bg-white/60 border border-papaya-400/40 p-3 rounded-xl mb-2">
-          <span className="text-[9px] font-black text-ink/40 uppercase tracking-widest block mb-1">Why</span>
-          <Prose value={why} className="text-sm text-ink/70 leading-relaxed" />
+      {/* Header — always visible, clickable to toggle */}
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className="p-4 flex items-center gap-3 cursor-pointer group/rule-header"
+      >
+        <div className={cn(
+          'shrink-0 w-8 h-8 rounded-xl flex items-center justify-center border transition-all',
+          sev === 'error' ? 'bg-brandy/10 text-brandy border-brandy/20' : 
+          sev === 'info' ? 'bg-teal/10 text-teal border-teal/20' : 
+          'bg-tangerine/10 text-tangerine border-tangerine/20',
+          isOpen && 'scale-110 shadow-sm'
+        )}>
+          {sev === 'error' ? <Shield className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
         </div>
-      )}
-      {example && (
-        <div className="bg-papaya-300/15 border border-papaya-400/30 p-3 rounded-xl mb-2">
-          <span className="text-[9px] font-black text-ink/40 uppercase tracking-widest block mb-1">Example</span>
-          <pre className="text-xs font-mono text-ink/70 whitespace-pre-wrap break-words"><AutoCode text={example} /></pre>
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+            <code className={cn(codeInlineClassName, 'text-[10px] font-bold text-ink/40')}>{id}</code>
+            {sevClass && (
+              <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wide text-ink/40 border-papaya-400/40">
+                {sevClass}
+              </Badge>
+            )}
+            {ruleState === 'active' && (
+              <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-teal/60">
+                <CheckCircle2 className="w-2.5 h-2.5" />
+                Active
+              </div>
+            )}
+          </div>
+          <h3 className={cn(
+            'text-sm font-bold leading-snug transition-colors',
+            isOpen ? 'text-teal' : 'text-ink group-hover/rule-header:text-teal/80'
+          )}>
+            <AutoCode text={desc} />
+          </h3>
         </div>
-      )}
-      <div className="flex flex-wrap gap-2 mt-2">
-        {scope && <PathChip path={scope} className="text-[10px]" />}
-        {triggers?.path_glob && (Array.isArray(triggers.path_glob) ? triggers.path_glob : [triggers.path_glob]).map((g: string, j: number) => (
-          <PathChip key={j} path={g} className="text-[10px] text-teal/80" />
-        ))}
+
+        <div className="flex items-center gap-3 shrink-0 ml-2">
+          {source && (
+            <Badge variant="outline" className="hidden sm:inline-flex text-[9px] font-bold uppercase tracking-wider text-ink/20 border-ink/5">
+              {source}
+            </Badge>
+          )}
+          <MaybeRuleControls rule={rule} state={ruleState} />
+          <div className={cn(
+            "p-1.5 rounded-lg bg-ink/[0.03] text-ink/20 transition-all duration-300",
+            isOpen ? "bg-teal/5 text-teal rotate-180" : "group-hover/rule-header:text-ink/40"
+          )}>
+            <ChevronDown className="w-4 h-4" />
+          </div>
+        </div>
       </div>
-      {triggers?.code_shape && Array.isArray(triggers.code_shape) && triggers.code_shape.length > 0 && (
-        <details className="mt-2">
-          <summary className="text-[10px] text-ink/40 cursor-pointer hover:text-ink/60">Trigger details</summary>
-          <pre className="text-[11px] font-mono text-ink/60 bg-ink/5 p-2 rounded mt-1 whitespace-pre-wrap">{JSON.stringify(triggers.code_shape, null, 2)}</pre>
-        </details>
+
+      {/* Expanded Content */}
+      {isOpen && (
+        <div className="px-5 pb-5 pt-0 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="space-y-4 pt-4 border-t border-papaya-400/20">
+            {why && (
+              <div className="bg-white/40 border border-papaya-400/30 p-4 rounded-2xl relative overflow-hidden group/why">
+                <div className="absolute top-0 right-0 p-4 opacity-[0.03] text-teal -rotate-12 pointer-events-none">
+                  <Info className="w-16 h-16" />
+                </div>
+                <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] block mb-2">Rationale</span>
+                <Prose value={why} className="text-sm text-ink/70 leading-relaxed relative" />
+              </div>
+            )}
+            
+            {example && (
+              <div className="space-y-2">
+                <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] ml-1">Example</span>
+                <div className={cn("p-5 rounded-2xl font-mono text-xs overflow-x-auto border border-white/20 shadow-inner", theme.console.bg, theme.console.text)}>
+                  <pre className="whitespace-pre-wrap break-words"><AutoCode text={example} /></pre>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-[10px] font-black text-ink/20 uppercase tracking-[0.2em] mr-1">Scope</span>
+              {scope && <PathChip path={scope} className="text-[10px]" />}
+              {triggers?.path_glob && (Array.isArray(triggers.path_glob) ? triggers.path_glob : [triggers.path_glob]).map((g: string, j: number) => (
+                <PathChip key={j} path={g} className="text-[10px] text-teal/80 border-teal/10 bg-teal/5" />
+              ))}
+              
+              {triggers?.code_shape && Array.isArray(triggers.code_shape) && triggers.code_shape.length > 0 && (
+                <details className="w-full mt-2 group/triggers">
+                  <summary className="text-[10px] text-ink/30 cursor-pointer hover:text-ink/50 flex items-center gap-1 group-open/triggers:mb-2">
+                    <ChevronDown className="w-3 h-3 -rotate-90 group-open/triggers:rotate-0 transition-transform" />
+                    Technical Trigger Logic
+                  </summary>
+                  <pre className="text-[11px] font-mono text-ink/60 bg-ink/5 p-4 rounded-2xl border border-ink/5 overflow-x-auto">
+                    {JSON.stringify(triggers.code_shape, null, 2)}
+                  </pre>
+                </details>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
+
+function RulesStats({ adopted, proposed, ignored }: { adopted: any[]; proposed: any[]; ignored: any[] }) {
+  const total = adopted.length + proposed.length + ignored.length
+  const adoptedPct = total > 0 ? Math.round((adopted.length / total) * 100) : 0
+  
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <Stat label="Total Rules" value={total} icon={Layers} />
+      <Stat label="Active" value={adopted.length} icon={Shield} />
+      <Stat label="Proposed" value={proposed.length} icon={Zap} />
+      <div className={cn("p-4 rounded-2xl border transition-all hover:shadow-md", theme.surface.panel)}>
+        <div className="flex items-center gap-2 mb-1">
+          <BarChart3 className={cn("w-3.5 h-3.5", theme.active.iconColor)} />
+          <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest leading-none">Adoption</span>
+        </div>
+        <div className="flex items-center gap-2">
+           <div className={cn("text-2xl font-bold tracking-tight text-ink")}>{adoptedPct}%</div>
+           <div className="flex-1 h-1.5 rounded-full bg-ink/5 overflow-hidden max-w-[60px]">
+             <div className="h-full bg-teal transition-all duration-1000" style={{ width: `${adoptedPct}%` }} />
+           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function RulesSection({ adopted, proposed, ignored = [] }: { adopted: any[]; proposed: any[]; ignored?: any[] }) {
+  const [tab, setTab] = useState<'active' | 'proposed' | 'ignored'>('active')
+  const [search, setSearch] = useState('')
+
   if (adopted.length === 0 && proposed.length === 0 && ignored.length === 0) return null
+
+  const activeSet = tab === 'active' ? adopted : tab === 'proposed' ? proposed : ignored
+
+  const filtered = activeSet.filter(r => {
+    const q = search.toLowerCase()
+    return (
+      (r.id || '').toLowerCase().includes(q) ||
+      (r.description || '').toLowerCase().includes(q) ||
+      (r.why || '').toLowerCase().includes(q)
+    )
+  })
+
   return (
     <section className="space-y-4">
       <SectionHeader
-        title="Enforcement Rules"
+        title="Rules Management"
         icon={Shield}
-        hint="Architectural rules the pre-edit hook and plan/commit classifier surface to the coding agent. New-shape rules carry their reasoning (`why`) and a canonical example inline."
+        hint="Architectural rules enforcing project constraints. Use the tabs to toggle between enforced, proposed, and ignored rules."
       />
-      {adopted.length > 0 && (
-        <div className="space-y-3">
-          {adopted.map((r: any, i: number) => (
-            <EnforcementRuleCard key={`adopted-${i}`} rule={r} ruleState="active" />
+
+      <RulesStats adopted={adopted} proposed={proposed} ignored={ignored} />
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <div className="bg-ink/[0.03] p-1 rounded-xl flex items-center border border-ink/5 shadow-inner self-start">
+          {[
+            { id: 'active', label: 'Active', count: adopted.length },
+            { id: 'proposed', label: 'Proposed', count: proposed.length },
+            { id: 'ignored', label: 'Ignored', count: ignored.length },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id as any)}
+              className={cn(
+                "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                tab === t.id 
+                  ? "bg-white text-teal shadow-sm border border-papaya-400/40" 
+                  : "text-ink/40 hover:text-ink/60"
+              )}
+            >
+              {t.label}
+              {t.count > 0 && (
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded-md text-[10px] tabular-nums",
+                  tab === t.id ? "bg-teal/10 text-teal" : "bg-ink/5 text-ink/30"
+                )}>
+                  {t.count}
+                </span>
+              )}
+            </button>
           ))}
         </div>
-      )}
-      {proposed.length > 0 && (
-        <div className="mt-6 space-y-3">
-          <div className="text-[10px] font-black text-ink/30 uppercase tracking-widest">
-            Proposed (not yet adopted)
-          </div>
-          {proposed.map((r: any, i: number) => (
-            <EnforcementRuleCard key={`proposed-${i}`} rule={r} dim ruleState="proposed" />
-          ))}
+
+        <div className="relative group max-w-xs w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/20 group-focus-within:text-teal transition-colors" />
+          <input
+            type="text"
+            placeholder="Search rules..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-white/50 border border-papaya-400 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-teal/20 focus:border-teal transition-all placeholder:text-ink/20"
+          />
         </div>
-      )}
-      {ignored.length > 0 && (
-        <div className="mt-6">
-          <h4 className="text-sm font-semibold text-papaya-400 mb-3">Ignored ({ignored.length})</h4>
-          <div className="space-y-3 opacity-70">
-            {ignored.map((r: any, i: number) => (
-              <EnforcementRuleCard key={`ignored-${i}`} rule={r} dim ruleState="ignored" />
-            ))}
+      </div>
+
+      <div className="space-y-3 min-h-[200px]">
+        {filtered.length > 0 ? (
+          filtered.map((r: any, i: number) => (
+            <EnforcementRuleCard 
+              key={`${tab}-${r.id || i}`} 
+              rule={r} 
+              ruleState={tab} 
+              dim={tab !== 'active'} 
+            />
+          ))
+        ) : (
+          <div className={cn("py-12 text-center rounded-3xl border border-dashed", theme.surface.emptyState)}>
+             <Search className="w-8 h-8 text-ink/10 mx-auto mb-3" />
+             <p className="text-sm text-ink/40">No {tab} rules match your search.</p>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   )
 }
