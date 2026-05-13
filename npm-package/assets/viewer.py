@@ -408,14 +408,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     root = Path(args.project_root).resolve()
+    # Don't preflight blueprint.json — the React app shows a friendly
+    # empty-state when /api/bundle returns 404. Forcing the user to run a
+    # scan BEFORE they can open the viewer chrome was a hostile UX:
+    # `npx @bitraptors/archie` installs the viewer but data only arrives
+    # after a /archie-scan, so the first launch on a fresh project would
+    # error out from the CLI without ever opening the browser.
     bp = root / ".archie" / "blueprint.json"
     if not bp.exists():
         print(
-            "Error: .archie/blueprint.json not found. "
-            "Run /archie-scan or /archie-deep-scan first.",
+            "Note: .archie/blueprint.json not found yet. The viewer will "
+            "still launch — run /archie-scan or /archie-deep-scan to "
+            "populate it. The /api/bundle endpoint will return 404 until "
+            "data exists; the React app surfaces this as an empty state.",
             file=sys.stderr,
         )
-        return 1
 
     if not args.api_only:
         dist_index = root / ".archie" / "viewer" / "dist" / "index.html"
