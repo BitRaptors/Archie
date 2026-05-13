@@ -21,9 +21,11 @@ The blueprint contains architectural facts. This step synthesizes them into **ar
 
 Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 
-> Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, and development rules.
+> Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, development_rules, infrastructure_rules, and architecture_rules (file_placement_rules + naming_conventions).
 >
-> Produce 20-40 architectural rules. Each rule captures an architectural insight that a coding agent must respect when planning or making changes.
+> **You are the SOLE producer of `proposed_rules.json`.** Every rule shape the user can adopt/reject/edit through the viewer's Rules section originates from this synthesis. The other deep-scan agents (structure, technology, patterns, reasoning) write architectural FACTS into the blueprint — your job is to turn those facts into agent-facing enforcement rules in the unified schema.
+>
+> Produce 30-60 architectural rules. Each rule captures an enforcement intent a coding agent must respect when planning or making changes. Coverage MUST span every blueprint section that carries enforcement signal — not just decisions and pitfalls. See "Coverage" below.
 >
 > **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `why` and `example` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*. The hook also surfaces these inline at edit time when the rule applies, so the agent sees the canonical reasoning + example without any extra lookup.
 >
@@ -37,6 +39,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "dep-001",
+>   "kind": "decision",
 >   "topic": "layering",
 >   "severity_class": "decision_violation",
 >   "description": "What is forbidden/required (one sentence)",
@@ -45,6 +48,17 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >   "source": "deep_scan"
 > }
 > ```
+>
+> **The `kind` field** — names the conceptual *type* of rule, independent of which blueprint section motivated it. The viewer groups rules in the UI by kind so a user curating proposed rules can scan all file-placement rules together, all naming conventions together, etc. Pick exactly one:
+>
+> - `decision` — clarifies a `decisions.key_decisions[*]` invariant. Pair with `severity_class: "decision_violation"`.
+> - `pitfall` — guards against a `pitfalls[*]` causal chain. Pair with `severity_class: "pitfall_triggered"`.
+> - `semantic_pattern` — captures a `components.patterns` or `implementation_guidelines` shape. Pair with `severity_class: "pattern_divergence"` (or `tradeoff_undermined` when it formalizes a `trade_offs[*].violation_signals`).
+> - `file_placement` — derived from `blueprint.architecture_rules.file_placement_rules` (or directly observed): which kind of file belongs under which directory. Pair with `severity_class: "pattern_divergence"` by default; bump to `mechanical_violation` when a regex is reliable.
+> - `naming_convention` — derived from `blueprint.architecture_rules.naming_conventions`: which file/identifier names must follow which pattern. Pair with `severity_class: "mechanical_violation"` when expressible as a file-basename regex.
+> - `coding_practice` — derived from `blueprint.development_rules` (or `infrastructure_rules` when build/CI-flavored): general guidance the agent should remember at edit time. Pair with `severity_class: "pattern_divergence"` (informational).
+>
+> `kind` and `severity_class` are not redundant: `kind` is *what the rule is about* (UI grouping), `severity_class` is *how the hook responds* (enforcement behavior).
 >
 > **The `topic` field** — a short kebab-case slug naming the conceptual area the rule governs. The renderer groups rules by topic into per-file markdown topic pages under `.claude/rules/enforcement/by-topic/<topic>.md`, so an agent can load only the topic relevant to the current task instead of the full enforcement set.
 >
@@ -103,6 +117,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "arch-001",
+>   "kind": "decision",
 >   "topic": "layering",
 >   "severity_class": "decision_violation",
 >   "description": "Business logic must not depend on UI framework classes",
@@ -117,6 +132,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "ctx-001",
+>   "kind": "pitfall",
 >   "topic": "concurrency",
 >   "severity_class": "pitfall_triggered",
 >   "description": "Never use context.TODO() or context.Background() inside request handlers",
@@ -131,6 +147,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "cache-001",
+>   "kind": "semantic_pattern",
 >   "topic": "data-access",
 >   "severity_class": "tradeoff_undermined",
 >   "description": "Avoid sync I/O inside the cache hot path",
@@ -145,6 +162,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "dep-001",
+>   "kind": "decision",
 >   "topic": "layering",
 >   "severity_class": "mechanical_violation",
 >   "description": "Domain layer must not import from presentation layer",
@@ -155,6 +173,56 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >   "check": "forbidden_import",
 >   "applies_to": "domain/",
 >   "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]
+> }
+> ```
+>
+> File-placement rule (derived from `architecture_rules.file_placement_rules`):
+> ```json
+> {
+>   "id": "place-001",
+>   "kind": "file_placement",
+>   "topic": "layering",
+>   "severity_class": "pattern_divergence",
+>   "description": "Fragments must live under `app/src/main/java/.../page_<feature_name>/fragment/`",
+>   "why": "The page_<feature> package is the unit of feature ownership. Co-locating fragment, viewmodel, and cells under one package keeps the feature swappable. Fragments elsewhere lose this locality and the DI graph can't see them.",
+>   "example": "// LoginFragment.kt lives at app/src/main/java/com/foo/bar/page_login/fragment/LoginFragment.kt",
+>   "source": "deep_scan",
+>   "keywords": ["fragment", "page", "feature placement"],
+>   "applies_to": "app/src/main/java/com/foo/bar/page_",
+>   "file_pattern": "*Fragment.kt"
+> }
+> ```
+>
+> Naming-convention rule (derived from `architecture_rules.naming_conventions`):
+> ```json
+> {
+>   "id": "name-001",
+>   "kind": "naming_convention",
+>   "topic": "layering",
+>   "severity_class": "mechanical_violation",
+>   "description": "Feature ViewModels are named `<Feature>ViewModel.kt`",
+>   "why": "ViewModels carry feature scope. The `<Feature>ViewModel` name lets the Koin module + the DI graph + grep all find the same class — drop the convention and feature swaps break.",
+>   "example": "",
+>   "source": "deep_scan",
+>   "keywords": ["viewmodel", "naming"],
+>   "check": "file_naming",
+>   "applies_to": "app/src/main/java/com/foo/bar/page_*",
+>   "file_pattern": ".*ViewModel\\.kt$"
+> }
+> ```
+>
+> Coding-practice rule (derived from `development_rules` or `infrastructure_rules` — informational, not blocking):
+> ```json
+> {
+>   "id": "practice-001",
+>   "kind": "coding_practice",
+>   "topic": "data-access",
+>   "severity_class": "pattern_divergence",
+>   "description": "Every Repository exposes only `Flow<T>` — no suspend functions or callbacks on the public surface",
+>   "why": "Repositories are the boundary into the data layer. Flows give consumers cancellation + back-pressure for free; suspend functions force every caller to invent its own coroutine scope. The decision was made when adopting Koin singletons.",
+>   "example": "interface SettingsRepository { val settings: Flow<Settings> ; fun update(s: Settings) }",
+>   "source": "deep_scan",
+>   "keywords": ["repository", "flow", "suspend"]
 > }
 > ```
 >
@@ -184,13 +252,31 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >
 > ## What to produce:
 >
+> **Coverage — sweep every blueprint section that carries enforcement signal.** You are the only producer of `proposed_rules.json`. If a section names a constraint or convention but you don't emit a rule for it, the user has no way to curate it through the viewer. Walk these in order:
+>
+> | Blueprint section | Emit `kind` | Typical `severity_class` |
+> |---|---|---|
+> | `decisions.key_decisions[*]` | `decision` | `decision_violation` |
+> | `pitfalls[*]` | `pitfall` | `pitfall_triggered` |
+> | `decisions.trade_offs[*].violation_signals[*]` | `semantic_pattern` | `tradeoff_undermined` |
+> | `components.patterns[*]` / `implementation_guidelines[*]` | `semantic_pattern` | `pattern_divergence` |
+> | `architecture_rules.file_placement_rules[*]` | `file_placement` | `pattern_divergence` (or `mechanical_violation` if a regex captures it cleanly) |
+> | `architecture_rules.naming_conventions[*]` | `naming_convention` | `mechanical_violation` (file-basename regex) or `pattern_divergence` |
+> | `development_rules[*]` | `coding_practice` | `pattern_divergence` |
+> | `infrastructure_rules[*]` | `coding_practice` | `pattern_divergence` |
+>
+> Do NOT skip a section because "those aren't 'real' rules" — if it's in the blueprint, the agent should know about it, and the only way the agent learns about it is for you to emit it into proposed_rules.json so the user adopts it. Aim for ≥1 emitted rule per non-empty section.
+>
 > **Deep architectural rules** — invariants an AI coding agent might accidentally violate. These are the most valuable. Derive them from decision chains, trade-offs, pitfalls, and pattern descriptions. Examples: "ViewModel must never reference View/Context", "Repository must use IO dispatcher", "Fragments must use DI delegation not direct construction".
 >
 > **Structural rules** — dependency direction between layers/components, forbidden technologies (from decisions/trade-offs).
 >
+> **File-placement and naming-convention rules** — derived directly from the corresponding `architecture_rules` sections. These are user-curated through the same Adopt / Reject / Disable / Enable lifecycle as every other rule; do not write them back into `blueprint.architecture_rules` — emit them HERE.
+>
 > ## Critical:
 > - Every rule must be specific to THIS project — never generic programming advice
 > - Focus on what an AI coding agent would get wrong without knowing this codebase
+> - **`kind` is required.** Pick one of: `decision`, `pitfall`, `semantic_pattern`, `file_placement`, `naming_convention`, `coding_practice`. The viewer groups rules by this for user curation.
 > - **`severity_class` is required.** Pick the one that matches which blueprint section motivated the rule.
 > - **`topic` is required.** Pick from the recommended list (or a project-specific topic when justified) — the renderer groups rules into per-topic files using this slug.
 > - **`why` is required and must be inlined from the blueprint** — copy the language verbatim or near-verbatim, do not paraphrase. This is what the agent reads at edit-time.
