@@ -123,28 +123,37 @@ def is_blocking(rule):
         return sc in SEVERITY_BLOCKING
     return rule.get("severity") == "error"
 
-def render_rule_message(rule, prefix="  "):
-    """Render the rule's agent-facing message: header + WHY + EXAMPLE blocks.
+def _emit_labeled_block(label, value, prefix, sink):
+    """Append a "LABEL: text..." block to sink, indenting wrapped lines.
 
-    Reads new-shape fields (`why`, `example`) when present, falls back to
-    legacy `rationale` so old-shape rules still produce a useful message.
+    `sink` is the list-append callable (e.g. lines.append or a print wrapper).
+    """
+    if not value:
+        return
+    pad = " " * len(label + ": ")
+    first = True
+    for ln in value.splitlines() or [value]:
+        sink(f"{prefix}  {label + ': ' if first else pad}{ln}")
+        first = False
+
+
+def render_rule_message(rule, prefix="  "):
+    """Render the rule's agent-facing message: header + WHY / FORCED BY /
+    ENABLES / DO INSTEAD / EXAMPLE blocks.
+
+    Reads new-shape fields (`why`, `forced_by`, `enables`, `alternative`,
+    `example`) when present, falls back to legacy `rationale` so old-shape
+    rules still produce a useful message.
     """
     rid = rule.get("id", "unknown")
     sev = severity_label(rule)
     desc = rule.get("description", "")
-    why = rule.get("why", "") or rule.get("rationale", "")
-    example = rule.get("example", "")
     lines = [f"{prefix}RULE {rid} [{sev}]: {desc}"]
-    if why:
-        first = True
-        for ln in why.splitlines() or [why]:
-            lines.append(f"{prefix}  {'WHY: ' if first else '     '}{ln}")
-            first = False
-    if example:
-        first = True
-        for ln in example.splitlines() or [example]:
-            lines.append(f"{prefix}  {'EXAMPLE: ' if first else '         '}{ln}")
-            first = False
+    _emit_labeled_block("WHY", rule.get("why", "") or rule.get("rationale", ""), prefix, lines.append)
+    _emit_labeled_block("FORCED BY", rule.get("forced_by", ""), prefix, lines.append)
+    _emit_labeled_block("ENABLES", rule.get("enables", ""), prefix, lines.append)
+    _emit_labeled_block("DO INSTEAD", rule.get("alternative", ""), prefix, lines.append)
+    _emit_labeled_block("EXAMPLE", rule.get("example", ""), prefix, lines.append)
     return "\n".join(lines)
 
 # ----- Tier 4: path-aware rule injection, deduped per turn ----------------
@@ -173,23 +182,15 @@ if to_inject:
     print(f"[Archie] Rules applying to {rel_path}:")
     for r, how in to_inject:
         tag = " (global)" if how == "always" else ""
-        # Header line with tag, then full message via shared renderer
         rid = r.get("id", "unknown")
         sev = severity_label(r)
         desc = r.get("description", "")
         print(f"  RULE {rid}{tag} [{sev}]: {desc}")
-        why = r.get("why", "") or r.get("rationale", "")
-        example = r.get("example", "")
-        if why:
-            first = True
-            for ln in why.splitlines() or [why]:
-                print(f"    {'WHY: ' if first else '     '}{ln}")
-                first = False
-        if example:
-            first = True
-            for ln in example.splitlines() or [example]:
-                print(f"    {'EXAMPLE: ' if first else '         '}{ln}")
-                first = False
+        _emit_labeled_block("WHY", r.get("why", "") or r.get("rationale", ""), "  ", print)
+        _emit_labeled_block("FORCED BY", r.get("forced_by", ""), "  ", print)
+        _emit_labeled_block("ENABLES", r.get("enables", ""), "  ", print)
+        _emit_labeled_block("DO INSTEAD", r.get("alternative", ""), "  ", print)
+        _emit_labeled_block("EXAMPLE", r.get("example", ""), "  ", print)
 
 if newly_injected and turn_file:
     try:
@@ -370,20 +371,13 @@ def render_fired(rule, conf, prefix_label):
     rid = rule.get("id", "unknown")
     sev = severity_label(rule)
     desc = rule.get("description", "")
-    why = rule.get("why", "") or rule.get("rationale", "")
-    example = rule.get("example", "")
     confidence_tag = f" (confidence {int(conf * 100)}%)" if conf < 1.0 else ""
     print(f"[Archie] {prefix_label}{confidence_tag} {rid} [{sev}]: {desc}")
-    if why:
-        first = True
-        for ln in why.splitlines() or [why]:
-            print(f"  {'WHY: ' if first else '     '}{ln}")
-            first = False
-    if example:
-        first = True
-        for ln in example.splitlines() or [example]:
-            print(f"  {'EXAMPLE: ' if first else '         '}{ln}")
-            first = False
+    _emit_labeled_block("WHY", rule.get("why", "") or rule.get("rationale", ""), "", print)
+    _emit_labeled_block("FORCED BY", rule.get("forced_by", ""), "", print)
+    _emit_labeled_block("ENABLES", rule.get("enables", ""), "", print)
+    _emit_labeled_block("DO INSTEAD", rule.get("alternative", ""), "", print)
+    _emit_labeled_block("EXAMPLE", rule.get("example", ""), "", print)
 
 for r, c in infos[:5]:
     render_fired(r, c, "INFO")

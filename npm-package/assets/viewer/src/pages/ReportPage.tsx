@@ -5,7 +5,7 @@ import { LocalEditContext } from '@/components/local/context/LocalEditContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, HelpCircle, Layers, FileText } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, Layers, FileText } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
 import { formatBlueprintTitle } from '@/lib/blueprintTitle'
@@ -491,60 +491,6 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             )}
           </div>
 
-          {/* Rules — local mode shows ONE unified Rules section (the unified
-              rules.json + proposed_rules.json + ignored_rules.json pipeline).
-              Share mode keeps the four legacy sections so pre-3.0 shares
-              continue to render their blueprint-derived rules. */}
-          {!localCtx
-            ? (((filePlacement.length > 0 || naming.length > 0) || developmentRules.length > 0 || enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0 || infrastructureRules.length > 0) && (
-              <div className="space-y-1">
-                <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
-                {(filePlacement.length > 0 || naming.length > 0) && (
-                  <NavButton
-                    active={activeSection === 'archrules'}
-                    onClick={() => scrollToSection('archrules')}
-                    icon={HelpCircle}
-                    label="Architecture Rules"
-                  />
-                )}
-                {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
-                  <NavButton
-                    active={activeSection === 'enforcement-rules'}
-                    onClick={() => scrollToSection('enforcement-rules')}
-                    icon={Shield}
-                    label="Enforcement Rules"
-                  />
-                )}
-                {developmentRules.length > 0 && (
-                  <NavButton
-                    active={activeSection === 'devrules'}
-                    onClick={() => scrollToSection('devrules')}
-                    icon={Shield}
-                    label="Development Rules"
-                  />
-                )}
-                {infrastructureRules.length > 0 && (
-                  <NavButton
-                    active={activeSection === 'infrarules'}
-                    onClick={() => scrollToSection('infrarules')}
-                    icon={Shield}
-                    label="Infrastructure Rules"
-                  />
-                )}
-              </div>
-            ))
-            : ((enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
-              <div className="space-y-1">
-                <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
-                <NavButton
-                  active={activeSection === 'enforcement-rules'}
-                  onClick={() => scrollToSection('enforcement-rules')}
-                  icon={Shield}
-                  label="Rules"
-                />
-              </div>
-            ))}
-
           {/* Design */}
           {(keyDecisions.length > 0 || tradeOffs.length > 0) && (
             <div className="space-y-1">
@@ -651,16 +597,55 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </div>
           )}
 
-          {/* Get started */}
-          <div className="space-y-1">
-            <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Get Started</p>
-            <NavButton
-              active={activeSection === 'try-archie'}
-              onClick={() => scrollToSection('try-archie')}
-              icon={Rocket}
-              label="Try Archie"
-            />
-          </div>
+          {/* Rules — ONE unified entry in both modes. Backward-compat: when an
+              old (pre-3.0) share has no unified rules.json data, fall back to
+              scrolling to whichever legacy section (archrules / devrules /
+              infrarules) is rendering. The legacy body sections themselves
+              stay gated on !localCtx below. */}
+          {(() => {
+            const hasUnified = enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0;
+            const hasArch = filePlacement.length > 0 || naming.length > 0;
+            const hasDev = developmentRules.length > 0;
+            const hasInfra = infrastructureRules.length > 0;
+            if (!(hasUnified || hasArch || hasDev || hasInfra)) return null;
+            const rulesScrollTarget = hasUnified
+              ? 'enforcement-rules'
+              : hasArch
+                ? 'archrules'
+                : hasDev
+                  ? 'devrules'
+                  : 'infrarules';
+            const rulesActive =
+              activeSection === 'enforcement-rules' ||
+              activeSection === 'archrules' ||
+              activeSection === 'devrules' ||
+              activeSection === 'infrarules';
+            return (
+              <div className="space-y-1">
+                <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Rules</p>
+                <NavButton
+                  active={rulesActive}
+                  onClick={() => scrollToSection(rulesScrollTarget)}
+                  icon={Shield}
+                  label="Enforcement Rules"
+                />
+              </div>
+            );
+          })()}
+
+          {/* Get started — share mode only. Local mode hides the "Try Archie"
+              promo because the user is already running Archie. */}
+          {!localCtx && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Get Started</p>
+              <NavButton
+                active={activeSection === 'try-archie'}
+                onClick={() => scrollToSection('try-archie')}
+                icon={Rocket}
+                label="Try Archie"
+              />
+            </div>
+          )}
           </>
           )}
         </nav>
@@ -820,39 +805,6 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </section>
           )}
 
-          {/* 4. Architecture Rules — legacy blueprint section, share mode only.
-              Local mode migrates these into the unified rules.json pipeline
-              on viewer startup, so this section never renders there. */}
-          {!localCtx && (filePlacement.length > 0 || naming.length > 0) && (
-            <section id="archrules" className="scroll-mt-24">
-              <Sections.ArchRulesSection filePlacement={filePlacement} naming={naming} />
-            </section>
-          )}
-
-          {/* 4b. Rules — unified rules.json + proposed_rules.json + ignored_rules.json.
-              In local mode this is the SOLE rules surface — all rule kinds
-              (file_placement, naming_convention, coding_practice, decision,
-              pitfall) flow through this pipeline and are user-toggleable. */}
-          {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
-            <section id="enforcement-rules" className="scroll-mt-24">
-              <Sections.RulesSection adopted={enforcementRules} proposed={proposedEnforcementRules} ignored={ignoredRules} />
-            </section>
-          )}
-
-          {/* 5. Development Rules — legacy blueprint section, share mode only. */}
-          {!localCtx && developmentRules.length > 0 && (
-            <section id="devrules" className="scroll-mt-24">
-              <Sections.DevelopmentRulesSection rules={developmentRules} />
-            </section>
-          )}
-
-          {/* 5b. Infrastructure Rules — legacy blueprint section, share mode only. */}
-          {!localCtx && infrastructureRules.length > 0 && (
-            <section id="infrarules" className="scroll-mt-24">
-              <Sections.InfrastructureRulesSection rules={infrastructureRules} />
-            </section>
-          )}
-
           {/* 6. Key Decisions */}
           {keyDecisions.length > 0 && (
             <section id="decisions" className="scroll-mt-24">
@@ -939,7 +891,40 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </section>
           )}
 
-          {/* Conversion Footer */}
+          {/* Rules — moved to render directly after Pitfalls so the body order
+              mirrors the sidebar (Risks → Rules). Order within the block stays
+              archrules → enforcement-rules → devrules → infrarules. The three
+              legacy sections remain gated on !localCtx so pre-3.0 shared
+              blueprints still render their data; the unified RulesSection is
+              the canonical surface for modern blueprints in both modes. */}
+          {!localCtx && (filePlacement.length > 0 || naming.length > 0) && (
+            <section id="archrules" className="scroll-mt-24">
+              <Sections.ArchRulesSection filePlacement={filePlacement} naming={naming} />
+            </section>
+          )}
+
+          {(enforcementRules.length > 0 || proposedEnforcementRules.length > 0 || ignoredRules.length > 0) && (
+            <section id="enforcement-rules" className="scroll-mt-24">
+              <Sections.RulesSection adopted={enforcementRules} proposed={proposedEnforcementRules} ignored={ignoredRules} />
+            </section>
+          )}
+
+          {!localCtx && developmentRules.length > 0 && (
+            <section id="devrules" className="scroll-mt-24">
+              <Sections.DevelopmentRulesSection rules={developmentRules} />
+            </section>
+          )}
+
+          {!localCtx && infrastructureRules.length > 0 && (
+            <section id="infrarules" className="scroll-mt-24">
+              <Sections.InfrastructureRulesSection rules={infrastructureRules} />
+            </section>
+          )}
+
+          {/* Conversion Footer — share mode only. Hiding this in local mode
+              both matches the sidebar (which omits Get Started locally) and
+              avoids pitching Archie to someone already running Archie. */}
+          {!localCtx && (
           <footer id="try-archie" className="pt-20 pb-32 scroll-mt-24">
              <div className="relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-teal to-tangerine rounded-[40px] blur opacity-10 group-hover:opacity-20 transition-opacity duration-1000" />
@@ -1004,6 +989,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                 </div>
              </div>
           </footer>
+          )}
         </div>
         )}
       </main>

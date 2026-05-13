@@ -9,7 +9,15 @@ const SEVERITIES = [
 ]
 
 interface Props {
-  rule: { description?: string; why?: string; example?: string; severity_class?: string }
+  rule: {
+    description?: string
+    why?: string
+    forced_by?: string
+    enables?: string
+    alternative?: string
+    example?: string
+    severity_class?: string
+  }
   onSave: (patch: Record<string, string>) => Promise<void>
   onCancel: () => void
 }
@@ -21,6 +29,9 @@ const TEXTAREA =
 export default function RuleEditModal({ rule, onSave, onCancel }: Props) {
   const [description, setDescription] = useState(rule.description || '')
   const [why, setWhy] = useState(rule.why || '')
+  const [forcedBy, setForcedBy] = useState(rule.forced_by || '')
+  const [enables, setEnables] = useState(rule.enables || '')
+  const [alternative, setAlternative] = useState(rule.alternative || '')
   const [example, setExample] = useState(rule.example || '')
   const [severity, setSeverity] = useState(rule.severity_class || 'pattern_divergence')
 
@@ -54,6 +65,33 @@ export default function RuleEditModal({ rule, onSave, onCancel }: Props) {
           rows={4}
         />
 
+        <label className={FIELD_LABEL}>Forced by</label>
+        <textarea
+          value={forcedBy}
+          onChange={(e) => setForcedBy(e.target.value)}
+          className={TEXTAREA}
+          rows={2}
+          placeholder="The constraint that drove this decision (one sentence)"
+        />
+
+        <label className={FIELD_LABEL}>Enables</label>
+        <textarea
+          value={enables}
+          onChange={(e) => setEnables(e.target.value)}
+          className={TEXTAREA}
+          rows={2}
+          placeholder="What capability this preserves (one sentence)"
+        />
+
+        <label className={FIELD_LABEL}>Do this instead</label>
+        <textarea
+          value={alternative}
+          onChange={(e) => setAlternative(e.target.value)}
+          className={TEXTAREA}
+          rows={2}
+          placeholder="The correct path the agent should take (one imperative sentence)"
+        />
+
         <label className={FIELD_LABEL}>Example</label>
         <textarea
           value={example}
@@ -84,7 +122,15 @@ export default function RuleEditModal({ rule, onSave, onCancel }: Props) {
           </button>
           <button
             onClick={() =>
-              onSave({ description, why, example, severity_class: severity })
+              onSave({
+                description,
+                why,
+                forced_by: forcedBy,
+                enables,
+                alternative,
+                example,
+                severity_class: severity,
+              })
             }
             className="px-5 py-2 text-sm font-bold bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors shadow-sm shadow-teal-500/30"
           >
