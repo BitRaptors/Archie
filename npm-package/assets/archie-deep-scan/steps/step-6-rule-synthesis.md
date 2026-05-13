@@ -21,9 +21,11 @@ The blueprint contains architectural facts. This step synthesizes them into **ar
 
 Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 
-> Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, and development rules.
+> Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, development_rules, infrastructure_rules, and architecture_rules (file_placement_rules + naming_conventions).
 >
-> Produce 20-40 architectural rules. Each rule captures an architectural insight that a coding agent must respect when planning or making changes.
+> **You are the SOLE producer of `proposed_rules.json`.** Every rule shape the user can adopt/reject/edit through the viewer's Rules section originates from this synthesis. The other deep-scan agents (structure, technology, patterns, reasoning) write architectural FACTS into the blueprint — your job is to turn those facts into agent-facing enforcement rules in the unified schema.
+>
+> Produce 30-60 architectural rules. Each rule captures an enforcement intent a coding agent must respect when planning or making changes. Coverage MUST span every blueprint section that carries enforcement signal — not just decisions and pitfalls. See "Coverage" below.
 >
 > **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `why` and `example` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*. The hook also surfaces these inline at edit time when the rule applies, so the agent sees the canonical reasoning + example without any extra lookup.
 >
@@ -37,14 +39,51 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "dep-001",
+>   "kind": "decision",
 >   "topic": "layering",
 >   "severity_class": "decision_violation",
->   "description": "What is forbidden/required (one sentence)",
+>   "description": "What is forbidden/required (one imperative sentence — see Description shape below)",
 >   "why": "Inlined reasoning copied from the blueprint section that motivates this rule (decision text, pitfall description, tradeoff signal, or pattern rationale). 2-4 sentences. The agent sees this verbatim.",
 >   "example": "Inlined canonical code from implementation_guidelines.usage_example when applicable. Empty string if no code example fits.",
 >   "source": "deep_scan"
 > }
 > ```
+>
+> **Recommended fields** (every rule that has a motivating decision or pitfall — these add the depth that makes a rule useful at edit-time, beyond the one-line directive):
+> ```json
+> {
+>   "forced_by": "The constraint that drove this decision — one sentence. Copy from decisions.key_decisions[*].forced_by, or paraphrase the root constraint from the decision_chain when the rule is pitfall-driven. Empty string if not applicable (mechanical rules, naming conventions).",
+>   "enables": "What capability this preserves — one sentence. Copy from decisions.key_decisions[*].enables. Empty string if not applicable.",
+>   "alternative": "What to do instead — one imperative sentence pointing the agent at the project's correct path (e.g. 'Add a new Koin module under page_<feature>/ModulesX.kt and load it in BabyWeatherApplication.startKoin'). Empty string when the rule is purely 'do not X' with no alternative path."
+> }
+> ```
+>
+> The pre-validate hook surfaces all of these to the agent at edit time, in this order: `description`, `why`, `forced_by`, `enables`, `alternative`, `example`. Together they answer: *what to do*, *why this exists*, *what constraint forced it*, *what we'd lose without it*, *what to do instead*, *what the right shape looks like*. Skip a field by emitting `""` — the hook elides empty strings.
+>
+> ## Description shape (the title the user sees)
+>
+> The `description` is the rule's *title*. It must be one short imperative sentence. **Do not** cram version pins, configuration flags, or project-name references into it — those belong in `why`. The agent gets `description` first; rationale and version detail live two lines below.
+>
+> Bad (rationale crammed into title):
+> > *"Do not introduce Hilt, Dagger, or any DI framework other than Koin — Koin 3.1.3 with allowOverride(true) is the sole DI container."*
+>
+> Good (directive only; version + configuration moved to `why`):
+> > *"Dependency injection must go through Koin — do not introduce Hilt, Dagger, or other DI frameworks."*
+> > `why`: "Koin 3.1.3 is configured project-wide via `startKoin { allowOverride(true); modules(...) }` in `BabyWeatherApplication`, deliberately enabling test-time module overrides..."
+> > `forced_by`: "Test-time module override capability required by the test harness."
+> > `enables`: "Per-test Koin module substitution without instrumentation; fast unit tests for ViewModels and Repositories."
+> > `alternative`: "Add new bindings as a Koin `module { single { ... } }` block under the relevant `page_<feature>/ModulesX.kt` and load it in `BabyWeatherApplication.startKoin`."
+>
+> **The `kind` field** — names the conceptual *type* of rule, independent of which blueprint section motivated it. The viewer groups rules in the UI by kind so a user curating proposed rules can scan all file-placement rules together, all naming conventions together, etc. Pick exactly one:
+>
+> - `decision` — clarifies a `decisions.key_decisions[*]` invariant. Pair with `severity_class: "decision_violation"`.
+> - `pitfall` — guards against a `pitfalls[*]` causal chain. Pair with `severity_class: "pitfall_triggered"`.
+> - `semantic_pattern` — captures a `components.patterns` or `implementation_guidelines` shape. Pair with `severity_class: "pattern_divergence"` (or `tradeoff_undermined` when it formalizes a `trade_offs[*].violation_signals`).
+> - `file_placement` — derived from `blueprint.architecture_rules.file_placement_rules` (or directly observed): which kind of file belongs under which directory. Pair with `severity_class: "pattern_divergence"` by default; bump to `mechanical_violation` when a regex is reliable.
+> - `naming_convention` — derived from `blueprint.architecture_rules.naming_conventions`: which file/identifier names must follow which pattern. Pair with `severity_class: "mechanical_violation"` when expressible as a file-basename regex.
+> - `coding_practice` — derived from `blueprint.development_rules` (or `infrastructure_rules` when build/CI-flavored): general guidance the agent should remember at edit time. Pair with `severity_class: "pattern_divergence"` (informational).
+>
+> `kind` and `severity_class` are not redundant: `kind` is *what the rule is about* (UI grouping), `severity_class` is *how the hook responds* (enforcement behavior).
 >
 > **The `topic` field** — a short kebab-case slug naming the conceptual area the rule governs. The renderer groups rules by topic into per-file markdown topic pages under `.claude/rules/enforcement/by-topic/<topic>.md`, so an agent can load only the topic relevant to the current task instead of the full enforcement set.
 >
@@ -103,10 +142,14 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "arch-001",
+>   "kind": "decision",
 >   "topic": "layering",
 >   "severity_class": "decision_violation",
 >   "description": "Business logic must not depend on UI framework classes",
 >   "why": "The decision chain roots in testability. Business logic that references framework classes can't be unit-tested without instrumentation, which breaks the fast-feedback loop and makes refactoring risky.",
+>   "forced_by": "Pure-Kotlin unit-test policy — every ViewModel covered by a JVM test, no Robolectric, no instrumentation.",
+>   "enables": "Sub-second feedback loop on `./gradlew :app:testDebugUnitTest`; refactors stay safe because business rules have characterization tests.",
+>   "alternative": "Inject a thin port (e.g. `interface Clock { fun now(): Instant }`) and bind the framework-aware implementation in the Koin module.",
 >   "example": "class CartViewModel(private val cart: CartRepository) { fun checkout(): Result<Order> = cart.placeOrder() }",
 >   "source": "deep_scan",
 >   "keywords": ["viewmodel", "domain", "business logic", "context"]
@@ -117,10 +160,14 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "ctx-001",
+>   "kind": "pitfall",
 >   "topic": "concurrency",
 >   "severity_class": "pitfall_triggered",
 >   "description": "Never use context.TODO() or context.Background() inside request handlers",
 >   "why": "Pitfall #7: handlers that swallow the request context lose cancellation, deadlines, and tracing. Downstream calls become orphans on client disconnect, leaving partial state in DB. Always thread through the handler's incoming ctx.",
+>   "forced_by": "Caller-driven cancellation contract — every handler must propagate the request's deadline so downstream RPCs and DB calls cancel together.",
+>   "enables": "Bounded resource usage on client disconnect; correct OpenTelemetry trace stitching across services.",
+>   "alternative": "Accept `ctx context.Context` as the first parameter and pass it down unchanged; if the call must outlive the request, branch via `context.WithoutCancel(ctx)` and document why.",
 >   "example": "func (h *handler) Charge(ctx context.Context, in ChargeIn) error { return h.svc.Process(ctx, in) }",
 >   "source": "deep_scan",
 >   "keywords": ["context", "handler", "request"]
@@ -131,6 +178,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "cache-001",
+>   "kind": "semantic_pattern",
 >   "topic": "data-access",
 >   "severity_class": "tradeoff_undermined",
 >   "description": "Avoid sync I/O inside the cache hot path",
@@ -145,6 +193,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > ```json
 > {
 >   "id": "dep-001",
+>   "kind": "decision",
 >   "topic": "layering",
 >   "severity_class": "mechanical_violation",
 >   "description": "Domain layer must not import from presentation layer",
@@ -155,6 +204,56 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >   "check": "forbidden_import",
 >   "applies_to": "domain/",
 >   "forbidden_patterns": ["from presentation", "import.*\\.ui\\."]
+> }
+> ```
+>
+> File-placement rule (derived from `architecture_rules.file_placement_rules`):
+> ```json
+> {
+>   "id": "place-001",
+>   "kind": "file_placement",
+>   "topic": "layering",
+>   "severity_class": "pattern_divergence",
+>   "description": "Fragments must live under `app/src/main/java/.../page_<feature_name>/fragment/`",
+>   "why": "The page_<feature> package is the unit of feature ownership. Co-locating fragment, viewmodel, and cells under one package keeps the feature swappable. Fragments elsewhere lose this locality and the DI graph can't see them.",
+>   "example": "// LoginFragment.kt lives at app/src/main/java/com/foo/bar/page_login/fragment/LoginFragment.kt",
+>   "source": "deep_scan",
+>   "keywords": ["fragment", "page", "feature placement"],
+>   "applies_to": "app/src/main/java/com/foo/bar/page_",
+>   "file_pattern": "*Fragment.kt"
+> }
+> ```
+>
+> Naming-convention rule (derived from `architecture_rules.naming_conventions`):
+> ```json
+> {
+>   "id": "name-001",
+>   "kind": "naming_convention",
+>   "topic": "layering",
+>   "severity_class": "mechanical_violation",
+>   "description": "Feature ViewModels are named `<Feature>ViewModel.kt`",
+>   "why": "ViewModels carry feature scope. The `<Feature>ViewModel` name lets the Koin module + the DI graph + grep all find the same class — drop the convention and feature swaps break.",
+>   "example": "",
+>   "source": "deep_scan",
+>   "keywords": ["viewmodel", "naming"],
+>   "check": "file_naming",
+>   "applies_to": "app/src/main/java/com/foo/bar/page_*",
+>   "file_pattern": ".*ViewModel\\.kt$"
+> }
+> ```
+>
+> Coding-practice rule (derived from `development_rules` or `infrastructure_rules` — informational, not blocking):
+> ```json
+> {
+>   "id": "practice-001",
+>   "kind": "coding_practice",
+>   "topic": "data-access",
+>   "severity_class": "pattern_divergence",
+>   "description": "Every Repository exposes only `Flow<T>` — no suspend functions or callbacks on the public surface",
+>   "why": "Repositories are the boundary into the data layer. Flows give consumers cancellation + back-pressure for free; suspend functions force every caller to invent its own coroutine scope. The decision was made when adopting Koin singletons.",
+>   "example": "interface SettingsRepository { val settings: Flow<Settings> ; fun update(s: Settings) }",
+>   "source": "deep_scan",
+>   "keywords": ["repository", "flow", "suspend"]
 > }
 > ```
 >
@@ -184,16 +283,36 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 >
 > ## What to produce:
 >
+> **Coverage — sweep every blueprint section that carries enforcement signal.** You are the only producer of `proposed_rules.json`. If a section names a constraint or convention but you don't emit a rule for it, the user has no way to curate it through the viewer. Walk these in order:
+>
+> | Blueprint section | Emit `kind` | Typical `severity_class` |
+> |---|---|---|
+> | `decisions.key_decisions[*]` | `decision` | `decision_violation` |
+> | `pitfalls[*]` | `pitfall` | `pitfall_triggered` |
+> | `decisions.trade_offs[*].violation_signals[*]` | `semantic_pattern` | `tradeoff_undermined` |
+> | `components.patterns[*]` / `implementation_guidelines[*]` | `semantic_pattern` | `pattern_divergence` |
+> | `architecture_rules.file_placement_rules[*]` | `file_placement` | `pattern_divergence` (or `mechanical_violation` if a regex captures it cleanly) |
+> | `architecture_rules.naming_conventions[*]` | `naming_convention` | `mechanical_violation` (file-basename regex) or `pattern_divergence` |
+> | `development_rules[*]` | `coding_practice` | `pattern_divergence` |
+> | `infrastructure_rules[*]` | `coding_practice` | `pattern_divergence` |
+>
+> Do NOT skip a section because "those aren't 'real' rules" — if it's in the blueprint, the agent should know about it, and the only way the agent learns about it is for you to emit it into proposed_rules.json so the user adopts it. Aim for ≥1 emitted rule per non-empty section.
+>
 > **Deep architectural rules** — invariants an AI coding agent might accidentally violate. These are the most valuable. Derive them from decision chains, trade-offs, pitfalls, and pattern descriptions. Examples: "ViewModel must never reference View/Context", "Repository must use IO dispatcher", "Fragments must use DI delegation not direct construction".
 >
 > **Structural rules** — dependency direction between layers/components, forbidden technologies (from decisions/trade-offs).
 >
+> **File-placement and naming-convention rules** — derived directly from the corresponding `architecture_rules` sections. These are user-curated through the same Adopt / Reject / Disable / Enable lifecycle as every other rule; do not write them back into `blueprint.architecture_rules` — emit them HERE.
+>
 > ## Critical:
 > - Every rule must be specific to THIS project — never generic programming advice
 > - Focus on what an AI coding agent would get wrong without knowing this codebase
+> - **`kind` is required.** Pick one of: `decision`, `pitfall`, `semantic_pattern`, `file_placement`, `naming_convention`, `coding_practice`. The viewer groups rules by this for user curation.
 > - **`severity_class` is required.** Pick the one that matches which blueprint section motivated the rule.
 > - **`topic` is required.** Pick from the recommended list (or a project-specific topic when justified) — the renderer groups rules into per-topic files using this slug.
-> - **`why` is required and must be inlined from the blueprint** — copy the language verbatim or near-verbatim, do not paraphrase. This is what the agent reads at edit-time.
+> - **`description` is the title** — one imperative sentence, no version pins, no config flags, no project-name references. See "Description shape" above for the canonical bad-vs-good comparison.
+> - **`why` is required and must be inlined from the blueprint** — copy the language verbatim or near-verbatim, do not paraphrase. This is what the agent reads at edit-time. Version pins (`Koin 3.1.3`), configuration flags (`allowOverride(true)`), and project-name references belong here, NOT in `description`.
+> - **`forced_by`, `enables`, `alternative` are recommended for every `decision` and `pitfall` rule.** Copy `forced_by` and `enables` from the source `decisions.key_decisions[*]` entry. Write `alternative` as one imperative sentence pointing at the project's correct path. Use `""` when not applicable; never omit the key.
 > - **`example` is required as a key** but may be an empty string when the rule is purely about what NOT to do and no positive code shape applies.
 > - **`source: "deep_scan"`** on every rule. The post-process stamps it defensively but prefer to emit it.
 > - **Add `triggers` whenever the rule has a structural signature** (file path + content pattern). Trigger regexes are more robust than the older `forbidden_patterns` because path_glob + content combine cleanly. Rules with no structural signature (purely semantic) stay trigger-less and fire only at plan/commit time via Phase 3.

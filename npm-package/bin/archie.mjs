@@ -4,7 +4,8 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, unlinkSy
 import { join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
+import { createInterface } from "readline";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,16 +17,112 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
 
+const MIN_NODE_MAJOR = 18;
+const nodeMajor = parseInt(process.versions.node.split(".")[0], 10);
+if (nodeMajor < MIN_NODE_MAJOR) {
+  console.error(`Archie requires Node ${MIN_NODE_MAJOR}+. You're on ${process.versions.node}.`);
+  process.exit(1);
+}
+
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
+    return pkg.version || "0.0.0";
+  } catch { return "0.0.0"; }
+}
+
+function streamPrefix(prefix, stream) {
+  let buffer = "";
+  return (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (line.length) stream.write(`${prefix} ${line}\n`);
+    }
+  };
+}
+
+function runWithPrefix(prefix, cmd, args, opts) {
+  const result = spawnSync(cmd, args, { ...opts, stdio: "pipe", encoding: "buffer" });
+  const onOut = streamPrefix(prefix, process.stdout);
+  const onErr = streamPrefix(prefix, process.stderr);
+  if (result.stdout) onOut(result.stdout);
+  if (result.stderr) onErr(result.stderr);
+  return result.status === 0;
+}
+
+function buildLocalViewer(viewerDir, packageVersion) {
+  const marker = join(viewerDir, "dist", ".archie-version");
+  if (existsSync(marker)) {
+    const cached = readFileSync(marker, "utf8").trim();
+    if (cached === packageVersion) {
+      console.log(`  ${GREEN}✓${RESET} Local viewer up to date (v${packageVersion}) — skipping build`);
+      return true;
+    }
+  }
+
+  console.log("");
+  console.log(`${BOLD}  Local viewer setup${RESET} ${DIM}(one-time, ~45s)${RESET}`);
+  console.log(`  ${DIM}Installs React deps and builds the UI. Cached by version.${RESET}`);
+  console.log("");
+
+  const startedAt = Date.now();
+
+  console.log(`  ${CYAN}→${RESET} Installing dependencies (npm ci)`);
+  if (!runWithPrefix(`${DIM}[npm]${RESET}`, "npm", ["ci", "--silent"], { cwd: viewerDir })) {
+    console.error("");
+    console.error(`  ${BOLD}npm ci failed.${RESET} Common causes:`);
+    console.error("    - No internet / corporate proxy blocking npm registry");
+    console.error("    - Old node (<18). Run `node --version`.");
+    console.error("    - npm misconfigured. Run `npm ping`.");
+    return false;
+  }
+
+  console.log(`  ${CYAN}→${RESET} Building viewer bundle (vite build)`);
+  if (!runWithPrefix(`${DIM}[vite]${RESET}`, "npm", ["run", "build", "--silent"], { cwd: viewerDir })) {
+    console.error("");
+    console.error(`  ${BOLD}vite build failed.${RESET} See output above.`);
+    return false;
+  }
+
+  console.log(`  ${CYAN}→${RESET} Cleaning up build dependencies`);
+  rmSync(join(viewerDir, "node_modules"), { recursive: true, force: true });
+
+  console.log(`  ${CYAN}→${RESET} Writing version marker`);
+  writeFileSync(marker, packageVersion);
+
+  const elapsed = ((Date.now() - startedAt) / 1000).toFixed(0);
+  console.log("");
+  console.log(`  ${GREEN}✓${RESET} Local viewer built in ${elapsed}s`);
+  return true;
+}
+
 const args = process.argv.slice(2);
 let projectRootArg = ".";
 let commandsDirArg = null;
+let projectRootExplicit = false;
+
+const USAGE = `Usage: npx @bitraptors/archie [path] [--commands-dir dir]
+
+Installs Archie tooling into the project at <path> (default: current directory).
+  path             Project directory to install into. Defaults to the cwd.
+  --commands-dir   Override .claude/commands location (advanced).
+  -h, --help       Show this help.`;
 
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--commands-dir" && i + 1 < args.length) {
+  if (args[i] === "-h" || args[i] === "--help") {
+    console.log(USAGE);
+    process.exit(0);
+  } else if (args[i] === "--commands-dir" && i + 1 < args.length) {
     commandsDirArg = args[i + 1];
     i++;
-  } else if (!args[i].startsWith("--")) {
+  } else if (args[i].startsWith("--")) {
+    console.error(`Unknown flag: ${args[i]}\n\n${USAGE}`);
+    process.exit(2);
+  } else {
     projectRootArg = args[i];
+    projectRootExplicit = true;
   }
 }
 
@@ -156,7 +253,7 @@ for (const p of sharedSubtree) {
 }
 
 // 3. Copy standalone Python scripts
-for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "verify_findings.py", "apply_verdicts.py"]) {
+for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py", "config.py", "telemetry_sync.py", "update_check.py", "analytics.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -173,6 +270,43 @@ for (const dataFile of ["platform_rules.json"]) {
   if (existsSync(src)) {
     writeFileSync(dest, readFileSync(src, "utf8"));
     console.log(`  ${GREEN}✓${RESET} .archie/${dataFile}`);
+  }
+}
+
+// 3e. Copy share/viewer/ source into target's .archie/viewer/ for install-time build.
+function cpDirSync(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const s = join(src, entry.name);
+    const d = join(dest, entry.name);
+    if (entry.isDirectory()) {
+      cpDirSync(s, d);
+    } else {
+      writeFileSync(d, readFileSync(s));
+    }
+  }
+}
+
+const viewerSrc = join(ASSETS, "viewer");
+const viewerDest = join(archieDir, "viewer");
+if (existsSync(viewerSrc)) {
+  // Refresh source files but preserve dist/ (build cache, guarded by .archie-version marker).
+  if (existsSync(viewerDest)) {
+    for (const entry of readdirSync(viewerDest, { withFileTypes: true })) {
+      if (entry.name === "dist") continue;
+      rmSync(join(viewerDest, entry.name), { recursive: true, force: true });
+    }
+  }
+  cpDirSync(viewerSrc, viewerDest);
+  console.log(`  ${GREEN}✓${RESET} .archie/viewer/ (React source)`);
+
+  const ok = buildLocalViewer(viewerDest, readPackageVersion());
+  if (!ok) {
+    console.error("");
+    console.error("  ⚠ Local viewer build failed. /archie-viewer will not work.");
+    console.error("  ⚠ Other Archie features still work. Re-run `npx @bitraptors/archie`");
+    console.error("    after fixing the npm/node issue above.");
+    // Don't process.exit(1) — preserve the rest of the install (scripts, hooks)
   }
 }
 
@@ -231,6 +365,93 @@ if (hasPython) {
   console.log("");
   console.log(`  ⚠ python3 not found — hooks not installed, scanner needs Python 3.9+`);
 }
+
+// 5. First-run telemetry consent (machine-level, asked once across all installs).
+//    Skipped when stdin isn't a TTY (CI, pipes) — defaults to "off" until the
+//    user opts in interactively or via `python3 .archie/config.py set telemetry`.
+async function maybePromptTelemetry() {
+  if (!hasPython) return;
+  const configScript = join(archieDir, "config.py");
+  if (!existsSync(configScript)) return;
+
+  const check = spawnSync("python3", [configScript, "should-prompt"], { stdio: "ignore" });
+  if (check.status !== 0) return; // already prompted (or error → skip silently)
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    // Non-interactive: leave telemetry off but mark prompted=false so an
+    // interactive re-install (or `archie config set telemetry ...`) still asks.
+    return;
+  }
+
+  console.log("");
+  console.log(`${BOLD}  Help Archie improve${RESET} ${DIM}(anonymous, opt-in)${RESET}`);
+  console.log(`  ${DIM}We'd like to collect: command name, Archie version, OS/arch,${RESET}`);
+  console.log(`  ${DIM}step durations, outcome, detected stack (e.g. kotlin/gradle/android).${RESET}`);
+  console.log(`  ${DIM}Never: source code, file paths, repo names, blueprint contents.${RESET}`);
+  console.log(`  ${DIM}Change anytime: python3 .archie/config.py set telemetry off${RESET}`);
+  console.log("");
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
+
+  let tier = null;
+  try {
+    const first = (await ask(`  ${CYAN}?${RESET} Help Archie get better? ${DIM}[Y/n]${RESET} `)).trim().toLowerCase();
+    if (first === "" || first === "y" || first === "yes") {
+      tier = "community";
+    } else {
+      const second = (await ask(`  ${CYAN}?${RESET} Send anonymous metrics only ${DIM}(strips installation id)${RESET}? ${DIM}[y/N]${RESET} `)).trim().toLowerCase();
+      tier = (second === "y" || second === "yes") ? "anonymous" : "off";
+    }
+  } finally {
+    rl.close();
+  }
+
+  const apply = spawnSync("python3", [configScript, "apply-prompt-result", tier], { stdio: "ignore" });
+  if (apply.status === 0) {
+    if (tier === "off") {
+      console.log(`  ${GREEN}✓${RESET} telemetry off ${DIM}(re-enable: python3 .archie/config.py set telemetry community)${RESET}`);
+    } else {
+      console.log(`  ${GREEN}✓${RESET} telemetry: ${tier} ${DIM}(stored at ~/.archie/config.json)${RESET}`);
+      // Fire a single anonymous "install" event so we can count adoption.
+      const syncScript = join(archieDir, "telemetry_sync.py");
+      if (existsSync(syncScript)) {
+        spawnSync("python3", [syncScript, "record-install", "--version", readPackageVersion()], { stdio: "ignore" });
+      }
+    }
+  }
+}
+
+// Write a machine-level version marker so telemetry_sync can label events
+// without re-reading the npm package.json. Also records "JUST_UPGRADED" via
+// update_check.py so the next slash-command preamble can show a one-off ack.
+function writeArchieVersionMarker() {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (!home) return;
+  const archieConfigDir = join(home, ".archie");
+  const versionFile = join(archieConfigDir, "version");
+  const newVersion = readPackageVersion();
+
+  let oldVersion = "";
+  try {
+    if (existsSync(versionFile)) oldVersion = readFileSync(versionFile, "utf8").trim();
+  } catch { /* noop */ }
+
+  try {
+    mkdirSync(archieConfigDir, { recursive: true });
+    writeFileSync(versionFile, newVersion);
+  } catch { return; }
+
+  if (hasPython && oldVersion && oldVersion !== newVersion) {
+    const updateScript = join(archieDir, "update_check.py");
+    if (existsSync(updateScript)) {
+      spawnSync("python3", [updateScript, "mark-upgraded", newVersion], { stdio: "ignore" });
+    }
+  }
+}
+
+writeArchieVersionMarker();
+await maybePromptTelemetry();
 
 // Done
 console.log("");

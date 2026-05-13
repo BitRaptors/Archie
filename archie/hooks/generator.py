@@ -307,11 +307,31 @@ if to_inject:
         rid = r.get("id", "unknown")
         sev = r.get("severity", "warn")
         desc = r.get("description", "")
-        rationale = r.get("rationale", "")
+        # Prefer the richer `why` field; fall back to legacy `rationale`.
+        why = r.get("why") or r.get("rationale", "")
+        forced_by = r.get("forced_by", "")
+        enables = r.get("enables", "")
+        alternative = r.get("alternative", "")
+        example = r.get("example", "")
         tag = " (global)" if how == "always" else ""
         print(f"  [{sev}] {rid}{tag}: {desc}")
-        if rationale:
-            print(f"    \u21b3 {rationale}")
+        if why:
+            print(f"    WHY: {why}")
+        if forced_by:
+            print(f"    FORCED BY: {forced_by}")
+        if enables:
+            print(f"    ENABLES: {enables}")
+        if alternative:
+            print(f"    DO INSTEAD: {alternative}")
+        if example:
+            # Indent the canonical example so it's visually distinct from the
+            # surrounding prose.
+            example_lines = example.splitlines() or [example]
+            print("    EXAMPLE:")
+            for line in example_lines[:8]:
+                print(f"      {line}")
+            if len(example_lines) > 8:
+                print(f"      ... ({len(example_lines) - 8} more lines)")
 
 if newly_injected and turn_file:
     try:

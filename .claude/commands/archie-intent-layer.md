@@ -367,3 +367,9 @@ python3 .archie/intent_layer.py inspect "$PWD" enrich_state.json --query .done
 ```
 
 M (CLAUDE.md files written) is reported by `merge` on stderr in Phase 3 — capture it from that output rather than re-computing.
+
+## Telemetry (run after the run completes, silent if opted out)
+
+```bash
+python3 .archie/telemetry_sync.py record-event --command intent-layer --outcome success --project-root "$PWD" 2>/dev/null || true
+```

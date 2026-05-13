@@ -494,6 +494,36 @@ The scan templates use only pre-installed CLI commands — no inline Python is w
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentation.
 
+## Telemetry & update checks (anonymous, opt-in)
+
+The first time you run `npx @bitraptors/archie`, the installer asks whether you'd like to share usage telemetry. There are three tiers:
+
+- **community** *(recommended)* — events include a stable random installation ID written once to `~/.archie/config.json`. Lets us see which features get used together.
+- **anonymous** — same payload but the installation ID is stripped before upload. Each event is unlinkable.
+- **off** — nothing leaves your machine.
+
+**What's collected** (when telemetry is on): command name (`scan` / `deep-scan` / `viewer` / `share` / `intent-layer` / `install`), Archie version, OS / arch (`darwin` / `arm64`, etc.), per-step durations, outcome, and detected stack categories (e.g. `kotlin` / `gradle` / `android`).
+
+**What is never collected**: source code, file paths, repo names, blueprint contents, error messages from your code. Local-only fields (e.g. `_project_basename`) are stripped before upload — they appear only in the local dashboard.
+
+**Local data**: every event is appended to `~/.archie/analytics/runs.jsonl`. You own it, you can read it.
+
+```bash
+# See your local activity (7d / 30d / all)
+python3 .archie/analytics.py 7d
+
+# Inspect / change consent at any time
+python3 .archie/config.py list
+python3 .archie/config.py set telemetry off       # opt out
+python3 .archie/config.py set telemetry anonymous # downgrade
+python3 .archie/telemetry_sync.py status          # see pending uploads
+python3 .archie/telemetry_sync.py purge           # delete local jsonl
+```
+
+**Update checks** are also opt-in via `~/.archie/config.json` (default on). Each slash command runs a fast cached check against the public npm registry — never your code. If a new version is out, the slash command surfaces a one-line hint suggesting `npx @bitraptors/archie@latest`. Snooze with `python3 .archie/update_check.py snooze` (24h → 48h → 7d ladder), or disable entirely with `python3 .archie/update_check.py disable`. The check itself uses `registry.npmjs.org` — no Archie infrastructure is involved.
+
+The ingest endpoint is a Supabase edge function that uses an anon key + RLS-restricted insert-only policy (never the service role). Source: `share/supabase/functions/telemetry-ingest/`.
+
 ## Repository Layout
 
 ```

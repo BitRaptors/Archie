@@ -42,6 +42,65 @@ def get_archie_mjs_lists() -> tuple[set[str], set[str]]:
     return scripts, commands
 
 
+def check_viewer_source_mirror(errors: list[str]) -> None:
+    """Verify share/viewer/ build inputs are mirrored into npm-package/assets/viewer/.
+
+    The mirror is what npx @bitraptors/archie copies into a target's .archie/viewer/
+    so it can build at install time. Drift here means npx users get a stale React app.
+    """
+    src = ROOT / "share" / "viewer"
+    dst = ROOT / "npm-package" / "assets" / "viewer"
+    if not src.is_dir():
+        return
+    if not dst.is_dir():
+        errors.append("npm-package/assets/viewer/ missing — run scripts/sync_viewer_assets.sh")
+        return
+
+    expected_files = [
+        "package.json", "package-lock.json", "vite.config.ts",
+        "tsconfig.json", "tailwind.config.js", "postcss.config.js", "index.html",
+    ]
+    for name in expected_files:
+        s = src / name
+        d = dst / name
+        if s.exists() and not d.exists():
+            errors.append(f"npm-package/assets/viewer/{name} missing (exists in share/viewer/)")
+        elif s.exists() and d.exists() and s.read_bytes() != d.read_bytes():
+            errors.append(
+                f"share/viewer/{name} != npm-package/assets/viewer/{name} "
+                "— run scripts/sync_viewer_assets.sh"
+            )
+
+    for subdir in ("src", "public"):
+        s_dir = src / subdir
+        d_dir = dst / subdir
+        if not s_dir.is_dir():
+            continue
+        s_files = sorted(p.relative_to(src).as_posix() for p in s_dir.rglob("*") if p.is_file())
+        d_files = (
+            sorted(p.relative_to(dst).as_posix() for p in d_dir.rglob("*") if p.is_file())
+            if d_dir.is_dir() else []
+        )
+        only_src = set(s_files) - set(d_files)
+        only_dst = set(d_files) - set(s_files)
+        if only_src:
+            errors.append(
+                f"share/viewer/{subdir}/ has files missing from asset mirror: "
+                f"{','.join(sorted(only_src))}"
+            )
+        if only_dst:
+            errors.append(
+                f"asset mirror npm-package/assets/viewer/{subdir}/ has stale files: "
+                f"{','.join(sorted(only_dst))}"
+            )
+        for rel in sorted(set(s_files) & set(d_files)):
+            if (src / rel).read_bytes() != (dst / rel).read_bytes():
+                errors.append(
+                    f"share/viewer/{rel} != npm-package/assets/viewer/{rel} "
+                    "— run scripts/sync_viewer_assets.sh"
+                )
+
+
 def main():
     errors = []
 
@@ -121,6 +180,9 @@ def main():
         asset = (ASSETS / name).read_text()
         if canonical != asset:
             errors.append(f"OUT OF SYNC: {name} differs between .claude/commands/ and npm-package/assets/")
+
+    # 8. Check: share/viewer/ build inputs are mirrored into npm-package/assets/viewer/
+    check_viewer_source_mirror(errors)
 
     # Report
     if errors:
