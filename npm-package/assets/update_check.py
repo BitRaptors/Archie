@@ -180,8 +180,14 @@ def _maybe_print_just_upgraded(installed: str) -> str | None:
         pass
     if not old or not new:
         return None
-    # Only emit while installed actually matches the upgrade target.
+    # Only emit while installed actually matches the upgrade target. If a
+    # different version got installed in the meantime, the marker is stale —
+    # drop it so we don't ever emit an obsolete acknowledgement.
     if installed and installed != new:
+        try:
+            p.unlink()
+        except OSError:
+            pass
         return None
     try:
         p.unlink()

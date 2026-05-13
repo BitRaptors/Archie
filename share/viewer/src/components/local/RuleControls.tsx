@@ -39,7 +39,9 @@ export default function RuleControls({ rule, state, onAction, onEdit }: Props) {
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    // Stop click propagation so action buttons don't also toggle the parent
+    // rule card open/closed (the card header has its own onClick).
+    <div className="flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
       {state === 'proposed' && (
         <>
           <button
