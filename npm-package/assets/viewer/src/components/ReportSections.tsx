@@ -1373,12 +1373,15 @@ function severityFromClass(sc: string | undefined): 'error' | 'warn' | 'info' | 
 
 function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule: any; dim?: boolean; ruleState?: 'active' | 'proposed' | 'ignored' }) {
   const [isOpen, setIsOpen] = useState(false)
-  
+
   const sevClass: string = rule?.severity_class || ''
   const sev: string = rule?.severity || severityFromClass(sevClass) || 'warn'
   const id: string = rule?.id || '?'
   const desc: string = rule?.description || ''
   const why: string = rule?.why || rule?.rationale || ''
+  const forcedBy: string = rule?.forced_by || ''
+  const enables: string = rule?.enables || ''
+  const alternative: string = rule?.alternative || ''
   const example: string = rule?.example || ''
   const source: string = rule?.source || ''
   const scope: string = rule?.applies_to || rule?.file_pattern || ''
@@ -1457,7 +1460,33 @@ function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule
                 <Prose value={why} className="text-sm text-ink/70 leading-relaxed relative" />
               </div>
             )}
-            
+
+            {(forcedBy || enables || alternative) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {forcedBy && (
+                  <div className="bg-white/40 border border-papaya-400/30 p-4 rounded-2xl">
+                    <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] block mb-2">Forced by</span>
+                    <Prose value={forcedBy} className="text-sm text-ink/70 leading-relaxed" />
+                  </div>
+                )}
+                {enables && (
+                  <div className="bg-white/40 border border-papaya-400/30 p-4 rounded-2xl">
+                    <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] block mb-2">Enables</span>
+                    <Prose value={enables} className="text-sm text-ink/70 leading-relaxed" />
+                  </div>
+                )}
+                {alternative && (
+                  <div className={cn(
+                    "bg-teal/5 border border-teal/20 p-4 rounded-2xl",
+                    forcedBy && enables ? "md:col-span-2" : "md:col-span-2"
+                  )}>
+                    <span className="text-[10px] font-black text-teal/60 uppercase tracking-[0.2em] block mb-2">Do this instead</span>
+                    <Prose value={alternative} className="text-sm text-ink/80 leading-relaxed" />
+                  </div>
+                )}
+              </div>
+            )}
+
             {example && (
               <div className="space-y-2">
                 <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em] ml-1">Example</span>
