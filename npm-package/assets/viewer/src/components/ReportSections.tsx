@@ -18,6 +18,7 @@ import type { Finding } from '@/lib/findings'
 import { isSemanticDupFinding, normalizePitfall, severityColor } from '@/lib/findings'
 import { AutoCode, PathChip, Prose, codeInlineClassName } from '@/lib/autocode'
 import { LocalEditContext } from '@/components/local/context/LocalEditContext'
+import FixThisButton from '@/components/FixThisButton'
 
 // Lazy-import RuleControls so the share-mode bundle never pulls in editor
 // code. MaybeRuleControls short-circuits when LocalEditContext is null
@@ -163,11 +164,32 @@ export function FindingsList({
   findings,
   truncate,
   semanticFunctionNames,
+  semanticDuplications,
+  blueprint,
+  adoptedRules,
+  fixItemKind = 'finding',
 }: {
   findings: Finding[]
   truncate?: boolean
   semanticFunctionNames?: string[]
+  /** Full semantic-duplications array — distinct from the badge-only
+   * function-name list. The fix-prompt builder uses this to inline
+   * function + locations + recommendation when a finding matches a known
+   * reimplementation. */
+  semanticDuplications?: any[]
+  /** Blueprint + adopted rules thread through so the FixThisButton can build
+   * the full agent-agnostic prompt with linked pitfall / decision / guideline
+   * / rule context. Omitted in truncated/preview renders. */
+  blueprint?: any
+  adoptedRules?: any
+  /** Pitfalls use the same card shell but need __kind="pitfall" so the
+   * builder treats the item itself as the class-of-problem entry. */
+  fixItemKind?: 'finding' | 'pitfall'
 }) {
+  // Truncated preview cards (CoverPage) skip the fix button — the prompt has
+  // nowhere useful to land from there, and the cramped layout doesn't have
+  // room for another control on the title row.
+  const showFix = !truncate
   return (
     <div className="grid gap-4">
       {findings.map((f, i) => {
@@ -190,20 +212,28 @@ export function FindingsList({
               {f.severity}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-2 flex-wrap">
-                <h3 className="font-bold text-ink"><AutoCode text={f.title} /></h3>
+              <div className="flex items-start gap-2 flex-wrap">
+                <h3 className="font-bold text-ink flex-1 min-w-0"><AutoCode text={f.title} /></h3>
                 {isSemanticDupFinding(f, { functionNames: semanticFunctionNames }) && (
-                  <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest">
+                  <Badge className="text-[9px] bg-brandy text-white border-brandy font-black uppercase tracking-widest self-center">
                     Semantic Dup
                   </Badge>
                 )}
                 {f.group && (
-                  <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40">
+                  <Badge variant="outline" className="text-[9px] border-ink/10 text-ink/40 self-center">
                     {f.group}
                   </Badge>
                 )}
                 {f.id && (
-                  <span className="text-[10px] font-mono text-ink/30">{f.id}</span>
+                  <span className="text-[10px] font-mono text-ink/30 self-center">{f.id}</span>
+                )}
+                {showFix && (
+                  <FixThisButton
+                    item={{ ...f, __kind: fixItemKind }}
+                    blueprint={blueprint}
+                    adoptedRules={adoptedRules}
+                    semanticDuplications={semanticDuplications}
+                  />
                 )}
               </div>
               {rich ? (
@@ -949,8 +979,23 @@ export function TradeOffsSection({ tradeoffs }: { tradeoffs: any[] }) {
   )
 }
 
-export function PitfallsSection({ pitfalls }: { pitfalls: any[] }) {
-  const normalized = pitfalls.map(normalizePitfall)
+export function PitfallsSection({
+  pitfalls,
+  blueprint,
+  adoptedRules,
+  semanticDuplications,
+}: {
+  pitfalls: any[]
+  blueprint?: any
+  adoptedRules?: any
+  semanticDuplications?: any[]
+}) {
+  // Normalize but keep raw stems_from on the side — normalizePitfall drops
+  // it, and the fix-prompt builder needs it to resolve the linked decision.
+  const normalized = pitfalls.map((p) => ({
+    ...normalizePitfall(p),
+    stems_from: p?.stems_from,
+  }))
   return (
     <section className="space-y-4">
       <SectionHeader
@@ -958,7 +1003,13 @@ export function PitfallsSection({ pitfalls }: { pitfalls: any[] }) {
         icon={AlertTriangle}
         hint="Classes of problem rooted in architectural decisions — the trap itself, not each instance."
       />
-      <FindingsList findings={normalized} />
+      <FindingsList
+        findings={normalized}
+        blueprint={blueprint}
+        adoptedRules={adoptedRules}
+        semanticDuplications={semanticDuplications}
+        fixItemKind="pitfall"
+      />
     </section>
   )
 }

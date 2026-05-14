@@ -880,12 +880,28 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                           .filter((x: any): x is string => typeof x === 'string')
                       : undefined
                   }
+                  semanticDuplications={
+                    Array.isArray(bundle.semantic_duplications)
+                      ? bundle.semantic_duplications
+                      : undefined
+                  }
+                  blueprint={bp}
+                  adoptedRules={bundle?.rules_adopted}
                 />
               )}
 
               {pitfalls.length > 0 && (
                 <div id="pitfalls" className="scroll-mt-24">
-                  <Sections.PitfallsSection pitfalls={pitfalls} />
+                  <Sections.PitfallsSection
+                    pitfalls={pitfalls}
+                    blueprint={bp}
+                    adoptedRules={bundle?.rules_adopted}
+                    semanticDuplications={
+                      Array.isArray(bundle.semantic_duplications)
+                        ? bundle.semantic_duplications
+                        : undefined
+                    }
+                  />
                 </div>
               )}
             </section>
