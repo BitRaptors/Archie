@@ -721,8 +721,9 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 10. Append `.gitignore` entries for installed tooling (idempotent, handles upgrade from older versions)
 11. Run `python3 install_hooks.py` to set up 6 hooks + 29 permissions in `.claude/settings.local.json`
 12. Write the machine-level version marker (`~/.archie/version`); on a version change, mark `JUST_UPGRADED` so the next slash command can acknowledge it
-13. First-run only, interactive only: prompt once for anonymous telemetry consent (community / anonymous / off). In non-TTY/CI the prompt is skipped (telemetry stays off, `telemetry_prompted` stays false so a later interactive run still asks) and the installer prints a one-line notice saying so + how to enable it later
-14. Print installation summary + next steps
+13. Print installation summary + next steps
+
+The installer does **not** prompt for telemetry consent — an `npx` install can be non-interactive (CI, pipe, agent shell), so a prompt there is unreliable. Consent is asked in-session by the first slash command instead (see [Telemetry](#telemetry)).
 
 If the viewer build fails (no internet, old Node), the installer keeps going — scripts and hooks still install; only `/archie-viewer` is affected until the user re-runs.
 
@@ -1157,7 +1158,7 @@ Used to measure the wall-clock impact of prompt/code changes over time. Individu
 
 ### Anonymous usage telemetry + update checks (opt-in)
 
-The installer asks **once per machine** whether to share anonymous usage telemetry. Consent, update-check preferences, and a stable random installation id live in machine-level `~/.archie/config.json` (managed by `config.py`) — not per-project. Three tiers:
+Consent is asked **once per machine**, in-session, by the first Archie slash command the user runs — not by the `npx` installer. Every entry point (`/archie-scan`, `/archie-deep-scan`, `/archie-viewer`, `/archie-share`, `/archie-intent-layer`) loads the shared `_shared/telemetry-consent.md` fragment in its preamble; the fragment runs `config.py should-prompt` and, if this machine hasn't answered, presents an `AskUserQuestion` opt-in. This deliberately lives in the slash commands — which always run inside Claude Code, where a picker is available — instead of the `npx` install, which can be non-interactive (CI, pipe, agent shell). Consent, update-check preferences, and a stable random installation id live in machine-level `~/.archie/config.json` (managed by `config.py`) — not per-project. Three tiers:
 
 | Tier | Payload | Installation id |
 |---|---|---|

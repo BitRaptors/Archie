@@ -19,6 +19,12 @@ Otherwise → `RESUME_INTENT=ask`.
 
 ---
 
+## Telemetry consent (one-time, run before anything else)
+
+Read and follow `.claude/commands/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+
+---
+
 ## Phase 0: Precondition check
 
 The Intent Layer needs BOTH `.archie/scan.json` (file tree) and `.archie/blueprint.json` (architectural context: components, decisions, responsibilities, depends_on, key_interfaces). Without the blueprint, per-folder enrichments cannot be grounded in the project's architecture — they'd be generic file summaries, not architectural guides.

@@ -16,6 +16,10 @@ If output is non-empty:
 - `UPGRADE_AVAILABLE old new` → mention once: `"Archie {new} is available (installed: {old}). Upgrade: npx @bitraptors/archie@latest \"$PWD\""`. Continue.
 - `JUST_UPGRADED old new` → say `"Archie upgraded {old} → {new}."` once, then continue.
 
+## Telemetry consent (one-time, run before anything else)
+
+Read and follow `.claude/commands/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+
 ## Launch
 
 ```bash

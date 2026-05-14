@@ -27,6 +27,10 @@ If output is non-empty:
 
 If output is empty: proceed silently. This is informational only.
 
+## Telemetry consent (one-time, run before anything else)
+
+Read and follow `.claude/commands/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+
 **CRITICAL CONSTRAINT: Never write inline Python.**
 Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
 - Normalize blueprint: `python3 .archie/finalize.py "$PROJECT_ROOT" --normalize-only`

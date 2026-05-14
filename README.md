@@ -18,7 +18,7 @@ npx @bitraptors/archie /path/to/your/project
 
 ![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
-This copies Archie's standalone scripts, Claude Code commands, and the `/archie-deep-scan` skill subtree into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, builds the local viewer bundle (one-time, ~45s — cached by version), delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). On the first run it also asks once whether to share anonymous usage telemetry (opt-in). Then open your project in Claude Code.
+This copies Archie's standalone scripts, Claude Code commands, and the `/archie-deep-scan` skill subtree into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, builds the local viewer bundle (one-time, ~45s — cached by version), delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code — the first Archie command you run there asks once whether to share anonymous usage telemetry (opt-in).
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
 
@@ -498,7 +498,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentatio
 
 ## Telemetry & update checks (anonymous, opt-in)
 
-The first time you run `npx @bitraptors/archie`, the installer asks whether you'd like to share usage telemetry. There are three tiers:
+The first time you run an Archie slash command (`/archie-scan`, `/archie-deep-scan`, etc.) in Claude Code, it asks once whether you'd like to share usage telemetry — an in-session picker, not the `npx` install (which can run non-interactively). There are three tiers:
 
 - **community** *(recommended)* — events include a stable random installation ID written once to `~/.archie/config.json`. Lets us see which features get used together.
 - **anonymous** — same payload but the installation ID is stripped before upload. Each event is unlinkable.
