@@ -721,7 +721,7 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 10. Append `.gitignore` entries for installed tooling (idempotent, handles upgrade from older versions)
 11. Run `python3 install_hooks.py` to set up 6 hooks + 29 permissions in `.claude/settings.local.json`
 12. Write the machine-level version marker (`~/.archie/version`); on a version change, mark `JUST_UPGRADED` so the next slash command can acknowledge it
-13. First-run only, interactive only: prompt once for anonymous telemetry consent (community / anonymous / off) — skipped silently in non-TTY/CI
+13. First-run only, interactive only: prompt once for anonymous telemetry consent (community / anonymous / off). In non-TTY/CI the prompt is skipped (telemetry stays off, `telemetry_prompted` stays false so a later interactive run still asks) and the installer prints a one-line notice saying so + how to enable it later
 14. Print installation summary + next steps
 
 If the viewer build fails (no internet, old Node), the installer keeps going — scripts and hooks still install; only `/archie-viewer` is affected until the user re-runs.

@@ -393,8 +393,14 @@ async function maybePromptTelemetry() {
   if (check.status !== 0) return; // already prompted (or error → skip silently)
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    // Non-interactive: leave telemetry off but mark prompted=false so an
-    // interactive re-install (or `archie config set telemetry ...`) still asks.
+    // Non-interactive (CI, pipe, agent shell): can't prompt without hanging.
+    // Leave telemetry off and telemetry_prompted=false so a later interactive
+    // run still asks — but say so, otherwise the skipped prompt looks like a
+    // missing feature.
+    console.log("");
+    console.log(`  ${DIM}Telemetry prompt skipped — non-interactive install. Telemetry stays off.${RESET}`);
+    console.log(`  ${DIM}Enable later: python3 .archie/config.py set telemetry community${RESET}`);
+    console.log(`  ${DIM}Or re-run \`npx @bitraptors/archie\` in an interactive terminal to be asked.${RESET}`);
     return;
   }
 
