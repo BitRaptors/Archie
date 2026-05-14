@@ -111,15 +111,16 @@ def main():
     standalone_pys = {f.name for f in STANDALONE.glob("*.py") if f.name not in SKIP_FILES}
     asset_pys = {f.name for f in ASSETS.glob("*.py")}
 
-    # Command markdown files — both top-level (archie-*.md) and the recursive
-    # subtree under archie-deep-scan/ (introduced by the modularization
-    # refactor). Plus _shared/ which holds cross-command fragments.
+    # Command markdown files — top-level (archie-*.md) plus _shared/ fragments
+    # that get copied into .claude/commands/. The archie-deep-scan/ substeps
+    # live under .claude/skills/ now (see SKILLS below) so Claude Code doesn't
+    # surface them as slash commands.
     def _collect_command_mds(base: Path) -> set[str]:
         out: set[str] = set()
         for p in base.glob("archie-*.md"):
             if p.is_file():
                 out.add(p.name)
-        for sub in ("archie-deep-scan", "_shared"):
+        for sub in ("_shared",):
             sub_dir = base / sub
             if sub_dir.is_dir():
                 for p in sub_dir.rglob("*.md"):
@@ -128,6 +129,28 @@ def main():
 
     asset_mds = _collect_command_mds(ASSETS)
     command_mds = _collect_command_mds(COMMANDS)
+
+    # Skill markdown files — the archie-deep-scan/ substeps. Canonical lives
+    # in .claude/skills/, mirrored into npm-package/assets/skills/.
+    SKILLS = ROOT / ".claude" / "skills"
+    ASSET_SKILLS = ASSETS / "skills"
+    def _collect_skill_mds(base: Path) -> set[str]:
+        out: set[str] = set()
+        deep_scan_dir = base / "archie-deep-scan"
+        if deep_scan_dir.is_dir():
+            for p in deep_scan_dir.rglob("*.md"):
+                out.add(str(p.relative_to(base)))
+        return out
+
+    asset_skill_mds = _collect_skill_mds(ASSET_SKILLS)
+    skill_mds = _collect_skill_mds(SKILLS)
+    for name in sorted(skill_mds - asset_skill_mds):
+        errors.append(f"MISSING ASSET: .claude/skills/{name} has no copy in npm-package/assets/skills/")
+    for name in sorted(asset_skill_mds - skill_mds):
+        errors.append(f"ORPHAN ASSET: npm-package/assets/skills/{name} has no canonical in .claude/skills/")
+    for name in sorted(skill_mds & asset_skill_mds):
+        if (SKILLS / name).read_text() != (ASSET_SKILLS / name).read_text():
+            errors.append(f"OUT OF SYNC: skills/{name} differs between .claude/skills/ and npm-package/assets/skills/")
 
     # 3. Check: every standalone .py should have an asset copy
     for name in sorted(standalone_pys - asset_pys):
@@ -157,11 +180,11 @@ def main():
         errors.append(f"DEAD REFERENCE: archie.mjs references {name} but it doesn't exist in assets/")
 
     # 6. Check: archie.mjs command list matches asset .md files
-    # (but exclude _shared/ fragments and archie-deep-scan/ subtree, which are
-    # copied recursively — not listed individually in the installer command list)
+    # (but exclude _shared/ fragments, which are copied recursively — not
+    # listed individually in the installer command list)
     asset_mds_commands_only = {
         name for name in asset_mds
-        if not name.startswith("_shared/") and not name.startswith("archie-deep-scan/")
+        if not name.startswith("_shared/")
     }
     for name in sorted(asset_mds_commands_only - mjs_commands):
         errors.append(f"NOT IN INSTALLER: npm-package/assets/{name} exists but not in archie.mjs command list")
