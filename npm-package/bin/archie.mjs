@@ -466,7 +466,9 @@ function writeArchieVersionMarker() {
   if (hasPython && oldVersion && oldVersion !== newVersion) {
     const updateScript = join(archieDir, "update_check.py");
     if (existsSync(updateScript)) {
-      spawnSync("python3", [updateScript, "mark-upgraded", newVersion], { stdio: "ignore" });
+      // Pass oldVersion explicitly — the version marker on disk was already
+      // overwritten with newVersion above, so update_check.py can't re-derive it.
+      spawnSync("python3", [updateScript, "mark-upgraded", newVersion, oldVersion], { stdio: "ignore" });
     }
   }
 }
