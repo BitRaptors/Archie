@@ -27,6 +27,10 @@ If output is non-empty:
 
 If output is empty: proceed silently. This is informational only.
 
+## Telemetry consent (one-time, run before anything else)
+
+Read and follow `.claude/commands/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+
 **CRITICAL CONSTRAINT: Never write inline Python.**
 Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
 - Normalize blueprint: `python3 .archie/finalize.py "$PROJECT_ROOT" --normalize-only`
@@ -131,7 +135,7 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
 **For every step below:**
 - If the step number < START_STEP, skip it entirely.
 - If SCAN_MODE is not set, it defaults to "full" (all existing behavior unchanged).
-- **Do NOT ask the user any questions during execution. Do NOT offer to skip, reduce scope, or present alternatives for any step. Execute every step fully as documented.**
+- **Do NOT ask the user any questions during Steps 1–10. Do NOT offer to skip, reduce scope, or present alternatives for any step. Execute every step fully as documented.** This rule applies ONLY to Steps 1–10. It does NOT apply to Phase 0 / Activation: the scope prompt (Step C) and Intent Layer prompt (Step E) in `scope_resolution.md` are mandatory decision gates and MUST still be asked — see below.
 
 
 ## Activation — read these before running any step

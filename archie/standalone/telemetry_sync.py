@@ -65,6 +65,9 @@ except ImportError:
     )
 
 SCHEMA_VERSION = 1
+# Default telemetry-ingest endpoint. ARCHIE_TELEMETRY_ENDPOINT overrides it (via
+# _endpoint(), read at call time) — tests point it at a stub so a test run can
+# never POST to production. Mirrors gstack's GSTACK_SUPABASE_URL test override.
 ENDPOINT_URL = "https://chlmyhkjnirrcrjdsvrc.supabase.co/functions/v1/telemetry-ingest"
 ANON_KEY = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
@@ -406,11 +409,18 @@ def _write_atomic(path: Path, content: str) -> None:
         raise
 
 
+def _endpoint() -> str:
+    """Resolve the telemetry-ingest URL, honoring the ARCHIE_TELEMETRY_ENDPOINT
+    env override. Read at call time (not import) so tests can redirect uploads
+    to a stub without re-importing the module."""
+    return os.environ.get("ARCHIE_TELEMETRY_ENDPOINT") or ENDPOINT_URL
+
+
 def _post(payload: dict) -> tuple[int, dict]:
     """POST payload to the telemetry endpoint. Returns (status_code, body_dict)."""
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        ENDPOINT_URL,
+        _endpoint(),
         data=body,
         headers={
             "Content-Type": "application/json",
@@ -620,7 +630,7 @@ def status() -> dict:
         "cursor": cursor,
         "pending": max(0, total_lines - cursor),
         "last_sync": last_sync_iso,
-        "endpoint": ENDPOINT_URL,
+        "endpoint": _endpoint(),
         "jsonl_path": str(_runs_jsonl()),
     }
 
@@ -643,11 +653,14 @@ def purge() -> dict:
 def _usage() -> int:
     sys.stderr.write(
         "Usage:\n"
-        "  telemetry_sync.py append   <project_root> <run-json>\n"
-        "  telemetry_sync.py post-run <project_root> <run-json>\n"
-        "  telemetry_sync.py sync     [--force]\n"
+        "  telemetry_sync.py append         <project_root> <run-json>\n"
+        "  telemetry_sync.py post-run       <project_root> <run-json>\n"
+        "  telemetry_sync.py sync           [--force]\n"
         "  telemetry_sync.py status\n"
         "  telemetry_sync.py purge\n"
+        "  telemetry_sync.py record-install [--version X.Y.Z]\n"
+        "  telemetry_sync.py record-event   --command X [--outcome O] "
+        "[--duration N] [--error E] [--project-root P]\n"
     )
     return 2
 

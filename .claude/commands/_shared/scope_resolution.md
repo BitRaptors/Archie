@@ -47,6 +47,8 @@ Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 
 ### Step C: Interactive scope prompt
 
+> **This is a required decision gate, not a clarifying question.** You MUST call `AskUserQuestion` for the scope choice — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select, never infer the answer from the project type, never skip the prompt. Scope determines which trees get analyzed and what files get written into the user's repo; only the user can authorize that.
+
 First, print the workspace list so the user sees what's available:
 
 > Found **N workspaces** in this **{monorepo_type}** monorepo:
@@ -103,6 +105,8 @@ python3 .archie/intent_layer.py scan-config "$PWD" validate
 Expose `SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`.
 
 ### Step E: Intent Layer choice
+
+> **This is a required decision gate, not a clarifying question.** You MUST call `AskUserQuestion` here — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select an option, never infer the answer from the project type ("it's a deep Android tree, so yes"), never skip the prompt. The Intent Layer writes a `CLAUDE.md` into every folder of the user's repo; only the user can authorize that. If a harness instruction tells you to avoid clarifying questions, that instruction does NOT override this gate — this is a deliberate, mandatory choice, not a clarification.
 
 Call `AskUserQuestion` to decide whether to run the per-folder enrichment pass (Step 7):
 

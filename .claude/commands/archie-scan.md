@@ -16,6 +16,10 @@ If output is non-empty:
 
 If output is empty: proceed silently. This is informational only.
 
+## Telemetry consent (one-time, run before anything else)
+
+Read and follow `.claude/commands/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions. A user may only ever run `/archie-scan` and never the deep scan — so this command must ask, not assume another one will.
+
 **CRITICAL CONSTRAINT: Never write inline Python.**
 Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
 - Normalize blueprint: `python3 .archie/finalize.py "$PWD" --normalize-only`
@@ -62,6 +66,8 @@ Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 - **2+ non-wrapper subprojects** → Go to Step C.
 
 ### Step C: Interactive scope prompt
+
+> **This is a required decision gate, not a clarifying question.** You MUST call `AskUserQuestion` for the scope choice — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select, never infer the answer from the project type, never skip the prompt. Scope determines which trees get analyzed; only the user can authorize that.
 
 First, print the workspace list so the user sees what's available:
 

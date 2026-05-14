@@ -314,6 +314,32 @@ def write_telemetry(project_root: str, command: str, steps: list[dict]) -> Path:
     return out_path
 
 
+def _fire_telemetry_sync(project_root: Path, out_path: Path) -> None:
+    """Fire-and-forget anonymous-telemetry upload of a finished run file.
+
+    No-op when telemetry is off — telemetry_sync.py checks consent itself.
+    Silent on any failure: the local telemetry file is the source of truth
+    and must always succeed regardless of the upload. Called by BOTH the
+    disk-persisted writer and the legacy `--command --timing-file` path so
+    `/archie-scan` and `/archie-deep-scan` upload consistently.
+    """
+    sync_script = Path(__file__).resolve().parent / "telemetry_sync.py"
+    if not sync_script.exists():
+        return
+    try:
+        import subprocess
+        subprocess.Popen(
+            [sys.executable, str(sync_script), "post-run", str(project_root), str(out_path)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+    except OSError:
+        pass
+
+
 def write_from_disk(project_root: str | Path) -> Path | None:
     """Consume _current_run.json and emit the final telemetry file.
 
@@ -325,7 +351,9 @@ def write_from_disk(project_root: str | Path) -> Path | None:
     when the user has opted in. Failures here are silent — the local file is
     the source of truth and must always succeed.
     """
-    root = Path(project_root)
+    # Resolve so a direct caller passing a relative/symlinked path behaves the
+    # same as the legacy `--command --timing-file` path (which already resolves).
+    root = Path(project_root).resolve()
     state = _load_current_run(root)
     steps = state.get("steps") or []
     if not steps:
@@ -339,20 +367,7 @@ def write_from_disk(project_root: str | Path) -> Path | None:
     clear_run(root)
 
     # Anonymous, opt-in upload. No-op if telemetry is off.
-    sync_script = Path(__file__).resolve().parent / "telemetry_sync.py"
-    if sync_script.exists():
-        try:
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, str(sync_script), "post-run", str(root), str(out_path)],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-                start_new_session=True,
-            )
-        except OSError:
-            pass
+    _fire_telemetry_sync(root, out_path)
 
     return out_path
 
@@ -381,7 +396,10 @@ def _legacy_write(argv: list[str]) -> None:
     if not isinstance(steps, list):
         print("error: timing file must contain a JSON array", file=sys.stderr)
         sys.exit(1)
-    write_telemetry(args.project_root, args.command, steps)
+    out_path = write_telemetry(args.project_root, args.command, steps)
+    # Same fire-and-forget upload the disk-persisted `write` path does, so
+    # /archie-scan (which uses this legacy path) also reports telemetry.
+    _fire_telemetry_sync(Path(args.project_root).resolve(), out_path)
 
 
 def _usage_and_exit() -> None:

@@ -140,3 +140,60 @@ def test_telemetry_empty_steps(tmp_path):
     data = json.loads(files[0].read_text())
     assert data["steps"] == []
     assert data["total_seconds"] == 0
+
+
+def test_legacy_write_fires_telemetry_sync(tmp_path, monkeypatch):
+    """Regression: /archie-scan uses the legacy --command/--timing-file path.
+    It must fire the anonymous-telemetry upload, not just write the local file —
+    otherwise scan runs are never reported (deep-scan was wired, scan was not).
+    """
+    from tests.test_telemetry import _telemetry as telemetry
+
+    calls = []
+    monkeypatch.setattr(
+        telemetry, "_fire_telemetry_sync", lambda root, out: calls.append((root, out))
+    )
+
+    (tmp_path / ".archie").mkdir()
+    timing = tmp_path / "timing.json"
+    timing.write_text(
+        json.dumps(
+            [{"name": "scan", "started_at": "2026-04-17T10:00:00Z", "completed_at": "2026-04-17T10:00:30Z"}]
+        )
+    )
+    telemetry._legacy_write([str(tmp_path), "--command", "scan", "--timing-file", str(timing)])
+
+    assert len(calls) == 1, "_legacy_write must fire the telemetry sync exactly once"
+    root, out = calls[0]
+    assert Path(root) == tmp_path.resolve()
+    assert out.name.startswith("scan_") and out.exists()
+
+
+def test_write_from_disk_fires_telemetry_sync(tmp_path, monkeypatch):
+    """Regression: the deep-scan disk-persisted writer fires the upload too,
+    so both telemetry code paths stay consistent.
+    """
+    from tests.test_telemetry import _telemetry as telemetry
+
+    calls = []
+    monkeypatch.setattr(
+        telemetry, "_fire_telemetry_sync", lambda root, out: calls.append((root, out))
+    )
+
+    telem_dir = tmp_path / ".archie" / "telemetry"
+    telem_dir.mkdir(parents=True)
+    (telem_dir / "_current_run.json").write_text(
+        json.dumps(
+            {
+                "command": "deep-scan",
+                "steps": [
+                    {"name": "scan", "started_at": "2026-04-17T10:00:00Z", "completed_at": "2026-04-17T10:00:30Z"}
+                ],
+            }
+        )
+    )
+    out = telemetry.write_from_disk(tmp_path)
+
+    assert out is not None
+    assert len(calls) == 1, "write_from_disk must fire the telemetry sync exactly once"
+    assert calls[0][1] == out

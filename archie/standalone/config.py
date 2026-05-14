@@ -12,7 +12,8 @@ CLI:
   config.py list                  — print all key=value
   config.py path                  — print absolute config path
   config.py installation-id       — print id (auto-creates on first call)
-  config.py should-prompt         — exit 0 if first-run prompt needed, else 1
+  config.py should-prompt         — print 'prompt' or 'skip' (telemetry
+                                    first-run gate); exit 0 on success
   config.py apply-prompt-result <off|anonymous|community>
                                   — set telemetry tier and mark prompted
 
@@ -191,8 +192,14 @@ def _cmd_installation_id(_args: list[str]) -> int:
 
 
 def _cmd_should_prompt(_args: list[str]) -> int:
+    """Print 'prompt' if the first-run telemetry prompt is still needed, else
+    'skip'. The answer is the stdout token; exit code is 0 on success. This
+    keeps a crash (non-zero exit, no token) unambiguously distinct from a
+    legitimate 'skip' — the installer must not mistake one for the other.
+    """
     cfg = load_config()
-    return 0 if not cfg.get("telemetry_prompted") else 1
+    print("prompt" if not cfg.get("telemetry_prompted") else "skip")
+    return 0
 
 
 def _cmd_apply_prompt_result(args: list[str]) -> int:

@@ -18,7 +18,7 @@ npx @bitraptors/archie /path/to/your/project
 
 ![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
-This copies Archie's standalone scripts and Claude Code commands into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code.
+This copies Archie's standalone scripts, Claude Code commands, and the `/archie-deep-scan` skill subtree into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, builds the local viewer bundle (one-time, ~45s — cached by version), delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code — the first Archie command you run there asks once whether to share anonymous usage telemetry (opt-in).
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
 
@@ -39,7 +39,9 @@ Use `--commands-dir` to install command files to a custom directory (default: `.
 
 Run `/archie-deep-scan` once to establish a baseline. Then use `/archie-scan` for ongoing checks — each scan compounds on previous knowledge. Use `/archie-share` to hand a snapshot to anyone with a browser.
 
-There is also `/archie-viewer` for interactive local blueprint inspection (Dashboard, Scan Reports, Blueprint, Rules, Files, Dependencies, Workspace tabs).
+`/archie-deep-scan` is implemented as a modular Claude Code skill (`.claude/skills/archie-deep-scan/`) — a thin router plus self-contained per-step files — so the long pipeline survives `/compact` and can resume mid-run via `--continue` / `--from N`.
+
+There is also `/archie-viewer` for interactive local blueprint inspection. It runs the **same React UI as the hosted share viewer**, served locally from `viewer.py` at `localhost:5847/local` — no upload, all data stays on your machine. Two tabs: **Blueprint** (the full report — health scores, architecture diagram, decisions, findings, pitfalls, plus inline rule adopt/reject/edit) and **Files** (per-folder CLAUDE.md browser + a click-to-view tree of every generated file). It renders whatever's in `.archie/`, so it works right after `/archie-scan`; deep-scan-only sections just render sparse.
 
 ### `/archie-scan` in action
 
@@ -379,11 +381,11 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | `.archie/telemetry/*.json` | Per-run step-level wall-clock timing (for measuring changes to the pipeline) |
 | `.archie/archie_config.json` | Persisted monorepo scope config (whole/per-package/hybrid/single) |
 | `.archieignore` / `.archiebulk` | Scanning pattern files (merged with `.gitignore`) |
-| `CLAUDE.md` | Root architecture context for Claude Code |
-| `AGENTS.md` | Multi-agent guidance with decision chains |
+| `AGENTS.md` | Canonical agent context — architecture, decision chains, deep-links to the topic rule files |
+| `CLAUDE.md` | Thin pointer to `AGENTS.md` (so Claude Code and agent-agnostic tools load the same context) |
 | Per-folder `CLAUDE.md` | Directory-level context with patterns, anti-patterns, code examples (only if Intent Layer opt-in) |
 | `.claude/hooks/` | Real-time enforcement hooks |
-| `.claude/rules/*.md` | Topic-split rule files (architecture, patterns, guidelines, pitfalls, dev-rules) |
+| `.claude/rules/*.md` | Topic-split rule files (architecture, patterns, guidelines, pitfalls, dev-rules) + browsable `enforcement/` directory |
 
 ## How It Works
 
@@ -454,7 +456,7 @@ All hooks fail open: missing rules/config/marker files → hooks exit 0 silently
 
 Rules come from two AI-synthesized sources plus a universal platform set.
 
-1. **`/archie-deep-scan` Step 6** (Sonnet rule synthesis) — The architectural baseline. Each rule carries inline semantic content the agent reads at edit time: `severity_class` (decision_violation / pitfall_triggered / tradeoff_undermined / pattern_divergence / mechanical_violation), `description`, `why` (reasoning copy-pasted from the motivating blueprint section), `example` (canonical code shape), `source: "deep_scan"`. Mechanical rules also carry regex `check` fields. Tagged with `keywords` for prompt-time matching and `applies_to`/`always_inject` for path-scoped surfacing.
+1. **`/archie-deep-scan` Step 6** (Sonnet rule synthesis) — The architectural baseline. Each rule carries inline semantic content the agent reads at edit time: `severity_class` (decision_violation / pitfall_triggered / tradeoff_undermined / pattern_divergence / mechanical_violation), `description`, `why` (reasoning copy-pasted from the motivating blueprint section), `example` (canonical code shape), and `forced_by` / `enables` / `alternative` links back to the motivating decision, `source: "deep_scan"`. Mechanical rules also carry regex `check` fields. Tagged with `keywords` for prompt-time matching and `applies_to`/`always_inject` for path-scoped surfacing.
 
 2. **`/archie-scan`** (Sonnet senior-architect pass) — Proposes new rules in the same shape (`source: "scan"`) by spotting drift in recently-changed files, or amends existing ones (`source: "scan-amended"`). Severity is inferred from the blueprint anchor; scan never promotes a rule to blocking on its own — that happens at the next deep-scan with full Wave-2 reasoning.
 
@@ -496,7 +498,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentatio
 
 ## Telemetry & update checks (anonymous, opt-in)
 
-The first time you run `npx @bitraptors/archie`, the installer asks whether you'd like to share usage telemetry. There are three tiers:
+The first time you run an Archie slash command (`/archie-scan`, `/archie-deep-scan`, etc.) in Claude Code, it asks once whether you'd like to share usage telemetry — an in-session picker, not the `npx` install (which can run non-interactively). There are three tiers:
 
 - **community** *(recommended)* — events include a stable random installation ID written once to `~/.archie/config.json`. Lets us see which features get used together.
 - **anonymous** — same payload but the installation ID is stripped before upload. Each event is unlinkable.
@@ -533,20 +535,20 @@ archie/              Python package (CLI + engine + coordinator + standalone)
   coordinator/       2-wave AI pipeline (planner, runner, merger, prompts)
   hooks/             Claude Code hook generation and enforcement
   renderer/          Output generation (CLAUDE.md, per-folder context)
-  rules/             Rule extraction and management
-  standalone/        Zero-dependency scripts (20 files, copied to target projects via npm)
+  rules/             Legacy blueprint rule extractor (retired in v2.5.0; kept for tests)
+  standalone/        Zero-dependency scripts (30 files, copied to target projects via npm) — the canonical runtime path
 npm-package/         NPM distribution (npx @bitraptors/archie)
-  bin/archie.mjs     Installer entry point
-  assets/            Canonical copies of standalone scripts + commands + archieignore/archiebulk defaults
+  bin/archie.mjs     Installer entry point (clean install, viewer build, hooks, telemetry consent)
+  assets/            Canonical copies of standalone scripts + commands + deep-scan skill subtree + viewer source + archieignore/archiebulk defaults
 share/               Blueprint sharing ecosystem
-  viewer/            React/Vite app (archie-viewer.vercel.app) that renders uploaded bundles
-  supabase/          Edge functions (upload, blueprint) + migrations
+  viewer/            React/Vite app — powers both the hosted viewer (archie-viewer.vercel.app) and the local /archie-viewer sidecar
+  supabase/          Edge functions (upload, blueprint, telemetry-ingest) + migrations
 landing/             Landing page
-tests/               Pytest suite (30 files, ~4,000 LOC)
+tests/               Pytest suite (50 files)
 docs/                Architecture documentation
 scripts/             verify_sync.py — pre-commit canonical ↔ asset sync checker
-.claude/commands/    Slash commands (archie-scan, archie-deep-scan, archie-intent-layer, archie-share, archie-viewer)
-.claude/skills/      Developer assistance skills
+.claude/commands/    Slash commands (archie-scan, archie-deep-scan, archie-intent-layer, archie-share, archie-viewer) + _shared/scope_resolution.md
+.claude/skills/      archie-deep-scan/ — the deep-scan skill (SKILL.md router + per-step files + fragments + templates)
 v1/                  Archived V1 web app (FastAPI + Next.js, obsolete)
 ```
 

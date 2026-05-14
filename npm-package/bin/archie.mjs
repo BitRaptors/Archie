@@ -5,7 +5,6 @@ import { join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { execSync, spawnSync } from "child_process";
-import { createInterface } from "readline";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -381,61 +380,14 @@ if (hasPython) {
   console.log(`  ⚠ python3 not found — hooks not installed, scanner needs Python 3.9+`);
 }
 
-// 5. First-run telemetry consent (machine-level, asked once across all installs).
-//    Skipped when stdin isn't a TTY (CI, pipes) — defaults to "off" until the
-//    user opts in interactively or via `python3 .archie/config.py set telemetry`.
-async function maybePromptTelemetry() {
-  if (!hasPython) return;
-  const configScript = join(archieDir, "config.py");
-  if (!existsSync(configScript)) return;
-
-  const check = spawnSync("python3", [configScript, "should-prompt"], { stdio: "ignore" });
-  if (check.status !== 0) return; // already prompted (or error → skip silently)
-
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    // Non-interactive: leave telemetry off but mark prompted=false so an
-    // interactive re-install (or `archie config set telemetry ...`) still asks.
-    return;
-  }
-
-  console.log("");
-  console.log(`${BOLD}  Help Archie improve${RESET} ${DIM}(anonymous, opt-in)${RESET}`);
-  console.log(`  ${DIM}We'd like to collect: command name, Archie version, OS/arch,${RESET}`);
-  console.log(`  ${DIM}step durations, outcome, detected stack (e.g. kotlin/gradle/android).${RESET}`);
-  console.log(`  ${DIM}Never: source code, file paths, repo names, blueprint contents.${RESET}`);
-  console.log(`  ${DIM}Change anytime: python3 .archie/config.py set telemetry off${RESET}`);
-  console.log("");
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
-
-  let tier = null;
-  try {
-    const first = (await ask(`  ${CYAN}?${RESET} Help Archie get better? ${DIM}[Y/n]${RESET} `)).trim().toLowerCase();
-    if (first === "" || first === "y" || first === "yes") {
-      tier = "community";
-    } else {
-      const second = (await ask(`  ${CYAN}?${RESET} Send anonymous metrics only ${DIM}(strips installation id)${RESET}? ${DIM}[y/N]${RESET} `)).trim().toLowerCase();
-      tier = (second === "y" || second === "yes") ? "anonymous" : "off";
-    }
-  } finally {
-    rl.close();
-  }
-
-  const apply = spawnSync("python3", [configScript, "apply-prompt-result", tier], { stdio: "ignore" });
-  if (apply.status === 0) {
-    if (tier === "off") {
-      console.log(`  ${GREEN}✓${RESET} telemetry off ${DIM}(re-enable: python3 .archie/config.py set telemetry community)${RESET}`);
-    } else {
-      console.log(`  ${GREEN}✓${RESET} telemetry: ${tier} ${DIM}(stored at ~/.archie/config.json)${RESET}`);
-      // Fire a single anonymous "install" event so we can count adoption.
-      const syncScript = join(archieDir, "telemetry_sync.py");
-      if (existsSync(syncScript)) {
-        spawnSync("python3", [syncScript, "record-install", "--version", readPackageVersion()], { stdio: "ignore" });
-      }
-    }
-  }
-}
+// 5. Telemetry consent is NOT asked here. An `npx` install can be
+//    non-interactive (CI, pipe, agent shell), so the prompt belongs where
+//    interactivity is guaranteed: the Archie slash commands, which always run
+//    inside Claude Code. Every command's preamble loads the shared
+//    `_shared/telemetry-consent.md` fragment, which checks
+//    `config.py should-prompt` and asks once via AskUserQuestion. The installer
+//    just leaves the config defaults (telemetry off, telemetry_prompted=false);
+//    the first command the user runs does the asking.
 
 // Write a machine-level version marker so telemetry_sync can label events
 // without re-reading the npm package.json. Also records "JUST_UPGRADED" via
@@ -460,13 +412,14 @@ function writeArchieVersionMarker() {
   if (hasPython && oldVersion && oldVersion !== newVersion) {
     const updateScript = join(archieDir, "update_check.py");
     if (existsSync(updateScript)) {
-      spawnSync("python3", [updateScript, "mark-upgraded", newVersion], { stdio: "ignore" });
+      // Pass oldVersion explicitly — the version marker on disk was already
+      // overwritten with newVersion above, so update_check.py can't re-derive it.
+      spawnSync("python3", [updateScript, "mark-upgraded", newVersion, oldVersion], { stdio: "ignore" });
     }
   }
 }
 
 writeArchieVersionMarker();
-await maybePromptTelemetry();
 
 // Done
 console.log("");
@@ -477,6 +430,9 @@ console.log(`  1. Open this project in ${BOLD}Claude Code${RESET}`);
 console.log(`  2. Run ${BOLD}/archie-scan${RESET} for a fast architecture health check (1-3 min)`);
 console.log(`  3. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
 console.log(`  ${DIM}Usage: npx @bitraptors/archie [path] [--commands-dir dir]${RESET}`);
+console.log("");
+console.log(`  ${DIM}Telemetry: the first Archie command you run in Claude Code asks once${RESET}`);
+console.log(`  ${DIM}whether to share anonymous usage data (opt-in). Nothing is sent until then.${RESET}`);
 console.log("");
 
 console.log(`  ${DIM}What gets generated:${RESET}`);

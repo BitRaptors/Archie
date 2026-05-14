@@ -18,7 +18,8 @@ CLI:
   update_check.py enable                 — re-enable update_check
   update_check.py status                 — print full state as JSON
   update_check.py reset                  — clear cache + snooze
-  update_check.py mark-upgraded <ver>    — record that an upgrade just happened
+  update_check.py mark-upgraded <new> [<old>]
+                                         — record that an upgrade just happened
 
 Zero deps beyond Python 3.9+ stdlib. Failures (network, parse errors, etc.)
 are silent — never break a slash command.
@@ -180,6 +181,15 @@ def _maybe_print_just_upgraded(installed: str) -> str | None:
         pass
     if not old or not new:
         return None
+    # A degenerate marker (from == to) means no real version change happened —
+    # drop it so it never surfaces a nonsensical "upgraded X → X", defending the
+    # consumer even if some upstream path ever writes a bad marker.
+    if old == new:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+        return None
     # Only emit while installed actually matches the upgrade target. If a
     # different version got installed in the meantime, the marker is stale —
     # drop it so we don't ever emit an obsolete acknowledgement.
@@ -301,9 +311,16 @@ def reset() -> None:
     reset_snooze()
 
 
-def mark_upgraded(new_version: str) -> None:
-    """Record that an upgrade just landed (called by the installer)."""
-    old = _read_installed_version()
+def mark_upgraded(new_version: str, old_version: str | None = None) -> None:
+    """Record that an upgrade just landed (called by the installer).
+
+    The installer passes the prior version explicitly: by the time this runs
+    it has already overwritten ~/.archie/version with the new one, so
+    re-reading the marker here would yield from == to (a stale "upgraded X → X"
+    acknowledgement). Falls back to reading the marker only for older
+    installers that don't pass the old version.
+    """
+    old = old_version if old_version else _read_installed_version()
     payload = {"from": old, "to": new_version, "at": time.time()}
     _write_atomic(_just_upgraded_path(), json.dumps(payload))
     reset_snooze()
@@ -318,7 +335,7 @@ def _usage() -> int:
         "  update_check.py enable\n"
         "  update_check.py status\n"
         "  update_check.py reset\n"
-        "  update_check.py mark-upgraded <version>\n"
+        "  update_check.py mark-upgraded <new-version> [<old-version>]\n"
     )
     return 2
 
@@ -351,7 +368,8 @@ def main(argv: list[str]) -> int:
     if cmd == "mark-upgraded":
         if len(argv) < 3:
             return _usage()
-        mark_upgraded(argv[2])
+        old = argv[3] if len(argv) >= 4 else None
+        mark_upgraded(argv[2], old)
         return 0
     return _usage()
 
