@@ -389,8 +389,20 @@ async function maybePromptTelemetry() {
   const configScript = join(archieDir, "config.py");
   if (!existsSync(configScript)) return;
 
-  const check = spawnSync("python3", [configScript, "should-prompt"], { stdio: "ignore" });
-  if (check.status !== 0) return; // already prompted (or error → skip silently)
+  const check = spawnSync("python3", [configScript, "should-prompt"], { encoding: "utf8" });
+  // The answer is the stdout token, not the exit code. status 0 + "skip" =
+  // already prompted (skip silently). status 0 + "prompt" = ask. Anything else
+  // (non-zero exit, missing/garbled token, failed spawn) means config.py
+  // errored — consent state is unreadable, so don't prompt, but say so instead
+  // of silently swallowing a broken telemetry setup.
+  const verdict = (check.stdout || "").trim();
+  if (check.status === 0 && verdict === "skip") return;
+  if (check.status !== 0 || verdict !== "prompt") {
+    console.log("");
+    console.log(`  ${DIM}Telemetry consent check skipped — .archie/config.py could not run. Telemetry stays off.${RESET}`);
+    console.log(`  ${DIM}Set it later: python3 .archie/config.py set telemetry community${RESET}`);
+    return;
+  }
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     // Non-interactive (CI, pipe, agent shell): can't prompt without hanging.

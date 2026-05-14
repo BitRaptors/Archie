@@ -643,11 +643,14 @@ def purge() -> dict:
 def _usage() -> int:
     sys.stderr.write(
         "Usage:\n"
-        "  telemetry_sync.py append   <project_root> <run-json>\n"
-        "  telemetry_sync.py post-run <project_root> <run-json>\n"
-        "  telemetry_sync.py sync     [--force]\n"
+        "  telemetry_sync.py append         <project_root> <run-json>\n"
+        "  telemetry_sync.py post-run       <project_root> <run-json>\n"
+        "  telemetry_sync.py sync           [--force]\n"
         "  telemetry_sync.py status\n"
         "  telemetry_sync.py purge\n"
+        "  telemetry_sync.py record-install [--version X.Y.Z]\n"
+        "  telemetry_sync.py record-event   --command X [--outcome O] "
+        "[--duration N] [--error E] [--project-root P]\n"
     )
     return 2
 
