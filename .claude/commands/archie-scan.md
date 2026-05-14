@@ -63,6 +63,8 @@ Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 
 ### Step C: Interactive scope prompt
 
+> **This is a required decision gate, not a clarifying question.** You MUST call `AskUserQuestion` for the scope choice — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select, never infer the answer from the project type, never skip the prompt. Scope determines which trees get analyzed; only the user can authorize that.
+
 First, print the workspace list so the user sees what's available:
 
 > Found **N workspaces** in this **{monorepo_type}** monorepo:
