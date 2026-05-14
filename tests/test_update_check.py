@@ -115,3 +115,19 @@ def test_check_silent_when_update_check_disabled(tmp_path, monkeypatch):
     uc.disable()
 
     assert uc.check() == ""
+
+
+def test_degenerate_marker_is_dropped_not_emitted(tmp_path, monkeypatch):
+    """A from==to marker (no real version change) must never surface as a
+    nonsensical 'JUST_UPGRADED X X' — it's dropped and consumed instead."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    uc = _update_check
+
+    archie = tmp_path / ".archie"
+    archie.mkdir(parents=True)
+    marker = archie / "just-upgraded.json"
+    # `at` far in the future so the grace-period check passes through to the guard.
+    marker.write_text(json.dumps({"from": "3.3.0", "to": "3.3.0", "at": 9999999999}))
+
+    assert uc._maybe_print_just_upgraded("3.3.0") is None
+    assert not marker.exists()  # degenerate marker consumed, not left to re-trigger

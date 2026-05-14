@@ -351,7 +351,9 @@ def write_from_disk(project_root: str | Path) -> Path | None:
     when the user has opted in. Failures here are silent — the local file is
     the source of truth and must always succeed.
     """
-    root = Path(project_root)
+    # Resolve so a direct caller passing a relative/symlinked path behaves the
+    # same as the legacy `--command --timing-file` path (which already resolves).
+    root = Path(project_root).resolve()
     state = _load_current_run(root)
     steps = state.get("steps") or []
     if not steps:
