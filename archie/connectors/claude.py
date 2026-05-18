@@ -19,7 +19,7 @@ from ..manifest import AgentDef, CommandDef, ConfigPatch, HookDef
 from .base import Connector
 
 
-ASSETS_ROOT = Path(__file__).resolve().parent.parent / "assets"
+ASSETS_ROOT = Path(os.environ.get("ARCHIE_ASSETS_ROOT") or (Path(__file__).resolve().parent.parent / "assets"))
 HOOK_SCRIPTS_DIR = ASSETS_ROOT / "hook_scripts"
 
 
