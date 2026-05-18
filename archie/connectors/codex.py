@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from pathlib import Path
 
 from ..manifest import AgentDef, CommandDef, ConfigPatch, HookDef
@@ -27,6 +26,13 @@ _EVENT_NAME_CODEX = {
     "post-tool-use": "PostToolUse",
     "user-prompt-submit": "UserPromptSubmit",
     "stop": "Stop",
+}
+
+_MATCHER_NAME_CODEX = {
+    "Edit|Write|MultiEdit": "^apply_patch$",
+    "Bash": "^Bash$",
+    "Glob|Grep": "^(Glob|Grep)$",
+    "ExitPlanMode": "^ExitPlanMode$",
 }
 
 
@@ -53,9 +59,10 @@ class CodexConnector(Connector):
         # at the canonical body installed at .archie/prompts/<name>.md.
         dest = project_root / ".agents" / "skills" / cmd.name / "SKILL.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
+        body_path = _codex_command_body_path(cmd)
         dest.write_text(
             f"---\nname: {cmd.name}\ndescription: {cmd.description}\n---\n\n"
-            f"Read `{cmd.body_path}` in full and execute the instructions as written. "
+            f"Read `{body_path}` in full and execute the instructions as written. "
             f"The canonical body lives there so Claude Code, Codex, and Pi sessions all "
             f"follow the same workflow.\n"
         )
@@ -83,11 +90,14 @@ class CodexConnector(Connector):
         # the user started Codex from a subdirectory of the project.
         command_path = str((project_root / hook.script_path).resolve())
         bucket = config["hooks"].setdefault(event_key, [])
-        if not _codex_entry_present(bucket, hook.tool_match, command_path):
-            bucket.append({
-                "matcher": hook.tool_match or "*",
+        matcher = _codex_matcher(hook.tool_match)
+        if not _codex_entry_present(bucket, matcher, command_path):
+            entry = {
                 "hooks": [{"type": "command", "command": command_path, "timeout": 30}],
-            })
+            }
+            if matcher is not None:
+                entry["matcher"] = matcher
+            bucket.append(entry)
 
         hooks_path.parent.mkdir(parents=True, exist_ok=True)
         hooks_path.write_text(json.dumps(config, indent=2) + "\n")
@@ -95,12 +105,15 @@ class CodexConnector(Connector):
     def install_agent(self, project_root: Path, agent: AgentDef) -> None:
         dest = project_root / ".codex" / "agents" / f"{agent.name}.toml"
         dest.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path = (project_root / _codex_agent_prompt_path(agent)).resolve()
+        project_root_abs = project_root.resolve()
         lines = [
             f'name = "{_toml_string(agent.name)}"',
             f'description = "{_toml_string(agent.description)}"',
             (
                 'developer_instructions = """'
-                f'Read and follow {agent.prompt_path} in full. '
+                f'Project root: {project_root_abs}. '
+                f'Read {project_root_abs / "AGENTS.md"} first if it exists, then read and follow {prompt_path} in full. '
                 f'You are the {agent.name} sub-agent for Archie deep-scan."""'
             ),
             f'sandbox_mode = "{_toml_string(agent.sandbox_mode)}"',
@@ -124,14 +137,30 @@ class CodexConnector(Connector):
 
 
 def _codex_entry_present(bucket: list, matcher: str | None, command: str) -> bool:
-    needle = matcher or "*"
     for entry in bucket:
-        if entry.get("matcher") != needle:
+        if entry.get("matcher") != matcher:
             continue
         for h in entry.get("hooks", []):
             if h.get("command") == command:
                 return True
     return False
+
+
+def _codex_matcher(tool_match: str | None) -> str | None:
+    if tool_match is None:
+        return None
+    return _MATCHER_NAME_CODEX.get(tool_match, tool_match)
+
+
+def _codex_command_body_path(cmd: CommandDef) -> str:
+    if cmd.name == "archie-deep-scan":
+        return ".archie/prompts/codex/skill_archie_deep_scan.md"
+    return cmd.body_path
+
+
+def _codex_agent_prompt_path(agent: AgentDef) -> str:
+    basename = Path(agent.prompt_path).name
+    return f".archie/prompts/codex/{basename}"
 
 
 def _toml_string(value: str) -> str:
@@ -153,64 +182,104 @@ def _toml_serialize_value(value: object) -> str:
     raise TypeError(f"Unsupported TOML value type: {type(value).__name__}")
 
 
-_TOP_LEVEL_KEY_RE = re.compile(r"^([A-Za-z0-9_\-]+)\s*=\s*(.*)$", re.MULTILINE)
+_TOP_LEVEL_KEY_RE = re.compile(r"^([A-Za-z0-9_\-]+)\s*=\s*(.*)$")
 
 
 def _toml_set_top_level(content: str, key: str, value: object) -> str:
-    """Set a top-level TOML key in `content`, preserving any preceding table
-    sections. For list-of-string values, union with existing entries if present.
+    """Set a top-level TOML key in `content`.
 
-    Constraints:
-    - Only operates on top-level (pre-first-table) keys. If the key lives under
-      a [section], this won't find it.
-    - Does NOT handle inline-table value types or multi-line arrays.
-    These are the keys Archie patches (project_doc_max_bytes, project_doc_fallback_filenames);
-    both are top-level scalars/arrays per Codex docs.
+    The Codex installer only patches two top-level keys, but users may already
+    have the same key nested in another section or formatted as a multi-line
+    array. This setter keeps the file idempotent by:
+    - updating an existing top-level assignment when present
+    - moving a misplaced section-level assignment to the top level
+    - unioning string-array values without duplicating entries
     """
-    # Compute the "header region" — everything before the first [section] line.
-    header_end = len(content)
-    for m in re.finditer(r"^\[", content, flags=re.MULTILINE):
-        header_end = m.start()
-        break
-    header = content[:header_end]
-    tail = content[header_end:]
+    entries = _find_toml_assignments(content, key)
+    top_level = next((e for e in entries if e["scope"] == "top"), None)
+    section_level = next((e for e in entries if e["scope"] == "section"), None)
+    existing = top_level or section_level
 
-    # Look for an existing assignment to `key` in the header.
-    existing_match = None
-    for m in _TOP_LEVEL_KEY_RE.finditer(header):
-        if m.group(1) == key:
-            existing_match = m
-            break
-
-    if existing_match is None:
-        # Append a new line at end of header
-        prefix = header
-        if prefix and not prefix.endswith("\n"):
-            prefix += "\n"
-        new_line = f"{key} = {_toml_serialize_value(value)}\n"
-        return prefix + new_line + tail
-
-    # Existing line: union arrays of strings; otherwise replace verbatim.
-    raw_value = existing_match.group(2).strip()
-    if isinstance(value, list) and raw_value.startswith("["):
-        existing_items = _parse_inline_str_array(raw_value)
+    new_value = value
+    if existing and isinstance(value, list):
+        existing_items = _parse_inline_str_array(existing["raw_value"].strip())
         merged = list(existing_items)
-        for v in value:
-            if isinstance(v, str) and v not in merged:
-                merged.append(v)
-        new_assignment = f"{key} = {_toml_serialize_value(merged)}"
-    else:
-        new_assignment = f"{key} = {_toml_serialize_value(value)}"
+        for item in value:
+            if item not in merged:
+                merged.append(item)
+        new_value = merged
 
-    start, end = existing_match.span()
-    return content[:start] + new_assignment + content[end:]
+    new_assignment = f"{key} = {_toml_serialize_value(new_value)}"
+    if not existing:
+        return _insert_top_level_assignment(content, new_assignment)
+
+    replacement = new_assignment
+    if existing["end"] > existing["start"] and content[existing["end"] - 1: existing["end"]] == "\n":
+        replacement += "\n"
+    updated = content[: existing["start"]] + replacement + content[existing["end"] :]
+    if existing["scope"] == "top":
+        return updated
+
+    without_section_assignment = content[: existing["start"]] + content[existing["end"] :]
+    return _insert_top_level_assignment(without_section_assignment, new_assignment)
 
 
 _STR_ITEM_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
 def _parse_inline_str_array(raw: str) -> list[str]:
-    if not raw.startswith("[") or "]" not in raw:
+    normalized = raw.strip()
+    if not normalized.startswith("[") or "]" not in normalized:
         return []
-    inner = raw[1: raw.rindex("]")]
+    inner = normalized[1: normalized.rindex("]")]
     return [m.group(1).replace('\\"', '"').replace("\\\\", "\\") for m in _STR_ITEM_RE.finditer(inner)]
+
+
+def _insert_top_level_assignment(content: str, assignment: str) -> str:
+    section_match = re.search(r"^\[", content, flags=re.MULTILINE)
+    insert_at = section_match.start() if section_match else len(content)
+    head = content[:insert_at]
+    tail = content[insert_at:]
+    if head and not head.endswith("\n"):
+        head += "\n"
+    if head and not head.endswith("\n\n") and tail:
+        head += "\n"
+    return head + assignment + "\n" + tail
+
+
+def _find_toml_assignments(content: str, key: str) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    pos = 0
+    scope = "top"
+    lines = content.splitlines(keepends=True)
+    while pos < len(content) and lines:
+        line = lines.pop(0)
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            scope = "section"
+            pos += len(line)
+            continue
+
+        match = _TOP_LEVEL_KEY_RE.match(line)
+        if not match or match.group(1) != key:
+            pos += len(line)
+            continue
+
+        start = pos
+        raw_value = match.group(2)
+        end = pos + len(line)
+        if raw_value.lstrip().startswith("[") and "]" not in raw_value:
+            while lines:
+                next_line = lines.pop(0)
+                raw_value += next_line
+                end += len(next_line)
+                if "]" in next_line:
+                    break
+        entries.append({
+            "scope": scope,
+            "start": start,
+            "end": end,
+            "raw_value": raw_value,
+        })
+        pos = end
+    return entries
