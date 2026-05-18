@@ -20,7 +20,7 @@ npx @bitraptors/archie /path/to/your/project
 
 ![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
-This copies Archie's standalone scripts and shared assets into your project, delegates to the Python connector loop to install shims for every detected CLI, builds the local viewer bundle (one-time, ~45s — cached by version), delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code or Codex — the first Archie command you run there asks once whether to share anonymous usage telemetry (opt-in) when the harness supports prompting.
+This copies Archie's standalone scripts, Claude Code commands, and the `/archie-deep-scan` skill subtree into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, builds the local viewer bundle (one-time, ~45s — cached by version), delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code — the first Archie command you run there asks once whether to share anonymous usage telemetry (opt-in).
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
 
@@ -35,13 +35,11 @@ Use `--commands-dir` to install command files to a custom directory (default: `.
 Archie ships a connector-based install loop that targets all three CLIs from one command. Each CLI gets shims in its native idiom — Claude reads `.claude/commands/*.md`, Codex parent-walks `.agents/skills/*/SKILL.md`, Pi loads a TS extension at `.pi/extensions/archie-hooks.ts` — but they all reference the same canonical bodies at `.archie/prompts/` and the same canonical hook scripts at `.archie/hooks/`. One install, one source of truth.
 
 ```bash
-npx @bitraptors/archie /path/to/project             # Installs for every detected CLI automatically
-
 pip install archie-cli                              # Python package install
-python3 -m archie.install /path/to/project          # Direct Python entrypoint using the same connector code
+npx @bitraptors/archie /path/to/project             # Bundles .archie/ scripts + viewer
+python3 -m archie.install /path/to/project          # Detects ~/.claude, ~/.codex, ~/.pi/agent
+                                                    # and installs shims for each detected CLI
 ```
-
-`npx @bitraptors/archie` now stages the shared Archie assets and then delegates to the Python install loop internally, so users do not need a second manual step for Codex. `python3 -m archie.install` remains the direct alternative when Archie is installed as a Python package.
 
 `python3 -m archie.install` accepts `--target=auto|claude|codex|pi|all` or a comma-separated subset. Auto-detect inspects each CLI's home directory; pass `--target=all` to install for every supported CLI regardless of detection.
 
