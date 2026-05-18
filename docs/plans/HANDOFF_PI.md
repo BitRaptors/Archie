@@ -151,6 +151,30 @@ These are declared by NOT including them in `capabilities`. The install loop res
 
 If Q-P2 reveals that Pi DOES support more events, simply add them to `capabilities` and extend the TS template's handler list. Zero other code changes.
 
+## Validation findings
+
+Validated on Pi CLI 0.75.3 (`/opt/homebrew/bin/pi`) on 2026-05-18.
+
+### Q-P1 — extension discovery
+
+Pi auto-discovers project-local extensions from `<project>/.pi/extensions/*.ts`. Evidence: `discoverAndLoadExtensions([], cwd)` loaded `/private/tmp/pi-validation/.pi/extensions/archie-hooks.ts` with no errors and registered `tool_call`; `pi list` only reports settings-installed packages and remains `No packages installed`, so it is not the right signal for project-local auto-discovery. No `pi install` step is required.
+
+### Q-P2 — lifecycle event ceiling
+
+The installed `ExtensionAPI` type exposes many events, including `tool_call`, `tool_result`, `before_agent_start`, `input`, session events, turn/message events, and model events. Archie currently claims only `hooks:pre-tool-use` for Pi because only `tool_call` is semantically equivalent to a blocking pre-tool hook. We intentionally do **not** claim Claude/Codex parity for `post-tool-use`, `user-prompt-submit`, or `stop` until those hooks are mapped to Pi-native event semantics and validated separately.
+
+### Q-P3 — module resolution
+
+No local `node_modules` is required. Pi's extension loader provides `@earendil-works/pi-coding-agent` as a bundled alias/virtual module; loading the rendered Archie extension from `.pi/extensions/archie-hooks.ts` succeeded with only the copied `package.json` present.
+
+### Q-P4 — handler returns and denial shape
+
+`tool_call` handlers may be synchronous or async; Pi awaits handler results. The working denial shape is `{ block: true, reason }`, not Claude-style `{ decision: "deny" }`. The Archie template uses `spawnSync` and returns synchronously on the blocking path. Real-session evidence: in `/tmp/pi-validation`, a blocking rule on `forbidden/**` caused `pi --mode json --tools write --print ...` to emit a `tool_execution_end` with `isError: true` and the Archie BLOCKED reason, and `forbidden/test.txt` was not created. An allowed write to `allowed.txt` succeeded.
+
+### Q-P5 — sequential deep-scan wall-clock
+
+Attempted on `/tmp/BabyWeather.Android.pi` (rsync copy of `BabyWeather.Android`) after a fresh Archie install. The first run with the configured OpenAI Codex provider failed after 18.89s with `usage_limit_reached` (429; primary usage 100%). A fallback run with `google/gemini-2.5-flash` failed because the available Google key was invalid for the Generative Language API. No trustworthy Pi-vs-Codex wall-clock ratio was produced in this session; the Pi body is therefore shipped as the conservative sequential implementation, and Q-P5 remains the only benchmark item to rerun once provider quota is available.
+
 ## Workflow
 
 1. `git checkout feature/agent_connectors && git pull`
