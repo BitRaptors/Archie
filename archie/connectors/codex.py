@@ -48,17 +48,16 @@ class CodexConnector(Connector):
         return Path.home() / ".codex"
 
     def install_command(self, project_root: Path, cmd: CommandDef) -> None:
-        # Both Codex and Pi parent-walk .agents/skills/<name>/SKILL.md — see Q1 probe.
+        # Codex (and Pi via inheritance) parent-walk .agents/skills/<name>/SKILL.md
+        # — verified by Q1 probe 2026-05-15. SKILL.md is a thin shim that points
+        # at the canonical body installed at .archie/prompts/<name>.md.
         dest = project_root / ".agents" / "skills" / cmd.name / "SKILL.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        # Pull the canonical Codex body when available; otherwise pointer-only.
-        body_src = ASSETS_ROOT / "prompts" / "codex" / f"{cmd.name}.md"
-        if body_src.exists():
-            body = body_src.read_text()
-        else:
-            body = f"Read and follow `{cmd.body_path}` exactly as written.\n"
         dest.write_text(
-            f"---\nname: {cmd.name}\ndescription: {cmd.description}\n---\n\n{body}"
+            f"---\nname: {cmd.name}\ndescription: {cmd.description}\n---\n\n"
+            f"Read `{cmd.body_path}` in full and execute the instructions as written. "
+            f"The canonical body lives there so Claude Code, Codex, and Pi sessions all "
+            f"follow the same workflow.\n"
         )
 
     def install_hook(self, project_root: Path, hook: HookDef) -> None:

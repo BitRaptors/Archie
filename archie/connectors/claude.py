@@ -46,16 +46,18 @@ class ClaudeConnector(Connector):
         return Path.home() / ".claude"
 
     def install_command(self, project_root: Path, cmd: CommandDef) -> None:
-        # Stage 1 deferred work: per-CLI body consolidation is not done yet.
-        # When archie/assets/prompts/claude/<name>.md exists, copy it.
-        # Otherwise the existing .claude/commands/<name>.md from the npm-package
-        # distribution is the canonical body (legacy path until consolidation).
-        src = ASSETS_ROOT / "prompts" / "claude" / f"{cmd.name}.md"
-        if not src.exists():
-            return  # body still lives elsewhere; legacy distribution handles it
+        # Claude's slash commands at .claude/commands/<name>.md are thin shims
+        # pointing at the canonical body (.archie/prompts/skill_archie_<name>.md
+        # copied by the install loop). Same shape as Codex's SKILL.md, modulo
+        # Claude's frontmatter conventions.
         dest = project_root / ".claude" / "commands" / f"{cmd.name}.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dest)
+        dest.write_text(
+            f"---\ndescription: {cmd.description}\n---\n\n"
+            f"Read `{cmd.body_path}` in full and execute the instructions as written. "
+            f"The canonical body lives there so Claude Code, Codex, and Pi sessions all "
+            f"follow the same workflow.\n"
+        )
 
     def install_hook(self, project_root: Path, hook: HookDef) -> None:
         script_name = Path(hook.script_path).name

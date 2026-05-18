@@ -10,6 +10,8 @@ Archie scans your repo, builds a structured blueprint of decisions and pitfalls,
 
 Works with any language. Zero runtime dependencies for standalone scripts.
 
+**Multi-CLI support (new in 3.0):** Archie also targets [OpenAI Codex CLI](https://developers.openai.com/codex/cli) and [Earendil Pi](https://pi.dev) as peer agents to Claude Code. All three CLIs read identical Archie outputs (blueprint, rules, per-folder context) and run the same Python analysis pipeline. The same canonical hook scripts power in-session enforcement in Claude (`.claude/settings.json`), Codex (`.codex/hooks.json`), and Pi (`.pi/extensions/archie-hooks.ts` — a TS extension that shells out to the same shell scripts). See "Multi-CLI install" below.
+
 ## Install
 
 ```bash
@@ -27,6 +29,34 @@ The installer performs a clean install — it removes old scripts, hooks, and co
 npx @bitraptors/archie /path/to/project --commands-dir .agents/skills
 ```
 Use `--commands-dir` to install command files to a custom directory (default: `.claude/commands/`).
+
+## Multi-CLI install (Claude + Codex + Pi)
+
+Archie ships a connector-based install loop that targets all three CLIs from one command. Each CLI gets shims in its native idiom — Claude reads `.claude/commands/*.md`, Codex parent-walks `.agents/skills/*/SKILL.md`, Pi loads a TS extension at `.pi/extensions/archie-hooks.ts` — but they all reference the same canonical bodies at `.archie/prompts/` and the same canonical hook scripts at `.archie/hooks/`. One install, one source of truth.
+
+```bash
+pip install archie-cli                              # Python package install
+npx @bitraptors/archie /path/to/project             # Bundles .archie/ scripts + viewer
+python3 -m archie.install /path/to/project          # Detects ~/.claude, ~/.codex, ~/.pi/agent
+                                                    # and installs shims for each detected CLI
+```
+
+`python3 -m archie.install` accepts `--target=auto|claude|codex|pi|all` or a comma-separated subset. Auto-detect inspects each CLI's home directory; pass `--target=all` to install for every supported CLI regardless of detection.
+
+**What each CLI gets:**
+
+| Capability | Claude | Codex | Pi |
+|---|---|---|---|
+| Slash commands / skills (scan, deep-scan, intent-layer, viewer, share) | ✅ | ✅ | ✅ |
+| In-session pre-edit enforcement | ✅ PreToolUse Edit/Write | ✅ PreToolUse apply_patch | ✅ TS extension on tool_call |
+| Post-tool, user-prompt-submit, stop hooks | ✅ | ✅ | ❌ Pi extension API ceiling |
+| Parallel sub-agent fan-out (deep-scan Wave 1) | ✅ Agent tool | ✅ spawn_agents_on_csv | ❌ runs sequentially |
+| Git pre-commit gate | ✅ | ✅ | ✅ |
+| Per-folder context (CLAUDE.md / AGENTS.md) | ✅ | ✅ (installer config-patches Codex's fallback list) | ✅ |
+
+Pi's feature drops are limits of its extension API, not design choices. The same canonical `.archie/hooks/*.sh` scripts run under all three CLIs — Pi's TS extension is glue that shells out to them.
+
+Architecture spec: [`docs/plans/2026-05-18-multi-agent-connector-architecture.md`](docs/plans/2026-05-18-multi-agent-connector-architecture.md).
 
 ## Commands
 

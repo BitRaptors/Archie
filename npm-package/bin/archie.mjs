@@ -431,6 +431,9 @@ console.log(`  2. Run ${BOLD}/archie-scan${RESET} for a fast architecture health
 console.log(`  3. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
 console.log(`  ${DIM}Usage: npx @bitraptors/archie [path] [--commands-dir dir]${RESET}`);
 console.log("");
+console.log(`  ${DIM}Codex / Pi users: ${RESET}${BOLD}python3 -m archie.install $PWD --target=auto${RESET}`);
+console.log(`  ${DIM}(requires pip install archie-cli; auto-detects Claude/Codex/Pi and writes shims for each)${RESET}`);
+console.log("");
 console.log(`  ${DIM}Telemetry: the first Archie command you run in Claude Code asks once${RESET}`);
 console.log(`  ${DIM}whether to share anonymous usage data (opt-in). Nothing is sent until then.${RESET}`);
 console.log("");
