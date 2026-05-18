@@ -177,3 +177,20 @@ The current `.claude/commands/archie-deep-scan.md` is Claude-specific (uses Clau
 
 - Full interactive proof of a denied `apply_patch` after `/hooks` approval remains manual. The session clearly surfaces the review gate, but I did not complete that approval flow programmatically inside this harness.
 - Full live proof that `spawn_agents_on_csv` completes with Archie’s named agents remains incomplete. The connector is now set up to survive missing cwd / AGENTS inheritance, but the nested Codex batch did not emit a results CSV during this validation run.
+
+## Architecture restoration
+
+I removed the Codex-specific installer implementation from `npm-package/bin/archie.mjs`. That included the JS hook tables, matcher translation, agent tables, TOML merge helpers, Codex skill writers, Codex hook writers, Codex agent writers, and the direct Codex config patcher. `archie.mjs` now stages shared assets into `.archie/`, copies a bundled `.archie/_install_pkg/`, and delegates CLI shim installation to `python3 -m _install_pkg.install --target=auto`.
+
+I added:
+- env-var-aware asset roots in `archie/install.py` (`ARCHIE_ASSETS_ROOT`, `ARCHIE_STANDALONE_ROOT`)
+- a bundled `npm-package/assets/_install_pkg/` mirror of `archie/install.py`, `archie/manifest*.py`, and `archie/connectors/*.py`
+- a new `verify_sync.py` check that enforces byte-equality between `archie/*` and `npm-package/assets/_install_pkg/*`
+- a delegated npm install flow that still produces Claude and Codex repo artifacts from one `npx @bitraptors/archie` run
+
+Validation outcomes after the restoration:
+- `python3 scripts/verify_sync.py` → PASS
+- `pytest tests/test_connector_contract.py -v` via the existing Archie validation venv → `17 passed`
+- fresh npm install into `/tmp/test-claude` → PASS for Claude shims, hooks, settings, deep-scan skill subtree, shared `.archie/*` assets, Codex `.agents/skills/*`, Codex `.codex/hooks.json`, and Codex `.codex/agents/*.toml`
+- `~/.codex/config.toml` verified patched with `project_doc_max_bytes = 131072` and `project_doc_fallback_filenames = ["CLAUDE.md"]`
+- grep checks for residual JS Codex implementation and `install_hooks.py` call in `archie.mjs` → both returned zero matches
