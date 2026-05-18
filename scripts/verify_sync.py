@@ -228,6 +228,35 @@ def check_archie_asset_mirrors(errors: list[str]) -> None:
                 )
 
 
+def check_install_pkg_mirror(errors: list[str]) -> None:
+    """Verify npm-package/assets/_install_pkg mirrors the canonical installer code."""
+    mirrors = {
+        "install.py": ROOT / "archie" / "install.py",
+        "manifest.py": ROOT / "archie" / "manifest.py",
+        "manifest_data.py": ROOT / "archie" / "manifest_data.py",
+        "connectors/__init__.py": ROOT / "archie" / "connectors" / "__init__.py",
+        "connectors/base.py": ROOT / "archie" / "connectors" / "base.py",
+        "connectors/claude.py": ROOT / "archie" / "connectors" / "claude.py",
+        "connectors/codex.py": ROOT / "archie" / "connectors" / "codex.py",
+        "connectors/pi.py": ROOT / "archie" / "connectors" / "pi.py",
+    }
+    install_pkg = ASSETS / "_install_pkg"
+    if not install_pkg.is_dir():
+        errors.append("npm-package/assets/_install_pkg/ missing")
+        return
+    init_py = install_pkg / "__init__.py"
+    if not init_py.exists():
+        errors.append("npm-package/assets/_install_pkg/__init__.py missing")
+    elif init_py.read_text() != "":
+        errors.append("npm-package/assets/_install_pkg/__init__.py must stay empty")
+    for rel, src in mirrors.items():
+        dst = install_pkg / rel
+        if not dst.exists():
+            errors.append(f"npm-package/assets/_install_pkg/{rel} missing")
+        elif src.read_bytes() != dst.read_bytes():
+            errors.append(f"OUT OF SYNC: {src.relative_to(ROOT)} != npm-package/assets/_install_pkg/{rel}")
+
+
 def main():
     errors = []
 
@@ -334,6 +363,7 @@ def main():
     # 8. Check: share/viewer/ build inputs are mirrored into npm-package/assets/viewer/
     check_viewer_source_mirror(errors)
     check_archie_asset_mirrors(errors)
+    check_install_pkg_mirror(errors)
 
     # Report
     if errors:
