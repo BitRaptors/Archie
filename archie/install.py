@@ -1,0 +1,135 @@
+"""Install loop — drives all registered connectors for a project install.
+
+Called from npm-package/bin/archie.mjs as:
+    python3 -m archie.install <project_root> [--target=auto|claude|codex|pi|all]
+
+Stage 2 work. See docs/plans/2026-05-18-multi-agent-connector-architecture.md §11.
+"""
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+from pathlib import Path
+
+from .connectors import ALL_CONNECTORS
+from .connectors.base import Connector
+from .manifest_data import AGENTS, COMMANDS, CONFIG_PATCHES, HOOKS
+
+
+ASSETS_ROOT = Path(__file__).resolve().parent / "assets"
+
+
+def _resolve_targets(requested: list[str] | None, connectors: list[Connector]) -> list[Connector]:
+    if not requested or requested == ["auto"]:
+        return [c for c in connectors if c.detect()]
+    if requested == ["all"]:
+        return list(connectors)
+    named = {c.name: c for c in connectors}
+    selected = []
+    for name in requested:
+        if name not in named:
+            print(f"Unknown target: {name}. Known: {sorted(named)}", file=sys.stderr)
+            sys.exit(2)
+        selected.append(named[name])
+    return selected
+
+
+def _copy_canonical_assets(project_root: Path) -> None:
+    """Copies archie/assets/{prompts,hook_scripts,...} into <project>/.archie/."""
+    dest_archie = project_root / ".archie"
+    dest_archie.mkdir(parents=True, exist_ok=True)
+
+    # Hook scripts: <project>/.archie/hooks/*.sh (canonical, all CLIs reference these)
+    src_hooks = ASSETS_ROOT / "hook_scripts"
+    if src_hooks.exists():
+        dest_hooks = dest_archie / "hooks"
+        dest_hooks.mkdir(parents=True, exist_ok=True)
+        for sh in src_hooks.glob("*.sh"):
+            target = dest_hooks / sh.name
+            shutil.copyfile(sh, target)
+            target.chmod(0o755)
+
+    # Prompts (when populated by Stage 1+): <project>/.archie/prompts/
+    src_prompts = ASSETS_ROOT / "prompts"
+    if src_prompts.exists() and any(src_prompts.iterdir()):
+        dest_prompts = dest_archie / "prompts"
+        if dest_prompts.exists():
+            shutil.rmtree(dest_prompts)
+        shutil.copytree(src_prompts, dest_prompts)
+
+
+def _install_git_pre_commit(project_root: Path) -> None:
+    """Universal git pre-commit hook — runs validators before commit.
+
+    Stage 1 stub: writes to .git/hooks/pre-commit.archie (non-clobbering;
+    user wires it into their pre-commit chain). Full implementation
+    deferred — see Q-A2 in the design doc.
+    """
+    git_hooks = project_root / ".git" / "hooks"
+    if not git_hooks.exists():
+        return  # not a git repo or hooks dir absent
+    archie_hook = git_hooks / "pre-commit.archie"
+    archie_hook.write_text(
+        "#!/usr/bin/env bash\n"
+        '# Archie git pre-commit gate. Add this to your pre-commit chain:\n'
+        '#   echo \'bash .git/hooks/pre-commit.archie\' >> .git/hooks/pre-commit\n'
+        'PROJECT_ROOT="$(git rev-parse --show-toplevel)"\n'
+        'if [ -f "$PROJECT_ROOT/.archie/validate.py" ]; then\n'
+        '    python3 "$PROJECT_ROOT/.archie/validate.py" all "$PROJECT_ROOT" --pre-commit\n'
+        'fi\n'
+    )
+    archie_hook.chmod(0o755)
+
+
+def install(project_root: Path, requested: list[str] | None = None) -> None:
+    selected = _resolve_targets(requested, ALL_CONNECTORS)
+    if not selected:
+        print(
+            "No supported CLI detected. Install one of:\n"
+            "  Claude Code: https://docs.claude.com/claude-code\n"
+            "  Codex CLI:   https://developers.openai.com/codex/cli\n"
+            "  Pi:          https://pi.dev",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    _copy_canonical_assets(project_root)
+    _install_git_pre_commit(project_root)
+
+    for conn in selected:
+        for cmd in COMMANDS:
+            conn.install_command(project_root, cmd)
+        for hook in HOOKS:
+            if conn.supports_event(hook.event):
+                conn.install_hook(project_root, hook)
+        if "agents" in conn.capabilities:
+            for agent in AGENTS:
+                conn.install_agent(project_root, agent)
+        if "config-patch" in conn.capabilities:
+            conn.patch_config([p for p in CONFIG_PATCHES if p.cli == conn.name])
+        conn.finalize(project_root)
+        print(f"installed for {conn.name}", file=sys.stderr)
+
+
+def _parse_targets(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    return [t.strip() for t in value.split(",") if t.strip()]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="archie.install")
+    parser.add_argument("project_root", type=Path)
+    parser.add_argument(
+        "--target",
+        default="auto",
+        help="auto | claude | codex | pi | all | comma-separated subset",
+    )
+    args = parser.parse_args()
+    install(args.project_root.resolve(), _parse_targets(args.target))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
