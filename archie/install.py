@@ -48,6 +48,12 @@ _STANDALONE_SCRIPTS = [
 ]
 
 
+def _replace_tree(src: Path, dest: Path) -> None:
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
+
+
 def _copy_canonical_assets(project_root: Path) -> None:
     """Copies archie/assets/* and archie/standalone/*.py into <project>/.archie/."""
     dest_archie = project_root / ".archie"
@@ -67,9 +73,13 @@ def _copy_canonical_assets(project_root: Path) -> None:
     src_prompts = ASSETS_ROOT / "prompts"
     if src_prompts.exists() and any(src_prompts.iterdir()):
         dest_prompts = dest_archie / "prompts"
-        if dest_prompts.exists():
-            shutil.rmtree(dest_prompts)
-        shutil.copytree(src_prompts, dest_prompts)
+        _replace_tree(src_prompts, dest_prompts)
+
+    # Viewer source: shared by the local viewer sidecar and the share flow.
+    src_viewer = ASSETS_ROOT / "viewer"
+    if src_viewer.exists() and any(src_viewer.iterdir()):
+        dest_viewer = dest_archie / "viewer"
+        _replace_tree(src_viewer, dest_viewer)
 
     # Analysis pipeline scripts — needed by every SKILL body. Sourced from
     # archie/standalone/ (the canonical Python module location), copied to
@@ -83,6 +93,29 @@ def _copy_canonical_assets(project_root: Path) -> None:
             target = dest_archie / name
             shutil.copyfile(src, target)
             target.chmod(0o755)
+
+    # Data files consumed by scanner / hooks / viewer.
+    for name in ("platform_rules.json",):
+        src = ASSETS_ROOT / name
+        if not src.exists():
+            continue
+        shutil.copyfile(src, dest_archie / name)
+
+    # Default ignore config is installed once and then left to the user.
+    for src_name, dest_name in (
+        ("archieignore.default", ".archieignore"),
+        ("archiebulk.default", ".archiebulk"),
+    ):
+        src = ASSETS_ROOT / src_name
+        dest = project_root / dest_name
+        if src.exists() and not dest.exists():
+            shutil.copyfile(src, dest)
+
+    # Claude deep-scan still routes through its modular skill subtree.
+    src_skills = ASSETS_ROOT / "skills" / "archie-deep-scan"
+    if src_skills.exists() and any(src_skills.iterdir()):
+        dest_skills = project_root / ".claude" / "skills" / "archie-deep-scan"
+        _replace_tree(src_skills, dest_skills)
 
 
 def _install_git_pre_commit(project_root: Path) -> None:

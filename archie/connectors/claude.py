@@ -1,9 +1,9 @@
 """ClaudeConnector — installs Archie for Claude Code.
 
 Writes:
-  .claude/commands/archie-*.md       — slash command bodies (or thin pointers, depending on Stage 1 progress)
+  .claude/commands/archie-*.md        — slash command shims
   .claude/hooks/*.sh                  — hook scripts (copies from archie/assets/hook_scripts/)
-  .claude/settings.json               — hook bindings + permissions
+  .claude/settings.local.json         — hook bindings + permissions
 
 See docs/plans/2026-05-18-multi-agent-connector-architecture.md §9.1.
 """
@@ -74,12 +74,12 @@ class ClaudeConnector(Connector):
         shutil.copyfile(src, dest)
         dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-        # Register in .claude/settings.json
+        # Register in .claude/settings.local.json
         event_key = _EVENT_NAME_CLAUDE.get(hook.event)
         if event_key is None:
             return  # pre-commit handled separately by the install loop
 
-        settings_path = project_root / ".claude" / "settings.json"
+        settings_path = project_root / ".claude" / "settings.local.json"
         settings: dict = {}
         if settings_path.exists():
             try:
