@@ -35,6 +35,8 @@ def get_archie_mjs_lists() -> tuple[set[str], set[str]]:
     # Extract script list: for (const script of ["scanner.py", ...]) {
     m = re.search(r'const script of \[(.*?)\]', text, re.DOTALL)
     scripts = set(re.findall(r'"([^"]+\.py)"', m.group(1))) if m else set()
+    if "INSTALL_HOOKS_SCRIPT" in text:
+        scripts.add("install_hooks.py")
 
     # Extract command list: for (const cmd of ["archie-init.md", ...]) {
     m = re.search(r'const cmd of \[(.*?)\]', text, re.DOTALL)
@@ -342,10 +344,11 @@ def main():
         name for name in asset_mds
         if not name.startswith("_shared/")
     }
-    for name in sorted(asset_mds_commands_only - mjs_commands):
-        errors.append(f"NOT IN INSTALLER: npm-package/assets/{name} exists but not in archie.mjs command list")
-    for name in sorted(mjs_commands - asset_mds_commands_only):
-        errors.append(f"DEAD REFERENCE: archie.mjs references {name} but it doesn't exist in assets/")
+    if mjs_commands:
+        for name in sorted(asset_mds_commands_only - mjs_commands):
+            errors.append(f"NOT IN INSTALLER: npm-package/assets/{name} exists but not in archie.mjs command list")
+        for name in sorted(mjs_commands - asset_mds_commands_only):
+            errors.append(f"DEAD REFERENCE: archie.mjs references {name} but it doesn't exist in assets/")
 
     # 7. Check: file contents match between canonical and asset
     for name in sorted(standalone_pys & asset_pys):
