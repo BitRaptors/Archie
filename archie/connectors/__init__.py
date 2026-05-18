@@ -12,9 +12,11 @@ for ownership per connector:
 """
 from .base import Connector
 from .claude import ClaudeConnector
+from .codex import CodexConnector
+from .pi import PiConnector
 
 ALL_CONNECTORS: list[Connector] = [
     ClaudeConnector(),
-    # CodexConnector(),   — Stage 3
-    # PiConnector(),      — Stage 4-5
+    CodexConnector(),
+    PiConnector(),
 ]
