@@ -153,8 +153,8 @@ def _codex_matcher(tool_match: str | None) -> str | None:
 
 
 def _codex_command_body_path(cmd: CommandDef) -> str:
-    if cmd.name == "archie-deep-scan":
-        return ".archie/prompts/codex/skill_archie_deep_scan.md"
+    if cmd.name in {"archie-scan", "archie-deep-scan"}:
+        return f".archie/prompts/codex/skill_{cmd.name.replace('-', '_')}.md"
     return cmd.body_path
 
 
