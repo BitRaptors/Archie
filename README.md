@@ -35,13 +35,17 @@ Use `--commands-dir` to install command files to a custom directory (default: `.
 Archie ships a connector-based install loop that targets all three CLIs from one command. Each CLI gets shims in its native idiom — Claude reads `.claude/commands/*.md`, Codex parent-walks `.agents/skills/*/SKILL.md`, Pi loads a TS extension at `.pi/extensions/archie-hooks.ts` — but they all reference the same canonical bodies at `.archie/prompts/` and the same canonical hook scripts at `.archie/hooks/`. One install, one source of truth.
 
 ```bash
-pip install archie-cli                              # Python package install
-npx @bitraptors/archie /path/to/project             # Bundles .archie/ scripts + viewer
-python3 -m archie.install /path/to/project          # Detects ~/.claude, ~/.codex, ~/.pi/agent
-                                                    # and installs shims for each detected CLI
+# npx — recommended. Bundles .archie/ scripts + viewer AND auto-detects every
+# installed CLI under ~/.claude, ~/.codex, ~/.pi/agent and writes shims for each.
+npx @bitraptors/archie /path/to/project
+
+# pip alternative — installs the archie-cli Python package, then runs the
+# connector-based install loop directly.
+pip install archie-cli
+python3 -m archie.install /path/to/project [--target=auto|claude|codex|pi|all]
 ```
 
-`python3 -m archie.install` accepts `--target=auto|claude|codex|pi|all` or a comma-separated subset. Auto-detect inspects each CLI's home directory; pass `--target=all` to install for every supported CLI regardless of detection.
+Both paths run the **same Python connector loop** under the hood — `npx` invokes it after copying the bundled scripts; `python3 -m archie.install` runs it from the pip-installed package. The connector code (`archie/connectors/*.py`) is the single source of truth. The `--target` flag accepts `auto` (default, detects each CLI's home directory), `all` (force every supported CLI), or a comma-separated subset.
 
 **What each CLI gets:**
 
