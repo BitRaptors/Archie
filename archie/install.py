@@ -8,6 +8,7 @@ Stage 2 work. See docs/plans/2026-05-18-multi-agent-connector-architecture.md §
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -17,7 +18,9 @@ from .connectors.base import Connector
 from .manifest_data import AGENTS, COMMANDS, CONFIG_PATCHES, HOOKS
 
 
-ASSETS_ROOT = Path(__file__).resolve().parent / "assets"
+PACKAGE_ROOT = Path(__file__).resolve().parent
+ASSETS_ROOT = Path(os.environ.get("ARCHIE_ASSETS_ROOT") or (PACKAGE_ROOT / "assets"))
+STANDALONE_ROOT = Path(os.environ.get("ARCHIE_STANDALONE_ROOT") or (PACKAGE_ROOT / "standalone"))
 
 
 def _resolve_targets(requested: list[str] | None, connectors: list[Connector]) -> list[Connector]:
@@ -84,10 +87,9 @@ def _copy_canonical_assets(project_root: Path) -> None:
     # Analysis pipeline scripts — needed by every SKILL body. Sourced from
     # archie/standalone/ (the canonical Python module location), copied to
     # <project>/.archie/<name>.py at install time.
-    standalone_dir = Path(__file__).resolve().parent / "standalone"
-    if standalone_dir.is_dir():
+    if STANDALONE_ROOT.is_dir():
         for name in _STANDALONE_SCRIPTS:
-            src = standalone_dir / name
+            src = STANDALONE_ROOT / name
             if not src.exists():
                 continue
             target = dest_archie / name
