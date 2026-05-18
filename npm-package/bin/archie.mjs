@@ -287,6 +287,27 @@ for (const dataFile of ["platform_rules.json"]) {
   }
 }
 
+// 3b². Copy canonical asset subdirs into .archie/ so install_hooks.py
+// (sibling) and the Connector-based installers (Codex/Pi) find them.
+// Maps source subdirs to deployed subdirs:
+//   npm-package/assets/hook_scripts/  → .archie/hooks/        (sibling to install_hooks.py)
+//   npm-package/assets/prompts/       → .archie/prompts/      (referenced by SKILL shims)
+//   npm-package/assets/pi_extension/  → .archie/pi_extension/ (Pi TS template + manifest)
+const ASSET_SUBDIR_MAP = [
+  ["hook_scripts", "hooks"],
+  ["prompts",      "prompts"],
+  ["pi_extension", "pi_extension"],
+];
+for (const [src_name, dest_name] of ASSET_SUBDIR_MAP) {
+  const src = join(ASSETS, src_name);
+  if (existsSync(src)) {
+    const dest = join(archieDir, dest_name);
+    if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
+    cpDirSync(src, dest);
+    console.log(`  ${GREEN}✓${RESET} .archie/${dest_name}/ (canonical asset subtree)`);
+  }
+}
+
 // 3e. Copy share/viewer/ source into target's .archie/viewer/ for install-time build.
 function cpDirSync(src, dest) {
   mkdirSync(dest, { recursive: true });

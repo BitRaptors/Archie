@@ -79,8 +79,10 @@ class CodexConnector(Connector):
             except (json.JSONDecodeError, OSError):
                 config = {"hooks": {}}
 
+        # Use an absolute command path so the hook fires regardless of whether
+        # the user started Codex from a subdirectory of the project.
+        command_path = str((project_root / hook.script_path).resolve())
         bucket = config["hooks"].setdefault(event_key, [])
-        command_path = hook.script_path  # ".archie/hooks/<name>.sh" — installed at project root
         if not _codex_entry_present(bucket, hook.tool_match, command_path):
             bucket.append({
                 "matcher": hook.tool_match or "*",

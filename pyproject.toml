@@ -56,7 +56,16 @@ Issues = "https://github.com/BitRaptors/archie/issues"
 include = ["archie*"]
 
 [tool.setuptools.package-data]
-archie = ["py.typed"]
+archie = [
+    "py.typed",
+    "assets/README.md",
+    "assets/prompts/*.md",
+    "assets/prompts/_shared/*.md",
+    "assets/hook_scripts/*.sh",
+    "assets/pi_extension/*.template",
+    "assets/pi_extension/*.json",
+    "assets/codex_agents/*.template",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

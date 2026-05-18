@@ -35,8 +35,21 @@ def _resolve_targets(requested: list[str] | None, connectors: list[Connector]) -
     return selected
 
 
+_STANDALONE_SCRIPTS = [
+    # Analysis pipeline (referenced by SKILL bodies via `python3 .archie/<name>`)
+    "scanner.py", "renderer.py", "validate.py", "intent_layer.py",
+    "finalize.py", "merge.py", "measure_health.py", "detect_cycles.py",
+    "drift.py", "extract_output.py", "arch_review.py", "align_check.py",
+    "check_rules.py", "code_shape.py", "rule_index.py", "lint_gate.py",
+    "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py",
+    "telemetry.py", "telemetry_sync.py", "analytics.py", "config.py",
+    "update_check.py", "upload.py", "share_setup.py", "refresh.py",
+    "viewer.py", "install_hooks.py", "_common.py",
+]
+
+
 def _copy_canonical_assets(project_root: Path) -> None:
-    """Copies archie/assets/{prompts,hook_scripts,...} into <project>/.archie/."""
+    """Copies archie/assets/* and archie/standalone/*.py into <project>/.archie/."""
     dest_archie = project_root / ".archie"
     dest_archie.mkdir(parents=True, exist_ok=True)
 
@@ -50,13 +63,26 @@ def _copy_canonical_assets(project_root: Path) -> None:
             shutil.copyfile(sh, target)
             target.chmod(0o755)
 
-    # Prompts (when populated by Stage 1+): <project>/.archie/prompts/
+    # Prompts: <project>/.archie/prompts/skill_archie_*.md + _shared/
     src_prompts = ASSETS_ROOT / "prompts"
     if src_prompts.exists() and any(src_prompts.iterdir()):
         dest_prompts = dest_archie / "prompts"
         if dest_prompts.exists():
             shutil.rmtree(dest_prompts)
         shutil.copytree(src_prompts, dest_prompts)
+
+    # Analysis pipeline scripts — needed by every SKILL body. Sourced from
+    # archie/standalone/ (the canonical Python module location), copied to
+    # <project>/.archie/<name>.py at install time.
+    standalone_dir = Path(__file__).resolve().parent / "standalone"
+    if standalone_dir.is_dir():
+        for name in _STANDALONE_SCRIPTS:
+            src = standalone_dir / name
+            if not src.exists():
+                continue
+            target = dest_archie / name
+            shutil.copyfile(src, target)
+            target.chmod(0o755)
 
 
 def _install_git_pre_commit(project_root: Path) -> None:

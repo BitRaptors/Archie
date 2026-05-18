@@ -19,7 +19,29 @@ import sys
 from pathlib import Path
 
 
-CANONICAL_HOOK_DIR = Path(__file__).resolve().parent.parent / "assets" / "hook_scripts"
+def _find_canonical_hook_dir() -> Path:
+    """Locate the canonical hook scripts directory across deployment contexts.
+
+    - Source repo: archie/standalone/install_hooks.py → archie/assets/hook_scripts/
+    - pip wheel:   same package layout (package_data ships archie/assets/)
+    - npm install: <project>/.archie/install_hooks.py + <project>/.archie/hooks/
+                   (Python install loop and archie.mjs both write here)
+    """
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here.parent / "assets" / "hook_scripts",  # source repo / pip wheel
+        here / "hooks",                            # npm-deployed: .archie/install_hooks.py + .archie/hooks/
+    ]
+    for c in candidates:
+        if c.is_dir():
+            return c
+    raise FileNotFoundError(
+        "Canonical hook scripts directory not found. Searched: "
+        + ", ".join(str(c) for c in candidates)
+    )
+
+
+CANONICAL_HOOK_DIR = _find_canonical_hook_dir()
 
 # Map hook filename → (settings.local.json event bucket, matcher).
 # Must stay in sync with archie/manifest_data.HOOKS so legacy callers wire the
