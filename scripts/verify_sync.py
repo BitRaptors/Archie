@@ -196,6 +196,37 @@ def check_archie_asset_mirrors(errors: list[str]) -> None:
         elif asset.exists() and backend.exists() and asset.read_bytes() != backend.read_bytes():
             errors.append(f"OUT OF SYNC: archie/assets/{name} != npm-package/assets/{name}")
 
+    backend_prompts = ARCHIE_ASSETS / "prompts"
+    asset_prompts = ASSETS / "prompts"
+    if backend_prompts.is_dir() and not asset_prompts.is_dir():
+        errors.append("npm-package/assets/prompts/ missing")
+    elif backend_prompts.is_dir() and asset_prompts.is_dir():
+        backend_files = sorted(
+            p.relative_to(backend_prompts).as_posix()
+            for p in backend_prompts.rglob("*")
+            if p.is_file() and p.name != ".DS_Store"
+        )
+        asset_files = sorted(
+            p.relative_to(asset_prompts).as_posix()
+            for p in asset_prompts.rglob("*")
+            if p.is_file() and p.name != ".DS_Store"
+        )
+        only_backend = set(backend_files) - set(asset_files)
+        only_asset = set(asset_files) - set(backend_files)
+        if only_backend:
+            errors.append(
+                "npm-package/assets/prompts/ missing files: " + ",".join(sorted(only_backend))
+            )
+        if only_asset:
+            errors.append(
+                "npm-package/assets/prompts/ has stale files: " + ",".join(sorted(only_asset))
+            )
+        for rel in sorted(set(backend_files) & set(asset_files)):
+            if (backend_prompts / rel).read_bytes() != (asset_prompts / rel).read_bytes():
+                errors.append(
+                    f"OUT OF SYNC: archie/assets/prompts/{rel} != npm-package/assets/prompts/{rel}"
+                )
+
 
 def main():
     errors = []

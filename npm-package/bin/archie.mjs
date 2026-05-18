@@ -10,6 +10,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ASSETS = join(__dirname, "..", "assets");
 
+const COMMANDS = [
+  ["archie-scan", "Architecture health check (1-3 min)."],
+  ["archie-deep-scan", "Comprehensive architecture baseline (15-20 min)."],
+  ["archie-intent-layer", "Generate per-folder CLAUDE.md context via bottom-up DAG."],
+  ["archie-viewer", "Open the blueprint inspector in the browser."],
+  ["archie-share", "Upload the blueprint and return a share link."],
+];
+
+const CODEX_HOOKS = [
+  ["PreToolUse", "Edit|Write|MultiEdit", ".archie/hooks/pre-validate.sh"],
+  ["PreToolUse", "Bash", ".archie/hooks/pre-commit-review.sh"],
+  ["PreToolUse", "Glob|Grep", ".archie/hooks/blueprint-nudge.sh"],
+  ["PostToolUse", "ExitPlanMode", ".archie/hooks/post-plan-review.sh"],
+  ["PostToolUse", "Edit|Write|MultiEdit", ".archie/hooks/post-lint.sh"],
+  ["UserPromptSubmit", null, ".archie/hooks/pre-turn.sh"],
+];
+
+const CODEX_MATCHERS = {
+  "Edit|Write|MultiEdit": "^apply_patch$",
+  "Bash": "^Bash$",
+  "Glob|Grep": "^(Glob|Grep)$",
+  "ExitPlanMode": "^ExitPlanMode$",
+};
+
+const CODEX_AGENTS = [
+  ["archie-wave1-structure", "Wave-1 structure pass: components, layers, file placement.", ".archie/prompts/codex/wave1_structure.md", null],
+  ["archie-wave1-patterns", "Wave-1 patterns pass: communication, design patterns, integrations.", ".archie/prompts/codex/wave1_patterns.md", null],
+  ["archie-wave1-technology", "Wave-1 technology pass: stack, deployment, dev rules.", ".archie/prompts/codex/wave1_technology.md", null],
+  ["archie-wave1-ui", "Wave-1 UI pass: components, state, routing (only when frontend_ratio >= 0.20).", ".archie/prompts/codex/wave1_ui.md", null],
+  ["archie-wave2-reasoning", "Wave-2 reasoning pass: synthesizes Wave-1 outputs into decision chain, pitfalls, trade-offs.", ".archie/prompts/codex/wave2_reasoning.md", "opus"],
+];
+
 const CYAN = "\x1b[36m";
 const GREEN = "\x1b[32m";
 const DIM = "\x1b[2m";
@@ -97,6 +129,91 @@ function buildLocalViewer(viewerDir, packageVersion) {
   return true;
 }
 
+function tomlString(value) {
+  return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+}
+
+function tomlSerializeValue(value) {
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") return Number.isInteger(value) ? `${value}` : `${value}`;
+  if (typeof value === "string") return `"${tomlString(value)}"`;
+  if (Array.isArray(value)) return `[${value.map(tomlSerializeValue).join(", ")}]`;
+  throw new Error(`Unsupported TOML value: ${value}`);
+}
+
+function parseInlineStringArray(raw) {
+  const normalized = raw.trim();
+  if (!normalized.startsWith("[") || !normalized.includes("]")) return [];
+  const inner = normalized.slice(1, normalized.lastIndexOf("]"));
+  return [...inner.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) =>
+    m[1].replaceAll("\\\"", "\"").replaceAll("\\\\", "\\")
+  );
+}
+
+function insertTopLevelAssignment(content, assignment) {
+  const sectionMatch = content.match(/^\[/m);
+  const insertAt = sectionMatch ? sectionMatch.index : content.length;
+  let head = content.slice(0, insertAt);
+  const tail = content.slice(insertAt);
+  if (head && !head.endsWith("\n")) head += "\n";
+  if (head && tail && !head.endsWith("\n\n")) head += "\n";
+  return `${head}${assignment}\n${tail}`;
+}
+
+function findTomlAssignments(content, key) {
+  const lines = content.match(/[^\n]*\n|[^\n]+/g) || [];
+  const entries = [];
+  let pos = 0;
+  let scope = "top";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const stripped = line.trim();
+    if (stripped.startsWith("[") && stripped.endsWith("]")) {
+      scope = "section";
+      pos += line.length;
+      continue;
+    }
+    const match = line.match(/^([A-Za-z0-9_\-]+)\s*=\s*(.*)$/);
+    if (!match || match[1] !== key) {
+      pos += line.length;
+      continue;
+    }
+    const start = pos;
+    let rawValue = match[2];
+    let end = pos + line.length;
+    while (rawValue.trimStart().startsWith("[") && !rawValue.includes("]") && i + 1 < lines.length) {
+      i += 1;
+      rawValue += lines[i];
+      end += lines[i].length;
+      if (lines[i].includes("]")) break;
+    }
+    entries.push({ scope, start, end, rawValue });
+    pos = end;
+  }
+  return entries;
+}
+
+function tomlSetTopLevel(content, key, value) {
+  const entries = findTomlAssignments(content, key);
+  const existing = entries.find((e) => e.scope === "top") || entries.find((e) => e.scope === "section");
+  let nextValue = value;
+  if (existing && Array.isArray(value)) {
+    const merged = [...parseInlineStringArray(existing.rawValue.trim())];
+    for (const item of value) {
+      if (!merged.includes(item)) merged.push(item);
+    }
+    nextValue = merged;
+  }
+  const assignment = `${key} = ${tomlSerializeValue(nextValue)}`;
+  if (!existing) return insertTopLevelAssignment(content, assignment);
+  const replacement = content.slice(existing.end - 1, existing.end) === "\n" ? `${assignment}\n` : assignment;
+  if (existing.scope === "top") {
+    return `${content.slice(0, existing.start)}${replacement}${content.slice(existing.end)}`;
+  }
+  const withoutSection = `${content.slice(0, existing.start)}${content.slice(existing.end)}`;
+  return insertTopLevelAssignment(withoutSection, assignment);
+}
+
 const args = process.argv.slice(2);
 let projectRootArg = ".";
 let commandsDirArg = null;
@@ -139,9 +256,14 @@ const commandsDirRel = commandsDirArg || ".claude/commands";
 const claudeSkills = join(projectRoot, ".claude", "skills");
 const skillsDirRel = ".claude/skills";
 const archieDir = join(projectRoot, ".archie");
+const codexSkillsDir = join(projectRoot, ".agents", "skills");
+const codexAgentsDir = join(projectRoot, ".codex", "agents");
+const codexHooksPath = join(projectRoot, ".codex", "hooks.json");
 mkdirSync(claudeCommands, { recursive: true });
 mkdirSync(claudeSkills, { recursive: true });
 mkdirSync(archieDir, { recursive: true });
+mkdirSync(codexSkillsDir, { recursive: true });
+mkdirSync(codexAgentsDir, { recursive: true });
 
 // 1b. Clean install — remove ALL previous Archie scripts, commands, and hooks
 //     before re-installing. Preserves user data files (blueprint.json, rules.json, etc.)
@@ -184,6 +306,24 @@ if (existsSync(claudeSkills)) {
   if (existsSync(skillDeepScanDir)) {
     try { rmSync(skillDeepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
   }
+}
+
+if (existsSync(codexSkillsDir)) {
+  for (const entry of readdirSync(codexSkillsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith("archie-")) continue;
+    try { rmSync(join(codexSkillsDir, entry.name), { recursive: true, force: true }); cleanedCount++; } catch {}
+  }
+}
+
+if (existsSync(codexAgentsDir)) {
+  for (const entry of readdirSync(codexAgentsDir)) {
+    if (!entry.startsWith("archie-") || !entry.endsWith(".toml")) continue;
+    try { unlinkSync(join(codexAgentsDir, entry)); cleanedCount++; } catch {}
+  }
+}
+
+if (existsSync(codexHooksPath)) {
+  try { unlinkSync(codexHooksPath); cleanedCount++; } catch {}
 }
 
 // Remove .claude/hooks/ entirely (will be regenerated by install_hooks.py)
@@ -229,6 +369,82 @@ function copyDirRecursive(srcDir, destDir) {
     }
   }
   return copied;
+}
+
+function codexBodyPath(commandName) {
+  const basename = `skill_${commandName.replaceAll("-", "_")}.md`;
+  const codexPath = join(ASSETS, "prompts", "codex", basename);
+  return existsSync(codexPath)
+    ? `.archie/prompts/codex/${basename}`
+    : `.archie/prompts/${basename}`;
+}
+
+function installCodexSkills() {
+  for (const [name, description] of COMMANDS) {
+    const destDir = join(codexSkillsDir, name);
+    mkdirSync(destDir, { recursive: true });
+    const bodyPath = codexBodyPath(name);
+    writeFileSync(
+      join(destDir, "SKILL.md"),
+      `---\nname: ${name}\ndescription: ${description}\n---\n\nRead \`${bodyPath}\` in full and execute the instructions as written. The canonical body lives there so Claude Code, Codex, and Pi sessions all follow the same workflow.\n`
+    );
+    console.log(`  ${GREEN}✓${RESET} .agents/skills/${name}/SKILL.md`);
+  }
+}
+
+function installCodexHooks() {
+  const config = { hooks: {} };
+  for (const [eventName, toolMatch, scriptPath] of CODEX_HOOKS) {
+    const bucket = config.hooks[eventName] || [];
+    const entry = {
+      hooks: [{ type: "command", command: resolve(projectRoot, scriptPath), timeout: 30 }],
+    };
+    const matcher = toolMatch ? (CODEX_MATCHERS[toolMatch] || toolMatch) : null;
+    if (matcher) entry.matcher = matcher;
+    bucket.push(entry);
+    config.hooks[eventName] = bucket;
+  }
+  mkdirSync(dirname(codexHooksPath), { recursive: true });
+  writeFileSync(codexHooksPath, JSON.stringify(config, null, 2) + "\n");
+  console.log(`  ${GREEN}✓${RESET} .codex/hooks.json`);
+}
+
+function installCodexAgents() {
+  for (const [name, description, promptPath, model] of CODEX_AGENTS) {
+    const absPrompt = resolve(projectRoot, promptPath);
+    const absRoot = resolve(projectRoot);
+    const lines = [
+      `name = "${tomlString(name)}"`,
+      `description = "${tomlString(description)}"`,
+      `developer_instructions = """Project root: ${absRoot}. Read ${join(absRoot, "AGENTS.md")} first if it exists, then read and follow ${absPrompt} in full. You are the ${name} sub-agent for Archie deep-scan."""`,
+      `sandbox_mode = "read-only"`,
+    ];
+    if (model) lines.push(`model = "${tomlString(model)}"`);
+    writeFileSync(join(codexAgentsDir, `${name}.toml`), lines.join("\n") + "\n");
+    console.log(`  ${GREEN}✓${RESET} .codex/agents/${name}.toml`);
+  }
+}
+
+function patchCodexConfig() {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (!home) return;
+  const codexDir = join(home, ".codex");
+  const configPath = join(codexDir, "config.toml");
+  let content = "";
+  try {
+    if (existsSync(configPath)) content = readFileSync(configPath, "utf8");
+  } catch {
+    content = "";
+  }
+  let updated = tomlSetTopLevel(content, "project_doc_max_bytes", 131072);
+  updated = tomlSetTopLevel(updated, "project_doc_fallback_filenames", ["CLAUDE.md"]);
+  try {
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(configPath, updated);
+    console.log(`  ${GREEN}✓${RESET} ~/.codex/config.toml patched`);
+  } catch {
+    console.log(`  ${DIM}⚠ could not patch ~/.codex/config.toml in this environment${RESET}`);
+  }
 }
 
 // 2. Copy Claude Code commands
@@ -308,6 +524,10 @@ for (const [src_name, dest_name] of ASSET_SUBDIR_MAP) {
   }
 }
 
+installCodexSkills();
+installCodexHooks();
+installCodexAgents();
+
 // 3e. Copy share/viewer/ source into target's .archie/viewer/ for install-time build.
 function cpDirSync(src, dest) {
   mkdirSync(dest, { recursive: true });
@@ -365,7 +585,7 @@ if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
 
 // 3d. Add .gitignore entries for Archie scripts (idempotent)
 const gitignorePath = join(projectRoot, ".gitignore");
-const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/skills/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n`;
+const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/skills/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/agents/archie-*.toml\n.codex/hooks.json\n`;
 
 let gitignoreContent = "";
 if (existsSync(gitignorePath)) {
@@ -400,6 +620,8 @@ if (hasPython) {
   console.log("");
   console.log(`  ⚠ python3 not found — hooks not installed, scanner needs Python 3.9+`);
 }
+
+patchCodexConfig();
 
 // 5. Telemetry consent is NOT asked here. An `npx` install can be
 //    non-interactive (CI, pipe, agent shell), so the prompt belongs where
@@ -447,15 +669,14 @@ console.log("");
 console.log(`${BOLD}  Installed!${RESET}`);
 console.log("");
 console.log(`  Next steps:`);
-console.log(`  1. Open this project in ${BOLD}Claude Code${RESET}`);
+console.log(`  1. Open this project in ${BOLD}Claude Code${RESET} or ${BOLD}Codex${RESET}`);
 console.log(`  2. Run ${BOLD}/archie-scan${RESET} for a fast architecture health check (1-3 min)`);
 console.log(`  3. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
 console.log(`  ${DIM}Usage: npx @bitraptors/archie [path] [--commands-dir dir]${RESET}`);
 console.log("");
-console.log(`  ${DIM}Codex / Pi users: ${RESET}${BOLD}python3 -m archie.install $PWD --target=auto${RESET}`);
-console.log(`  ${DIM}(requires pip install archie-cli; auto-detects Claude/Codex/Pi and writes shims for each)${RESET}`);
+console.log(`  ${DIM}This install writes Claude shims, Codex shims, shared Archie assets, and Codex config patches.${RESET}`);
 console.log("");
-console.log(`  ${DIM}Telemetry: the first Archie command you run in Claude Code asks once${RESET}`);
+console.log(`  ${DIM}Telemetry: the first Archie command you run asks once when the harness supports prompting.${RESET}`);
 console.log(`  ${DIM}whether to share anonymous usage data (opt-in). Nothing is sent until then.${RESET}`);
 console.log("");
 
