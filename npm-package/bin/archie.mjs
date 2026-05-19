@@ -122,9 +122,8 @@ Installs Archie tooling into the project at <path> (default: current directory).
   path                       Project directory to install into. Defaults to the cwd.
   --target=<spec>            Skip the interactive prompt and install for the given targets.
                              Values: auto | all | claude | codex | pi | comma-separated subset
-                             Default in interactive mode: all (3 CLIs)
-                             Default in non-interactive mode: auto (detected CLIs only)
-  -y, --yes, --non-interactive   Skip the interactive prompt (use the default).
+                             Default in both interactive and non-interactive modes: all
+  -y, --yes, --non-interactive   Skip the interactive prompt (uses the default 'all').
   --commands-dir <dir>       Legacy Claude-only override. Multi-CLI installs ignore it.
   -h, --help                 Show this help.`;
 
@@ -252,10 +251,13 @@ async function chooseTargets() {
   // 1. Explicit --target flag wins, always.
   if (targetArg) return targetArg;
 
-  // 2. Non-interactive (no TTY, or --yes flag) → safer default: auto.
-  //    Auto only writes shims for detected CLIs — won't surprise CI users
-  //    with extra .agents/ or .pi/ directories on Claude-only machines.
-  if (nonInteractive || !stdin.isTTY || !stdout.isTTY) return "auto";
+  // 2. Non-interactive (no TTY, or --yes flag) → same default as the
+  //    interactive prompt: 'all'. Keeps behavior consistent across modes —
+  //    whatever a user gets by pressing Enter in their terminal is also
+  //    what CI / scripted installs produce. The Archie section of
+  //    .gitignore covers the per-CLI shim paths, so a Claude-only machine
+  //    that gets Codex/Pi shims written doesn't pollute the repo.
+  if (nonInteractive || !stdin.isTTY || !stdout.isTTY) return "all";
 
   // 3. Interactive multi-select. Default = all 3 CLIs selected.
   const detected = detectCLIs();
