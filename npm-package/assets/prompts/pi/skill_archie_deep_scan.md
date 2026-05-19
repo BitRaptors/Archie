@@ -13,23 +13,107 @@ Run Archie’s deep scan end to end from Pi. Prefer the installed RPC-parallel a
 - Use the repository root as the working directory for every shell command.
 - Read `AGENTS.md` first if it exists. Treat it as required architectural context.
 
-## Fast path: RPC-parallel Wave 1
+## Fast path: RPC-parallel Wave 1 with automatic fallback
 
-First run:
+First run this guard block exactly. It attempts the RPC-parallel adapter, enforces a full-scan timeout (`ARCHIE_PI_RPC_TIMEOUT`, default 1200s), detects early hangs when the adapter produces no output for 60s, validates `.archie/blueprint.json`, deletes partial output on failure, and writes `/tmp/archie_pi_deep_scan_status.json`.
 
 ```bash
-python3 .archie/pi_parallel_deep_scan.py "$PWD"
+python3 - <<'PY'
+import json, os, subprocess, sys, time
+from pathlib import Path
+
+REQUIRED_BLUEPRINT_KEYS = [
+    "meta", "architecture_rules", "decisions", "components", "communication",
+    "quick_reference", "technology", "deployment", "frontend", "pitfalls",
+    "implementation_guidelines", "development_rules", "architecture_diagram",
+]
+root = Path.cwd()
+status_path = Path("/tmp/archie_pi_deep_scan_status.json")
+log_path = Path("/tmp/archie_pi_parallel_deep_scan.log")
+blueprint = root / ".archie" / "blueprint.json"
+started = time.time()
+full_timeout = int(os.environ.get("ARCHIE_PI_RPC_TIMEOUT", "1200"))
+first_output_timeout = 60
+reason = "unknown"
+
+def fail(msg):
+    global reason
+    reason = str(msg).replace("\n", " ")[:240]
+    try:
+        if blueprint.exists():
+            blueprint.unlink()
+    except OSError:
+        pass
+    status_path.write_text(json.dumps({
+        "path": "sequential",
+        "parallel_ok": False,
+        "reason": reason,
+        "elapsed": round(time.time() - started, 2),
+        "log": str(log_path),
+    }))
+    return 0
+
+try:
+    with log_path.open("w") as log:
+        proc = subprocess.Popen(
+            [sys.executable, ".archie/pi_parallel_deep_scan.py", str(root)],
+            cwd=str(root), stdout=log, stderr=subprocess.STDOUT, text=True,
+        )
+        first_output_deadline = time.time() + first_output_timeout
+        deadline = time.time() + full_timeout
+        saw_output = False
+        while proc.poll() is None:
+            if log_path.exists() and log_path.stat().st_size > 0:
+                saw_output = True
+            now = time.time()
+            if not saw_output and now > first_output_deadline:
+                proc.kill(); proc.wait(timeout=5)
+                raise TimeoutError(f"parallel adapter produced no output within {first_output_timeout}s")
+            if now > deadline:
+                proc.kill(); proc.wait(timeout=5)
+                raise TimeoutError(f"parallel adapter exceeded {full_timeout}s")
+            time.sleep(1)
+        if proc.returncode != 0:
+            raise RuntimeError(f"parallel adapter exited {proc.returncode}; see {log_path}")
+    if not blueprint.exists():
+        raise FileNotFoundError("parallel adapter exited 0 but .archie/blueprint.json is missing")
+    try:
+        data = json.loads(blueprint.read_text())
+    except Exception as exc:
+        raise ValueError(f"parallel adapter wrote malformed blueprint: {exc}")
+    missing = [k for k in REQUIRED_BLUEPRINT_KEYS if k not in data]
+    if missing:
+        raise ValueError(f"parallel adapter blueprint missing keys: {missing}")
+    status_path.write_text(json.dumps({
+        "path": "parallel",
+        "parallel_ok": True,
+        "reason": "",
+        "elapsed": round(time.time() - started, 2),
+        "log": str(log_path),
+    }))
+except Exception as exc:
+    fail(exc)
+PY
 ```
+
+Then inspect the status:
+
+```bash
+python3 - <<'PY'
+import json
+print(json.load(open('/tmp/archie_pi_deep_scan_status.json'))['path'])
+PY
+```
+
+If it prints `parallel`, skip the sequential fallback and finish with the diagnostic line `deep-scan completed via parallel adapter in Xs`, using the `elapsed` value from `/tmp/archie_pi_deep_scan_status.json`.
+
+If it prints `sequential`, continue immediately with the sequential fallback below. Do not stop and do not ask the user for a flag. At the end, include the diagnostic line `deep-scan completed via sequential fallback in Xs (parallel adapter failed: <one-line reason>)`, using the `reason` value from `/tmp/archie_pi_deep_scan_status.json`.
 
 Optional tuning:
 
 - Set `ARCHIE_PI_RPC_ARGS` to pass model/provider flags to child Pi workers, for example `ARCHIE_PI_RPC_ARGS="--provider anthropic --model sonnet"`.
-- Set `ARCHIE_PI_RPC_TIMEOUT` to increase per-worker timeout seconds.
+- Set `ARCHIE_PI_RPC_TIMEOUT` to increase the full adapter timeout seconds.
 - Edit `.archie/prompts/pi/deep_scan_jobs.json` when the Wave job list changes; prompt wording changes usually only require editing the referenced prompt files.
-
-If this command completes, do not repeat the sequential steps. Report that Pi used RPC-parallel Wave 1 and include the renderer/validator result.
-
-If it fails due to provider quota, model auth, invalid JSON, or child-process failure, report the error briefly and continue with the sequential fallback below.
 
 ## Sequential fallback
 
@@ -115,7 +199,8 @@ If validation fails, report the failing validator and the error output.
 
 Your final response must include:
 
-- that Wave 1 ran sequentially in Pi
-- whether each pass reported `saw_agents_md = true`
-- whether the pass `cwd` values matched the project root
+- whether the run completed via RPC-parallel adapter or sequential fallback
+- if sequential fallback ran: whether each pass reported `saw_agents_md = true`
+- if sequential fallback ran: whether the pass `cwd` values matched the project root
 - whether render and validation completed successfully
+- the one-line diagnostic: `deep-scan completed via parallel adapter in Xs` or `deep-scan completed via sequential fallback in Xs (parallel adapter failed: <one-line reason>)`
