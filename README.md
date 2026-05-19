@@ -6,11 +6,19 @@
 
 Your AI agent is fast on day 1. By week 3, it's putting files in the wrong layer, re-implementing helpers that already exist, and quietly drifting from the architecture you carefully explained at the start. The codebase erodes; the speed advantage fades.
 
-Archie scans your repo, builds a structured blueprint of decisions and pitfalls, and installs Claude Code hooks that block edits violating it. CLAUDE.md and AGENTS.md (root plus per-folder) load the architecture passively at session start; PreToolUse hooks are the active gate at edit time — when the agent tries to write a file that violates a decision, the hook exits with the rule plus the architectural reason, and the agent retries.
+Archie scans your repo, builds a structured blueprint of decisions and pitfalls, and installs coding-agent hooks that block edits violating it. CLAUDE.md and AGENTS.md (root plus per-folder) load the architecture passively at session start; pre-tool-use hooks are the active gate at edit time — when the agent tries to write a file that violates a decision, the hook exits with the rule plus the architectural reason, and the agent retries.
 
 Works with any language. Zero runtime dependencies for standalone scripts.
 
-**Multi-CLI support (new in 3.0):** Archie also targets [OpenAI Codex CLI](https://developers.openai.com/codex/cli) and [Earendil Pi](https://pi.dev) as peer agents to Claude Code. All three CLIs read identical Archie outputs (blueprint, rules, per-folder context) and run the same Python analysis pipeline. The same canonical hook scripts power in-session enforcement in Claude (`.claude/settings.json`), Codex (`.codex/hooks.json`), and Pi (`.pi/extensions/archie-hooks.ts` — a TS extension that shells out to the same shell scripts). See "Multi-CLI install" below.
+**Coding-agent harness support (new in 3.0):** Archie targets three CLIs through a single connector framework:
+
+| Harness | Status | How it integrates |
+|---|---|---|
+| **Claude Code** (Anthropic) | **stable** — primary target | `.claude/commands/*.md` shims, `.claude/settings.local.json` hooks, modular skill subtree |
+| [**OpenAI Codex CLI**](https://developers.openai.com/codex/cli) | **beta** | `.agents/skills/*/SKILL.md` shims, `.codex/hooks.json` with absolute paths, `.codex/agents/*.toml` named sub-agents, idempotent `~/.codex/config.toml` patch |
+| [**Earendil Pi**](https://pi.dev) | **beta** | `.pi/skills/*/SKILL.md` shims, `.pi/extensions/archie-hooks.ts` (TS extension wrapping the canonical shell scripts), RPC parallel adapter with sequential fallback |
+
+All three CLIs read identical Archie outputs (blueprint, rules, per-folder context) and run the same Python analysis pipeline. The same canonical hook scripts at `.archie/hooks/` power in-session enforcement in every CLI — one source of truth. See "Multi-CLI install" below.
 
 ## Install
 
@@ -32,7 +40,9 @@ Use `--commands-dir` to install command files to a custom directory (default: `.
 
 ## Multi-CLI install (Claude + Codex + Pi)
 
-Archie ships a connector-based install loop that targets all three CLIs from one command. Each CLI gets shims in its native idiom — Claude reads `.claude/commands/*.md`, Codex parent-walks `.agents/skills/*/SKILL.md`, Pi loads a TS extension at `.pi/extensions/archie-hooks.ts` — but they all reference the same canonical bodies at `.archie/prompts/` and the same canonical hook scripts at `.archie/hooks/`. One install, one source of truth.
+> **Status:** Claude Code is the stable, primary supported harness. **Codex CLI and Pi are in BETA** — the connector architecture is in place and end-to-end installs work, but some edge cases (Codex's interactive hook-trust gate, Pi RPC parallel deep-scan wall-clock against real provider quota) have not been validated against every provider/session configuration. Production use on Claude Code is recommended; treat Codex and Pi as preview.
+
+Archie ships a connector-based install loop that targets all three CLIs from one command. Each CLI gets shims in its native idiom — Claude reads `.claude/commands/*.md`, Codex parent-walks `.agents/skills/*/SKILL.md`, Pi reads `.pi/skills/*/SKILL.md` and loads a TS extension at `.pi/extensions/archie-hooks.ts` — but they all reference the same canonical bodies at `.archie/prompts/` and invoke the same canonical hook scripts at `.archie/hooks/`. One install, one source of truth.
 
 ```bash
 # npx — recommended. Bundles .archie/ scripts + viewer AND auto-detects every
@@ -45,22 +55,24 @@ pip install archie-cli
 python3 -m archie.install /path/to/project [--target=auto|claude|codex|pi|all]
 ```
 
-Both paths run the **same Python connector loop** under the hood — `npx` invokes it after copying the bundled scripts; `python3 -m archie.install` runs it from the pip-installed package. The connector code (`archie/connectors/*.py`) is the single source of truth. The `--target` flag accepts `auto` (default, detects each CLI's home directory), `all` (force every supported CLI), or a comma-separated subset.
+Both paths run the **same Python connector loop** under the hood — `npx` invokes it (via `python3 -m _install_pkg.install`) after copying the bundled scripts; `python3 -m archie.install` runs it from the pip-installed package. The connector code (`archie/connectors/*.py`) is the single source of truth. The `--target` flag accepts `auto` (default, detects each CLI's home directory), `all` (force every supported CLI), or a comma-separated subset.
 
-**What each CLI gets:**
+**What each CLI gets (user-visible parity):**
 
-| Capability | Claude | Codex | Pi |
+| Capability | Claude (stable) | Codex (beta) | Pi (beta) |
 |---|---|---|---|
-| Slash commands / skills (scan, deep-scan, intent-layer, viewer, share) | ✅ | ✅ | ✅ |
-| In-session pre-edit enforcement | ✅ PreToolUse Edit/Write | ✅ PreToolUse apply_patch | ✅ TS extension on tool_call |
-| Post-tool, user-prompt-submit, stop hooks | ✅ | ✅ | ❌ Pi extension API ceiling |
-| Parallel sub-agent fan-out (deep-scan Wave 1) | ✅ Agent tool | ✅ spawn_agents_on_csv | ❌ runs sequentially |
+| 5 slash commands / skills (scan, deep-scan, intent-layer, viewer, share) | ✅ | ✅ | ✅ |
+| In-session pre-edit enforcement | ✅ PreToolUse | ✅ PreToolUse `apply_patch` | ✅ TS extension on `tool_call` |
+| Pre-commit-review (Bash matcher) | ✅ | ✅ | ✅ via TS extension |
+| Blueprint-nudge on Glob/Grep | ✅ | ✅ | ✅ via TS extension |
+| Post-tool-use, user-prompt-submit, stop hooks | ✅ | ✅ | ✅ via Pi `tool_result` / `input` / `agent_end` events |
+| Parallel sub-agent fan-out (deep-scan Wave 1) | ✅ Agent tool | ✅ `spawn_agents_on_csv` | ✅ RPC parallel adapter with **automatic sequential fallback** |
 | Git pre-commit gate | ✅ | ✅ | ✅ |
-| Per-folder context (CLAUDE.md / AGENTS.md) | ✅ | ✅ (installer config-patches Codex's fallback list) | ✅ |
+| Per-folder context (CLAUDE.md / AGENTS.md) | ✅ | ✅ (installer auto-patches Codex's fallback list) | ✅ |
 
-Pi's feature drops are limits of its extension API, not design choices. The same canonical `.archie/hooks/*.sh` scripts run under all three CLIs — Pi's TS extension is glue that shells out to them.
+Implementation details differ per CLI but every CLI reaches the same user-facing outcome through the same shared `.archie/` pipeline. Codex auto-patches `~/.codex/config.toml` (`project_doc_max_bytes`, `project_doc_fallback_filenames`) so per-folder context reads correctly — non-destructive merge, preserves your existing keys. Pi's TS extension is glue: it routes Pi's lifecycle events to the same `.archie/hooks/*.sh` scripts that Claude and Codex invoke directly.
 
-Architecture spec: [`docs/plans/2026-05-18-multi-agent-connector-architecture.md`](docs/plans/2026-05-18-multi-agent-connector-architecture.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) → "Multi-Agent Connector Architecture" for the internal design.
 
 ## Commands
 
@@ -473,7 +485,7 @@ Every scan runs Tarjan's algorithm on the import graph to find strongly connecte
 
 ### Real-Time Enforcement
 
-Once installed via `npx @bitraptors/archie`, six hooks are registered:
+Once installed via `npx @bitraptors/archie`, seven hooks are wired up per detected CLI (Claude uses `.claude/settings.local.json`, Codex uses `.codex/hooks.json`, Pi uses `.pi/extensions/archie-hooks.ts` — all three invoke the same canonical scripts under `.archie/hooks/`):
 
 - **PreToolUse (Write|Edit|MultiEdit)** — `pre-validate.sh`. Two behaviors: (1) **rule injection** — prints every rule that applies to the file being edited (rules with `applies_to` prefix-matching the path, plus `always_inject: true` critical globals) with rationale, deduped per-turn; (2) **violation check** — blocks `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, and `file_naming` violations.
 - **UserPromptSubmit** — `pre-turn.sh`. Clears the per-turn rule-injection marker so applicable rules re-surface on the first write of each new user turn.
@@ -481,6 +493,7 @@ Once installed via `npx @bitraptors/archie`, six hooks are registered:
 - **PostToolUse (ExitPlanMode)** — `post-plan-review.sh`. After plan approval, triggers an architectural review of the plan.
 - **PreToolUse (Glob|Grep)** — `blueprint-nudge.sh`. Reminds the agent about project architecture before code exploration.
 - **PostToolUse (Write|Edit|MultiEdit)** — `post-lint.sh`. **Opt-in external linter gate**: when `.archie/enforcement.json` has `{"enabled": true}`, runs the project's native linter (ruff / eslint / golangci-lint / semgrep) on the changed file and blocks on failure. Auto-detects based on config files (`pyproject.toml [tool.ruff]`, `.eslintrc`, `.golangci.yaml`, `.semgrep.yml`) + binary on PATH. Silent no-op when config is missing.
+- **Stop** — `stop.sh`. Defensive cleanup at turn end: removes the per-turn rule-injection marker (`/tmp/.archie_turn_$HASH`) so any next session starts fresh. Harmless if the marker has already been cleared by `pre-turn.sh`.
 
 All hooks fail open: missing rules/config/marker files → hooks exit 0 silently. The installer also writes a comprehensive `allow` list (29 entries) into `.claude/settings.local.json` — covering Python script execution, git / sort / head / test / wc, temp files under `/tmp/archie_*`, reads/writes under `.archie/**`, per-folder CLAUDE.md, and `Agent(*)` for subagent spawning — so the scan workflow runs without permission prompts.
 
@@ -524,7 +537,12 @@ Each scan compares current scores against history to detect trends (improving, d
 
 - **Python 3.9+** for standalone scripts (installed via `npx @bitraptors/archie`, stdlib only, zero pip dependencies)
 - **Node.js 18+** for `npx @bitraptors/archie` installer
-- **Claude Code** for `/archie-scan`, `/archie-deep-scan`, `/archie-share`, and `/archie-viewer`
+- A supported coding-agent harness:
+  - **Claude Code** — stable, primary target
+  - **OpenAI Codex CLI** — beta
+  - **Earendil Pi** — beta
+
+  The same `archie-scan` / `archie-deep-scan` / `archie-intent-layer` / `archie-share` / `archie-viewer` commands run in all three harnesses with feature parity (subject to each harness's API ceiling — see the Multi-CLI install table above).
 
 The scan templates use only pre-installed CLI commands — no inline Python is written during scans. Every data operation has a dedicated subcommand: `measure_health.py --append-history`, `finalize.py --normalize-only`, `intent_layer.py inspect`, `extract_output.py save-duplications`, `extract_output.py recent-files`, and so on. Agents are explicitly forbidden from `python3 -c` one-liners.
 
@@ -567,13 +585,22 @@ archie/              Python package (CLI + engine + coordinator + standalone)
   cli/               Click CLI commands (init, refresh, status, check, serve)
   engine/            Local codebase analysis (scanner, imports, frameworks)
   coordinator/       2-wave AI pipeline (planner, runner, merger, prompts)
-  hooks/             Claude Code hook generation and enforcement
+  connectors/        Multi-agent harness adapters (base.py, claude.py, codex.py, pi.py) — one file per CLI
+  hooks/             Hook generation and enforcement logic
   renderer/          Output generation (CLAUDE.md, per-folder context)
   rules/             Legacy blueprint rule extractor (retired in v2.5.0; kept for tests)
-  standalone/        Zero-dependency scripts (30 files, copied to target projects via npm) — the canonical runtime path
+  standalone/        Zero-dependency scripts (31 files, copied to target projects) — canonical runtime path
+  assets/            Canonical assets shipped to installed projects: prompts/, hook_scripts/, pi_extension/
+    prompts/         5 SKILL bodies + _shared/ fragments (incl. Wave-1/2 sub-agent prompts) + codex/ + pi/ per-CLI overrides
+    hook_scripts/    7 canonical .sh hooks, invoked identically by all three CLIs
+    pi_extension/    TS extension template that wraps the canonical hook scripts for Pi
+  manifest.py        CommandDef / HookDef / ConfigPatch / AgentDef dataclasses
+  manifest_data.py   Single source of truth: 5 commands, 7 hooks, 2 config patches, 5 sub-agents
+  install.py         The connector-driven install loop entry point
 npm-package/         NPM distribution (npx @bitraptors/archie)
-  bin/archie.mjs     Installer entry point (clean install, viewer build, hooks, telemetry consent)
-  assets/            Canonical copies of standalone scripts + commands + deep-scan skill subtree + viewer source + archieignore/archiebulk defaults
+  bin/archie.mjs     Installer entry point — copies assets and delegates to the Python install loop
+  assets/            Verbatim copies of canonical assets + a bundled _install_pkg/ (the Python install loop in a self-contained package the npm installer runs)
+    _install_pkg/    Bundled Python install loop (byte-identical to archie/ — manifest, connectors, install.py)
 share/               Blueprint sharing ecosystem
   viewer/            React/Vite app — powers both the hosted viewer (archie-viewer.vercel.app) and the local /archie-viewer sidecar
   supabase/          Edge functions (upload, blueprint, telemetry-ingest) + migrations
