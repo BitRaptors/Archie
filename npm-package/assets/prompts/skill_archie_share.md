@@ -1,0 +1,185 @@
+# Archie Share — Upload Blueprint for Sharing
+
+Share your architecture blueprint via a URL. Useful for showing teammates, stakeholders, or clients an analysis of your codebase without needing them to install anything.
+
+**Prerequisites:** Requires `.archie/blueprint.json`. Run `/archie-scan` (or `/archie-deep-scan`) first if it doesn't exist.
+
+## Update notice (run before anything else, silent unless action needed)
+
+```bash
+python3 .archie/update_check.py check 2>/dev/null
+```
+
+If output is non-empty:
+- `UPGRADE_AVAILABLE old new` → mention once: `"Archie {new} is available (installed: {old}). Upgrade: npx @bitraptors/archie@latest \"$PWD\""`. Continue.
+- `JUST_UPGRADED old new` → say `"Archie upgraded {old} → {new}."` once, then continue.
+
+## Telemetry consent (one-time, run before anything else)
+
+Read and follow `.archie/prompts/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+
+## Pick upload target
+
+Before uploading, check whether an enterprise profile already exists:
+
+```bash
+test -f ~/.archie/share-profile.json && echo "PROFILE_EXISTS" || echo "PROFILE_MISSING"
+```
+
+Then ask the user which target to use. Present options based on whether a profile is set up — use `AskUserQuestion` (single-choice picker) consistently with the rest of Archie.
+
+If `PROFILE_EXISTS`:
+
+Call `AskUserQuestion`:
+- **question:** "Which share target?"
+- **header:** "Share"
+- **multiSelect:** false
+- **options** (exactly these four labels):
+  1. label `Default` — description `Upload to the BitRaptors share service (our Supabase). Fastest, one-click. Recommended for OSS / non-sensitive projects.`
+  2. label `Enterprise (stored)` — description `Upload to your pre-configured bucket at ~/.archie/share-profile.json. Fully automated. Data never touches BitRaptors infra.`
+  3. label `Enterprise (paste URL)` — description `Upload to any bucket via a fresh presigned PUT URL you provide now. Zero credentials stored.`
+  4. label `Manage profile` — description `Re-run setup with new credentials, or compose a request to InfoSec for a different bucket.`
+
+Map: `Default` → `MODE=default`. `Enterprise (stored)` → `MODE=enterprise-creds`. `Enterprise (paste URL)` → `MODE=enterprise-paste`. `Manage profile` → ask a follow-up `AskUserQuestion` with two options:
+- **question:** "What do you want to do?"
+- **header:** "Profile"
+- **multiSelect:** false
+- **options:**
+  1. label `Re-run setup` — description `Update ~/.archie/share-profile.json with new bucket + credentials. Loops back to the share target picker after.`
+  2. label `Ask InfoSec` — description `Compose a ready-to-paste request with CORS + IAM policy snippets tailored to your situation. No upload happens — for prepping a new bucket.`
+
+Map: `Re-run setup` → `MODE=setup`. `Ask InfoSec` → `MODE=ask-infosec`.
+
+If `PROFILE_MISSING`:
+
+Call `AskUserQuestion`:
+- **question:** "Which share target?"
+- **header:** "Share"
+- **multiSelect:** false
+- **options** (exactly these four labels):
+  1. label `Default` — description `Upload to the BitRaptors share service (our Supabase). Fastest, one-click. Recommended for OSS / non-sensitive projects.`
+  2. label `Enterprise (paste URL)` — description `Upload to any bucket via a presigned PUT URL you provide now. Zero credentials stored.`
+  3. label `Set up enterprise` — description `I already have bucket + AWS credentials from InfoSec. Store them in ~/.archie/share-profile.json for future use.`
+  4. label `Ask InfoSec` — description `Compose a ready-to-paste request with CORS + IAM policy snippets tailored to your situation. Use this if you don't have a bucket yet.`
+
+Map: `Default` → `MODE=default`. `Enterprise (paste URL)` → `MODE=enterprise-paste`. `Set up enterprise` → `MODE=setup`. `Ask InfoSec` → `MODE=ask-infosec`.
+
+### Handling the choice
+
+- **`Default`** → `MODE=default`. No extra flags. Proceed to "Resolve target blueprint".
+
+- **`Enterprise (stored)`** → `MODE=enterprise-creds`. No extra flags needed — upload.py reads `~/.archie/share-profile.json` directly.
+
+- **`Enterprise (paste URL)`** → Ask for two URLs:
+  > Paste the **PUT URL** (Archie uploads the blueprint JSON here):
+  >
+  > Paste the **GET URL** (viewer fetches from here; packed into the share URL's fragment):
+
+  Pass them as args on the upload.py command line. Double-quote them — presigned URLs contain `&` and `=`.
+
+- **`Set up enterprise`** or **`Re-run setup`** → Ask for bucket + credentials:
+  > Bucket name (e.g. `acme-archie-shares`):
+  >
+  > Region (e.g. `us-east-1`):
+  >
+  > Access key ID (AKIA…):
+  >
+  > Secret access key:
+  >
+  > Key prefix (default `archie-shares/`):
+
+  Then run setup, then loop back and ask the user which mode to use for this share:
+  ```bash
+  python3 .archie/share_setup.py --bucket "<BUCKET>" --region "<REGION>" --access-key-id "<AKID>" --secret-access-key "<SECRET>" --key-prefix "<PREFIX>"
+  ```
+  Security note: tell the user their credentials will appear in the command string for this shell invocation. For the highest security, they should edit `~/.archie/share-profile.json` directly instead — see `docs/enterprise-share-setup.md` for the JSON schema.
+
+- **`Ask InfoSec`** → Compose a tailored request. First ask the user 3 quick context questions (one at a time, OR as a batched prompt — whichever flows better):
+
+  > 1. Company / org name? (e.g. `Acme Corp` — used in the greeting and bucket name suggestion)
+  > 2. Preferred bucket name? (default: `<company>-archie-shares`, e.g. `acme-archie-shares`)
+  > 3. What cloud does your company use? (AWS S3 / Azure Blob / GCS / other S3-compatible)
+
+  Then compose a ready-to-paste message that the user can send to InfoSec via Slack/email/ticket. The message MUST include:
+
+  1. **Brief context** (1–2 sentences): what Archie is, why you're asking for a bucket, which specific InfoSec concern this solves (no BitRaptors infrastructure in the data path).
+  2. **The CORS policy they need to apply** — copy-paste JSON from `docs/enterprise-share-setup.md` Step 2, with `AllowedOrigins` set to `https://archie-viewer.vercel.app`.
+  3. **The IAM policy they need to apply** — copy-paste JSON from `docs/enterprise-share-setup.md` Step 3, with `Resource` ARN substituted to the user's proposed bucket name (e.g. `arn:aws:s3:::acme-archie-shares/archie-shares/*`).
+  4. **What InfoSec should send back** — bucket name, region, access key ID, secret access key (via 1Password or their secure channel).
+  5. **Data-flow summary for their security review**: "Archie uploads blueprint JSON to our bucket via sigv4-signed PUT. The share URL points at `archie-viewer.vercel.app` with a URL fragment (`#...`) carrying the presigned GET URL. Fragments are browser-only — never transmitted to any server. When a teammate opens the share, their browser fetches directly from our bucket. BitRaptors stores nothing and sees no data."
+  6. **Link to the full walkthrough** at `docs/enterprise-share-setup.md` for InfoSec to read if they want more detail.
+
+  Adapt phrasing to the chosen cloud (e.g. if Azure, mention SAS tokens instead of AWS credentials; if GCS, HMAC keys). For non-AWS clouds, flag that enterprise-creds mode currently supports only AWS S3 (and S3-compatible services) — for Azure / GCS, they'd use the **paste-URL** mode with a presigned PUT URL generated by InfoSec on demand.
+
+  Present the composed message in a fenced block so the user can copy it cleanly. After presenting, ask: *"Want me to loop back to the share target picker once you have the credentials, or are we done for now?"* If done, exit cleanly without uploading.
+
+  Do NOT proceed to upload when this option is picked — the user is preparing to ask InfoSec, not sharing right now.
+
+## Resolve target blueprint
+
+Read the persisted scope config to determine which blueprint(s) can be shared:
+
+```bash
+python3 .archie/intent_layer.py scan-config "$PWD" read
+```
+
+- **Exit 1 (no config) or scope is `single` or `whole`** → there's one blueprint at the repo root. Use `TARGET="$PWD"`.
+- **scope is `per-package`** → multiple workspace-level blueprints exist.
+  - If exactly one workspace is listed → use that one: `TARGET="$PWD/<workspace>"`.
+  - If multiple → ask the user which to share.
+    - **N ≤ 4 workspaces:** use `AskUserQuestion` with `multiSelect: true`. One option per workspace, label `<workspace-name>`, description `Path: <path>`. Map the user's checkbox picks to workspace paths.
+    - **N ≥ 5 workspaces:** `AskUserQuestion` caps at 4 — fall back to a free-form prompt:
+      > You have per-package blueprints in: `<workspace-1>`, `<workspace-2>`, ...
+      > Which one should I share? (number/name/`all`)
+    - If the user picks more than one (multi-select picks, or `all`), loop and upload each separately.
+- **scope is `hybrid`** → root has a monorepo-wide blueprint AND each listed workspace has its own.
+  - Ask the user which blueprints to share (they may want root + one workspace in the same share run).
+    - **(1 + N) ≤ 4 options** (root plus workspaces): use `AskUserQuestion` with `multiSelect: true`. First option label `Monorepo-wide (root)`, one option per workspace labeled by workspace name. Loop over the user's picks and upload each.
+    - **(1 + N) ≥ 5 options:** fall back to a free-form prompt:
+      > Share the monorepo-wide blueprint, or specific workspaces?
+      > Options: `root`, `<workspace-1>`, `<workspace-2>`, ... (comma-separated, or `all`)
+  - `root` → `TARGET="$PWD"`. Workspace name → `TARGET="$PWD/<workspace>"`.
+
+## Run
+
+For each resolved `TARGET`:
+
+**Default mode:**
+
+```bash
+python3 .archie/upload.py "$TARGET"
+```
+
+**Enterprise (stored credentials) mode:**
+
+```bash
+python3 .archie/upload.py "$TARGET" --mode enterprise-creds
+```
+
+**Enterprise (paste URL) mode** — pass the URLs as args in the same command so there's no env-var state to persist across tool calls:
+
+```bash
+python3 .archie/upload.py "$TARGET" --mode enterprise-paste --put-url "<PUT_URL>" --get-url "<GET_URL>"
+```
+
+Substitute the actual URLs the user pasted. Double-quote them — presigned URLs contain `&` and `=` that must not be shell-expanded.
+
+The script prints a shareable URL on success. For `all` mode in per-package, print one URL per workspace with a label (e.g., `apps/webui: <url>`).
+
+If the upload fails (network issues, server down, bucket misconfigured, expired presigned URL), your local blueprint is unaffected. Try again later — or in enterprise mode, ask InfoSec to mint fresh URLs.
+
+## Enterprise mode notes
+
+- The share URL returned looks like `https://archie-viewer.vercel.app/r/ext#<base64url-encoded-GET-URL>`. The GET URL lives in the URL fragment (`#...`), which browsers never transmit to any server. BitRaptors sees nothing about the share.
+- The viewer fetches directly from the GET URL. The customer's bucket must allow CORS from `https://archie-viewer.vercel.app` or the viewer shows a fetch error.
+- Presigned GET URLs expire (max 7 days on AWS S3 for IAM-user-signed URLs). When a share URL stops working, re-run `/archie-share` with fresh URLs from InfoSec.
+
+## Telemetry (run after upload completes, silent if opted out)
+
+After the share URL is printed, record an anonymous event so we can track adoption. The blueprint contents are NEVER sent through this channel — only the fact that a share happened, plus the project's stack categories.
+
+```bash
+python3 .archie/telemetry_sync.py record-event --command share --outcome success --project-root "$PWD" 2>/dev/null || true
+```
+
+If the upload failed, swap `success` for `error` and pass `--error <error_class>`.
