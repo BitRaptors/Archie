@@ -114,7 +114,6 @@ const args = process.argv.slice(2);
 let projectRootArg = ".";
 let commandsDirArg = null;
 let targetArg = null;
-let nonInteractive = false;
 
 const USAGE = `Usage: npx @bitraptors/archie [path] [options]
 
@@ -122,8 +121,7 @@ Installs Archie tooling into the project at <path> (default: current directory).
   path                       Project directory to install into. Defaults to the cwd.
   --target=<spec>            Skip the interactive prompt and install for the given targets.
                              Values: auto | all | claude | codex | pi | comma-separated subset
-                             Default in both interactive and non-interactive modes: all
-  -y, --yes, --non-interactive   Skip the interactive prompt (uses the default 'all').
+                             Default (interactive default + non-TTY fallback): all
   --commands-dir <dir>       Legacy Claude-only override. Multi-CLI installs ignore it.
   -h, --help                 Show this help.`;
 
@@ -139,8 +137,6 @@ for (let i = 0; i < args.length; i++) {
     i++;
   } else if (args[i].startsWith("--target=")) {
     targetArg = args[i].slice("--target=".length);
-  } else if (args[i] === "-y" || args[i] === "--yes" || args[i] === "--non-interactive") {
-    nonInteractive = true;
   } else if (args[i].startsWith("--")) {
     console.error(`Unknown flag: ${args[i]}\n\n${USAGE}`);
     process.exit(2);
@@ -251,13 +247,11 @@ async function chooseTargets() {
   // 1. Explicit --target flag wins, always.
   if (targetArg) return targetArg;
 
-  // 2. Non-interactive (no TTY, or --yes flag) → same default as the
-  //    interactive prompt: 'all'. Keeps behavior consistent across modes —
-  //    whatever a user gets by pressing Enter in their terminal is also
-  //    what CI / scripted installs produce. The Archie section of
-  //    .gitignore covers the per-CLI shim paths, so a Claude-only machine
-  //    that gets Codex/Pi shims written doesn't pollute the repo.
-  if (nonInteractive || !stdin.isTTY || !stdout.isTTY) return "all";
+  // 2. Non-TTY (CI, piped stdin) → same default as the interactive prompt:
+  //    'all'. Keeps behavior consistent across modes — whatever a user
+  //    gets by pressing Enter in their terminal is also what CI /
+  //    scripted installs produce.
+  if (!stdin.isTTY || !stdout.isTTY) return "all";
 
   // 3. Interactive multi-select. Default = all 3 CLIs selected.
   const detected = detectCLIs();

@@ -68,7 +68,7 @@ Both paths run the **same Python connector loop** under the hood — `npx` invok
       [✓] Earendil Pi       not detected  beta
 ```
 
-Press `enter` immediately to install for all 3. Or `space` to deselect anything you don't want. Pipe a non-TTY stdin (CI, scripts) or pass `--yes` / `-y` to skip the prompt — the default is **all 3** in both interactive and non-interactive modes (consistent behavior). Pass `--target=…` directly to override with a specific value (`auto` for detected-only, `claude,codex` for a subset, etc.).
+Press `enter` immediately to install for all 3. Or `space` to deselect anything you don't want. Pipe a non-TTY stdin (CI, scripts) and the prompt is skipped — the default is **all 3** in both interactive and non-TTY modes (consistent behavior). Pass `--target=…` to override with a specific value (`auto` for detected-only, `claude,codex` for a subset, etc.).
 
 **What each CLI gets (user-visible parity):**
 
