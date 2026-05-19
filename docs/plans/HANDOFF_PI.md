@@ -161,7 +161,7 @@ Pi auto-discovers project-local extensions from `<project>/.pi/extensions/*.ts`.
 
 ### Q-P2 — lifecycle event ceiling
 
-The installed `ExtensionAPI` type exposes many events, including `tool_call`, `tool_result`, `before_agent_start`, `input`, session events, turn/message events, and model events. Archie now claims the Pi events that map cleanly to its hook scripts: `hooks:pre-tool-use` via `tool_call`, `hooks:post-tool-use` via `tool_result`, and `hooks:user-prompt-submit` via `input`. We still do **not** claim a Claude/Codex `stop` equivalent: Pi has `agent_end` and `session_shutdown`, but neither was needed by the current hook manifest and neither has been validated as a direct semantic replacement for Claude's Stop hook.
+The installed `ExtensionAPI` type exposes many events, including `tool_call`, `tool_result`, `before_agent_start`, `input`, `agent_end`, session events, turn/message events, and model events. Archie now claims the Pi events that map cleanly to its hook scripts: `hooks:pre-tool-use` via `tool_call`, `hooks:post-tool-use` via `tool_result`, `hooks:user-prompt-submit` via `input`, and `hooks:stop` via `agent_end`. `agent_end` is the closest semantic match for Claude/Codex Stop in Archie's use case: run a non-blocking cleanup/finalization hook after an agent turn finishes.
 
 ### Q-P3 — module resolution
 
@@ -169,7 +169,7 @@ No local `node_modules` is required. Pi's extension loader provides `@earendil-w
 
 ### Q-P4 — handler returns and denial shape
 
-`tool_call` handlers may be synchronous or async; Pi awaits handler results. The working denial shape is `{ block: true, reason }`, not Claude-style `{ decision: "deny" }`. The Archie template uses `spawnSync` and returns synchronously on the blocking path. Real-session evidence: in `/tmp/pi-validation`, a blocking rule on `forbidden/**` caused `pi --mode json --tools write --print ...` to emit a `tool_execution_end` with `isError: true` and the Archie BLOCKED reason, and `forbidden/test.txt` was not created. An allowed write to `allowed.txt` succeeded. Follow-up audit corrected the earlier ceiling: Pi hooks are real extension events, not absent; Archie maps pre-tool, post-tool, and user-prompt hooks to Pi-native events while leaving only unsupported/unneeded stop semantics unclaimed.
+`tool_call` handlers may be synchronous or async; Pi awaits handler results. The working denial shape is `{ block: true, reason }`, not Claude-style `{ decision: "deny" }`. The Archie template uses `spawnSync` and returns synchronously on the blocking path. Real-session evidence: in `/tmp/pi-validation`, a blocking rule on `forbidden/**` caused `pi --mode json --tools write --print ...` to emit a `tool_execution_end` with `isError: true` and the Archie BLOCKED reason, and `forbidden/test.txt` was not created. An allowed write to `allowed.txt` succeeded. Follow-up audit corrected the earlier ceiling: Pi hooks are real extension events, not absent; Archie maps pre-tool, post-tool, user-prompt, and stop hooks to Pi-native events.
 
 ### Q-P5 — sequential deep-scan wall-clock
 

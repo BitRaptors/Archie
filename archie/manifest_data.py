@@ -79,6 +79,12 @@ HOOKS = [
         ".archie/hooks/pre-turn.sh",
         blocking=False,
     ),
+    HookDef(
+        "stop",
+        None,
+        ".archie/hooks/stop.sh",
+        blocking=False,
+    ),
 ]
 
 

@@ -20,6 +20,7 @@ class PiConnector(CodexConnector):
         "hooks:pre-tool-use",
         "hooks:post-tool-use",
         "hooks:user-prompt-submit",
+        "hooks:stop",
         "hooks:pre-commit",
     })
 

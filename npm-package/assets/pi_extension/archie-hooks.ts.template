@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ToolCallEvent, ToolResultEvent, InputEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolCallEvent, ToolResultEvent, InputEvent, AgentEndEvent } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "node:child_process";
 
 const HOOKS: Array<{
@@ -68,6 +68,14 @@ function runInputHook(hook: (typeof HOOKS)[number], event: InputEvent, cwd: stri
   }, cwd);
 }
 
+function runStopHook(hook: (typeof HOOKS)[number], event: AgentEndEvent, cwd: string) {
+  return runHook(hook.script_path, {
+    cwd,
+    message_count: event.messages.length,
+    hook_event_name: "Stop",
+  }, cwd);
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", (event, ctx) => {
     for (const hook of HOOKS) {
@@ -98,5 +106,12 @@ export default function (pi: ExtensionAPI) {
       runInputHook(hook, event, ctx.cwd);
     }
     return { action: "continue" };
+  });
+
+  pi.on("agent_end", (event, ctx) => {
+    for (const hook of HOOKS) {
+      if (hook.event !== "stop") continue;
+      runStopHook(hook, event, ctx.cwd);
+    }
   });
 }
