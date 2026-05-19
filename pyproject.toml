@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archie-cli"
-version = "3.0.0"
-description = "Architecture enforcement for AI coding agents — Claude Code, OpenAI Codex CLI, and Earendil Pi."
+version = "2.6.0"
+description = "Architecture enforcement for AI coding agents — Claude Code, OpenAI Codex CLI, and Pi."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
