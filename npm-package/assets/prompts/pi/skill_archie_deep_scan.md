@@ -5,7 +5,7 @@ description: Pi-native sequential deep scan for Archie. Runs scanner, four Wave-
 
 # Archie Deep Scan For Pi
 
-Run Archie’s deep scan end to end from Pi. Prefer the installed RPC-parallel adapter because Archie’s Wave-1 fan-out is performance-critical. The adapter is transparent to the rest of Archie: it runs the same scanner / renderer / validator pipeline and reads its job graph from `.archie/prompts/pi/deep_scan_jobs.json` plus the Wave prompts installed under `.archie/prompts/codex/`. If the adapter fails, use the sequential fallback below.
+Run Archie’s deep scan end to end from Pi. Prefer the installed RPC-parallel adapter because Archie’s Wave-1 fan-out is performance-critical. The adapter is transparent to the rest of Archie: it runs the same scanner / renderer / validator pipeline and reads its job graph from `.archie/prompts/pi/deep_scan_jobs.json` plus the Wave prompts installed under `.archie/prompts/pi/`. If the adapter fails, use the sequential fallback below.
 
 ## Preconditions
 
@@ -134,22 +134,22 @@ Read:
 - `AGENTS.md` if it exists
 - `.archie/scan.json`
 - `.archie/skeletons.json`
-- `.archie/prompts/codex/wave1_structure.md`
-- `.archie/prompts/codex/wave1_patterns.md`
-- `.archie/prompts/codex/wave1_technology.md`
-- `.archie/prompts/codex/wave1_ui.md`
-- `.archie/prompts/codex/wave2_reasoning.md`
+- `.archie/prompts/pi/wave1_structure.md`
+- `.archie/prompts/pi/wave1_patterns.md`
+- `.archie/prompts/pi/wave1_technology.md`
+- `.archie/prompts/pi/wave1_ui.md`
+- `.archie/prompts/pi/wave2_reasoning.md`
 
-The Wave prompt files are content-agnostic; they are reused by Pi even though they live in the `codex/` prompt subtree.
+The Wave prompt files are Pi-owned copies so Pi deep-scan stays independent from Codex prompt routing.
 
 ### Step 3: Run Wave 1 sequentially
 
 Perform exactly four local analysis passes, in this order:
 
-1. `archie-wave1-structure` — components, layers, file placement. Follow `.archie/prompts/codex/wave1_structure.md`.
-2. `archie-wave1-patterns` — communication, design patterns, integrations. Follow `.archie/prompts/codex/wave1_patterns.md`.
-3. `archie-wave1-technology` — stack, deployment, development rules. Follow `.archie/prompts/codex/wave1_technology.md`.
-4. `archie-wave1-ui` — UI components, state, routing, only if the scanner indicates a meaningful frontend/UI surface; otherwise record a skipped UI pass with the reason. Follow `.archie/prompts/codex/wave1_ui.md` when applicable.
+1. `archie-wave1-structure` — components, layers, file placement. Follow `.archie/prompts/pi/wave1_structure.md`.
+2. `archie-wave1-patterns` — communication, design patterns, integrations. Follow `.archie/prompts/pi/wave1_patterns.md`.
+3. `archie-wave1-technology` — stack, deployment, development rules. Follow `.archie/prompts/pi/wave1_technology.md`.
+4. `archie-wave1-ui` — UI components, state, routing, only if the scanner indicates a meaningful frontend/UI surface; otherwise record a skipped UI pass with the reason. Follow `.archie/prompts/pi/wave1_ui.md` when applicable.
 
 For each pass, write a JSON object with keys:
 
@@ -166,7 +166,7 @@ Save the four objects as a JSON array to `/tmp/archie_wave1_results.json`. Also 
 
 ### Step 4: Wave 2 synthesis
 
-Read `/tmp/archie_wave1_results.json`, scanner outputs, `AGENTS.md` if present, and `.archie/prompts/codex/wave2_reasoning.md`. Perform the reasoning pass locally and produce a structurally complete Archie blueprint JSON containing:
+Read `/tmp/archie_wave1_results.json`, scanner outputs, `AGENTS.md` if present, and `.archie/prompts/pi/wave2_reasoning.md`. Perform the reasoning pass locally and produce a structurally complete Archie blueprint JSON containing:
 
 - `meta`
 - `architecture_rules`

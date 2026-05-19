@@ -5,27 +5,27 @@
     {
       "agent": "archie-wave1-structure",
       "focus": "components layers and file placement",
-      "prompt_path": ".archie/prompts/codex/wave1_structure.md"
+      "prompt_path": ".archie/prompts/pi/wave1_structure.md"
     },
     {
       "agent": "archie-wave1-patterns",
       "focus": "communication design patterns and integrations",
-      "prompt_path": ".archie/prompts/codex/wave1_patterns.md"
+      "prompt_path": ".archie/prompts/pi/wave1_patterns.md"
     },
     {
       "agent": "archie-wave1-technology",
       "focus": "stack deployment and development rules",
-      "prompt_path": ".archie/prompts/codex/wave1_technology.md"
+      "prompt_path": ".archie/prompts/pi/wave1_technology.md"
     },
     {
       "agent": "archie-wave1-ui",
       "focus": "ui components state routing and frontend-specific structure",
-      "prompt_path": ".archie/prompts/codex/wave1_ui.md"
+      "prompt_path": ".archie/prompts/pi/wave1_ui.md"
     }
   ],
   "wave2": {
     "agent": "archie-wave2-reasoning",
     "focus": "synthesize Wave-1 outputs into an Archie blueprint",
-    "prompt_path": ".archie/prompts/codex/wave2_reasoning.md"
+    "prompt_path": ".archie/prompts/pi/wave2_reasoning.md"
   }
 }
