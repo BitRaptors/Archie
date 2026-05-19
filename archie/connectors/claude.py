@@ -30,6 +30,25 @@ _EVENT_NAME_CLAUDE = {
     "stop": "Stop",
 }
 
+# Permissions allowed by default so Archie commands run prompt-free in Claude
+# Code. Mirrors archie/standalone/install_hooks.py::ARCHIE_PERMISSIONS — keep
+# the two lists in sync if either changes (install_hooks.py is the legacy
+# backwards-compat entry point; this list is what the connector loop writes).
+ARCHIE_PERMISSIONS = [
+    "Bash(python3 .archie/*.py *)", "Bash(python3 .archie/*.py)", "Bash(python3 -c *)",
+    "Bash(git *)", "Bash(test *)", "Bash(cp *)", "Bash(ls *)", "Bash(wc *)",
+    "Bash(cat *)", "Bash(echo *)", "Bash(for *)", "Bash(mkdir *)", "Bash(date *)",
+    "Bash(sort *)", "Bash(head *)",
+    "Bash(rm -f /tmp/archie_*)", "Bash(rm -f .archie/health.json)",
+    "Write(//tmp/archie_*)", "Read(//tmp/archie_*)",
+    "Read(.archie/*)", "Read(.archie/**)",
+    "Write(.archie/*)", "Write(.archie/**)",
+    "Edit(.archie/*)", "Edit(.archie/**)",
+    "Read(**)",
+    "Write(**/CLAUDE.md)", "Edit(**/CLAUDE.md)",
+    "Agent(*)",
+]
+
 
 class ClaudeConnector(Connector):
     name = "claude"
@@ -97,6 +116,28 @@ class ClaudeConnector(Connector):
                 "matcher": hook.tool_match or "*",
                 "hooks": [{"type": "command", "command": relative_cmd}],
             })
+
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    def finalize(self, project_root: Path) -> None:
+        # Merge Archie's default permissions into .claude/settings.local.json so
+        # /archie-scan etc. run without per-call user prompts. Preserves any
+        # existing permissions the user has set (union, not replace). Same set
+        # the legacy install_hooks.py heredoc wrote on `main`.
+        settings_path = project_root / ".claude" / "settings.local.json"
+        settings: dict = {}
+        if settings_path.exists():
+            try:
+                settings = json.loads(settings_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                settings = {}
+
+        perms = settings.setdefault("permissions", {})
+        allow = set(perms.get("allow", []))
+        for p in ARCHIE_PERMISSIONS:
+            allow.add(p)
+        perms["allow"] = sorted(allow)
 
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
