@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ToolCallEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolCallEvent, ToolResultEvent, InputEvent } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "node:child_process";
 
 const HOOKS: Array<{
@@ -14,6 +14,7 @@ function matches(toolMatch: string | null, toolName: string): boolean {
   if (toolMatch === "Edit|Write|MultiEdit") return /^(edit|write)$/.test(normalized);
   if (toolMatch === "Bash") return normalized === "bash";
   if (toolMatch === "Glob|Grep") return /^(find|grep)$/.test(normalized);
+  if (toolMatch === "ExitPlanMode") return false; // Pi has no plan-mode tool equivalent.
   return new RegExp(toolMatch, "i").test(toolName);
 }
 
@@ -27,18 +28,44 @@ function claudeToolName(toolName: string): string {
   return toolName;
 }
 
-function runHook(hook: (typeof HOOKS)[number], event: ToolCallEvent, cwd: string) {
-  return spawnSync("bash", [hook.script_path], {
-    input: JSON.stringify({
-      tool_name: claudeToolName(event.toolName),
-      tool_input: event.input,
-      cwd,
-      hook_event_name: "PreToolUse",
-    }),
+function runHook(scriptPath: string, payload: unknown, cwd: string) {
+  return spawnSync("bash", [scriptPath], {
+    input: JSON.stringify(payload),
     encoding: "utf8",
     cwd,
     timeout: 30_000,
   });
+}
+
+function runToolCallHook(hook: (typeof HOOKS)[number], event: ToolCallEvent, cwd: string) {
+  return runHook(hook.script_path, {
+    tool_name: claudeToolName(event.toolName),
+    tool_input: event.input,
+    cwd,
+    hook_event_name: "PreToolUse",
+  }, cwd);
+}
+
+function runToolResultHook(hook: (typeof HOOKS)[number], event: ToolResultEvent, cwd: string) {
+  return runHook(hook.script_path, {
+    tool_name: claudeToolName(event.toolName),
+    tool_input: event.input,
+    tool_response: {
+      content: event.content,
+      details: event.details,
+      is_error: event.isError,
+    },
+    cwd,
+    hook_event_name: "PostToolUse",
+  }, cwd);
+}
+
+function runInputHook(hook: (typeof HOOKS)[number], event: InputEvent, cwd: string) {
+  return runHook(hook.script_path, {
+    prompt: event.text,
+    cwd,
+    hook_event_name: "UserPromptSubmit",
+  }, cwd);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -47,7 +74,7 @@ export default function (pi: ExtensionAPI) {
       if (hook.event !== "pre-tool-use") continue;
       if (!matches(hook.tool_match, event.toolName)) continue;
 
-      const res = runHook(hook, event, ctx.cwd);
+      const res = runToolCallHook(hook, event, ctx.cwd);
       if (hook.blocking && (res.status === 2 || res.status === 1)) {
         return {
           block: true,
@@ -55,5 +82,21 @@ export default function (pi: ExtensionAPI) {
         };
       }
     }
+  });
+
+  pi.on("tool_result", (event, ctx) => {
+    for (const hook of HOOKS) {
+      if (hook.event !== "post-tool-use") continue;
+      if (!matches(hook.tool_match, event.toolName)) continue;
+      runToolResultHook(hook, event, ctx.cwd);
+    }
+  });
+
+  pi.on("input", (event, ctx) => {
+    for (const hook of HOOKS) {
+      if (hook.event !== "user-prompt-submit") continue;
+      runInputHook(hook, event, ctx.cwd);
+    }
+    return { action: "continue" };
   });
 }

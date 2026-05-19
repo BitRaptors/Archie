@@ -15,7 +15,13 @@ PI_EXTENSION_DIR = ASSETS_ROOT / "pi_extension"
 
 class PiConnector(CodexConnector):
     name = "pi"
-    capabilities = frozenset({"commands", "hooks:pre-tool-use", "hooks:pre-commit"})
+    capabilities = frozenset({
+        "commands",
+        "hooks:pre-tool-use",
+        "hooks:post-tool-use",
+        "hooks:user-prompt-submit",
+        "hooks:pre-commit",
+    })
 
     def __init__(self) -> None:
         self._pending_hooks: list[HookDef] = []
