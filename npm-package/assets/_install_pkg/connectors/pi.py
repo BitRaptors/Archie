@@ -7,13 +7,13 @@ from dataclasses import asdict
 from pathlib import Path
 
 from ..manifest import HookDef
-from .codex import CodexConnector
+from .base import Connector
 from .claude import ASSETS_ROOT
 
 PI_EXTENSION_DIR = ASSETS_ROOT / "pi_extension"
 
 
-class PiConnector(CodexConnector):
+class PiConnector(Connector):
     name = "pi"
     capabilities = frozenset({
         "commands",
