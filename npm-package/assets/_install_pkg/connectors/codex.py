@@ -160,8 +160,11 @@ def _codex_command_body_path(cmd: CommandDef) -> str:
 
 
 def _codex_agent_prompt_path(agent: AgentDef) -> str:
+    # Wave-1 / Wave-2 sub-agent prompts are CLI-agnostic content. They live
+    # once at archie/assets/prompts/_shared/wave*.md and are referenced by
+    # both Codex (via .codex/agents/*.toml) and Pi (via deep_scan_jobs.json).
     basename = Path(agent.prompt_path).name
-    return f".archie/prompts/codex/{basename}"
+    return f".archie/prompts/_shared/{basename}"
 
 
 def _toml_string(value: str) -> str:

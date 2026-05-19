@@ -134,11 +134,11 @@ Read:
 - `AGENTS.md` if it exists
 - `.archie/scan.json`
 - `.archie/skeletons.json`
-- `.archie/prompts/pi/wave1_structure.md`
-- `.archie/prompts/pi/wave1_patterns.md`
-- `.archie/prompts/pi/wave1_technology.md`
-- `.archie/prompts/pi/wave1_ui.md`
-- `.archie/prompts/pi/wave2_reasoning.md`
+- `.archie/prompts/_shared/wave1_structure.md`
+- `.archie/prompts/_shared/wave1_patterns.md`
+- `.archie/prompts/_shared/wave1_technology.md`
+- `.archie/prompts/_shared/wave1_ui.md`
+- `.archie/prompts/_shared/wave2_reasoning.md`
 
 The Wave prompt files are Pi-owned copies so Pi deep-scan stays independent from Codex prompt routing.
 
@@ -146,10 +146,10 @@ The Wave prompt files are Pi-owned copies so Pi deep-scan stays independent from
 
 Perform exactly four local analysis passes, in this order:
 
-1. `archie-wave1-structure` — components, layers, file placement. Follow `.archie/prompts/pi/wave1_structure.md`.
-2. `archie-wave1-patterns` — communication, design patterns, integrations. Follow `.archie/prompts/pi/wave1_patterns.md`.
-3. `archie-wave1-technology` — stack, deployment, development rules. Follow `.archie/prompts/pi/wave1_technology.md`.
-4. `archie-wave1-ui` — UI components, state, routing, only if the scanner indicates a meaningful frontend/UI surface; otherwise record a skipped UI pass with the reason. Follow `.archie/prompts/pi/wave1_ui.md` when applicable.
+1. `archie-wave1-structure` — components, layers, file placement. Follow `.archie/prompts/_shared/wave1_structure.md`.
+2. `archie-wave1-patterns` — communication, design patterns, integrations. Follow `.archie/prompts/_shared/wave1_patterns.md`.
+3. `archie-wave1-technology` — stack, deployment, development rules. Follow `.archie/prompts/_shared/wave1_technology.md`.
+4. `archie-wave1-ui` — UI components, state, routing, only if the scanner indicates a meaningful frontend/UI surface; otherwise record a skipped UI pass with the reason. Follow `.archie/prompts/_shared/wave1_ui.md` when applicable.
 
 For each pass, write a JSON object with keys:
 
@@ -166,7 +166,7 @@ Save the four objects as a JSON array to `/tmp/archie_wave1_results.json`. Also 
 
 ### Step 4: Wave 2 synthesis
 
-Read `/tmp/archie_wave1_results.json`, scanner outputs, `AGENTS.md` if present, and `.archie/prompts/pi/wave2_reasoning.md`. Perform the reasoning pass locally and produce a structurally complete Archie blueprint JSON containing:
+Read `/tmp/archie_wave1_results.json`, scanner outputs, `AGENTS.md` if present, and `.archie/prompts/_shared/wave2_reasoning.md`. Perform the reasoning pass locally and produce a structurally complete Archie blueprint JSON containing:
 
 - `meta`
 - `architecture_rules`
