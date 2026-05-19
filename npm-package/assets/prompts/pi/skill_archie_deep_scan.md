@@ -5,7 +5,7 @@ description: Pi-native sequential deep scan for Archie. Runs scanner, four Wave-
 
 # Archie Deep Scan For Pi
 
-Run Archie’s deep scan end to end from Pi. Pi has no sub-agents, so do **not** use `spawn_agents_on_csv` or any parallel-agent primitive. Execute the four Wave-1 perspectives yourself, sequentially, using the same scanner / renderer / validator pipeline and the Wave prompts installed under `.archie/prompts/codex/`.
+Run Archie’s deep scan end to end from Pi. Prefer the installed RPC-parallel adapter because Archie’s Wave-1 fan-out is performance-critical. The adapter is transparent to the rest of Archie: it runs the same scanner / renderer / validator pipeline and reads its job graph from `.archie/prompts/pi/deep_scan_jobs.json` plus the Wave prompts installed under `.archie/prompts/codex/`. If the adapter fails, use the sequential fallback below.
 
 ## Preconditions
 
@@ -13,7 +13,27 @@ Run Archie’s deep scan end to end from Pi. Pi has no sub-agents, so do **not**
 - Use the repository root as the working directory for every shell command.
 - Read `AGENTS.md` first if it exists. Treat it as required architectural context.
 
-## Step 1: Run the deterministic scanner
+## Fast path: RPC-parallel Wave 1
+
+First run:
+
+```bash
+python3 .archie/pi_parallel_deep_scan.py "$PWD"
+```
+
+Optional tuning:
+
+- Set `ARCHIE_PI_RPC_ARGS` to pass model/provider flags to child Pi workers, for example `ARCHIE_PI_RPC_ARGS="--provider anthropic --model sonnet"`.
+- Set `ARCHIE_PI_RPC_TIMEOUT` to increase per-worker timeout seconds.
+- Edit `.archie/prompts/pi/deep_scan_jobs.json` when the Wave job list changes; prompt wording changes usually only require editing the referenced prompt files.
+
+If this command completes, do not repeat the sequential steps. Report that Pi used RPC-parallel Wave 1 and include the renderer/validator result.
+
+If it fails due to provider quota, model auth, invalid JSON, or child-process failure, report the error briefly and continue with the sequential fallback below.
+
+## Sequential fallback
+
+### Step 1: Run the deterministic scanner
 
 Run:
 
@@ -23,7 +43,7 @@ python3 .archie/scanner.py "$PWD" >/tmp/archie_deep_scan_stdout.json
 
 This must leave `.archie/scan.json` and `.archie/skeletons.json` in place.
 
-## Step 2: Load shared inputs
+### Step 2: Load shared inputs
 
 Read:
 
@@ -38,7 +58,7 @@ Read:
 
 The Wave prompt files are content-agnostic; they are reused by Pi even though they live in the `codex/` prompt subtree.
 
-## Step 3: Run Wave 1 sequentially
+### Step 3: Run Wave 1 sequentially
 
 Perform exactly four local analysis passes, in this order:
 
@@ -60,7 +80,7 @@ Set `cwd` to the project root. Set `saw_agents_md` to true only if you actually 
 
 Save the four objects as a JSON array to `/tmp/archie_wave1_results.json`. Also write `/tmp/archie_wave1_results.csv` with equivalent columns for compatibility with the Codex workflow notes.
 
-## Step 4: Wave 2 synthesis
+### Step 4: Wave 2 synthesis
 
 Read `/tmp/archie_wave1_results.json`, scanner outputs, `AGENTS.md` if present, and `.archie/prompts/codex/wave2_reasoning.md`. Perform the reasoning pass locally and produce a structurally complete Archie blueprint JSON containing:
 
@@ -80,7 +100,7 @@ Read `/tmp/archie_wave1_results.json`, scanner outputs, `AGENTS.md` if present, 
 
 Save the returned JSON to `.archie/blueprint.json`. The result should be structurally equivalent to Claude/Codex deep-scan output; only wall-clock time should differ.
 
-## Step 5: Render and validate
+### Step 5: Render and validate
 
 Run:
 

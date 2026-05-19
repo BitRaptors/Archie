@@ -173,7 +173,7 @@ No local `node_modules` is required. Pi's extension loader provides `@earendil-w
 
 ### Q-P5 — sequential deep-scan wall-clock
 
-Attempted on `/tmp/BabyWeather.Android.pi` (rsync copy of `BabyWeather.Android`) after a fresh Archie install. The first run with the configured OpenAI Codex provider failed after 18.89s with `usage_limit_reached` (429; primary usage 100%). A fallback run with `google/gemini-2.5-flash` failed because the available Google key was invalid for the Generative Language API. No trustworthy Pi-vs-Codex wall-clock ratio was produced in this session; the Pi body is therefore shipped as the conservative sequential implementation, and Q-P5 remains the only benchmark item to rerun once provider quota is available.
+Attempted on `/tmp/BabyWeather.Android.pi` (rsync copy of `BabyWeather.Android`) after a fresh Archie install. The first run with the configured OpenAI Codex provider failed after 18.89s with `usage_limit_reached` (429; primary usage 100%). A fallback run with `google/gemini-2.5-flash` failed because the available Google key was invalid for the Generative Language API. No trustworthy Pi-vs-Codex wall-clock ratio was produced in that session. Follow-up work added `.archie/pi_parallel_deep_scan.py`, a transparent RPC-parallel adapter that runs Wave 1 through child `pi --mode rpc --no-session` workers using the declarative job graph at `.archie/prompts/pi/deep_scan_jobs.json`, then writes the standard `.archie/blueprint.json` and runs renderer/validator. It was validated with a fake Pi RPC binary for orchestration and install packaging; real wall-clock benchmarking still needs provider quota.
 
 ## Workflow
 
