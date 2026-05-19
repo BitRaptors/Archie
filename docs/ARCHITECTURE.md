@@ -72,7 +72,7 @@ Archie has four user-facing slash commands (+ one local inspector):
 | NPM installer | Node.js 18+ | `npx @bitraptors/archie` distribution |
 | Viewer (shared) | React 18 + Vite + TypeScript + Tailwind v3 + React Router | One React codebase serves both the hosted share viewer (`archie-viewer.vercel.app`) and the local `/archie-viewer` sidecar |
 | Share backend | Supabase Edge Functions (Deno) + Postgres | Upload + blueprint fetch by token + anonymous telemetry ingest |
-| Testing | pytest | 50 test files |
+| Testing | pytest | 54 test files |
 | Linting | Ruff | Python linting and formatting |
 
 ### Dependency philosophy
@@ -170,7 +170,7 @@ share/
     functions/blueprint/        # GET bundle by token
     functions/telemetry-ingest/ # Anonymous telemetry ingest (anon key + insert-only RLS)
 
-tests/                          # 50 test files
+tests/                          # 54 test files
 
 docs/
   ARCHITECTURE.md               # This file
