@@ -157,7 +157,7 @@ Validated on Pi CLI 0.75.3 (`/opt/homebrew/bin/pi`) on 2026-05-18.
 
 ### Q-P1 — extension discovery
 
-Pi auto-discovers project-local extensions from `<project>/.pi/extensions/*.ts`. Evidence: `discoverAndLoadExtensions([], cwd)` loaded `/private/tmp/pi-validation/.pi/extensions/archie-hooks.ts` with no errors and registered `tool_call`; `pi list` only reports settings-installed packages and remains `No packages installed`, so it is not the right signal for project-local auto-discovery. No `pi install` step is required.
+Pi auto-discovers project-local extensions from `<project>/.pi/extensions/*.ts`. Evidence: `discoverAndLoadExtensions([], cwd)` loaded `/private/tmp/pi-validation/.pi/extensions/archie-hooks.ts` with no errors and registered `tool_call`; `pi list` only reports settings-installed packages and remains `No packages installed`, so it is not the right signal for project-local auto-discovery. No `pi install` step is required. Pi command shims are installed under `.pi/skills/archie-*/SKILL.md` (not `.agents/skills/`) so Pi-specific deep-scan routing cannot overwrite Codex's `.agents/skills/archie-deep-scan/SKILL.md` on machines where both CLIs are installed.
 
 ### Q-P2 — lifecycle event ceiling
 

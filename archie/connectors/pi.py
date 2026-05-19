@@ -31,7 +31,10 @@ class PiConnector(CodexConnector):
         return Path.home() / ".pi" / "agent"
 
     def install_command(self, project_root: Path, cmd) -> None:
-        dest = project_root / ".agents" / "skills" / cmd.name / "SKILL.md"
+        # Do not write .agents/skills/: Codex uses that shared Agent Skills
+        # path and needs Codex-native bodies (notably parallel deep-scan).
+        # Pi also discovers .pi/skills/, so keep Pi shims isolated there.
+        dest = project_root / ".pi" / "skills" / cmd.name / "SKILL.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         body_path = _pi_command_body_path(cmd)
         dest.write_text(

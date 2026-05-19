@@ -263,7 +263,7 @@ if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
 }
 
 const gitignorePath = join(projectRoot, ".gitignore");
-const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/skills/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/agents/archie-*.toml\n.codex/hooks.json\n.pi/extensions/archie-hooks.ts\n.pi/extensions/package.json\n`;
+const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/skills/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/agents/archie-*.toml\n.codex/hooks.json\n.pi/extensions/archie-hooks.ts\n.pi/extensions/package.json\n.pi/skills/archie-*/\n`;
 
 let gitignoreContent = "";
 if (existsSync(gitignorePath)) {
