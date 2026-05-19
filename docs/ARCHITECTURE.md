@@ -743,11 +743,11 @@ Verbatim mirror of canonical Archie assets — the 31 standalone scripts, the 5 
 
 > **Status:** Claude Code is the stable, primary target. **Codex CLI and Pi support are in BETA.** The connector framework is in place, the install path works end-to-end on all three CLIs, the contract test suite (19 tests) gates capability claims, but some edge cases (Codex's interactive hook-trust gate, Pi RPC parallel deep-scan against real provider quota) remain validated only via fakes or contract-level tests. Production deployments should pin to Claude Code; Codex and Pi are preview.
 
-Since version 3.0, Archie ships a connector-based install loop that targets three coding-agent CLIs as peers:
+Archie ships a connector-based install loop that targets three coding-agent CLIs as peers:
 
 - **Claude Code** (Anthropic) — original target, fully validated, detected via `~/.claude/`
 - **OpenAI Codex CLI** — beta, detected via `~/.codex/`
-- **Earendil Pi** (pi.dev) — beta, detected via `~/.pi/agent/`
+- **Pi** (pi.dev) — beta, detected via `~/.pi/agent/`
 
 All three read the same canonical bodies under `.archie/prompts/`, invoke the same canonical hook scripts under `.archie/hooks/`, and run the same Python analysis pipeline (`scanner.py`, `renderer.py`, `validate.py`, etc.). The connector layer translates each manifest entry (command, hook, sub-agent, config patch) into the host CLI's native idiom.
 
@@ -816,7 +816,7 @@ Per-CLI bodies override the canonical Claude-native body when present:
 - **Codex** — reads `.archie/prompts/codex/skill_archie_*.md` if present (currently: all 5 commands have Codex-native bodies), else falls back to canonical
 - **Pi** — reads `.archie/prompts/pi/skill_archie_*.md` if present (currently: only `archie-deep-scan` has a Pi-native sequential + RPC-fallback body), else falls back to canonical Claude-native (model degrades AskUserQuestion → natural-language asks)
 
-Wave-1/Wave-2 sub-agent prompts (consumed by both Codex's `spawn_agents_on_csv` flow and Pi's RPC parallel adapter) live at the shared `archie/assets/prompts/_shared/wave*.md` location — one canonical body, both consumers reference it via `.archie/prompts/_shared/wave*.md`. Earlier the codex/ and pi/ directories each had byte-identical copies; consolidated in 3.0 to eliminate drift risk.
+Wave-1/Wave-2 sub-agent prompts (consumed by both Codex's `spawn_agents_on_csv` flow and Pi's RPC parallel adapter) live at the shared `archie/assets/prompts/_shared/wave*.md` location — one canonical body, both consumers reference it via `.archie/prompts/_shared/wave*.md`. Earlier the codex/ and pi/ directories each had byte-identical copies; consolidated to eliminate drift risk.
 
 ### Install loop (`archie/install.py`)
 
@@ -912,7 +912,7 @@ Skills at `.agents/skills/archie-*/SKILL.md` — 5 shims written by `CodexConnec
 - `PreToolUse` hooks in `codex exec` non-interactive mode were observed not firing on the project-level `.codex/hooks.json` despite the project being trusted. Interactive mode displays "1 hook needs review before it can run" — the hook is discovered but gated by Codex's own `/hooks` review flow. Interactive sessions with hook approval work end-to-end; `codex exec` remains an open item.
 - `spawn_agents_on_csv` inheritance of `AGENTS.md` and parent cwd is not fully proven end-to-end against a real run; the agent TOMLs defensively embed absolute paths so workers succeed even without inheritance.
 
-### Earendil Pi (beta)
+### Pi (beta)
 
 Skills at `.pi/skills/archie-*/SKILL.md` — 5 shims written by `PiConnector.install_command`. Pi reads these via its native discovery path; `.pi/skills/` is intentionally isolated from Codex's `.agents/skills/` to avoid SKILL.md collision (without isolation, PiConnector would overwrite Codex's `archie-deep-scan` SKILL with a pointer at the sequential Pi-native body, degrading Codex's parallel deep-scan).
 
@@ -1425,7 +1425,7 @@ python -m pytest --cov=archie tests/
 - **CLI** — init, refresh, status, serve, check
 - **E2E** — refresh_e2e
 - **Standalone helpers** — ignore_patterns, health_append, telemetry, upload, share_setup, lint_gate, viewer
-- **Multi-agent connector framework (new in 3.0)** — `test_connector_contract.py` (17 tests) asserts every connector's declared capabilities work end-to-end against a tmpdir (install_command produces a file, install_hook honors per-event claims, install_agent works when `agents` is claimed, patch_config is idempotent on a real `~/.codex/config.toml`, every `HookDef` event has at least one backing connector, the `ALL_CONNECTORS` registry is exactly `{claude, codex, pi}`). `test_install_loop.py` (2 tests) asserts `install(tmp_path, ["claude"])` produces a `.claude/settings.local.json` whose Edit/Write matcher is present and whose `permissions.allow` is populated — the **regression gate for "Claude on the feature branch behaves identically to Claude on `main`."**
+- **Multi-agent connector framework** — `test_connector_contract.py` (17 tests) asserts every connector's declared capabilities work end-to-end against a tmpdir (install_command produces a file, install_hook honors per-event claims, install_agent works when `agents` is claimed, patch_config is idempotent on a real `~/.codex/config.toml`, every `HookDef` event has at least one backing connector, the `ALL_CONNECTORS` registry is exactly `{claude, codex, pi}`). `test_install_loop.py` (2 tests) asserts `install(tmp_path, ["claude"])` produces a `.claude/settings.local.json` whose Edit/Write matcher is present and whose `permissions.allow` is populated — the **regression gate for "Claude on the feature branch behaves identically to Claude on `main`."**
 
 Tests use fixtures (temp directories with known file structures), subprocess mocking for runner/agent tests, and Pydantic model validation for schema compliance.
 
