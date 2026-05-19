@@ -1413,7 +1413,7 @@ python -m pytest --cov=archie tests/
 
 ### Test organisation
 
-50 test files. Tests mirror the package structure:
+54 test files. Tests mirror the package structure:
 
 - **Engine** — scanner (+ monorepo variant), dependencies, frameworks, hasher, imports, scan (+ scan_config), engine_models
 - **Coordinator** — planner, runner, merger, prompts
@@ -1425,6 +1425,7 @@ python -m pytest --cov=archie tests/
 - **CLI** — init, refresh, status, serve, check
 - **E2E** — refresh_e2e
 - **Standalone helpers** — ignore_patterns, health_append, telemetry, upload, share_setup, lint_gate, viewer
+- **Multi-agent connector framework (new in 3.0)** — `test_connector_contract.py` (17 tests) asserts every connector's declared capabilities work end-to-end against a tmpdir (install_command produces a file, install_hook honors per-event claims, install_agent works when `agents` is claimed, patch_config is idempotent on a real `~/.codex/config.toml`, every `HookDef` event has at least one backing connector, the `ALL_CONNECTORS` registry is exactly `{claude, codex, pi}`). `test_install_loop.py` (2 tests) asserts `install(tmp_path, ["claude"])` produces a `.claude/settings.local.json` whose Edit/Write matcher is present and whose `permissions.allow` is populated — the **regression gate for "Claude on the feature branch behaves identically to Claude on `main`."**
 
 Tests use fixtures (temp directories with known file structures), subprocess mocking for runner/agent tests, and Pydantic model validation for schema compliance.
 

@@ -20,6 +20,20 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 
 All three CLIs read identical Archie outputs (blueprint, rules, per-folder context) and run the same Python analysis pipeline. The same canonical hook scripts at `.archie/hooks/` power in-session enforcement in every CLI — one source of truth. See "Multi-CLI install" below.
 
+**What 3.0 adds on top of the 2.6 Claude-only baseline:**
+
+- **Connector framework** at `archie/connectors/` — one file per CLI, ~70-290 lines each, no JS duplication. Adding a 4th CLI = one new file + register it in `ALL_CONNECTORS`.
+- **Single manifest** at `archie/manifest_data.py` — 5 commands, 7 hooks, 2 config patches, 5 sub-agents. Adding a feature = one entry here + one body file.
+- **Interactive multi-select picker** in `npx @bitraptors/archie` — arrow keys + space to toggle, Enter to confirm, default = all 3 CLIs. Zero new deps (raw-mode TTY + ANSI).
+- **Seventh hook**: `stop.sh` — defensive cleanup of the per-turn rule-injection marker at turn end. Wired in all 3 CLIs.
+- **Codex auto-patches `~/.codex/config.toml`** — raises the default 32 KiB per-folder doc cap to 128 KiB (a real cap Archie's output already exceeded on 6+ folder depths) and adds `CLAUDE.md` to `project_doc_fallback_filenames`. Idempotent merge, preserves user keys.
+- **Pi RPC parallel deep-scan adapter** at `.archie/pi_parallel_deep_scan.py` — Pi gets parallel Wave-1 fan-out through `pi --mode rpc` workers. Auto-falls back to sequential on any failure mode (timeout, non-zero exit, malformed blueprint).
+- **Pi TS extension** routing 4 lifecycle events (`tool_call` / `tool_result` / `input` / `agent_end`) into the same `.archie/hooks/*.sh` scripts Claude and Codex invoke directly — Pi enforcement at parity within its API ceiling.
+- **Bundled Python install loop** at `npm-package/assets/_install_pkg/` — byte-identical mirror of `archie/connectors/*.py` so `npx` works without requiring `pip install archie-cli`. `verify_sync.py` enforces equality across 8 files.
+- **Universal `.git/hooks/pre-commit.archie`** — works regardless of which CLI is active, so even bypass-the-CLI commits hit Archie's rule check.
+- **Cross-CLI shared substrate** — same `blueprint.json`, same `rules.json`, same `findings.json`. Open the project in Claude and Codex simultaneously; both honor the same rules; new findings from one CLI propagate to the other on the next session.
+- **Contract test suite** at `tests/test_connector_contract.py` + `tests/test_install_loop.py` (19 tests) — every connector's declared capabilities are gated by an end-to-end tmpdir install test.
+
 ## Install
 
 ```bash
@@ -409,7 +423,7 @@ Archie uses three layered pattern files to decide what the scanner sees and what
 | `.archieignore` | Not scanned at all — Archie-specific exclusions on top of `.gitignore` (default covers deps, caches, build outputs, IDE files, binaries) |
 | `.archiebulk` | **Scanned but opaque** — the scanner records path + `{category, framework}` metadata but never reads the contents. Default covers Android `res/`, iOS storyboards/asset catalogs, Flutter/Dart codegen, minified JS, TypeScript `.d.ts`, Go protobuf/vendor, Python protobuf/migrations, SQL migrations, lockfiles, OpenAPI codegen, and more. |
 
-The `.archiebulk` tier gives AI agents structural inventory (e.g. "this project has 248 Android layouts across 24 screens") without burning analytical budget on reading boilerplate contents. All patterns use gitignore syntax — `**/res/layout/**` matches at any depth. Claude can edit any of the three files on demand.
+The `.archiebulk` tier gives AI agents structural inventory (e.g. "this project has 248 Android layouts across 24 screens") without burning analytical budget on reading boilerplate contents. All patterns use gitignore syntax — `**/res/layout/**` matches at any depth. Any coding agent (Claude / Codex / Pi) can edit the three files on demand.
 
 ### Enterprise Share Modes
 
@@ -523,9 +537,12 @@ Once installed via `npx @bitraptors/archie`, seven hooks are wired up per detect
 - **PostToolUse (Write|Edit|MultiEdit)** — `post-lint.sh`. **Opt-in external linter gate**: when `.archie/enforcement.json` has `{"enabled": true}`, runs the project's native linter (ruff / eslint / golangci-lint / semgrep) on the changed file and blocks on failure. Auto-detects based on config files (`pyproject.toml [tool.ruff]`, `.eslintrc`, `.golangci.yaml`, `.semgrep.yml`) + binary on PATH. Silent no-op when config is missing.
 - **Stop** — `stop.sh`. Defensive cleanup at turn end: removes the per-turn rule-injection marker (`/tmp/.archie_turn_$HASH`) so any next session starts fresh. Harmless if the marker has already been cleared by `pre-turn.sh`.
 
-All hooks fail open: missing rules/config/marker files → hooks exit 0 silently. The installer also writes a comprehensive `allow` list (29 entries) into `.claude/settings.local.json` — covering Python script execution, git / sort / head / test / wc, temp files under `/tmp/archie_*`, reads/writes under `.archie/**`, per-folder CLAUDE.md, and `Agent(*)` for subagent spawning — so the scan workflow runs without permission prompts.
+All hooks fail open: missing rules/config/marker files → hooks exit 0 silently. The Claude installer also writes a comprehensive `allow` list (29 entries) into `.claude/settings.local.json` — covering Python script execution, git / sort / head / test / wc, temp files under `/tmp/archie_*`, reads/writes under `.archie/**`, per-folder CLAUDE.md, and `Agent(*)` for subagent spawning — so the scan workflow runs without permission prompts. Codex uses its own approval modes (`workspace-write` is recommended for the scan scripts to write to `.archie/`); Pi uses its `--tools` allowlist or extension-level gates (Archie's TS extension is non-blocking on tool calls outside the rule set).
 
-**Subagent output contract** — every Sonnet/Opus subagent spawned during a scan receives a mandatory instruction to Write its own output directly to `/tmp/archie_*.json` (permissioned via `Write(//tmp/archie_*)`). The orchestrator never copies subagent transcripts, which avoids Claude Code's sensitive-file guardrail on `.claude/projects/.../subagents/*.jsonl`. Zero permission prompts during any scan.
+**Subagent output contract** — varies per CLI but produces the same merged outputs:
+- **Claude** — every Sonnet/Opus subagent spawned via the Agent tool gets a mandatory instruction to Write its output directly to `/tmp/archie_*.json` (permissioned via `Write(//tmp/archie_*)`). The orchestrator never copies subagent transcripts, which avoids Claude Code's sensitive-file guardrail on `.claude/projects/.../subagents/*.jsonl`. Zero permission prompts during any scan.
+- **Codex** — `spawn_agents_on_csv` reads `.codex/agents/archie-wave1-*.toml` (5 named sub-agents written by `CodexConnector.install_agent`) and dispatches them in parallel; workers write back via the CSV results contract the SKILL body reads.
+- **Pi** — the RPC parallel deep-scan adapter (`.archie/pi_parallel_deep_scan.py`) spawns `pi --mode rpc --no-session` workers per the declarative job graph at `.archie/prompts/pi/deep_scan_jobs.json`; each worker emits JSON the adapter aggregates into the standard `.archie/blueprint.json`. Auto-falls back to running Wave-1 sequentially in the host session if any RPC worker fails.
 
 ## Rules
 
@@ -542,7 +559,7 @@ Rules come from two AI-synthesized sources plus a universal platform set.
    - **Architecture** — Layer violations (Android ViewModel/Context, Fragment/network, Swift view-layer networking, React components fetching data), DI anti-patterns, TypeScript `any`, React DOM manipulation, array index keys, Python mutable defaults, star imports, bare except
    - **Safety** — Python `TYPE_CHECKING` guards, Swift force unwraps / force try
 
-The pre-edit hook (`pre-validate.sh`) reads `severity_class` to gate the response: blocking severities (`decision_violation`, `pitfall_triggered`, `mechanical_violation`) exit 2 with the agent-facing message, `tradeoff_undermined` warns (exit 0 prominent), `pattern_divergence` informs (exit 0 quiet). Old-shape rules without `severity_class`/`why`/`example` still work via `severity` + `rationale` fallbacks for backward compat. Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by Claude Code during scans.
+The pre-edit hook (`pre-validate.sh`) reads `severity_class` to gate the response: blocking severities (`decision_violation`, `pitfall_triggered`, `mechanical_violation`) exit 2 with the agent-facing message, `tradeoff_undermined` warns (exit 0 prominent), `pattern_divergence` informs (exit 0 quiet). Old-shape rules without `severity_class`/`why`/`example` still work via `severity` + `rationale` fallbacks for backward compat. Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by the coding agent during scans (works in Claude, Codex, and Pi).
 
 The deterministic blueprint extractor was retired in v2.5.0 — Step 6's AI synthesis covers placement+naming with semantic content the extractor couldn't express. Fresh `archie init` writes an empty `rules.json`; the user runs `/archie-deep-scan` or `/archie-scan` to populate it.
 
