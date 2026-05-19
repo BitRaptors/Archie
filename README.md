@@ -10,29 +10,15 @@ Archie scans your repo, builds a structured blueprint of decisions and pitfalls,
 
 Works with any language. Zero runtime dependencies for standalone scripts.
 
-**Coding-agent harness support (new in 3.0):** Archie targets three CLIs through a single connector framework:
+**Coding-agent harness support:** Archie targets three CLIs through a single connector framework:
 
 | Harness | Status | How it integrates |
 |---|---|---|
 | **Claude Code** (Anthropic) | **stable** — primary target | `.claude/commands/*.md` shims, `.claude/settings.local.json` hooks, modular skill subtree |
 | [**OpenAI Codex CLI**](https://developers.openai.com/codex/cli) | **beta** | `.agents/skills/*/SKILL.md` shims, `.codex/hooks.json` with absolute paths, `.codex/agents/*.toml` named sub-agents, idempotent `~/.codex/config.toml` patch |
-| [**Earendil Pi**](https://pi.dev) | **beta** | `.pi/skills/*/SKILL.md` shims, `.pi/extensions/archie-hooks.ts` (TS extension wrapping the canonical shell scripts), RPC parallel adapter with sequential fallback |
+| [**Pi**](https://pi.dev) | **beta** | `.pi/skills/*/SKILL.md` shims, `.pi/extensions/archie-hooks.ts` (TS extension wrapping the canonical shell scripts), RPC parallel adapter with sequential fallback |
 
 All three CLIs read identical Archie outputs (blueprint, rules, per-folder context) and run the same Python analysis pipeline. The same canonical hook scripts at `.archie/hooks/` power in-session enforcement in every CLI — one source of truth. See "Multi-CLI install" below.
-
-**What 3.0 adds on top of the 2.6 Claude-only baseline:**
-
-- **Connector framework** at `archie/connectors/` — one file per CLI, ~70-290 lines each, no JS duplication. Adding a 4th CLI = one new file + register it in `ALL_CONNECTORS`.
-- **Single manifest** at `archie/manifest_data.py` — 5 commands, 7 hooks, 2 config patches, 5 sub-agents. Adding a feature = one entry here + one body file.
-- **Interactive multi-select picker** in `npx @bitraptors/archie` — arrow keys + space to toggle, Enter to confirm, default = all 3 CLIs. Zero new deps (raw-mode TTY + ANSI).
-- **Seventh hook**: `stop.sh` — defensive cleanup of the per-turn rule-injection marker at turn end. Wired in all 3 CLIs.
-- **Codex auto-patches `~/.codex/config.toml`** — raises the default 32 KiB per-folder doc cap to 128 KiB (a real cap Archie's output already exceeded on 6+ folder depths) and adds `CLAUDE.md` to `project_doc_fallback_filenames`. Idempotent merge, preserves user keys.
-- **Pi RPC parallel deep-scan adapter** at `.archie/pi_parallel_deep_scan.py` — Pi gets parallel Wave-1 fan-out through `pi --mode rpc` workers. Auto-falls back to sequential on any failure mode (timeout, non-zero exit, malformed blueprint).
-- **Pi TS extension** routing 4 lifecycle events (`tool_call` / `tool_result` / `input` / `agent_end`) into the same `.archie/hooks/*.sh` scripts Claude and Codex invoke directly — Pi enforcement at parity within its API ceiling.
-- **Bundled Python install loop** at `npm-package/assets/_install_pkg/` — byte-identical mirror of `archie/connectors/*.py` so `npx` works without requiring `pip install archie-cli`. `verify_sync.py` enforces equality across 8 files.
-- **Universal `.git/hooks/pre-commit.archie`** — works regardless of which CLI is active, so even bypass-the-CLI commits hit Archie's rule check.
-- **Cross-CLI shared substrate** — same `blueprint.json`, same `rules.json`, same `findings.json`. Open the project in Claude and Codex simultaneously; both honor the same rules; new findings from one CLI propagate to the other on the next session.
-- **Contract test suite** at `tests/test_connector_contract.py` + `tests/test_install_loop.py` (19 tests) — every connector's declared capabilities are gated by an end-to-end tmpdir install test.
 
 ## Install
 
@@ -42,7 +28,7 @@ npx @bitraptors/archie /path/to/your/project
 
 ![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
-The installer pops up an interactive multi-select picker showing which coding-agent CLIs were detected on your machine — Claude Code, OpenAI Codex CLI, Earendil Pi — with all three pre-selected. Hit `enter` to install for all of them (recommended), or `space` to deselect anything you don't want. The installer then copies Archie's standalone scripts, the canonical SKILL bodies / hook scripts, and the `/archie-deep-scan` Claude-modular skill subtree into your project; writes per-CLI shims for each picked target (slash commands for Claude, SKILL.md files for Codex/Pi, hook bindings, named sub-agent TOMLs for Codex, TS extension for Pi); patches Codex's `~/.codex/config.toml` (raises the per-folder context byte cap + adds `CLAUDE.md` to its fallback list — non-destructive merge); builds the local viewer bundle (one-time, ~45s — cached by version); delivers `.archieignore` + `.archiebulk` (pattern files for scanning); and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Open your project in any of the picked CLIs — the first Archie command you run asks once whether to share anonymous usage telemetry (opt-in).
+The installer pops up an interactive multi-select picker showing which coding-agent CLIs were detected on your machine — Claude Code, OpenAI Codex CLI, Pi — with all three pre-selected. Hit `enter` to install for all of them (recommended), or `space` to deselect anything you don't want. The installer then copies Archie's standalone scripts, the canonical SKILL bodies / hook scripts, and the `/archie-deep-scan` Claude-modular skill subtree into your project; writes per-CLI shims for each picked target (slash commands for Claude, SKILL.md files for Codex/Pi, hook bindings, named sub-agent TOMLs for Codex, TS extension for Pi); patches Codex's `~/.codex/config.toml` (raises the per-folder context byte cap + adds `CLAUDE.md` to its fallback list — non-destructive merge); builds the local viewer bundle (one-time, ~45s — cached by version); delivers `.archieignore` + `.archiebulk` (pattern files for scanning); and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Open your project in any of the picked CLIs — the first Archie command you run asks once whether to share anonymous usage telemetry (opt-in).
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
 
@@ -81,25 +67,10 @@ Both paths run the **same Python connector loop** under the hood — `npx` invok
 
     ❯ [✓] Claude Code      detected      stable
       [✓] Codex CLI         detected      beta
-      [✓] Earendil Pi       not detected  beta
+      [✓] Pi       not detected  beta
 ```
 
 Press `enter` immediately to install for all 3. Or `space` to deselect anything you don't want. Pipe a non-TTY stdin (CI, scripts) and the prompt is skipped — the default is **all 3** in both interactive and non-TTY modes (consistent behavior). Pass `--target=…` to override with a specific value (`auto` for detected-only, `claude,codex` for a subset, etc.).
-
-**What each CLI gets (user-visible parity):**
-
-| Capability | Claude (stable) | Codex (beta) | Pi (beta) |
-|---|---|---|---|
-| 5 slash commands / skills (scan, deep-scan, intent-layer, viewer, share) | ✅ | ✅ | ✅ |
-| In-session pre-edit enforcement | ✅ PreToolUse | ✅ PreToolUse `apply_patch` | ✅ TS extension on `tool_call` |
-| Pre-commit-review (Bash matcher) | ✅ | ✅ | ✅ via TS extension |
-| Blueprint-nudge on Glob/Grep | ✅ | ✅ | ✅ via TS extension |
-| Post-tool-use, user-prompt-submit, stop hooks | ✅ | ✅ | ✅ via Pi `tool_result` / `input` / `agent_end` events |
-| Parallel sub-agent fan-out (deep-scan Wave 1) | ✅ Agent tool | ✅ `spawn_agents_on_csv` | ✅ RPC parallel adapter with **automatic sequential fallback** |
-| Git pre-commit gate | ✅ | ✅ | ✅ |
-| Per-folder context (CLAUDE.md / AGENTS.md) | ✅ | ✅ (installer auto-patches Codex's fallback list) | ✅ |
-
-Implementation details differ per CLI but every CLI reaches the same user-facing outcome through the same shared `.archie/` pipeline. Codex auto-patches `~/.codex/config.toml` (`project_doc_max_bytes`, `project_doc_fallback_filenames`) so per-folder context reads correctly — non-destructive merge, preserves your existing keys. Pi's TS extension is glue: it routes Pi's lifecycle events to the same `.archie/hooks/*.sh` scripts that Claude and Codex invoke directly.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) → "Multi-Agent Connector Architecture" for the internal design.
 
@@ -475,6 +446,21 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | `.git/hooks/pre-commit.archie` | Universal git pre-commit gate (works regardless of which CLI is active) |
 | `~/.codex/config.toml` *(patched)* | Idempotent merge: `project_doc_max_bytes = 131072` + `CLAUDE.md` in `project_doc_fallback_filenames` |
 
+## CLI Compatibility
+
+| Capability | Claude (stable) | Codex (beta) | Pi (beta) |
+|---|---|---|---|
+| 5 slash commands / skills (scan, deep-scan, intent-layer, viewer, share) | ✅ | ✅ | ✅ |
+| In-session pre-edit enforcement | ✅ PreToolUse | ✅ PreToolUse `apply_patch` | ✅ TS extension on `tool_call` |
+| Pre-commit-review (Bash matcher) | ✅ | ✅ | ✅ via TS extension |
+| Blueprint-nudge on Glob/Grep | ✅ | ✅ | ✅ via TS extension |
+| Post-tool-use, user-prompt-submit, stop hooks | ✅ | ✅ | ✅ via Pi `tool_result` / `input` / `agent_end` events |
+| Parallel sub-agent fan-out (deep-scan Wave 1) | ✅ Agent tool | ✅ `spawn_agents_on_csv` | ✅ RPC parallel adapter with **automatic sequential fallback** |
+| Git pre-commit gate | ✅ | ✅ | ✅ |
+| Per-folder context (CLAUDE.md / AGENTS.md) | ✅ | ✅ (installer auto-patches Codex's fallback list) | ✅ |
+
+Implementation details differ per CLI but every CLI reaches the same user-facing outcome through the same shared `.archie/` pipeline. Codex auto-patches `~/.codex/config.toml` (`project_doc_max_bytes`, `project_doc_fallback_filenames`) so per-folder context reads correctly — non-destructive merge, preserves your existing keys. Pi's TS extension is glue: it routes Pi's lifecycle events to the same `.archie/hooks/*.sh` scripts that Claude and Codex invoke directly.
+
 ## How It Works
 
 ### Deep Scan Pipeline (2-Wave)
@@ -585,7 +571,7 @@ Each scan compares current scores against history to detect trends (improving, d
 - A supported coding-agent harness:
   - **Claude Code** — stable, primary target
   - **OpenAI Codex CLI** — beta
-  - **Earendil Pi** — beta
+  - **Pi** — beta
 
   The same `archie-scan` / `archie-deep-scan` / `archie-intent-layer` / `archie-share` / `archie-viewer` commands run in all three harnesses with feature parity (subject to each harness's API ceiling — see the Multi-CLI install table above).
 
