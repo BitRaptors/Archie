@@ -57,7 +57,18 @@ python3 -m archie.install /path/to/project [--target=auto|claude|codex|pi|all]
 
 Both paths run the **same Python connector loop** under the hood — `npx` invokes it (via `python3 -m _install_pkg.install`) after copying the bundled scripts; `python3 -m archie.install` runs it from the pip-installed package. The connector code (`archie/connectors/*.py`) is the single source of truth. The `--target` flag accepts `auto` (detects each CLI's home directory), `all` (force every supported CLI), or a comma-separated subset.
 
-**Interactive prompt.** When `npx @bitraptors/archie` runs in a terminal, it shows which CLIs were detected on the machine and asks which to install for. The default is **all three** — press Enter to accept, or type a subset (`claude` / `codex` / `pi` / `claude,codex`) or `auto` (detected-only) and press Enter. Pipe a non-TTY stdin (CI, scripts) or pass `--yes` / `-y` to skip the prompt and use the default for non-interactive mode (`auto`). Pass `--target=…` directly to skip the prompt and force a specific value regardless of TTY.
+**Interactive multi-select.** When `npx @bitraptors/archie` runs in a terminal, it shows a checkbox picker with each CLI pre-selected. Default is **all three** — use `↑/↓` to navigate, `space` to toggle, `a` to toggle all, `enter` to confirm, `ctrl-c` to cancel:
+
+```
+  Pick coding-agent CLIs to install Archie for:
+  ↑/↓ navigate · space toggles · a toggles all · enter confirms · ctrl-c cancels
+
+    ❯ [✓] Claude Code      detected      stable
+      [✓] Codex CLI         detected      beta
+      [✓] Earendil Pi       not detected  beta
+```
+
+Press `enter` immediately to install for all 3. Or `space` to deselect anything you don't want. Pipe a non-TTY stdin (CI, scripts) or pass `--yes` / `-y` to skip the prompt and use the safe default for non-interactive mode (`auto` — detected CLIs only). Pass `--target=…` directly to skip the prompt and force a specific value regardless of TTY.
 
 **What each CLI gets (user-visible parity):**
 

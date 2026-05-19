@@ -4,7 +4,6 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, unlinkSy
 import { join, resolve, dirname, delimiter } from "path";
 import { fileURLToPath } from "url";
 import { execSync, spawnSync } from "child_process";
-import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -168,6 +167,87 @@ function detectCLIs() {
   return detected;
 }
 
+// Multi-select TTY picker — Space toggles, arrow keys navigate, Enter confirms.
+// Built on raw-mode stdin + ANSI escapes; zero new dependencies.
+async function multiSelectPrompt(options, defaultSelectedValues) {
+  const selected = new Set(defaultSelectedValues);
+  let cursor = 0;
+
+  const renderLine = (opt, i) => {
+    const checked = selected.has(opt.value) ? `${GREEN}✓${RESET}` : " ";
+    const pointer = i === cursor ? `${CYAN}❯${RESET}` : " ";
+    const status = opt.statusDim ? `${DIM}${opt.status}${RESET}` : opt.status;
+    return `  ${pointer} [${checked}] ${opt.label.padEnd(16)} ${DIM}${opt.subtitle}${RESET}  ${status}`;
+  };
+
+  const draw = () => {
+    for (const [i, opt] of options.entries()) {
+      stdout.write(renderLine(opt, i) + "\n");
+    }
+  };
+
+  const redraw = () => {
+    // Move cursor up N lines and clear each one as we rewrite it.
+    stdout.write(`\x1b[${options.length}A`);
+    for (const [i, opt] of options.entries()) {
+      stdout.write("\x1b[2K"); // clear entire line
+      stdout.write(renderLine(opt, i) + "\n");
+    }
+  };
+
+  draw();
+  stdout.write("\x1b[?25l"); // hide cursor
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding("utf8");
+
+  return new Promise((resolveResult, rejectResult) => {
+    const cleanup = () => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.removeListener("data", onData);
+      stdout.write("\x1b[?25h"); // restore cursor
+    };
+
+    const onData = (chunk) => {
+      // chunk may carry multiple bytes (e.g. an escape sequence). Iterate.
+      const s = chunk.toString("utf8");
+      let i = 0;
+      while (i < s.length) {
+        const c = s[i];
+        if (c === "\x03") { // Ctrl+C — bail out cleanly
+          cleanup();
+          stdout.write("\n");
+          process.exit(130);
+        } else if (c === "\r" || c === "\n") {
+          cleanup();
+          resolveResult(Array.from(selected));
+          return;
+        } else if (c === " ") {
+          const opt = options[cursor];
+          if (selected.has(opt.value)) selected.delete(opt.value);
+          else selected.add(opt.value);
+          redraw();
+        } else if (c === "a" || c === "A") {
+          // toggle all (handy shortcut)
+          const all = options.every((o) => selected.has(o.value));
+          if (all) selected.clear();
+          else options.forEach((o) => selected.add(o.value));
+          redraw();
+        } else if (c === "\x1b" && s[i + 1] === "[" && (s[i + 2] === "A" || s[i + 2] === "B")) {
+          if (s[i + 2] === "A") cursor = (cursor - 1 + options.length) % options.length;
+          else cursor = (cursor + 1) % options.length;
+          i += 2; // consume "[A" / "[B"
+          redraw();
+        }
+        i++;
+      }
+    };
+
+    stdin.on("data", onData);
+  });
+}
+
 async function chooseTargets() {
   // 1. Explicit --target flag wins, always.
   if (targetArg) return targetArg;
@@ -177,30 +257,28 @@ async function chooseTargets() {
   //    with extra .agents/ or .pi/ directories on Claude-only machines.
   if (nonInteractive || !stdin.isTTY || !stdout.isTTY) return "auto";
 
-  // 3. Interactive prompt. Default = all 3 CLIs (portability bias for
-  //    a human installing in a project that might be shared).
+  // 3. Interactive multi-select. Default = all 3 CLIs selected.
   const detected = detectCLIs();
+  const options = ["claude", "codex", "pi"].map((cli) => ({
+    value: cli,
+    label: CLI_LABELS[cli],
+    subtitle: detected.includes(cli) ? "detected" : "not detected",
+    status: CLI_STATUS[cli],
+    statusDim: CLI_STATUS[cli] !== "stable",
+  }));
+
   console.log("");
-  console.log(`  ${BOLD}Coding-agent CLIs:${RESET}`);
-  for (const cli of ["claude", "codex", "pi"]) {
-    const found = detected.includes(cli);
-    const mark = found ? `${GREEN}✓${RESET}` : `${DIM}–${RESET}`;
-    const where = found ? `detected at ${CLI_HOMES[cli]}` : "not found on this machine";
-    const status = CLI_STATUS[cli] === "stable" ? "stable" : `${DIM}beta${RESET}`;
-    console.log(`    ${mark} ${CLI_LABELS[cli].padEnd(14)} ${DIM}${where.padEnd(38)}${RESET}  ${status}`);
-  }
+  console.log(`  ${BOLD}Pick coding-agent CLIs to install Archie for:${RESET}`);
+  console.log(`  ${DIM}↑/↓ navigate · space toggles · a toggles all · enter confirms · ctrl-c cancels${RESET}`);
   console.log("");
-  console.log(`  ${BOLD}Install shims for: ${GREEN}all${RESET} ${BOLD}(claude, codex, pi)${RESET}`);
-  console.log(`  ${DIM}Press Enter to accept, or type a comma-separated subset${RESET}`);
-  console.log(`  ${DIM}(claude / codex / pi), or 'auto' to install only for detected CLIs.${RESET}`);
-  const rl = createInterface({ input: stdin, output: stdout });
-  let answer;
-  try {
-    answer = (await rl.question(`  ${CYAN}>${RESET} `)).trim();
-  } finally {
-    rl.close();
+
+  const chosen = await multiSelectPrompt(options, ["claude", "codex", "pi"]);
+
+  if (chosen.length === 0) {
+    console.log(`  ${DIM}⚠ nothing selected — falling back to auto-detect${RESET}`);
+    return "auto";
   }
-  return answer || "all";
+  return chosen.join(",");
 }
 
 const projectRoot = resolve(projectRootArg);
