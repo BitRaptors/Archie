@@ -4,6 +4,8 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, unlinkSy
 import { join, resolve, dirname, delimiter } from "path";
 import { fileURLToPath } from "url";
 import { execSync, spawnSync } from "child_process";
+import { createInterface } from "node:readline/promises";
+import { stdin, stdout } from "node:process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -112,13 +114,20 @@ function cpDirSync(src, dest) {
 const args = process.argv.slice(2);
 let projectRootArg = ".";
 let commandsDirArg = null;
+let targetArg = null;
+let nonInteractive = false;
 
-const USAGE = `Usage: npx @bitraptors/archie [path] [--commands-dir dir]
+const USAGE = `Usage: npx @bitraptors/archie [path] [options]
 
 Installs Archie tooling into the project at <path> (default: current directory).
-  path             Project directory to install into. Defaults to the cwd.
-  --commands-dir   Legacy Claude-only override. Multi-CLI installs ignore it.
-  -h, --help       Show this help.`;
+  path                       Project directory to install into. Defaults to the cwd.
+  --target=<spec>            Skip the interactive prompt and install for the given targets.
+                             Values: auto | all | claude | codex | pi | comma-separated subset
+                             Default in interactive mode: all (3 CLIs)
+                             Default in non-interactive mode: auto (detected CLIs only)
+  -y, --yes, --non-interactive   Skip the interactive prompt (use the default).
+  --commands-dir <dir>       Legacy Claude-only override. Multi-CLI installs ignore it.
+  -h, --help                 Show this help.`;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "-h" || args[i] === "--help") {
@@ -127,12 +136,71 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === "--commands-dir" && i + 1 < args.length) {
     commandsDirArg = args[i + 1];
     i++;
+  } else if (args[i] === "--target" && i + 1 < args.length) {
+    targetArg = args[i + 1];
+    i++;
+  } else if (args[i].startsWith("--target=")) {
+    targetArg = args[i].slice("--target=".length);
+  } else if (args[i] === "-y" || args[i] === "--yes" || args[i] === "--non-interactive") {
+    nonInteractive = true;
   } else if (args[i].startsWith("--")) {
     console.error(`Unknown flag: ${args[i]}\n\n${USAGE}`);
     process.exit(2);
   } else {
     projectRootArg = args[i];
   }
+}
+
+const HOME = process.env.HOME || process.env.USERPROFILE || "";
+const CLI_HOMES = {
+  claude: HOME ? join(HOME, ".claude") : "",
+  codex: HOME ? join(HOME, ".codex") : "",
+  pi: HOME ? join(HOME, ".pi", "agent") : "",
+};
+const CLI_LABELS = { claude: "Claude Code", codex: "Codex CLI", pi: "Earendil Pi" };
+const CLI_STATUS = { claude: "stable", codex: "beta", pi: "beta" };
+
+function detectCLIs() {
+  const detected = [];
+  for (const [name, dir] of Object.entries(CLI_HOMES)) {
+    if (dir && existsSync(dir)) detected.push(name);
+  }
+  return detected;
+}
+
+async function chooseTargets() {
+  // 1. Explicit --target flag wins, always.
+  if (targetArg) return targetArg;
+
+  // 2. Non-interactive (no TTY, or --yes flag) → safer default: auto.
+  //    Auto only writes shims for detected CLIs — won't surprise CI users
+  //    with extra .agents/ or .pi/ directories on Claude-only machines.
+  if (nonInteractive || !stdin.isTTY || !stdout.isTTY) return "auto";
+
+  // 3. Interactive prompt. Default = all 3 CLIs (portability bias for
+  //    a human installing in a project that might be shared).
+  const detected = detectCLIs();
+  console.log("");
+  console.log(`  ${BOLD}Coding-agent CLIs:${RESET}`);
+  for (const cli of ["claude", "codex", "pi"]) {
+    const found = detected.includes(cli);
+    const mark = found ? `${GREEN}✓${RESET}` : `${DIM}–${RESET}`;
+    const where = found ? `detected at ${CLI_HOMES[cli]}` : "not found on this machine";
+    const status = CLI_STATUS[cli] === "stable" ? "stable" : `${DIM}beta${RESET}`;
+    console.log(`    ${mark} ${CLI_LABELS[cli].padEnd(14)} ${DIM}${where.padEnd(38)}${RESET}  ${status}`);
+  }
+  console.log("");
+  console.log(`  ${BOLD}Install shims for: ${GREEN}all${RESET} ${BOLD}(claude, codex, pi)${RESET}`);
+  console.log(`  ${DIM}Press Enter to accept, or type a comma-separated subset${RESET}`);
+  console.log(`  ${DIM}(claude / codex / pi), or 'auto' to install only for detected CLIs.${RESET}`);
+  const rl = createInterface({ input: stdin, output: stdout });
+  let answer;
+  try {
+    answer = (await rl.question(`  ${CYAN}>${RESET} `)).trim();
+  } finally {
+    rl.close();
+  }
+  return answer || "all";
 }
 
 const projectRoot = resolve(projectRootArg);
@@ -286,13 +354,16 @@ try {
 } catch { /* noop */ }
 
 if (hasPython) {
+  const targetValue = await chooseTargets();
   const env = {
     ...process.env,
     ARCHIE_ASSETS_ROOT: ASSETS,
     ARCHIE_STANDALONE_ROOT: ASSETS,
     PYTHONPATH: process.env.PYTHONPATH ? `${archieDir}${delimiter}${process.env.PYTHONPATH}` : archieDir,
   };
-  const result = spawnSync("python3", ["-m", "_install_pkg.install", projectRoot, "--target=auto"], {
+  console.log("");
+  console.log(`  ${DIM}→ python3 -m _install_pkg.install --target=${targetValue}${RESET}`);
+  const result = spawnSync("python3", ["-m", "_install_pkg.install", projectRoot, `--target=${targetValue}`], {
     cwd: archieDir,
     env,
     stdio: "inherit",
