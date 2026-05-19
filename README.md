@@ -28,15 +28,17 @@ npx @bitraptors/archie /path/to/your/project
 
 ![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
-This copies Archie's standalone scripts, Claude Code commands, and the `/archie-deep-scan` skill subtree into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, builds the local viewer bundle (one-time, ~45s — cached by version), delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code — the first Archie command you run there asks once whether to share anonymous usage telemetry (opt-in).
+The installer pops up an interactive multi-select picker showing which coding-agent CLIs were detected on your machine — Claude Code, OpenAI Codex CLI, Earendil Pi — with all three pre-selected. Hit `enter` to install for all of them (recommended), or `space` to deselect anything you don't want. The installer then copies Archie's standalone scripts, the canonical SKILL bodies / hook scripts, and the `/archie-deep-scan` Claude-modular skill subtree into your project; writes per-CLI shims for each picked target (slash commands for Claude, SKILL.md files for Codex/Pi, hook bindings, named sub-agent TOMLs for Codex, TS extension for Pi); patches Codex's `~/.codex/config.toml` (raises the per-folder context byte cap + adds `CLAUDE.md` to its fallback list — non-destructive merge); builds the local viewer bundle (one-time, ~45s — cached by version); delivers `.archieignore` + `.archiebulk` (pattern files for scanning); and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Open your project in any of the picked CLIs — the first Archie command you run asks once whether to share anonymous usage telemetry (opt-in).
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
 
 **Options:**
 ```bash
-npx @bitraptors/archie /path/to/project --commands-dir .agents/skills
+npx @bitraptors/archie /path/to/project --target=all       # skip the picker, force all 3 CLIs
+npx @bitraptors/archie /path/to/project --target=auto      # only the CLIs detected on this machine
+npx @bitraptors/archie /path/to/project --target=claude    # only Claude (or codex / pi / claude,codex etc.)
 ```
-Use `--commands-dir` to install command files to a custom directory (default: `.claude/commands/`).
+The picker is shown only in a real terminal. Non-TTY stdin (CI, scripts) skips the prompt and defaults to `--target=all` for consistency with the interactive default. Pass `--target=…` to override.
 
 ## Multi-CLI install (Claude + Codex + Pi)
 
@@ -443,8 +445,21 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | `AGENTS.md` | Canonical agent context — architecture, decision chains, deep-links to the topic rule files |
 | `CLAUDE.md` | Thin pointer to `AGENTS.md` (so Claude Code and agent-agnostic tools load the same context) |
 | Per-folder `CLAUDE.md` | Directory-level context with patterns, anti-patterns, code examples (only if Intent Layer opt-in) |
-| `.claude/hooks/` | Real-time enforcement hooks |
+| `.claude/hooks/*.sh` | Claude-deployed copies of the canonical hook scripts |
+| `.claude/settings.local.json` | Claude hook bindings + 29-entry permissions allow list |
+| `.claude/skills/archie-deep-scan/` | Claude-modular deep-scan skill router (Claude-specific bonus) |
 | `.claude/rules/*.md` | Topic-split rule files (architecture, patterns, guidelines, pitfalls, dev-rules) + browsable `enforcement/` directory |
+| `.archie/hooks/*.sh` | Canonical hook scripts (`pre-validate.sh`, `pre-commit-review.sh`, `blueprint-nudge.sh`, `post-plan-review.sh`, `post-lint.sh`, `pre-turn.sh`, `stop.sh`) — invoked by all 3 CLIs |
+| `.archie/prompts/` | Canonical SKILL bodies + `_shared/` cross-CLI fragments + `codex/` and `pi/` per-CLI overrides |
+| `.archie/_install_pkg/` | Bundled Python install loop (manifest, connectors, install.py) — re-run for upgrades or to install additional CLIs |
+| `.agents/skills/archie-*/SKILL.md` | Codex slash-command shims (parent-walked by Codex) |
+| `.codex/hooks.json` | Codex hook bindings with absolute paths and Codex-native matchers (`^apply_patch$`, etc.) |
+| `.codex/agents/archie-*.toml` | Codex named sub-agents for `spawn_agents_on_csv` parallel Wave-1 fan-out |
+| `.pi/skills/archie-*/SKILL.md` | Pi slash-command shims (Pi's own discovery path, isolated from Codex's) |
+| `.pi/extensions/archie-hooks.ts` | Pi TS extension routing lifecycle events to canonical `.archie/hooks/*.sh` |
+| `.pi/extensions/package.json` | Pi extension manifest |
+| `.git/hooks/pre-commit.archie` | Universal git pre-commit gate (works regardless of which CLI is active) |
+| `~/.codex/config.toml` *(patched)* | Idempotent merge: `project_doc_max_bytes = 131072` + `CLAUDE.md` in `project_doc_fallback_filenames` |
 
 ## How It Works
 
@@ -563,7 +578,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentatio
 
 ## Telemetry & update checks (anonymous, opt-in)
 
-The first time you run an Archie slash command (`/archie-scan`, `/archie-deep-scan`, etc.) in Claude Code, it asks once whether you'd like to share usage telemetry — an in-session picker, not the `npx` install (which can run non-interactively). There are three tiers:
+The first time you run an Archie command (`/archie-scan`, `/archie-deep-scan`, etc.) in any supported harness (Claude Code, Codex, or Pi), it asks once whether you'd like to share usage telemetry — a model-driven prompt in the shared `.archie/prompts/_shared/telemetry-consent.md` fragment, asked in-session rather than during `npx` install (which can run non-interactively). The consent flow works identically across all three CLIs. There are three tiers:
 
 - **community** *(recommended)* — events include a stable random installation ID written once to `~/.archie/config.json`. Lets us see which features get used together.
 - **anonymous** — same payload but the installation ID is stripped before upload. Each event is unlinkable.

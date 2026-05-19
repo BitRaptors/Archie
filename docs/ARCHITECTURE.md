@@ -722,9 +722,10 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 9. Copy `.archieignore` + `.archiebulk` defaults (only if not already present — preserves user customisations)
 10. Copy the React viewer source into `.archie/viewer/` and build it once (`npm ci` + `vite build`, then drop `node_modules`) — cached by a `.archie-version` marker so unchanged versions skip the ~45s build
 11. Append `.gitignore` entries for installed tooling — includes Claude (`.claude/...`), Codex (`.agents/skills/archie-*/`, `.codex/agents/archie-*.toml`, `.codex/hooks.json`), and Pi (`.pi/extensions/archie-hooks.ts`, `.pi/extensions/package.json`, `.pi/skills/archie-*/`) paths; idempotent across upgrades
-12. **Delegate to the Python connector loop:** spawn `python3 -m _install_pkg.install $PROJECT_ROOT --target=auto` with `ARCHIE_ASSETS_ROOT` and `ARCHIE_STANDALONE_ROOT` env vars pointing at the npm bundle. The Python loop auto-detects which CLIs are installed (`~/.claude/`, `~/.codex/`, `~/.pi/agent/`) and writes per-CLI shims, hooks, and (for Codex) the `~/.codex/config.toml` patch. See [Multi-Agent Connector Architecture](#multi-agent-connector-architecture).
-13. Write the machine-level version marker (`~/.archie/version`); on a version change, mark `JUST_UPGRADED` so the next slash command can acknowledge it
-14. Print installation summary + next steps
+12. **Interactive picker** (TTY only) — show a raw-mode multi-select prompt with all 3 CLIs pre-selected. User navigates with arrow keys, toggles with space, confirms with Enter (or hits Ctrl-C to cancel cleanly). Non-TTY stdin (CI, pipe) skips the prompt and uses the same default as Enter: `all`. The `--target=<spec>` CLI flag bypasses the prompt with an explicit value (`auto` / `all` / `claude` / `codex,pi` / etc.).
+13. **Delegate to the Python connector loop:** spawn `python3 -m _install_pkg.install $PROJECT_ROOT --target=<chosen>` with `ARCHIE_ASSETS_ROOT` and `ARCHIE_STANDALONE_ROOT` env vars pointing at the npm bundle. The Python loop resolves the target spec (auto = detect each CLI's home dir; all = every supported CLI; explicit = use the list) and writes per-CLI shims, hooks, and (for Codex) the `~/.codex/config.toml` patch. See [Multi-Agent Connector Architecture](#multi-agent-connector-architecture).
+14. Write the machine-level version marker (`~/.archie/version`); on a version change, mark `JUST_UPGRADED` so the next slash command can acknowledge it
+15. Print installation summary + next steps
 
 The installer does **not** prompt for telemetry consent — an `npx` install can be non-interactive (CI, pipe, agent shell), so a prompt there is unreliable. Consent is asked in-session by the first slash command instead (see [Telemetry](#telemetry)).
 
