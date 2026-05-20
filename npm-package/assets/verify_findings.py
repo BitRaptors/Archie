@@ -19,11 +19,14 @@ finalize.py merge step consumes this alongside `findings.json` to apply
 hysteresis-aware routing (see Phase 3).
 
 This script follows the rest of `archie/standalone/` in shelling out to
-the Claude Code CLI rather than importing the Anthropic SDK — keeps the
-zero-dependency invariant and inherits the user's auth.
+a coding-agent CLI rather than importing a vendor SDK — keeps the
+zero-dependency invariant and inherits the user's auth. The CLI is
+selectable: `--verifier claude` (default) shells out to the Claude Code
+CLI; `--verifier codex` shells out to the Codex CLI, so a Codex-driven
+deep-scan keeps finding-verification.
 
 Usage:
-    python3 verify_findings.py /path/to/project [--concurrency 10]
+    python3 verify_findings.py /path/to/project [--concurrency 10] [--verifier claude|codex]
 """
 
 from __future__ import annotations
@@ -37,8 +40,9 @@ import sys
 from pathlib import Path
 
 CLAUDE_CLI = "claude"
+CODEX_CLI = "codex"
 DEFAULT_CONCURRENCY = 10
-TIMEOUT_PER_CALL = 90  # seconds; Haiku is fast but file reads + a small walk add up
+TIMEOUT_PER_CALL = 90  # seconds; the verifier model is fast but file reads + a small walk add up
 MAX_FILE_LINES_TOTAL = 800  # budget across all cited files for a single verifier call
 
 # ---------------------------------------------------------------------------
@@ -198,10 +202,10 @@ def _read_files_bounded(project_root: Path, paths: list[str], budget: int = MAX_
 
 
 # ---------------------------------------------------------------------------
-# Haiku invocation
+# Verifier-model invocation (Claude or Codex)
 # ---------------------------------------------------------------------------
 
-def _run_haiku(prompt: str, project_root: Path) -> str:
+def _run_claude(prompt: str, project_root: Path) -> str:
     """Spawn `claude -p --model haiku` synchronously. Returns result text or ""."""
     try:
         proc = subprocess.run(
@@ -228,6 +232,41 @@ def _run_haiku(prompt: str, project_root: Path) -> str:
     except json.JSONDecodeError:
         return ""
     return envelope.get("result", "") or ""
+
+
+def _run_codex(prompt: str, project_root: Path) -> str:
+    """Spawn `codex exec` synchronously. Returns the model's final text or "".
+
+    `codex exec` runs the prompt non-interactively in a read-only sandbox
+    and prints the agent's final message to stdout. _parse_verdict already
+    tolerates surrounding prose / code fences, so the raw stdout is fine.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                CODEX_CLI,
+                "exec",
+                "--sandbox", "read-only",
+                "--skip-git-repo-check",
+                prompt,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(project_root),
+            timeout=TIMEOUT_PER_CALL,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout or ""
+
+
+def _run_verifier(prompt: str, project_root: Path, verifier: str) -> str:
+    """Dispatch to the selected verifier CLI."""
+    if verifier == "codex":
+        return _run_codex(prompt, project_root)
+    return _run_claude(prompt, project_root)
 
 
 def _parse_verdict(text: str, finding_id: str) -> dict:
@@ -269,7 +308,7 @@ def _failopen_verdict(finding_id: str, reason: str) -> dict:
 # Per-finding verification
 # ---------------------------------------------------------------------------
 
-def verify_one(finding: dict, project_root: Path) -> dict:
+def verify_one(finding: dict, project_root: Path, verifier: str = "claude") -> dict:
     fid = finding.get("id") or "?"
 
     # Auto-demote: no triggering_call_site means it's a risk class, not a
@@ -296,7 +335,7 @@ def verify_one(finding: dict, project_root: Path) -> dict:
         finding_json=json.dumps(finding_view, indent=2),
         file_contents=file_contents,
     )
-    result_text = _run_haiku(prompt, project_root)
+    result_text = _run_verifier(prompt, project_root, verifier)
     if not result_text:
         return _failopen_verdict(fid, "verifier call failed (timeout / cli missing / non-zero exit)")
     return _parse_verdict(result_text, fid)
@@ -307,13 +346,16 @@ def verify_one(finding: dict, project_root: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify .archie/findings.json against actual code via Haiku.")
+    parser = argparse.ArgumentParser(
+        description="Verify .archie/findings.json against actual code via a coding-agent CLI.")
     parser.add_argument("project_root", type=Path,
                         help="Project root (parent of .archie/).")
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
-                        help=f"Max concurrent Haiku calls (default {DEFAULT_CONCURRENCY}).")
+                        help=f"Max concurrent verifier calls (default {DEFAULT_CONCURRENCY}).")
     parser.add_argument("--output", type=Path, default=None,
                         help="Output path for verdicts.json. Default: <project>/.archie/verdicts.json")
+    parser.add_argument("--verifier", choices=("claude", "codex"), default="claude",
+                        help="Which coding-agent CLI runs the backward-check (default: claude).")
     args = parser.parse_args()
 
     archie_dir = args.project_root / ".archie"
@@ -330,11 +372,14 @@ def main() -> int:
         return 0
 
     print(f"verify_findings: {len(findings)} candidate(s) → "
-          f"spawning Haiku batch (concurrency={args.concurrency})...")
+          f"spawning {args.verifier} verifier batch (concurrency={args.concurrency})...")
 
     verdicts: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as ex:
-        futures = {ex.submit(verify_one, f, args.project_root): f for f in findings}
+        futures = {
+            ex.submit(verify_one, f, args.project_root, args.verifier): f
+            for f in findings
+        }
         for fut in concurrent.futures.as_completed(futures):
             v = fut.result()
             verdicts.append(v)

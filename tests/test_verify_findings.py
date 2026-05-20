@@ -160,8 +160,8 @@ def test_verify_one_failopen_when_haiku_unreachable(tmp_path: Path, monkeypatch:
         "applies_to": ["src/foo.py"],
     }
 
-    # Stub Haiku to return empty (CLI failure path).
-    monkeypatch.setattr(verify_findings, "_run_haiku", lambda prompt, root: "")
+    # Stub the verifier to return empty (CLI failure path).
+    monkeypatch.setattr(verify_findings, "_run_verifier", lambda prompt, root, verifier: "")
 
     v = verify_findings.verify_one(finding, tmp_path)
     assert v["verdict"] == "keep"
@@ -181,13 +181,54 @@ def test_verify_one_passes_haiku_response_through(tmp_path: Path, monkeypatch: p
         "applies_to": ["src/foo.py"],
     }
 
-    haiku_response = (
+    verifier_response = (
         '{"id": "f_0004", "verdict": "demote", "confidence": 0.85, '
         '"reason": "callers wrap with safe_bad()"}'
     )
-    monkeypatch.setattr(verify_findings, "_run_haiku", lambda prompt, root: haiku_response)
+    monkeypatch.setattr(
+        verify_findings, "_run_verifier", lambda prompt, root, verifier: verifier_response
+    )
 
     v = verify_findings.verify_one(finding, tmp_path)
     assert v["verdict"] == "demote"
     assert v["confidence"] == 0.85
     assert "safe_bad" in v["reason"]
+
+
+def test_run_verifier_dispatches_to_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--verifier codex must route through the Codex CLI path, not the Claude one."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        verify_findings, "_run_codex", lambda prompt, root: calls.append("codex") or "codex-out"
+    )
+    monkeypatch.setattr(
+        verify_findings, "_run_claude", lambda prompt, root: calls.append("claude") or "claude-out"
+    )
+
+    assert verify_findings._run_verifier("p", tmp_path, "codex") == "codex-out"
+    assert verify_findings._run_verifier("p", tmp_path, "claude") == "claude-out"
+    assert calls == ["codex", "claude"]
+
+
+def test_verify_one_threads_verifier_choice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """verify_one must pass the selected verifier down to _run_verifier."""
+    cited = tmp_path / "src" / "foo.py"
+    cited.parent.mkdir(parents=True)
+    cited.write_text("def trigger():\n    return bad()\n")
+
+    finding = {
+        "id": "f_0005",
+        "problem_statement": "Real",
+        "triggering_call_site": "src/foo.py:2\n    return bad()",
+        "applies_to": ["src/foo.py"],
+    }
+
+    seen: list[str] = []
+
+    def _fake(prompt: str, root: Path, verifier: str) -> str:
+        seen.append(verifier)
+        return '{"id": "f_0005", "verdict": "keep", "confidence": 0.9, "reason": "ok"}'
+
+    monkeypatch.setattr(verify_findings, "_run_verifier", _fake)
+    verify_findings.verify_one(finding, tmp_path, "codex")
+    assert seen == ["codex"]
