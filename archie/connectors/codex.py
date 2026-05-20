@@ -185,7 +185,7 @@ class CodexConnector(Connector):
             f'sandbox_mode = "{_toml_string(agent.sandbox_mode)}"',
         ]
         if agent.model:
-            lines.append(f'model = "{_toml_string(agent.model)}"')
+            lines.append(f'model = "{_toml_string(_codex_model(agent.model))}"')
         dest.write_text("\n".join(lines) + "\n")
 
     def patch_config(self, patches: list[ConfigPatch]) -> None:
@@ -216,6 +216,19 @@ def _codex_matcher(tool_match: str | None) -> str | None:
     if tool_match is None:
         return None
     return _MATCHER_NAME_CODEX.get(tool_match, tool_match)
+
+
+# AgentDef.model is CLI-agnostic but the manifest spells it in Claude's
+# vocabulary. Map it to the Codex equivalent for .codex/agents/*.toml.
+_CODEX_MODEL_MAP = {
+    "opus": "gpt-5",
+    "sonnet": "gpt-5",
+    "haiku": "gpt-5",
+}
+
+
+def _codex_model(model: str) -> str:
+    return _CODEX_MODEL_MAP.get(model.lower(), model)
 
 
 def _codex_agent_prompt_path(agent: AgentDef) -> str:
