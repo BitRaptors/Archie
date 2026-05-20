@@ -3,7 +3,7 @@
 **Telemetry:**
 ```bash
 python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan rule_synthesis
-python3 .archie/telemetry.py extra "$PROJECT_ROOT" rule_synthesis model=sonnet
+python3 .archie/telemetry.py extra "$PROJECT_ROOT" rule_synthesis model={{ANALYSIS_MODEL}}
 TELEMETRY_STEP6_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ```
 
@@ -11,7 +11,7 @@ TELEMETRY_STEP6_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 ### If SCAN_MODE = "incremental":
 
-The blueprint was patched in Step 5. Spawn a **Sonnet subagent** (`model: "sonnet"`) with this additional instruction prepended to the standard prompt below:
+The blueprint was patched in Step 5. Spawn a **{{ANALYSIS_MODEL}} subagent** with this additional instruction prepended to the standard prompt below:
 
 > The existing rules are in `.archie/rules.json`. Only propose rules for patterns discovered in the changed files. Do not regenerate existing rules. If a change invalidates an existing rule, flag it with `"status": "invalidated"` in the output.
 
@@ -19,7 +19,7 @@ The blueprint was patched in Step 5. Spawn a **Sonnet subagent** (`model: "sonne
 
 The blueprint contains architectural facts. This step synthesizes them into **architectural rules** — insights that the AI reviewer uses to evaluate plans and code changes.
 
-Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
+Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 
 > Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, development_rules, infrastructure_rules, and architecture_rules (file_placement_rules + naming_conventions).
 >
@@ -111,7 +111,7 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with this prompt:
 > - `pattern_divergence` — rule captures a `components.patterns` or `implementation_guidelines` style. Hook **informs** (exit 0, quiet).
 > - `mechanical_violation` — rule is regex-checkable housekeeping (don't-edit-generated, file-naming-regex). Hook **blocks** (exit 2). Use this with the optional mechanical fields below.
 >
-> **The `why` field is the most important field.** Inline 2-4 sentences directly from the blueprint section that motivated the rule — do NOT paraphrase or summarize, copy the language Sonnet wrote in Wave 2 verbatim or near-verbatim. The agent reads this at edit time as the rejection/warning explanation, so the inlined text *is* the agent's understanding of why the rule exists. Examples (good):
+> **The `why` field is the most important field.** Inline 2-4 sentences directly from the blueprint section that motivated the rule — do NOT paraphrase or summarize, copy the language the Wave 2 synthesis wrote verbatim or near-verbatim. The agent reads this at edit time as the rejection/warning explanation, so the inlined text *is* the agent's understanding of why the rule exists. Examples (good):
 > - "We chose SQLite for the local-first constraint. Introducing any ORM or remote database would undermine the zero-config deployment model and force connection management the architecture doesn't support."
 > - "ViewModels must stay framework-agnostic because the decision chain roots in testability — if a ViewModel references Android Context, it can't be unit-tested without instrumentation, which breaks the fast-feedback development loop."
 >
@@ -362,7 +362,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 
 ### ✓ Compact Checkpoint A — before Intent Layer
 
-**This is the highest-leverage compaction point in the whole pipeline.** Steps 1–6 are fully persisted (blueprint, findings, pitfalls, rules, proposed_rules, telemetry marks). Wave 1 subagent transcripts, Wave 2 Opus synthesis, and Rule Synthesis are redundant with the disk state — holding them in conversation context is pure waste for the massive Intent Layer pass that follows (which spawns one Sonnet subagent per folder batch).
+**This is the highest-leverage compaction point in the whole pipeline.** Steps 1–6 are fully persisted (blueprint, findings, pitfalls, rules, proposed_rules, telemetry marks). Wave 1 subagent transcripts, the Wave 2 synthesis, and Rule Synthesis are redundant with the disk state — holding them in conversation context is pure waste for the massive Intent Layer pass that follows (which spawns one {{ANALYSIS_MODEL}} subagent per folder batch).
 
 If the orchestrator's context is over ~70%, pause here, run `/compact`, and resume with `/archie-deep-scan --continue`. The Resume Prelude reads `deep_scan_state.json` (last_completed=6) and jumps straight to Step 7 after rehydrating shell vars from the persisted run_context.
 

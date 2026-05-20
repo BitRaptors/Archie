@@ -49,6 +49,9 @@ _CODEX_RENDER_TOKENS = {
     "REASONING_MODEL": "gpt-5",
     "VERIFY_MODEL": "gpt-5",
     "WORKFLOW_ROOT": CODEX_WORKFLOW_ROOT,
+    # verify_findings.py runs its finding backward-check through the Codex CLI
+    # instead of the default claude CLI.
+    "VERIFIER_FLAG": " --verifier codex",
 }
 
 # Block partials carry only the CLI-specific *mechanism*. The worker model and
@@ -87,11 +90,12 @@ _CODEX_RENDER_PARTIALS = {
         "`report_agent_job_result` (or your final message when not in a batch).\n"
         "4. Do NOT print the output in your response body."
     ),
-    # How to ask the user an interactive question.
+    # How to ask the user an interactive question. The question text, header,
+    # and options stay inline in the canonical workflow — only the asking
+    # mechanism is slotted.
     "ask_user": (
-        "present the question text followed by a numbered list of the options "
-        "above, then wait for the user to reply with their choice before "
-        "continuing"
+        "Present the question text, then a numbered list of the options, then "
+        "wait for the user to reply with their choice before continuing"
     ),
 }
 

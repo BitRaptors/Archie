@@ -61,6 +61,9 @@ _CLAUDE_RENDER_TOKENS = {
     "REASONING_MODEL": "Opus",
     "VERIFY_MODEL": "Haiku",
     "WORKFLOW_ROOT": CLAUDE_WORKFLOW_ROOT,
+    # Extra argument for verify_findings.py — Claude uses the default (claude
+    # CLI) verifier, so no flag. Codex passes --verifier codex.
+    "VERIFIER_FLAG": "",
 }
 
 # Block partials carry only the CLI-specific *mechanism*. The worker model
@@ -88,10 +91,12 @@ _CLAUDE_RENDER_PARTIALS = {
         "3. After Writing, reply with exactly: \"Wrote <that file path>\".\n"
         "4. Do NOT print the output in your response body."
     ),
-    # How to ask the user an interactive question.
+    # How to ask the user an interactive question. The question text, header,
+    # and options stay inline in the canonical workflow — only the asking
+    # mechanism is slotted.
     "ask_user": (
-        "use the `AskUserQuestion` tool, passing the question text, header, "
-        "and options exactly as specified above"
+        "Use the `AskUserQuestion` tool. Pass the question text, header, and "
+        "options exactly as specified"
     ),
 }
 

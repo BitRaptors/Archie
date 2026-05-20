@@ -46,7 +46,7 @@ Read `$PROJECT_ROOT/.archie/blueprint.json` — specifically `decisions.key_deci
 
 Read `$PROJECT_ROOT/.archie/drift_report.json` (mechanical findings from Phase 1).
 
-Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their folder CLAUDE.md files, and the blueprint context. Tell it:
+Spawn a **{{ANALYSIS_MODEL}} subagent** with the file contents, their folder CLAUDE.md files, and the blueprint context. {{>dispatch_single}} Tell it:
 
 > You are an architecture reviewer. You have the project's architectural blueprint (decisions, trade-offs, pitfalls, patterns), per-folder CLAUDE.md files describing expected patterns, mechanical drift findings (already detected), and source files to review.
 >
@@ -72,15 +72,12 @@ Spawn a **Sonnet subagent** (`model: "sonnet"`) with the file contents, their fo
 >
 > Return JSON: `{"deep_findings": [...]}`
 
-Instruct the reviewer subagent to write its own output (append to its prompt):
+Instruct the reviewer subagent to write its own output (append to its prompt). The "file path named above" is `/tmp/archie_deep_drift.json`:
 
 ```
 ---
 OUTPUT CONTRACT (mandatory):
-1. Use the Write tool to save your COMPLETE output to /tmp/archie_deep_drift.json
-2. Write the raw output verbatim — extract_output.py handles JSON envelopes.
-3. After Writing, reply with exactly: "Wrote /tmp/archie_deep_drift.json"
-4. Do NOT print the output in your response body.
+{{>output_contract}}
 ```
 
 After the agent's confirmation returns, extract and clean up:
@@ -178,7 +175,7 @@ If `FIRST_BASELINE` (no prior scan_report.md): all findings are tagged **NEW (ba
 Read `$PROJECT_ROOT/.archie/health.json` for precise numeric values and `$PROJECT_ROOT/.archie/health_history.json` to compute trends (previous run values vs. current).
 
 Write `$PROJECT_ROOT/.archie/scan_report.md` using the template at
-`.claude/skills/archie-deep-scan/templates/scan-report.md` (path relative
+`{{WORKFLOW_ROOT}}/deep-scan/templates/scan-report.md` (path relative
 to the project root). Read that file first if you haven't already, then
 substitute the project-specific values into the placeholders before writing
 the final report.

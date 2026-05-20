@@ -29,7 +29,7 @@ If output is empty: proceed silently. This is informational only.
 
 ## Telemetry consent (one-time, run before anything else)
 
-Read and follow `.archie/prompts/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+Read and follow `{{WORKFLOW_ROOT}}/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time interactive opt-in. It self-skips after the first answer and on non-interactive sessions.
 
 **CRITICAL CONSTRAINT: Never write inline Python.**
 Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
@@ -111,7 +111,7 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
    | 8 | Cleanup |
    | 9 | Drift detection |
 
-   Call `AskUserQuestion`:
+   Ask the user how to proceed — {{>ask_user}}:
    - **question:** (build dynamically) `"A previous deep-scan stopped after Step {LAST} ({step_name})."` — and if `ENRICH_DONE > 0`, append `" The Intent Layer got {ENRICH_DONE} folders in before stopping."` — then `"What do you want to do?"`
    - **header:** "Resume"
    - **multiSelect:** false
@@ -145,12 +145,12 @@ conventions and Phase 0 variables (`SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`,
 `PROJECT_ROOT`, `PROJECT_NAME`) that every step assumes are in place.
 
 All paths below are relative to the project root (your cwd). The fragments
-live alongside this orchestrator under `.claude/skills/archie-deep-scan/`.
+live alongside this orchestrator under `{{WORKFLOW_ROOT}}/deep-scan/`.
 
-1. `.claude/skills/archie-deep-scan/fragments/telemetry-conventions.md` — telemetry mark / finish / write contract used by every step.
-2. `.claude/skills/archie-deep-scan/fragments/compact-resume-contract.md` — how the pipeline survives `/compact` mid-run via `.archie/deep_scan_state.json`.
-3. **If `RESUME_ACTION=resume`:** `.claude/skills/archie-deep-scan/fragments/resume-prelude.md` — rehydrates shell variables from persisted state.
-4. `.archie/prompts/_shared/scope_resolution.md` — Phase 0 scope resolution. Establishes `PROJECT_ROOT`, `PROJECT_NAME`, `SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`.
+1. `{{WORKFLOW_ROOT}}/deep-scan/fragments/telemetry-conventions.md` — telemetry mark / finish / write contract used by every step.
+2. `{{WORKFLOW_ROOT}}/deep-scan/fragments/compact-resume-contract.md` — how the pipeline survives `/compact` mid-run via `.archie/deep_scan_state.json`.
+3. **If `RESUME_ACTION=resume`:** `{{WORKFLOW_ROOT}}/deep-scan/fragments/resume-prelude.md` — rehydrates shell variables from persisted state.
+4. `{{WORKFLOW_ROOT}}/_shared/scope_resolution.md` — Phase 0 scope resolution. Establishes `PROJECT_ROOT`, `PROJECT_NAME`, `SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`.
 
 ## Step-by-step routing
 
@@ -160,15 +160,15 @@ If `START_STEP > N` (the Preamble decided to skip earlier steps), do not Read or
 
 | Step | What it does | Load this file before starting |
 |---|---|---|
-| 1 | Run the scanner | `.claude/skills/archie-deep-scan/steps/step-1-scanner.md` |
-| 2 | Read accumulated knowledge from prior runs | `.claude/skills/archie-deep-scan/steps/step-2-read-scan.md` |
-| 3 | Wave 1 — spawn parallel analytical agents | `.claude/skills/archie-deep-scan/steps/step-3-wave1/orchestration.md` |
-| 4 | Save & merge Wave 1 output | `.claude/skills/archie-deep-scan/steps/step-4-merge.md` |
-| 5 | Wave 2 — reasoning agent (Opus) | `.claude/skills/archie-deep-scan/steps/step-5-wave2-reasoning.md` |
-| 6 | AI rule synthesis | `.claude/skills/archie-deep-scan/steps/step-6-rule-synthesis.md` |
-| 7 | Intent Layer — per-folder CLAUDE.md | `.claude/skills/archie-deep-scan/steps/step-7-intent-layer.md` |
-| 8 | Cleanup | `.claude/skills/archie-deep-scan/steps/step-8-cleanup.md` |
-| 9 | Drift detection & architectural assessment | `.claude/skills/archie-deep-scan/steps/step-9-drift.md` |
-| 10 | Final telemetry flush | `.claude/skills/archie-deep-scan/steps/step-10-telemetry.md` |
+| 1 | Run the scanner | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-1-scanner.md` |
+| 2 | Read accumulated knowledge from prior runs | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-2-read-scan.md` |
+| 3 | Wave 1 — spawn parallel analytical agents | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/orchestration.md` |
+| 4 | Save & merge Wave 1 output | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-4-merge.md` |
+| 5 | Wave 2 — reasoning agent ({{REASONING_MODEL}}) | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-5-wave2-reasoning.md` |
+| 6 | AI rule synthesis | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-6-rule-synthesis.md` |
+| 7 | Intent Layer — per-folder CLAUDE.md | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-7-intent-layer.md` |
+| 8 | Cleanup | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-8-cleanup.md` |
+| 9 | Drift detection & architectural assessment | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-9-drift.md` |
+| 10 | Final telemetry flush | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-10-telemetry.md` |
 
-Step 3's `orchestration.md` in turn references four sub-agent prompt files plus a shared `grounding-rules.md` (all under `.claude/skills/archie-deep-scan/steps/step-3-wave1/`) — read those as the orchestration instructs.
+Step 3's `orchestration.md` in turn references four sub-agent prompt files plus a shared `grounding-rules.md` (all under `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/`) — read those as the orchestration instructs.

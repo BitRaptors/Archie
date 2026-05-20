@@ -3,7 +3,7 @@
 **Telemetry:**
 ```bash
 python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan wave1
-python3 .archie/telemetry.py extra "$PROJECT_ROOT" wave1 model=sonnet
+python3 .archie/telemetry.py extra "$PROJECT_ROOT" wave1 model={{ANALYSIS_MODEL}}
 TELEMETRY_STEP3_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ```
 
@@ -11,11 +11,13 @@ TELEMETRY_STEP3_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 ### If SCAN_MODE = "incremental":
 
-Spawn a **single Sonnet subagent** (`model: "sonnet"`) with:
+Spawn a **single {{ANALYSIS_MODEL}} subagent** with:
 - The `changed_files` list (from detect-changes output in preamble)
 - The existing `.archie/blueprint_raw.json`
 - Skeletons for changed files only (read `.archie/skeletons.json`, filter to only keys matching changed file paths)
 - The scan.json import graph
+
+{{>dispatch_single}}
 
 Agent prompt:
 > You have the existing architectural blueprint and a list of files that changed since the last analysis. Read the changed files and their context. Report what changed architecturally:
@@ -34,7 +36,7 @@ Then skip to Step 4.
 
 ### If SCAN_MODE = "full" (default):
 
-Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each focused on a different analytical concern. ALL agents read ALL source files under `$PROJECT_ROOT` — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
+Spawn 3–4 {{ANALYSIS_MODEL}} subagents in parallel, each focused on a different analytical concern. ALL agents read ALL source files under `$PROJECT_ROOT` — they are not split by directory. Each agent gets: the scan.json file_tree, dependencies, config files, and the GROUNDING RULES at the end of this step.
 
 **If `frontend_ratio` >= 0.20, spawn all 4 agents. Otherwise spawn only the first 3 (skip UI Layer).**
 
@@ -42,16 +44,16 @@ Spawn 3–4 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`), each f
 
 **Dispatching the sub-agents:**
 
-For each sub-agent below, Read the corresponding prompt file, then ALSO Read `.claude/skills/archie-deep-scan/steps/step-3-wave1/grounding-rules.md`, and pass the concatenated text (agent body + blank line + grounding rules body) as the `prompt` parameter of the Agent tool call.
+For each sub-agent below, Read the corresponding prompt file, then ALSO Read `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/grounding-rules.md`, and use the concatenated text (agent body + blank line + grounding rules body) as that sub-agent's prompt.
 
 All paths are relative to the project root (your cwd).
 
 | Sub-agent | Prompt file | Spawn when |
 |---|---|---|
-| Structure | `.claude/skills/archie-deep-scan/steps/step-3-wave1/structure-agent.md` | Always |
-| Patterns | `.claude/skills/archie-deep-scan/steps/step-3-wave1/patterns-agent.md` | Always |
-| Technology | `.claude/skills/archie-deep-scan/steps/step-3-wave1/technology-agent.md` | Always |
-| UI Layer | `.claude/skills/archie-deep-scan/steps/step-3-wave1/ui-layer-agent.md` | Only when `frontend_ratio >= 0.20` |
+| Structure | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/structure-agent.md` | Always |
+| Patterns | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/patterns-agent.md` | Always |
+| Technology | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/technology-agent.md` | Always |
+| UI Layer | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/ui-layer-agent.md` | Only when `frontend_ratio >= 0.20` |
 
-All four use `model: "sonnet"`. Dispatch in a single message so they run in parallel.
+All four sub-agents run at the {{ANALYSIS_MODEL}} model. {{>dispatch_parallel}}
 

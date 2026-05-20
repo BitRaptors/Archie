@@ -3,7 +3,7 @@
 **Telemetry:**
 ```bash
 python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan wave2_synthesis
-python3 .archie/telemetry.py extra "$PROJECT_ROOT" wave2_synthesis model=opus
+python3 .archie/telemetry.py extra "$PROJECT_ROOT" wave2_synthesis model={{REASONING_MODEL}}
 TELEMETRY_STEP5_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ```
 
@@ -30,11 +30,13 @@ This scans every per-folder `CLAUDE.md` (excluding `.archie/`, `.claude/`, `node
 
 ### If SCAN_MODE = "incremental":
 
-Spawn an **Opus subagent** (`model: "opus"`) with scoped context:
+Spawn an **{{REASONING_MODEL}} subagent** with scoped context:
 - The existing `$PROJECT_ROOT/.archie/blueprint.json` (full current architecture)
 - The patched `$PROJECT_ROOT/.archie/blueprint_raw.json` (with incremental changes from Step 4)
 - The current `$PROJECT_ROOT/.archie/findings.json` if it exists (the accumulated findings store)
 - The changed file contents (from `changed_files` list)
+
+{{>dispatch_single}}
 
 Tell the scoped Reasoning agent:
 
@@ -45,18 +47,15 @@ Tell the scoped Reasoning agent:
 > - Update the decision_chain only for affected branches
 > Return ONLY the sections that need updating — unchanged sections will be preserved. Use the 4-field contract (`problem_statement`, `evidence`, `root_cause`, `fix_direction`) when writing finding or pitfall entries.
 
-Instruct the Reasoning agent to write its own output (append to its prompt):
+Instruct the Reasoning agent to write its own output (append to its prompt). The "file path named above" is `/tmp/archie_sub_x_$PROJECT_NAME.json`:
 
 ```
 ---
 OUTPUT CONTRACT (mandatory):
-1. Use the Write tool to save your COMPLETE output to /tmp/archie_sub_x_$PROJECT_NAME.json
-2. Write the raw output verbatim — merge handles JSON envelopes.
-3. After Writing, reply with exactly: "Wrote /tmp/archie_sub_x_$PROJECT_NAME.json"
-4. Do NOT print the output in your response body.
+{{>output_contract}}
 ```
 
-The file will be on disk when the agent's confirmation returns. Then finalize with patch mode:
+The file will be on disk when the agent's output returns. Then finalize with patch mode:
 ```bash
 python3 .archie/finalize.py "$PROJECT_ROOT" --patch /tmp/archie_sub_x_$PROJECT_NAME.json
 ```
@@ -68,7 +67,9 @@ Then skip to Step 6.
 
 ### If SCAN_MODE = "full" (default):
 
-Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. Now spawn a single Opus subagent (`model: "opus"`) that reads ALL Wave 1 output and produces deep architectural reasoning.
+Wave 1 gathered facts: components, patterns, technology, deployment, UI layer. Now spawn a single {{REASONING_MODEL}} subagent that reads ALL Wave 1 output and produces deep architectural reasoning.
+
+{{>dispatch_single}}
 
 Tell the Reasoning agent:
 
@@ -258,18 +259,15 @@ Tell the Reasoning agent:
 
 The Reasoning agent also gets the GROUNDING RULES from Step 3.
 
-Instruct the Reasoning agent to write its own output (append to its prompt):
+Instruct the Reasoning agent to write its own output (append to its prompt). The "file path named above" is `/tmp/archie_sub_x_$PROJECT_NAME.json`:
 
 ```
 ---
 OUTPUT CONTRACT (mandatory):
-1. Use the Write tool to save your COMPLETE output to /tmp/archie_sub_x_$PROJECT_NAME.json
-2. Write the raw output verbatim — finalize handles JSON envelopes.
-3. After Writing, reply with exactly: "Wrote /tmp/archie_sub_x_$PROJECT_NAME.json"
-4. Do NOT print the output in your response body.
+{{>output_contract}}
 ```
 
-After the agent's confirmation returns, finalize:
+After the agent's output returns, finalize:
 
 ```bash
 python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
@@ -277,14 +275,14 @@ python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
 
 This single command: merges the Reasoning agent's output into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.
 
-**Backward-check the findings against actual code.** After finalize writes `.archie/findings.json`, run the Haiku verifier and apply hysteresis. The verifier reads each finding's required `triggering_call_site` field, walks one level out from the cited caller, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (a file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
+**Backward-check the findings against actual code.** After finalize writes `.archie/findings.json`, run the {{VERIFY_MODEL}} verifier and apply hysteresis. The verifier reads each finding's required `triggering_call_site` field, walks one level out from the cited caller, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (a file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
 
 ```bash
-python3 .archie/verify_findings.py "$PROJECT_ROOT"
+python3 .archie/verify_findings.py "$PROJECT_ROOT"{{VERIFIER_FLAG}}
 python3 .archie/apply_verdicts.py "$PROJECT_ROOT"
 ```
 
-Both scripts are idempotent and graceful: if the claude CLI is unreachable, every Haiku call times out, or `findings.json` is empty, both no-op cleanly. Findings whose status flips to `demoted` or `dropped` here will be filtered out of any user-facing rendering automatically (status-driven filter) — only `status: active` reaches the report.
+Both scripts are idempotent and graceful: if the {{VERIFY_MODEL}} verifier CLI is unreachable, every verifier call times out, or `findings.json` is empty, both no-op cleanly. Findings whose status flips to `demoted` or `dropped` here will be filtered out of any user-facing rendering automatically (status-driven filter) — only `status: active` reaches the report.
 
 After finalize completes, regenerate the dependency graph (the blueprint now has component definitions, which enables cross-component edge detection):
 

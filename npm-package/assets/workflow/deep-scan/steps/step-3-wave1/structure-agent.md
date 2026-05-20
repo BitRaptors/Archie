@@ -24,7 +24,7 @@
 >
 > Record `dependency_magnets` (workspaces in the top quartile of in_degree) inside `workspace_topology` as shown — it's a structural inventory field, not a finding.
 >
-> **DO NOT write directly to `blueprint.pitfalls`.** Pitfalls are emitted only by Wave 2 Opus synthesis in the canonical 4-field shape. Instead, capture cross-workspace import cycles and other workspace-level problems as **draft findings** for Wave 2 to upgrade. Append each to the `findings` array you return alongside your structure output, using this shape:
+> **DO NOT write directly to `blueprint.pitfalls`.** Pitfalls are emitted only by the Wave 2 reasoning synthesis in the canonical 4-field shape. Instead, capture cross-workspace import cycles and other workspace-level problems as **draft findings** for Wave 2 to upgrade. Append each to the `findings` array you return alongside your structure output, using this shape:
 >
 > ```json
 > {

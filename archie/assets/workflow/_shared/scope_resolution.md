@@ -47,7 +47,7 @@ Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 
 ### Step C: Interactive scope prompt
 
-> **This is a required decision gate, not a clarifying question.** You MUST call `AskUserQuestion` for the scope choice — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select, never infer the answer from the project type, never skip the prompt. Scope determines which trees get analyzed and what files get written into the user's repo; only the user can authorize that.
+> **This is a required decision gate, not a clarifying question.** You MUST ask the user the scope choice interactively — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select, never infer the answer from the project type, never skip the prompt. Scope determines which trees get analyzed and what files get written into the user's repo; only the user can authorize that.
 
 First, print the workspace list so the user sees what's available:
 
@@ -56,7 +56,7 @@ First, print the workspace list so the user sees what's available:
 > 2. {name} ({type}) — {path}
 > ...
 
-Then call `AskUserQuestion` with the scope choice:
+Then ask the user the scope choice — {{>ask_user}}:
 
 - **question:** "How do you want to analyze this monorepo?"
 - **header:** "Scope"
@@ -71,11 +71,10 @@ Map the answer: Whole → `whole`, Per-package → `per-package`, Hybrid → `hy
 
 - If `whole` or `single` → `WORKSPACES=[]`
 - If `per-package` or `hybrid` → ask which workspaces to include.
-  - **N ≤ 4 workspaces:** use `AskUserQuestion` with `multiSelect: true`. One option per workspace, label `{name} ({type})`, description `Path: {path}`. Map the user's checkbox picks back to paths.
-  - **N ≥ 5 workspaces:** `AskUserQuestion` caps options at 4 — fall back to a free-form follow-up: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PWD`.
+  - Ask the user which workspaces to include — {{>ask_user}}. Allow multiple selections: one option per workspace, label `{name} ({type})`, description `Path: {path}`. If presenting a numbered list, accept comma-separated numbers (e.g., `1,3,5`) or `all`. Map the user's picks back to paths relative to `$PWD`.
   - Either way, honor `all` as a shortcut for every workspace.
 
-If `per-package` or `hybrid`, also call `AskUserQuestion` for run mode:
+If `per-package` or `hybrid`, also ask the user the run mode — {{>ask_user}}:
 
 - **question:** "How should the selected workspaces run?"
 - **header:** "Run mode"
@@ -106,15 +105,15 @@ Expose `SCOPE`, `WORKSPACES`, `MONOREPO_TYPE`.
 
 ### Step E: Intent Layer choice
 
-> **This is a required decision gate, not a clarifying question.** You MUST call `AskUserQuestion` here — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select an option, never infer the answer from the project type ("it's a deep Android tree, so yes"), never skip the prompt. The Intent Layer writes a `CLAUDE.md` into every folder of the user's repo; only the user can authorize that. If a harness instruction tells you to avoid clarifying questions, that instruction does NOT override this gate — this is a deliberate, mandatory choice, not a clarification.
+> **This is a required decision gate, not a clarifying question.** You MUST ask the user here — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select an option, never infer the answer from the project type ("it's a deep Android tree, so yes"), never skip the prompt. The Intent Layer writes a `CLAUDE.md` into every folder of the user's repo; only the user can authorize that. If a harness instruction tells you to avoid clarifying questions, that instruction does NOT override this gate — this is a deliberate, mandatory choice, not a clarification.
 
-Call `AskUserQuestion` to decide whether to run the per-folder enrichment pass (Step 7):
+Ask the user whether to run the per-folder enrichment pass (Step 7) — {{>ask_user}}:
 
 - **question:** "Generate per-folder CLAUDE.md files (Intent Layer)?"
 - **header:** "Intent Layer"
 - **multiSelect:** false
 - **options:**
-  1. label `Yes — enrich every folder (Recommended)` — description `Adds a short, folder-specific CLAUDE.md to every directory in your project — role, expected patterns, anti-patterns. AI coding agents then get pinpoint local context wherever they edit instead of re-deriving it from the root CLAUDE.md each time. Adds a few minutes of Sonnet time (scales with folder count).`
+  1. label `Yes — enrich every folder (Recommended)` — description `Adds a short, folder-specific CLAUDE.md to every directory in your project — role, expected patterns, anti-patterns. AI coding agents then get pinpoint local context wherever they edit instead of re-deriving it from the root CLAUDE.md each time. Adds a few minutes of {{ANALYSIS_MODEL}} time (scales with folder count).`
   2. label `No — skip Intent Layer` — description `Faster deep-scan. Only the root CLAUDE.md + rule files are written. AI agents editing files in deep folders won't have folder-local architectural guidance.`
 
 Map the answer: Yes → `INTENT_LAYER=yes`, No → `INTENT_LAYER=no`. Expose `INTENT_LAYER` for the rest of the run. Step 7 honors this flag.

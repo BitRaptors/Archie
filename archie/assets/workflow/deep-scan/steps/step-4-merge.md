@@ -27,17 +27,14 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 
 **Subagent output contract (mandatory — append to each agent's prompt before spawning):**
 
-Each Wave 1 subagent must write its own output directly to a pre-specified path. The orchestrator must NEVER copy or Write the transcript itself — attempting to access `.claude/projects/.../subagents/*.jsonl` triggers a sensitive-file permission prompt on every call.
+Each Wave 1 subagent must write its own output directly to a pre-specified path. The orchestrator must NEVER copy or transcribe the subagent's output itself — read the file the subagent wrote.
 
-Append this block to each Wave 1 agent's prompt, substituting `<OUTPUT_PATH>` with the path below:
+Append this block to each Wave 1 agent's prompt, substituting `<OUTPUT_PATH>` (the "file path named above") with the path below:
 
 ```
 ---
 OUTPUT CONTRACT (mandatory):
-1. Use the Write tool to save your COMPLETE output to <OUTPUT_PATH>.
-2. Write the raw output verbatim — the merge script handles JSON envelopes, code fences, and multi-block text.
-3. After Writing, reply with exactly: "Wrote <OUTPUT_PATH>"
-4. Do NOT print the output in your response body. /tmp/archie_* is already permissioned via Write(//tmp/archie_*).
+{{>output_contract}}
 ```
 
 Output paths per agent:

@@ -3,7 +3,7 @@
 **Telemetry:**
 ```bash
 python3 .archie/telemetry.py mark "$PROJECT_ROOT" deep-scan intent_layer
-python3 .archie/telemetry.py extra "$PROJECT_ROOT" intent_layer model=sonnet skipped=false
+python3 .archie/telemetry.py extra "$PROJECT_ROOT" intent_layer model={{ANALYSIS_MODEL}} skipped=false
 TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ```
 
@@ -15,12 +15,12 @@ TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 ### Shared pipeline
 
-**This step runs the exact same pipeline as the standalone `/archie-intent-layer` command.** The canonical description lives there (Phases 1–4): prepare the DAG → loop `next-ready` / `suggest-batches` / Sonnet subagent per batch / `save-enrichment` → `merge` enrichments into per-folder CLAUDE.md files.
+**This step runs the exact same pipeline as the standalone `/archie-intent-layer` command.** The canonical description lives there (Phases 1–4): prepare the DAG → loop `next-ready` / `suggest-batches` / {{ANALYSIS_MODEL}} subagent per batch → `save-enrichment` → `merge` enrichments into per-folder CLAUDE.md files.
 
 **Load the canonical prose into context before starting** — slash-command bodies are not cross-loaded automatically, so you must Read the file yourself:
 
 ```
-Read .claude/commands/archie-intent-layer.md
+Read {{WORKFLOW_ROOT}}/intent-layer/SKILL.md
 ```
 
 Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD`, with the deep-scan-specific deltas below layered on top. Do NOT reinterpret or re-derive the pipeline logic — follow what the file says.
@@ -65,7 +65,7 @@ Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD
 
 ### ✓ Compact Checkpoint C — after Intent Layer
 
-Only meaningful when `INTENT_LAYER=yes`. Step 7 has just pushed dozens-to-hundreds of Sonnet subagent transcripts into conversation context; those are now fully persisted to `.archie/enrichments/*.json` and merged into per-folder `CLAUDE.md` files. Compacting here gives Step 9 (Drift Assessment) a fresh context, which matters because drift assessment reads blueprint + drift_report + CLAUDE.md files and benefits from focused attention.
+Only meaningful when `INTENT_LAYER=yes`. Step 7 has just pushed dozens-to-hundreds of {{ANALYSIS_MODEL}} subagent transcripts into conversation context; those are now fully persisted to `.archie/enrichments/*.json` and merged into per-folder `CLAUDE.md` files. Compacting here gives Step 9 (Drift Assessment) a fresh context, which matters because drift assessment reads blueprint + drift_report + CLAUDE.md files and benefits from focused attention.
 
 If `INTENT_LAYER=no` (opted out in Step E), skip this checkpoint — Checkpoint A already covered it.
 
