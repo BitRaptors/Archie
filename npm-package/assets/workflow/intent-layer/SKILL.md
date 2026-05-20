@@ -11,9 +11,9 @@ Do NOT use `python3 -c "..."` for inspection, parsing, or transformation. Every 
 
 ### Flags (optional)
 
-If invoked as `/archie-intent-layer --continue` → set `RESUME_INTENT=continue` before anything else. Skip the Phase 0 AskUserQuestion if partial state is detected.
+If invoked as `/archie-intent-layer --continue` → set `RESUME_INTENT=continue` before anything else. Skip the Phase 0 interactive resume prompt if partial state is detected.
 
-If invoked as `/archie-intent-layer --finalize-partial` → set `RESUME_INTENT=finalize`. Skip the Phase 0 AskUserQuestion if partial state is detected.
+If invoked as `/archie-intent-layer --finalize-partial` → set `RESUME_INTENT=finalize`. Skip the Phase 0 interactive resume prompt if partial state is detected.
 
 Otherwise → `RESUME_INTENT=ask`.
 
@@ -21,7 +21,7 @@ Otherwise → `RESUME_INTENT=ask`.
 
 ## Telemetry consent (one-time, run before anything else)
 
-Read and follow `.archie/prompts/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+Read and follow `{{WORKFLOW_ROOT}}/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time interactive opt-in. It self-skips after the first answer and on non-interactive sessions.
 
 ---
 
@@ -116,7 +116,7 @@ Three paths depending on `RESUME_INTENT`:
 
 **If `RESUME_INTENT=finalize`** → `RESUME_MODE=finalize_partial`. Skip the prompt.
 
-**If `RESUME_INTENT=ask`** → call `AskUserQuestion`:
+**If `RESUME_INTENT=ask`** → ask the user how to proceed — {{>ask_user}}:
 
 - **question:** "A previous Intent Layer run was interrupted. {N_DONE} of {N_TOTAL} folders are already enriched. What do you want to do?"
 - **header:** "Resume"
@@ -154,7 +154,7 @@ Ask the user whether to regenerate every folder's CLAUDE.md, or only the folders
 
 ### Step A: Ask for the mode
 
-Call `AskUserQuestion`:
+Ask the user the mode — {{>ask_user}}:
 
 - **question:** "Regenerate all folder CLAUDE.md files, or only folders changed since the last deep scan?"
 - **header:** "Mode"
@@ -243,7 +243,7 @@ For `RESUME_MODE=resume` and `RESUME_MODE=fresh` the flow is identical: `next-re
 
 ### Status-line labeling (honor the current mode)
 
-When you spawn subagents via the Agent tool and when you narrate progress to the user, label the run according to `RESUME_MODE` so status lines are accurate:
+When you spawn subagents and when you narrate progress to the user, label the run according to `RESUME_MODE` so status lines are accurate:
 
 | RESUME_MODE | MODE | Label to use |
 |---|---|---|
@@ -281,34 +281,24 @@ Argv still works for small test cases (`suggest-batches "$PWD" <ready1> <ready2>
 
 Output is a JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `batch_id`) to reference batches.
 
-**c. For each batch, generate the prompt and spawn a Sonnet subagent:**
+**c. For each batch, generate the prompt and spawn a {{ANALYSIS_MODEL}} subagent:**
 
 ```bash
 python3 .archie/intent_layer.py prompt "$PWD" --folders <comma-separated-folders> --child-summaries "$PWD/.archie/enrichments/" > /tmp/archie_intent_prompt_<batch_id>.txt
 ```
 
-Read the prompt file. **Before spawning**, append the following output contract to the prompt text you pass to the subagent (so the subagent writes its result directly to disk — the orchestrator must never copy or re-Write the transcript):
+Read the prompt file. **Before spawning**, append the following output contract to the prompt text you pass to the subagent (so the subagent writes its result directly to disk — the orchestrator must never copy or transcribe the subagent's output). The "file path named above" for this contract is `/tmp/archie_enrichment_<batch_id>.json`, and the output must be valid JSON with folder paths as keys — no prose, no code fences, no preamble:
 
 ```
 ---
 OUTPUT CONTRACT (mandatory):
-
-1. Use the Write tool to save your COMPLETE JSON response to:
-   /tmp/archie_enrichment_<batch_id>.json
-
-2. Write only valid JSON with folder paths as keys — no prose, no code
-   fences, no preamble.
-
-3. After Writing, reply with a single-line confirmation:
-   "Wrote /tmp/archie_enrichment_<batch_id>.json"
-
-DO NOT print the JSON in your response body. Writing to /tmp is already
-permissioned (Write(//tmp/archie_*)) — no permission prompt will fire.
+The output must be valid JSON with folder paths as keys.
+{{>output_contract}}
 ```
 
-Substitute the actual `<batch_id>` in both the path and the confirmation string before augmenting the prompt. Spawn a Sonnet subagent (`model: "sonnet"`) with that augmented prompt.
+Substitute the actual `<batch_id>` in the path before augmenting the prompt.
 
-**Spawn ALL batches of one wave in parallel** — they're independent by construction.
+**Spawn ALL batches of one wave in parallel** — they're independent by construction. Each batch runs as one {{ANALYSIS_MODEL}} subagent. {{>dispatch_parallel}}
 
 **d. After each subagent completes, ingest its pre-written file:**
 
@@ -318,7 +308,7 @@ python3 .archie/intent_layer.py save-enrichment "$PWD" <batch_id> /tmp/archie_en
 
 This extracts the JSON (handling conversation envelopes, code fences, multi-block merging), saves it to `.archie/enrichments/<batch_id>.json`, and automatically marks the folders as done.
 
-**IMPORTANT: Never copy or Write the subagent's output yourself. The subagent wrote it directly to /tmp — you only need to call save-enrichment. Attempting to `cp` from `.claude/projects/.../subagents/*.jsonl` triggers a sensitive-file permission prompt every single batch.**
+**IMPORTANT: Never copy or transcribe the subagent's output yourself. The subagent wrote it directly to /tmp — you only need to call save-enrichment. Read the file the subagent wrote; do not reach into the subagent's own transcript files.**
 
 If the subagent's confirmation reply is missing or the file is absent, skip save-enrichment for that batch and surface the failure — do NOT try to recover the output from the transcript file.
 

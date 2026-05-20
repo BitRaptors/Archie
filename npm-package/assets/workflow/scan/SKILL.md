@@ -18,7 +18,7 @@ If output is empty: proceed silently. This is informational only.
 
 ## Telemetry consent (one-time, run before anything else)
 
-Read and follow `.archie/prompts/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions. A user may only ever run `/archie-scan` and never the deep scan — so this command must ask, not assume another one will.
+Read and follow `{{WORKFLOW_ROOT}}/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time interactive opt-in. It self-skips after the first answer and on non-interactive sessions. A user may only ever run `/archie-scan` and never the deep scan — so this command must ask, not assume another one will.
 
 **CRITICAL CONSTRAINT: Never write inline Python.**
 Do NOT use `python3 -c "..."` or any ad-hoc scripting to inspect, parse, or transform JSON. Every operation has a dedicated command:
@@ -67,7 +67,7 @@ Parse `monorepo_type` and count subprojects where `is_root_wrapper` is false.
 
 ### Step C: Interactive scope prompt
 
-> **This is a required decision gate, not a clarifying question.** You MUST call `AskUserQuestion` for the scope choice — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select, never infer the answer from the project type, never skip the prompt. Scope determines which trees get analyzed; only the user can authorize that.
+> **This is a required decision gate, not a clarifying question.** You MUST ask the user the scope choice interactively — even when the session is running in non-interactive or "no clarifying questions" mode. Never auto-select, never infer the answer from the project type, never skip the prompt. Scope determines which trees get analyzed; only the user can authorize that.
 
 First, print the workspace list so the user sees what's available:
 
@@ -76,7 +76,7 @@ First, print the workspace list so the user sees what's available:
 > 2. {name} ({type}) — {path}
 > ...
 
-Then call `AskUserQuestion` with the scope choice:
+Then ask the user the scope choice — {{>ask_user}}:
 
 - **question:** "How do you want to analyze this monorepo?"
 - **header:** "Scope"
@@ -91,8 +91,7 @@ Map the answer: Whole → `whole`, Per-package → `per-package`, Hybrid → `hy
 
 - If `whole` or `single` → `WORKSPACES=[]`
 - If `per-package` or `hybrid` → ask which workspaces to include.
-  - **N ≤ 4 workspaces:** use `AskUserQuestion` with `multiSelect: true`. One option per workspace, label `{name} ({type})`, description `Path: {path}`. Map the user's checkbox picks back to paths.
-  - **N ≥ 5 workspaces:** `AskUserQuestion` caps options at 4 — fall back to a free-form follow-up: *"Which workspaces? Type comma-separated numbers (e.g., `1,3,5`) or `all`."* Resolve to paths relative to `$PWD`.
+  - Ask the user which workspaces to include — {{>ask_user}}. Allow multiple selections: one option per workspace, label `{name} ({type})`, description `Path: {path}`. If presenting a numbered list, accept comma-separated numbers (e.g., `1,3,5`) or `all`. Map the user's picks back to paths relative to `$PWD`.
   - Either way, honor `all` as a shortcut for every workspace.
 
 Persist the choice:
@@ -167,7 +166,7 @@ Read accumulated knowledge (skip any that don't exist — that's normal for earl
 
 **Telemetry:** record `TELEMETRY_DATA_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` and `TELEMETRY_AGENTS_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")` before spawning agents.
 
-Spawn 3 Sonnet subagents in parallel (Agent tool, `model: "sonnet"`). Each agent receives all the data from Phase 2 and can read source files when needed.
+Spawn 3 {{ANALYSIS_MODEL}} subagents in parallel, each receiving all the data from Phase 2 and able to read source files when needed. {{>dispatch_parallel}}
 
 **EFFICIENCY RULE:** Agents read skeletons.json which contains every file's path, class/function signatures, imports, and first lines. This is sufficient for pattern detection, outlier finding, and most analysis. Agents should ONLY use the Read tool on source files when the skeleton genuinely lacks the information needed to make a judgment.
 
@@ -340,7 +339,7 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 }
 ```
 
-`path_glob` narrows the file set, `code_shape` narrows the content. A trigger-only rule (no `check` field) treats the trigger itself as the violation detector at edit time — Sonnet should prefer this for layering / pattern / decision rules. Pure-semantic rules (no structural signature) skip the `triggers` block entirely; they'll fire only at plan/commit time via Phase 3.
+`path_glob` narrows the file set, `code_shape` narrows the content. A trigger-only rule (no `check` field) treats the trigger itself as the violation detector at edit time — the synthesizer should prefer this for layering / pattern / decision rules. Pure-semantic rules (no structural signature) skip the `triggers` block entirely; they'll fire only at plan/commit time via Phase 3.
 
 Confidence calibration:
 - 0.9-1.0: Verified invariant — N files follow pattern with 0-1 exceptions, you read the files.
@@ -537,14 +536,14 @@ Write to `.archie/findings.json`. `scanned_at` must match the date/time you comp
 
 ### 4b-verify: Backward-check findings against actual code
 
-After 4b writes the candidate findings store, run the Haiku verifier + apply hysteresis. The verifier reads each finding's `triggering_call_site` (the verbatim caller quote the synthesizer was required to produce in the schema), reads the cited files, walks one level out, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
+After 4b writes the candidate findings store, run the {{VERIFY_MODEL}} verifier + apply hysteresis. The verifier reads each finding's `triggering_call_site` (the verbatim caller quote the synthesizer was required to produce in the schema), reads the cited files, walks one level out, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
 
 ```bash
-python3 .archie/verify_findings.py "$PWD"
+python3 .archie/verify_findings.py "$PWD"{{VERIFIER_FLAG}}
 python3 .archie/apply_verdicts.py "$PWD"
 ```
 
-Both scripts are idempotent; if `verify_findings.py` couldn't run (claude CLI missing, every Haiku call timed out, etc.) `apply_verdicts.py` no-ops cleanly. Findings whose status flips to `demoted` or `dropped` here will be filtered out of 4c's "Findings" section automatically — only `status: active` shows up in the user-facing report.
+Both scripts are idempotent; if `verify_findings.py` couldn't run (the {{VERIFY_MODEL}} verifier CLI missing, every verifier call timed out, etc.) `apply_verdicts.py` no-ops cleanly. Findings whose status flips to `demoted` or `dropped` here will be filtered out of 4c's "Findings" section automatically — only `status: active` shows up in the user-facing report.
 
 ### 4c: Write Scan Report
 
@@ -653,7 +652,7 @@ Write `/tmp/archie_timing.json` with the timestamps you recorded at each phase b
 ```json
 [
   {"name": "data", "started_at": "<TELEMETRY_DATA_START>", "completed_at": "<TELEMETRY_DATA_END>"},
-  {"name": "agents", "started_at": "<TELEMETRY_AGENTS_START>", "completed_at": "<TELEMETRY_AGENTS_END>", "model": "sonnet"},
+  {"name": "agents", "started_at": "<TELEMETRY_AGENTS_START>", "completed_at": "<TELEMETRY_AGENTS_END>", "model": "{{ANALYSIS_MODEL}}"},
   {"name": "synthesis", "started_at": "<TELEMETRY_SYNTHESIS_START>", "completed_at": "<TELEMETRY_SYNTHESIS_END>"}
 ]
 ```
@@ -686,8 +685,7 @@ Print the summary to the user. Include:
 The rule adoption prompt:
 
 - **N = 0 proposed rules** → skip adoption entirely and tell the user nothing was proposed this scan.
-- **N ≤ 4 proposed rules** → use `AskUserQuestion` with `multiSelect: true`. One option per rule, label `Rule N — <short description>`, description `<full rule text> · severity: <severity> · confidence: <conf>`. Map the user's checkbox picks to rule IDs. If they select none of the options (empty result), treat as `none`.
-- **N ≥ 5 proposed rules** → `AskUserQuestion` caps at 4 — fall back to a free-form prompt:
+- **N ≥ 1 proposed rules** → ask the user which rules to adopt — {{>ask_user}}. Allow multiple selections: one option per rule, label `Rule N — <short description>`, description `<full rule text> · severity: <severity> · confidence: <conf>`. Map the user's picks to rule IDs. If they select none, treat as `none`. If presenting a numbered list, also accept a free-form reply:
   > **Reply with the numbers to adopt** (e.g., `1, 3` or `all` or `none`).
   > Adopted rules take effect immediately. Skipped rules remain in `/archie-viewer` → Rules tab.
 
