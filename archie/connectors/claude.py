@@ -93,10 +93,17 @@ _CLAUDE_RENDER_PARTIALS = {
     ),
     # How to ask the user an interactive question. The question text, header,
     # and options stay inline in the canonical workflow — only the asking
-    # mechanism is slotted.
+    # mechanism is slotted. Carries the AskUserQuestion-specific mechanics
+    # (multiSelect, 4-option cap) so the canonical workflow can stay neutral:
+    # it just says "allow multiple selections" / lists N options, and this
+    # partial maps that onto the tool's real constraints.
     "ask_user": (
         "Use the `AskUserQuestion` tool. Pass the question text, header, and "
-        "options exactly as specified"
+        "options exactly as specified. When the step says to allow multiple "
+        "selections, set `multiSelect: true`. `AskUserQuestion` accepts at "
+        "most 4 options: if the step lists more than 4 choices, do not "
+        "truncate them — instead ask in a plain follow-up message and accept "
+        "a comma-separated reply (e.g. `1,3,5` or `all`)"
     ),
 }
 
