@@ -54,7 +54,7 @@ class CodexConnector(Connector):
         return Path.home() / ".codex"
 
     def install_command(self, project_root: Path, cmd: CommandDef) -> None:
-        # Codex (and Pi via inheritance) parent-walk .agents/skills/<name>/SKILL.md
+        # Codex parent-walks .agents/skills/<name>/SKILL.md
         # — verified by Q1 probe 2026-05-15. SKILL.md is a thin shim that points
         # at the canonical body installed at .archie/prompts/<name>.md.
         dest = project_root / ".agents" / "skills" / cmd.name / "SKILL.md"
@@ -63,7 +63,7 @@ class CodexConnector(Connector):
         dest.write_text(
             f"---\nname: {cmd.name}\ndescription: {cmd.description}\n---\n\n"
             f"Read `{body_path}` in full and execute the instructions as written. "
-            f"The canonical body lives there so Claude Code, Codex, and Pi sessions all "
+            f"The canonical body lives there so Claude Code and Codex sessions all "
             f"follow the same workflow.\n"
         )
 
@@ -162,7 +162,7 @@ def _codex_command_body_path(cmd: CommandDef) -> str:
 def _codex_agent_prompt_path(agent: AgentDef) -> str:
     # Wave-1 / Wave-2 sub-agent prompts are CLI-agnostic content. They live
     # once at archie/assets/prompts/_shared/wave*.md and are referenced by
-    # both Codex (via .codex/agents/*.toml) and Pi (via deep_scan_jobs.json).
+    # Codex via .codex/agents/*.toml.
     basename = Path(agent.prompt_path).name
     return f".archie/prompts/_shared/{basename}"
 

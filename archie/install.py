@@ -1,7 +1,7 @@
 """Install loop — drives all registered connectors for a project install.
 
 Called from npm-package/bin/archie.mjs as:
-    python3 -m archie.install <project_root> [--target=auto|claude|codex|pi|all]
+    python3 -m archie.install <project_root> [--target=auto|claude|codex|all]
 
 Stage 2 work. See docs/plans/2026-05-18-multi-agent-connector-architecture.md §11.
 """
@@ -45,7 +45,7 @@ _STANDALONE_SCRIPTS = [
     "drift.py", "extract_output.py", "arch_review.py", "align_check.py",
     "check_rules.py", "code_shape.py", "rule_index.py", "lint_gate.py",
     "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py",
-    "pi_parallel_deep_scan.py", "telemetry.py", "telemetry_sync.py",
+    "telemetry.py", "telemetry_sync.py",
     "analytics.py", "config.py",
     "update_check.py", "upload.py", "share_setup.py", "refresh.py",
     "viewer.py", "install_hooks.py", "_common.py",
@@ -150,8 +150,7 @@ def install(project_root: Path, requested: list[str] | None = None) -> None:
         print(
             "No supported CLI detected. Install one of:\n"
             "  Claude Code: https://docs.claude.com/claude-code\n"
-            "  Codex CLI:   https://developers.openai.com/codex/cli\n"
-            "  Pi:          https://pi.dev",
+            "  Codex CLI:   https://developers.openai.com/codex/cli",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -186,7 +185,7 @@ def main() -> int:
     parser.add_argument(
         "--target",
         default="auto",
-        help="auto | claude | codex | pi | all | comma-separated subset",
+        help="auto | claude | codex | all | comma-separated subset",
     )
     args = parser.parse_args()
     install(args.project_root.resolve(), _parse_targets(args.target))

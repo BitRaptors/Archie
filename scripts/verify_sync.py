@@ -240,7 +240,6 @@ def check_install_pkg_mirror(errors: list[str]) -> None:
         "connectors/base.py": ROOT / "archie" / "connectors" / "base.py",
         "connectors/claude.py": ROOT / "archie" / "connectors" / "claude.py",
         "connectors/codex.py": ROOT / "archie" / "connectors" / "codex.py",
-        "connectors/pi.py": ROOT / "archie" / "connectors" / "pi.py",
     }
     install_pkg = ASSETS / "_install_pkg"
     if not install_pkg.is_dir():

@@ -120,7 +120,7 @@ const USAGE = `Usage: npx @bitraptors/archie [path] [options]
 Installs Archie tooling into the project at <path> (default: current directory).
   path                       Project directory to install into. Defaults to the cwd.
   --target=<spec>            Skip the interactive prompt and install for the given targets.
-                             Values: auto | all | claude | codex | pi | comma-separated subset
+                             Values: auto | all | claude | codex | comma-separated subset
                              Default (interactive default + non-TTY fallback): all
   --commands-dir <dir>       Legacy Claude-only override. Multi-CLI installs ignore it.
   -h, --help                 Show this help.`;
@@ -149,10 +149,9 @@ const HOME = process.env.HOME || process.env.USERPROFILE || "";
 const CLI_HOMES = {
   claude: HOME ? join(HOME, ".claude") : "",
   codex: HOME ? join(HOME, ".codex") : "",
-  pi: HOME ? join(HOME, ".pi", "agent") : "",
 };
-const CLI_LABELS = { claude: "Claude Code", codex: "Codex CLI", pi: "Earendil Pi" };
-const CLI_STATUS = { claude: "stable", codex: "beta", pi: "beta" };
+const CLI_LABELS = { claude: "Claude Code", codex: "Codex CLI" };
+const CLI_STATUS = { claude: "stable", codex: "beta" };
 
 function detectCLIs() {
   const detected = [];
@@ -253,9 +252,9 @@ async function chooseTargets() {
   //    scripted installs produce.
   if (!stdin.isTTY || !stdout.isTTY) return "all";
 
-  // 3. Interactive multi-select. Default = all 3 CLIs selected.
+  // 3. Interactive multi-select. Default = all CLIs selected.
   const detected = detectCLIs();
-  const options = ["claude", "codex", "pi"].map((cli) => ({
+  const options = ["claude", "codex"].map((cli) => ({
     value: cli,
     label: CLI_LABELS[cli],
     subtitle: detected.includes(cli) ? "detected" : "not detected",
@@ -268,7 +267,7 @@ async function chooseTargets() {
   console.log(`  ${DIM}↑/↓ navigate · space toggles · a toggles all · enter confirms · ctrl-c cancels${RESET}`);
   console.log("");
 
-  const chosen = await multiSelectPrompt(options, ["claude", "codex", "pi"]);
+  const chosen = await multiSelectPrompt(options, ["claude", "codex"]);
 
   if (chosen.length === 0) {
     console.log(`  ${DIM}⚠ nothing selected — falling back to auto-detect${RESET}`);
@@ -355,7 +354,7 @@ if (cleanedCount > 0) {
   console.log(`  ${DIM}cleaned ${cleanedCount} previous Archie files${RESET}`);
 }
 
-for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py", "pi_parallel_deep_scan.py", "config.py", "telemetry_sync.py", "update_check.py", "analytics.py"]) {
+for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "drift.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py", "config.py", "telemetry_sync.py", "update_check.py", "analytics.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -377,7 +376,6 @@ for (const dataFile of ["platform_rules.json"]) {
 const ASSET_SUBDIR_MAP = [
   ["hook_scripts", "hooks"],
   ["prompts", "prompts"],
-  ["pi_extension", "pi_extension"],
   ["_install_pkg", "_install_pkg"],
 ];
 for (const [srcName, destName] of ASSET_SUBDIR_MAP) {
@@ -405,7 +403,7 @@ if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
 }
 
 const gitignorePath = join(projectRoot, ".gitignore");
-const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/skills/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/agents/archie-*.toml\n.codex/hooks.json\n.pi/extensions/archie-hooks.ts\n.pi/extensions/package.json\n.pi/skills/archie-*/\n`;
+const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/skills/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/agents/archie-*.toml\n.codex/hooks.json\n`;
 
 let gitignoreContent = "";
 if (existsSync(gitignorePath)) {

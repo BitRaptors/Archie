@@ -8,15 +8,12 @@ for ownership per connector:
 
     Stage 2 — Claude agent: ClaudeConnector  (done)
     Stage 3 — Codex agent:  CodexConnector   (pending — see docs/plans/HANDOFF_CODEX.md)
-    Stage 4-5 — Pi agent:   PiConnector       (pending — see docs/plans/HANDOFF_PI.md)
 """
 from .base import Connector
 from .claude import ClaudeConnector
 from .codex import CodexConnector
-from .pi import PiConnector
 
 ALL_CONNECTORS: list[Connector] = [
     ClaudeConnector(),
     CodexConnector(),
-    PiConnector(),
 ]

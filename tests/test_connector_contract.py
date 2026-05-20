@@ -119,4 +119,4 @@ def test_every_hook_event_has_at_least_one_connector():
 def test_registry_is_non_empty():
     assert len(ALL_CONNECTORS) >= 1
     names = {c.name for c in ALL_CONNECTORS}
-    assert names == {"claude", "codex", "pi"}, f"Unexpected registry: {names}"
+    assert names == {"claude", "codex"}, f"Unexpected registry: {names}"

@@ -75,7 +75,7 @@ class ClaudeConnector(Connector):
         dest.write_text(
             f"---\ndescription: {cmd.description}\n---\n\n"
             f"Read `{cmd.body_path}` in full and execute the instructions as written. "
-            f"The canonical body lives there so Claude Code, Codex, and Pi sessions all "
+            f"The canonical body lives there so Claude Code and Codex sessions all "
             f"follow the same workflow.\n"
         )
 

@@ -6,7 +6,7 @@
 >
 > This fragment is **agent-neutral**: it drives the consent dialogue via
 > natural-language prompts the model asks the user directly, so it works
-> identically in Claude Code, Codex CLI, and Pi sessions.
+> identically in Claude Code and Codex CLI sessions.
 
 ## Step 1: Check whether this machine has been asked
 
