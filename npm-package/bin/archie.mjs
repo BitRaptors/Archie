@@ -280,6 +280,7 @@ const projectRoot = resolve(projectRootArg);
 const archieDir = join(projectRoot, ".archie");
 const claudeCommands = join(projectRoot, ".claude", "commands");
 const claudeSkills = join(projectRoot, ".claude", "skills");
+const workflowDir = join(archieDir, "workflow");
 
 console.log("");
 console.log(`${BOLD}${CYAN}  Archie${RESET} — architecture enforcement for AI coding agents`);
@@ -311,6 +312,8 @@ if (existsSync(claudeCommands)) {
   if (existsSync(legacyDeepScanDir)) {
     try { rmSync(legacyDeepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
   }
+  // Legacy: scope_resolution.md used to be copied into .claude/commands/_shared/.
+  // The canonical workflow now lives under .archie/workflow/ — drop the stale file.
   const sharedFile = join(claudeCommands, "_shared", "scope_resolution.md");
   if (existsSync(sharedFile)) {
     try { unlinkSync(sharedFile); cleanedCount++; } catch {}
@@ -318,10 +321,22 @@ if (existsSync(claudeCommands)) {
 }
 
 if (existsSync(claudeSkills)) {
+  // Legacy: the deep-scan step tree used to be copied into .claude/skills/.
+  // It is now rendered into .archie/workflow/<cli>/ — drop the stale tree.
   const skillDeepScanDir = join(claudeSkills, "archie-deep-scan");
   if (existsSync(skillDeepScanDir)) {
     try { rmSync(skillDeepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
   }
+}
+
+// Legacy: prior versions copied prompts to .archie/prompts/. Replaced by the
+// rendered per-CLI workflow tree under .archie/workflow/.
+const legacyPromptsDir = join(archieDir, "prompts");
+if (existsSync(legacyPromptsDir)) {
+  try { rmSync(legacyPromptsDir, { recursive: true, force: true }); cleanedCount++; } catch {}
+}
+if (existsSync(workflowDir)) {
+  try { rmSync(workflowDir, { recursive: true, force: true }); cleanedCount++; } catch {}
 }
 
 const hooksDir = join(projectRoot, ".claude", "hooks");
@@ -373,9 +388,10 @@ for (const dataFile of ["platform_rules.json"]) {
   }
 }
 
+// The canonical workflow templates (assets/workflow/) are NOT copied raw —
+// the Python install loop renders them per-CLI into .archie/workflow/<cli>/.
 const ASSET_SUBDIR_MAP = [
   ["hook_scripts", "hooks"],
-  ["prompts", "prompts"],
   ["_install_pkg", "_install_pkg"],
 ];
 for (const [srcName, destName] of ASSET_SUBDIR_MAP) {
@@ -403,7 +419,7 @@ if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
 }
 
 const gitignorePath = join(projectRoot, ".gitignore");
-const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.claude/commands/archie-*.md\n.claude/skills/archie-deep-scan/\n.claude/commands/_shared/scope_resolution.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/agents/archie-*.toml\n.codex/hooks.json\n`;
+const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.archie/workflow/\n.claude/commands/archie-*.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/agents/archie-*.toml\n.codex/hooks.json\n`;
 
 let gitignoreContent = "";
 if (existsSync(gitignorePath)) {

@@ -22,7 +22,6 @@ ROOT = Path(__file__).resolve().parent.parent
 STANDALONE = ROOT / "archie" / "standalone"
 ARCHIE_ASSETS = ROOT / "archie" / "assets"
 ASSETS = ROOT / "npm-package" / "assets"
-COMMANDS = ROOT / ".claude" / "commands"
 ARCHIE_MJS = ROOT / "npm-package" / "bin" / "archie.mjs"
 
 SKIP_FILES = {"__init__.py", "__pycache__"}
@@ -106,33 +105,6 @@ def check_viewer_source_mirror(errors: list[str]) -> None:
 
 def check_archie_asset_mirrors(errors: list[str]) -> None:
     """Verify connector-backend canonical assets stay aligned with source truth."""
-    canonical_skills = ROOT / ".claude" / "skills" / "archie-deep-scan"
-    backend_skills = ARCHIE_ASSETS / "skills" / "archie-deep-scan"
-    if canonical_skills.is_dir() and not backend_skills.is_dir():
-        errors.append("archie/assets/skills/archie-deep-scan/ missing")
-    elif canonical_skills.is_dir() and backend_skills.is_dir():
-        canon = sorted(p.relative_to(canonical_skills).as_posix() for p in canonical_skills.rglob("*.md"))
-        backend = sorted(p.relative_to(backend_skills).as_posix() for p in backend_skills.rglob("*.md"))
-        if set(canon) != set(backend):
-            only_canon = sorted(set(canon) - set(backend))
-            only_backend = sorted(set(backend) - set(canon))
-            if only_canon:
-                errors.append(
-                    "archie/assets/skills/archie-deep-scan/ missing files: "
-                    + ",".join(only_canon)
-                )
-            if only_backend:
-                errors.append(
-                    "archie/assets/skills/archie-deep-scan/ has stale files: "
-                    + ",".join(only_backend)
-                )
-        for rel in sorted(set(canon) & set(backend)):
-            if (canonical_skills / rel).read_bytes() != (backend_skills / rel).read_bytes():
-                errors.append(
-                    "OUT OF SYNC: .claude/skills/archie-deep-scan/"
-                    f"{rel} != archie/assets/skills/archie-deep-scan/{rel}"
-                )
-
     share_viewer = ROOT / "share" / "viewer"
     backend_viewer = ARCHIE_ASSETS / "viewer"
     if share_viewer.is_dir() and not backend_viewer.is_dir():
@@ -198,35 +170,37 @@ def check_archie_asset_mirrors(errors: list[str]) -> None:
         elif asset.exists() and backend.exists() and asset.read_bytes() != backend.read_bytes():
             errors.append(f"OUT OF SYNC: archie/assets/{name} != npm-package/assets/{name}")
 
-    backend_prompts = ARCHIE_ASSETS / "prompts"
-    asset_prompts = ASSETS / "prompts"
-    if backend_prompts.is_dir() and not asset_prompts.is_dir():
-        errors.append("npm-package/assets/prompts/ missing")
-    elif backend_prompts.is_dir() and asset_prompts.is_dir():
+    # Canonical workflow templates: archie/assets/workflow/ is the source of
+    # truth; npm-package/assets/workflow/ is the byte-identical npx mirror.
+    backend_workflow = ARCHIE_ASSETS / "workflow"
+    asset_workflow = ASSETS / "workflow"
+    if backend_workflow.is_dir() and not asset_workflow.is_dir():
+        errors.append("npm-package/assets/workflow/ missing")
+    elif backend_workflow.is_dir() and asset_workflow.is_dir():
         backend_files = sorted(
-            p.relative_to(backend_prompts).as_posix()
-            for p in backend_prompts.rglob("*")
+            p.relative_to(backend_workflow).as_posix()
+            for p in backend_workflow.rglob("*")
             if p.is_file() and p.name != ".DS_Store"
         )
         asset_files = sorted(
-            p.relative_to(asset_prompts).as_posix()
-            for p in asset_prompts.rglob("*")
+            p.relative_to(asset_workflow).as_posix()
+            for p in asset_workflow.rglob("*")
             if p.is_file() and p.name != ".DS_Store"
         )
         only_backend = set(backend_files) - set(asset_files)
         only_asset = set(asset_files) - set(backend_files)
         if only_backend:
             errors.append(
-                "npm-package/assets/prompts/ missing files: " + ",".join(sorted(only_backend))
+                "npm-package/assets/workflow/ missing files: " + ",".join(sorted(only_backend))
             )
         if only_asset:
             errors.append(
-                "npm-package/assets/prompts/ has stale files: " + ",".join(sorted(only_asset))
+                "npm-package/assets/workflow/ has stale files: " + ",".join(sorted(only_asset))
             )
         for rel in sorted(set(backend_files) & set(asset_files)):
-            if (backend_prompts / rel).read_bytes() != (asset_prompts / rel).read_bytes():
+            if (backend_workflow / rel).read_bytes() != (asset_workflow / rel).read_bytes():
                 errors.append(
-                    f"OUT OF SYNC: archie/assets/prompts/{rel} != npm-package/assets/prompts/{rel}"
+                    f"OUT OF SYNC: archie/assets/workflow/{rel} != npm-package/assets/workflow/{rel}"
                 )
 
 
@@ -262,52 +236,11 @@ def main():
     errors = []
 
     # 1. Get what archie.mjs thinks it should copy
-    mjs_scripts, mjs_commands = get_archie_mjs_lists()
+    mjs_scripts, _mjs_commands = get_archie_mjs_lists()
 
     # 2. Get actual files
     standalone_pys = {f.name for f in STANDALONE.glob("*.py") if f.name not in SKIP_FILES}
     asset_pys = {f.name for f in ASSETS.glob("*.py")}
-
-    # Command markdown files — top-level (archie-*.md) plus _shared/ fragments
-    # that get copied into .claude/commands/. The archie-deep-scan/ substeps
-    # live under .claude/skills/ now (see SKILLS below) so Claude Code doesn't
-    # surface them as slash commands.
-    def _collect_command_mds(base: Path) -> set[str]:
-        out: set[str] = set()
-        for p in base.glob("archie-*.md"):
-            if p.is_file():
-                out.add(p.name)
-        for sub in ("_shared",):
-            sub_dir = base / sub
-            if sub_dir.is_dir():
-                for p in sub_dir.rglob("*.md"):
-                    out.add(str(p.relative_to(base)))
-        return out
-
-    asset_mds = _collect_command_mds(ASSETS)
-    command_mds = _collect_command_mds(COMMANDS)
-
-    # Skill markdown files — the archie-deep-scan/ substeps. Canonical lives
-    # in .claude/skills/, mirrored into npm-package/assets/skills/.
-    SKILLS = ROOT / ".claude" / "skills"
-    ASSET_SKILLS = ASSETS / "skills"
-    def _collect_skill_mds(base: Path) -> set[str]:
-        out: set[str] = set()
-        deep_scan_dir = base / "archie-deep-scan"
-        if deep_scan_dir.is_dir():
-            for p in deep_scan_dir.rglob("*.md"):
-                out.add(str(p.relative_to(base)))
-        return out
-
-    asset_skill_mds = _collect_skill_mds(ASSET_SKILLS)
-    skill_mds = _collect_skill_mds(SKILLS)
-    for name in sorted(skill_mds - asset_skill_mds):
-        errors.append(f"MISSING ASSET: .claude/skills/{name} has no copy in npm-package/assets/skills/")
-    for name in sorted(asset_skill_mds - skill_mds):
-        errors.append(f"ORPHAN ASSET: npm-package/assets/skills/{name} has no canonical in .claude/skills/")
-    for name in sorted(skill_mds & asset_skill_mds):
-        if (SKILLS / name).read_text() != (ASSET_SKILLS / name).read_text():
-            errors.append(f"OUT OF SYNC: skills/{name} differs between .claude/skills/ and npm-package/assets/skills/")
 
     # 3. Check: every standalone .py should have an asset copy
     for name in sorted(standalone_pys - asset_pys):
@@ -324,30 +257,11 @@ def main():
         if (STANDALONE / name).read_text() != (ASSETS / name).read_text():
             errors.append(f"OUT OF SYNC: {name} differs between archie/standalone/ and npm-package/assets/")
 
-    # 4. Check: every command .md should have an asset copy
-    for name in sorted(command_mds - asset_mds):
-        errors.append(f"MISSING ASSET: .claude/commands/{name} has no copy in npm-package/assets/")
-    for name in sorted(asset_mds - command_mds):
-        errors.append(f"ORPHAN ASSET: npm-package/assets/{name} has no canonical in .claude/commands/")
-
     # 5. Check: archie.mjs script list matches asset .py files
     for name in sorted(asset_pys - mjs_scripts):
         errors.append(f"NOT IN INSTALLER: npm-package/assets/{name} exists but not in archie.mjs script list")
     for name in sorted(mjs_scripts - asset_pys):
         errors.append(f"DEAD REFERENCE: archie.mjs references {name} but it doesn't exist in assets/")
-
-    # 6. Check: archie.mjs command list matches asset .md files
-    # (but exclude _shared/ fragments, which are copied recursively — not
-    # listed individually in the installer command list)
-    asset_mds_commands_only = {
-        name for name in asset_mds
-        if not name.startswith("_shared/")
-    }
-    if mjs_commands:
-        for name in sorted(asset_mds_commands_only - mjs_commands):
-            errors.append(f"NOT IN INSTALLER: npm-package/assets/{name} exists but not in archie.mjs command list")
-        for name in sorted(mjs_commands - asset_mds_commands_only):
-            errors.append(f"DEAD REFERENCE: archie.mjs references {name} but it doesn't exist in assets/")
 
     # 7. Check: file contents match between canonical and asset
     for name in sorted(standalone_pys & asset_pys):
@@ -356,13 +270,8 @@ def main():
         if canonical != asset:
             errors.append(f"OUT OF SYNC: {name} differs between archie/standalone/ and npm-package/assets/")
 
-    for name in sorted(command_mds & asset_mds):
-        canonical = (COMMANDS / name).read_text()
-        asset = (ASSETS / name).read_text()
-        if canonical != asset:
-            errors.append(f"OUT OF SYNC: {name} differs between .claude/commands/ and npm-package/assets/")
-
-    # 8. Check: share/viewer/ build inputs are mirrored into npm-package/assets/viewer/
+    # 8. Check: share/viewer/ build inputs are mirrored into npm-package/assets/viewer/,
+    #    the canonical workflow tree is mirrored, and _install_pkg mirrors the installer.
     check_viewer_source_mirror(errors)
     check_archie_asset_mirrors(errors)
     check_install_pkg_mirror(errors)
@@ -375,7 +284,7 @@ def main():
         print()
         sys.exit(1)
     else:
-        print(f"SYNC CHECK PASSED — {len(standalone_pys)} scripts, {len(command_mds)} commands, all in sync.")
+        print(f"SYNC CHECK PASSED — {len(standalone_pys)} scripts, workflow + assets all in sync.")
         sys.exit(0)
 
 

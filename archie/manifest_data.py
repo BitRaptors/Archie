@@ -13,31 +13,34 @@ asset migration map.
 from .manifest import AgentDef, CommandDef, ConfigPatch, HookDef
 
 
+# body_path is the command's SKILL.md *inside the rendered workflow tree*,
+# relative to that tree's per-CLI root. Connectors prepend their own
+# .archie/workflow/<cli>/ root (the {{WORKFLOW_ROOT}} token) at install time.
 COMMANDS = [
     CommandDef(
         "archie-scan",
         "Architecture health check (1-3 min).",
-        ".archie/prompts/skill_archie_scan.md",
+        "scan/SKILL.md",
     ),
     CommandDef(
         "archie-deep-scan",
         "Comprehensive architecture baseline (15-20 min).",
-        ".archie/prompts/skill_archie_deep_scan.md",
+        "deep-scan/SKILL.md",
     ),
     CommandDef(
         "archie-intent-layer",
         "Generate per-folder CLAUDE.md context via bottom-up DAG.",
-        ".archie/prompts/skill_archie_intent_layer.md",
+        "intent-layer/SKILL.md",
     ),
     CommandDef(
         "archie-viewer",
         "Open the blueprint inspector in the browser.",
-        ".archie/prompts/skill_archie_viewer.md",
+        "viewer/SKILL.md",
     ),
     CommandDef(
         "archie-share",
         "Upload the blueprint and return a share link.",
-        ".archie/prompts/skill_archie_share.md",
+        "share/SKILL.md",
     ),
 ]
 
@@ -94,31 +97,34 @@ CONFIG_PATCHES = [
 ]
 
 
+# prompt_path is the Wave sub-agent prompt inside the rendered workflow tree,
+# relative to the per-CLI workflow root. Connectors prepend their own
+# .archie/workflow/<cli>/ root at install time.
 AGENTS = [
     AgentDef(
         "archie-wave1-structure",
         "Wave-1 structure pass: components, layers, file placement.",
-        ".archie/prompts/wave1_structure.md",
+        "_shared/wave1_structure.md",
     ),
     AgentDef(
         "archie-wave1-patterns",
         "Wave-1 patterns pass: communication, design patterns, integrations.",
-        ".archie/prompts/wave1_patterns.md",
+        "_shared/wave1_patterns.md",
     ),
     AgentDef(
         "archie-wave1-technology",
         "Wave-1 technology pass: stack, deployment, dev rules.",
-        ".archie/prompts/wave1_technology.md",
+        "_shared/wave1_technology.md",
     ),
     AgentDef(
         "archie-wave1-ui",
         "Wave-1 UI pass: components, state, routing (only when frontend_ratio >= 0.20).",
-        ".archie/prompts/wave1_ui.md",
+        "_shared/wave1_ui.md",
     ),
     AgentDef(
         "archie-wave2-reasoning",
         "Wave-2 reasoning pass: synthesizes Wave-1 outputs into decision chain, pitfalls, trade-offs.",
-        ".archie/prompts/wave2_reasoning.md",
+        "_shared/wave2_reasoning.md",
         model="opus",
     ),
 ]

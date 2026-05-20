@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -58,6 +59,78 @@ def _replace_tree(src: Path, dest: Path) -> None:
     shutil.copytree(src, dest)
 
 
+# ---------- workflow template renderer ----------
+
+# Matches a block partial: {{>partial_name}}
+_PARTIAL_RE = re.compile(r"\{\{>\s*([A-Za-z0-9_]+)\s*\}\}")
+# Matches an inline token: {{TOKEN}}  (not a partial — partials start with '>')
+_TOKEN_RE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+# Catches any leftover {{ ... }} after rendering — a missing slot.
+_LEFTOVER_RE = re.compile(r"\{\{.*?\}\}")
+
+
+def render_template(text: str, tokens: dict[str, str], partials: dict[str, str]) -> str:
+    """Render a workflow template through a connector's render map.
+
+    - `{{>partial}}` is replaced with the connector's native block body.
+    - `{{TOKEN}}` is replaced with the connector's native token value.
+    Partials are themselves rendered for nested tokens. Any unresolved `{{ }}`
+    after rendering raises ValueError — a missing slot is a hard install error.
+    """
+    def sub_partial(m: re.Match) -> str:
+        key = m.group(1)
+        if key not in partials:
+            raise ValueError(f"Unknown block partial: {{{{>{key}}}}}")
+        # Partials may contain tokens; render those too.
+        return _TOKEN_RE.sub(sub_token, partials[key])
+
+    def sub_token(m: re.Match) -> str:
+        key = m.group(1)
+        if key not in tokens:
+            raise ValueError(f"Unknown render token: {{{{{key}}}}}")
+        return tokens[key]
+
+    rendered = _PARTIAL_RE.sub(sub_partial, text)
+    rendered = _TOKEN_RE.sub(sub_token, rendered)
+    leftover = _LEFTOVER_RE.search(rendered)
+    if leftover:
+        raise ValueError(f"Unresolved template slot after render: {leftover.group(0)}")
+    return rendered
+
+
+def _render_workflow_tree(conn: Connector, project_root: Path) -> None:
+    """Render archie/assets/workflow/* through `conn`'s render map.
+
+    Output goes to <project>/.archie/workflow/<cli>/, preserving the source
+    tree shape. Every text file is rendered; the rendered output is fully
+    native (no `{{ }}` slots, no foreign-CLI paths).
+    """
+    src_root = ASSETS_ROOT / "workflow"
+    if not src_root.is_dir():
+        return
+    dest_root = project_root / ".archie" / "workflow" / conn.name
+    if dest_root.exists():
+        shutil.rmtree(dest_root)
+    dest_root.mkdir(parents=True, exist_ok=True)
+
+    tokens = conn.render_tokens
+    partials = conn.render_partials
+    for src in sorted(src_root.rglob("*")):
+        if src.name == ".DS_Store":
+            continue
+        rel = src.relative_to(src_root)
+        dest = dest_root / rel
+        if src.is_dir():
+            dest.mkdir(parents=True, exist_ok=True)
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src.suffix == ".md":
+            rendered = render_template(src.read_text(), tokens, partials)
+            dest.write_text(rendered)
+        else:
+            shutil.copyfile(src, dest)
+
+
 def _copy_canonical_assets(project_root: Path) -> None:
     """Copies archie/assets/* and archie/standalone/*.py into <project>/.archie/."""
     dest_archie = project_root / ".archie"
@@ -72,12 +145,6 @@ def _copy_canonical_assets(project_root: Path) -> None:
             target = dest_hooks / sh.name
             shutil.copyfile(sh, target)
             target.chmod(0o755)
-
-    # Prompts: <project>/.archie/prompts/skill_archie_*.md + _shared/
-    src_prompts = ASSETS_ROOT / "prompts"
-    if src_prompts.exists() and any(src_prompts.iterdir()):
-        dest_prompts = dest_archie / "prompts"
-        _replace_tree(src_prompts, dest_prompts)
 
     # Viewer source: shared by the local viewer sidecar and the share flow.
     src_viewer = ASSETS_ROOT / "viewer"
@@ -114,11 +181,6 @@ def _copy_canonical_assets(project_root: Path) -> None:
         if src.exists() and not dest.exists():
             shutil.copyfile(src, dest)
 
-    # Claude deep-scan still routes through its modular skill subtree.
-    src_skills = ASSETS_ROOT / "skills" / "archie-deep-scan"
-    if src_skills.exists() and any(src_skills.iterdir()):
-        dest_skills = project_root / ".claude" / "skills" / "archie-deep-scan"
-        _replace_tree(src_skills, dest_skills)
 
 
 def _install_git_pre_commit(project_root: Path) -> None:
@@ -159,6 +221,9 @@ def install(project_root: Path, requested: list[str] | None = None) -> None:
     _install_git_pre_commit(project_root)
 
     for conn in selected:
+        # Render the canonical workflow templates through this connector's
+        # render map into .archie/workflow/<cli>/ — fully native, no slots.
+        _render_workflow_tree(conn, project_root)
         for cmd in COMMANDS:
             conn.install_command(project_root, cmd)
         for hook in HOOKS:

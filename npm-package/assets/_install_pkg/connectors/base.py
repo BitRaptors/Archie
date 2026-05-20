@@ -30,6 +30,15 @@ class Connector(ABC):
     name: str
     capabilities: frozenset[str]
 
+    # Render map for the templated canonical workflow (archie/assets/workflow/).
+    # The install loop renders every workflow file through these before writing
+    # them into <project>/.archie/workflow/<cli>/. `render_tokens` substitutes
+    # inline `{{TOKEN}}` slots; `render_partials` substitutes multi-line
+    # `{{>partial}}` block slots with the connector's native phrasing.
+    # See HANDOFF_codex_command_parity.md §4 for the locked slot vocabulary.
+    render_tokens: dict[str, str] = {}
+    render_partials: dict[str, str] = {}
+
     @abstractmethod
     def home_dir(self) -> Path:
         ...

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from ..manifest import AgentDef, CommandDef, ConfigPatch, HookDef
 from .base import Connector
-from .claude import ASSETS_ROOT, HOOK_SCRIPTS_DIR
+from .claude import HOOK_SCRIPTS_DIR
 
 
 _EVENT_NAME_CODEX = {
@@ -36,6 +36,66 @@ _MATCHER_NAME_CODEX = {
 }
 
 
+# Where the rendered workflow tree lands for Codex. Matches {{WORKFLOW_ROOT}}.
+CODEX_WORKFLOW_ROOT = ".archie/workflow/codex"
+
+
+# Render map for the templated canonical workflow. Codex token values + native
+# block partials. See HANDOFF_codex_command_parity.md §4 for the locked slot
+# set. Codex's strongest reasoning model is gpt-5; the analysis/verify tiers
+# also run gpt-5 (Codex exposes a single frontier model).
+_CODEX_RENDER_TOKENS = {
+    "ANALYSIS_MODEL": "gpt-5",
+    "REASONING_MODEL": "gpt-5",
+    "VERIFY_MODEL": "gpt-5",
+    "WORKFLOW_ROOT": CODEX_WORKFLOW_ROOT,
+}
+
+# Block partials carry only the CLI-specific *mechanism*. The worker model and
+# the task/question text stay inline in the canonical workflow so the same
+# partial is reusable at every dispatch site.
+_CODEX_RENDER_PARTIALS = {
+    # How to spawn N parallel analysis workers.
+    "dispatch_parallel": (
+        "Dispatch the sub-agents in parallel with `spawn_agents_on_csv`. Write "
+        "a CSV at `/tmp/archie_dispatch_$PROJECT_NAME.csv` with one row per "
+        "sub-agent — columns `agent` (a stable id) and `prompt` (that "
+        "sub-agent's full prompt text). Call `spawn_agents_on_csv` with "
+        "`id_column: agent`, `max_concurrency` equal to the number of rows, "
+        "and an `instruction` that tells each worker: `Project root: $PWD. "
+        "Read $PWD/AGENTS.md first if it exists, then carry out the task in "
+        "the {prompt} column in full.` Each worker writes its own output file "
+        "per the output contract below. After the batch completes, verify "
+        "every worker's output file exists before continuing; if any worker "
+        "failed, stop and report which one."
+    ),
+    # How to spawn one worker.
+    "dispatch_single": (
+        "Dispatch the sub-agent as a single Codex agent run. Use the matching "
+        "named agent under `.codex/agents/` when one exists for this task; "
+        "otherwise spawn one agent with `spawn_agents_on_csv` over a "
+        "single-row CSV. Pass the full prompt text to the worker and seed "
+        "`Project root: $PWD` plus `Read $PWD/AGENTS.md first if it exists.` "
+        "The worker writes its output file per the output contract below."
+    ),
+    # How a spawned worker must write its output file.
+    "output_contract": (
+        "1. Write your COMPLETE output to the file path named above using a "
+        "shell heredoc or the apply_patch tool.\n"
+        "2. Write the raw output verbatim — the merge/finalize step handles JSON envelopes.\n"
+        "3. After writing, report exactly: \"Wrote <that file path>\" via "
+        "`report_agent_job_result` (or your final message when not in a batch).\n"
+        "4. Do NOT print the output in your response body."
+    ),
+    # How to ask the user an interactive question.
+    "ask_user": (
+        "present the question text followed by a numbered list of the options "
+        "above, then wait for the user to reply with their choice before "
+        "continuing"
+    ),
+}
+
+
 class CodexConnector(Connector):
     name = "codex"
     capabilities = frozenset({
@@ -50,21 +110,23 @@ class CodexConnector(Connector):
         "config-patch",
     })
 
+    render_tokens = _CODEX_RENDER_TOKENS
+    render_partials = _CODEX_RENDER_PARTIALS
+
     def home_dir(self) -> Path:
         return Path.home() / ".codex"
 
     def install_command(self, project_root: Path, cmd: CommandDef) -> None:
         # Codex parent-walks .agents/skills/<name>/SKILL.md
         # — verified by Q1 probe 2026-05-15. SKILL.md is a thin shim that points
-        # at the canonical body installed at .archie/prompts/<name>.md.
+        # at the rendered canonical body under
+        # .archie/workflow/codex/<command>/SKILL.md.
         dest = project_root / ".agents" / "skills" / cmd.name / "SKILL.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        body_path = _codex_command_body_path(cmd)
+        body_path = f"{CODEX_WORKFLOW_ROOT}/{cmd.body_path}"
         dest.write_text(
             f"---\nname: {cmd.name}\ndescription: {cmd.description}\n---\n\n"
-            f"Read `{body_path}` in full and execute the instructions as written. "
-            f"The canonical body lives there so Claude Code and Codex sessions all "
-            f"follow the same workflow.\n"
+            f"Read `{body_path}` in full and execute the instructions as written.\n"
         )
 
     def install_hook(self, project_root: Path, hook: HookDef) -> None:
@@ -152,19 +214,11 @@ def _codex_matcher(tool_match: str | None) -> str | None:
     return _MATCHER_NAME_CODEX.get(tool_match, tool_match)
 
 
-def _codex_command_body_path(cmd: CommandDef) -> str:
-    codex_body = ASSETS_ROOT / "prompts" / "codex" / f"skill_{cmd.name.replace('-', '_')}.md"
-    if codex_body.exists():
-        return f".archie/prompts/codex/{codex_body.name}"
-    return cmd.body_path
-
-
 def _codex_agent_prompt_path(agent: AgentDef) -> str:
-    # Wave-1 / Wave-2 sub-agent prompts are CLI-agnostic content. They live
-    # once at archie/assets/prompts/_shared/wave*.md and are referenced by
-    # Codex via .codex/agents/*.toml.
-    basename = Path(agent.prompt_path).name
-    return f".archie/prompts/_shared/{basename}"
+    # Wave-1 / Wave-2 sub-agent prompts are rendered from the canonical
+    # workflow templates into .archie/workflow/codex/_shared/. agent.prompt_path
+    # is the sub-path relative to the per-CLI workflow root.
+    return f"{CODEX_WORKFLOW_ROOT}/{agent.prompt_path}"
 
 
 def _toml_string(value: str) -> str:

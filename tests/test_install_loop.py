@@ -16,7 +16,11 @@ def test_claude_install_preserves_main_assets(tmp_path: Path) -> None:
     install(tmp_path, ["claude"])
 
     assert (tmp_path / ".claude" / "commands" / "archie-scan.md").exists()
-    assert (tmp_path / ".claude" / "skills" / "archie-deep-scan" / "SKILL.md").exists()
+    # The deep-scan step tree is now rendered into .archie/workflow/<cli>/.
+    assert (tmp_path / ".archie" / "workflow" / "claude" / "deep-scan" / "SKILL.md").exists()
+    assert (
+        tmp_path / ".archie" / "workflow" / "claude" / "deep-scan" / "steps" / "step-1-scanner.md"
+    ).exists()
     assert (tmp_path / ".claude" / "hooks" / "pre-validate.sh").exists()
     assert (tmp_path / ".archie" / "platform_rules.json").exists()
     assert (tmp_path / ".archie" / "viewer" / "package.json").exists()

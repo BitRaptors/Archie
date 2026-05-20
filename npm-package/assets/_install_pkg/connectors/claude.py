@@ -50,6 +50,52 @@ ARCHIE_PERMISSIONS = [
 ]
 
 
+# Where the rendered workflow tree lands for Claude. Matches {{WORKFLOW_ROOT}}.
+CLAUDE_WORKFLOW_ROOT = ".archie/workflow/claude"
+
+
+# Render map for the templated canonical workflow. Token values + native block
+# partials. See HANDOFF_codex_command_parity.md §4 for the locked slot set.
+_CLAUDE_RENDER_TOKENS = {
+    "ANALYSIS_MODEL": "Sonnet",
+    "REASONING_MODEL": "Opus",
+    "VERIFY_MODEL": "Haiku",
+    "WORKFLOW_ROOT": CLAUDE_WORKFLOW_ROOT,
+}
+
+# Block partials carry only the CLI-specific *mechanism*. The worker model
+# and the task/question text stay inline in the canonical workflow (as
+# {{ANALYSIS_MODEL}} / {{REASONING_MODEL}} tokens and verbatim prose) so the
+# same partial is reusable at every dispatch site regardless of tier.
+_CLAUDE_RENDER_PARTIALS = {
+    # How to spawn N parallel analysis workers.
+    "dispatch_parallel": (
+        "Spawn each sub-agent with its own Agent tool call, ALL Agent tool "
+        "calls emitted in a single message so they run in parallel. Pass each "
+        "sub-agent's prompt text as the `prompt` parameter and set `model` to "
+        "the lowercased model name given for that sub-agent."
+    ),
+    # How to spawn one worker.
+    "dispatch_single": (
+        "Spawn the sub-agent with a single Agent tool call. Pass its prompt "
+        "text as the `prompt` parameter and set `model` to the lowercased "
+        "model name given for it."
+    ),
+    # How a spawned worker must write its output file.
+    "output_contract": (
+        "1. Use the Write tool to save your COMPLETE output to the file path named above.\n"
+        "2. Write the raw output verbatim — the merge/finalize step handles JSON envelopes.\n"
+        "3. After Writing, reply with exactly: \"Wrote <that file path>\".\n"
+        "4. Do NOT print the output in your response body."
+    ),
+    # How to ask the user an interactive question.
+    "ask_user": (
+        "use the `AskUserQuestion` tool, passing the question text, header, "
+        "and options exactly as specified above"
+    ),
+}
+
+
 class ClaudeConnector(Connector):
     name = "claude"
     capabilities = frozenset({
@@ -62,21 +108,23 @@ class ClaudeConnector(Connector):
         "parallel-agents",
     })
 
+    render_tokens = _CLAUDE_RENDER_TOKENS
+    render_partials = _CLAUDE_RENDER_PARTIALS
+
     def home_dir(self) -> Path:
         return Path.home() / ".claude"
 
     def install_command(self, project_root: Path, cmd: CommandDef) -> None:
         # Claude's slash commands at .claude/commands/<name>.md are thin shims
-        # pointing at the canonical body (.archie/prompts/skill_archie_<name>.md
-        # copied by the install loop). Same shape as Codex's SKILL.md, modulo
-        # Claude's frontmatter conventions.
+        # pointing at the rendered canonical workflow body under
+        # .archie/workflow/claude/<command>/SKILL.md. cmd.body_path is the
+        # command sub-path relative to the per-CLI workflow root.
         dest = project_root / ".claude" / "commands" / f"{cmd.name}.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
+        body_path = f"{CLAUDE_WORKFLOW_ROOT}/{cmd.body_path}"
         dest.write_text(
             f"---\ndescription: {cmd.description}\n---\n\n"
-            f"Read `{cmd.body_path}` in full and execute the instructions as written. "
-            f"The canonical body lives there so Claude Code and Codex sessions all "
-            f"follow the same workflow.\n"
+            f"Read `{body_path}` in full and execute the instructions as written.\n"
         )
 
     def install_hook(self, project_root: Path, hook: HookDef) -> None:
