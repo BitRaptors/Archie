@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "archie-cli"
 version = "2.6.0"
-description = "Architecture enforcement for AI coding agents — Claude Code, OpenAI Codex CLI, and Pi."
+description = "Your AI writes code. Archie makes sure it follows your architecture."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -56,16 +56,7 @@ Issues = "https://github.com/BitRaptors/archie/issues"
 include = ["archie*"]
 
 [tool.setuptools.package-data]
-archie = [
-    "py.typed",
-    "assets/README.md",
-    "assets/prompts/*.md",
-    "assets/prompts/_shared/*.md",
-    "assets/hook_scripts/*.sh",
-    "assets/pi_extension/*.template",
-    "assets/pi_extension/*.json",
-    "assets/codex_agents/*.template",
-]
+archie = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
