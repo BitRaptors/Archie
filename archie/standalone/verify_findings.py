@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Verify findings against actual code via parallel Haiku calls.
+"""Verify findings against actual code via parallel verifier calls.
 
-For each active entry in `.archie/findings.json`, spawn a Haiku subprocess
+For each active entry in `.archie/findings.json`, spawn a verifier subprocess
 that reads the cited `triggering_call_site` (verbatim caller quote produced
 by the synthesizer) plus the surrounding files, walks one level out, and
 returns one of three verdicts:
@@ -18,12 +18,9 @@ Output: `.archie/verdicts.json` — one verdict per active finding. The
 finalize.py merge step consumes this alongside `findings.json` to apply
 hysteresis-aware routing (see Phase 3).
 
-This script follows the rest of `archie/standalone/` in shelling out to
-a coding-agent CLI rather than importing a vendor SDK — keeps the
-zero-dependency invariant and inherits the user's auth. The verifier CLI
-is auto-detected from the harness environment: a Claude Code session
-verifies with the `claude` CLI, a Codex session with the `codex` CLI.
-No flag or workflow plumbing is needed — `--verifier` stays only as an
+The actual model call goes through `agent_cli` — the runtime per-CLI
+adapter that auto-detects the harness (Claude Code vs Codex) and shells
+out to that CLI. This script stays CLI-agnostic; `--verifier` is only an
 explicit override (mainly for tests).
 
 Usage:
@@ -35,16 +32,12 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
-import os
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-CLAUDE_CLI = "claude"
-CODEX_CLI = "codex"
+from agent_cli import detect_verifier, run_verifier
+
 DEFAULT_CONCURRENCY = 10
 TIMEOUT_PER_CALL = 90  # seconds; the verifier model is fast but file reads + a small walk add up
 MAX_FILE_LINES_TOTAL = 800  # budget across all cited files for a single verifier call
@@ -129,7 +122,7 @@ def _looks_like_path(s: str) -> bool:
     """Heuristic: treat a token as a file path if it contains a slash OR
     matches the file-with-extension regex. Rejects bare prose like
     "the function does X" — without this gate, every quoted sentence would
-    end up in the file list and burn a Haiku call on garbage."""
+    end up in the file list and burn a verifier call on garbage."""
     if not s:
         return False
     cleaned = s.split(":")[0].strip()
@@ -205,104 +198,8 @@ def _read_files_bounded(project_root: Path, paths: list[str], budget: int = MAX_
     return "\n".join(chunks) if chunks else "(no files to inline)"
 
 
-# ---------------------------------------------------------------------------
-# Verifier-model invocation (Claude or Codex)
-# ---------------------------------------------------------------------------
-
-def _run_claude(prompt: str, project_root: Path) -> str:
-    """Spawn `claude -p --model haiku` synchronously. Returns result text or ""."""
-    try:
-        proc = subprocess.run(
-            [
-                CLAUDE_CLI,
-                "-p",
-                "--model", "haiku",
-                "--output-format", "json",
-                "--permission-mode", "bypassPermissions",
-                "--allowedTools", "Read,Grep,Glob",
-            ],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            cwd=str(project_root),
-            timeout=TIMEOUT_PER_CALL,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return ""
-    if proc.returncode != 0:
-        return ""
-    try:
-        envelope = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return ""
-    return envelope.get("result", "") or ""
-
-
-def _run_codex(prompt: str, project_root: Path) -> str:
-    """Spawn `codex exec` synchronously. Returns the model's final text or "".
-
-    `codex exec` runs the prompt non-interactively in a read-only sandbox
-    and can persist the agent's last message to a file. Send the prompt on
-    stdin instead of argv so large cited-file bundles do not hit shell/exec
-    length limits.
-    """
-    tmp_file: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile("r+", encoding="utf-8", delete=False) as fh:
-            tmp_file = fh.name
-        proc = subprocess.run(
-            [
-                CODEX_CLI,
-                "exec",
-                "--sandbox", "read-only",
-                "--skip-git-repo-check",
-                "--output-last-message", tmp_file,
-                "-",
-            ],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            cwd=str(project_root),
-            timeout=TIMEOUT_PER_CALL,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return ""
-    if proc.returncode != 0:
-        return ""
-    if not tmp_file:
-        return ""
-    try:
-        return Path(tmp_file).read_text()
-    except OSError:
-        return ""
-    finally:
-        Path(tmp_file).unlink(missing_ok=True)
-
-
-def _run_verifier(prompt: str, project_root: Path, verifier: str) -> str:
-    """Dispatch to the selected verifier CLI."""
-    if verifier == "codex":
-        return _run_codex(prompt, project_root)
-    return _run_claude(prompt, project_root)
-
-
-def _detect_verifier() -> str:
-    """Detect the verifier CLI from the environment — no flag needed.
-
-    verify_findings.py only ever runs from inside a harness-driven scan, so the
-    orchestrating harness IS the signal. Claude Code exports CLAUDECODE=1 to
-    every process it spawns; its absence means the Codex harness. The PATH
-    check is a last-resort guard for unexpected invocations.
-    """
-    if os.environ.get("CLAUDECODE"):
-        return "claude"
-    if shutil.which("codex"):
-        return "codex"
-    return "claude"
-
-
 def _parse_verdict(text: str, finding_id: str) -> dict:
-    """Pull the verdict JSON out of the Haiku response. Failing-open default
+    """Pull the verdict JSON out of the verifier response. Failing-open default
     on any parse error — never drop a real finding because of a parser glitch."""
     s = text.strip()
     if s.startswith("```"):
@@ -345,7 +242,7 @@ def verify_one(finding: dict, project_root: Path, verifier: str = "claude") -> d
 
     # Auto-demote: no triggering_call_site means it's a risk class, not a
     # current finding. The synthesizer should have classified it as a
-    # pitfall already; demote it now without burning a Haiku call.
+    # pitfall already; demote it now without burning a verifier call.
     tcs = (finding.get("triggering_call_site") or "").strip()
     if not tcs:
         return {"id": fid, "verdict": "demote", "confidence": 1.0,
@@ -367,7 +264,7 @@ def verify_one(finding: dict, project_root: Path, verifier: str = "claude") -> d
         finding_json=json.dumps(finding_view, indent=2),
         file_contents=file_contents,
     )
-    result_text = _run_verifier(prompt, project_root, verifier)
+    result_text = run_verifier(prompt, project_root, verifier, TIMEOUT_PER_CALL)
     if not result_text:
         return _failopen_verdict(fid, "verifier call failed (timeout / cli missing / non-zero exit)")
     return _parse_verdict(result_text, fid)
@@ -390,7 +287,7 @@ def main() -> int:
                         help="Verifier CLI: 'auto' (default) detects the harness "
                              "from the environment; 'claude'/'codex' force one.")
     args = parser.parse_args()
-    verifier = _detect_verifier() if args.verifier == "auto" else args.verifier
+    verifier = detect_verifier() if args.verifier == "auto" else args.verifier
 
     archie_dir = args.project_root / ".archie"
     if not archie_dir.is_dir():

@@ -1,0 +1,90 @@
+"""Tests for `agent_cli` — the runtime per-CLI adapter.
+
+agent_cli is the single home for headless coding-agent CLI invocation: harness
+detection plus the actual `claude` / `codex` shell-outs. Pipeline scripts
+(verify_findings.py) call `detect_verifier` / `run_verifier` and stay
+CLI-agnostic; all per-CLI knowledge is concentrated here.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+
+_STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
+sys.path.insert(0, str(_STANDALONE))
+
+import agent_cli  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# detect_verifier — picks the harness from the environment
+# ---------------------------------------------------------------------------
+
+def test_detect_verifier_claude_when_claudecode_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert agent_cli.detect_verifier() == "claude"
+
+
+def test_detect_verifier_codex_when_not_claude_and_codex_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.setattr(agent_cli.shutil, "which",
+                        lambda name: "/usr/bin/codex" if name == "codex" else None)
+    assert agent_cli.detect_verifier() == "codex"
+
+
+def test_detect_verifier_falls_back_to_claude(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No CLAUDECODE and no codex on PATH → fall back to claude (which itself
+    no-ops gracefully if that CLI is also absent)."""
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.setattr(agent_cli.shutil, "which", lambda name: None)
+    assert agent_cli.detect_verifier() == "claude"
+
+
+# ---------------------------------------------------------------------------
+# run_verifier — dispatch to the right CLI
+# ---------------------------------------------------------------------------
+
+def test_run_verifier_dispatches_to_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """verifier='codex' must route through the Codex path, not the Claude one."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        agent_cli, "_run_codex",
+        lambda prompt, root, timeout: calls.append("codex") or "codex-out",
+    )
+    monkeypatch.setattr(
+        agent_cli, "_run_claude",
+        lambda prompt, root, timeout: calls.append("claude") or "claude-out",
+    )
+
+    assert agent_cli.run_verifier("p", tmp_path, "codex") == "codex-out"
+    assert agent_cli.run_verifier("p", tmp_path, "claude") == "claude-out"
+    assert calls == ["codex", "claude"]
+
+
+# ---------------------------------------------------------------------------
+# _run_codex — invocation shape
+# ---------------------------------------------------------------------------
+
+def test_run_codex_uses_stdin_and_output_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    def _fake_run(args, input, capture_output, text, cwd, timeout):
+        seen["args"] = args
+        seen["input"] = input
+        seen["cwd"] = cwd
+        out_idx = args.index("--output-last-message") + 1
+        Path(args[out_idx]).write_text('{"id":"f","verdict":"keep","confidence":1.0,"reason":"ok"}')
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(agent_cli.subprocess, "run", _fake_run)
+    result = agent_cli._run_codex("PROMPT BODY", tmp_path, 90)
+
+    assert '"verdict":"keep"' in result
+    assert seen["input"] == "PROMPT BODY"
+    assert seen["cwd"] == str(tmp_path)
+    assert seen["args"][-1] == "-"
+    assert "--output-last-message" in seen["args"]

@@ -1,14 +1,17 @@
-"""Regression tests for the Haiku finding verifier (`verify_findings.py`).
+"""Regression tests for the finding verifier (`verify_findings.py`).
 
-We don't actually invoke the claude CLI here — the network call is replaced
+We don't actually invoke a coding-agent CLI here — the model call is replaced
 by a stub. What we test:
 
 - File-path extraction from triggering_call_site / evidence / applies_to
-  (so the verifier inlines the right files for Haiku to read).
+  (so the verifier inlines the right files for the model to read).
 - Verdict parsing handles strict JSON, fenced JSON, embedded JSON, and
   malformed responses (the parser must fail open, not silently drop).
 - Auto-demote when the synthesizer left triggering_call_site empty —
-  this short-circuits without burning a Haiku call.
+  this short-circuits without burning a verifier call.
+
+The CLI-invocation layer (`run_verifier`, `_run_claude`, `_run_codex`,
+`detect_verifier`) lives in `agent_cli` — see test_agent_cli.py.
 """
 from __future__ import annotations
 
@@ -110,13 +113,13 @@ def test_parse_verdict_invalid_verdict_value_fails_open() -> None:
 
 
 # ---------------------------------------------------------------------------
-# verify_one — short-circuits without a Haiku call
+# verify_one — short-circuits without a verifier call
 # ---------------------------------------------------------------------------
 
 def test_verify_one_demotes_when_no_triggering_call_site(tmp_path: Path) -> None:
     """Synthesizer should always emit triggering_call_site for findings;
     if missing, treat as a mis-filed risk class and demote without burning
-    a Haiku call."""
+    a verifier call."""
     finding = {
         "id": "f_0001",
         "problem_statement": "Some risk class",
@@ -145,8 +148,8 @@ def test_verify_one_demotes_when_no_cited_files(tmp_path: Path) -> None:
     assert v["confidence"] < 1.0
 
 
-def test_verify_one_failopen_when_haiku_unreachable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Real triggering_call_site, real cited file, but the claude CLI is
+def test_verify_one_failopen_when_verifier_unreachable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real triggering_call_site, real cited file, but the verifier CLI is
     unreachable — verifier must NOT silently drop. Default to keep with
     confidence 0.0 so finalize/apply_verdicts treats it as no-change."""
     cited = tmp_path / "src" / "foo.py"
@@ -161,7 +164,8 @@ def test_verify_one_failopen_when_haiku_unreachable(tmp_path: Path, monkeypatch:
     }
 
     # Stub the verifier to return empty (CLI failure path).
-    monkeypatch.setattr(verify_findings, "_run_verifier", lambda prompt, root, verifier: "")
+    monkeypatch.setattr(verify_findings, "run_verifier",
+                        lambda prompt, root, verifier, timeout: "")
 
     v = verify_findings.verify_one(finding, tmp_path)
     assert v["verdict"] == "keep"
@@ -169,7 +173,7 @@ def test_verify_one_failopen_when_haiku_unreachable(tmp_path: Path, monkeypatch:
     assert "fail-open" in v["reason"]
 
 
-def test_verify_one_passes_haiku_response_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_verify_one_passes_verifier_response_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cited = tmp_path / "src" / "foo.py"
     cited.parent.mkdir(parents=True)
     cited.write_text("def trigger():\n    return bad()\n")
@@ -186,7 +190,8 @@ def test_verify_one_passes_haiku_response_through(tmp_path: Path, monkeypatch: p
         '"reason": "callers wrap with safe_bad()"}'
     )
     monkeypatch.setattr(
-        verify_findings, "_run_verifier", lambda prompt, root, verifier: verifier_response
+        verify_findings, "run_verifier",
+        lambda prompt, root, verifier, timeout: verifier_response,
     )
 
     v = verify_findings.verify_one(finding, tmp_path)
@@ -195,23 +200,8 @@ def test_verify_one_passes_haiku_response_through(tmp_path: Path, monkeypatch: p
     assert "safe_bad" in v["reason"]
 
 
-def test_run_verifier_dispatches_to_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """--verifier codex must route through the Codex CLI path, not the Claude one."""
-    calls: list[str] = []
-    monkeypatch.setattr(
-        verify_findings, "_run_codex", lambda prompt, root: calls.append("codex") or "codex-out"
-    )
-    monkeypatch.setattr(
-        verify_findings, "_run_claude", lambda prompt, root: calls.append("claude") or "claude-out"
-    )
-
-    assert verify_findings._run_verifier("p", tmp_path, "codex") == "codex-out"
-    assert verify_findings._run_verifier("p", tmp_path, "claude") == "claude-out"
-    assert calls == ["codex", "claude"]
-
-
 def test_verify_one_threads_verifier_choice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """verify_one must pass the selected verifier down to _run_verifier."""
+    """verify_one must pass the selected verifier down to run_verifier."""
     cited = tmp_path / "src" / "foo.py"
     cited.parent.mkdir(parents=True)
     cited.write_text("def trigger():\n    return bad()\n")
@@ -225,10 +215,10 @@ def test_verify_one_threads_verifier_choice(tmp_path: Path, monkeypatch: pytest.
 
     seen: list[str] = []
 
-    def _fake(prompt: str, root: Path, verifier: str) -> str:
+    def _fake(prompt: str, root: Path, verifier: str, timeout: int) -> str:
         seen.append(verifier)
         return '{"id": "f_0005", "verdict": "keep", "confidence": 0.9, "reason": "ok"}'
 
-    monkeypatch.setattr(verify_findings, "_run_verifier", _fake)
+    monkeypatch.setattr(verify_findings, "run_verifier", _fake)
     verify_findings.verify_one(finding, tmp_path, "codex")
     assert seen == ["codex"]
