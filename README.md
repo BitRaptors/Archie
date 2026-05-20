@@ -14,10 +14,10 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 
 | Harness | Status | How it integrates |
 |---|---|---|
-| **Claude Code** (Anthropic) | **stable** — primary target | `.claude/commands/*.md` shims, `.claude/settings.local.json` hooks, modular skill subtree |
-| [**OpenAI Codex CLI**](https://developers.openai.com/codex/cli) | **beta** | `.agents/skills/*/SKILL.md` shims, `.codex/hooks.json` with absolute paths, `.codex/agents/*.toml` named sub-agents, idempotent `~/.codex/config.toml` patch |
+| **Claude Code** (Anthropic) | **stable** — primary target | `.claude/commands/*.md` shims, `.claude/settings.local.json` hooks |
+| [**OpenAI Codex CLI**](https://developers.openai.com/codex/cli) | **beta** | `.agents/skills/*/SKILL.md` shims, `.codex/hooks.json` with absolute paths + Codex-native matchers, idempotent `~/.codex/config.toml` patch |
 
-Both CLIs read identical Archie outputs (blueprint, rules, per-folder context) and run the same Python analysis pipeline. The same canonical hook scripts at `.archie/hooks/` power in-session enforcement in every CLI — one source of truth. See "Multi-CLI install" below.
+Both CLIs run the **same workflow**. Each command is authored once as a canonical template; the installer renders it per-CLI into `.archie/workflow/<cli>/`, so Claude's installed copy reads natively (`Opus`, `Agent tool`, `AskUserQuestion`) and Codex's reads natively (`gpt-5`, `spawn_agents_on_csv`) — identical step logic, no shared runtime indirection. Both run the same Python analysis pipeline and invoke the same canonical hook scripts at `.archie/hooks/`. One source of truth. See "Multi-CLI install" below.
 
 ## Install
 
@@ -27,7 +27,7 @@ npx @bitraptors/archie /path/to/your/project
 
 ![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
-The installer pops up an interactive multi-select picker showing which coding-agent CLIs were detected on your machine — Claude Code, OpenAI Codex CLI — with both pre-selected. Hit `enter` to install for all of them (recommended), or `space` to deselect anything you don't want. The installer then copies Archie's standalone scripts, the canonical SKILL bodies / hook scripts, and the `/archie-deep-scan` Claude-modular skill subtree into your project; writes per-CLI shims for each picked target (slash commands for Claude, SKILL.md files for Codex, hook bindings, named sub-agent TOMLs for Codex); patches Codex's `~/.codex/config.toml` (raises the per-folder context byte cap + adds `CLAUDE.md` to its fallback list — non-destructive merge); builds the local viewer bundle (one-time, ~45s — cached by version); delivers `.archieignore` + `.archiebulk` (pattern files for scanning); and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Open your project in any of the picked CLIs — the first Archie command you run asks once whether to share anonymous usage telemetry (opt-in).
+The installer pops up an interactive multi-select picker showing which coding-agent CLIs were detected on your machine — Claude Code, OpenAI Codex CLI — with both pre-selected. Hit `enter` to install for all of them (recommended), or `space` to deselect anything you don't want. The installer then copies Archie's standalone scripts and hook scripts into your project; renders the canonical workflow templates into `.archie/workflow/<cli>/` for each picked CLI; writes per-CLI shims (slash commands for Claude, SKILL.md files for Codex) and hook bindings; patches Codex's `~/.codex/config.toml` (raises the per-folder context byte cap + adds `CLAUDE.md` to its fallback list — non-destructive merge); builds the local viewer bundle (one-time, ~45s — cached by version); delivers `.archieignore` + `.archiebulk` (pattern files for scanning); and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Open your project in any of the picked CLIs — the first Archie command you run asks once whether to share anonymous usage telemetry (opt-in).
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
 
@@ -43,7 +43,7 @@ The picker is shown only in a real terminal. Non-TTY stdin (CI, scripts) skips t
 
 > **Status:** Claude Code is the stable, primary supported harness. **Codex CLI is in BETA** — the connector architecture is in place and end-to-end installs work, but some edge cases (Codex's interactive hook-trust gate) have not been validated against every provider/session configuration. Production use on Claude Code is recommended; treat Codex as preview.
 
-Archie ships a connector-based install loop that targets both CLIs from one command. Each CLI gets shims in its native idiom — Claude reads `.claude/commands/*.md`, Codex parent-walks `.agents/skills/*/SKILL.md` — but they all reference the same canonical bodies at `.archie/prompts/` and invoke the same canonical hook scripts at `.archie/hooks/`. One install, one source of truth.
+Archie ships a connector-based install loop that targets both CLIs from one command. Each command's workflow is authored once as a canonical template; the install loop renders it through each connector's render map into `.archie/workflow/<cli>/`, fully native to that CLI. Each CLI then gets a thin shim in its idiom — Claude reads `.claude/commands/*.md`, Codex parent-walks `.agents/skills/*/SKILL.md` — pointing at its rendered workflow. Both invoke the same canonical hook scripts at `.archie/hooks/`. One install, one source of truth.
 
 ```bash
 # npx — recommended. Bundles .archie/ scripts + viewer AND auto-detects every
@@ -83,7 +83,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) → "Multi-Agent Connector Arch
 
 Run `/archie-deep-scan` once to establish a baseline. Then use `/archie-scan` for ongoing checks — each scan compounds on previous knowledge. Use `/archie-share` to hand a snapshot to anyone with a browser.
 
-`/archie-deep-scan` is implemented as a modular Claude Code skill (`.claude/skills/archie-deep-scan/`) — a thin router plus self-contained per-step files — so the long pipeline survives `/compact` and can resume mid-run via `--continue` / `--from N`.
+`/archie-deep-scan` is a modular workflow — a thin router (`SKILL.md`) plus self-contained per-step files, rendered into `.archie/workflow/<cli>/deep-scan/` — so the long pipeline survives `/compact` and can resume mid-run via `--continue` / `--from N`.
 
 There is also `/archie-viewer` for interactive local blueprint inspection. It runs the **same React UI as the hosted share viewer**, served locally from `viewer.py` at `localhost:5847/local` — no upload, all data stays on your machine. Two tabs: **Blueprint** (the full report — health scores, architecture diagram, decisions, findings, pitfalls, plus inline rule adopt/reject/edit) and **Files** (per-folder CLAUDE.md browser + a click-to-view tree of every generated file). It renders whatever's in `.archie/`, so it works right after `/archie-scan`; deep-scan-only sections just render sparse.
 
@@ -430,14 +430,12 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | Per-folder `CLAUDE.md` | Directory-level context with patterns, anti-patterns, code examples (only if Intent Layer opt-in) |
 | `.claude/hooks/*.sh` | Claude-deployed copies of the canonical hook scripts |
 | `.claude/settings.local.json` | Claude hook bindings + 29-entry permissions allow list |
-| `.claude/skills/archie-deep-scan/` | Claude-modular deep-scan skill router (Claude-specific bonus) |
 | `.claude/rules/*.md` | Topic-split rule files (architecture, patterns, guidelines, pitfalls, dev-rules) + browsable `enforcement/` directory |
 | `.archie/hooks/*.sh` | Canonical hook scripts (`pre-validate.sh`, `pre-commit-review.sh`, `blueprint-nudge.sh`, `post-plan-review.sh`, `post-lint.sh`, `pre-turn.sh`, `stop.sh`) — invoked by all CLIs |
-| `.archie/prompts/` | Canonical SKILL bodies + `_shared/` cross-CLI fragments + `codex/` per-CLI overrides |
+| `.archie/workflow/<cli>/` | The workflow rendered for each installed CLI — one `<command>/SKILL.md` per command plus deep-scan's per-step files. Native wording per CLI, identical logic. |
 | `.archie/_install_pkg/` | Bundled Python install loop (manifest, connectors, install.py) — re-run for upgrades or to install additional CLIs |
 | `.agents/skills/archie-*/SKILL.md` | Codex slash-command shims (parent-walked by Codex) |
 | `.codex/hooks.json` | Codex hook bindings with absolute paths and Codex-native matchers (`^apply_patch$`, etc.) |
-| `.codex/agents/archie-*.toml` | Codex named sub-agents for `spawn_agents_on_csv` parallel Wave-1 fan-out |
 | `.git/hooks/pre-commit.archie` | Universal git pre-commit gate (works regardless of which CLI is active) |
 | `~/.codex/config.toml` *(patched)* | Idempotent merge: `project_doc_max_bytes = 131072` + `CLAUDE.md` in `project_doc_fallback_filenames` |
 
@@ -522,7 +520,7 @@ All hooks fail open: missing rules/config/marker files → hooks exit 0 silently
 
 **Subagent output contract** — varies per CLI but produces the same merged outputs:
 - **Claude** — every Sonnet/Opus subagent spawned via the Agent tool gets a mandatory instruction to Write its output directly to `/tmp/archie_*.json` (permissioned via `Write(//tmp/archie_*)`). The orchestrator never copies subagent transcripts, which avoids Claude Code's sensitive-file guardrail on `.claude/projects/.../subagents/*.jsonl`. Zero permission prompts during any scan.
-- **Codex** — `spawn_agents_on_csv` reads `.codex/agents/archie-wave1-*.toml` (5 named sub-agents written by `CodexConnector.install_agent`) and dispatches them in parallel; workers write back via the CSV results contract the SKILL body reads.
+- **Codex** — the orchestrator builds a CSV of the four Wave-1 sub-agent prompts (read straight from the rendered workflow) and dispatches them in parallel via `spawn_agents_on_csv`; each worker writes its output file directly, per the output contract baked into its prompt.
 
 ## Rules
 
@@ -574,7 +572,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentatio
 
 ## Telemetry & update checks (anonymous, opt-in)
 
-The first time you run an Archie command (`/archie-scan`, `/archie-deep-scan`, etc.) in any supported harness (Claude Code or Codex), it asks once whether you'd like to share usage telemetry — a model-driven prompt in the shared `.archie/prompts/_shared/telemetry-consent.md` fragment, asked in-session rather than during `npx` install (which can run non-interactively). The consent flow works identically across both CLIs. There are three tiers:
+The first time you run an Archie command (`/archie-scan`, `/archie-deep-scan`, etc.) in any supported harness (Claude Code or Codex), it asks once whether you'd like to share usage telemetry — a model-driven prompt in the shared `_shared/telemetry-consent.md` workflow fragment (rendered per-CLI under `.archie/workflow/<cli>/_shared/`), asked in-session rather than during `npx` install (which can run non-interactively). The consent flow works identically across both CLIs. There are three tiers:
 
 - **community** *(recommended)* — events include a stable random installation ID written once to `~/.archie/config.json`. Lets us see which features get used together.
 - **anonymous** — same payload but the installation ID is stripped before upload. Each event is unlinkable.
@@ -613,13 +611,13 @@ archie/              Python package (CLI + engine + coordinator + standalone)
   hooks/             Hook generation and enforcement logic
   renderer/          Output generation (CLAUDE.md, per-folder context)
   rules/             Legacy blueprint rule extractor (retired in v2.5.0; kept for tests)
-  standalone/        Zero-dependency scripts (copied to target projects) — canonical runtime path
-  assets/            Canonical assets shipped to installed projects: prompts/, hook_scripts/
-    prompts/         5 SKILL bodies + _shared/ fragments (incl. Wave-1/2 sub-agent prompts) + codex/ per-CLI overrides
+  standalone/        Zero-dependency scripts (copied to target projects) — canonical runtime path; includes agent_cli.py, the runtime per-CLI adapter that auto-detects the harness for headless model calls
+  assets/            Canonical assets shipped to installed projects: workflow/, hook_scripts/
+    workflow/        One canonical templated workflow per command (scan, deep-scan, intent-layer, share, viewer) + _shared/ fragments — rendered per-CLI at install time
     hook_scripts/    7 canonical .sh hooks, invoked identically by all CLIs
-  manifest.py        CommandDef / HookDef / ConfigPatch / AgentDef dataclasses
-  manifest_data.py   Single source of truth: 5 commands, 7 hooks, 2 config patches, 5 sub-agents
-  install.py         The connector-driven install loop entry point
+  manifest.py        CommandDef / HookDef / ConfigPatch dataclasses
+  manifest_data.py   Single source of truth: 5 commands, 7 hooks, 2 config patches
+  install.py         The connector-driven install loop — renders the workflow per-CLI
 npm-package/         NPM distribution (npx @bitraptors/archie)
   bin/archie.mjs     Installer entry point — copies assets and delegates to the Python install loop
   assets/            Verbatim copies of canonical assets + a bundled _install_pkg/ (the Python install loop in a self-contained package the npm installer runs)
@@ -628,11 +626,9 @@ share/               Blueprint sharing ecosystem
   viewer/            React/Vite app — powers both the hosted viewer (archie-viewer.vercel.app) and the local /archie-viewer sidecar
   supabase/          Edge functions (upload, blueprint, telemetry-ingest) + migrations
 landing/             Landing page
-tests/               Pytest suite (50 files)
+tests/               Pytest suite (55 files)
 docs/                Architecture documentation
 scripts/             verify_sync.py — pre-commit canonical ↔ asset sync checker
-.claude/commands/    Slash commands (archie-scan, archie-deep-scan, archie-intent-layer, archie-share, archie-viewer) + _shared/scope_resolution.md
-.claude/skills/      archie-deep-scan/ — the deep-scan skill (SKILL.md router + per-step files + fragments + templates)
 v1/                  Archived V1 web app (FastAPI + Next.js, obsolete)
 ```
 
