@@ -120,3 +120,38 @@ def test_registry_is_non_empty():
     assert len(ALL_CONNECTORS) >= 1
     names = {c.name for c in ALL_CONNECTORS}
     assert names == {"claude", "codex"}, f"Unexpected registry: {names}"
+
+
+# ---------------------------------------------------------------------------
+# Render-map contract — every connector must declare the locked slot set
+# ---------------------------------------------------------------------------
+
+_REQUIRED_TOKENS = {
+    "ANALYSIS_MODEL", "REASONING_MODEL", "VERIFY_MODEL", "WORKFLOW_ROOT",
+    "VERIFIER_FLAG",
+}
+_REQUIRED_PARTIALS = {
+    "dispatch_parallel", "dispatch_single", "output_contract", "ask_user",
+}
+
+
+@pytest.mark.parametrize("connector", ALL_CONNECTORS, ids=lambda c: c.name)
+def test_connector_declares_all_render_tokens(connector):
+    missing = _REQUIRED_TOKENS - set(connector.render_tokens)
+    assert not missing, f"{connector.name} render_tokens missing: {missing}"
+    for key, val in connector.render_tokens.items():
+        assert isinstance(val, str), f"{connector.name} token {key} is not a string"
+
+
+@pytest.mark.parametrize("connector", ALL_CONNECTORS, ids=lambda c: c.name)
+def test_connector_declares_all_render_partials(connector):
+    missing = _REQUIRED_PARTIALS - set(connector.render_partials)
+    assert not missing, f"{connector.name} render_partials missing: {missing}"
+
+
+@pytest.mark.parametrize("connector", ALL_CONNECTORS, ids=lambda c: c.name)
+def test_connector_workflow_root_is_namespaced(connector):
+    """{{WORKFLOW_ROOT}} must point at the connector's own .archie/workflow/<cli>
+    subtree so Claude and Codex can be installed side by side."""
+    root = connector.render_tokens["WORKFLOW_ROOT"]
+    assert root == f".archie/workflow/{connector.name}"

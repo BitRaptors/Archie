@@ -2,14 +2,22 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from archie.install import install  # noqa: E402
+from archie.install import install, render_template  # noqa: E402
+from archie.connectors import ALL_CONNECTORS  # noqa: E402
+from archie.manifest_data import COMMANDS  # noqa: E402
+
+
+_COMMAND_DIRS = [c.body_path.split("/", 1)[0] for c in COMMANDS]
 
 
 def test_claude_install_preserves_main_assets(tmp_path: Path) -> None:
@@ -41,3 +49,112 @@ def test_claude_install_writes_settings_local_json(tmp_path: Path) -> None:
         entry.get("matcher") == "Edit|Write|MultiEdit"
         for entry in settings["hooks"]["PreToolUse"]
     )
+
+
+# ---------------------------------------------------------------------------
+# Render-infrastructure contract
+# ---------------------------------------------------------------------------
+
+def test_render_template_fails_loud_on_unknown_token() -> None:
+    with pytest.raises(ValueError):
+        render_template("hello {{MISSING}}", {}, {})
+
+
+def test_render_template_fails_loud_on_unknown_partial() -> None:
+    with pytest.raises(ValueError):
+        render_template("hello {{>missing}}", {}, {})
+
+
+def test_render_template_fails_loud_on_leftover_brace() -> None:
+    # A token rendered to a value containing {{ would still be caught.
+    with pytest.raises(ValueError):
+        render_template("a {{X}} b", {"X": "{{still here}}"}, {})
+
+
+def test_render_template_substitutes_tokens_and_partials() -> None:
+    out = render_template(
+        "model={{M}} how={{>do_it}}",
+        {"M": "gpt-5"},
+        {"do_it": "spawn it"},
+    )
+    assert out == "model=gpt-5 how=spawn it"
+    assert "{{" not in out
+
+
+@pytest.mark.parametrize("connector", ALL_CONNECTORS, ids=lambda c: c.name)
+def test_rendered_workflow_has_no_unresolved_slots(connector, tmp_path: Path) -> None:
+    """Every rendered workflow file must be fully concrete — no {{ }} left."""
+    install(tmp_path, [connector.name])
+    workflow_root = tmp_path / ".archie" / "workflow" / connector.name
+    assert workflow_root.is_dir()
+    md_files = list(workflow_root.rglob("*.md"))
+    assert md_files, f"no rendered workflow files for {connector.name}"
+    for f in md_files:
+        assert "{{" not in f.read_text(), f"unresolved slot in {f}"
+
+
+@pytest.mark.parametrize("connector", ALL_CONNECTORS, ids=lambda c: c.name)
+def test_every_command_has_a_rendered_skill(connector, tmp_path: Path) -> None:
+    install(tmp_path, [connector.name])
+    workflow_root = tmp_path / ".archie" / "workflow" / connector.name
+    for cmd_dir in _COMMAND_DIRS:
+        skill = workflow_root / cmd_dir / "SKILL.md"
+        assert skill.is_file(), f"{connector.name}: missing rendered {cmd_dir}/SKILL.md"
+
+
+def test_codex_rendered_tree_has_no_claude_workflow_paths(tmp_path: Path) -> None:
+    """The Codex rendered tree must not reference .claude/-hardcoded workflow
+    paths. Deterministic-renderer output paths (.claude/rules/) are allowed —
+    renderer.py writes there for both CLIs — so the check targets the
+    .claude/skills + .claude/commands workflow locations specifically."""
+    install(tmp_path, ["codex"])
+    workflow_root = tmp_path / ".archie" / "workflow" / "codex"
+    bad = re.compile(r"\.claude/(skills|commands)/")
+    for f in workflow_root.rglob("*.md"):
+        m = bad.search(f.read_text())
+        assert not m, f"Codex tree references a Claude workflow path in {f}: {m.group(0)}"
+
+
+def test_all_target_renders_both_trees_differing_only_in_slots(tmp_path: Path) -> None:
+    """--target=all must produce a claude tree and a codex tree whose files
+    differ ONLY on lines carrying a slotted value. Lines with no slot must be
+    byte-identical between the two."""
+    install(tmp_path, ["all"])
+    claude_root = tmp_path / ".archie" / "workflow" / "claude"
+    codex_root = tmp_path / ".archie" / "workflow" / "codex"
+    assert claude_root.is_dir() and codex_root.is_dir()
+
+    claude_files = sorted(p.relative_to(claude_root).as_posix() for p in claude_root.rglob("*.md"))
+    codex_files = sorted(p.relative_to(codex_root).as_posix() for p in codex_root.rglob("*.md"))
+    assert claude_files == codex_files, "claude and codex workflow trees have different file sets"
+
+    # Recover the universe of token/partial values for both connectors so we
+    # can recognise a "slotted line": a line that changed must contain at
+    # least one connector-specific rendered value.
+    connectors = {c.name: c for c in ALL_CONNECTORS}
+    claude = connectors["claude"]
+    codex = connectors["codex"]
+    claude_values = set(claude.render_tokens.values()) | set(claude.render_partials.values())
+    codex_values = set(codex.render_tokens.values()) | set(codex.render_partials.values())
+    # Multi-line partials: also collect their individual lines.
+    slot_fragments: set[str] = set()
+    for v in claude_values | codex_values:
+        for line in v.splitlines():
+            line = line.strip()
+            if line:
+                slot_fragments.add(line)
+
+    differing = 0
+    for rel in claude_files:
+        a = (claude_root / rel).read_text().splitlines()
+        b = (codex_root / rel).read_text().splitlines()
+        # Same line count: every diff is a same-position substitution.
+        assert len(a) == len(b), f"{rel}: line count differs between trees"
+        for la, lb in zip(a, b):
+            if la == lb:
+                continue
+            differing += 1
+            # The changed line must carry a slotted fragment from one side.
+            touched = any(frag in la or frag in lb for frag in slot_fragments)
+            assert touched, f"{rel}: non-slot line differs:\n  claude: {la}\n  codex:  {lb}"
+    assert differing > 0, "expected at least some slotted lines to differ"
