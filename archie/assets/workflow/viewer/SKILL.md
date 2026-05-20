@@ -18,7 +18,7 @@ If output is non-empty:
 
 ## Telemetry consent (one-time, run before anything else)
 
-Read and follow `.archie/prompts/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+Read and follow `{{WORKFLOW_ROOT}}/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time interactive opt-in. It self-skips after the first answer and on non-interactive sessions.
 
 ## Launch
 

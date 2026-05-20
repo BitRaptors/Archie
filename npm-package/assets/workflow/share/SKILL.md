@@ -16,7 +16,7 @@ If output is non-empty:
 
 ## Telemetry consent (one-time, run before anything else)
 
-Read and follow `.archie/prompts/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time `AskUserQuestion` opt-in. It self-skips after the first answer and on non-interactive sessions.
+Read and follow `{{WORKFLOW_ROOT}}/_shared/telemetry-consent.md`. It checks whether this machine has been asked about anonymous usage telemetry and, if not, presents a one-time interactive opt-in. It self-skips after the first answer and on non-interactive sessions.
 
 ## Pick upload target
 
@@ -26,11 +26,11 @@ Before uploading, check whether an enterprise profile already exists:
 test -f ~/.archie/share-profile.json && echo "PROFILE_EXISTS" || echo "PROFILE_MISSING"
 ```
 
-Then ask the user which target to use. Present options based on whether a profile is set up — use `AskUserQuestion` (single-choice picker) consistently with the rest of Archie.
+Then ask the user which target to use. Present options based on whether a profile is set up — ask a single-choice question, consistently with the rest of Archie.
 
 If `PROFILE_EXISTS`:
 
-Call `AskUserQuestion`:
+Ask the user — {{>ask_user}}:
 - **question:** "Which share target?"
 - **header:** "Share"
 - **multiSelect:** false
@@ -40,7 +40,7 @@ Call `AskUserQuestion`:
   3. label `Enterprise (paste URL)` — description `Upload to any bucket via a fresh presigned PUT URL you provide now. Zero credentials stored.`
   4. label `Manage profile` — description `Re-run setup with new credentials, or compose a request to InfoSec for a different bucket.`
 
-Map: `Default` → `MODE=default`. `Enterprise (stored)` → `MODE=enterprise-creds`. `Enterprise (paste URL)` → `MODE=enterprise-paste`. `Manage profile` → ask a follow-up `AskUserQuestion` with two options:
+Map: `Default` → `MODE=default`. `Enterprise (stored)` → `MODE=enterprise-creds`. `Enterprise (paste URL)` → `MODE=enterprise-paste`. `Manage profile` → ask a follow-up question ({{>ask_user}}) with two options:
 - **question:** "What do you want to do?"
 - **header:** "Profile"
 - **multiSelect:** false
@@ -52,7 +52,7 @@ Map: `Re-run setup` → `MODE=setup`. `Ask InfoSec` → `MODE=ask-infosec`.
 
 If `PROFILE_MISSING`:
 
-Call `AskUserQuestion`:
+Ask the user — {{>ask_user}}:
 - **question:** "Which share target?"
 - **header:** "Share"
 - **multiSelect:** false
@@ -127,17 +127,11 @@ python3 .archie/intent_layer.py scan-config "$PWD" read
 - **scope is `per-package`** → multiple workspace-level blueprints exist.
   - If exactly one workspace is listed → use that one: `TARGET="$PWD/<workspace>"`.
   - If multiple → ask the user which to share.
-    - **N ≤ 4 workspaces:** use `AskUserQuestion` with `multiSelect: true`. One option per workspace, label `<workspace-name>`, description `Path: <path>`. Map the user's checkbox picks to workspace paths.
-    - **N ≥ 5 workspaces:** `AskUserQuestion` caps at 4 — fall back to a free-form prompt:
-      > You have per-package blueprints in: `<workspace-1>`, `<workspace-2>`, ...
-      > Which one should I share? (number/name/`all`)
+    - Ask the user which workspaces to share — {{>ask_user}}. Allow multiple selections: one option per workspace, label `<workspace-name>`, description `Path: <path>`. If presenting a numbered list, accept number/name/`all`. Map the user's picks to workspace paths.
     - If the user picks more than one (multi-select picks, or `all`), loop and upload each separately.
 - **scope is `hybrid`** → root has a monorepo-wide blueprint AND each listed workspace has its own.
   - Ask the user which blueprints to share (they may want root + one workspace in the same share run).
-    - **(1 + N) ≤ 4 options** (root plus workspaces): use `AskUserQuestion` with `multiSelect: true`. First option label `Monorepo-wide (root)`, one option per workspace labeled by workspace name. Loop over the user's picks and upload each.
-    - **(1 + N) ≥ 5 options:** fall back to a free-form prompt:
-      > Share the monorepo-wide blueprint, or specific workspaces?
-      > Options: `root`, `<workspace-1>`, `<workspace-2>`, ... (comma-separated, or `all`)
+    - Ask the user which blueprints to share — {{>ask_user}}. Allow multiple selections: first option label `Monorepo-wide (root)`, one option per workspace labeled by workspace name. If presenting a numbered list, accept `root`, workspace names comma-separated, or `all`. Loop over the user's picks and upload each.
   - `root` → `TARGET="$PWD"`. Workspace name → `TARGET="$PWD/<workspace>"`.
 
 ## Run
