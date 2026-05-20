@@ -539,7 +539,7 @@ Write to `.archie/findings.json`. `scanned_at` must match the date/time you comp
 After 4b writes the candidate findings store, run the {{VERIFY_MODEL}} verifier + apply hysteresis. The verifier reads each finding's `triggering_call_site` (the verbatim caller quote the synthesizer was required to produce in the schema), reads the cited files, walks one level out, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
 
 ```bash
-python3 .archie/verify_findings.py "$PWD"{{VERIFIER_FLAG}}
+python3 .archie/verify_findings.py "$PWD"
 python3 .archie/apply_verdicts.py "$PWD"
 ```
 

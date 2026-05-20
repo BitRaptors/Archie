@@ -48,9 +48,6 @@ _CODEX_RENDER_TOKENS = {
     "REASONING_MODEL": "gpt-5",
     "VERIFY_MODEL": "gpt-5",
     "WORKFLOW_ROOT": CODEX_WORKFLOW_ROOT,
-    # verify_findings.py runs its finding backward-check through the Codex CLI
-    # instead of the default claude CLI.
-    "VERIFIER_FLAG": " --verifier codex",
 }
 
 # Block partials carry only the CLI-specific *mechanism*. The worker model and
@@ -59,41 +56,47 @@ _CODEX_RENDER_TOKENS = {
 _CODEX_RENDER_PARTIALS = {
     # How to spawn N parallel analysis workers.
     "dispatch_parallel": (
-        "Dispatch the sub-agents in parallel with `spawn_agents_on_csv`. Write "
-        "a CSV at `/tmp/archie_dispatch_$PROJECT_NAME.csv` with one row per "
-        "sub-agent — columns `agent` (a stable id) and `prompt` (that "
-        "sub-agent's full prompt text). Call `spawn_agents_on_csv` with "
-        "`id_column: agent`, `max_concurrency` equal to the number of rows, "
-        "and an `instruction` that tells each worker: `Project root: $PWD. "
-        "Read $PWD/AGENTS.md first if it exists, then carry out the task in "
-        "the {prompt} column in full.` Each worker writes its own output file "
-        "per the output contract below. After the batch completes, verify "
-        "every worker's output file exists before continuing; if any worker "
-        "failed, stop and report which one."
+        "Ask Codex to spawn the required subagents in parallel and wait for "
+        "all of them before continuing. Give each subagent a bounded role, "
+        "the exact prompt text or prompt-file path(s) it must read from disk, "
+        "the project root, and the one output file path it owns. For large "
+        "repeated row-based batches that naturally fit one item per CSV row, "
+        "you may use Codex's experimental `spawn_agents_on_csv` flow; "
+        "otherwise use the standard subagent workflow directly. After all "
+        "subagents finish, verify every expected output file exists before "
+        "continuing; if any worker failed or a file is missing, stop and "
+        "report which worker failed."
     ),
     # How to spawn one worker.
     "dispatch_single": (
-        "Dispatch the sub-agent as a single Codex agent run: spawn one agent "
-        "with `spawn_agents_on_csv` over a single-row CSV. Pass the full "
-        "prompt text to the worker and seed `Project root: $PWD` plus `Read "
-        "$PWD/AGENTS.md first if it exists.` The worker writes its output "
-        "file per the output contract below."
+        "Ask Codex to spawn one subagent for this task and wait for it to "
+        "finish before continuing. Give it the project root, the exact prompt "
+        "text or prompt-file path named in this workflow, and the one output "
+        "file path it owns. After it finishes, verify the expected output file "
+        "exists before continuing."
     ),
     # How a spawned worker must write its output file.
     "output_contract": (
-        "1. Write your COMPLETE output to the file path named above using a "
-        "shell heredoc or the apply_patch tool.\n"
-        "2. Write the raw output verbatim — the merge/finalize step handles JSON envelopes.\n"
-        "3. After writing, report exactly: \"Wrote <that file path>\" via "
-        "`report_agent_job_result` (or your final message when not in a batch).\n"
-        "4. Do NOT print the output in your response body."
+        "1. Prefer `apply_patch` when writing the file path named above. If "
+        "the target is an intermediate `/tmp/archie_*` artifact and your "
+        "Codex build cannot create that path with `apply_patch`, use a direct "
+        "shell file write only for that temp artifact.\n"
+        "2. Write the raw output only — no markdown fences, no prose, unless "
+        "the target format explicitly expects them.\n"
+        "3. If you were launched through `spawn_agents_on_csv`, call "
+        "`report_agent_job_result` exactly once after writing the file. "
+        "Otherwise reply with exactly: \"Wrote <that file path>\".\n"
+        "4. Do NOT paste the full output into the conversation."
     ),
     # How to ask the user an interactive question. The question text, header,
     # and options stay inline in the canonical workflow — only the asking
     # mechanism is slotted.
     "ask_user": (
-        "Present the question text, then a numbered list of the options, then "
-        "wait for the user to reply with their choice before continuing"
+        "Ask the user directly in the Codex conversation. Present the question "
+        "text, then a numbered list of the options, explicitly say when "
+        "multiple selections are allowed, accept comma-separated numbers or "
+        "`all` when the workflow allows it, and wait for the user's reply "
+        "before continuing"
     ),
 }
 

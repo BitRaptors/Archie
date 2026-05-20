@@ -17,6 +17,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+import re
 
 import pytest
 
@@ -116,7 +117,6 @@ def test_registry_is_non_empty():
 
 _REQUIRED_TOKENS = {
     "ANALYSIS_MODEL", "REASONING_MODEL", "VERIFY_MODEL", "WORKFLOW_ROOT",
-    "VERIFIER_FLAG",
 }
 _REQUIRED_PARTIALS = {
     "dispatch_parallel", "dispatch_single", "output_contract", "ask_user",
@@ -143,3 +143,11 @@ def test_connector_workflow_root_is_namespaced(connector):
     subtree so Claude and Codex can be installed side by side."""
     root = connector.render_tokens["WORKFLOW_ROOT"]
     assert root == f".archie/workflow/{connector.name}"
+
+
+def test_codex_render_partials_only_reference_supported_runtime_tools():
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    rendered = "\n".join(codex.render_partials.values())
+    for forbidden in ("spawn_agent", "wait_agent", "request_user_input", "exec_command"):
+        assert re.search(rf"`{re.escape(forbidden)}`|\b{re.escape(forbidden)}\b(?!_)", rendered) is None
+    assert "apply_patch" in rendered

@@ -278,7 +278,7 @@ This single command: merges the Reasoning agent's output into the blueprint, nor
 **Backward-check the findings against actual code.** After finalize writes `.archie/findings.json`, run the {{VERIFY_MODEL}} verifier and apply hysteresis. The verifier reads each finding's required `triggering_call_site` field, walks one level out from the cited caller, and decides per finding: `keep` (failure fires there — real finding), `demote` (call site exists but failure doesn't fire — risk class, not current problem), or `drop` (premise unsound for this codebase). The hysteresis layer then applies the verdict with cross-run stability — single-scan flips on unchanged code don't propagate (kills LLM-noise flicker), but a git-diff anchor (a file in the finding's `triggering_call_site` was touched in the last 5 commits) lets a real transition land immediately.
 
 ```bash
-python3 .archie/verify_findings.py "$PROJECT_ROOT"{{VERIFIER_FLAG}}
+python3 .archie/verify_findings.py "$PROJECT_ROOT"
 python3 .archie/apply_verdicts.py "$PROJECT_ROOT"
 ```
 

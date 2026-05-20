@@ -61,9 +61,6 @@ _CLAUDE_RENDER_TOKENS = {
     "REASONING_MODEL": "Opus",
     "VERIFY_MODEL": "Haiku",
     "WORKFLOW_ROOT": CLAUDE_WORKFLOW_ROOT,
-    # Extra argument for verify_findings.py — Claude uses the default (claude
-    # CLI) verifier, so no flag. Codex passes --verifier codex.
-    "VERIFIER_FLAG": "",
 }
 
 # Block partials carry only the CLI-specific *mechanism*. The worker model

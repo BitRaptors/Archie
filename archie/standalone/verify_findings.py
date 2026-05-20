@@ -20,13 +20,14 @@ hysteresis-aware routing (see Phase 3).
 
 This script follows the rest of `archie/standalone/` in shelling out to
 a coding-agent CLI rather than importing a vendor SDK — keeps the
-zero-dependency invariant and inherits the user's auth. The CLI is
-selectable: `--verifier claude` (default) shells out to the Claude Code
-CLI; `--verifier codex` shells out to the Codex CLI, so a Codex-driven
-deep-scan keeps finding-verification.
+zero-dependency invariant and inherits the user's auth. The verifier CLI
+is auto-detected from the harness environment: a Claude Code session
+verifies with the `claude` CLI, a Codex session with the `codex` CLI.
+No flag or workflow plumbing is needed — `--verifier` stays only as an
+explicit override (mainly for tests).
 
 Usage:
-    python3 verify_findings.py /path/to/project [--concurrency 10] [--verifier claude|codex]
+    python3 verify_findings.py /path/to/project [--concurrency 10] [--verifier auto|claude|codex]
 """
 
 from __future__ import annotations
@@ -34,9 +35,12 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 CLAUDE_CLI = "claude"
@@ -238,18 +242,24 @@ def _run_codex(prompt: str, project_root: Path) -> str:
     """Spawn `codex exec` synchronously. Returns the model's final text or "".
 
     `codex exec` runs the prompt non-interactively in a read-only sandbox
-    and prints the agent's final message to stdout. _parse_verdict already
-    tolerates surrounding prose / code fences, so the raw stdout is fine.
+    and can persist the agent's last message to a file. Send the prompt on
+    stdin instead of argv so large cited-file bundles do not hit shell/exec
+    length limits.
     """
+    tmp_file: str | None = None
     try:
+        with tempfile.NamedTemporaryFile("r+", encoding="utf-8", delete=False) as fh:
+            tmp_file = fh.name
         proc = subprocess.run(
             [
                 CODEX_CLI,
                 "exec",
                 "--sandbox", "read-only",
                 "--skip-git-repo-check",
-                prompt,
+                "--output-last-message", tmp_file,
+                "-",
             ],
+            input=prompt,
             capture_output=True,
             text=True,
             cwd=str(project_root),
@@ -259,7 +269,14 @@ def _run_codex(prompt: str, project_root: Path) -> str:
         return ""
     if proc.returncode != 0:
         return ""
-    return proc.stdout or ""
+    if not tmp_file:
+        return ""
+    try:
+        return Path(tmp_file).read_text()
+    except OSError:
+        return ""
+    finally:
+        Path(tmp_file).unlink(missing_ok=True)
 
 
 def _run_verifier(prompt: str, project_root: Path, verifier: str) -> str:
@@ -267,6 +284,21 @@ def _run_verifier(prompt: str, project_root: Path, verifier: str) -> str:
     if verifier == "codex":
         return _run_codex(prompt, project_root)
     return _run_claude(prompt, project_root)
+
+
+def _detect_verifier() -> str:
+    """Detect the verifier CLI from the environment — no flag needed.
+
+    verify_findings.py only ever runs from inside a harness-driven scan, so the
+    orchestrating harness IS the signal. Claude Code exports CLAUDECODE=1 to
+    every process it spawns; its absence means the Codex harness. The PATH
+    check is a last-resort guard for unexpected invocations.
+    """
+    if os.environ.get("CLAUDECODE"):
+        return "claude"
+    if shutil.which("codex"):
+        return "codex"
+    return "claude"
 
 
 def _parse_verdict(text: str, finding_id: str) -> dict:
@@ -354,9 +386,11 @@ def main() -> int:
                         help=f"Max concurrent verifier calls (default {DEFAULT_CONCURRENCY}).")
     parser.add_argument("--output", type=Path, default=None,
                         help="Output path for verdicts.json. Default: <project>/.archie/verdicts.json")
-    parser.add_argument("--verifier", choices=("claude", "codex"), default="claude",
-                        help="Which coding-agent CLI runs the backward-check (default: claude).")
+    parser.add_argument("--verifier", choices=("auto", "claude", "codex"), default="auto",
+                        help="Verifier CLI: 'auto' (default) detects the harness "
+                             "from the environment; 'claude'/'codex' force one.")
     args = parser.parse_args()
+    verifier = _detect_verifier() if args.verifier == "auto" else args.verifier
 
     archie_dir = args.project_root / ".archie"
     if not archie_dir.is_dir():
@@ -372,12 +406,12 @@ def main() -> int:
         return 0
 
     print(f"verify_findings: {len(findings)} candidate(s) → "
-          f"spawning {args.verifier} verifier batch (concurrency={args.concurrency})...")
+          f"spawning {verifier} verifier batch (concurrency={args.concurrency})...")
 
     verdicts: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as ex:
         futures = {
-            ex.submit(verify_one, f, args.project_root, args.verifier): f
+            ex.submit(verify_one, f, args.project_root, verifier): f
             for f in findings
         }
         for fut in concurrent.futures.as_completed(futures):
