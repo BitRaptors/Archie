@@ -1,7 +1,7 @@
 """Connector interface. Each supported CLI implements this contract.
 
 A Connector's only job is to translate canonical manifest entries
-(CommandDef, HookDef, ConfigPatch, AgentDef) into files in the CLI's
+(CommandDef, HookDef, ConfigPatch) into files in the CLI's
 native idiom. All bodies, scripts, and prompts live in archie/assets/ —
 connectors emit thin shims that reference those canonical files at
 runtime.
@@ -13,7 +13,6 @@ Capability vocabulary (subset of):
     hooks:user-prompt-submit
     hooks:stop
     hooks:pre-commit               — git pre-commit (universal — every connector declares this)
-    agents                         — install_agent supported (Codex only)
     parallel-agents                — CLI runtime supports parallel sub-agent fan-out
     config-patch                   — patch_config supported (Codex only)
 
@@ -23,7 +22,7 @@ full design and feature parity matrix.
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from ..manifest import AgentDef, CommandDef, ConfigPatch, HookDef
+from ..manifest import CommandDef, ConfigPatch, HookDef
 
 
 class Connector(ABC):
@@ -49,9 +48,6 @@ class Connector(ABC):
 
     def install_hook(self, project_root: Path, hook: HookDef) -> None:
         raise NotImplementedError(f"{self.name} does not support hooks")
-
-    def install_agent(self, project_root: Path, agent: AgentDef) -> None:
-        return
 
     def patch_config(self, patches: list[ConfigPatch]) -> None:
         return

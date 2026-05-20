@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .connectors import ALL_CONNECTORS
 from .connectors.base import Connector
-from .manifest_data import AGENTS, COMMANDS, CONFIG_PATCHES, HOOKS
+from .manifest_data import COMMANDS, CONFIG_PATCHES, HOOKS
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -229,9 +229,6 @@ def install(project_root: Path, requested: list[str] | None = None) -> None:
         for hook in HOOKS:
             if conn.supports_event(hook.event):
                 conn.install_hook(project_root, hook)
-        if "agents" in conn.capabilities:
-            for agent in AGENTS:
-                conn.install_agent(project_root, agent)
         if "config-patch" in conn.capabilities:
             conn.patch_config([p for p in CONFIG_PATCHES if p.cli == conn.name])
         conn.finalize(project_root)

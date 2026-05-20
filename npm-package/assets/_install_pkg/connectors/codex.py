@@ -3,7 +3,6 @@
 Writes:
   .agents/skills/archie-*/SKILL.md  — slash-command shims (parent-walk discovered)
   .codex/hooks.json                  — hook registrations referencing .archie/hooks/*.sh
-  .codex/agents/archie-*.toml        — named sub-agents for deep-scan fan-out
   ~/.codex/config.toml               — idempotent merge: project_doc_max_bytes + fallback_filenames
 
 See docs/plans/2026-05-18-multi-agent-connector-architecture.md §9.2 and
@@ -16,7 +15,7 @@ import json
 import re
 from pathlib import Path
 
-from ..manifest import AgentDef, CommandDef, ConfigPatch, HookDef
+from ..manifest import CommandDef, ConfigPatch, HookDef
 from .base import Connector
 from .claude import HOOK_SCRIPTS_DIR
 
@@ -74,12 +73,11 @@ _CODEX_RENDER_PARTIALS = {
     ),
     # How to spawn one worker.
     "dispatch_single": (
-        "Dispatch the sub-agent as a single Codex agent run. Use the matching "
-        "named agent under `.codex/agents/` when one exists for this task; "
-        "otherwise spawn one agent with `spawn_agents_on_csv` over a "
-        "single-row CSV. Pass the full prompt text to the worker and seed "
-        "`Project root: $PWD` plus `Read $PWD/AGENTS.md first if it exists.` "
-        "The worker writes its output file per the output contract below."
+        "Dispatch the sub-agent as a single Codex agent run: spawn one agent "
+        "with `spawn_agents_on_csv` over a single-row CSV. Pass the full "
+        "prompt text to the worker and seed `Project root: $PWD` plus `Read "
+        "$PWD/AGENTS.md first if it exists.` The worker writes its output "
+        "file per the output contract below."
     ),
     # How a spawned worker must write its output file.
     "output_contract": (
@@ -109,7 +107,6 @@ class CodexConnector(Connector):
         "hooks:user-prompt-submit",
         "hooks:stop",
         "hooks:pre-commit",
-        "agents",
         "parallel-agents",
         "config-patch",
     })
@@ -168,26 +165,6 @@ class CodexConnector(Connector):
         hooks_path.parent.mkdir(parents=True, exist_ok=True)
         hooks_path.write_text(json.dumps(config, indent=2) + "\n")
 
-    def install_agent(self, project_root: Path, agent: AgentDef) -> None:
-        dest = project_root / ".codex" / "agents" / f"{agent.name}.toml"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        prompt_path = (project_root / _codex_agent_prompt_path(agent)).resolve()
-        project_root_abs = project_root.resolve()
-        lines = [
-            f'name = "{_toml_string(agent.name)}"',
-            f'description = "{_toml_string(agent.description)}"',
-            (
-                'developer_instructions = """'
-                f'Project root: {project_root_abs}. '
-                f'Read {project_root_abs / "AGENTS.md"} first if it exists, then read and follow {prompt_path} in full. '
-                f'You are the {agent.name} sub-agent for Archie deep-scan."""'
-            ),
-            f'sandbox_mode = "{_toml_string(agent.sandbox_mode)}"',
-        ]
-        if agent.model:
-            lines.append(f'model = "{_toml_string(_codex_model(agent.model))}"')
-        dest.write_text("\n".join(lines) + "\n")
-
     def patch_config(self, patches: list[ConfigPatch]) -> None:
         cfg_path = self.home_dir() / "config.toml"
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,26 +193,6 @@ def _codex_matcher(tool_match: str | None) -> str | None:
     if tool_match is None:
         return None
     return _MATCHER_NAME_CODEX.get(tool_match, tool_match)
-
-
-# AgentDef.model is CLI-agnostic but the manifest spells it in Claude's
-# vocabulary. Map it to the Codex equivalent for .codex/agents/*.toml.
-_CODEX_MODEL_MAP = {
-    "opus": "gpt-5",
-    "sonnet": "gpt-5",
-    "haiku": "gpt-5",
-}
-
-
-def _codex_model(model: str) -> str:
-    return _CODEX_MODEL_MAP.get(model.lower(), model)
-
-
-def _codex_agent_prompt_path(agent: AgentDef) -> str:
-    # Wave-1 / Wave-2 sub-agent prompts are rendered from the canonical
-    # workflow templates into .archie/workflow/codex/_shared/. agent.prompt_path
-    # is the sub-path relative to the per-CLI workflow root.
-    return f"{CODEX_WORKFLOW_ROOT}/{agent.prompt_path}"
 
 
 def _toml_string(value: str) -> str:

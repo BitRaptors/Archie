@@ -1,4 +1,4 @@
-"""Single source of truth: every command, hook, config patch, and agent
+"""Single source of truth: every command, hook, and config patch
 Archie installs. Connectors consume these lists at install time.
 
 Adding a feature = one entry here + one body/script/template file under
@@ -10,7 +10,7 @@ archie/assets/* into <project>/.archie/). See
 docs/plans/2026-05-18-multi-agent-connector-architecture.md §12 for the
 asset migration map.
 """
-from .manifest import AgentDef, CommandDef, ConfigPatch, HookDef
+from .manifest import CommandDef, ConfigPatch, HookDef
 
 
 # body_path is the command's SKILL.md *inside the rendered workflow tree*,
@@ -94,37 +94,4 @@ HOOKS = [
 CONFIG_PATCHES = [
     ConfigPatch("codex", "project_doc_max_bytes", 131072),
     ConfigPatch("codex", "project_doc_fallback_filenames", ["CLAUDE.md"]),
-]
-
-
-# prompt_path is the Wave sub-agent prompt inside the rendered workflow tree,
-# relative to the per-CLI workflow root. Connectors prepend their own
-# .archie/workflow/<cli>/ root at install time.
-AGENTS = [
-    AgentDef(
-        "archie-wave1-structure",
-        "Wave-1 structure pass: components, layers, file placement.",
-        "_shared/wave1_structure.md",
-    ),
-    AgentDef(
-        "archie-wave1-patterns",
-        "Wave-1 patterns pass: communication, design patterns, integrations.",
-        "_shared/wave1_patterns.md",
-    ),
-    AgentDef(
-        "archie-wave1-technology",
-        "Wave-1 technology pass: stack, deployment, dev rules.",
-        "_shared/wave1_technology.md",
-    ),
-    AgentDef(
-        "archie-wave1-ui",
-        "Wave-1 UI pass: components, state, routing (only when frontend_ratio >= 0.20).",
-        "_shared/wave1_ui.md",
-    ),
-    AgentDef(
-        "archie-wave2-reasoning",
-        "Wave-2 reasoning pass: synthesizes Wave-1 outputs into decision chain, pitfalls, trade-offs.",
-        "_shared/wave2_reasoning.md",
-        model="opus",
-    ),
 ]

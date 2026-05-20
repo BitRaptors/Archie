@@ -15,7 +15,7 @@ import shutil
 import stat
 from pathlib import Path
 
-from ..manifest import AgentDef, CommandDef, ConfigPatch, HookDef
+from ..manifest import CommandDef, ConfigPatch, HookDef
 from .base import Connector
 
 

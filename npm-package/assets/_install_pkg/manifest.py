@@ -1,8 +1,8 @@
 """Canonical types defining what Archie ships across all CLIs.
 
 Manifest entries are CLI-agnostic. Each Connector reads them and emits the
-appropriate per-CLI artifact (slash command / skill, hook config, agent
-definition, config patch). See docs/plans/2026-05-18-multi-agent-connector-architecture.md
+appropriate per-CLI artifact (slash command / skill, hook config,
+config patch). See docs/plans/2026-05-18-multi-agent-connector-architecture.md
 for the full design.
 """
 from dataclasses import dataclass
@@ -37,12 +37,3 @@ class ConfigPatch:
     cli: str
     key: str
     value: object
-
-
-@dataclass(frozen=True)
-class AgentDef:
-    name: str
-    description: str
-    prompt_path: str
-    model: Optional[str] = None
-    sandbox_mode: str = "read-only"

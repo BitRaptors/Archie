@@ -2,7 +2,7 @@
 
 The interface promise: if a connector lists `"hooks:X"` in capabilities,
 its install_hook must not raise on a HookDef whose event is X. Same for
-`"commands"`, `"agents"`, `"config-patch"`. Catches "I claimed support but
+`"commands"`, `"config-patch"`. Catches "I claimed support but
 my method errors" drift between manifest and connector code.
 
 Run: python -m pytest tests/test_connector_contract.py -v
@@ -25,12 +25,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from archie.connectors import ALL_CONNECTORS  # noqa: E402
-from archie.manifest import AgentDef, CommandDef, ConfigPatch, HookDef  # noqa: E402
-from archie.manifest_data import AGENTS, COMMANDS, CONFIG_PATCHES, HOOKS  # noqa: E402
+from archie.manifest import CommandDef, ConfigPatch, HookDef  # noqa: E402
+from archie.manifest_data import COMMANDS, CONFIG_PATCHES, HOOKS  # noqa: E402
 
 
 SAMPLE_CMD = CommandDef("archie-test", "Test command.", ".archie/prompts/skill_test.md")
-SAMPLE_AGENT = AgentDef("archie-test-agent", "Test agent.", ".archie/prompts/test.md")
 
 
 @pytest.fixture
@@ -69,17 +68,6 @@ def test_install_hook_honors_capabilities(connector, tmp_project: Path):
             connector.install_hook(tmp_project, hook)
         # If unsupported, we don't call it — that's the install loop's job.
     connector.finalize(tmp_project)
-
-
-@pytest.mark.parametrize("connector", ALL_CONNECTORS, ids=lambda c: c.name)
-def test_install_agent_when_capable(connector, tmp_project: Path):
-    if "agents" not in connector.capabilities:
-        # Non-capable connectors get a no-op default; calling shouldn't raise.
-        connector.install_agent(tmp_project, SAMPLE_AGENT)
-        return
-    connector.install_agent(tmp_project, SAMPLE_AGENT)
-    toml_files = list(tmp_project.rglob(f"{SAMPLE_AGENT.name}.toml"))
-    assert toml_files, "agent capability claimed but no TOML written"
 
 
 @pytest.mark.parametrize("connector", ALL_CONNECTORS, ids=lambda c: c.name)
