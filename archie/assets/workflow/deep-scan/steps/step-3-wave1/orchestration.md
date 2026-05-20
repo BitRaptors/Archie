@@ -30,7 +30,13 @@ Agent prompt:
 >
 > GROUNDING RULES apply (see below).
 
-Save the agent's complete output to `/tmp/archie_incremental_$PROJECT_NAME.json`.
+The subagent writes its own output. The "file path named above" is `/tmp/archie_incremental_$PROJECT_NAME.json`. Append this contract to the agent prompt before spawning:
+
+```
+---
+OUTPUT CONTRACT (mandatory):
+{{>output_contract}}
+```
 
 Then skip to Step 4.
 
