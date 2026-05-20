@@ -59,6 +59,29 @@ def _replace_tree(src: Path, dest: Path) -> None:
     shutil.copytree(src, dest)
 
 
+def _clean_legacy_layout(project_root: Path) -> None:
+    """Remove install artifacts from superseded Archie layouts.
+
+    Earlier versions copied the deep-scan step tree into
+    .claude/skills/archie-deep-scan/ and command bodies into .archie/prompts/.
+    The canonical workflow now renders per-CLI into .archie/workflow/<cli>/.
+    On upgrade, drop the stale trees so a returning user is not left with a
+    dead skill registration or a duplicated, out-of-date workflow body.
+    """
+    for stale_dir in (
+        project_root / ".claude" / "skills" / "archie-deep-scan",
+        project_root / ".claude" / "commands" / "archie-deep-scan",
+        project_root / ".archie" / "prompts",
+    ):
+        if stale_dir.is_dir():
+            shutil.rmtree(stale_dir, ignore_errors=True)
+    stale_shared = project_root / ".claude" / "commands" / "_shared" / "scope_resolution.md"
+    try:
+        stale_shared.unlink()
+    except OSError:
+        pass
+
+
 # ---------- workflow template renderer ----------
 
 # Matches a block partial: {{>partial_name}}
@@ -217,6 +240,7 @@ def install(project_root: Path, requested: list[str] | None = None) -> None:
         )
         sys.exit(1)
 
+    _clean_legacy_layout(project_root)
     _copy_canonical_assets(project_root)
     _install_git_pre_commit(project_root)
 

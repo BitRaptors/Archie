@@ -279,7 +279,6 @@ async function chooseTargets() {
 const projectRoot = resolve(projectRootArg);
 const archieDir = join(projectRoot, ".archie");
 const claudeCommands = join(projectRoot, ".claude", "commands");
-const claudeSkills = join(projectRoot, ".claude", "skills");
 const workflowDir = join(archieDir, "workflow");
 
 console.log("");
@@ -308,33 +307,11 @@ if (existsSync(claudeCommands)) {
       try { unlinkSync(join(claudeCommands, f)); cleanedCount++; } catch {}
     }
   }
-  const legacyDeepScanDir = join(claudeCommands, "archie-deep-scan");
-  if (existsSync(legacyDeepScanDir)) {
-    try { rmSync(legacyDeepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
-  }
-  // Legacy: scope_resolution.md used to be copied into .claude/commands/_shared/.
-  // The canonical workflow now lives under .archie/workflow/ — drop the stale file.
-  const sharedFile = join(claudeCommands, "_shared", "scope_resolution.md");
-  if (existsSync(sharedFile)) {
-    try { unlinkSync(sharedFile); cleanedCount++; } catch {}
-  }
 }
 
-if (existsSync(claudeSkills)) {
-  // Legacy: the deep-scan step tree used to be copied into .claude/skills/.
-  // It is now rendered into .archie/workflow/<cli>/ — drop the stale tree.
-  const skillDeepScanDir = join(claudeSkills, "archie-deep-scan");
-  if (existsSync(skillDeepScanDir)) {
-    try { rmSync(skillDeepScanDir, { recursive: true, force: true }); cleanedCount++; } catch {}
-  }
-}
-
-// Legacy: prior versions copied prompts to .archie/prompts/. Replaced by the
-// rendered per-CLI workflow tree under .archie/workflow/.
-const legacyPromptsDir = join(archieDir, "prompts");
-if (existsSync(legacyPromptsDir)) {
-  try { rmSync(legacyPromptsDir, { recursive: true, force: true }); cleanedCount++; } catch {}
-}
+// Legacy-layout cleanup (.claude/skills/archie-deep-scan/, .archie/prompts/,
+// stale command shims/dirs) is owned by the Python install loop —
+// see _clean_legacy_layout() in archie/install.py.
 if (existsSync(workflowDir)) {
   try { rmSync(workflowDir, { recursive: true, force: true }); cleanedCount++; } catch {}
 }

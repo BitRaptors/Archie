@@ -51,6 +51,30 @@ def test_claude_install_writes_settings_local_json(tmp_path: Path) -> None:
     )
 
 
+def test_install_removes_legacy_layout(tmp_path: Path) -> None:
+    """An upgrade over an old-layout install drops the superseded trees so the
+    user is not left with a dead skill registration or a stale workflow body."""
+    legacy_skill = tmp_path / ".claude" / "skills" / "archie-deep-scan" / "steps"
+    legacy_skill.mkdir(parents=True)
+    (legacy_skill / "step-1-scanner.md").write_text("OLD")
+    legacy_prompts = tmp_path / ".archie" / "prompts"
+    legacy_prompts.mkdir(parents=True)
+    (legacy_prompts / "skill_archie_scan.md").write_text("OLD")
+    legacy_shared = tmp_path / ".claude" / "commands" / "_shared"
+    legacy_shared.mkdir(parents=True)
+    (legacy_shared / "scope_resolution.md").write_text("OLD")
+
+    install(tmp_path, ["claude"])
+
+    assert not (tmp_path / ".claude" / "skills" / "archie-deep-scan").exists()
+    assert not (tmp_path / ".archie" / "prompts").exists()
+    assert not (legacy_shared / "scope_resolution.md").exists()
+    # ...and the current layout is in place.
+    assert (
+        tmp_path / ".archie" / "workflow" / "claude" / "deep-scan" / "SKILL.md"
+    ).exists()
+
+
 # ---------------------------------------------------------------------------
 # Render-infrastructure contract
 # ---------------------------------------------------------------------------
@@ -113,6 +137,17 @@ def test_codex_rendered_tree_has_no_claude_workflow_paths(tmp_path: Path) -> Non
     for f in workflow_root.rglob("*.md"):
         m = bad.search(f.read_text())
         assert not m, f"Codex tree references a Claude workflow path in {f}: {m.group(0)}"
+
+
+def test_codex_rendered_tree_has_no_session_only_helper_tool_names(tmp_path: Path) -> None:
+    install(tmp_path, ["codex"])
+    workflow_root = tmp_path / ".archie" / "workflow" / "codex"
+    forbidden = ("spawn_agent", "wait_agent", "request_user_input", "exec_command")
+    for f in workflow_root.rglob("*.md"):
+        text = f.read_text()
+        for needle in forbidden:
+            leaked = re.search(rf"`{re.escape(needle)}`|\b{re.escape(needle)}\b(?!_)", text)
+            assert leaked is None, f"{f} leaked non-Codex helper name: {needle}"
 
 
 def test_all_target_renders_both_trees_differing_only_in_slots(tmp_path: Path) -> None:
