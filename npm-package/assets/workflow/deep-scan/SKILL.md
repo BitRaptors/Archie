@@ -125,7 +125,7 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
      ```bash
      python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
      python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
-     rm -f /tmp/archie_enrichment_*.json
+     rm -f /tmp/archie_enrichment_${PROJECT_NAME}_*.json /tmp/archie_intent_prompt_${PROJECT_NAME}_*.txt
      ```
      `reset-state` wipes both `.archie/enrich_state.json` and the `.archie/enrichments/` directory — no `rm -rf` needed in the slash-command layer (keeps the command inside the default Bash permission allowlist so this runs prompt-free).
      Set `SCAN_MODE=full`, `START_STEP=1`, `RESUME_ACTION=fresh`. Print `"Starting fresh. Previous progress discarded."`.

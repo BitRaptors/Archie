@@ -56,16 +56,25 @@ _CODEX_RENDER_TOKENS = {
 _CODEX_RENDER_PARTIALS = {
     # How to spawn N parallel analysis workers.
     "dispatch_parallel": (
-        "Ask Codex to spawn the required subagents in parallel and wait for "
-        "all of them before continuing. Give each subagent a bounded role, "
-        "the exact prompt text or prompt-file path(s) it must read from disk, "
-        "the project root, and the one output file path it owns. For large "
-        "repeated row-based batches that naturally fit one item per CSV row, "
-        "you may use Codex's experimental `spawn_agents_on_csv` flow; "
-        "otherwise use the standard subagent workflow directly. After all "
-        "subagents finish, verify every expected output file exists before "
-        "continuing; if any worker failed or a file is missing, stop and "
-        "report which worker failed."
+        "Dispatch the whole wave as ONE batch with Codex's "
+        "`spawn_agents_on_csv`. It is a blocking call: Codex spawns one "
+        "worker per CSV row, runs them with bounded concurrency it manages "
+        "itself, waits for EVERY worker to finish, then returns. Do NOT "
+        "spawn workers individually and do NOT hand-roll your own chunking "
+        "— a single `spawn_agents_on_csv` call processes every row no "
+        "matter how many there are, and that blocking behavior is what "
+        "keeps the wave loop self-driving in one run. Write a CSV at "
+        "`/tmp/archie_dispatch_$PROJECT_NAME.csv` with one row per "
+        "sub-agent — columns `agent` (a stable id) and `prompt` (that "
+        "sub-agent's full prompt text). Call `spawn_agents_on_csv` with "
+        "`id_column: agent`, `max_concurrency: 6`, and an `instruction` "
+        "telling each worker: `Project root: $PWD. Read $PWD/AGENTS.md "
+        "first if it exists, then carry out the task in the {prompt} "
+        "column in full.` Each worker writes its own output file per the "
+        "output contract below and calls `report_agent_job_result` exactly "
+        "once. When `spawn_agents_on_csv` returns, the batch is complete "
+        "— verify every output file exists; if any row errored, stop and "
+        "report which one."
     ),
     # How to spawn one worker.
     "dispatch_single": (

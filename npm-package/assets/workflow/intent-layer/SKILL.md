@@ -92,16 +92,18 @@ python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query '.fol
 If a previous orchestrator crashed between "subagent wrote /tmp file" and "orchestrator ran save-enrichment", `/tmp` may contain batch outputs that never got registered. Ingest them so they count toward the resume numbers:
 
 ```bash
-for tmp in /tmp/archie_enrichment_*.json; do
+INTENT_RUN_ID=$(python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query .run_id 2>/dev/null)
+[ -z "$INTENT_RUN_ID" ] || [ "$INTENT_RUN_ID" = "null" ] && INTENT_RUN_ID=""
+PROJECT_SLUG="${PWD##*/}"
+for tmp in /tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.json; do
     [ -f "$tmp" ] || continue
-    # Extract batch_id from "/tmp/archie_enrichment_<id>.json" using pure
-    # shell parameter expansion — no external commands so no permission
-    # prompts during an otherwise unattended scan.
-    name="${tmp##*/archie_enrichment_}"
+    # Extract batch_id from
+    # "/tmp/archie_enrichment_<project>_<run_id>_<id>.json" using pure shell
+    # parameter expansion — no external commands so no permission prompts
+    # during an otherwise unattended scan.
+    prefix="/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_"
+    name="${tmp#$prefix}"
     batch_id="${name%.json}"
-    # save-enrichment is idempotent — overwriting an existing
-    # .archie/enrichments/<id>.json with the same content is safe,
-    # and appending already-done folders to the state is a set-like op.
     python3 .archie/intent_layer.py save-enrichment "$PWD" "$batch_id" "$tmp" 2>/dev/null || true
 done
 ```
@@ -221,6 +223,13 @@ python3 .archie/intent_layer.py reset-state "$PWD"
 mkdir -p "$PWD/.archie/enrichments"
 ```
 
+Immediately after the `prepare` call (fresh mode) or immediately after the `mkdir -p` call (resume mode), load the temp-file namespace from the plan you will use for the rest of the run:
+
+```bash
+INTENT_RUN_ID=$(python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query .run_id)
+PROJECT_SLUG=$(python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query .project_slug)
+```
+
 This builds `.archie/enrich_batches.json` — the parent→children dependency graph over every folder with source files (plus structural parents). Leaves are processed first, then parents receive summaries of their children.
 
 Print a one-line progress note to the user: *"Preparing intent layer — N folders queued ({mode}), processed bottom-up."*  Derive N from:
@@ -240,6 +249,12 @@ In incremental mode N is the size of the dirty subset (affected folders + ancest
 **Skip this entire phase if `RESUME_MODE=finalize_partial`** — no new subagents spawn; jump straight to Phase 3 (merge) with whatever's already in `.archie/enrichments/`.
 
 For `RESUME_MODE=resume` and `RESUME_MODE=fresh` the flow is identical: `next-ready` reads the done list from disk and returns only folders that still need enrichment. The difference is just the starting point of the done list (non-empty for resume, empty for fresh).
+
+**This loop is self-propelled.** Each wave is dispatched as ONE blocking batch (see the dispatch step below) — the batch call does not return until every sub-agent in the wave has finished. Do NOT stop or hand control back after a wave is dispatched. Stay in the same Archie command run until one of these is true:
+- `next-ready` returns `[]` and Phase 3 can start
+- a real failure occurs (missing output file, invalid JSON, save-enrichment error)
+
+After each wave's batch returns, ingest its outputs, call `next-ready`, and immediately dispatch the next wave yourself. Do not wait for the user to nudge you.
 
 ### Status-line labeling (honor the current mode)
 
@@ -284,10 +299,10 @@ Output is a JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `
 **c. For each batch, generate the prompt and spawn a {{ANALYSIS_MODEL}} subagent:**
 
 ```bash
-python3 .archie/intent_layer.py prompt "$PWD" --folders <comma-separated-folders> --child-summaries "$PWD/.archie/enrichments/" > /tmp/archie_intent_prompt_<batch_id>.txt
+python3 .archie/intent_layer.py prompt "$PWD" --folders <comma-separated-folders> --child-summaries "$PWD/.archie/enrichments/" > /tmp/archie_intent_prompt_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.txt
 ```
 
-Read the prompt file. **Before spawning**, append the following output contract to the prompt text you pass to the subagent (so the subagent writes its result directly to disk — the orchestrator must never copy or transcribe the subagent's output). The "file path named above" for this contract is `/tmp/archie_enrichment_<batch_id>.json`, and the output must be valid JSON with folder paths as keys — no prose, no code fences, no preamble:
+Read the prompt file. **Before spawning**, append the following output contract to the prompt text you pass to the subagent (so the subagent writes its result directly to disk — the orchestrator must never copy or transcribe the subagent's output). The "file path named above" for this contract is `/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json`, and the output must be valid JSON with folder paths as keys — no prose, no code fences, no preamble:
 
 ```
 ---
@@ -298,15 +313,17 @@ The output must be valid JSON with folder paths as keys.
 
 Substitute the actual `<batch_id>` in the path before augmenting the prompt.
 
-**Spawn ALL batches of one wave in parallel** — they're independent by construction. Each batch runs as one {{ANALYSIS_MODEL}} subagent. {{>dispatch_parallel}}
+**Spawn ALL batches of one wave as a single parallel batch** — they're independent by construction. Each batch runs as one {{ANALYSIS_MODEL}} subagent. {{>dispatch_parallel}}
+
+The dispatch call is blocking — it does not return until every sub-agent in the wave has finished. Do not hand-roll your own chunking; the dispatch primitive manages concurrency internally and processes the whole wave in one call. Do not treat "spawned" as completion: a wave is complete only after every batch in it has been ingested successfully.
 
 **d. After each subagent completes, ingest its pre-written file:**
 
 ```bash
-python3 .archie/intent_layer.py save-enrichment "$PWD" <batch_id> /tmp/archie_enrichment_<batch_id>.json
+python3 .archie/intent_layer.py save-enrichment "$PWD" <batch_id> /tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json
 ```
 
-This extracts the JSON (handling conversation envelopes, code fences, multi-block merging), saves it to `.archie/enrichments/<batch_id>.json`, and automatically marks the folders as done.
+This extracts the JSON (handling conversation envelopes, code fences, multi-block merging), saves it to `.archie/enrichments/<batch_id>.json`, and updates `enrich_state.json` so `next-ready` can advance to the next wave.
 
 **IMPORTANT: Never copy or transcribe the subagent's output yourself. The subagent wrote it directly to /tmp — you only need to call save-enrichment. Read the file the subagent wrote; do not reach into the subagent's own transcript files.**
 
@@ -329,7 +346,7 @@ This reads every `.archie/enrichments/*.json` and writes a `CLAUDE.md` into each
 ## Phase 4: Clean up temp files
 
 ```bash
-rm -f /tmp/archie_intent_prompt_*.txt /tmp/archie_enrichment_*.json
+rm -f /tmp/archie_intent_prompt_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.txt /tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.json
 ```
 
 ---
