@@ -71,26 +71,6 @@ export function Frame3UnderTheHood() {
           </div>
         </div>
 
-        {/* Maintenance loop strip */}
-        <div className="mt-10 md:mt-14 border-2 border-neon/40 bg-black/40 px-6 py-5">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-neon font-mono text-xs uppercase tracking-[0.3em]">
-              /archie-scan
-            </span>
-            <span className="text-amber-flame font-mono text-[10px] uppercase tracking-[0.3em] px-2 py-0.5 border border-amber-flame/40 bg-amber-flame/10">
-              On-demand grounding
-            </span>
-            <span className="text-gray-500 font-mono text-[10px] uppercase tracking-widest ml-auto">
-              1-3 min, run often
-            </span>
-          </div>
-          <p className="text-gray-300 font-mono text-sm md:text-base leading-relaxed">
-            Three specialist agents (architecture, health, patterns){" "}
-            <span className="text-neon">pull files on demand</span> against the existing
-            index to ground every finding in real code. New findings become new rules.
-            The model sharpens with every run.
-          </p>
-        </div>
       </div>
     </section>
   )

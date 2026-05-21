@@ -592,7 +592,7 @@ Plan-time and commit-time, `align_check.py` adds a **semantic** layer: it compar
 - `check: "..."` + `forbidden_patterns` / `required_in_content` / `file_pattern` (+ optional `code_shape`) — mechanical enforcement (Tier 1)
 - `source` — provenance: `deep_scan` (baseline), `scan` / `scan-amended` (senior-architect pass), `scan-adopted` (curated in), `platform`
 
-The AI rule synthesizer in `/archie-deep-scan` Step 6 emits `keywords` for every rule and pick the narrowest meaningful `applies_to` scope, promoting broad-but-critical globals to `always_inject` rather than leaving them scopeless. `rule_index.py` pre-computes `.archie/rule_index.json` from `rules.json` + `platform_rules.json` so the hot-path hook does bucket lookups instead of scanning every rule.
+The AI rule synthesizer in `/archie-deep-scan` Step 6 emits `keywords` for every rule and picks the narrowest meaningful `applies_to` scope, promoting broad-but-critical globals to `always_inject` rather than leaving them scopeless. `rule_index.py` pre-computes `.archie/rule_index.json` from `rules.json` + `platform_rules.json` so the hot-path hook does bucket lookups instead of scanning every rule.
 
 ### Per-turn rule-injection dedup
 
