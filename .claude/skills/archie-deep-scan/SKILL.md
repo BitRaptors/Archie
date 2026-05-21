@@ -1,6 +1,6 @@
 ---
 name: archie-deep-scan
-description: Comprehensive architecture baseline scan (15-20 min). Two-wave AI analysis producing blueprint.json, per-folder CLAUDE.md, AI-synthesized rules, health metrics, and drift detection. Use for first-time baselines or major refactors; use /archie-scan for incremental health checks.
+description: Comprehensive architecture baseline scan (15-20 min). Two-wave AI analysis producing blueprint.json, per-folder CLAUDE.md, AI-synthesized rules, health metrics, and drift detection. Use for first-time baselines or major refactors.
 ---
 
 # Archie Deep Scan — Comprehensive Architecture Baseline

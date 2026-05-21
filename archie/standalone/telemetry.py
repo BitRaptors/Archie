@@ -321,7 +321,7 @@ def _fire_telemetry_sync(project_root: Path, out_path: Path) -> None:
     Silent on any failure: the local telemetry file is the source of truth
     and must always succeed regardless of the upload. Called by BOTH the
     disk-persisted writer and the legacy `--command --timing-file` path so
-    `/archie-scan` and `/archie-deep-scan` upload consistently.
+    `/archie-deep-scan` uploads consistently.
     """
     sync_script = Path(__file__).resolve().parent / "telemetry_sync.py"
     if not sync_script.exists():
@@ -398,7 +398,7 @@ def _legacy_write(argv: list[str]) -> None:
         sys.exit(1)
     out_path = write_telemetry(args.project_root, args.command, steps)
     # Same fire-and-forget upload the disk-persisted `write` path does, so
-    # /archie-scan (which uses this legacy path) also reports telemetry.
+    # the legacy --command/--timing-file path reports telemetry consistently.
     _fire_telemetry_sync(Path(args.project_root).resolve(), out_path)
 
 

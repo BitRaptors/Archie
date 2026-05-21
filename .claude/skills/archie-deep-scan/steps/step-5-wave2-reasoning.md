@@ -11,7 +11,7 @@ TELEMETRY_STEP5_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 ### Findings store (accumulates across all runs)
 
-`.archie/findings.json` is a shared, compounding store — both `/archie-scan` and `/archie-deep-scan` read from it and write back to it. Each run adds new findings, upgrades existing ones (with matching `id`), confirms recurrence, or marks resolution. Scan and deep-scan are independent — neither requires the other; you can run either command any number of times in any order.
+`.archie/findings.json` is a compounding store — `/archie-deep-scan` reads from it and writes back to it. Each run adds new findings, upgrades existing ones (with matching `id`), confirms recurrence, or marks resolution.
 
 Before Wave 2:
 

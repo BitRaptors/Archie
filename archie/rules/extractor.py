@@ -5,7 +5,7 @@ The deep-scan slash command pipeline never invoked it, and Step 6 (Sonnet
 AI rule synthesis in `/archie-deep-scan`) produces richer placement+naming
 rules with full semantic content (`why` + `example`) that the agent reads
 inline at edit time. Fresh `archie init` now writes an empty rules.json;
-users run `/archie-deep-scan` or `/archie-scan` to populate it.
+users run `/archie-deep-scan` to populate it.
 
 The remaining functions here are still used by `archie rules promote/demote`
 CLI commands and by `check_command.py`.

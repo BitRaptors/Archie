@@ -57,7 +57,7 @@ def cmd_rules(input_file: str, output_path: str):
     if stamped:
         print(f"  Stamped source=deep_scan on {stamped} rule(s)", file=sys.stderr)
 
-    # Merge with existing rules — preserve user-adopted rules from /archie-scan
+    # Merge with existing rules — preserve user-adopted rules from prior runs
     out = Path(output_path)
     if out.exists():
         try:
@@ -68,7 +68,7 @@ def cmd_rules(input_file: str, output_path: str):
             # Index new rules by id
             new_by_id = {r.get("id", ""): r for r in new_rules if isinstance(r, dict)}
             # Keep existing rules that aren't replaced by new ones (user-adopted rules)
-            # Also keep existing rules that have source="adopted" — these came from /archie-scan
+            # Also keep existing rules that have source="adopted" — these came from prior incremental runs
             preserved = 0
             for rid, rule in existing_by_id.items():
                 if rid not in new_by_id:

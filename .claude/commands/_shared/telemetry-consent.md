@@ -1,14 +1,13 @@
 # Shared fragment — Telemetry consent (one-time, machine-level)
 
-> Loaded by every Archie entry point — `/archie-scan`, `/archie-deep-scan`,
+> Loaded by every Archie entry point — `/archie-deep-scan`,
 > `/archie-viewer`, `/archie-share`, `/archie-intent-layer` — in its preamble.
 > This is the **single source of truth** for the first-run telemetry opt-in.
 >
 > It replaces the old `npx`-install prompt. Consent is asked **in-session**,
 > where an `AskUserQuestion` picker is reliably available — instead of during a
 > `npx` install that may be non-interactive (CI, pipe, agent shell). Whichever
-> Archie command the user runs first does the asking; every command checks, so
-> running only `/archie-scan` and never the deep scan still surfaces it.
+> Archie command the user runs first does the asking; every command checks.
 
 ## Step 1: Check whether this machine has been asked
 

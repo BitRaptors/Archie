@@ -214,7 +214,7 @@ def any_match(patterns, text):
 # Inline (no sibling import — the hook runs as a heredoc that can't sys.path).
 # Mirror the semantics of code_shape.py: regex-based path glob and
 # code_shape_match. Sonnet emits these alongside each rule's `triggers`
-# block at /archie-deep-scan Step 6 and /archie-scan Step 4.
+# block at /archie-deep-scan Step 6.
 
 def _coerce_list(v):
     if v is None:

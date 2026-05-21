@@ -136,7 +136,7 @@ def build_bundle(project_root: Path) -> dict:
 
     blueprint = _read_json(archie_dir / "blueprint.json")
     if blueprint is None:
-        print("Error: .archie/blueprint.json not found. Run /archie-scan first.", file=sys.stderr)
+        print("Error: .archie/blueprint.json not found. Run /archie-deep-scan first.", file=sys.stderr)
         sys.exit(1)
 
     bundle: dict = {"blueprint": blueprint}
@@ -193,9 +193,8 @@ def build_bundle(project_root: Path) -> dict:
     # the share viewer always sees a single authoritative count regardless of
     # which scan path produced them:
     #
-    #   1. .archie/semantic_duplications.json — Agent C's output via
-    #      /archie-scan Phase 4d. Present when /archie-scan ran AFTER the
-    #      Agent C step was added.
+    #   1. .archie/semantic_duplications.json — Agent C's output. Present
+    #      when scan_report.md exists (written by deep-scan Phase 4).
     #   2. .archie/drift_report.json deep_findings tagged
     #      "semantic_duplication" — /archie-deep-scan's deep-drift agent.
     #      This was getting silently dropped: the file existed, the findings
