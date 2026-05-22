@@ -15,6 +15,9 @@ Run a comprehensive architecture analysis. Produces full blueprint, per-folder C
 
 **Prerequisites:** Run `npx @bitraptors/archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` and try again.
 
+**Recovery when a run stalls or fails** (network drop, sub-agent timeout, `/compact` interruption, etc.):
+The only valid recovery options are listed above — `--continue`, `--from N`, or a fresh full run. **There is no separate "fast scan" or "light scan" command.** If sub-agents timed out, prefer `--continue` (resumes from the last completed step using `deep_scan_state.json`). If specific Wave 1 outputs were lost from `/tmp/`, use `--from 3` to redo Wave 1. Do not suggest `/archie-scan`, `/archie-quick-scan`, or any other slash command as a fallback — they do not exist. If the existing `.archie/blueprint.json` is recent enough for the current task, skipping the rescan is a valid choice; say so explicitly.
+
 ## Update notice (run before anything else, silent unless action needed)
 
 ```bash
