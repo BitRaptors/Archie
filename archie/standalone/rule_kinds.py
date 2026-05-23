@@ -144,10 +144,10 @@ def classify_kind(rule: dict) -> str:
     if isinstance(check, str) and check in _CHECK_TO_KIND:
         return _CHECK_TO_KIND[check]
 
-    if isinstance(rule.get("pattern_name"), str):
+    if isinstance(rule.get("pattern_name"), str) and rule["pattern_name"]:
         return "semantic_pattern"
 
-    if isinstance(rule.get("violation_signals"), list):
+    if isinstance(rule.get("violation_signals"), list) and rule["violation_signals"]:
         return "tradeoff"
 
     # Path-based infrastructure detection.

@@ -145,3 +145,33 @@ def test_classify_id_prefix_beats_severity_when_both_present():
     """
     rule = {"id": "layer-001", "severity_class": "decision_violation"}
     assert classify_kind(rule) == "layering"
+
+
+def test_classify_pattern_name_field_is_semantic_pattern():
+    """pattern_name field fires when no id prefix or severity_class matches."""
+    assert classify_kind({"id": "x-001", "pattern_name": "Repository"}) == "semantic_pattern"
+
+
+def test_classify_empty_pattern_name_falls_through():
+    """Empty string pattern_name carries no signal — fall through to coding_practice."""
+    assert classify_kind({"id": "x-001", "pattern_name": ""}) == "coding_practice"
+
+
+def test_classify_violation_signals_field_is_tradeoff():
+    """violation_signals list fires when no id prefix or severity_class matches."""
+    assert classify_kind({"id": "x-001", "violation_signals": ["sync IO in cache"]}) == "tradeoff"
+
+
+def test_classify_empty_violation_signals_falls_through():
+    """Empty violation_signals list carries no signal — fall through to coding_practice."""
+    assert classify_kind({"id": "x-001", "violation_signals": []}) == "coding_practice"
+
+
+def test_classify_infra_path_in_applies_to():
+    """applies_to field is also scanned for infra path markers."""
+    assert classify_kind({"id": "x-001", "applies_to": ".github/workflows/ci.yml"}) == "infrastructure"
+
+
+def test_classify_infra_path_in_file_pattern():
+    """file_pattern field is also scanned for infra path markers."""
+    assert classify_kind({"id": "x-001", "file_pattern": "pyproject.toml"}) == "infrastructure"
