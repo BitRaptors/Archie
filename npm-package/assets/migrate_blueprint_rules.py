@@ -44,7 +44,7 @@ LEGACY_PATHS = [
     ("architecture_rules.file_placement_rules", "file_placement", "fp"),
     ("architecture_rules.naming_conventions", "naming_convention", "nc"),
     ("development_rules", "coding_practice", "cp"),
-    ("infrastructure_rules", "coding_practice", "ir"),
+    ("infrastructure_rules", "infrastructure", "ir"),
 ]
 
 
@@ -175,7 +175,7 @@ def _convert_naming_convention(entry: dict) -> dict | None:
     return rule
 
 
-def _convert_practice(entry: Any, id_prefix: str) -> dict | None:
+def _convert_practice(entry: Any, id_prefix: str, kind: str = "coding_practice") -> dict | None:
     """development_rules / infrastructure_rules entries are either bare
     strings ("Always validate at boundaries") OR full objects
     ({rule, severity, confidence})."""
@@ -185,7 +185,7 @@ def _convert_practice(entry: Any, id_prefix: str) -> dict | None:
             return None
         return {
             "id": _stable_id(id_prefix, {"text": text}),
-            "kind": "coding_practice",
+            "kind": kind,
             "severity_class": DEFAULT_SEVERITY,
             "description": text,
             "source": "blueprint_migrated",
@@ -196,7 +196,7 @@ def _convert_practice(entry: Any, id_prefix: str) -> dict | None:
             return None
         rule = {
             "id": _stable_id(id_prefix, {"text": text}),
-            "kind": "coding_practice",
+            "kind": kind,
             "severity_class": entry.get("severity_class") or DEFAULT_SEVERITY,
             "description": text,
             "source": "blueprint_migrated",
@@ -287,7 +287,7 @@ def migrate(project_root: Path, dry_run: bool = False) -> dict:
     dev_section = blueprint.get("development_rules")
     if isinstance(dev_section, list):
         for entry in dev_section:
-            rule = _convert_practice(entry, "cp")
+            rule = _convert_practice(entry, "cp", kind="coding_practice")
             if rule is None:
                 continue
             if rule["id"] in existing:
@@ -297,12 +297,12 @@ def migrate(project_root: Path, dry_run: bool = False) -> dict:
             added.append(rule)
         sections_stripped.append("development_rules")
 
-    # Infrastructure rules → coding_practice (with id-prefix `ir` so they
+    # Infrastructure rules → infrastructure (with id-prefix `ir` so they
     # don't collide with development_rules entries of identical text).
     infra_section = blueprint.get("infrastructure_rules")
     if isinstance(infra_section, list):
         for entry in infra_section:
-            rule = _convert_practice(entry, "ir")
+            rule = _convert_practice(entry, "ir", kind="infrastructure")
             if rule is None:
                 continue
             if rule["id"] in existing:
