@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {"id": "layer-001", "description": "ViewModel cannot import View"},
+    {"id": "naming-001", "description": "ViewModels end with ViewModel.kt"},
+    {"id": "placement-001", "description": "Services live under app/services/", "allowed_dirs": ["app/services/"]},
+    {"id": "pitfall-001", "description": "Don't use context.TODO()"},
+    {"id": "chain-001", "description": "DI must go through Koin"},
+    {"id": "tradeoff-001", "description": "Avoid sync IO in cache hot path"},
+    {"id": "pattern-001", "description": "Use Repository pattern", "pattern_name": "Repository"},
+    {"id": "x-001", "description": "Build uses macos-latest", "source": "azure-pipelines.yml (pool.vmImage='macos-latest')"},
+    {"id": "x-002", "description": "Use 2-space indent"},
+    {"id": "x-003", "kind": "decision", "description": "Already classified — must be preserved"},
+    {"id": "x-004", "kind": "unknown", "description": "Bogus kind — must be reclassified", "forbidden_imports": ["foo"]}
+  ]
+}
