@@ -30,8 +30,12 @@ except ImportError:
 
 def _atomic_write_json(path: Path, data: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _rules_list(data: Any) -> list[dict]:
@@ -92,6 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return backfill(args.project, dry_run=args.dry_run)
+    except json.JSONDecodeError as exc:
+        print(f"rules.json is not valid JSON: {exc}", file=sys.stderr)
+        return 1
     except OSError as exc:
         print(f"I/O error: {exc}", file=sys.stderr)
         return 1

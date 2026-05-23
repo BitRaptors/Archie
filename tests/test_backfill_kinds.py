@@ -96,3 +96,21 @@ def test_handles_top_level_list_shape(tmp_path: Path):
     data = json.loads((archie / "rules.json").read_text())
     rules = data if isinstance(data, list) else data["rules"]
     assert rules[0]["kind"] == "layering"
+
+
+def test_malformed_rules_json_exits_with_friendly_message(tmp_path: Path):
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    (archie / "rules.json").write_text("{not valid json")
+
+    result = _run(tmp_path)
+    assert result.returncode == 1
+    assert "traceback" not in result.stderr.lower()
+    assert "not valid json" in result.stderr.lower() or "json" in result.stderr.lower()
+
+
+def test_written_file_ends_with_trailing_newline(project_dir: Path):
+    """rules.json must end with \\n so editors and git don't show spurious whitespace diffs."""
+    _run(project_dir)
+    content = (project_dir / ".archie" / "rules.json").read_bytes()
+    assert content.endswith(b"\n"), "rules.json must have a trailing newline"
