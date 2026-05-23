@@ -303,7 +303,7 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 ```json
 {
   "id": "scan-NNN",
-  "kind": "semantic_pattern",
+  "kind": "<one of: decision|pitfall|tradeoff|layering|semantic_pattern|file_placement|naming_convention|infrastructure|coding_practice>",
   "severity_class": "pattern_divergence",
   "description": "What is forbidden/required (one sentence)",
   "why": "Inlined reasoning. Where possible, copy from the blueprint section that motivates the rule (the decision text, pitfall description, tradeoff signal, or pattern rationale). For genuinely new patterns not yet in the blueprint, write 2-4 sentences explaining the architectural intent.",
@@ -375,7 +375,7 @@ Check-type requirements:
 {
   "pattern_findings": [{"pattern": "...", "followers": N, "outliers": ["..."], "severity": "warn|error", "confidence": 0.85}],
   "duplications": [{"function": "...", "locations": ["..."], "recommendation": "..."}],
-  "proposed_rules": [{"id": "scan-NNN", "kind": "semantic_pattern", "severity_class": "pattern_divergence", "description": "...", "why": "...", "example": "...", "source": "scan", "confidence": 0.85}],
+  "proposed_rules": [{"id": "scan-NNN", "kind": "<one of: decision|pitfall|tradeoff|layering|semantic_pattern|file_placement|naming_convention|infrastructure|coding_practice>", "severity_class": "pattern_divergence", "description": "...", "why": "...", "example": "...", "source": "scan", "confidence": 0.85}],
   "existing_rule_violations": [{"rule_id": "...", "violated_by": "...", "details": "..."}],
   "rule_confidence_updates": [{"rule_id": "...", "old_confidence": 0.7, "new_confidence": 0.85, "reason": "..."}]
 }
