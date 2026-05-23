@@ -303,6 +303,7 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
 ```json
 {
   "id": "scan-NNN",
+  "kind": "semantic_pattern",
   "severity_class": "pattern_divergence",
   "description": "What is forbidden/required (one sentence)",
   "why": "Inlined reasoning. Where possible, copy from the blueprint section that motivates the rule (the decision text, pitfall description, tradeoff signal, or pattern rationale). For genuinely new patterns not yet in the blueprint, write 2-4 sentences explaining the architectural intent.",
@@ -311,6 +312,8 @@ You are analyzing PATTERNS and discovering RULES in a codebase. You look for arc
   "confidence": 0.85
 }
 ```
+
+**`kind` — required.** Names the conceptual type of rule (UI grouping, independent of severity). Pick exactly one of: `decision`, `pitfall`, `tradeoff`, `layering`, `semantic_pattern`, `file_placement`, `naming_convention`, `infrastructure`, `coding_practice`. See Step-6 rule synthesis for full definitions and typical `severity_class` pairings. Use `coding_practice` as the catch-all of last resort; prefer a narrower kind when the rule clearly maps to a blueprint section.
 
 **Severity_class — anchor to the blueprint, never invent.** Try to anchor each proposed rule to a blueprint section, then map:
 - `decisions.key_decisions[*]` or `pitfalls[*]` → `decision_violation` / `pitfall_triggered` (block)
@@ -372,7 +375,7 @@ Check-type requirements:
 {
   "pattern_findings": [{"pattern": "...", "followers": N, "outliers": ["..."], "severity": "warn|error", "confidence": 0.85}],
   "duplications": [{"function": "...", "locations": ["..."], "recommendation": "..."}],
-  "proposed_rules": [{"id": "scan-NNN", "severity_class": "pattern_divergence", "description": "...", "why": "...", "example": "...", "source": "scan", "confidence": 0.85}],
+  "proposed_rules": [{"id": "scan-NNN", "kind": "semantic_pattern", "severity_class": "pattern_divergence", "description": "...", "why": "...", "example": "...", "source": "scan", "confidence": 0.85}],
   "existing_rule_violations": [{"rule_id": "...", "violated_by": "...", "details": "..."}],
   "rule_confidence_updates": [{"rule_id": "...", "old_confidence": 0.7, "new_confidence": 0.85, "reason": "..."}]
 }
