@@ -112,7 +112,8 @@ def test_migrate_writes_proposed_with_kind_and_stable_id(project_with_legacy_blu
     kinds = [r["kind"] for r in rules]
     assert kinds.count("file_placement") == 2
     assert kinds.count("naming_convention") == 1
-    assert kinds.count("coding_practice") == 4  # 2 dev + 2 infra
+    assert kinds.count("coding_practice") == 2  # development_rules only
+    assert kinds.count("infrastructure") == 2   # infrastructure_rules
 
     # Every rule has an id with the bp-<prefix>- shape, severity class, and
     # source stamped as blueprint_migrated.
@@ -283,6 +284,27 @@ def test_migrate_handles_malformed_section_entries(tmp_path: Path):
     assert summary["added"] == 3
     proposed = _read_json(archie / "proposed_rules.json")
     assert len(proposed["rules"]) == 3
+
+
+def test_infrastructure_rules_get_infrastructure_kind(tmp_path: Path):
+    """infrastructure_rules entries must migrate to kind='infrastructure', not 'coding_practice'."""
+    from migrate_blueprint_rules import migrate
+
+    archie = tmp_path / ".archie"
+    _write_json(archie / "blueprint.json", {
+        "infrastructure_rules": [
+            "Keep all secrets out of source control",
+        ],
+    })
+    _write_json(archie / "rules.json", {"rules": []})
+    _write_json(archie / "proposed_rules.json", {"rules": []})
+
+    migrate(tmp_path)
+    proposed = _read_json(archie / "proposed_rules.json")
+    rules = proposed["rules"]
+
+    assert len(rules) == 1
+    assert rules[0]["kind"] == "infrastructure"
 
 
 def test_migrate_handles_missing_blueprint(tmp_path: Path):
