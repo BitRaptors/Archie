@@ -287,7 +287,7 @@ def migrate(project_root: Path, dry_run: bool = False) -> dict:
     dev_section = blueprint.get("development_rules")
     if isinstance(dev_section, list):
         for entry in dev_section:
-            rule = _convert_practice(entry, "cp")
+            rule = _convert_practice(entry, "cp", kind="coding_practice")
             if rule is None:
                 continue
             if rule["id"] in existing:

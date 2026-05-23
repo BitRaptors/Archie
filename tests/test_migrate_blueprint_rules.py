@@ -305,6 +305,7 @@ def test_infrastructure_rules_get_infrastructure_kind(tmp_path: Path):
 
     assert len(rules) == 1
     assert rules[0]["kind"] == "infrastructure"
+    assert rules[0]["id"].startswith("bp-ir-")
 
 
 def test_migrate_handles_missing_blueprint(tmp_path: Path):
