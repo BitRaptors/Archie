@@ -14,7 +14,6 @@ npx @bitraptors/archie /path/to/your/project
 
 Then open your project in Claude Code and run:
 
-- `/archie-scan` -- Architecture health check (1-3 min, run often)
 - `/archie-deep-scan` -- Comprehensive baseline (15-20 min, run once)
 - `/archie-viewer` -- Open the blueprint inspector in your browser
 

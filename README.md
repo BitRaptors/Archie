@@ -16,8 +16,6 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 npx @bitraptors/archie /path/to/your/project
 ```
 
-![archie-scan demo](docs/assets/archie-scan-demo.gif)
-
 This copies Archie's standalone scripts, Claude Code commands, and the `/archie-deep-scan` skill subtree into your project, installs enforcement hooks, configures permissions so the workflow runs prompt-free, builds the local viewer bundle (one-time, ~45s — cached by version), delivers `.archieignore` + `.archiebulk` (pattern files for scanning), and sets up `.gitignore` entries (installed tooling is gitignored, outputs are not). Then open your project in Claude Code — the first Archie command you run there asks once whether to share anonymous usage telemetry (opt-in).
 
 The installer performs a clean install — it removes old scripts, hooks, and commands before installing fresh versions, so upgrades are safe to run in-place.
@@ -32,121 +30,15 @@ Use `--commands-dir` to install command files to a custom directory (default: `.
 
 | Command | What it does | Time |
 |---------|-------------|------|
-| `/archie-scan` | Architecture health check. Runs deterministic scanner for data, then AI analyzes the architecture like a senior architect: finds dependency violations, pattern drift, complexity hotspots, proposes enforceable rules. Writes concrete problems to `.archie/findings.json` (a shared 4-field store). Each scan builds on prior knowledge — recurring findings bump a `confirmed_in_scan` counter, resolved ones flip `status`, new ones get fresh ids. | 1-3 min |
 | `/archie-deep-scan` | Comprehensive architecture baseline. Full 2-wave multi-agent analysis (3-4 Sonnet agents + Opus reasoning) producing blueprint, optional per-folder CLAUDE.md, rules, findings, pitfalls, and health metrics. Wave 2 upgrades scan-triage drafts to canonical and emits class-of-problem pitfalls. Intent Layer (per-folder enrichment) is opt-in via an interactive prompt. Supports `--incremental`, `--continue`, and `--from N`. | 15-20 min |
 | `/archie-intent-layer` | Standalone per-folder CLAUDE.md regeneration. Use when you skipped Intent Layer during deep-scan or need to refresh after structural changes. Asks Full / Incremental / Auto upfront and shares its pipeline with deep-scan's Step 7 (single source of truth). Hard-requires `blueprint.json` — tells you to run `/archie-deep-scan` first if missing. | 3-15 min |
 | `/archie-share` | Upload a blueprint + findings + scan report to a hosted viewer for teammates to review. Returns a shareable URL. Three modes: **default** (BitRaptors Supabase, one-click), **enterprise — stored credentials** (BYO S3 bucket, set up once), **enterprise — paste URL** (per-share presigned PUT URL, zero credentials on disk). In enterprise modes, BitRaptors stores nothing — blueprints land directly in your bucket and the viewer fetches from there via a URL fragment. | seconds |
 
-Run `/archie-deep-scan` once to establish a baseline. Then use `/archie-scan` for ongoing checks — each scan compounds on previous knowledge. Use `/archie-share` to hand a snapshot to anyone with a browser.
+Run `/archie-deep-scan` to establish (and refresh) your architecture baseline. Use `/archie-share` to hand a snapshot to anyone with a browser.
 
 `/archie-deep-scan` is implemented as a modular Claude Code skill (`.claude/skills/archie-deep-scan/`) — a thin router plus self-contained per-step files — so the long pipeline survives `/compact` and can resume mid-run via `--continue` / `--from N`.
 
-There is also `/archie-viewer` for interactive local blueprint inspection. It runs the **same React UI as the hosted share viewer**, served locally from `viewer.py` at `localhost:5847/local` — no upload, all data stays on your machine. Two tabs: **Blueprint** (the full report — health scores, architecture diagram, decisions, findings, pitfalls, plus inline rule adopt/reject/edit) and **Files** (per-folder CLAUDE.md browser + a click-to-view tree of every generated file). It renders whatever's in `.archie/`, so it works right after `/archie-scan`; deep-scan-only sections just render sparse.
-
-### `/archie-scan` in action
-
-<details>
-<summary>Example scan output (this is the actual agent summary — the underlying blueprint is much richer)</summary>
-
-```
-  Archie Scan #2 Complete
-
-  Health Scores
-
-  ┌───────────┬─────────┬──────────┬────────┬──────────┐
-  │  Metric   │ Current │ Previous │ Trend  │  Status  │
-  ├───────────┼─────────┼──────────┼────────┼──────────┤
-  │ Erosion   │ 0.87    │ 0.87     │ Stable │ CRITICAL │
-  ├───────────┼─────────┼──────────┼────────┼──────────┤
-  │ Gini      │ 0.8852  │ 0.8852   │ Stable │ HIGH     │
-  ├───────────┼─────────┼──────────┼────────┼──────────┤
-  │ Top-20%   │ 0.9216  │ 0.9216   │ Stable │ HIGH     │
-  ├───────────┼─────────┼──────────┼────────┼──────────┤
-  │ Verbosity │ 0.0103  │ 0.0103   │ Stable │ GOOD     │
-  ├───────────┼─────────┼──────────┼────────┼──────────┤
-  │ LOC       │ 122,290 │ 122,290  │ Stable │ -        │
-  └───────────┴─────────┴──────────┴────────┴──────────┘
-
-  Metric Legend:
-  - Erosion — Files breaking expected structure. <0.3 good, 0.3-0.5 moderate, >0.5 high
-  - Gini — Code distribution inequality. High = a few god-files hold most code. <0.4 good, 0.4-0.6 moderate, >0.6 high
-  - Top-20% — Share of code in the largest 20% of files. <0.5 good, 0.5-0.7 moderate, >0.7 high
-  - Verbosity — Comment-to-code ratio. <0.05 good, 0.05-0.15 moderate, >0.15 high
-  - LOC — Total lines of code
-
-  Blueprint Evolution
-
-  - Components: 25 -> 27 (+Context Types, +Debug Component)
-  - Pitfalls: 12 -> 18 (6 new from deeper analysis)
-  - Architecture rules: 0 -> 2 (async tools, ApiClient singleton)
-  - Development rules: 8 -> 14 (6 new pattern-based rules)
-  - 8 rule confidences updated based on verified evidence
-
-  All Findings (20 total)
-
-  RECURRING - Error (8):
-  1. Renderer Mega-Cycle — 11-dir cycle, entire renderer layer entangled (0.92)
-  2. API/Models Circular Dependency — models import ApiClient (0.95)
-  3. ProjectScreen God Component — CC=365, 1420 SLOC (0.95)
-  4. Compatibility Hooks Debt — ~2000 SLOC, 8 dirs depend on it (0.92)
-  5. Bare except: Clauses — 15 instances in 8 files (0.99)
-  6. Inline Pydantic Models — 27 in projects_router, 8 duplicates (0.95)
-  7. Hardcoded Supabase Credentials — JWT in AuthContext.tsx (0.99)
-  8. Electron Process Boundary — main imports renderer context (0.85)
-
-  NEW - Error (1):
-  9. ApiClient Singleton Violation — new ApiClient() in EnvironmentMcpTab.tsx (0.93)
-
-  RECURRING - Warning (5):
-  10. Backend Utils-Tools coupling (weight=24) (0.80)
-  11. Inconsistent imports — 40 absolute from src. across 14 files (0.97)
-  12. Duplicated JSON/HTML extraction (0.85)
-  13. Repeated step_logger guards (0.88)
-  14. Tool naming — TOOL_ID only in 10/22 files (0.85)
-
-  NEW - Warning (5):
-  15. Memory Services — 8 identical methods in 2 services, no base class (0.95)
-  16. Duplicated utilities — 7 functions duplicated across files (0.90)
-  17. settings_loader.py — 7+ high-CC functions, 2000+ lines (0.90)
-  18. graph.py — 8 high-CC LangGraph step functions (0.87)
-  19. Test stubs — 4 tests with no assertions (0.88)
-
-  Proposed Rules
-
-  ┌─────┬───────────────────────────────────────────────────────────────────────┬──────────┬────────────┐
-  │  #  │                                 Rule                                  │ Severity │ Confidence │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 1   │ scan-013: Tool entry functions must be async                          │ error    │ 0.99       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 2   │ scan-014: Tool files must init logger = logging.getLogger(__name__)   │ warn     │ 0.97       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 3   │ scan-015: Feature components use PascalCase; only ui/ uses kebab-case │ warn     │ 0.82       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 4   │ scan-016: ApiClient accessed only via getInstance()                   │ error    │ 0.93       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 5   │ scan-017: LangGraph steps named <verb>_<noun>_step                    │ warn     │ 0.87       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 6   │ scan-018: FastAPI dependency factories follow get_<service>()         │ warn     │ 0.90       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 7   │ scan-019: Memory services must share a base class                     │ warn     │ 0.95       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 8   │ scan-020: Date utilities centralized in dateUtils.ts only             │ warn     │ 0.90       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 9   │ scan-021: TOOL_ID constant must be named exactly TOOL_ID              │ warn     │ 0.83       │
-  ├─────┼───────────────────────────────────────────────────────────────────────┼──────────┼────────────┤
-  │ 10  │ scan-022: No inline Pydantic models in routers                        │ error    │ 0.91       │
-  └─────┴───────────────────────────────────────────────────────────────────────┴──────────┴────────────┘
-
-  Next Task
-
-  What: Refactor ProjectScreen god component (CC=365, 1420 SLOC)
-  Where: frontend/src/renderer/screens/project.tsx
-  Why: Highest complexity in the codebase, disproportionate impact on all red metrics
-
-  Full report: .archie/scan_report_2026-04-08.md
-```
-
-</details>
+There is also `/archie-viewer` for interactive local blueprint inspection. It runs the **same React UI as the hosted share viewer**, served locally from `viewer.py` at `localhost:5847/local` — no upload, all data stays on your machine. Two tabs: **Blueprint** (the full report — health scores, architecture diagram, decisions, findings, pitfalls, plus inline rule adopt/reject/edit) and **Files** (per-folder CLAUDE.md browser + a click-to-view tree of every generated file). It renders whatever's in `.archie/`.
 
 ### `/archie-deep-scan` in action
 
@@ -312,7 +204,7 @@ There is also `/archie-viewer` for interactive local blueprint inspection. It ru
   └──────────────────────┴────────────────────────────┘
 
   ---
-  Archie is now active. Architecture rules will be enforced on every code change. Run /archie-scan for fast health checks. Run /archie-deep-scan --incremental after code changes to update the
+  Archie is now active. Architecture rules will be enforced on every code change. Run /archie-deep-scan --incremental after code changes to update the
   architecture analysis.
 ```
 
@@ -367,7 +259,7 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | Output | Purpose |
 |--------|---------|
 | `.archie/blueprint.json` | Structured architecture data (single source of truth). Decisions, components, trade-offs, communication patterns, pitfalls (4-field shape), implementation guidelines, architecture diagram. |
-| `.archie/findings.json` | Shared, compounding findings store. Each entry is `{id, problem_statement, evidence, root_cause, fix_direction, severity, confidence, applies_to, source, depth, first_seen, confirmed_in_scan, status, pitfall_id?}`. Read and written by both `/archie-scan` and `/archie-deep-scan`. |
+| `.archie/findings.json` | Shared, compounding findings store. Each entry is `{id, problem_statement, evidence, root_cause, fix_direction, severity, confidence, applies_to, source, depth, first_seen, confirmed_in_scan, status, pitfall_id?}`. Read and written by `/archie-deep-scan`. |
 | `.archie/rules.json` | Adopted enforcement rules (from blueprint extraction + AI-proposed scan rules + platform rules) |
 | `.archie/proposed_rules.json` | AI-proposed rules pending adoption, with confidence scores |
 | `.archie/health.json` | Current architecture health scores + per-function complexity snapshot |
@@ -418,11 +310,11 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 
 ### Compound Learning
 
-Every run feeds the next. Both `/archie-scan` and `/archie-deep-scan` read and write the same `findings.json` shared store:
+Every deep-scan run feeds the next. `/archie-deep-scan` reads and writes `findings.json` as a compounding store:
 
 - **Id-stable upsert.** Recurring findings reuse their existing `f_NNNN` id and bump `confirmed_in_scan`; brand-new ones get a fresh id and `first_seen` stamp; findings that no longer apply flip `status: "resolved"` (preserved as history, not deleted).
 - **Novelty priority.** Agents are explicitly told to spend their cognitive budget on NEW problems, not re-describe known ones under different wording.
-- **Depth escalation.** Scan emits `depth: "draft"` entries quickly (`source: scan:structure|health|patterns`, single-line `fix_direction`). Deep-scan Wave 2 upgrades the same id to `depth: "canonical"` (`source: deep:synthesis`, ordered-list `fix_direction` with architectural root_cause) and links to a parent pitfall if the problem is structural.
+- **Depth escalation.** Wave 1 emits `depth: "draft"` entries quickly (`source: scan:structure|health|patterns`, single-line `fix_direction`). Wave 2 upgrades the same id to `depth: "canonical"` (`source: deep:synthesis`, ordered-list `fix_direction` with architectural root_cause) and links to a parent pitfall if the problem is structural.
 - **Blueprint confidence** also grows per-section with repeated confirmation across scans.
 - **Health scores** appended to `health_history.json` for trend detection (improving / degrading / stable).
 
@@ -454,13 +346,11 @@ All hooks fail open: missing rules/config/marker files → hooks exit 0 silently
 
 ## Rules
 
-Rules come from two AI-synthesized sources plus a universal platform set.
+Rules come from AI synthesis plus a universal platform set.
 
 1. **`/archie-deep-scan` Step 6** (Sonnet rule synthesis) — The architectural baseline. Each rule carries inline semantic content the agent reads at edit time: `severity_class` (decision_violation / pitfall_triggered / tradeoff_undermined / pattern_divergence / mechanical_violation), `description`, `why` (reasoning copy-pasted from the motivating blueprint section), `example` (canonical code shape), and `forced_by` / `enables` / `alternative` links back to the motivating decision, `source: "deep_scan"`. Mechanical rules also carry regex `check` fields. Tagged with `keywords` for prompt-time matching and `applies_to`/`always_inject` for path-scoped surfacing.
 
-2. **`/archie-scan`** (Sonnet senior-architect pass) — Proposes new rules in the same shape (`source: "scan"`) by spotting drift in recently-changed files, or amends existing ones (`source: "scan-amended"`). Severity is inferred from the blueprint anchor; scan never promotes a rule to blocking on its own — that happens at the next deep-scan with full Wave-2 reasoning.
-
-3. **Platform rules** (`platform_rules.json`) — 30 predefined universal checks installed with every project, categorized by concern:
+2. **Platform rules** (`platform_rules.json`) — 30 predefined universal checks installed with every project, categorized by concern:
    - **Erosion** — God-functions, growing complexity, monster files
    - **Decay** — Empty catches, disabled tests, TODO/HACK markers, debug breakpoints
    - **Security** — Hardcoded secrets, eval/exec, plaintext API keys in logs
@@ -469,11 +359,11 @@ Rules come from two AI-synthesized sources plus a universal platform set.
 
 The pre-edit hook (`pre-validate.sh`) reads `severity_class` to gate the response: blocking severities (`decision_violation`, `pitfall_triggered`, `mechanical_violation`) exit 2 with the agent-facing message, `tradeoff_undermined` warns (exit 0 prominent), `pattern_divergence` informs (exit 0 quiet). Old-shape rules without `severity_class`/`why`/`example` still work via `severity` + `rationale` fallbacks for backward compat. Rules can be adopted, skipped, or managed from `/archie-viewer` (Rules tab) or interactively by Claude Code during scans.
 
-The deterministic blueprint extractor was retired in v2.5.0 — Step 6's AI synthesis covers placement+naming with semantic content the extractor couldn't express. Fresh `archie init` writes an empty `rules.json`; the user runs `/archie-deep-scan` or `/archie-scan` to populate it.
+The deterministic blueprint extractor was retired in v2.5.0 — Step 6's AI synthesis covers placement+naming with semantic content the extractor couldn't express. Fresh `archie init` writes an empty `rules.json`; the user runs `/archie-deep-scan` to populate it.
 
 ## Health Metrics
 
-`/archie-scan` calculates architecture health scores and tracks them over time in `.archie/health_history.json`:
+`/archie-deep-scan` calculates architecture health scores and tracks them over time in `.archie/health_history.json`:
 
 | Metric | What it measures |
 |--------|-----------------|
@@ -490,7 +380,7 @@ Each scan compares current scores against history to detect trends (improving, d
 
 - **Python 3.9+** for standalone scripts (installed via `npx @bitraptors/archie`, stdlib only, zero pip dependencies)
 - **Node.js 18+** for `npx @bitraptors/archie` installer
-- **Claude Code** for `/archie-scan`, `/archie-deep-scan`, `/archie-share`, and `/archie-viewer`
+- **Claude Code** for `/archie-deep-scan`, `/archie-share`, and `/archie-viewer`
 
 The scan templates use only pre-installed CLI commands — no inline Python is written during scans. Every data operation has a dedicated subcommand: `measure_health.py --append-history`, `finalize.py --normalize-only`, `intent_layer.py inspect`, `extract_output.py save-duplications`, `extract_output.py recent-files`, and so on. Agents are explicitly forbidden from `python3 -c` one-liners.
 
@@ -498,7 +388,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full technical documentatio
 
 ## Telemetry & update checks (anonymous, opt-in)
 
-The first time you run an Archie slash command (`/archie-scan`, `/archie-deep-scan`, etc.) in Claude Code, it asks once whether you'd like to share usage telemetry — an in-session picker, not the `npx` install (which can run non-interactively). There are three tiers:
+The first time you run an Archie slash command (`/archie-deep-scan`, etc.) in Claude Code, it asks once whether you'd like to share usage telemetry — an in-session picker, not the `npx` install (which can run non-interactively). There are three tiers:
 
 - **community** *(recommended)* — events include a stable random installation ID written once to `~/.archie/config.json`. Lets us see which features get used together.
 - **anonymous** — same payload but the installation ID is stripped before upload. Each event is unlinkable.
@@ -547,7 +437,7 @@ landing/             Landing page
 tests/               Pytest suite (50 files)
 docs/                Architecture documentation
 scripts/             verify_sync.py — pre-commit canonical ↔ asset sync checker
-.claude/commands/    Slash commands (archie-scan, archie-deep-scan, archie-intent-layer, archie-share, archie-viewer) + _shared/scope_resolution.md
+.claude/commands/    Slash commands (archie-deep-scan, archie-intent-layer, archie-share, archie-viewer) + _shared/scope_resolution.md
 .claude/skills/      archie-deep-scan/ — the deep-scan skill (SKILL.md router + per-step files + fragments + templates)
 v1/                  Archived V1 web app (FastAPI + Next.js, obsolete)
 ```

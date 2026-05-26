@@ -805,7 +805,7 @@ export function DuplicationCard({
         </div>
         <div className="text-[11px] text-ink/50 leading-snug">
           {semanticCount === null ? (
-            'Not yet analyzed — run /archie-scan to detect near-twin functions.'
+            'Not yet analyzed — run /archie-deep-scan to detect near-twin functions.'
           ) : semanticCount === 0 ? (
             'No near-twin functions detected by AI analysis.'
           ) : (

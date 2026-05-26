@@ -1,7 +1,7 @@
 # Shared fragment — "Resolve scope" Phase 0
 
-> **This file is the source of truth for Phase 0 in `/archie-deep-scan` (and adopted by `/archie-scan` as a follow-up).**
-> Slash commands don't support file includes, so commands either physically inline this content or load it via Read at activation. After the modularization refactor, `/archie-deep-scan` loads this file at Activation; `/archie-scan` still inlines a near-identical copy and should be migrated next.
+> **This file is the source of truth for Phase 0 in `/archie-deep-scan`.**
+> Slash commands don't support file includes, so commands either physically inline this content or load it via Read at activation. After the modularization refactor, `/archie-deep-scan` loads this file at Activation.
 
 The fragment produces variables that downstream steps read:
 

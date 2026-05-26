@@ -43,7 +43,6 @@ python3 archie/standalone/intent_layer.py next-ready /path/to/project
 npx @bitraptors/archie /path/to/project
 
 # Then in Claude Code on the target project:
-/archie-scan      # Architecture health check (1-3 min, run often)
 /archie-deep-scan # Comprehensive architecture baseline (15-20 min, run once)
 /archie-viewer    # Blueprint inspector
 ```
@@ -53,10 +52,9 @@ npx @bitraptors/archie /path/to/project
 python -m pytest tests/ -v
 ```
 
-## Two-Command Architecture
+## Command Architecture
 
-- **`/archie-scan`** — Architecture health check (1-3 min). Runs deterministic scanner for data gathering, then AI analyzes architecture like a senior architect: finds dependency violations, pattern drift, complexity hotspots, proposes enforceable rules.
-- **`/archie-deep-scan`** — Comprehensive baseline (15-20 min). Full 2-wave AI analysis producing blueprint, per-folder CLAUDE.md, rules, and health metrics. Run once, then use `/archie-scan` for incremental checks.
+- **`/archie-deep-scan`** — Comprehensive baseline (15-20 min). Full 2-wave AI analysis producing blueprint, per-folder CLAUDE.md, rules, and health metrics. Rerun to refresh the baseline; each run builds on prior findings.
 
 ## Deep Scan Pipeline (2-Wave)
 
@@ -76,7 +74,7 @@ python -m pytest tests/ -v
 5. **Render** — Deterministic JSON→Markdown (CLAUDE.md, AGENTS.md, rule files)
 6. **Validate** — Cross-reference output against actual codebase
 7. **Intent Layer** — AI-generated per-folder CLAUDE.md via bottom-up DAG
-8. **Scan report** — Phase 4 of Step 9 writes `.archie/scan_report.md` with ranked findings in the same format `/archie-scan` emits (so `/archie-share` and future trend runs pick it up immediately after a deep scan)
+8. **Scan report** — Phase 4 of Step 9 writes `.archie/scan_report.md` with ranked findings (so `/archie-share` and future trend runs pick it up)
 
 ## Key Data Model
 
@@ -84,22 +82,21 @@ Blueprint JSON (`blueprint.json`) contains: `meta`, `architecture_rules`, `decis
 
 ## Rules System
 
-Rules come from two sources, both AI-synthesized:
+Rules are AI-synthesized:
 
 1. **`/archie-deep-scan` Step 6** (Sonnet) — Produces the architectural rule baseline from the blueprint. Each rule carries inline semantic content: `severity_class` (decision_violation / pitfall_triggered / tradeoff_undermined / pattern_divergence / mechanical_violation), `description`, `why` (the reasoning copy-pasted from the motivating blueprint section), `example` (canonical code from `implementation_guidelines.usage_example` when present), and `source: "deep_scan"`. Mechanical rules (regex-checkable housekeeping) also carry `check` + `forbidden_patterns`/`required_in_content` fields.
-2. **`/archie-scan`** (Sonnet senior-architect pass) — Proposes new rules in the same shape, tagged `source: "scan"` for review. Severity is inferred from the blueprint anchor, never invented.
 
 Additionally, `platform_rules.json` provides universal anti-pattern checks (god functions, force-unwraps, layer rules per platform) installed with every project.
 
 `pre-validate.sh` reads `severity_class` to gate the response: `decision_violation` / `pitfall_triggered` / `mechanical_violation` block (exit 2), `tradeoff_undermined` warns (exit 0 prominent), `pattern_divergence` informs (exit 0 quiet). The agent sees the rule's `description` + `WHY:` block + `EXAMPLE:` block at edit time — no blueprint read required, no pointer indirection. Old-shape rules (no `severity_class`/`why`/`example`) still work via `severity` + `rationale` fallbacks.
 
-The deterministic blueprint extractor (`archie/rules/extractor.py::extract_rules`) was retired in v2.5.0 — its `allowed_dirs` lookup was stale and Step 6 covers placement+naming with full semantic content. Fresh `archie init` writes an empty `rules.json`; users run `/archie-deep-scan` or `/archie-scan` to populate it.
+The deterministic blueprint extractor (`archie/rules/extractor.py::extract_rules`) was retired in v2.5.0 — its `allowed_dirs` lookup was stale and Step 6 covers placement+naming with full semantic content. Fresh `archie init` writes an empty `rules.json`; users run `/archie-deep-scan` to populate it.
 
 ## File Sync
 
 Standalone scripts exist in two places (canonical → copy):
 - `archie/standalone/*.py` → `npm-package/assets/*.py`
-- `.claude/commands/archie-*.md` (including `archie-scan.md`, `archie-deep-scan.md`) → `npm-package/assets/archie-*.md`
+- `.claude/commands/archie-*.md` (including `archie-deep-scan.md`) → `npm-package/assets/archie-*.md`
 
 Always edit `archie/standalone/` first, then copy to `npm-package/assets/`.
 Always edit `.claude/commands/` first, then copy to `npm-package/assets/`.

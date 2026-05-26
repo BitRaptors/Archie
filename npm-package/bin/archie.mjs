@@ -232,7 +232,7 @@ function copyDirRecursive(srcDir, destDir) {
 }
 
 // 2. Copy Claude Code commands
-for (const cmd of ["archie-scan.md", "archie-deep-scan.md", "archie-viewer.md", "archie-share.md", "archie-intent-layer.md"]) {
+for (const cmd of ["archie-deep-scan.md", "archie-viewer.md", "archie-share.md", "archie-intent-layer.md"]) {
   const src = join(ASSETS, cmd);
   const dest = join(claudeCommands, cmd);
   if (existsSync(src)) {
@@ -427,8 +427,7 @@ console.log(`${BOLD}  Installed!${RESET}`);
 console.log("");
 console.log(`  Next steps:`);
 console.log(`  1. Open this project in ${BOLD}Claude Code${RESET}`);
-console.log(`  2. Run ${BOLD}/archie-scan${RESET} for a fast architecture health check (1-3 min)`);
-console.log(`  3. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive baseline (15-20 min)`);
+console.log(`  2. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive architecture baseline (15-20 min)`);
 console.log(`  ${DIM}Usage: npx @bitraptors/archie [path] [--commands-dir dir]${RESET}`);
 console.log("");
 console.log(`  ${DIM}Telemetry: the first Archie command you run in Claude Code asks once${RESET}`);

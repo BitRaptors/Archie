@@ -2,7 +2,7 @@
 
 Share your architecture blueprint via a URL. Useful for showing teammates, stakeholders, or clients an analysis of your codebase without needing them to install anything.
 
-**Prerequisites:** Requires `.archie/blueprint.json`. Run `/archie-scan` (or `/archie-deep-scan`) first if it doesn't exist.
+**Prerequisites:** Requires `.archie/blueprint.json`. Run `/archie-deep-scan` first if it doesn't exist.
 
 ## Update notice (run before anything else, silent unless action needed)
 

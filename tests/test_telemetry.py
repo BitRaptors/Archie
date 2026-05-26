@@ -143,9 +143,9 @@ def test_telemetry_empty_steps(tmp_path):
 
 
 def test_legacy_write_fires_telemetry_sync(tmp_path, monkeypatch):
-    """Regression: /archie-scan uses the legacy --command/--timing-file path.
+    """Regression: legacy --command/--timing-file path still works for telemetry uploads.
     It must fire the anonymous-telemetry upload, not just write the local file —
-    otherwise scan runs are never reported (deep-scan was wired, scan was not).
+    otherwise runs taking this path are never reported.
     """
     from tests.test_telemetry import _telemetry as telemetry
 
