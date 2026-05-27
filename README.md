@@ -12,6 +12,14 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 
 **Coding-agent harness support:** Archie targets two CLIs — **Claude Code** (stable, primary target) and **OpenAI Codex CLI** (🚧 BETA — may contain errors). One workflow, rendered per-CLI at install time. See [Multi-CLI Support](#multi-cli-support) below for the full integration story.
 
+## How It Works
+
+`/archie-deep-scan` runs a multi-wave AI pipeline: a deterministic scanner gathers structural data (file tree, import graph, framework signals, skeletons), a parallel Wave 1 of analytical sub-agents extracts components / patterns / technology / UI-layer facts, then a Wave 2 reasoning agent synthesises decisions, findings, pitfalls, and an architecture diagram into `blueprint.json`. Rule synthesis proposes enforceable rules from the blueprint, an opt-in Intent Layer enriches per-folder context, and drift detection compares the codebase against the blueprint each run. `/archie-scan` is the lightweight follow-up that updates the same shared `findings.json` store on every run — findings compound across scans (id-stable upserts, novelty priority, depth escalation from draft → canonical).
+
+Once installed, seven hooks fire at edit time in both Claude Code and Codex CLI: pre-edit rule injection + violation checks, pre-commit architecture review, plan-mode review, blueprint nudges on Glob/Grep, opt-in external linter gate, per-turn marker reset, and stop cleanup. All hooks invoke the same canonical scripts under `.archie/hooks/` regardless of which CLI is active.
+
+For the detailed flow — every phase, every prompt, the data model, the per-CLI render maps, the connector contracts — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Install
 
 ```bash
@@ -394,70 +402,6 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | `~/.codex/config.toml` *(patched)* | Idempotent merge: top-level `project_doc_max_bytes = 131072` + `CLAUDE.md` in `project_doc_fallback_filenames`; `[agents] max_threads = 6, max_depth = 2` (set-if-absent — depth 2 supports the root → workspace worker → Wave-1 worker call chain on monorepo deep-scans); `[projects."<abs-path>"] trust_level = "trusted"` (set-if-absent — required so the project-scoped `.codex/` layer loads, per developers.openai.com/codex/agent-approvals-security) |
 | `<project>/.codex/agents/archie-analysis.toml` | Project-scoped custom Codex subagent definition (per developers.openai.com/codex/subagents) — `name`/`description`/`developer_instructions` + `sandbox_mode = "workspace-write"`, used by the rendered workflow's parallel dispatch |
 | `<project>/.codex/rules/archie.rules` | Project-scoped execpolicy Rules (Starlark `prefix_rule(decision="allow", …)` per developers.openai.com/codex/rules). One rule per Archie Python script + one per shell-utility shape the workflow runs (`mkdir`, `cp`, `cat`, `rm -f .archie/health.json`, read-only `git status`/`diff`/`log`/`rev-parse`/`ls-files`/`ls-tree`/`show`, etc.). Auto-approves the deep-scan command surface so the user is not prompted mid-run. Generated from `archie/manifest_data.py::COMMAND_RULES` + `install._STANDALONE_SCRIPTS` — adding a new Archie script auto-extends the rules file. |
-
-## How It Works
-
-### Deep Scan Pipeline (2-Wave)
-
-1. **Scanner** — Deterministic local analysis: file tree, import graph, framework detection, token counting, file hashing, skeleton extraction (class/function signatures for efficient AI context), and **bulk-content classification** (files matching `.archiebulk` get tagged by category/framework and skipped from skeleton/hash/import reads). Respects `.archieignore` + `.gitignore` + `.archiebulk` layering. Pure Python, no AI. Writes `.archie/scan.json` with `bulk_content_manifest` and `frontend_ratio`.
-
-2. **Wave 1** (parallel) — 3-4 Sonnet agents gather facts simultaneously:
-   - **Structure agent** — Components, layers, file placement rules, workspace topology in monorepos
-   - **Patterns agent** — Communication patterns, design patterns, integrations
-   - **Technology agent** — Stack inventory, deployment config, dev rules
-   - **UI Layer agent** — UI components, state management, routing (only if `frontend_ratio ≥ 0.20`)
-
-   Each agent receives `.archie/findings.json` scoped to its `source` slice and is told to prioritise NEW problems over re-deriving known ones. Draft findings flow into the shared store as `depth: "draft"`; structural workspace observations (cross-workspace cycles, magnets) flow in as draft findings rather than free-form pitfalls.
-
-3. **Wave 2 — Opus reasoning** — One Opus subagent reads all Wave 1 output plus the accumulated findings store, and produces the architectural synthesis:
-   - **Three codebase probes** before emitting key decisions: (A) complexity-budget — where the codebase spends complexity a naive implementation wouldn't, (B) invariants & gates — self-enforced rules, (C) seams — substitution/extension points
-   - **Decision chain** — rooted constraint tree with `violation_keywords` per node
-   - **Key decisions** (3-7) with `forced_by` / `enables` links and alternatives_rejected
-   - **Trade-offs** (3-5) with `violation_signals` (code patterns that would undo the trade-off)
-   - **Findings** — upgrades scan-triage drafts in place (fills `root_cause` with architectural grounding, rewrites `fix_direction` as an ordered sequence of steps, flips `depth: "canonical"`) and emits NEW findings visible only from the whole-system view
-   - **Pitfalls** — class-of-problem entries (same 4-field shape) durable across runs, linked from confirming findings via `pitfall_id`
-   - **Architecture diagram** and **implementation guidelines**
-
-4. **Finalize** — Deterministic id-stable merge of Opus output: findings into the shared store (`confirmed_in_scan += 1` on id match, new ids minted for novel entries), pitfalls into the blueprint.
-5. **Rule Synthesis** (Sonnet) — Proposes new architecturally-grounded rules from the synthesised blueprint.
-6. **Intent Layer** (opt-in) — Step E asks whether to generate per-folder CLAUDE.md via bottom-up DAG scheduling (leaves first, parents inherit child summaries, incremental re-generation for changed folders only). Skipping saves the bulk of the wall-clock on large projects.
-7. **Drift Detection & Architectural Assessment** — Mechanical drift (pattern outliers, file-size/complexity violations, dependency-direction breaches) + deep AI drift (decision violations, pattern erosion, trade-off undermining, pitfall triggers, responsibility leaks, abstraction bypasses, semantic duplication). Writes the final scan report.
-8. **Telemetry** — Every step records wall-clock; `.archie/telemetry/deep-scan_<ts>.json` captures per-step seconds + whether Intent Layer was skipped.
-
-### Compound Learning
-
-Every run feeds the next. Both `/archie-scan` and `/archie-deep-scan` read and write the same `findings.json` shared store:
-
-- **Id-stable upsert.** Recurring findings reuse their existing `f_NNNN` id and bump `confirmed_in_scan`; brand-new ones get a fresh id and `first_seen` stamp; findings that no longer apply flip `status: "resolved"` (preserved as history, not deleted).
-- **Novelty priority.** Agents are explicitly told to spend their cognitive budget on NEW problems, not re-describe known ones under different wording.
-- **Depth escalation.** Scan emits `depth: "draft"` entries quickly (`source: scan:structure|health|patterns`, single-line `fix_direction`). Deep-scan Wave 2 upgrades the same id to `depth: "canonical"` (`source: deep:synthesis`, ordered-list `fix_direction` with architectural root_cause) and links to a parent pitfall if the problem is structural.
-- **Blueprint confidence** also grows per-section with repeated confirmation across scans.
-- **Health scores** appended to `health_history.json` for trend detection (improving / degrading / stable).
-
-### Drift Detection
-
-Deep scans include two-phase drift detection:
-
-1. **Mechanical drift** (`drift.py`) — Detects pattern outliers, file size/complexity violations, dependency direction breaches, structural anomalies
-2. **Deep AI drift** — Agent reads blueprint + drift report + CLAUDE.md files to identify: decision violations, pattern erosion, trade-off undermining, pitfall triggers, responsibility leaks, abstraction bypasses, semantic duplication
-
-### Cycle Detection
-
-Every scan runs Tarjan's algorithm on the import graph to find strongly connected components. Cycles are reported with file-level evidence showing which imports create each cycle.
-
-### Real-Time Enforcement
-
-Once installed via `npx @bitraptors/archie`, seven hooks are wired up per detected CLI (Claude uses `.claude/settings.local.json`, Codex uses `.codex/hooks.json` — both invoke the same canonical scripts under `.archie/hooks/`):
-
-- **PreToolUse (Write|Edit|MultiEdit)** — `pre-validate.sh`. Two behaviors: (1) **rule injection** — prints every rule that applies to the file being edited (rules with `applies_to` prefix-matching the path, plus `always_inject: true` critical globals) with rationale, deduped per-turn; (2) **violation check** — blocks `forbidden_import`, `required_pattern`, `forbidden_content`, `architectural_constraint`, and `file_naming` violations.
-- **UserPromptSubmit** — `pre-turn.sh`. Clears the per-turn rule-injection marker so applicable rules re-surface on the first write of each new user turn.
-- **PreToolUse (Bash)** — `pre-commit-review.sh`. Before git commits, triggers an architectural review of the diff via `arch_review.py`.
-- **PostToolUse (ExitPlanMode)** — `post-plan-review.sh`. After plan approval, triggers an architectural review of the plan.
-- **PreToolUse (Glob|Grep)** — `blueprint-nudge.sh`. Reminds the agent about project architecture before code exploration.
-- **PostToolUse (Write|Edit|MultiEdit)** — `post-lint.sh`. **Opt-in external linter gate**: when `.archie/enforcement.json` has `{"enabled": true}`, runs the project's native linter (ruff / eslint / golangci-lint / semgrep) on the changed file and blocks on failure. Auto-detects based on config files (`pyproject.toml [tool.ruff]`, `.eslintrc`, `.golangci.yaml`, `.semgrep.yml`) + binary on PATH. Silent no-op when config is missing.
-- **Stop** — `stop.sh`. Defensive cleanup at turn end: removes the per-turn rule-injection marker (`/tmp/.archie_turn_$HASH`) so any next session starts fresh. Harmless if the marker has already been cleared by `pre-turn.sh`.
-
-All hooks fail open: missing rules/config/marker files → hooks exit 0 silently. Permissions, subagent dispatch, and the per-CLI artifact map are described in [Multi-CLI Support](#multi-cli-support) below.
 
 ## Rules
 
