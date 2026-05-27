@@ -75,6 +75,33 @@ def test_install_removes_legacy_layout(tmp_path: Path) -> None:
     ).exists()
 
 
+def test_install_sweeps_stale_command_shims_from_prior_version(tmp_path: Path) -> None:
+    """Upgrading from a prior version that shipped a now-removed command
+    (e.g. /archie-scan, dropped in the connector branch's merge with main)
+    must remove the leftover per-CLI shim — otherwise the agent still
+    discovers the dead command from .agents/skills/archie-X/ or
+    .claude/commands/archie-X.md and tries to invoke a workflow body that
+    no longer exists."""
+    # Seed a prior install with shims for a since-removed command.
+    stale_claude_shim = tmp_path / ".claude" / "commands" / "archie-scan.md"
+    stale_claude_shim.parent.mkdir(parents=True)
+    stale_claude_shim.write_text("---\nname: archie-scan\n---\nPRIOR VERSION\n")
+    stale_codex_skill = tmp_path / ".agents" / "skills" / "archie-scan"
+    stale_codex_skill.mkdir(parents=True)
+    (stale_codex_skill / "SKILL.md").write_text(
+        "---\nname: archie-scan\n---\nPRIOR VERSION\n"
+    )
+
+    install(tmp_path, ["claude", "codex"])
+
+    # Both shims for the removed command are gone.
+    assert not stale_claude_shim.exists()
+    assert not stale_codex_skill.exists()
+    # Current command shims are intact.
+    assert (tmp_path / ".claude" / "commands" / "archie-deep-scan.md").exists()
+    assert (tmp_path / ".agents" / "skills" / "archie-deep-scan" / "SKILL.md").exists()
+
+
 # ---------------------------------------------------------------------------
 # Render-infrastructure contract
 # ---------------------------------------------------------------------------

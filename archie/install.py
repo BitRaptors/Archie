@@ -67,6 +67,11 @@ def _clean_legacy_layout(project_root: Path) -> None:
     The canonical workflow now renders per-CLI into .archie/workflow/<cli>/.
     On upgrade, drop the stale trees so a returning user is not left with a
     dead skill registration or a duplicated, out-of-date workflow body.
+
+    Also sweeps per-CLI command shims that no longer correspond to a
+    current entry in `COMMANDS` — e.g. an `archie-scan` shim from before
+    that command was removed. The connectors below recreate shims for the
+    current command set; anything left behind is from a previous version.
     """
     for stale_dir in (
         project_root / ".claude" / "skills" / "archie-deep-scan",
@@ -80,6 +85,34 @@ def _clean_legacy_layout(project_root: Path) -> None:
         stale_shared.unlink()
     except OSError:
         pass
+
+    current_command_names = {c.name for c in COMMANDS}
+
+    # Sweep stale Claude command shims (.claude/commands/archie-X.md).
+    claude_cmd_dir = project_root / ".claude" / "commands"
+    if claude_cmd_dir.is_dir():
+        for entry in claude_cmd_dir.iterdir():
+            if (
+                entry.is_file()
+                and entry.name.startswith("archie-")
+                and entry.suffix == ".md"
+                and entry.stem not in current_command_names
+            ):
+                try:
+                    entry.unlink()
+                except OSError:
+                    pass
+
+    # Sweep stale Codex skill shims (.agents/skills/archie-X/).
+    codex_skills_dir = project_root / ".agents" / "skills"
+    if codex_skills_dir.is_dir():
+        for entry in codex_skills_dir.iterdir():
+            if (
+                entry.is_dir()
+                and entry.name.startswith("archie-")
+                and entry.name not in current_command_names
+            ):
+                shutil.rmtree(entry, ignore_errors=True)
 
 
 # ---------- workflow template renderer ----------
