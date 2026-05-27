@@ -10,7 +10,20 @@ archie/assets/* into <project>/.archie/). See
 docs/plans/2026-05-18-multi-agent-connector-architecture.md §12 for the
 asset migration map.
 """
+from pathlib import Path
+
 from .manifest import CommandDef, CommandRule, ConfigPatch, HookDef
+
+
+# Absolute path to the user-home Archie config dir (`~/.archie/`). Computed
+# at module load on the user's machine during install. Used by the Codex
+# `[sandbox_workspace_write] writable_roots` patch below so the default
+# `workspace-write` sandbox lets Archie scripts append to
+# ~/.archie/analytics/runs.jsonl, ~/.archie/config.json, etc. without each
+# write triggering a per-session approval prompt or failing silently under
+# `2>/dev/null || true`. Verified: see
+# tests/test_codex_writable_roots_in_config_patches.
+_USER_ARCHIE_HOME = str(Path.home() / ".archie")
 
 
 # body_path is the command's SKILL.md *inside the rendered workflow tree*,
@@ -278,4 +291,15 @@ CONFIG_PATCHES = [
     # the default 6 to be explicit and survive any future Codex default change.
     ConfigPatch("codex", "max_threads", 6, section="agents"),
     ConfigPatch("codex", "max_depth", 2, section="agents"),
+    # [sandbox_workspace_write] writable_roots — add ~/.archie/ to the
+    # default workspace-write sandbox's allowed paths. Without this every
+    # Codex run that invokes telemetry_sync.py record-event (intent-layer,
+    # share, viewer) or telemetry.py write (deep-scan, which internally
+    # fires telemetry_sync) silently fails its append to
+    # ~/.archie/analytics/runs.jsonl — the workflow's `2>/dev/null || true`
+    # swallows the "Operation not permitted" error. Verified empirically:
+    # codex sandbox without this patch denies the write; with the patch,
+    # `codex exec -c sandbox_workspace_write.writable_roots=[...]` allows it.
+    # set-if-absent: respects any existing user customisation.
+    ConfigPatch("codex", "writable_roots", [_USER_ARCHIE_HOME], section="sandbox_workspace_write"),
 ]

@@ -326,6 +326,45 @@ def test_install_drops_self_ignoring_archie_tmp_gitignore(tmp_path: Path) -> Non
     assert gi.read_text().strip() == "*"
 
 
+def test_codex_install_widens_sandbox_writable_roots_for_user_archie_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Codex's default `workspace-write` sandbox blocks writes to ~/.archie/
+    (verified empirically: codex sandbox without this patch returns
+    'Operation not permitted'). That silently breaks telemetry for every
+    Codex run because every command's terminal phase calls either
+    telemetry_sync.py record-event (intent-layer/share/viewer) or
+    telemetry.py write (deep-scan, which internally fires telemetry_sync) —
+    both append to ~/.archie/analytics/runs.jsonl, and the workflow's
+    `2>/dev/null || true` swallows the EACCES.
+
+    The install must patch ~/.codex/config.toml with
+        [sandbox_workspace_write]
+        writable_roots = ["<HOME>/.archie"]
+    set-if-absent so a returning user's customisation is respected."""
+    # Isolate the user-home that patch_config() targets so this test doesn't
+    # mutate the real ~/.codex/config.toml on the dev machine.
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    install(tmp_path / "project", ["codex"])
+
+    cfg = fake_home / ".codex" / "config.toml"
+    assert cfg.is_file(), "patch_config() must write ~/.codex/config.toml"
+    body = cfg.read_text()
+    assert "[sandbox_workspace_write]" in body, \
+        "sandbox_workspace_write section missing"
+    # The path that's whitelisted must be the user's actual ~/.archie/.
+    # We don't assert against fake_home here because manifest_data._USER_ARCHIE_HOME
+    # resolves at import time (before the monkeypatch), capturing the real HOME.
+    # That's fine for the install scenario — on the user's machine, manifest_data
+    # is loaded fresh by the install loop and resolves to their actual home.
+    assert "writable_roots = [" in body
+    assert "/.archie\"]" in body or "/.archie\"\n]" in body, \
+        f"writable_roots must contain a path ending in /.archie, got:\n{body}"
+
+
 def test_codex_install_does_not_write_project_scoped_config_toml(tmp_path: Path) -> None:
     """[agents] keys (max_threads, max_depth) live in ~/.codex/config.toml
     per Codex docs — written by patch_config() via CONFIG_PATCHES. The
