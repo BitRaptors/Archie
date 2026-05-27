@@ -36,12 +36,16 @@ const ALLOWED_OUTCOMES = new Set([
 const ALLOWED_OS = new Set(["darwin", "linux", "win32", "other"]);
 const ALLOWED_ARCH = new Set(["arm64", "x64", "ia32", "other"]);
 const ALLOWED_SOURCE = new Set(["live", "test"]);
+// Which coding-agent harness drove the run. "unknown" is a legitimate value
+// the client sends when it ran outside a detectable harness.
+const ALLOWED_CLI = new Set(["claude", "codex", "unknown"]);
 
 const FIELD_LIMITS: Record<string, number> = {
   installation_id: 64,
   archie_version: 32,
   os: 16,
   arch: 16,
+  cli: 16,
   command: 32,
   outcome: 16,
   error_class: 200,
@@ -135,6 +139,11 @@ function sanitizeEvent(raw: unknown): Record<string, unknown> | null {
   const arch_raw = clipString(e.arch, FIELD_LIMITS.arch);
   const arch = arch_raw && ALLOWED_ARCH.has(arch_raw) ? arch_raw : (arch_raw ? "other" : null);
 
+  // cli is optional: events from clients predating this field arrive without
+  // it (→ null). An unrecognised value is also nulled rather than coerced.
+  const cli_raw = clipString(e.cli, FIELD_LIMITS.cli);
+  const cli = cli_raw && ALLOWED_CLI.has(cli_raw) ? cli_raw : null;
+
   const source_raw = clipString(e.source, FIELD_LIMITS.source);
   const source = source_raw && ALLOWED_SOURCE.has(source_raw) ? source_raw : "live";
 
@@ -144,6 +153,7 @@ function sanitizeEvent(raw: unknown): Record<string, unknown> | null {
     archie_version,
     os,
     arch,
+    cli,
     command,
     outcome,
     duration_s: clipInt(e.duration_s, 0, 24 * 60 * 60),

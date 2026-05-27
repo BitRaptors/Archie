@@ -45,6 +45,39 @@ def test_detect_verifier_falls_back_to_claude(monkeypatch: pytest.MonkeyPatch) -
 
 
 # ---------------------------------------------------------------------------
+# detect_cli — harness identity for telemetry attribution
+# ---------------------------------------------------------------------------
+
+def test_detect_cli_claude_when_claudecode_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert agent_cli.detect_cli() == "claude"
+
+
+def test_detect_cli_codex_when_not_claude_and_codex_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.setattr(agent_cli.shutil, "which",
+                        lambda name: "/usr/bin/codex" if name == "codex" else None)
+    assert agent_cli.detect_cli() == "codex"
+
+
+def test_detect_cli_unknown_when_no_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unlike detect_verifier, telemetry detection reports "unknown" rather than
+    guessing — an honest value beats a wrong one in the analytics."""
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.setattr(agent_cli.shutil, "which", lambda name: None)
+    assert agent_cli.detect_cli() == "unknown"
+
+
+def test_detect_verifier_shares_detection_with_detect_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    """detect_verifier must agree with detect_cli except for the indeterminate
+    case, where it falls back to claude so the verifier always has a CLI."""
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.setattr(agent_cli.shutil, "which", lambda name: None)
+    assert agent_cli.detect_cli() == "unknown"
+    assert agent_cli.detect_verifier() == "claude"
+
+
+# ---------------------------------------------------------------------------
 # run_verifier — dispatch to the right CLI
 # ---------------------------------------------------------------------------
 
