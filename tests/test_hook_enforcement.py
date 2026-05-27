@@ -501,7 +501,7 @@ def test_prose_rule_surfaces_via_prompt_keywords():
     """End-to-end: a forbidden_content prose rule with keywords surfaces when
     the user's prompt mentions a keyword — even before any file is written.
 
-    This is the Tier 2 contract: rules proposed by /archie-scan include
+    This is the Tier 2 contract: rules with source="scan" include
     ``keywords`` so inject-context.sh surfaces them at prompt time, and the
     same rule mechanically blocks at edit time via pre-validate.sh.
     """

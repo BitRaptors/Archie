@@ -1,7 +1,7 @@
 # Shared fragment — Telemetry consent (one-time, machine-level, agent-neutral)
 
-> Loaded by every Archie entry point — `archie-scan`, `archie-deep-scan`,
-> `archie-viewer`, `archie-share`, `archie-intent-layer` — in its preamble.
+> Loaded by every Archie entry point — `archie-deep-scan`, `archie-viewer`,
+> `archie-share`, `archie-intent-layer` — in its preamble.
 > Single source of truth for the first-run telemetry opt-in.
 >
 > This fragment is **agent-neutral**: it drives the consent dialogue via

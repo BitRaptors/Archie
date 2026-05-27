@@ -189,9 +189,9 @@ class ClaudeConnector(Connector):
 
     def finalize(self, project_root: Path) -> None:
         # Merge Archie's default permissions into .claude/settings.local.json so
-        # /archie-scan etc. run without per-call user prompts. Preserves any
-        # existing permissions the user has set (union, not replace). Same set
-        # the legacy install_hooks.py heredoc wrote on `main`.
+        # /archie-deep-scan and other Archie commands run without per-call user
+        # prompts. Preserves any existing permissions the user has set (union,
+        # not replace). Same set the legacy install_hooks.py heredoc wrote on `main`.
         settings_path = project_root / ".claude" / "settings.local.json"
         settings: dict = {}
         if settings_path.exists():

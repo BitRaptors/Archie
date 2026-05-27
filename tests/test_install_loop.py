@@ -23,7 +23,7 @@ _COMMAND_DIRS = [c.body_path.split("/", 1)[0] for c in COMMANDS]
 def test_claude_install_preserves_main_assets(tmp_path: Path) -> None:
     install(tmp_path, ["claude"])
 
-    assert (tmp_path / ".claude" / "commands" / "archie-scan.md").exists()
+    assert (tmp_path / ".claude" / "commands" / "archie-deep-scan.md").exists()
     # The deep-scan step tree is now rendered into .archie/workflow/<cli>/.
     assert (tmp_path / ".archie" / "workflow" / "claude" / "deep-scan" / "SKILL.md").exists()
     assert (

@@ -36,18 +36,16 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Import PRE_VALIDATE_HOOK from the canonical install_hooks module without
-# pulling in the rest of the package (which depends on pydantic etc.).
-import importlib.util
-
-_INSTALL_HOOKS_PATH = REPO_ROOT / "archie" / "standalone" / "install_hooks.py"
-_spec = importlib.util.spec_from_file_location("_archie_install_hooks", _INSTALL_HOOKS_PATH)
-assert _spec and _spec.loader
-_install_hooks = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_install_hooks)
-PRE_VALIDATE_HOOK = _install_hooks.PRE_VALIDATE_HOOK
+# Read the canonical pre-validate hook directly from the asset tree.
+# (Used to be a Python heredoc constant in install_hooks.py; refactored
+# into a standalone .sh script under archie/assets/hook_scripts/ on the
+# connector branch.)
+PRE_VALIDATE_HOOK = (
+    REPO_ROOT / "archie" / "assets" / "hook_scripts" / "pre-validate.sh"
+).read_text()
 
 # Same dance for extract_output (used by source-stamping tests).
+import importlib.util
 _EXTRACT_OUTPUT_PATH = REPO_ROOT / "archie" / "standalone" / "extract_output.py"
 _spec2 = importlib.util.spec_from_file_location("_archie_extract_output", _EXTRACT_OUTPUT_PATH)
 assert _spec2 and _spec2.loader

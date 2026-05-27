@@ -45,46 +45,11 @@ Skip the picker with `--target=all` / `--target=auto` / `--target=claude` / `--t
 
 | Command | What it does | Time |
 |---------|-------------|------|
-| `/archie-scan` | Architecture health check. Deterministic scanner + AI senior-architect pass — finds dependency violations, pattern drift, complexity hotspots, proposes enforceable rules. Compounds into `.archie/findings.json`. | 1-3 min |
-| `/archie-deep-scan` | Comprehensive baseline. 2-wave multi-agent analysis (Sonnet fact-gatherers + Opus reasoner) producing blueprint, optional per-folder CLAUDE.md, rules, findings, pitfalls, health. Supports `--incremental`, `--continue`, `--from N`, `--reconfigure`. | 15-20 min |
+| `/archie-deep-scan` | Comprehensive baseline. 2-wave multi-agent analysis (Sonnet fact-gatherers + Opus reasoner) producing blueprint, optional per-folder CLAUDE.md, rules, findings, pitfalls, health. Supports `--incremental`, `--continue`, `--from N`, `--reconfigure`. | 15-20 min (full), 3-6 min (incremental) |
 | `/archie-intent-layer` | Standalone per-folder CLAUDE.md regeneration. Asks Full / Incremental / Auto upfront. Requires `blueprint.json`. | 3-15 min |
 | `/archie-share` | Upload blueprint + findings + scan report to a hosted viewer. Default (BitRaptors Supabase), enterprise stored-credentials (BYO S3), or enterprise paste-presigned-URL — see [Enterprise Share](#enterprise-share). | seconds |
 
-Run `/archie-deep-scan` once for the baseline, then `/archie-scan` for ongoing checks. `/archie-viewer` runs the same React UI as the hosted share viewer locally at `localhost:5847/local` — no upload, all data stays on your machine.
-
-### `/archie-scan` in action
-
-![archie-scan demo](docs/assets/archie-scan-demo.gif)
-
-<details>
-<summary>Example scan summary</summary>
-
-```
-  Archie Scan #2 Complete
-
-  Health Scores
-  ┌───────────┬─────────┬──────────┬────────┬──────────┐
-  │  Metric   │ Current │ Previous │ Trend  │  Status  │
-  ├───────────┼─────────┼──────────┼────────┼──────────┤
-  │ Erosion   │ 0.87    │ 0.87     │ Stable │ CRITICAL │
-  │ Gini      │ 0.8852  │ 0.8852   │ Stable │ HIGH     │
-  │ Top-20%   │ 0.9216  │ 0.9216   │ Stable │ HIGH     │
-  │ Verbosity │ 0.0103  │ 0.0103   │ Stable │ GOOD     │
-  │ LOC       │ 122,290 │ 122,290  │ Stable │ -        │
-  └───────────┴─────────┴──────────┴────────┴──────────┘
-
-  Findings: 20 total (8 recurring errors, 1 new error, 5 recurring warnings, 5 new warnings)
-  Proposed rules: 10 new (async tool entries, ApiClient singleton, naming, LangGraph step names, …)
-
-  Next Task
-  What:  Refactor ProjectScreen god component (CC=365, 1420 SLOC)
-  Where: frontend/src/renderer/screens/project.tsx
-  Why:   Highest complexity in the codebase, disproportionate impact on red metrics
-
-  Full report: .archie/scan_report_2026-04-08.md
-```
-
-</details>
+Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --incremental` after code changes to refresh the analysis. `/archie-viewer` runs the same React UI as the hosted share viewer locally at `localhost:5847/local` — no upload, all data stays on your machine.
 
 ### `/archie-deep-scan` in action
 
@@ -112,7 +77,7 @@ Run `/archie-deep-scan` once for the baseline, then `/archie-scan` for ongoing c
                                   sidebar state in two contexts)
 
   Archie is now active. Rules will be enforced on every code change.
-  Run /archie-scan for fast health checks; /archie-deep-scan --incremental after changes.
+  Run /archie-deep-scan --incremental after code changes to refresh the analysis.
 ```
 
 </details>
@@ -121,13 +86,13 @@ Run `/archie-deep-scan` once for the baseline, then `/archie-scan` for ongoing c
 
 - **Monorepo-aware** — auto-detects sub-projects (Gradle / package.json / Cargo.toml / pyproject.toml / …) and asks once for scope: **whole**, **per-package**, **hybrid**, or **single**. Persisted in `.archie/archie_config.json`.
 - **Three-tier ignore** — `.gitignore` (skipped) · `.archieignore` (skipped, Archie-specific) · `.archiebulk` (**scanned but opaque** — records path + `{category, framework}` without reading contents, so 248 Android layouts don't burn analytical budget).
-- **Compounding findings** — id-stable upserts, recurring findings bump `confirmed_in_scan`, resolved ones flip `status`, scan-triage drafts get upgraded to canonical by Wave-2 reasoning.
+- **Compounding findings** — id-stable upserts across runs: recurring findings bump `confirmed_in_scan`, resolved ones flip `status`, Wave-2 reasoning escalates draft findings to canonical.
 - **Resumable deep-scans** — `--incremental` (changed files, 3-6 min), `--continue` (resume after interruption), `--from N` (specific step).
 - **Rules with semantic content** — every rule carries `severity_class`, `why` (copied from motivating decision), `example`, and `forced_by`/`enables`/`alternative` links. Pre-edit hook reads `severity_class` to gate: blocking, warning, or informational.
 
 ## Health Metrics
 
-`/archie-scan` tracks architecture health over time in `.archie/health_history.json`:
+`/archie-deep-scan` tracks architecture health over time in `.archie/health_history.json`:
 
 | Metric | What it measures |
 |--------|-----------------|
@@ -174,7 +139,7 @@ Archie targets **Claude Code** (Anthropic, stable, primary target) and **OpenAI 
   - **Claude Code** — stable, primary target
   - **OpenAI Codex CLI** — beta
 
-  The same `archie-scan` / `archie-deep-scan` / `archie-intent-layer` / `archie-share` / `archie-viewer` commands run in both harnesses with feature parity (subject to each harness's API ceiling — see [Multi-CLI Support](#multi-cli-support)).
+  The same `archie-deep-scan` / `archie-intent-layer` / `archie-share` / `archie-viewer` commands run in both harnesses with feature parity (subject to each harness's API ceiling — see [Multi-CLI Support](#multi-cli-support)).
 
 ## Telemetry & update checks (anonymous, opt-in)
 

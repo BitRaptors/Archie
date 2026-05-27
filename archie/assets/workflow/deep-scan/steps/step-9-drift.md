@@ -159,11 +159,11 @@ Present in the health table as:
 
 If genuinely none found after checking, say "No semantic duplication detected after AI analysis."
 
-**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only) — the semantic duplication analysis in Part 6 above is the AI-powered complement. Run `{{COMMAND_PREFIX}}archie-scan` regularly to track how these metrics change over time.
+**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only) — the semantic duplication analysis in Part 6 above is the AI-powered complement.
 
 ### Phase 4: Persist findings to `.archie/scan_report.md`
 
-The Phase 3 synthesis above is valuable but ephemeral — it only exists in the chat output. `{{COMMAND_PREFIX}}archie-share` (and future trending runs of `{{COMMAND_PREFIX}}archie-scan`) need the findings on disk. Write the same content to `.archie/scan_report.md` in the format `{{COMMAND_PREFIX}}archie-scan` produces.
+The Phase 3 synthesis above is valuable but ephemeral — it only exists in the chat output. `{{COMMAND_PREFIX}}archie-share` (and future trending runs of `{{COMMAND_PREFIX}}archie-deep-scan`) need the findings on disk. Write the same content to `.archie/scan_report.md` as ranked findings.
 
 Check whether a prior scan report exists (for resolved/new/recurring classification):
 ```bash

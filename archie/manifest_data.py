@@ -18,11 +18,6 @@ from .manifest import CommandDef, CommandRule, ConfigPatch, HookDef
 # .archie/workflow/<cli>/ root (the {{WORKFLOW_ROOT}} token) at install time.
 COMMANDS = [
     CommandDef(
-        "archie-scan",
-        "Architecture health check (1-3 min).",
-        "scan/SKILL.md",
-    ),
-    CommandDef(
         "archie-deep-scan",
         "Comprehensive architecture baseline (15-20 min).",
         "deep-scan/SKILL.md",
@@ -257,8 +252,8 @@ COMMAND_RULES = [
     # read operations (e.g. `git -C <dir> log`). Codex's argv-prefix matcher
     # cannot narrow past the dynamic <dir> token, so the rule's prefix is
     # just ("git","-C"); workflow only invokes this with read-only
-    # subcommands, but a user manually running `git -C <dir> push` during a
-    # scan would also be auto-approved by this entry. Acknowledged broad
+    # subcommands, but a user manually running `git -C <dir> push` mid-run
+    # would also be auto-approved by this entry. Acknowledged broad
     # scope, justified by the workflow's actual usage.
     CommandRule(
         name="git-c-scoped",

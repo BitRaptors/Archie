@@ -58,11 +58,12 @@ include = ["archie*"]
 [tool.setuptools.package-data]
 archie = [
     "py.typed",
-    "assets/README.md",
-    "assets/prompts/*.md",
-    "assets/prompts/_shared/*.md",
+    "assets/workflow/**/*.md",
     "assets/hook_scripts/*.sh",
     "assets/codex_agents/*.template",
+    "assets/platform_rules.json",
+    "assets/archieignore.default",
+    "assets/archiebulk.default",
 ]
 
 [tool.pytest.ini_options]
