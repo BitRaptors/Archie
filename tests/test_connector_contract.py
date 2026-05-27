@@ -204,3 +204,58 @@ def test_codex_patch_config_writes_agents_section(tmp_path: Path, monkeypatch):
     # And the existing top-level keys are still written too.
     assert "project_doc_max_bytes = 131072" in cfg
     assert 'project_doc_fallback_filenames' in cfg
+
+
+def test_codex_patch_config_respects_user_agents_values(tmp_path: Path, monkeypatch):
+    """[agents] defaults must be set-if-absent — if the user has customised
+    `max_threads` (rate-limited account, larger workload) or `max_depth`
+    (other tooling using deeper recursion), our install must not overwrite
+    those choices. Top-level project-doc keys still get overwritten because
+    they're Archie requirements, not user preferences."""
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    fake_home = tmp_path / "fake_home"
+    (fake_home / ".codex").mkdir(parents=True)
+    # Pre-existing user config: max_threads bumped up, max_depth bumped up,
+    # plus an unrelated [agents] knob Archie doesn't touch.
+    (fake_home / ".codex" / "config.toml").write_text(
+        "[agents]\n"
+        "max_threads = 10\n"
+        "max_depth = 4\n"
+        "custom_user_knob = true\n"
+    )
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+    patches = [p for p in CONFIG_PATCHES if p.cli == codex.name]
+    codex.patch_config(patches)
+
+    cfg = (fake_home / ".codex" / "config.toml").read_text()
+    # User's [agents] values preserved.
+    assert "max_threads = 10" in cfg
+    assert "max_depth = 4" in cfg
+    assert "custom_user_knob = true" in cfg
+    # Top-level Archie requirements still written (overwrite policy).
+    assert "project_doc_max_bytes = 131072" in cfg
+    assert "project_doc_fallback_filenames" in cfg
+
+
+def test_codex_patch_config_fills_in_missing_agents_keys(tmp_path: Path, monkeypatch):
+    """If only ONE of the [agents] defaults is user-set, the install fills in
+    the missing key (set-if-absent doesn't mean skip-if-section-exists)."""
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    fake_home = tmp_path / "fake_home"
+    (fake_home / ".codex").mkdir(parents=True)
+    # User set only max_threads — max_depth is missing.
+    (fake_home / ".codex" / "config.toml").write_text(
+        "[agents]\n"
+        "max_threads = 12\n"
+    )
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+    patches = [p for p in CONFIG_PATCHES if p.cli == codex.name]
+    codex.patch_config(patches)
+
+    cfg = (fake_home / ".codex" / "config.toml").read_text()
+    assert "max_threads = 12" in cfg  # user's value preserved
+    assert "max_depth = 2" in cfg     # missing key filled in

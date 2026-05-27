@@ -190,9 +190,17 @@ class CodexConnector(Connector):
         updated = existing
         for patch in patches:
             if patch.section is None:
+                # Top-level patches reflect Archie requirements (the project-doc
+                # context size + fallback filename list) — overwrite to enforce
+                # the floor we need.
                 updated = _toml_set_top_level(updated, patch.key, patch.value)
             else:
-                updated = _toml_set_section_key(updated, patch.section, patch.key, patch.value)
+                # Section patches are defensive defaults ([agents] knobs Codex
+                # itself has documented defaults for). Respect a user's existing
+                # value if any — only write the key when it's absent.
+                updated = _toml_set_section_key(
+                    updated, patch.section, patch.key, patch.value, overwrite=False,
+                )
         if updated != existing:
             cfg_path.write_text(updated)
 
@@ -307,8 +315,16 @@ def _parse_inline_str_array(raw: str) -> list[str]:
     return [m.group(1).replace('\\"', '"').replace("\\\\", "\\") for m in _STR_ITEM_RE.finditer(inner)]
 
 
-def _toml_set_section_key(content: str, section: str, key: str, value: object) -> str:
-    """Set a simple key inside a top-level TOML section."""
+def _toml_set_section_key(
+    content: str, section: str, key: str, value: object, *, overwrite: bool = True,
+) -> str:
+    """Set a simple key inside a top-level TOML section.
+
+    When `overwrite=False`, an existing assignment for `key` inside the section
+    is left untouched — the function only writes the key if it isn't already
+    present. Used by `patch_config` for `[agents]` defaults that should respect
+    a user's prior customisation (`max_threads`, `max_depth`).
+    """
     assignment = f"{key} = {_toml_serialize_value(value)}"
     lines = content.splitlines()
     section_header = f"[{section}]"
@@ -334,6 +350,8 @@ def _toml_set_section_key(content: str, section: str, key: str, value: object) -
     key_re = re.compile(rf"^(\s*){re.escape(key)}\s*=.*$")
     for idx in range(header_idx + 1, next_header_idx):
         if key_re.match(lines[idx]):
+            if not overwrite:
+                return content  # Respect user's existing value
             lines[idx] = assignment
             return "\n".join(lines) + "\n"
 

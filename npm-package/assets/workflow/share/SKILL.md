@@ -138,6 +138,8 @@ python3 .archie/intent_layer.py scan-config "$PWD" read
 
 For each resolved `TARGET`:
 
+> **Heads-up for Codex CLI users:** the upload step makes one outbound HTTPS request. Codex's default `workspace-write` sandbox blocks network egress, so the first upload in a session pauses for a one-time approval prompt. This is expected — approve once and the rest of the session is uninterrupted. (On Claude Code the request runs prompt-free under the existing `Bash(python3 .archie/*.py *)` allow rule.)
+
 **Default mode:**
 
 ```bash
