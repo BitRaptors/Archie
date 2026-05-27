@@ -184,10 +184,11 @@ def test_codex_rendered_tree_uses_codex_command_prefix_not_slash(tmp_path: Path)
     `/archie-X` (which Codex's harness does not recognise)."""
     install(tmp_path, ["codex"])
     workflow_root = tmp_path / ".archie" / "workflow" / "codex"
-    # Match `/archie-NAME` only when not preceded by a letter/digit/`$` — that
-    # filters out incidental occurrences inside ARN/URL/identifier strings
-    # (e.g. `acme-archie-shares`) and excludes the Codex-rendered `$archie-X`.
-    leak_re = re.compile(r"(?:^|[^A-Za-z0-9$])/archie-[a-z]")
+    # Match `/archie-NAME` only when not preceded by a letter/digit/`$`/`/` —
+    # that filters out incidental occurrences inside ARN/URL/identifier strings
+    # (e.g. `acme-archie-shares`, `https://archie-viewer.vercel.app`) and
+    # excludes the Codex-rendered `$archie-X`.
+    leak_re = re.compile(r"(?:^|[^A-Za-z0-9$/])/archie-[a-z]")
     for f in workflow_root.rglob("*.md"):
         text = f.read_text()
         m = leak_re.search(text)
