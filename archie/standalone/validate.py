@@ -509,6 +509,84 @@ def check_workspace_topology(root: Path) -> list[dict]:
     return errors
 
 
+# ---------------------------------------------------------------------------
+# Check 7: Data models — paths exist, store references resolve
+# ---------------------------------------------------------------------------
+
+def check_data_models(root: Path) -> list[dict]:
+    """Validate blueprint.data_models + persistence_stores cross-refs.
+
+    Skipped entirely when neither section exists. Warnings (not failures)
+    on missing paths — the agent uses lifecycle paths as references, and a
+    soft warning catches drift without blocking the pipeline.
+    """
+    errors: list[dict] = []
+    blueprint = _load_json(root / ".archie" / "blueprint.json")
+    data_models = blueprint.get("data_models") or []
+    stores = blueprint.get("persistence_stores") or []
+    if not data_models and not stores:
+        return errors
+
+    store_names = {s.get("name", "") for s in stores if isinstance(s, dict)}
+
+    for m in data_models:
+        if not isinstance(m, dict):
+            continue
+        name = m.get("name", "<unnamed>")
+
+        # location must exist as a file
+        loc = m.get("location") or ""
+        if loc and not (root / loc).exists():
+            errors.append({
+                "check": "data_model_location",
+                "file": "blueprint.json",
+                "claim": f"data_models['{name}'].location",
+                "status": "WARNING",
+                "detail": f"Model location not found on disk: {loc}",
+            })
+
+        # store reference must resolve to a declared persistence_stores entry
+        store_ref = m.get("store") or ""
+        if store_ref and store_ref not in store_names:
+            errors.append({
+                "check": "data_model_store_ref",
+                "file": "blueprint.json",
+                "claim": f"data_models['{name}'].store",
+                "status": "WARNING",
+                "detail": f"Model references unknown store '{store_ref}' — declare it in persistence_stores",
+            })
+
+        # lifecycle paths (related_business_logic + tests) must exist when listed
+        lifecycle = m.get("lifecycle") or {}
+        if isinstance(lifecycle, dict):
+            for field in ("related_business_logic", "tests"):
+                for p in lifecycle.get(field) or []:
+                    if isinstance(p, str) and p and not (root / p).exists():
+                        errors.append({
+                            "check": "data_model_lifecycle_path",
+                            "file": "blueprint.json",
+                            "claim": f"data_models['{name}'].lifecycle.{field}",
+                            "status": "WARNING",
+                            "detail": f"Path not found on disk: {p}",
+                        })
+
+    for s in stores:
+        if not isinstance(s, dict):
+            continue
+        sname = s.get("name", "<unnamed>")
+        mig = s.get("migrations_dir") or ""
+        if mig and not (root / mig).is_dir():
+            errors.append({
+                "check": "persistence_store_migrations_dir",
+                "file": "blueprint.json",
+                "claim": f"persistence_stores['{sname}'].migrations_dir",
+                "status": "WARNING",
+                "detail": f"Migrations directory not found on disk: {mig}",
+            })
+
+    return errors
+
+
 def _print_results(errors: list[dict]):
     fails = [e for e in errors if e["status"] == "FAIL"]
     warns = [e for e in errors if e["status"] == "WARNING"]
@@ -536,6 +614,7 @@ if __name__ == "__main__":
         print("  python3 validate.py methods /path/to/repo", file=sys.stderr)
         print("  python3 validate.py files /path/to/repo", file=sys.stderr)
         print("  python3 validate.py pitfalls /path/to/repo", file=sys.stderr)
+        print("  python3 validate.py data /path/to/repo", file=sys.stderr)
         sys.exit(1)
 
     subcmd = sys.argv[1]
@@ -548,6 +627,7 @@ if __name__ == "__main__":
         "pitfalls": ("Pitfall grounding", check_pitfalls),
         "verbs": ("Component verbs", check_component_verbs),
         "workspace": ("Workspace topology", check_workspace_topology),
+        "data": ("Data models cross-refs", check_data_models),
     }
 
     if subcmd == "all":
