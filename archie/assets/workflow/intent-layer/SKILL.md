@@ -27,42 +27,113 @@ Read and follow `{{WORKFLOW_ROOT}}/_shared/telemetry-consent.md`. It checks whet
 
 ## Phase 0: Precondition check
 
-The Intent Layer needs BOTH `.archie/scan.json` (file tree) and `.archie/blueprint.json` (architectural context: components, decisions, responsibilities, depends_on, key_interfaces). Without the blueprint, per-folder enrichments cannot be grounded in the project's architecture — they'd be generic file summaries, not architectural guides.
+The Intent Layer needs BOTH `.archie/scan.json` (file tree) and `.archie/blueprint.json` (architectural context: components, decisions, responsibilities, depends_on, key_interfaces) at the *effective project root* — which is either the repo root or a specific workspace, depending on monorepo scope. Without the blueprint, per-folder enrichments cannot be grounded in the project's architecture — they'd be generic file summaries, not architectural guides.
 
-### Check scan.json
+### Step 0.a: Resolve the effective project root
+
+A repo can be a single-project (root has the blueprint), a monorepo with a unified root blueprint (`whole` scope), a monorepo with per-workspace blueprints (`per-package`), or a hybrid (both). Intent-layer is heavy; pick **one** blueprint to operate on per invocation. Run the command again if you need to regenerate intent-layer for multiple workspaces.
+
+Read the persisted scope config:
 
 ```bash
-test -f "$PWD/.archie/scan.json"
+python3 .archie/intent_layer.py scan-config "$PWD" read 2>/dev/null
+```
+
+Branch on the result:
+
+**A. Exit 0, scope is `single` or `whole`** → one blueprint at the repo root.
+```bash
+PROJECT_ROOT="$PWD"
+```
+
+**B. Exit 0, scope is `per-package`** → workspace-level blueprints. Parse the `workspaces` array from the JSON output.
+- If exactly one workspace → `PROJECT_ROOT="$PWD/<workspace>"`.
+- If multiple → ask the user which workspace's per-folder CLAUDE.md files to regenerate — {{>ask_user}}:
+  - **question:** "Which workspace's per-folder CLAUDE.md files should be regenerated? Re-run `{{COMMAND_PREFIX}}archie-intent-layer` separately for each workspace you want to refresh."
+  - **header:** "Workspace"
+  - **multiSelect:** false
+  - **options:** one per workspace, label `<workspace-name>`, description `Path: <workspace>`
+- Map the answer: `PROJECT_ROOT="$PWD/<chosen-workspace>"`.
+
+**C. Exit 0, scope is `hybrid`** → root AND per-workspace blueprints exist. Ask which to use as the basis — {{>ask_user}}:
+- **question:** "Which blueprint is the basis for this intent-layer run?"
+- **header:** "Blueprint"
+- **multiSelect:** false
+- **options:** first label `Monorepo-wide (root)`, description `Use the root blueprint at .archie/blueprint.json`; then one per workspace, label `<workspace-name>`, description `Path: <workspace>`.
+- Map: `Monorepo-wide (root)` → `PROJECT_ROOT="$PWD"`. Workspace name → `PROJECT_ROOT="$PWD/<workspace>"`.
+
+**D. Exit 1 (no config)** → no monorepo scope persisted. Discover subprojects on disk:
+
+```bash
+python3 .archie/scanner.py "$PWD" --detect-subprojects
+```
+
+The script prints both a human summary on stderr and the full JSON on stdout. Parse the `subprojects` array. For each entry, check whether `<path>/.archie/blueprint.json` exists:
+
+```bash
+test -f "$PWD/<subproject-path>/.archie/blueprint.json"
+```
+
+Collect the subprojects that pass the test (call this list `WORKSPACE_BLUEPRINTS`). Then:
+
+- **`WORKSPACE_BLUEPRINTS` is empty** → assume single-project: `PROJECT_ROOT="$PWD"`. Step 0.b will surface the missing-blueprint error if there's none at the root either.
+- **`WORKSPACE_BLUEPRINTS` non-empty** → workspace blueprints exist without a persisted scope (typical of a repo where `{{COMMAND_PREFIX}}archie-deep-scan` was run inside individual workspace directories). Ask the user to pick one — {{>ask_user}}:
+  - **question:** "No monorepo scope is persisted but workspace-level blueprints were found. Pick the workspace to regenerate intent-layer for."
+  - **header:** "Workspace"
+  - **multiSelect:** false
+  - **options:** one per workspace in `WORKSPACE_BLUEPRINTS`, label `<workspace-name>`, description `Path: <workspace>`
+  - Map: `PROJECT_ROOT="$PWD/<chosen-workspace>"`.
+
+  Then offer to persist scope so future runs auto-discover — {{>ask_user}}:
+  - **question:** "Persist this as `scope=per-package` in archie_config.json so future scan / share / intent-layer commands use the recorded workspaces without re-asking?"
+  - **header:** "Persist scope"
+  - **multiSelect:** false
+  - **options:**
+    1. label `Yes — persist as per-package` — description `Records every workspace that has a blueprint into .archie/archie_config.json. Subsequent runs auto-discover them.`
+    2. label `No — just this run` — description `Use the chosen workspace only for this run. archie_config.json stays missing.`
+
+  If `Yes`, write the config. Build the workspaces array literally from `WORKSPACE_BLUEPRINTS` and the `monorepo_type` from the `--detect-subprojects` JSON output:
+  ```bash
+  echo '{"scope":"per-package","monorepo_type":"<detected-or-none>","workspaces":[<array-of-workspace-paths>]}' \
+    | python3 .archie/intent_layer.py scan-config "$PWD" write
+  ```
+
+For the remaining Phase 0 steps and all subsequent phases, use `$PROJECT_ROOT` instead of `$PWD` when passing the project root as a script argument.
+
+### Step 0.b: Check scan.json
+
+```bash
+test -f "$PROJECT_ROOT/.archie/scan.json"
 ```
 
 - **Exit 0** → scan.json exists. Continue.
 - **Exit 1** → scan.json missing. Run the scanner now:
   ```bash
-  python3 .archie/scanner.py "$PWD"
+  python3 .archie/scanner.py "$PROJECT_ROOT"
   ```
   Then continue.
 
-### Check blueprint.json (hard requirement)
+### Step 0.c: Check blueprint.json (hard requirement)
 
 ```bash
-test -f "$PWD/.archie/blueprint.json"
+test -f "$PROJECT_ROOT/.archie/blueprint.json"
 ```
 
-- **Exit 0** → blueprint exists. Continue to Phase 1.
+- **Exit 0** → blueprint exists. Continue to Step 0.d.
 - **Exit 1** → blueprint missing. **Stop execution.** Print this message verbatim and do not proceed:
 
   > **Intent Layer requires a blueprint.**
   >
   > Per-folder CLAUDE.md files are architectural descriptions — they need the project's architecture (components, decisions, responsibilities) as grounding. That architecture lives in `.archie/blueprint.json`, which is produced by `{{COMMAND_PREFIX}}archie-deep-scan`.
   >
-  > Run `{{COMMAND_PREFIX}}archie-deep-scan` first, then come back to `{{COMMAND_PREFIX}}archie-intent-layer`.
+  > Run `{{COMMAND_PREFIX}}archie-deep-scan` first against this project root, then come back to `{{COMMAND_PREFIX}}archie-intent-layer`.
 
-  Do NOT offer a degraded path. Do NOT run a partial blueprint inference. Exit.
+  Mention the resolved `PROJECT_ROOT` so the user knows where the blueprint was looked for. Do NOT offer a degraded path. Do NOT run a partial blueprint inference. Exit.
 
-### Sanity-check the blueprint
+### Step 0.d: Sanity-check the blueprint
 
 ```bash
-python3 .archie/intent_layer.py inspect "$PWD" blueprint.json --query .components.components
+python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" blueprint.json --query .components.components
 ```
 
 If the output is empty or `null`, the blueprint exists but has no components — it's malformed or mid-scan. Print:
@@ -80,8 +151,8 @@ If a previous `{{COMMAND_PREFIX}}archie-intent-layer` run was interrupted (hit a
 ### Detect partial state
 
 ```bash
-python3 .archie/intent_layer.py inspect "$PWD" enrich_state.json --query '.done|length' 2>/dev/null
-python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query '.folders|length' 2>/dev/null
+python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_state.json --query '.done|length' 2>/dev/null
+python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_batches.json --query '.folders|length' 2>/dev/null
 ```
 
 - Both return numeric N > 0 **and** `enrich_state.json.done|length > 0` → **partial state exists**. Continue to the resume-mode picker.
@@ -92,9 +163,9 @@ python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query '.fol
 If a previous orchestrator crashed between "subagent wrote /tmp file" and "orchestrator ran save-enrichment", `/tmp` may contain batch outputs that never got registered. Ingest them so they count toward the resume numbers:
 
 ```bash
-INTENT_RUN_ID=$(python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query .run_id 2>/dev/null)
+INTENT_RUN_ID=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_batches.json --query .run_id 2>/dev/null)
 [ -z "$INTENT_RUN_ID" ] || [ "$INTENT_RUN_ID" = "null" ] && INTENT_RUN_ID=""
-PROJECT_SLUG="${PWD##*/}"
+PROJECT_SLUG="${PROJECT_ROOT##*/}"
 for tmp in .archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.json; do
     [ -f "$tmp" ] || continue
     # Extract batch_id from
@@ -104,7 +175,7 @@ for tmp in .archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.json
     prefix=".archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_"
     name="${tmp#$prefix}"
     batch_id="${name%.json}"
-    python3 .archie/intent_layer.py save-enrichment "$PWD" "$batch_id" "$tmp" 2>/dev/null || true
+    python3 .archie/intent_layer.py save-enrichment "$PROJECT_ROOT" "$batch_id" "$tmp" 2>/dev/null || true
 done
 ```
 
@@ -135,7 +206,7 @@ Map the answer: Resume → `RESUME_MODE=resume`, Finalize partial → `RESUME_MO
 If `RESUME_MODE` is `resume` or `finalize_partial`, verify the last deep-scan baseline hasn't moved since the state was written:
 
 ```bash
-python3 .archie/intent_layer.py inspect "$PWD" last_deep_scan.json --query .commit_sha
+python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" last_deep_scan.json --query .commit_sha
 ```
 
 If this SHA differs from what the state was built against (compare via `git log` on the current HEAD), warn:
@@ -173,7 +244,7 @@ Map the answer: Auto → `MODE=auto`, Full → `MODE=full`, Incremental → `MOD
 If `MODE=auto`, run detect-changes to pick full or incremental based on change ratio:
 
 ```bash
-python3 .archie/intent_layer.py deep-scan-state "$PWD" detect-changes
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" detect-changes
 ```
 
 Parse the JSON output. Set `MODE` to the returned `mode` field (`full` or `incremental`). Print the `reason` to the user so they know why: *"Detected: {mode} ({reason})"*.
@@ -205,7 +276,7 @@ Otherwise expose `AFFECTED_FOLDERS` (comma-separated) for Phase 1.
 **If `MODE=incremental`**, mark only the affected folders + their ancestor chain as dirty:
 
 ```bash
-python3 .archie/intent_layer.py prepare "$PWD" --only-folders "$AFFECTED_FOLDERS"
+python3 .archie/intent_layer.py prepare "$PROJECT_ROOT" --only-folders "$AFFECTED_FOLDERS"
 ```
 
 `AFFECTED_FOLDERS` is the comma-separated list from Phase 0.5 Step B (e.g. `openmeter/billing,openmeter/ledger/entry`). The script marks those folders and every qualifying ancestor as dirty; `next-ready` will only return dirty folders, so unchanged folders keep their existing CLAUDE.md untouched.
@@ -213,21 +284,21 @@ python3 .archie/intent_layer.py prepare "$PWD" --only-folders "$AFFECTED_FOLDERS
 **If `MODE=full`**, prepare the whole DAG:
 
 ```bash
-python3 .archie/intent_layer.py prepare "$PWD"
+python3 .archie/intent_layer.py prepare "$PROJECT_ROOT"
 ```
 
 ### Reset state and ensure enrichments dir exists
 
 ```bash
-python3 .archie/intent_layer.py reset-state "$PWD"
-mkdir -p "$PWD/.archie/enrichments"
+python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
+mkdir -p "$PROJECT_ROOT/.archie/enrichments"
 ```
 
 Immediately after the `prepare` call (fresh mode) or immediately after the `mkdir -p` call (resume mode), load the temp-file namespace from the plan you will use for the rest of the run:
 
 ```bash
-INTENT_RUN_ID=$(python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query .run_id)
-PROJECT_SLUG=$(python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query .project_slug)
+INTENT_RUN_ID=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_batches.json --query .run_id)
+PROJECT_SLUG=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_batches.json --query .project_slug)
 ```
 
 This builds `.archie/enrich_batches.json` — the parent→children dependency graph over every folder with source files (plus structural parents). Leaves are processed first, then parents receive summaries of their children.
@@ -235,7 +306,7 @@ This builds `.archie/enrich_batches.json` — the parent→children dependency g
 Print a one-line progress note to the user: *"Preparing intent layer — N folders queued ({mode}), processed bottom-up."*  Derive N from:
 
 ```bash
-python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query '.folders|length'
+python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_batches.json --query '.folders|length'
 ```
 
 In incremental mode N is the size of the dirty subset (affected folders + ancestors), not the total qualifying folders — that's expected.
@@ -276,10 +347,10 @@ Loop until every folder is enriched.
 **a. Get the next ready wave:**
 
 ```bash
-python3 .archie/intent_layer.py next-ready "$PWD"
+python3 .archie/intent_layer.py next-ready "$PROJECT_ROOT"
 ```
 
-The script reads done state from `.archie/enrich_state.json` automatically. First call returns all leaf folders.
+The script reads done state from `$PROJECT_ROOT/.archie/enrich_state.json` automatically. First call returns all leaf folders.
 
 - If the output is an empty array (`[]`), all folders are done. Proceed to Phase 3.
 - Otherwise the output is a JSON array of folder paths that are ready (their children are enriched).
@@ -289,17 +360,17 @@ The script reads done state from `.archie/enrich_state.json` automatically. Firs
 Pipe the JSON output of `next-ready` directly into `suggest-batches`. Do NOT try to pass ready folders as positional argv — with large DAGs (100+ ready folders) bash word-splitting / ARG_MAX / unquoted-variable expansion all fail silently and produce zero batches:
 
 ```bash
-python3 .archie/intent_layer.py next-ready "$PWD" | python3 .archie/intent_layer.py suggest-batches "$PWD"
+python3 .archie/intent_layer.py next-ready "$PROJECT_ROOT" | python3 .archie/intent_layer.py suggest-batches "$PROJECT_ROOT"
 ```
 
-Argv still works for small test cases (`suggest-batches "$PWD" <ready1> <ready2>`) but the stdin pipe is the canonical pattern for production runs.
+Argv still works for small test cases (`suggest-batches "$PROJECT_ROOT" <ready1> <ready2>`) but the stdin pipe is the canonical pattern for production runs.
 
 Output is a JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `batch_id`) to reference batches.
 
 **c. For each batch, generate the prompt and spawn a {{ANALYSIS_MODEL}} subagent:**
 
 ```bash
-python3 .archie/intent_layer.py prompt "$PWD" --folders <comma-separated-folders> --child-summaries "$PWD/.archie/enrichments/" > .archie/tmp/archie_intent_prompt_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.txt
+python3 .archie/intent_layer.py prompt "$PROJECT_ROOT" --folders <comma-separated-folders> --child-summaries "$PROJECT_ROOT/.archie/enrichments/" > .archie/tmp/archie_intent_prompt_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.txt
 ```
 
 Read the prompt file. **Before spawning**, append the following output contract to the prompt text you pass to the subagent (so the subagent writes its result directly to disk — the orchestrator must never copy or transcribe the subagent's output). The "file path named above" for this contract is `.archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json`, and the output must be valid JSON with folder paths as keys — no prose, no code fences, no preamble:
@@ -320,7 +391,7 @@ Dispatch every sub-agent for the current wave from one orchestration step, then 
 **d. After each subagent completes, ingest its pre-written file:**
 
 ```bash
-python3 .archie/intent_layer.py save-enrichment "$PWD" <batch_id> .archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json
+python3 .archie/intent_layer.py save-enrichment "$PROJECT_ROOT" <batch_id> .archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json
 ```
 
 This extracts the JSON (handling conversation envelopes, code fences, multi-block merging), saves it to `.archie/enrichments/<batch_id>.json`, and updates `enrich_state.json` so `next-ready` can advance to the next wave.
@@ -336,7 +407,7 @@ If the subagent's confirmation reply is missing or the file is absent, skip save
 ## Phase 3: Merge enrichments into per-folder CLAUDE.md files
 
 ```bash
-python3 .archie/intent_layer.py merge "$PWD"
+python3 .archie/intent_layer.py merge "$PROJECT_ROOT"
 ```
 
 This reads every `.archie/enrichments/*.json` and writes a `CLAUDE.md` into each matching folder. Folders that already had a manually-edited `CLAUDE.md` get their notes preserved.
@@ -370,13 +441,13 @@ Re-run this command after major structural changes, or let {{COMMAND_PREFIX}}arc
 Derive N (count of enriched folders) from `.archie/enrich_state.json`:
 
 ```bash
-python3 .archie/intent_layer.py inspect "$PWD" enrich_state.json --query '.done|length'
+python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_state.json --query '.done|length'
 ```
 
 To list the enriched folder paths themselves:
 
 ```bash
-python3 .archie/intent_layer.py inspect "$PWD" enrich_state.json --query .done
+python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_state.json --query .done
 ```
 
 M (CLAUDE.md files written) is reported by `merge` on stderr in Phase 3 — capture it from that output rather than re-computing.
@@ -384,5 +455,5 @@ M (CLAUDE.md files written) is reported by `merge` on stderr in Phase 3 — capt
 ## Telemetry (run after the run completes, silent if opted out)
 
 ```bash
-python3 .archie/telemetry_sync.py record-event --command intent-layer --outcome success --project-root "$PWD" 2>/dev/null || true
+python3 .archie/telemetry_sync.py record-event --command intent-layer --outcome success --project-root "$PROJECT_ROOT" 2>/dev/null || true
 ```

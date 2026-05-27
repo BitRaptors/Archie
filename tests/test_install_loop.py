@@ -282,6 +282,39 @@ def test_codex_rendered_scope_resolution_uses_native_subagent_fanout(tmp_path: P
     assert "background Agent" not in scope
 
 
+def test_intent_layer_workflow_handles_monorepo_scope(tmp_path: Path) -> None:
+    """The standalone intent-layer workflow's Phase 0 must read the persisted
+    scope config and branch correctly for single / whole / per-package / hybrid /
+    no-config cases. This is a static check on the rendered prose — the runtime
+    behavior is exercised by the agent at /archie-intent-layer time.
+
+    Regression for a real user-hit bug: prior to this, Phase 0 just ran
+    `test -f "$PWD/.archie/blueprint.json"` and bailed with "no blueprint" even
+    when workspace-level blueprints existed (e.g. a per-package monorepo where
+    each workspace has its own blueprint at <ws>/.archie/blueprint.json)."""
+    install(tmp_path, ["claude", "codex"])
+    for cli in ("claude", "codex"):
+        body = (
+            tmp_path / ".archie" / "workflow" / cli / "intent-layer" / "SKILL.md"
+        ).read_text()
+        # Phase 0 must consult the persisted scope.
+        assert "scan-config" in body
+        assert 'PROJECT_ROOT="$PWD"' in body, "must set PROJECT_ROOT for root scope"
+        # All four documented scope branches must appear.
+        for branch in ("single", "whole", "per-package", "hybrid"):
+            assert branch in body, f"branch `{branch}` missing from Phase 0"
+        # The no-config recovery path must discover workspace blueprints on disk.
+        assert "--detect-subprojects" in body
+        assert "WORKSPACE_BLUEPRINTS" in body
+        # And offer to persist scope going forward.
+        assert "Persist scope" in body or "Persist this as" in body
+        # Downstream phases must address PROJECT_ROOT, not $PWD.
+        # Phase 1+ scripts all take PROJECT_ROOT as the first positional arg.
+        assert 'next-ready "$PROJECT_ROOT"' in body
+        assert 'merge "$PROJECT_ROOT"' in body
+        assert 'prepare "$PROJECT_ROOT"' in body
+
+
 def test_install_drops_self_ignoring_archie_tmp_gitignore(tmp_path: Path) -> None:
     """.archie/tmp/ holds transient run artifacts (Wave 1 outputs, rules,
     enrichments). A self-ignoring `.gitignore` lives there so the user can
