@@ -15,7 +15,9 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 | Harness | Status | How it integrates |
 |---|---|---|
 | **Claude Code** (Anthropic) | **stable** — primary target | `.claude/commands/*.md` shims, `.claude/settings.local.json` hooks |
-| [**OpenAI Codex CLI**](https://developers.openai.com/codex/cli) | **beta** | `.agents/skills/*/SKILL.md` shims, `.codex/hooks.json` with absolute paths + Codex-native matchers, idempotent `~/.codex/config.toml` patch |
+| [**OpenAI Codex CLI**](https://developers.openai.com/codex/cli) | **🚧 BETA — may contain errors** | `.agents/skills/*/SKILL.md` shims, `.codex/hooks.json`, `.codex/agents/archie-analysis.toml` custom subagent, `.codex/rules/archie.rules` execpolicy auto-approvals, idempotent `~/.codex/config.toml` patch (`[agents]` + `[projects."<abs>"] trust_level = "trusted"`) |
+
+> **⚠️ Codex CLI support is BETA and may contain errors.** The connector framework is in place and a clean install produces every artifact the rendered workflow expects, but the runtime path — native Codex subagent fan-out for Wave 1 / Intent Layer / monorepo workspaces, execpolicy auto-approvals at scan time, the project-trust gate, sandbox / approval interactions — has not been exhaustively validated against every Codex version, sandbox mode, or session shape. Expect rough edges: a prompt for a command we didn't anticipate, a subagent that needs steering, an approval prompt for a sandbox escalation, or a sub-step that benefits from a manual nudge. **Use Claude Code for production-quality scans;** treat Codex runs as evaluation runs and flag any unexpected prompt or behaviour so we can patch the catalogue / wording.
 
 Both CLIs run the **same workflow**. Each command is authored once as a canonical template; the installer renders it per-CLI into `.archie/workflow/<cli>/`, so Claude's installed copy reads natively (`Opus`, `Agent tool`, `AskUserQuestion`) and Codex's reads natively (`gpt-5`, native Codex subagents, direct conversation prompts) — identical step logic, no shared runtime indirection. Both run the same Python analysis pipeline and invoke the same canonical hook scripts at `.archie/hooks/`. One source of truth. See "Multi-CLI install" below.
 
@@ -41,7 +43,7 @@ The picker is shown only in a real terminal. Non-TTY stdin (CI, scripts) skips t
 
 ## Multi-CLI install (Claude + Codex)
 
-> **Status:** Claude Code is the stable, primary supported harness. **Codex CLI is in BETA** — the connector architecture is in place and end-to-end installs work, but some edge cases (Codex's interactive hook-trust gate) have not been validated against every provider/session configuration. Production use on Claude Code is recommended; treat Codex as preview.
+> **🚧 Status: Codex CLI is BETA and may contain errors.** Claude Code is the stable, primary supported harness — every scan path has been validated end-to-end and runs prompt-free. The Codex connector ships everything the runtime needs (native-subagent dispatch wording, project-scoped `archie_analysis` custom agent, execpolicy Rules pre-approving the deep-scan command surface, project trust marker, `[agents]` settings, workspace-relative `.archie/tmp/` artifacts so the default `workspace-write` sandbox covers writes), but the actual deep-scan-on-Codex flow has not been exhaustively validated across Codex versions, sandbox modes, hook-trust gates, or recursive subagent depth limits. Use Claude Code for production scans. Treat Codex runs as evaluation runs and flag anything unexpected.
 
 Archie ships a connector-based install loop that targets both CLIs from one command. Each command's workflow is authored once as a canonical template; the install loop renders it through each connector's render map into `.archie/workflow/<cli>/`, fully native to that CLI. Each CLI then gets a thin shim in its idiom — Claude reads `.claude/commands/*.md`, Codex parent-walks `.agents/skills/*/SKILL.md` — pointing at its rendered workflow. Both invoke the same canonical hook scripts at `.archie/hooks/`. One install, one source of truth.
 
@@ -429,7 +431,7 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | `CLAUDE.md` | Thin pointer to `AGENTS.md` (so Claude Code and agent-agnostic tools load the same context) |
 | Per-folder `CLAUDE.md` | Directory-level context with patterns, anti-patterns, code examples (only if Intent Layer opt-in) |
 | `.claude/hooks/*.sh` | Claude-deployed copies of the canonical hook scripts |
-| `.claude/settings.local.json` | Claude hook bindings + 29-entry permissions allow list |
+| `.claude/settings.local.json` | Claude hook bindings + 27-entry permissions allow list (catalogue-driven from `manifest_data.py::COMMAND_RULES` + Claude-specific file/Agent perms) |
 | `.claude/rules/*.md` | Topic-split rule files (architecture, patterns, guidelines, pitfalls, dev-rules) + browsable `enforcement/` directory |
 | `.archie/hooks/*.sh` | Canonical hook scripts (`pre-validate.sh`, `pre-commit-review.sh`, `blueprint-nudge.sh`, `post-plan-review.sh`, `post-lint.sh`, `pre-turn.sh`, `stop.sh`) — invoked by all CLIs |
 | `.archie/workflow/<cli>/` | The workflow rendered for each installed CLI — one `<command>/SKILL.md` per command plus deep-scan's per-step files. Native wording per CLI, identical logic. |
@@ -527,11 +529,18 @@ Once installed via `npx @bitraptors/archie`, seven hooks are wired up per detect
 - **PostToolUse (Write|Edit|MultiEdit)** — `post-lint.sh`. **Opt-in external linter gate**: when `.archie/enforcement.json` has `{"enabled": true}`, runs the project's native linter (ruff / eslint / golangci-lint / semgrep) on the changed file and blocks on failure. Auto-detects based on config files (`pyproject.toml [tool.ruff]`, `.eslintrc`, `.golangci.yaml`, `.semgrep.yml`) + binary on PATH. Silent no-op when config is missing.
 - **Stop** — `stop.sh`. Defensive cleanup at turn end: removes the per-turn rule-injection marker (`/tmp/.archie_turn_$HASH`) so any next session starts fresh. Harmless if the marker has already been cleared by `pre-turn.sh`.
 
-All hooks fail open: missing rules/config/marker files → hooks exit 0 silently. The Claude installer also writes a comprehensive `allow` list (29 entries) into `.claude/settings.local.json` — covering Python script execution, git / sort / head / test / wc, temp files under `.archie/tmp/archie_*`, reads/writes under `.archie/**`, per-folder CLAUDE.md, and `Agent(*)` for subagent spawning — so the scan workflow runs without permission prompts. Codex uses its own approval modes (`workspace-write` is recommended for the scan scripts to write to `.archie/`).
+All hooks fail open: missing rules/config/marker files → hooks exit 0 silently.
+
+**Permissions & approvals — both CLIs run prompt-free by design.** The shared catalogue in `archie/manifest_data.py::COMMAND_RULES` (22 entries — shell utilities + read-only git + `codex exec` for the Step-9 verifier) plus the canonical script list from `install._STANDALONE_SCRIPTS` (31 scripts) is rendered to each CLI's native auto-approve mechanism:
+
+- **Claude** — `.claude/settings.local.json` carries a 27-entry `allow` list covering `Bash(python3 .archie/*.py *)`, file Read/Write/Edit on `.archie/**`, `Agent(*)`, and the catalogue's shell utilities. Written by `ClaudeConnector.finalize()`.
+- **Codex** — `<project>/.codex/rules/archie.rules` carries **53 Starlark `prefix_rule(decision="allow", …)`** entries (one per Python script + one per catalogue entry), validated locally with `codex execpolicy check`. **🚧 This path is BETA** — execpolicy + project-scoped `.codex/` loading only takes effect when `~/.codex/config.toml` contains `[projects."<abs-path>"] trust_level = "trusted"` (the installer writes this set-if-absent — installing Archie *is* the trust act, but if you've manually marked the project untrusted that choice is respected and the rules are silently skipped).
+
+**What stays interactive (by design):** mutating git (`commit`, `push`, `reset`, `rebase`, `checkout`), the one-time `/archie-share` network-egress prompt on Codex's `workspace-write` sandbox, and anything outside the catalogue.
 
 **Subagent output contract** — varies per CLI but produces the same merged outputs:
-- **Claude** — every Sonnet/Opus subagent spawned via the Agent tool gets a mandatory instruction to Write its output directly to `.archie/tmp/archie_*.json` (permissioned via `Write(/.archie/tmp/archie_*)`). The orchestrator never copies subagent transcripts, which avoids Claude Code's sensitive-file guardrail on `.claude/projects/.../subagents/*.jsonl`. Zero permission prompts during any scan.
-- **Codex** — the orchestrator reads the Wave-1 sub-agent prompts straight from the rendered workflow and asks Codex to spawn one native subagent per prompt. The installer adds project-scoped `.codex/config.toml` `[agents]` limits plus `.codex/agents/archie-analysis.toml`, so Codex can run the workers in parallel through its own subagent system; each worker writes its output file directly, per the output contract baked into its prompt.
+- **Claude** — every Sonnet/Opus subagent spawned via the Agent tool gets a mandatory instruction (the connector-rendered `{{>output_contract}}` partial) to Write its output to `.archie/tmp/archie_*.json`. The orchestrator never copies subagent transcripts, which avoids Claude Code's sensitive-file guardrail on `.claude/projects/.../subagents/*.jsonl`. Zero permission prompts during any scan.
+- **Codex** — the rendered workflow asks Codex to spawn one native subagent per Wave-1 / Intent-Layer / workspace task, using the project-scoped `archie_analysis` custom agent (or built-in `worker` as fallback). Codex waits for the full set to finish and returns a consolidated response per its documented model. Each worker writes its output file via `apply_patch` under the default `workspace-write` sandbox (covered natively since `.archie/tmp/` is workspace-relative — no sandbox widening needed). **🚧 This dispatch path is BETA** — the natural-language "ask Codex to spawn the archie_analysis subagent per task" invocation isn't formally specified in the Codex docs (only natural-language examples are shown), so the exact wording and Codex's response to it have only been validated for representative test cases.
 
 ## Rules
 
@@ -589,7 +598,7 @@ The first time you run an Archie command (`/archie-scan`, `/archie-deep-scan`, e
 - **anonymous** — same payload but the installation ID is stripped before upload. Each event is unlinkable.
 - **off** — nothing leaves your machine.
 
-**What's collected** (when telemetry is on): command name (`scan` / `deep-scan` / `viewer` / `share` / `intent-layer` / `install`), Archie version, OS / arch (`darwin` / `arm64`, etc.), per-step durations, outcome, and detected stack categories (e.g. `kotlin` / `gradle` / `android`).
+**What's collected** (when telemetry is on): command name (`scan` / `deep-scan` / `viewer` / `share` / `intent-layer` / `install`), Archie version, OS / arch (`darwin` / `arm64`, etc.), per-step durations, outcome, detected stack categories (e.g. `kotlin` / `gradle` / `android`), and **`cli`** — which coding-agent harness drove the run (`claude` / `codex` / `unknown`), detected at scan time from `CLAUDECODE` env / Codex CLI on `PATH`. The `cli` dimension is what lets us see Codex BETA usage separately from Claude in our analytics.
 
 **What is never collected**: source code, file paths, repo names, blueprint contents, error messages from your code. Local-only fields (e.g. `_project_basename`) are stripped before upload — they appear only in the local dashboard.
 
