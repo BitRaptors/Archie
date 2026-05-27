@@ -1,9 +1,18 @@
 """CodexConnector — installs Archie for OpenAI Codex CLI.
 
 Writes:
-  .agents/skills/archie-*/SKILL.md  — slash-command shims (parent-walk discovered)
-  .codex/hooks.json                  — hook registrations referencing .archie/hooks/*.sh
-  ~/.codex/config.toml               — idempotent merge: project_doc_max_bytes + fallback_filenames
+  .agents/skills/archie-*/SKILL.md    — slash-command shims (parent-walk discovered)
+  .codex/hooks.json                    — hook registrations referencing .archie/hooks/*.sh
+  .codex/agents/archie-analysis.toml   — project-scoped custom subagent definition
+  .codex/rules/archie.rules            — execpolicy Rules pre-approving the workflow's
+                                          shell command surface (per
+                                          developers.openai.com/codex/rules)
+  ~/.codex/config.toml *(patched)*     — idempotent merge: project_doc_max_bytes +
+                                          fallback_filenames (top-level), [agents]
+                                          max_threads + max_depth (set-if-absent),
+                                          [projects."<abs>"] trust_level = "trusted"
+                                          (set-if-absent) so the project-scoped
+                                          .codex/ layer above actually loads
 
 See docs/plans/2026-05-18-multi-agent-connector-architecture.md §9.2 and
 docs/plans/HANDOFF_CODEX.md for the full implementation contract. Codex
