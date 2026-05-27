@@ -89,7 +89,7 @@ copy or transcribe a subagent's output yourself.
 
 All spawned sub-agents (3 always + UI Layer and/or Data as applicable) run at the {{ANALYSIS_MODEL}} model. {{>dispatch_parallel}}
 
-After the parallel dispatch returns, record per-agent counts for trend tracking. Each call no-ops gracefully when its source file is missing (skipped agent — sub5 absent when `has_persistence_signal == false`). Stays inside the `python3 -c *` allowlist entry already covered by `ARCHIE_PERMISSIONS`:
+After the parallel dispatch returns, record per-agent counts for trend tracking. Each call no-ops gracefully when its source file is missing (skipped agent — sub5 absent when `has_persistence_signal == false`). Uses the standard `python3 -c …` form that both Claude and Codex auto-approve via the installer's command catalogue — no new permission rules needed:
 
 ```bash
 DATA_COUNT=$(python3 -c "import json,os,sys; p=sys.argv[1]; print(len((json.load(open(p)).get('data_models') or [])) if os.path.exists(p) else 0)" .archie/tmp/archie_sub5_$PROJECT_NAME.json)
