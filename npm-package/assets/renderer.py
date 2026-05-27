@@ -738,6 +738,115 @@ def _build_infrastructure_rule(bp: dict):
     }
 
 
+def _build_data_models_rule(bp: dict):
+    """Persistence stores, data models, and per-model lifecycle.
+
+    Renders the full `data_models` + `persistence_stores` blueprint sections
+    so an agent touching a model has the lifecycle context (how_to_add,
+    how_to_modify, how_to_read, backup_strategy, related_business_logic,
+    tests) without re-reading the blueprint. Returns None when neither
+    section is populated — silently elides for repos with no persistence.
+    """
+    data_models = bp.get("data_models") or []
+    persistence_stores = bp.get("persistence_stores") or []
+    if not data_models and not persistence_stores:
+        return None
+
+    lines: list[str] = []
+
+    if persistence_stores:
+        lines.append("## Persistence Stores")
+        lines.append("")
+        for s in persistence_stores:
+            if not isinstance(s, dict):
+                continue
+            name = s.get("name", "")
+            engine = s.get("engine", "")
+            role = s.get("role", "")
+            mig = s.get("migrations_dir", "")
+            backup = s.get("backup_strategy", "")
+            owned = s.get("owned_models") or []
+            lines.append(f"### `{name}`")
+            if engine:
+                lines.append(f"- **Engine:** {engine}")
+            if role:
+                lines.append(f"- **Role:** {role}")
+            if mig:
+                lines.append(f"- **Migrations dir:** `{mig}`")
+            if backup:
+                lines.append(f"- **Backup:** {backup}")
+            if owned:
+                lines.append(f"- **Owned models:** {', '.join(owned)}")
+            lines.append("")
+
+    if data_models:
+        lines.append("## Models")
+        lines.append("")
+        for m in data_models:
+            if not isinstance(m, dict):
+                continue
+            name = m.get("name", "")
+            kind = m.get("kind", "")
+            location = m.get("location", "")
+            store = m.get("store", "")
+            owner = m.get("owned_by_component", "")
+            key_fields = m.get("key_fields") or []
+            invariants = m.get("invariants") or []
+            lifecycle = m.get("lifecycle") or {}
+
+            head = f"### `{name}`"
+            if kind:
+                head += f" *({kind})*"
+            lines.append(head)
+            if location:
+                lines.append(f"- **Location:** `{location}`")
+            if store:
+                lines.append(f"- **Store:** `{store}`")
+            if owner:
+                lines.append(f"- **Owner:** `{owner}`")
+            if key_fields:
+                lines.append(f"- **Key fields:** {', '.join(f'`{k}`' for k in key_fields)}")
+            if invariants:
+                lines.append("- **Invariants:**")
+                for inv in invariants:
+                    lines.append(f"  - {inv}")
+
+            if isinstance(lifecycle, dict) and any(lifecycle.get(k) for k in (
+                "how_to_add", "how_to_modify", "how_to_read",
+                "backup_strategy", "related_business_logic", "tests",
+            )):
+                lines.append("- **Lifecycle:**")
+                for label, key in (
+                    ("How to add", "how_to_add"),
+                    ("How to modify", "how_to_modify"),
+                    ("How to read", "how_to_read"),
+                    ("Backup", "backup_strategy"),
+                ):
+                    val = lifecycle.get(key) or ""
+                    if val:
+                        lines.append(f"  - *{label}:* {val}")
+                rbl = lifecycle.get("related_business_logic") or []
+                if rbl:
+                    lines.append(
+                        "  - *Related business logic:* "
+                        + ", ".join(f"`{p}`" for p in rbl)
+                    )
+                tests = lifecycle.get("tests") or []
+                if tests:
+                    lines.append(
+                        "  - *Tests:* " + ", ".join(f"`{p}`" for p in tests)
+                    )
+            lines.append("")
+
+    return {
+        "topic": "data-models",
+        "body": "\n".join(lines).rstrip(),
+        "description": "Persistence stores, data models, per-model lifecycle (how to add/modify/read, backups, tests)",
+        "always_apply": False,
+        "globs": [],
+    }
+
+
 # Keywords that mark a command as "essential" — what an agent reaches for
 # in 80% of sessions. Anything not matching one of these gets pushed to
 # the technology.md catalog and out of the lean root file.
@@ -976,6 +1085,45 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
             lines.append(f"**CI/CD:** {', '.join(cleaned)}")
         lines.append("")
 
+    # Data Models — concise overview; full lifecycle lives in
+    # .claude/rules/data-models.md (rendered by _build_data_models_rule).
+    # Section is elided entirely on blueprints with no data surface.
+    data_models = bp.get("data_models") or []
+    persistence_stores = bp.get("persistence_stores") or []
+    if data_models or persistence_stores:
+        lines.append("## Data Models")
+        lines.append("")
+        if persistence_stores:
+            lines.append("**Stores:**")
+            for s in persistence_stores:
+                if not isinstance(s, dict):
+                    continue
+                name = s.get("name", "")
+                engine = s.get("engine", "")
+                role = s.get("role", "")
+                owned = s.get("owned_models") or []
+                meta_parts = [p for p in (engine, f"role: {role}" if role else "") if p]
+                head = f"- `{name}`"
+                if meta_parts:
+                    head += f" ({', '.join(meta_parts)})"
+                if owned:
+                    head += f" — owns: {', '.join(owned)}"
+                lines.append(head)
+            lines.append("")
+        if data_models:
+            lines.append("**Models** (full lifecycle in [`.claude/rules/data-models.md`](.claude/rules/data-models.md)):")
+            for m in data_models[:8]:
+                if not isinstance(m, dict):
+                    continue
+                lines.append(
+                    f"- `{m.get('name','')}` ({m.get('kind','')}) — `{m.get('location','')}`"
+                )
+            if len(data_models) > 8:
+                lines.append(
+                    f"- _… {len(data_models) - 8} more in [`.claude/rules/data-models.md`](.claude/rules/data-models.md)_"
+                )
+            lines.append("")
+
     # Architecture Diagram
     diagram = bp.get("architecture_diagram") or ""
     if diagram:
@@ -1076,6 +1224,7 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
         ("architecture", "Components, file placement, naming conventions"),
         ("patterns", "Communication patterns, integrations, key decisions, trade-offs (with violation signals)"),
         ("technology", "Tech stack, project structure, code templates, testing tooling"),
+        ("data-models", "Persistence stores, data models, per-model lifecycle (how to add/modify/read, backups, tests)"),
         ("guidelines", "Implementation guidelines for existing capabilities"),
         ("pitfalls", "Documented traps with evidence + fix direction"),
         ("dev-rules", "Coding-time imperatives (patterns, anti-patterns, boundaries, wiring)"),
@@ -1091,6 +1240,7 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
         "architecture": bool(_get(bp, "components", "components") or _get(bp, "architecture_rules", "file_placement_rules")),
         "patterns": bool(_get(bp, "communication", "patterns") or _get(bp, "decisions", "key_decisions") or _get(bp, "decisions", "trade_offs")),
         "technology": bool(_get(bp, "technology", "stack") or _get(bp, "technology", "project_structure") or _get(bp, "technology", "templates")),
+        "data-models": bool(bp.get("data_models") or bp.get("persistence_stores")),
         "guidelines": bool(bp.get("implementation_guidelines")),
         "pitfalls": bool(bp.get("pitfalls")),
         "dev-rules": bool(bp.get("development_rules")),
@@ -1517,6 +1667,7 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
         _build_pitfalls_rule,
         _build_dev_rules_rule,
         _build_infrastructure_rule,
+        _build_data_models_rule,
     ]
 
     for builder in builders:

@@ -82,6 +82,7 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > - `file_placement` — derived from `blueprint.architecture_rules.file_placement_rules` (or directly observed): which kind of file belongs under which directory. Pair with `severity_class: "pattern_divergence"` by default; bump to `mechanical_violation` when a regex is reliable.
 > - `naming_convention` — derived from `blueprint.architecture_rules.naming_conventions`: which file/identifier names must follow which pattern. Pair with `severity_class: "mechanical_violation"` when expressible as a file-basename regex.
 > - `coding_practice` — derived from `blueprint.development_rules` (or `infrastructure_rules` when build/CI-flavored): general guidance the agent should remember at edit time. Pair with `severity_class: "pattern_divergence"` (informational).
+> - `data_contract` — derived from `blueprint.data_models[*].invariants` or `blueprint.data_models[*].lifecycle`: a structural rule about a data model (FK / unique / NOT-NULL invariant, repository-only-read, idempotency requirement, migration procedure). Pair with `severity_class: "decision_violation"` when the invariant is FK/unique/NOT-NULL — those are schema-enforced contracts; pair with `pattern_divergence` for repository discipline and lifecycle reminders. The hook fires when editing files inside the model's `location` or its `lifecycle.related_business_logic`.
 >
 > `kind` and `severity_class` are not redundant: `kind` is *what the rule is about* (UI grouping), `severity_class` is *how the hook responds* (enforcement behavior).
 >
@@ -90,6 +91,8 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > Prefer one of these recommended cross-platform topics:
 >
 > - `data-access` — fetching, persisting, caching, ORMs, network
+> - `data-modeling` — entity declarations, FK/unique/NOT-NULL invariants, repository discipline, idempotency keys (rules derived from `blueprint.data_models[*].invariants` typically land here)
+> - `schema-evolution` — migration discipline, backward-compatible field renames, never-edit-old-migrations (rules derived from `blueprint.data_models[*].lifecycle.how_to_modify` typically land here)
 > - `concurrency` — async/reactive primitives, threads, schedulers
 > - `ui` — view layer, components, styling, layout
 > - `navigation` — routing, deep links, screen transitions
@@ -295,6 +298,9 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > | `architecture_rules.naming_conventions[*]` | `naming_convention` | `mechanical_violation` (file-basename regex) or `pattern_divergence` |
 > | `development_rules[*]` | `coding_practice` | `pattern_divergence` |
 > | `infrastructure_rules[*]` | `coding_practice` | `pattern_divergence` |
+> | `data_models[*].invariants` (FK / unique / NOT-NULL / soft-delete / audit) | `data_contract` | `decision_violation` (schema-enforced contract) |
+> | `data_models[*].lifecycle.how_to_*` (modify/read discipline) | `data_contract` | `pattern_divergence` |
+> | `persistence_stores[*]` (e.g. "all reads via cache before primary", "queue-only writes") | `data_contract` | `pattern_divergence` |
 >
 > Do NOT skip a section because "those aren't 'real' rules" — if it's in the blueprint, the agent should know about it, and the only way the agent learns about it is for you to emit it into proposed_rules.json so the user adopts it. Aim for ≥1 emitted rule per non-empty section.
 >

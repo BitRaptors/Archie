@@ -941,6 +941,151 @@ export function ComponentsSection({ components }: { components: any[] }) {
   )
 }
 
+export function DataModelsSection({ models, stores }: { models: any[]; stores: any[] }) {
+  return (
+    <section className="space-y-4" id="data-models">
+      <SectionHeader title="Data Models" icon={Database} />
+
+      {stores.length > 0 && (
+        <div className="space-y-3">
+          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Persistence Stores</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {stores.map((s: any, i: number) => (
+              <div key={i} className={cn("p-4 rounded-2xl border", theme.surface.panel)}>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="font-bold text-ink truncate">{s.name}</h3>
+                  {s.role && (
+                    <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">{s.role}</Badge>
+                  )}
+                </div>
+                {s.engine && (
+                  <div className="text-sm text-ink/70 mb-1">{s.engine}</div>
+                )}
+                {s.migrations_dir && (
+                  <div className="mt-2">
+                    <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mr-1">Migrations:</span>
+                    <PathChip path={s.migrations_dir} className="text-[10px]" />
+                  </div>
+                )}
+                {s.backup_strategy && (
+                  <div className="mt-2 text-sm text-ink/70 italic"><Prose value={s.backup_strategy} /></div>
+                )}
+                {Array.isArray(s.owned_models) && s.owned_models.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {s.owned_models.map((m: string, j: number) => (
+                      <Badge key={j} variant="outline" className="text-[10px]">{m}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {models.length > 0 && (
+        <div className="space-y-3">
+          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Models</div>
+          <div className="grid gap-4">
+            {models.map((m: any, i: number) => {
+              const lifecycle = m?.lifecycle || {}
+              const hasLifecycle = lifecycle && (
+                lifecycle.how_to_add || lifecycle.how_to_modify || lifecycle.how_to_read ||
+                lifecycle.backup_strategy ||
+                (Array.isArray(lifecycle.related_business_logic) && lifecycle.related_business_logic.length > 0) ||
+                (Array.isArray(lifecycle.tests) && lifecycle.tests.length > 0)
+              )
+              return (
+                <div key={i} className={cn("rounded-3xl border overflow-hidden transition-all group hover:shadow-xl hover:-translate-y-0.5", theme.surface.panel)}>
+                  <details className="group/details">
+                    <summary className="list-none cursor-pointer p-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="p-3 rounded-2xl bg-white border border-papaya-400 shadow-sm group-hover:border-teal/30 transition-colors">
+                            <Database className="w-5 h-5 text-teal" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-bold text-lg text-ink truncate">{m.name}</h3>
+                              {m.kind && (
+                                <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">{m.kind}</Badge>
+                              )}
+                              {m.store && (
+                                <Badge className="text-[10px] uppercase font-bold tracking-wider bg-teal/10 border-teal/20 text-teal">{m.store}</Badge>
+                              )}
+                            </div>
+                            {m.location && (
+                              <div className="mt-1 block truncate">
+                                <PathChip path={m.location} className="text-[10px]" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-ink/20 group-open/details:rotate-90 transition-transform shrink-0" />
+                      </div>
+                    </summary>
+                    <div className="px-6 pb-6 pt-2 border-t border-papaya-400/30 bg-white/30 backdrop-blur-sm space-y-6">
+                      {m.owned_by_component && (
+                        <div className="text-sm">
+                          <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mr-2">Owner:</span>
+                          <code className={codeInlineClassName}>{m.owned_by_component}</code>
+                        </div>
+                      )}
+                      <div className="grid md:grid-cols-2 gap-8">
+                        {Array.isArray(m.key_fields) && m.key_fields.length > 0 && (
+                          <FieldList label="Key fields" items={m.key_fields} mono />
+                        )}
+                        {Array.isArray(m.invariants) && m.invariants.length > 0 && (
+                          <FieldList label="Invariants" items={m.invariants} mono />
+                        )}
+                      </div>
+                      {hasLifecycle && (
+                        <div className="space-y-3">
+                          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Lifecycle</div>
+                          {lifecycle.how_to_add && (
+                            <div className="text-sm">
+                              <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">How to add:</span>
+                              <span className="text-ink/70"><AutoCode text={lifecycle.how_to_add} /></span>
+                            </div>
+                          )}
+                          {lifecycle.how_to_modify && (
+                            <div className="text-sm">
+                              <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">How to modify:</span>
+                              <span className="text-ink/70"><AutoCode text={lifecycle.how_to_modify} /></span>
+                            </div>
+                          )}
+                          {lifecycle.how_to_read && (
+                            <div className="text-sm">
+                              <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">How to read:</span>
+                              <span className="text-ink/70"><AutoCode text={lifecycle.how_to_read} /></span>
+                            </div>
+                          )}
+                          {lifecycle.backup_strategy && (
+                            <div className="text-sm">
+                              <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">Backup:</span>
+                              <span className="text-ink/70 italic">{lifecycle.backup_strategy}</span>
+                            </div>
+                          )}
+                          {Array.isArray(lifecycle.related_business_logic) && lifecycle.related_business_logic.length > 0 && (
+                            <FieldList label="Related business logic" items={lifecycle.related_business_logic} mono />
+                          )}
+                          {Array.isArray(lifecycle.tests) && lifecycle.tests.length > 0 && (
+                            <FieldList label="Tests" items={lifecycle.tests} mono />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function TradeOffsSection({ tradeoffs }: { tradeoffs: any[] }) {
   return (
     <section className="space-y-4">

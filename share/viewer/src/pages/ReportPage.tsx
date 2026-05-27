@@ -173,6 +173,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       'guidelines',
       'communications',
       'components',
+      'data-models',
       'integrations',
       'technology',
       'deployment',
@@ -292,6 +293,9 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
   const stack = Array.isArray(technology.stack) ? technology.stack : []
   const runCommands = technology.run_commands || {}
   const deployment = bp.deployment || {}
+  const dataModels = Array.isArray(bp.data_models) ? bp.data_models : []
+  const persistenceStores = Array.isArray(bp.persistence_stores) ? bp.persistence_stores : []
+  const hasDataSurface = dataModels.length > 0 || persistenceStores.length > 0
   const implementationGuidelines = [
     ...(bp.implementation_guidelines || []),
     ...(bp.decisions?.implementation_guidelines || []),
@@ -538,7 +542,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           )}
 
           {/* Inventory */}
-          {(componentsList.length > 0 || stack.length > 0 || integrations.length > 0) && (
+          {(componentsList.length > 0 || stack.length > 0 || integrations.length > 0 || hasDataSurface) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Inventory</p>
               {componentsList.length > 0 && (
@@ -547,6 +551,14 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                   onClick={() => scrollToSection('components')}
                   icon={Database}
                   label="Components"
+                />
+              )}
+              {hasDataSurface && (
+                <NavButton
+                  active={activeSection === 'data-models'}
+                  onClick={() => scrollToSection('data-models')}
+                  icon={Database}
+                  label="Data Models"
                 />
               )}
               {integrations.length > 0 && (
@@ -837,6 +849,13 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           {componentsList.length > 0 && (
             <section id="components" className="scroll-mt-24">
               <Sections.ComponentsSection components={componentsList} />
+            </section>
+          )}
+
+          {/* 10a. Data Models — persistence stores + per-model lifecycle */}
+          {hasDataSurface && (
+            <section id="data-models" className="scroll-mt-24">
+              <Sections.DataModelsSection models={dataModels} stores={persistenceStores} />
             </section>
           )}
 
