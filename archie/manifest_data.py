@@ -113,6 +113,19 @@ COMMAND_RULES = [
         claude_glob="Bash(python3 -c *)",
         justification="Inline Python — Archie workflow uses for JSON inspection",
     ),
+    # Codex spawning Codex for the headless finding-verifier in Step 9 drift.
+    # verify_findings.py shells out to `codex exec --sandbox read-only …`
+    # (see archie/standalone/agent_cli.py::_run_codex). Without this rule the
+    # parent Codex session would prompt mid-Step-9 on every verified finding.
+    CommandRule(
+        name="codex-exec",
+        codex_pattern=("codex", "exec"),
+        claude_glob="Bash(codex exec *)",
+        justification=(
+            "verify_findings.py spawns `codex exec` for per-finding model "
+            "calls during Step 9 drift verification"
+        ),
+    ),
     # Filesystem prep / inspection
     CommandRule(
         name="mkdir",
@@ -241,12 +254,21 @@ COMMAND_RULES = [
         justification="Show git object contents",
     ),
     # `git -C <dir> <subcmd>` — workflow uses for scoped subdirectory
-    # operations. Narrow it to known read-only subcommands.
+    # read operations (e.g. `git -C <dir> log`). Codex's argv-prefix matcher
+    # cannot narrow past the dynamic <dir> token, so the rule's prefix is
+    # just ("git","-C"); workflow only invokes this with read-only
+    # subcommands, but a user manually running `git -C <dir> push` during a
+    # scan would also be auto-approved by this entry. Acknowledged broad
+    # scope, justified by the workflow's actual usage.
     CommandRule(
         name="git-c-scoped",
         codex_pattern=("git", "-C"),
         claude_glob="Bash(git -C*)",
-        justification="git -C <dir> read-only subcommands",
+        justification=(
+            "Scoped git for a subdirectory: `git -C <dir> log/status/diff/…`. "
+            "Codex argv-prefix cannot narrow past the dynamic <dir> token; "
+            "the workflow only uses this with read-only git subcommands"
+        ),
     ),
 ]
 
