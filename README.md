@@ -18,8 +18,6 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 npx @bitraptors/archie /path/to/your/project
 ```
 
-![archie-scan demo](docs/assets/archie-scan-demo.gif)
-
 The installer shows an interactive multi-select with detected CLIs pre-selected, copies standalone scripts + hook scripts, renders the canonical workflow per CLI into `.archie/workflow/<cli>/`, writes per-CLI shims and hook bindings, patches `~/.codex/config.toml` non-destructively, builds the local viewer (cached by version), and drops `.archieignore` + `.archiebulk` + `.gitignore` entries. Clean install — upgrades replace in place. The first Archie command you run asks once about anonymous usage telemetry (opt-in).
 
 **Options:**
@@ -42,6 +40,8 @@ Non-TTY stdin (CI, scripts) skips the prompt and defaults to `--target=all`. See
 Run `/archie-deep-scan` once to establish a baseline, then `/archie-scan` for ongoing checks (each scan compounds on previous knowledge). `/archie-deep-scan` is a modular per-step workflow that survives `/compact` and resumes via `--continue` / `--from N`. `/archie-viewer` runs the **same React UI as the hosted share viewer**, served locally at `localhost:5847/local` — no upload, all data stays on your machine.
 
 ### `/archie-scan` in action
+
+![archie-scan demo](docs/assets/archie-scan-demo.gif)
 
 <details>
 <summary>Example scan output (this is the actual agent summary — the underlying blueprint is much richer)</summary>
