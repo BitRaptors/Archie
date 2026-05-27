@@ -17,6 +17,8 @@ Archie scans your repo and builds a **semantic blueprint** — not a file index 
 - **Implementation guidelines** — how features were actually built in *this* repo (libraries, key files, usage examples)
 - **Rules** — enforced at edit time, carrying inline semantic content (severity class, rationale, canonical example, links back to the motivating decision)
 
+**Per-folder Intent Layer.** Archie also writes a `CLAUDE.md` inside *every significant folder*, distilling the blueprint down to just what matters for files there: which patterns this folder uses, what belongs here vs. elsewhere, the anti-patterns specific to this layer, the key files with modification notes. When the agent opens `src/api/routes/`, Claude Code (and Codex via `AGENTS.md`) auto-loads that folder's context — the agent already knows the local conventions before it touches a single file. No `Glob`, no `Grep`, no "let me first read a few files to understand the pattern" round-trips. The context for the work is always already in scope.
+
 Pre-tool-use hooks are the active gate — when the agent tries to write a file that violates a decision, the hook exits with the rule plus the architectural reason, and the agent retries. The reason it can do this without a separate lookup round-trip is that the *why* lives inside the rule, derived from the semantic blueprint.
 
 Works with any language. Zero runtime dependencies for standalone scripts.
@@ -25,7 +27,7 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 
 ## How It Works
 
-A multi-wave AI pipeline produces a structured `blueprint.json` (decisions, components, pitfalls, rules) from your repo. At edit time, seven hooks gate the coding agent — blocking decision violations, warning on trade-off undermines, informing on pattern divergence. Findings compound across scans (id-stable upserts, novelty escalation), and deep-scans are resumable via `--incremental`, `--continue`, and `--from N`.
+A multi-wave AI pipeline produces a structured `blueprint.json` (decisions, components, pitfalls, rules) from your repo. The **Intent Layer** (opt-in) then projects the blueprint per-directory, writing a `CLAUDE.md` into every significant folder so agents auto-load the local conventions the moment they work there — zero exploration round-trips. At edit time, seven hooks gate the coding agent — blocking decision violations, warning on trade-off undermines, informing on pattern divergence. Findings compound across scans (id-stable upserts, novelty escalation), and deep-scans are resumable via `--incremental`, `--continue`, and `--from N`.
 
 Full pipeline, data model, per-CLI render maps, and connector contracts: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
