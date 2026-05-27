@@ -48,8 +48,9 @@ Skip the picker with `--target=all` / `--target=auto` / `--target=claude` / `--t
 | `/archie-deep-scan` | Comprehensive baseline. 2-wave multi-agent analysis (Sonnet fact-gatherers + Opus reasoner) producing blueprint, optional per-folder CLAUDE.md, rules, findings, pitfalls, health. Supports `--incremental`, `--continue`, `--from N`, `--reconfigure`. | 15-20 min (full), 3-6 min (incremental) |
 | `/archie-intent-layer` | Standalone per-folder CLAUDE.md regeneration. Asks Full / Incremental / Auto upfront. Requires `blueprint.json`. | 3-15 min |
 | `/archie-share` | Upload blueprint + findings + scan report to a hosted viewer. Default (BitRaptors Supabase), enterprise stored-credentials (BYO S3), or enterprise paste-presigned-URL — see [Enterprise Share](#enterprise-share). | seconds |
+| `/archie-viewer` | Local blueprint inspector. Runs the same React UI as the hosted share viewer at `localhost:5847/local` — no upload, all data stays on your machine. | seconds |
 
-Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --incremental` after code changes to refresh the analysis. `/archie-viewer` runs the same React UI as the hosted share viewer locally at `localhost:5847/local` — no upload, all data stays on your machine.
+Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --incremental` after code changes to refresh the analysis.
 
 ### `/archie-deep-scan` in action
 
