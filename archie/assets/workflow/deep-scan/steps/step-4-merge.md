@@ -10,10 +10,10 @@ TELEMETRY_STEP4_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 ### If SCAN_MODE = "incremental":
 
-The single incremental agent's output was saved to `/tmp/archie_incremental_$PROJECT_NAME.json` in Step 3. Patch the existing blueprint:
+The single incremental agent's output was saved to `.archie/tmp/archie_incremental_$PROJECT_NAME.json` in Step 3. Patch the existing blueprint:
 
 ```bash
-python3 .archie/merge.py "$PROJECT_ROOT" --patch /tmp/archie_incremental_$PROJECT_NAME.json
+python3 .archie/merge.py "$PROJECT_ROOT" --patch .archie/tmp/archie_incremental_$PROJECT_NAME.json
 ```
 
 ```bash
@@ -23,32 +23,27 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 4
 
 ### If SCAN_MODE = "full" (default):
 
-**If resuming via --from or --continue:** Step 4 depends on Wave 1 agent outputs in /tmp/. These may not survive a system reboot. If merge fails with missing files, re-run from step 3: `/archie-deep-scan --from 3`
+Step 4 is a **consumer step**: Step 3 already assigned each Wave 1 sub-agent
+its output path and appended the output contract to its prompt before
+dispatch. Each sub-agent has now written its file under `.archie/tmp/`.
 
-**Subagent output contract (mandatory — append to each agent's prompt before spawning):**
+**Expected files** (skip UI Layer if it was not spawned — `frontend_ratio < 0.20`):
 
-Each Wave 1 subagent must write its own output directly to a pre-specified path. The orchestrator must NEVER copy or transcribe the subagent's output itself — read the file the subagent wrote.
+- `.archie/tmp/archie_sub1_$PROJECT_NAME.json` (Structure)
+- `.archie/tmp/archie_sub2_$PROJECT_NAME.json` (Patterns)
+- `.archie/tmp/archie_sub3_$PROJECT_NAME.json` (Technology)
+- `.archie/tmp/archie_sub4_$PROJECT_NAME.json` (UI Layer, optional)
 
-Append this block to each Wave 1 agent's prompt, substituting `<OUTPUT_PATH>` (the "file path named above") with the path below:
+**If resuming via `--from` or `--continue`:** `.archie/tmp/` is workspace-relative
+so the files normally survive reboots, but an interrupted or `--from 4` run
+may not have them. If any expected file is missing, re-run from Step 3:
+`{{COMMAND_PREFIX}}archie-deep-scan --from 3`. Report which files were
+missing — do NOT attempt to re-extract output from a subagent's transcript.
 
-```
----
-OUTPUT CONTRACT (mandatory):
-{{>output_contract}}
-```
-
-Output paths per agent:
-- Structure agent → `/tmp/archie_sub1_$PROJECT_NAME.json`
-- Patterns agent → `/tmp/archie_sub2_$PROJECT_NAME.json`
-- Technology agent → `/tmp/archie_sub3_$PROJECT_NAME.json`
-- UI Layer agent (if spawned) → `/tmp/archie_sub4_$PROJECT_NAME.json`
-
-When each subagent's confirmation reply returns, its file is already on disk — proceed directly to the merge step below. Do NOT attempt to re-extract output from the subagent's conversation — if the confirmation is missing or file absent, skip that agent's contribution and report the failure.
-
-Then merge:
+Merge the files that exist:
 
 ```bash
-python3 .archie/merge.py "$PROJECT_ROOT" /tmp/archie_sub1_$PROJECT_NAME.json /tmp/archie_sub2_$PROJECT_NAME.json /tmp/archie_sub3_$PROJECT_NAME.json /tmp/archie_sub4_$PROJECT_NAME.json
+python3 .archie/merge.py "$PROJECT_ROOT" .archie/tmp/archie_sub1_$PROJECT_NAME.json .archie/tmp/archie_sub2_$PROJECT_NAME.json .archie/tmp/archie_sub3_$PROJECT_NAME.json .archie/tmp/archie_sub4_$PROJECT_NAME.json
 ```
 
 This saves `$PROJECT_ROOT/.archie/blueprint_raw.json` (raw merged data). Verify the output shows non-zero component/section counts. If it says "0 sections, 0 components", the merge failed — check the agent output files.

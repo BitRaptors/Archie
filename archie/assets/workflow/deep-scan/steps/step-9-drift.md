@@ -72,7 +72,7 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with the file contents, their folder CLA
 >
 > Return JSON: `{"deep_findings": [...]}`
 
-Instruct the reviewer subagent to write its own output (append to its prompt). The "file path named above" is `/tmp/archie_deep_drift.json`:
+Instruct the reviewer subagent to write its own output (append to its prompt). The "file path named above" is `.archie/tmp/archie_deep_drift.json`:
 
 ```
 ---
@@ -83,8 +83,8 @@ OUTPUT CONTRACT (mandatory):
 After the agent's confirmation returns, extract and clean up:
 
 ```bash
-python3 .archie/extract_output.py deep-drift /tmp/archie_deep_drift.json "$PROJECT_ROOT/.archie/drift_report.json"
-rm -f /tmp/archie_deep_drift.json
+python3 .archie/extract_output.py deep-drift .archie/tmp/archie_deep_drift.json "$PROJECT_ROOT/.archie/drift_report.json"
+rm -f .archie/tmp/archie_deep_drift.json
 ```
 
 ### Phase 3: Present the combined assessment
@@ -159,11 +159,11 @@ Present in the health table as:
 
 If genuinely none found after checking, say "No semantic duplication detected after AI analysis."
 
-**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only) — the semantic duplication analysis in Part 6 above is the AI-powered complement. Run `/archie-scan` regularly to track how these metrics change over time.
+**Health scores** from Phase 0 have been saved to `.archie/health_history.json` for trending. Note: the verbosity metric is mechanical (exact line clones only) — the semantic duplication analysis in Part 6 above is the AI-powered complement. Run `{{COMMAND_PREFIX}}archie-scan` regularly to track how these metrics change over time.
 
 ### Phase 4: Persist findings to `.archie/scan_report.md`
 
-The Phase 3 synthesis above is valuable but ephemeral — it only exists in the chat output. `/archie-share` (and future trending runs of `/archie-scan`) need the findings on disk. Write the same content to `.archie/scan_report.md` in the format `/archie-scan` produces.
+The Phase 3 synthesis above is valuable but ephemeral — it only exists in the chat output. `{{COMMAND_PREFIX}}archie-share` (and future trending runs of `{{COMMAND_PREFIX}}archie-scan`) need the findings on disk. Write the same content to `.archie/scan_report.md` in the format `{{COMMAND_PREFIX}}archie-scan` produces.
 
 Check whether a prior scan report exists (for resolved/new/recurring classification):
 ```bash

@@ -194,6 +194,14 @@ def _copy_canonical_assets(project_root: Path) -> None:
             continue
         shutil.copyfile(src, dest_archie / name)
 
+    # Transient run artifacts (Wave 1 outputs, intent-layer enrichments, rules
+    # JSON, etc.) land under .archie/tmp/. Drop a self-ignoring .gitignore so
+    # they never get committed even if the user's repo .gitignore doesn't cover
+    # .archie/tmp/ explicitly.
+    tmp_dir = dest_archie / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_dir / ".gitignore").write_text("*\n")
+
     # Default ignore config is installed once and then left to the user.
     for src_name, dest_name in (
         ("archieignore.default", ".archieignore"),

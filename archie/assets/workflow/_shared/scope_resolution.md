@@ -1,7 +1,7 @@
 # Shared fragment — "Resolve scope" Phase 0
 
-> **This file is the source of truth for Phase 0 in `/archie-deep-scan` (and adopted by `/archie-scan` as a follow-up).**
-> Slash commands don't support file includes, so commands either physically inline this content or load it via Read at activation. After the modularization refactor, `/archie-deep-scan` loads this file at Activation; `/archie-scan` still inlines a near-identical copy and should be migrated next.
+> **This file is the source of truth for Phase 0 in `{{COMMAND_PREFIX}}archie-deep-scan` (and adopted by `{{COMMAND_PREFIX}}archie-scan` as a follow-up).**
+> Slash commands don't support file includes, so commands either physically inline this content or load it via Read at activation. After the modularization refactor, `{{COMMAND_PREFIX}}archie-deep-scan` loads this file at Activation; `{{COMMAND_PREFIX}}archie-scan` still inlines a near-identical copy and should be migrated next.
 
 The fragment produces variables that downstream steps read:
 
@@ -140,8 +140,10 @@ This is a no-op on `--continue` runs because the Resume Prelude already rehydrat
 
 - **SCOPE=single** — Set `PROJECT_ROOT="$PWD"` and run Steps 1-9 once. No monorepo awareness.
 - **SCOPE=whole** — Set `PROJECT_ROOT="$PWD"` and run Steps 1-9 once, applying the workspace-aware addendum in the Structure agent (Step 3) so each workspace is a top-level component, and the Wave 2 reasoning agent populates `blueprint.workspace_topology`.
-- **SCOPE=per-package** — For each path in `WORKSPACES`, set `PROJECT_ROOT="$PWD/<path>"` and run Steps 1-9. Parallel mode spawns one background Agent per workspace (temp files namespaced as `/tmp/archie_sub1_<name>.json`). Sequential mode runs them one after another. After all finish, go to Step 8 / 9 each within its own `PROJECT_ROOT`.
-- **SCOPE=hybrid** — Pass 1: run Steps 1-9 at `PROJECT_ROOT="$PWD"` with whole-mode semantics. Pass 2: iterate `WORKSPACES` per-package. Each pass writes its own blueprint under `PROJECT_ROOT/.archie/`.
+- **SCOPE=per-package** — For each path in `WORKSPACES`, set `PROJECT_ROOT="$PWD/<path>"` and run Steps 1-9. Each per-workspace run writes its own artifacts namespaced under `PROJECT_ROOT/.archie/tmp/` so workspaces never clobber each other. After all finish, go to Step 8 / 9 each within its own `PROJECT_ROOT`.
+    - **Parallel mode** — {{>dispatch_workspace_parallel}}
+    - **Sequential mode** — run the workspaces one after another in a plain loop. No subagent dispatch.
+- **SCOPE=hybrid** — Pass 1: run Steps 1-9 at `PROJECT_ROOT="$PWD"` with whole-mode semantics. Pass 2: iterate `WORKSPACES` per-package using the same parallel/sequential mechanism as `SCOPE=per-package` above. Each pass writes its own blueprint under `PROJECT_ROOT/.archie/`.
 
 **IMPORTANT:** The `.archie/*.py` scripts are installed at the REPO ROOT. Always reference them as `.archie/scanner.py` etc. from the repo root. Pass `PROJECT_ROOT` as the first argument when it is not `$PWD`.
 

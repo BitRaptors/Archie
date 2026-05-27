@@ -39,8 +39,7 @@ ARCHIE_PERMISSIONS = [
     "Bash(git *)", "Bash(test *)", "Bash(cp *)", "Bash(ls *)", "Bash(wc *)",
     "Bash(cat *)", "Bash(echo *)", "Bash(for *)", "Bash(mkdir *)", "Bash(date *)",
     "Bash(sort *)", "Bash(head *)",
-    "Bash(rm -f /tmp/archie_*)", "Bash(rm -f .archie/health.json)",
-    "Write(//tmp/archie_*)", "Read(//tmp/archie_*)",
+    "Bash(rm -f .archie/tmp/archie_*)", "Bash(rm -f .archie/health.json)",
     "Read(.archie/*)", "Read(.archie/**)",
     "Write(.archie/*)", "Write(.archie/**)",
     "Edit(.archie/*)", "Edit(.archie/**)",
@@ -61,6 +60,7 @@ _CLAUDE_RENDER_TOKENS = {
     "REASONING_MODEL": "Opus",
     "VERIFY_MODEL": "Haiku",
     "WORKFLOW_ROOT": CLAUDE_WORKFLOW_ROOT,
+    "COMMAND_PREFIX": "/",
 }
 
 # Block partials carry only the CLI-specific *mechanism*. The worker model
@@ -80,6 +80,16 @@ _CLAUDE_RENDER_PARTIALS = {
         "Spawn the sub-agent with a single Agent tool call. Pass its prompt "
         "text as the `prompt` parameter and set `model` to the lowercased "
         "model name given for it."
+    ),
+    # How to fan out one worker per selected workspace (monorepo SCOPE=per-package
+    # / hybrid parallel mode).
+    "dispatch_workspace_parallel": (
+        "Spawn one Agent tool call per selected workspace, ALL Agent calls "
+        "emitted in a single message so they run in parallel. Pass each "
+        "workspace agent its workspace path; the agent sets `PROJECT_ROOT` to "
+        "that path and runs the requested deep-scan steps for that workspace "
+        "only, writing only that workspace's Archie artifacts. Wait for all "
+        "workspace agents to finish before continuing."
     ),
     # How a spawned worker must write its output file.
     "output_contract": (

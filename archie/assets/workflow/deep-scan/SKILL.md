@@ -1,6 +1,6 @@
 ---
 name: archie-deep-scan
-description: Comprehensive architecture baseline scan (15-20 min). Two-wave AI analysis producing blueprint.json, per-folder CLAUDE.md, AI-synthesized rules, health metrics, and drift detection. Use for first-time baselines or major refactors; use /archie-scan for incremental health checks.
+description: Comprehensive architecture baseline scan (15-20 min). Two-wave AI analysis producing blueprint.json, per-folder CLAUDE.md, AI-synthesized rules, health metrics, and drift detection. Use for first-time baselines or major refactors; use {{COMMAND_PREFIX}}archie-scan for incremental health checks.
 ---
 
 # Archie Deep Scan — Comprehensive Architecture Baseline
@@ -8,10 +8,10 @@ description: Comprehensive architecture baseline scan (15-20 min). Two-wave AI a
 Run a comprehensive architecture analysis. Produces full blueprint, per-folder CLAUDE.md, rules, and health metrics.
 
 **Modes:**
-- `/archie-deep-scan` — full baseline from step 1 (default, proven workflow)
-- `/archie-deep-scan --incremental` — only process files changed since last deep scan (fast, 3-6 min)
-- `/archie-deep-scan --from N` — resume from step N (runs N through 9)
-- `/archie-deep-scan --continue` — resume from where the last run stopped
+- `{{COMMAND_PREFIX}}archie-deep-scan` — full baseline from step 1 (default, proven workflow)
+- `{{COMMAND_PREFIX}}archie-deep-scan --incremental` — only process files changed since last deep scan (fast, 3-6 min)
+- `{{COMMAND_PREFIX}}archie-deep-scan --from N` — resume from step N (runs N through 9)
+- `{{COMMAND_PREFIX}}archie-deep-scan --continue` — resume from where the last run stopped
 
 **Prerequisites:** Run `npx @bitraptors/archie` first to install the scripts. If `.archie/scanner.py` doesn't exist, tell the user to run `npx @bitraptors/archie` and try again.
 
@@ -44,7 +44,7 @@ If you need data not covered by these commands, proceed without it or ask the us
 
 Check the user's message (ARGUMENTS) for flags:
 
-**If `--from N` is present** (e.g., `/archie-deep-scan --from 5`):
+**If `--from N` is present** (e.g., `{{COMMAND_PREFIX}}archie-deep-scan --from 5`):
 1. Set `START_STEP = N` (the number after --from) and `RESUME_ACTION=resume` (so the Resume Prelude rehydrates shell variables from `deep_scan_state.run_context`).
 2. Validate prerequisites exist:
 ```bash
@@ -125,7 +125,7 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
      ```bash
      python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
      python3 .archie/intent_layer.py reset-state "$PROJECT_ROOT"
-     rm -f /tmp/archie_enrichment_${PROJECT_NAME}_*.json /tmp/archie_intent_prompt_${PROJECT_NAME}_*.txt
+     rm -f .archie/tmp/archie_enrichment_${PROJECT_NAME}_*.json .archie/tmp/archie_intent_prompt_${PROJECT_NAME}_*.txt
      ```
      `reset-state` wipes both `.archie/enrich_state.json` and the `.archie/enrichments/` directory — no `rm -rf` needed in the slash-command layer (keeps the command inside the default Bash permission allowlist so this runs prompt-free).
      Set `SCAN_MODE=full`, `START_STEP=1`, `RESUME_ACTION=fresh`. Print `"Starting fresh. Previous progress discarded."`.

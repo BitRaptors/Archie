@@ -48,6 +48,7 @@ _CODEX_RENDER_TOKENS = {
     "REASONING_MODEL": "gpt-5",
     "VERIFY_MODEL": "gpt-5",
     "WORKFLOW_ROOT": CODEX_WORKFLOW_ROOT,
+    "COMMAND_PREFIX": "$",
 }
 
 # Block partials carry only the CLI-specific *mechanism*. The worker model and
@@ -56,45 +57,50 @@ _CODEX_RENDER_TOKENS = {
 _CODEX_RENDER_PARTIALS = {
     # How to spawn N parallel analysis workers.
     "dispatch_parallel": (
-        "Dispatch the whole wave as ONE batch with Codex's "
-        "`spawn_agents_on_csv`. It is a blocking call: Codex spawns one "
-        "worker per CSV row, runs them with bounded concurrency it manages "
-        "itself, waits for EVERY worker to finish, then returns. Do NOT "
-        "spawn workers individually and do NOT hand-roll your own chunking "
-        "— a single `spawn_agents_on_csv` call processes every row no "
-        "matter how many there are, and that blocking behavior is what "
-        "keeps the wave loop self-driving in one run. Write a CSV at "
-        "`/tmp/archie_dispatch_$PROJECT_NAME.csv` with one row per "
-        "sub-agent — columns `agent` (a stable id) and `prompt` (that "
-        "sub-agent's full prompt text). Call `spawn_agents_on_csv` with "
-        "`id_column: agent`, `max_concurrency: 6`, and an `instruction` "
-        "telling each worker: `Project root: $PWD. Read $PWD/AGENTS.md "
-        "first if it exists, then carry out the task in the {prompt} "
-        "column in full.` Each worker writes its own output file per the "
-        "output contract below and calls `report_agent_job_result` exactly "
-        "once. When `spawn_agents_on_csv` returns, the batch is complete "
-        "— verify every output file exists; if any row errored, stop and "
-        "report which one."
+        "Spawn the whole wave with Codex's native subagent workflow. Start "
+        "one Codex subagent per listed sub-agent/prompt, using the `archie_analysis` "
+        "custom agent when it is available and the built-in `worker` agent "
+        "otherwise. Send all subagent launches from the same orchestration "
+        "step so Codex runs them in parallel, then wait for every subagent "
+        "to finish before continuing. Give each subagent: `Project root: "
+        "$PWD. Read $PWD/AGENTS.md first if it exists, then carry out this "
+        "prompt in full: <that sub-agent's full prompt text>.` Each subagent "
+        "writes its own output file per the output contract below. After "
+        "all subagents finish, verify every expected output file exists; if "
+        "any output is missing, stop and report the failed subagent id."
     ),
     # How to spawn one worker.
     "dispatch_single": (
-        "Ask Codex to spawn one subagent for this task and wait for it to "
-        "finish before continuing. Give it the project root, the exact prompt "
-        "text or prompt-file path named in this workflow, and the one output "
-        "file path it owns. After it finishes, verify the expected output file "
-        "exists before continuing."
+        "Spawn one Codex subagent for this task, using the `archie_analysis` "
+        "custom agent when it is available and the built-in `worker` agent "
+        "otherwise. Wait for it to finish before continuing. Give it the "
+        "project root, the exact prompt text or prompt-file path named in "
+        "this workflow, and the one output file path it owns. After it "
+        "finishes, verify the expected output file exists before continuing."
+    ),
+    # How to fan out one worker per selected workspace (monorepo SCOPE=per-package
+    # / hybrid parallel mode). Codex docs: ask Codex to spawn subagents; Codex
+    # waits for all to finish before returning a consolidated response.
+    "dispatch_workspace_parallel": (
+        "Ask Codex to spawn one native Codex subagent per selected workspace, "
+        "using the `archie_analysis` custom agent (defined in "
+        "`.codex/agents/archie-analysis.toml`) when available and the built-in "
+        "`worker` agent otherwise. Each workspace subagent sets `PROJECT_ROOT` "
+        "to its assigned `$PWD/<workspace>` path and runs the requested "
+        "deep-scan steps for that workspace only. Send all workspace subagent "
+        "launches from the same orchestration step, wait for every workspace "
+        "subagent to finish, then continue with the parent workflow."
     ),
     # How a spawned worker must write its output file.
+    # Targets all live under the workspace (`.archie/tmp/...`), so `apply_patch`
+    # handles them natively under Codex's default `workspace-write` sandbox —
+    # no shell-write fallback needed.
     "output_contract": (
-        "1. Prefer `apply_patch` when writing the file path named above. If "
-        "the target is an intermediate `/tmp/archie_*` artifact and your "
-        "Codex build cannot create that path with `apply_patch`, use a direct "
-        "shell file write only for that temp artifact.\n"
+        "1. Use `apply_patch` to write your COMPLETE output to the file path "
+        "named above.\n"
         "2. Write the raw output only — no markdown fences, no prose, unless "
         "the target format explicitly expects them.\n"
-        "3. If you were launched through `spawn_agents_on_csv`, call "
-        "`report_agent_job_result` exactly once after writing the file. "
-        "Otherwise reply with exactly: \"Wrote <that file path>\".\n"
+        "3. Reply with exactly: \"Wrote <that file path>\".\n"
         "4. Do NOT paste the full output into the conversation."
     ),
     # How to ask the user an interactive question. The question text, header,
@@ -183,9 +189,31 @@ class CodexConnector(Connector):
         existing = cfg_path.read_text() if cfg_path.exists() else ""
         updated = existing
         for patch in patches:
-            updated = _toml_set_top_level(updated, patch.key, patch.value)
+            if patch.section is None:
+                updated = _toml_set_top_level(updated, patch.key, patch.value)
+            else:
+                updated = _toml_set_section_key(updated, patch.section, patch.key, patch.value)
         if updated != existing:
             cfg_path.write_text(updated)
+
+    def finalize(self, project_root: Path) -> None:
+        # Project-scoped agent definition. Codex docs document
+        # `.codex/agents/*.toml` as the project-scoped location for custom
+        # agents; [agents] globals live in `~/.codex/config.toml` and are
+        # handled by patch_config() via CONFIG_PATCHES.
+        agents_dir = project_root / ".codex" / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        agent_path = agents_dir / "archie-analysis.toml"
+        if not agent_path.exists():
+            agent_path.write_text(
+                'name = "archie_analysis"\n'
+                'description = "Archie analysis worker for scan, deep-scan, and intent-layer subagent tasks."\n'
+                'model_reasoning_effort = "medium"\n'
+                'sandbox_mode = "workspace-write"\n'
+                'developer_instructions = """\n'
+                'You are an Archie workflow worker. Follow the parent prompt exactly, stay within your assigned task, and write the requested artifact to the requested path. Do not modify unrelated source files. Do not paste large artifacts into the conversation after writing them.\n'
+                '"""\n'
+            )
 
 
 # ---------- helpers ----------
@@ -277,6 +305,40 @@ def _parse_inline_str_array(raw: str) -> list[str]:
         return []
     inner = normalized[1: normalized.rindex("]")]
     return [m.group(1).replace('\\"', '"').replace("\\\\", "\\") for m in _STR_ITEM_RE.finditer(inner)]
+
+
+def _toml_set_section_key(content: str, section: str, key: str, value: object) -> str:
+    """Set a simple key inside a top-level TOML section."""
+    assignment = f"{key} = {_toml_serialize_value(value)}"
+    lines = content.splitlines()
+    section_header = f"[{section}]"
+    header_idx: int | None = None
+    next_header_idx = len(lines)
+
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == section_header:
+            header_idx = idx
+            continue
+        if header_idx is not None and idx > header_idx and stripped.startswith("[") and stripped.endswith("]"):
+            next_header_idx = idx
+            break
+
+    if header_idx is None:
+        prefix = content.rstrip()
+        block = f"{section_header}\n{assignment}"
+        if not prefix:
+            return block + "\n"
+        return prefix + "\n\n" + block + "\n"
+
+    key_re = re.compile(rf"^(\s*){re.escape(key)}\s*=.*$")
+    for idx in range(header_idx + 1, next_header_idx):
+        if key_re.match(lines[idx]):
+            lines[idx] = assignment
+            return "\n".join(lines) + "\n"
+
+    lines.insert(next_header_idx, assignment)
+    return "\n".join(lines) + "\n"
 
 
 def _insert_top_level_assignment(content: str, assignment: str) -> str:

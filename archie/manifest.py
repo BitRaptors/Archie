@@ -37,3 +37,8 @@ class ConfigPatch:
     cli: str
     key: str
     value: object
+    # Optional TOML section. None → top-level assignment (the default, used
+    # for keys like `project_doc_max_bytes`). A string → write under
+    # `[<section>]` (used for `[agents]` keys like `max_threads`/`max_depth`,
+    # which the Codex docs locate in the user-home `~/.codex/config.toml`).
+    section: str | None = None

@@ -8,5 +8,5 @@ At every "✓ Step N complete" boundary, all state needed to resume lives on dis
 - `.archie/blueprint_raw.json`, `.archie/blueprint.json`, `.archie/findings.json` — pipeline output as it accumulates
 - `.archie/enrich_state.json`, `.archie/enrich_batches.json` — Intent Layer DAG scheduler state (survives mid-Step-7 compaction)
 
-After a `/compact`, running `/archie-deep-scan --continue` re-enters via the **Resume Prelude** below, which rehydrates every shell variable from disk before jumping to the next step. No conversation memory required.
+After a `/compact`, running `{{COMMAND_PREFIX}}archie-deep-scan --continue` re-enters via the **Resume Prelude** below, which rehydrates every shell variable from disk before jumping to the next step. No conversation memory required.
 

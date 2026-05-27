@@ -117,9 +117,11 @@ def test_registry_is_non_empty():
 
 _REQUIRED_TOKENS = {
     "ANALYSIS_MODEL", "REASONING_MODEL", "VERIFY_MODEL", "WORKFLOW_ROOT",
+    "COMMAND_PREFIX",
 }
 _REQUIRED_PARTIALS = {
-    "dispatch_parallel", "dispatch_single", "output_contract", "ask_user",
+    "dispatch_parallel", "dispatch_workspace_parallel", "dispatch_single",
+    "output_contract", "ask_user",
 }
 
 
@@ -148,6 +150,57 @@ def test_connector_workflow_root_is_namespaced(connector):
 def test_codex_render_partials_only_reference_supported_runtime_tools():
     codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
     rendered = "\n".join(codex.render_partials.values())
-    for forbidden in ("spawn_agent", "wait_agent", "request_user_input", "exec_command"):
+    for forbidden in (
+        "spawn_agent",
+        "wait_agent",
+        "request_user_input",
+        "exec_command",
+        "spawn_agents_on_csv",
+        "report_agent_job_result",
+    ):
         assert re.search(rf"`{re.escape(forbidden)}`|\b{re.escape(forbidden)}\b(?!_)", rendered) is None
     assert "apply_patch" in rendered
+    assert "native subagent workflow" in rendered
+
+
+def test_codex_finalize_installs_native_subagent_config(tmp_path: Path, monkeypatch):
+    """finalize() drops the project-scoped archie_analysis custom agent
+    definition. The `[agents]` global block (max_threads, max_depth) lives in
+    `~/.codex/config.toml` per the Codex docs and is patched via patch_config(),
+    not finalize() — verified separately in
+    test_codex_patch_config_writes_agents_section."""
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    codex.finalize(tmp_path)
+
+    # Project-scoped `.codex/config.toml` is NOT written by finalize anymore —
+    # the [agents] keys live in user-home, written via patch_config.
+    assert not (tmp_path / ".codex" / "config.toml").exists()
+
+    agent = tmp_path / ".codex" / "agents" / "archie-analysis.toml"
+    assert agent.is_file()
+    text = agent.read_text()
+    assert 'name = "archie_analysis"' in text
+    assert "developer_instructions" in text
+
+
+def test_codex_patch_config_writes_agents_section(tmp_path: Path, monkeypatch):
+    """The [agents] section (max_threads, max_depth) is written to
+    `~/.codex/config.toml` by patch_config() via CONFIG_PATCHES — that's where
+    the Codex docs document those keys living. Project-scoped writes are
+    deliberately not done."""
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+    patches = [p for p in CONFIG_PATCHES if p.cli == codex.name]
+    codex.patch_config(patches)
+
+    cfg = (fake_home / ".codex" / "config.toml").read_text()
+    assert "[agents]" in cfg
+    assert "max_threads = 6" in cfg
+    assert "max_depth = 2" in cfg
+    # And the existing top-level keys are still written too.
+    assert "project_doc_max_bytes = 131072" in cfg
+    assert 'project_doc_fallback_filenames' in cfg

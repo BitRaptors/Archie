@@ -94,4 +94,11 @@ HOOKS = [
 CONFIG_PATCHES = [
     ConfigPatch("codex", "project_doc_max_bytes", 131072),
     ConfigPatch("codex", "project_doc_fallback_filenames", ["CLAUDE.md"]),
+    # [agents] section keys (documented in Codex docs under ~/.codex/config.toml).
+    # max_threads default is 6; max_depth default is 1. Archie needs depth 2 to
+    # support the documented call chain root → workspace worker → Wave-1 worker
+    # on monorepo deep-scans (SCOPE=per-package or hybrid). max_threads stays at
+    # the default 6 to be explicit and survive any future Codex default change.
+    ConfigPatch("codex", "max_threads", 6, section="agents"),
+    ConfigPatch("codex", "max_depth", 2, section="agents"),
 ]

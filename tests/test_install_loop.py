@@ -142,12 +142,138 @@ def test_codex_rendered_tree_has_no_claude_workflow_paths(tmp_path: Path) -> Non
 def test_codex_rendered_tree_has_no_session_only_helper_tool_names(tmp_path: Path) -> None:
     install(tmp_path, ["codex"])
     workflow_root = tmp_path / ".archie" / "workflow" / "codex"
-    forbidden = ("spawn_agent", "wait_agent", "request_user_input", "exec_command")
+    forbidden = (
+        "spawn_agent",
+        "wait_agent",
+        "request_user_input",
+        "exec_command",
+        "spawn_agents_on_csv",
+        "report_agent_job_result",
+    )
     for f in workflow_root.rglob("*.md"):
         text = f.read_text()
         for needle in forbidden:
             leaked = re.search(rf"`{re.escape(needle)}`|\b{re.escape(needle)}\b(?!_)", text)
             assert leaked is None, f"{f} leaked non-Codex helper name: {needle}"
+
+
+def test_codex_rendered_tree_has_no_claude_tool_name_leaks(tmp_path: Path) -> None:
+    """Tool-name leaks from Claude's tool vocabulary into the canonical
+    workflow show up as wrong instructions on Codex. The connector's
+    output_contract / dispatch_* partials own per-CLI write/spawn mechanics —
+    canonical prose must not bypass them."""
+    install(tmp_path, ["codex"])
+    workflow_root = tmp_path / ".archie" / "workflow" / "codex"
+    forbidden = (
+        "Use the Write tool",
+        "Use the Read tool",
+        "background Agent",
+        "background agent",
+        "blocking batch",
+        "dispatch primitive",
+    )
+    for f in workflow_root.rglob("*.md"):
+        text = f.read_text()
+        for needle in forbidden:
+            assert needle not in text, f"{f} leaks Claude-tool / hidden-batch wording: {needle!r}"
+
+
+def test_codex_rendered_tree_uses_codex_command_prefix_not_slash(tmp_path: Path) -> None:
+    """Every reference to an Archie slash command in canonical prose must go
+    through {{COMMAND_PREFIX}} so Codex renders `$archie-X`, not literal
+    `/archie-X` (which Codex's harness does not recognise)."""
+    install(tmp_path, ["codex"])
+    workflow_root = tmp_path / ".archie" / "workflow" / "codex"
+    # Match `/archie-NAME` only when not preceded by a letter/digit/`$` — that
+    # filters out incidental occurrences inside ARN/URL/identifier strings
+    # (e.g. `acme-archie-shares`) and excludes the Codex-rendered `$archie-X`.
+    leak_re = re.compile(r"(?:^|[^A-Za-z0-9$])/archie-[a-z]")
+    for f in workflow_root.rglob("*.md"):
+        text = f.read_text()
+        m = leak_re.search(text)
+        assert m is None, f"{f} leaks literal /archie- prefix: {text[m.start():m.start()+40]!r}"
+
+
+def test_codex_rendered_tree_writes_artifacts_to_workspace_relative_tmp(tmp_path: Path) -> None:
+    """The disk-artifact contract uses `.archie/tmp/archie_*` so Codex's
+    default workspace-write sandbox covers writes natively. Bare `/tmp/archie_`
+    (outside the workspace) would force a sandbox escalation."""
+    install(tmp_path, ["codex"])
+    workflow_root = tmp_path / ".archie" / "workflow" / "codex"
+    # Bare /tmp/archie_ — preceded by anything except `e` (which would mean
+    # `.archie/tmp/archie_` — the correct workspace-relative form).
+    bare_tmp = re.compile(r"(?:^|[^e])/tmp/archie_")
+    for f in workflow_root.rglob("*.md"):
+        text = f.read_text()
+        m = bare_tmp.search(text)
+        assert m is None, f"{f} writes to bare /tmp (not workspace-relative): {text[m.start():m.start()+50]!r}"
+
+
+def test_codex_rendered_step3_assigns_output_paths_before_dispatch(tmp_path: Path) -> None:
+    """Step 3 must give Wave 1 sub-agents their output path and the output
+    contract at dispatch time. If the table + contract appear AFTER the
+    {{>dispatch_parallel}} slot, the sub-agents never see them — the
+    handoff's Gap 1."""
+    install(tmp_path, ["codex"])
+    step3 = (tmp_path / ".archie" / "workflow" / "codex" / "deep-scan"
+             / "steps" / "step-3-wave1" / "orchestration.md").read_text()
+    full_table_idx = step3.rfind("archie_sub1_")
+    dispatch_idx = step3.find("from the same orchestration step")  # Codex dispatch_parallel marker
+    assert full_table_idx > 0, "Step 3 missing the Wave 1 output-path table"
+    assert dispatch_idx > 0, "Step 3 missing the rendered dispatch_parallel marker"
+    assert full_table_idx < dispatch_idx, (
+        "Wave 1 output paths must be declared BEFORE the dispatch slot — "
+        "otherwise sub-agents never see their assigned output path"
+    )
+    # All four Wave 1 output paths must be present, workspace-relative.
+    for sub in ("archie_sub1_", "archie_sub2_", "archie_sub3_", "archie_sub4_"):
+        assert f".archie/tmp/{sub}" in step3, f"Step 3 missing output path: .archie/tmp/{sub}*"
+
+
+def test_codex_rendered_step4_is_consumer_only(tmp_path: Path) -> None:
+    """Step 4 must be a pure consumer of Wave 1 outputs — no more 'append
+    this block to each Wave 1 agent's prompt before spawning' wording."""
+    install(tmp_path, ["codex"])
+    step4 = (tmp_path / ".archie" / "workflow" / "codex" / "deep-scan"
+             / "steps" / "step-4-merge.md").read_text()
+    assert "append this block to each Wave 1 agent" not in step4
+    assert "Append this block to each Wave 1 agent" not in step4
+    # Positive: Step 4 still does the merge.
+    assert "merge.py" in step4
+
+
+def test_codex_rendered_scope_resolution_uses_native_subagent_fanout(tmp_path: Path) -> None:
+    """The shared scope-resolution must dispatch per-package / hybrid parallel
+    workspace runs via {{>dispatch_workspace_parallel}}, which on Codex
+    renders the native-subagent call using the archie_analysis custom agent."""
+    install(tmp_path, ["codex"])
+    scope = (tmp_path / ".archie" / "workflow" / "codex"
+             / "_shared" / "scope_resolution.md").read_text()
+    assert "archie_analysis" in scope
+    assert "native Codex subagent" in scope
+    assert "background Agent" not in scope
+
+
+def test_install_drops_self_ignoring_archie_tmp_gitignore(tmp_path: Path) -> None:
+    """.archie/tmp/ holds transient run artifacts (Wave 1 outputs, rules,
+    enrichments). A self-ignoring `.gitignore` lives there so the user can
+    never accidentally commit those artifacts even if their repo's root
+    .gitignore does not cover .archie/tmp/ explicitly."""
+    install(tmp_path, ["codex"])
+    gi = tmp_path / ".archie" / "tmp" / ".gitignore"
+    assert gi.is_file(), ".archie/tmp/.gitignore was not created"
+    assert gi.read_text().strip() == "*"
+
+
+def test_codex_install_does_not_write_project_scoped_config_toml(tmp_path: Path) -> None:
+    """[agents] keys (max_threads, max_depth) live in ~/.codex/config.toml
+    per Codex docs — written by patch_config() via CONFIG_PATCHES. The
+    project-scoped <project>/.codex/config.toml is deliberately not written
+    so there is exactly one source of truth for those settings."""
+    install(tmp_path, ["codex"])
+    assert not (tmp_path / ".codex" / "config.toml").exists()
+    # The custom-agent definition (project-scoped per docs) still goes here.
+    assert (tmp_path / ".codex" / "agents" / "archie-analysis.toml").is_file()
 
 
 def test_all_target_renders_both_trees_differing_only_in_slots(tmp_path: Path) -> None:

@@ -17,7 +17,7 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 | **Claude Code** (Anthropic) | **stable** — primary target | `.claude/commands/*.md` shims, `.claude/settings.local.json` hooks |
 | [**OpenAI Codex CLI**](https://developers.openai.com/codex/cli) | **beta** | `.agents/skills/*/SKILL.md` shims, `.codex/hooks.json` with absolute paths + Codex-native matchers, idempotent `~/.codex/config.toml` patch |
 
-Both CLIs run the **same workflow**. Each command is authored once as a canonical template; the installer renders it per-CLI into `.archie/workflow/<cli>/`, so Claude's installed copy reads natively (`Opus`, `Agent tool`, `AskUserQuestion`) and Codex's reads natively (`gpt-5`, `spawn_agents_on_csv`) — identical step logic, no shared runtime indirection. Both run the same Python analysis pipeline and invoke the same canonical hook scripts at `.archie/hooks/`. One source of truth. See "Multi-CLI install" below.
+Both CLIs run the **same workflow**. Each command is authored once as a canonical template; the installer renders it per-CLI into `.archie/workflow/<cli>/`, so Claude's installed copy reads natively (`Opus`, `Agent tool`, `AskUserQuestion`) and Codex's reads natively (`gpt-5`, native Codex subagents, direct conversation prompts) — identical step logic, no shared runtime indirection. Both run the same Python analysis pipeline and invoke the same canonical hook scripts at `.archie/hooks/`. One source of truth. See "Multi-CLI install" below.
 
 ## Install
 
@@ -437,7 +437,8 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | `.agents/skills/archie-*/SKILL.md` | Codex slash-command shims (parent-walked by Codex) |
 | `.codex/hooks.json` | Codex hook bindings with absolute paths and Codex-native matchers (`^apply_patch$`, etc.) |
 | `.git/hooks/pre-commit.archie` | Universal git pre-commit gate (works regardless of which CLI is active) |
-| `~/.codex/config.toml` *(patched)* | Idempotent merge: `project_doc_max_bytes = 131072` + `CLAUDE.md` in `project_doc_fallback_filenames` |
+| `~/.codex/config.toml` *(patched)* | Idempotent merge: top-level `project_doc_max_bytes = 131072` + `CLAUDE.md` in `project_doc_fallback_filenames`, and `[agents] max_threads = 6, max_depth = 2` (depth 2 supports the root → workspace worker → Wave-1 worker call chain on monorepo deep-scans) |
+| `<project>/.codex/agents/archie-analysis.toml` | Project-scoped custom Codex subagent definition (per docs at developers.openai.com/codex/subagents) — `name`/`description`/`developer_instructions` + `sandbox_mode = "workspace-write"`, used by the rendered workflow's parallel dispatch |
 
 ## CLI Compatibility
 
@@ -448,11 +449,11 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | Pre-commit-review (Bash matcher) | ✅ | ✅ |
 | Blueprint-nudge on Glob/Grep | ✅ | ✅ |
 | Post-tool-use, user-prompt-submit, stop hooks | ✅ | ✅ |
-| Parallel sub-agent fan-out (deep-scan Wave 1) | ✅ Agent tool | ✅ `spawn_agents_on_csv` |
+| Parallel sub-agent fan-out (deep-scan Wave 1) | ✅ Agent tool | ✅ Native Codex subagents |
 | Git pre-commit gate | ✅ | ✅ |
 | Per-folder context (CLAUDE.md / AGENTS.md) | ✅ | ✅ (installer auto-patches Codex's fallback list) |
 
-Implementation details differ per CLI but every CLI reaches the same user-facing outcome through the same shared `.archie/` pipeline. Codex auto-patches `~/.codex/config.toml` (`project_doc_max_bytes`, `project_doc_fallback_filenames`) so per-folder context reads correctly — non-destructive merge, preserves your existing keys.
+Implementation details differ per CLI but every CLI reaches the same user-facing outcome through the same shared `.archie/` pipeline. Codex auto-patches `~/.codex/config.toml` non-destructively: top-level `project_doc_max_bytes` + `project_doc_fallback_filenames` so per-folder context reads correctly, and `[agents] max_threads / max_depth` (Codex docs locate the `[agents]` block in user-home config) so the documented call chain root → workspace worker → Wave-1 worker fits within Codex's nesting cap on monorepo deep-scans. Codex sub-agent dispatch is native: the parallel partials ask Codex to spawn its `archie_analysis` custom agent (defined in `<project>/.codex/agents/archie-analysis.toml`) per workspace / Wave 1 worker; Codex waits for the full set to finish before the parent continues. All disk artifacts (`.archie/tmp/archie_*.json`) are workspace-relative so the default `workspace-write` sandbox covers them with no extra config.
 
 ## How It Works
 
@@ -516,11 +517,11 @@ Once installed via `npx @bitraptors/archie`, seven hooks are wired up per detect
 - **PostToolUse (Write|Edit|MultiEdit)** — `post-lint.sh`. **Opt-in external linter gate**: when `.archie/enforcement.json` has `{"enabled": true}`, runs the project's native linter (ruff / eslint / golangci-lint / semgrep) on the changed file and blocks on failure. Auto-detects based on config files (`pyproject.toml [tool.ruff]`, `.eslintrc`, `.golangci.yaml`, `.semgrep.yml`) + binary on PATH. Silent no-op when config is missing.
 - **Stop** — `stop.sh`. Defensive cleanup at turn end: removes the per-turn rule-injection marker (`/tmp/.archie_turn_$HASH`) so any next session starts fresh. Harmless if the marker has already been cleared by `pre-turn.sh`.
 
-All hooks fail open: missing rules/config/marker files → hooks exit 0 silently. The Claude installer also writes a comprehensive `allow` list (29 entries) into `.claude/settings.local.json` — covering Python script execution, git / sort / head / test / wc, temp files under `/tmp/archie_*`, reads/writes under `.archie/**`, per-folder CLAUDE.md, and `Agent(*)` for subagent spawning — so the scan workflow runs without permission prompts. Codex uses its own approval modes (`workspace-write` is recommended for the scan scripts to write to `.archie/`).
+All hooks fail open: missing rules/config/marker files → hooks exit 0 silently. The Claude installer also writes a comprehensive `allow` list (29 entries) into `.claude/settings.local.json` — covering Python script execution, git / sort / head / test / wc, temp files under `.archie/tmp/archie_*`, reads/writes under `.archie/**`, per-folder CLAUDE.md, and `Agent(*)` for subagent spawning — so the scan workflow runs without permission prompts. Codex uses its own approval modes (`workspace-write` is recommended for the scan scripts to write to `.archie/`).
 
 **Subagent output contract** — varies per CLI but produces the same merged outputs:
-- **Claude** — every Sonnet/Opus subagent spawned via the Agent tool gets a mandatory instruction to Write its output directly to `/tmp/archie_*.json` (permissioned via `Write(//tmp/archie_*)`). The orchestrator never copies subagent transcripts, which avoids Claude Code's sensitive-file guardrail on `.claude/projects/.../subagents/*.jsonl`. Zero permission prompts during any scan.
-- **Codex** — the orchestrator builds a CSV of the four Wave-1 sub-agent prompts (read straight from the rendered workflow) and dispatches them in parallel via `spawn_agents_on_csv`; each worker writes its output file directly, per the output contract baked into its prompt.
+- **Claude** — every Sonnet/Opus subagent spawned via the Agent tool gets a mandatory instruction to Write its output directly to `.archie/tmp/archie_*.json` (permissioned via `Write(/.archie/tmp/archie_*)`). The orchestrator never copies subagent transcripts, which avoids Claude Code's sensitive-file guardrail on `.claude/projects/.../subagents/*.jsonl`. Zero permission prompts during any scan.
+- **Codex** — the orchestrator reads the Wave-1 sub-agent prompts straight from the rendered workflow and asks Codex to spawn one native subagent per prompt. The installer adds project-scoped `.codex/config.toml` `[agents]` limits plus `.codex/agents/archie-analysis.toml`, so Codex can run the workers in parallel through its own subagent system; each worker writes its output file directly, per the output contract baked into its prompt.
 
 ## Rules
 

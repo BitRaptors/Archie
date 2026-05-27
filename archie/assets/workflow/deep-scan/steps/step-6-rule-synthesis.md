@@ -323,21 +323,19 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 
 **IMPORTANT: If `.archie/rules.json` already exists (from previous scans), read it first. The new rules must be MERGED with existing rules — do not overwrite user-adopted rules.**
 
-Instruct the agent to write its own output (append to its prompt):
+Instruct the agent to write its own output. The "file path named above" is
+`.archie/tmp/archie_rules_$PROJECT_NAME.json`. Append to the agent's prompt:
 
 ```
 ---
 OUTPUT CONTRACT (mandatory):
-1. Use the Write tool to save your COMPLETE output to /tmp/archie_rules_$PROJECT_NAME.json
-2. Write the raw output verbatim — extract_output.py handles JSON envelopes.
-3. After Writing, reply with exactly: "Wrote /tmp/archie_rules_$PROJECT_NAME.json"
-4. Do NOT print the output in your response body.
+{{>output_contract}}
 ```
 
 After the agent's confirmation returns, extract:
 
 ```bash
-python3 .archie/extract_output.py rules /tmp/archie_rules_$PROJECT_NAME.json "$PROJECT_ROOT/.archie/rules.json"
+python3 .archie/extract_output.py rules .archie/tmp/archie_rules_$PROJECT_NAME.json "$PROJECT_ROOT/.archie/rules.json"
 ```
 
 **IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT copy the agent's transcript. Always use the pre-installed scripts on the file the agent already wrote.**
@@ -364,7 +362,7 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 6
 
 **This is the highest-leverage compaction point in the whole pipeline.** Steps 1–6 are fully persisted (blueprint, findings, pitfalls, rules, proposed_rules, telemetry marks). Wave 1 subagent transcripts, the Wave 2 synthesis, and Rule Synthesis are redundant with the disk state — holding them in conversation context is pure waste for the massive Intent Layer pass that follows (which spawns one {{ANALYSIS_MODEL}} subagent per folder batch).
 
-If the orchestrator's context is over ~70%, pause here, run `/compact`, and resume with `/archie-deep-scan --continue`. The Resume Prelude reads `deep_scan_state.json` (last_completed=6) and jumps straight to Step 7 after rehydrating shell vars from the persisted run_context.
+If the orchestrator's context is over ~70%, pause here, run `/compact`, and resume with `{{COMMAND_PREFIX}}archie-deep-scan --continue`. The Resume Prelude reads `deep_scan_state.json` (last_completed=6) and jumps straight to Step 7 after rehydrating shell vars from the persisted run_context.
 
 Skipping this checkpoint is safe — auto-compact will fire if needed — but compacting here is strictly cheaper and cleaner.
 

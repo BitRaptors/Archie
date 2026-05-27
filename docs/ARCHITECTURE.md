@@ -421,7 +421,7 @@ Step 1        Scanner (same as fast scan)
 Step 2        Read accumulated knowledge
 Step 3  Wave 1 (parallel) — 3–4 Sonnet agents
               Structure, Patterns, Technology [+ UI Layer if frontend_ratio >= 0.20]
-              Writes /tmp/archie_agent_*.json
+              Writes .archie/tmp/archie_agent_*.json
 Step 4        Merge Wave 1 outputs into blueprint_raw.json via merge.py
 Step 5  Wave 2 (single Opus) — synthesis
               Reads blueprint_raw.json + findings.json
@@ -429,7 +429,7 @@ Step 5  Wave 2 (single Opus) — synthesis
               Emits decision chain, architectural style, key decisions,
                    trade-offs, out-of-scope, findings (upgrade + new),
                    pitfalls, architecture diagram, implementation guidelines
-              Writes /tmp/archie_sub_x_*.json
+              Writes .archie/tmp/archie_sub_x_*.json
               finalize.py deep-merges into blueprint.json and upserts findings into the store
 Step 6  Rule synthesis (single Sonnet) — proposes architecturally-grounded rules
 Step 7  Intent Layer (opt-in) — per-folder CLAUDE.md via DAG scheduling
@@ -558,13 +558,12 @@ The installer (`npx @bitraptors/archie`) generates six hooks and registers them 
 
 ### Permissions
 
-The installer writes a 29-entry `allow` list into `.claude/settings.local.json` so the workflow runs without interactive prompts:
+The installer writes an `allow` list into `.claude/settings.local.json` so the workflow runs without interactive prompts:
 
 - `Bash(python3 .archie/*.py *)`, `Bash(python3 -c *)`
 - `Bash(git *)`, `Bash(sort *)`, `Bash(head *)`, `Bash(test *)`, `Bash(cp *)`, `Bash(ls *)`, `Bash(wc *)`, `Bash(cat *)`, `Bash(echo *)`, `Bash(for *)`, `Bash(mkdir *)`, `Bash(date *)`
-- `Bash(rm -f /tmp/archie_*)`, `Bash(rm -f .archie/health.json)`
-- `Write(//tmp/archie_*)`, `Read(//tmp/archie_*)`
-- `Read(.archie/*)`, `Read(.archie/**)`, `Write(.archie/*)`, `Write(.archie/**)`, `Edit(.archie/*)`, `Edit(.archie/**)`
+- `Bash(rm -f .archie/tmp/archie_*)`, `Bash(rm -f .archie/health.json)`
+- `Read(.archie/*)`, `Read(.archie/**)`, `Write(.archie/*)`, `Write(.archie/**)`, `Edit(.archie/*)`, `Edit(.archie/**)` — the broad `.archie/**` Read/Write rules cover the `.archie/tmp/` artifact directory natively; no separate `/tmp/` permissions needed since Wave 1 / Intent Layer / rule outputs all land workspace-relative
 - `Read(**)`
 - `Write(**/CLAUDE.md)`, `Edit(**/CLAUDE.md)`
 - `Agent(*)` for subagent spawning
@@ -573,7 +572,7 @@ All hooks fail open: missing rules/config/marker files → hooks exit 0 silently
 
 ### Subagent output contract
 
-Every Sonnet/Opus subagent spawned during a scan receives a mandatory instruction to Write its own output directly to `/tmp/archie_*.json` using the Write tool (permissioned via `Write(//tmp/archie_*)`). The orchestrator never copies subagent transcripts. This avoids Claude Code's sensitive-file guardrail on `~/.claude/projects/.../subagents/*.jsonl` (which used to fire a permission prompt on every batch), keeps subagent output out of the orchestrator's context (less compaction pressure), and isolates failures (missing confirmation line or missing file → clear signal, no silent fallback to transcript scraping).
+Every analysis subagent spawned during a scan receives a mandatory instruction (the connector-rendered `{{>output_contract}}` partial) to write its complete output directly to `.archie/tmp/archie_*.json` — Claude renders this as a `Write` tool call, Codex renders it as `apply_patch` against the workspace path. Both land covered by `Write(.archie/**)` (Claude's permission allowlist) and Codex's default `workspace-write` sandbox. The orchestrator never copies subagent transcripts. This avoids Claude Code's sensitive-file guardrail on `~/.claude/projects/.../subagents/*.jsonl` (which used to fire a permission prompt on every batch), keeps subagent output out of the orchestrator's context (less compaction pressure), and isolates failures (missing confirmation line or missing file → clear signal, no silent fallback to transcript scraping). Artifacts are workspace-relative under `.archie/tmp/`, gitignored at install time via a self-ignoring `.archie/tmp/.gitignore` so they never get committed.
 
 The contract is enforced in 6 spawn sites across the slash commands: Wave 1 structural agents (3–4 Sonnets), Wave 2 reasoning agent (full + incremental paths), rule-proposer agent, deep-drift reviewer, and Intent Layer enrichment subagents.
 
@@ -782,7 +781,7 @@ CLI-specific knowledge is concentrated in exactly two places, split by *when* it
 
 ### Templated workflow + install-time render
 
-There is **one canonical workflow per command**, authored once under `archie/assets/workflow/<command>/`. The template is harness-neutral — every CLI-specific word is a *slot*. The installer **renders** the template through the active connector's render map, writing fully native output into `<project>/.archie/workflow/<cli>/`. There is no runtime indirection: the running agent never sees a placeholder or a "look up the right phrasing" instruction — Claude's rendered copy literally says `Opus` / `Agent tool` / `AskUserQuestion`, Codex's literally says `gpt-5` / `spawn_agents_on_csv`. The step logic is identical; only the slotted words differ.
+There is **one canonical workflow per command**, authored once under `archie/assets/workflow/<command>/`. The template is harness-neutral — every CLI-specific word is a *slot*. The installer **renders** the template through the active connector's render map, writing fully native output into `<project>/.archie/workflow/<cli>/`. There is no runtime indirection: the running agent never sees a placeholder or a "look up the right phrasing" instruction — Claude's rendered copy literally says `Opus` / `Agent tool` / `AskUserQuestion`, Codex's literally says `gpt-5` / native Codex subagents / direct conversation prompts. The step logic is identical; only the slotted words differ.
 
 **Why render at install time, not resolve at runtime:** a workflow that says "spawn an Opus subagent with the Agent tool" performs better than one that says "dispatch a reasoning-tier worker, see profile." Baking native vocabulary in keeps the running agent on rails.
 
@@ -819,7 +818,7 @@ Capabilities vocabulary:
 | `commands` | Connector implements `install_command` (every connector declares this) |
 | `hooks:pre-tool-use`, `hooks:post-tool-use`, `hooks:user-prompt-submit`, `hooks:stop` | Per-event hook support; the install loop calls `install_hook` only for events the connector claims |
 | `hooks:pre-commit` | Git pre-commit gate — universal across all connectors |
-| `parallel-agents` | CLI runtime supports parallel sub-agent fan-out (Claude via Agent tool; Codex via `spawn_agents_on_csv`) |
+| `parallel-agents` | CLI runtime supports parallel sub-agent fan-out (Claude via Agent tool; Codex via native subagents) |
 | `config-patch` | Connector patches a global CLI config file (Codex's `~/.codex/config.toml`); Claude needs none |
 
 ### Manifest (`archie/manifest_data.py`)
@@ -839,9 +838,9 @@ Each `CommandDef` carries a `body_path` — the command's `SKILL.md` *inside the
 | Connector | File | Capabilities | CLI native artifacts |
 |---|---|---|---|
 | `ClaudeConnector` | `archie/connectors/claude.py` | commands, hooks (all 4 events), pre-commit, parallel-agents | `.claude/commands/archie-*.md` (5 shims), `.claude/hooks/*.sh` scripts, `.claude/settings.local.json` (hooks merge + `permissions.allow`) |
-| `CodexConnector` | `archie/connectors/codex.py` | commands, hooks (all 4 events), pre-commit, parallel-agents, config-patch | `.agents/skills/archie-*/SKILL.md` (5 shims, parent-walked by Codex), `.codex/hooks.json` with absolute hook paths and Codex-native matchers (`^apply_patch$`, `^Bash$`, `^(Glob\|Grep)$`, `^ExitPlanMode$`), idempotent regex-based merge into `~/.codex/config.toml` |
+| `CodexConnector` | `archie/connectors/codex.py` | commands, hooks (all 4 events), pre-commit, parallel-agents, config-patch | `.agents/skills/archie-*/SKILL.md` (5 shims, parent-walked by Codex), `.codex/hooks.json` with absolute hook paths and Codex-native matchers (`^apply_patch$`, `^Bash$`, `^(Glob\|Grep)$`, `^ExitPlanMode$`), `.codex/config.toml` `[agents]` limits, `.codex/agents/archie-analysis.toml`, idempotent regex-based merge into `~/.codex/config.toml` |
 
-There are **no named sub-agents** — neither connector materializes agent definition files. Claude fans out via inline Agent tool calls; Codex fans out via `spawn_agents_on_csv`, where the orchestrator builds the CSV of full sub-agent prompts in-flight (read straight from the rendered workflow). The sub-agent prompts are ordinary workflow files, not connector-emitted artifacts.
+Codex uses a project-scoped custom agent definition for Archie analysis workers. Claude fans out via inline Agent tool calls; Codex fans out through the native Codex subagent workflow, where the orchestrator reads full sub-agent prompts straight from the rendered workflow and asks Codex to spawn one subagent per prompt. The analytical prompts remain ordinary workflow files, not connector-emitted prompt artifacts.
 
 ### Shims and the rendered workflow
 
@@ -933,7 +932,7 @@ Skills at `.agents/skills/archie-*/SKILL.md` — 5 shims written by `CodexConnec
 
 `.codex/hooks.json` is generated by `CodexConnector.install_hook` with absolute paths to `.archie/hooks/*.sh` and Codex-native matchers (`^apply_patch$`, `^Bash$`, `^(Glob|Grep)$`, `^ExitPlanMode$`). Codex's `PreToolUse` hook fires on `apply_patch` (its native tool name for file edits) — equivalent to Claude's `Write|Edit|MultiEdit` matcher.
 
-Codex's deep-scan Wave-1 parallel fan-out renders the `{{>dispatch_parallel}}` partial: the orchestrator spawns subagents in parallel via Codex's standard subagent workflow, and for the large row-based batches it may use Codex's experimental `spawn_agents_on_csv` flow — building the CSV in-flight from the full sub-agent prompts read straight out of the rendered workflow tree. There are no named-agent `.toml` files; the sub-agent prompts are ordinary rendered workflow files (`workflow/codex/deep-scan/steps/step-3-wave1/*-agent.md`).
+Codex's deep-scan Wave-1 parallel fan-out renders the `{{>dispatch_parallel}}` partial: the orchestrator spawns subagents in parallel via Codex's standard subagent workflow, using the project-scoped `archie_analysis` custom agent when available. The sub-agent prompts are ordinary rendered workflow files (`workflow/codex/deep-scan/steps/step-3-wave1/*-agent.md`).
 
 `CodexConnector.patch_config` does an idempotent regex-based TOML merge into `~/.codex/config.toml`, setting `project_doc_max_bytes = 131072` (raising the 32 KiB default that real Archie output already exceeded) and unioning `project_doc_fallback_filenames` with `["CLAUDE.md"]` so per-folder context files are picked up. Non-destructive — preserves all existing keys and sections; running install twice produces zero diff on the second run.
 
@@ -1210,7 +1209,7 @@ Phase 4  Synthesis
      - Gone -> status: resolved + resolved_at
   4c Write scan_history/scan_NNN_*.md and scan_report.md
   4d python3 .archie/extract_output.py save-duplications \
-       /tmp/archie_agent_c_rules.json "$PWD"
+       .archie/tmp/archie_agent_c_rules.json "$PWD"
 Phase 5  Proposed rules -> .archie/proposed_rules.json
 Phase 6  Telemetry write
 ```
@@ -1243,7 +1242,7 @@ Step 6  Rule synthesis — single Sonnet
         Reads evolved blueprint, proposes architecturally-grounded rules
 Step 7  Intent Layer — per-folder CLAUDE.md (OPT-IN, Step E decides)
         If INTENT_LAYER=no: skip, telemetry records "skipped": true
-Step 8  Cleanup /tmp/archie_*
+Step 8  Cleanup .archie/tmp/archie_*
 Step 9  Drift Detection & Architectural Assessment
         drift.py (mechanical) + single Sonnet (deep AI drift)
         Writes final scan_report.md + scan_history/scan_NNN_*.md
@@ -1258,7 +1257,7 @@ Step 2  Read accumulated knowledge + detect changed files
 Step 3' One scoped Reasoning agent (Sonnet)
         Input: blueprint, blueprint_raw, findings, changed files
         Output: ONLY the sections that need updating
-Step 4  finalize.py --patch /tmp/archie_sub_x_*.json
+Step 4  finalize.py --patch .archie/tmp/archie_sub_x_*.json
         Deep-merges the partial output into existing blueprint + findings store
 (skip to Step 6)
 ```

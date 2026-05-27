@@ -67,5 +67,5 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-baseline SC
 ```
 (Replace SCAN_MODE with the actual mode — "full" or "incremental")
 
-End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `/archie-scan` for fast health checks. Run `/archie-deep-scan --incremental` after code changes to update the architecture analysis."**
+End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `{{COMMAND_PREFIX}}archie-scan` for fast health checks. Run `{{COMMAND_PREFIX}}archie-deep-scan --incremental` after code changes to update the architecture analysis."**
 

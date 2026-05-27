@@ -11,7 +11,7 @@ TELEMETRY_STEP5_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 ### Findings store (accumulates across all runs)
 
-`.archie/findings.json` is a shared, compounding store — both `/archie-scan` and `/archie-deep-scan` read from it and write back to it. Each run adds new findings, upgrades existing ones (with matching `id`), confirms recurrence, or marks resolution. Scan and deep-scan are independent — neither requires the other; you can run either command any number of times in any order.
+`.archie/findings.json` is a shared, compounding store — both `{{COMMAND_PREFIX}}archie-scan` and `{{COMMAND_PREFIX}}archie-deep-scan` read from it and write back to it. Each run adds new findings, upgrades existing ones (with matching `id`), confirms recurrence, or marks resolution. Scan and deep-scan are independent — neither requires the other; you can run either command any number of times in any order.
 
 Before Wave 2:
 
@@ -47,7 +47,7 @@ Tell the scoped Reasoning agent:
 > - Update the decision_chain only for affected branches
 > Return ONLY the sections that need updating — unchanged sections will be preserved. Use the 4-field contract (`problem_statement`, `evidence`, `root_cause`, `fix_direction`) when writing finding or pitfall entries.
 
-Instruct the Reasoning agent to write its own output (append to its prompt). The "file path named above" is `/tmp/archie_sub_x_$PROJECT_NAME.json`:
+Instruct the Reasoning agent to write its own output (append to its prompt). The "file path named above" is `.archie/tmp/archie_sub_x_$PROJECT_NAME.json`:
 
 ```
 ---
@@ -57,7 +57,7 @@ OUTPUT CONTRACT (mandatory):
 
 The file will be on disk when the agent's output returns. Then finalize with patch mode:
 ```bash
-python3 .archie/finalize.py "$PROJECT_ROOT" --patch /tmp/archie_sub_x_$PROJECT_NAME.json
+python3 .archie/finalize.py "$PROJECT_ROOT" --patch .archie/tmp/archie_sub_x_$PROJECT_NAME.json
 ```
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 5
@@ -259,7 +259,7 @@ Tell the Reasoning agent:
 
 The Reasoning agent also gets the GROUNDING RULES from Step 3.
 
-Instruct the Reasoning agent to write its own output (append to its prompt). The "file path named above" is `/tmp/archie_sub_x_$PROJECT_NAME.json`:
+Instruct the Reasoning agent to write its own output (append to its prompt). The "file path named above" is `.archie/tmp/archie_sub_x_$PROJECT_NAME.json`:
 
 ```
 ---
@@ -270,7 +270,7 @@ OUTPUT CONTRACT (mandatory):
 After the agent's output returns, finalize:
 
 ```bash
-python3 .archie/finalize.py "$PROJECT_ROOT" /tmp/archie_sub_x_$PROJECT_NAME.json
+python3 .archie/finalize.py "$PROJECT_ROOT" .archie/tmp/archie_sub_x_$PROJECT_NAME.json
 ```
 
 This single command: merges the Reasoning agent's output into the blueprint, normalizes the schema, renders CLAUDE.md + AGENTS.md + rule files, installs hooks, and validates. Review the validation output — warnings are informational, not blocking.

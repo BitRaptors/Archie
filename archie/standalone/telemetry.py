@@ -20,7 +20,7 @@ Usage (CLI):
   telemetry.py clear    <project_root>                    — delete in-flight state
 
 Legacy (pre-compaction flow, still supported):
-  telemetry.py <project_root> --command deep-scan --timing-file /tmp/archie_timing.json
+  telemetry.py <project_root> --command deep-scan --timing-file .archie/tmp/archie_timing.json
 
 Programmatic:
   from archie.standalone.telemetry import write_telemetry

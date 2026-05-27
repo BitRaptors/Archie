@@ -17,7 +17,18 @@ Spawn a **single {{ANALYSIS_MODEL}} subagent** with:
 - Skeletons for changed files only (read `.archie/skeletons.json`, filter to only keys matching changed file paths)
 - The scan.json import graph
 
-{{>dispatch_single}}
+**Before dispatch — assign the subagent's output path and append the output
+contract to its prompt.** The "file path named above" in the contract is
+`.archie/tmp/archie_incremental_$PROJECT_NAME.json`.
+
+The subagent's prompt is the agent body below, followed by a blank line,
+followed by:
+
+```
+---
+OUTPUT CONTRACT (mandatory):
+{{>output_contract}}
+```
 
 Agent prompt:
 > You have the existing architectural blueprint and a list of files that changed since the last analysis. Read the changed files and their context. Report what changed architecturally:
@@ -30,13 +41,7 @@ Agent prompt:
 >
 > GROUNDING RULES apply (see below).
 
-The subagent writes its own output. The "file path named above" is `/tmp/archie_incremental_$PROJECT_NAME.json`. Append this contract to the agent prompt before spawning:
-
-```
----
-OUTPUT CONTRACT (mandatory):
-{{>output_contract}}
-```
+{{>dispatch_single}}
 
 Then skip to Step 4.
 
@@ -54,12 +59,26 @@ For each sub-agent below, Read the corresponding prompt file, then ALSO Read `{{
 
 All paths are relative to the project root (your cwd).
 
-| Sub-agent | Prompt file | Spawn when |
-|---|---|---|
-| Structure | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/structure-agent.md` | Always |
-| Patterns | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/patterns-agent.md` | Always |
-| Technology | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/technology-agent.md` | Always |
-| UI Layer | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/ui-layer-agent.md` | Only when `frontend_ratio >= 0.20` |
+| Sub-agent | Prompt file | Output path | Spawn when |
+|---|---|---|---|
+| Structure | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/structure-agent.md` | `.archie/tmp/archie_sub1_$PROJECT_NAME.json` | Always |
+| Patterns | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/patterns-agent.md` | `.archie/tmp/archie_sub2_$PROJECT_NAME.json` | Always |
+| Technology | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/technology-agent.md` | `.archie/tmp/archie_sub3_$PROJECT_NAME.json` | Always |
+| UI Layer | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/ui-layer-agent.md` | `.archie/tmp/archie_sub4_$PROJECT_NAME.json` | Only when `frontend_ratio >= 0.20` |
+
+**Before dispatch — append the output contract to each sub-agent's prompt,
+substituting its output path from the table above as the "file path named
+above".** Each prompt is the agent body + blank line + grounding rules body
++ blank line + the contract block:
+
+```
+---
+OUTPUT CONTRACT (mandatory):
+{{>output_contract}}
+```
+
+The merge step (Step 4) reads each agent's output file directly — do NOT
+copy or transcribe a subagent's output yourself.
 
 All four sub-agents run at the {{ANALYSIS_MODEL}} model. {{>dispatch_parallel}}
 

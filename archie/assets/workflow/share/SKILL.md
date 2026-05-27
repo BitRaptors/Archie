@@ -2,7 +2,7 @@
 
 Share your architecture blueprint via a URL. Useful for showing teammates, stakeholders, or clients an analysis of your codebase without needing them to install anything.
 
-**Prerequisites:** Requires `.archie/blueprint.json`. Run `/archie-scan` (or `/archie-deep-scan`) first if it doesn't exist.
+**Prerequisites:** Requires `.archie/blueprint.json`. Run `{{COMMAND_PREFIX}}archie-scan` (or `{{COMMAND_PREFIX}}archie-deep-scan`) first if it doesn't exist.
 
 ## Update notice (run before anything else, silent unless action needed)
 
@@ -103,8 +103,8 @@ Map: `Default` → `MODE=default`. `Enterprise (paste URL)` → `MODE=enterprise
   Then compose a ready-to-paste message that the user can send to InfoSec via Slack/email/ticket. The message MUST include:
 
   1. **Brief context** (1–2 sentences): what Archie is, why you're asking for a bucket, which specific InfoSec concern this solves (no BitRaptors infrastructure in the data path).
-  2. **The CORS policy they need to apply** — copy-paste JSON from `docs/enterprise-share-setup.md` Step 2, with `AllowedOrigins` set to `https://archie-viewer.vercel.app`.
-  3. **The IAM policy they need to apply** — copy-paste JSON from `docs/enterprise-share-setup.md` Step 3, with `Resource` ARN substituted to the user's proposed bucket name (e.g. `arn:aws:s3:::acme-archie-shares/archie-shares/*`).
+  2. **The CORS policy they need to apply** — copy-paste JSON from `docs/enterprise-share-setup.md` Step 2, with `AllowedOrigins` set to `https:/{{COMMAND_PREFIX}}archie-viewer.vercel.app`.
+  3. **The IAM policy they need to apply** — copy-paste JSON from `docs/enterprise-share-setup.md` Step 3, with `Resource` ARN substituted to the user's proposed bucket name (e.g. `arn:aws:s3:::acme-archie-shares{{COMMAND_PREFIX}}archie-shares/*`).
   4. **What InfoSec should send back** — bucket name, region, access key ID, secret access key (via 1Password or their secure channel).
   5. **Data-flow summary for their security review**: "Archie uploads blueprint JSON to our bucket via sigv4-signed PUT. The share URL points at `archie-viewer.vercel.app` with a URL fragment (`#...`) carrying the presigned GET URL. Fragments are browser-only — never transmitted to any server. When a teammate opens the share, their browser fetches directly from our bucket. BitRaptors stores nothing and sees no data."
   6. **Link to the full walkthrough** at `docs/enterprise-share-setup.md` for InfoSec to read if they want more detail.
@@ -164,9 +164,9 @@ If the upload fails (network issues, server down, bucket misconfigured, expired 
 
 ## Enterprise mode notes
 
-- The share URL returned looks like `https://archie-viewer.vercel.app/r/ext#<base64url-encoded-GET-URL>`. The GET URL lives in the URL fragment (`#...`), which browsers never transmit to any server. BitRaptors sees nothing about the share.
-- The viewer fetches directly from the GET URL. The customer's bucket must allow CORS from `https://archie-viewer.vercel.app` or the viewer shows a fetch error.
-- Presigned GET URLs expire (max 7 days on AWS S3 for IAM-user-signed URLs). When a share URL stops working, re-run `/archie-share` with fresh URLs from InfoSec.
+- The share URL returned looks like `https:/{{COMMAND_PREFIX}}archie-viewer.vercel.app/r/ext#<base64url-encoded-GET-URL>`. The GET URL lives in the URL fragment (`#...`), which browsers never transmit to any server. BitRaptors sees nothing about the share.
+- The viewer fetches directly from the GET URL. The customer's bucket must allow CORS from `https:/{{COMMAND_PREFIX}}archie-viewer.vercel.app` or the viewer shows a fetch error.
+- Presigned GET URLs expire (max 7 days on AWS S3 for IAM-user-signed URLs). When a share URL stops working, re-run `{{COMMAND_PREFIX}}archie-share` with fresh URLs from InfoSec.
 
 ## Telemetry (run after upload completes, silent if opted out)
 

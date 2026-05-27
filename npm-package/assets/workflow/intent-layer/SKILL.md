@@ -2,7 +2,7 @@
 
 Generate AI-written `CLAUDE.md` for every folder in the project using bottom-up DAG scheduling. Each folder gets a ~80-line architectural description (purpose, patterns, anti-patterns, key files, decisions) so agents editing deep in the tree have folder-local guidance — not just the root CLAUDE.md.
 
-Use this when the user skipped Intent Layer during `/archie-deep-scan` (chose "No — skip Intent Layer" at the prompt), or when `.archie/enrichments/` is empty but a blueprint already exists.
+Use this when the user skipped Intent Layer during `{{COMMAND_PREFIX}}archie-deep-scan` (chose "No — skip Intent Layer" at the prompt), or when `.archie/enrichments/` is empty but a blueprint already exists.
 
 **Prerequisites:** If `.archie/intent_layer.py` doesn't exist, tell the user to run `npx @bitraptors/archie` first.
 
@@ -11,9 +11,9 @@ Do NOT use `python3 -c "..."` for inspection, parsing, or transformation. Every 
 
 ### Flags (optional)
 
-If invoked as `/archie-intent-layer --continue` → set `RESUME_INTENT=continue` before anything else. Skip the Phase 0 interactive resume prompt if partial state is detected.
+If invoked as `{{COMMAND_PREFIX}}archie-intent-layer --continue` → set `RESUME_INTENT=continue` before anything else. Skip the Phase 0 interactive resume prompt if partial state is detected.
 
-If invoked as `/archie-intent-layer --finalize-partial` → set `RESUME_INTENT=finalize`. Skip the Phase 0 interactive resume prompt if partial state is detected.
+If invoked as `{{COMMAND_PREFIX}}archie-intent-layer --finalize-partial` → set `RESUME_INTENT=finalize`. Skip the Phase 0 interactive resume prompt if partial state is detected.
 
 Otherwise → `RESUME_INTENT=ask`.
 
@@ -53,9 +53,9 @@ test -f "$PWD/.archie/blueprint.json"
 
   > **Intent Layer requires a blueprint.**
   >
-  > Per-folder CLAUDE.md files are architectural descriptions — they need the project's architecture (components, decisions, responsibilities) as grounding. That architecture lives in `.archie/blueprint.json`, which is produced by `/archie-deep-scan`.
+  > Per-folder CLAUDE.md files are architectural descriptions — they need the project's architecture (components, decisions, responsibilities) as grounding. That architecture lives in `.archie/blueprint.json`, which is produced by `{{COMMAND_PREFIX}}archie-deep-scan`.
   >
-  > Run `/archie-deep-scan` first, then come back to `/archie-intent-layer`.
+  > Run `{{COMMAND_PREFIX}}archie-deep-scan` first, then come back to `{{COMMAND_PREFIX}}archie-intent-layer`.
 
   Do NOT offer a degraded path. Do NOT run a partial blueprint inference. Exit.
 
@@ -67,7 +67,7 @@ python3 .archie/intent_layer.py inspect "$PWD" blueprint.json --query .component
 
 If the output is empty or `null`, the blueprint exists but has no components — it's malformed or mid-scan. Print:
 
-> **Blueprint exists but has no components.** Something interrupted a previous `/archie-deep-scan`. Re-run `/archie-deep-scan` to regenerate the blueprint fully, then come back.
+> **Blueprint exists but has no components.** Something interrupted a previous `{{COMMAND_PREFIX}}archie-deep-scan`. Re-run `{{COMMAND_PREFIX}}archie-deep-scan` to regenerate the blueprint fully, then come back.
 
 Exit.
 
@@ -75,7 +75,7 @@ Exit.
 
 ## Phase 0.25: Detect and reconcile partial state
 
-If a previous `/archie-intent-layer` run was interrupted (hit a usage cap, got compacted, Ctrl+C'd), persistent state survives on disk. Before starting a fresh loop, check whether we can continue from where it stopped.
+If a previous `{{COMMAND_PREFIX}}archie-intent-layer` run was interrupted (hit a usage cap, got compacted, Ctrl+C'd), persistent state survives on disk. Before starting a fresh loop, check whether we can continue from where it stopped.
 
 ### Detect partial state
 
@@ -95,13 +95,13 @@ If a previous orchestrator crashed between "subagent wrote /tmp file" and "orche
 INTENT_RUN_ID=$(python3 .archie/intent_layer.py inspect "$PWD" enrich_batches.json --query .run_id 2>/dev/null)
 [ -z "$INTENT_RUN_ID" ] || [ "$INTENT_RUN_ID" = "null" ] && INTENT_RUN_ID=""
 PROJECT_SLUG="${PWD##*/}"
-for tmp in /tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.json; do
+for tmp in .archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.json; do
     [ -f "$tmp" ] || continue
     # Extract batch_id from
-    # "/tmp/archie_enrichment_<project>_<run_id>_<id>.json" using pure shell
+    # ".archie/tmp/archie_enrichment_<project>_<run_id>_<id>.json" using pure shell
     # parameter expansion — no external commands so no permission prompts
     # during an otherwise unattended scan.
-    prefix="/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_"
+    prefix=".archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_"
     name="${tmp#$prefix}"
     batch_id="${name%.json}"
     python3 .archie/intent_layer.py save-enrichment "$PWD" "$batch_id" "$tmp" 2>/dev/null || true
@@ -140,7 +140,7 @@ python3 .archie/intent_layer.py inspect "$PWD" last_deep_scan.json --query .comm
 
 If this SHA differs from what the state was built against (compare via `git log` on the current HEAD), warn:
 
-> **Note:** the blueprint baseline has moved since this Intent Layer run started. The completed enrichments may reference components that no longer exist. Continue if you trust the overlap; otherwise re-run `/archie-deep-scan` then `/archie-intent-layer` fresh.
+> **Note:** the blueprint baseline has moved since this Intent Layer run started. The completed enrichments may reference components that no longer exist. Continue if you trust the overlap; otherwise re-run `{{COMMAND_PREFIX}}archie-deep-scan` then `{{COMMAND_PREFIX}}archie-intent-layer` fresh.
 
 Do not block. The user asked to continue; they can judge. The defensive `cmd_merge` skip-missing-folders keeps this safe in the worst case.
 
@@ -152,7 +152,7 @@ Do not block. The user asked to continue; they can judge. The defensive `cmd_mer
 
 Ask the user whether to regenerate every folder's CLAUDE.md, or only the folders touched since the last deep scan. Incremental is cheaper and faster for routine catch-up; full is right after major structural changes.
 
-**Deep-scan deltas note**: if you're executing this file from `/archie-deep-scan` Step 7, the mode was already decided earlier in that command (the `SCAN_MODE` variable). Skip this phase — use `SCAN_MODE` directly.
+**Deep-scan deltas note**: if you're executing this file from `{{COMMAND_PREFIX}}archie-deep-scan` Step 7, the mode was already decided earlier in that command (the `SCAN_MODE` variable). Skip this phase — use `SCAN_MODE` directly.
 
 ### Step A: Ask for the mode
 
@@ -250,11 +250,11 @@ In incremental mode N is the size of the dirty subset (affected folders + ancest
 
 For `RESUME_MODE=resume` and `RESUME_MODE=fresh` the flow is identical: `next-ready` reads the done list from disk and returns only folders that still need enrichment. The difference is just the starting point of the done list (non-empty for resume, empty for fresh).
 
-**This loop is self-propelled.** Each wave is dispatched as ONE blocking batch (see the dispatch step below) — the batch call does not return until every sub-agent in the wave has finished. Do NOT stop or hand control back after a wave is dispatched. Stay in the same Archie command run until one of these is true:
+**This loop is self-propelled.** Each wave dispatches all of its sub-agents from one orchestration step and waits for every one to finish before the next wave starts (see the dispatch step below). Do NOT stop or hand control back after a wave is dispatched. Stay in the same Archie command run until one of these is true:
 - `next-ready` returns `[]` and Phase 3 can start
 - a real failure occurs (missing output file, invalid JSON, save-enrichment error)
 
-After each wave's batch returns, ingest its outputs, call `next-ready`, and immediately dispatch the next wave yourself. Do not wait for the user to nudge you.
+After each wave finishes, ingest its outputs, call `next-ready`, and immediately dispatch the next wave yourself. Do not wait for the user to nudge you.
 
 ### Status-line labeling (honor the current mode)
 
@@ -299,10 +299,10 @@ Output is a JSON array: `[{"id": "w0", "folders": [...]}, ...]`. Use `id` (NOT `
 **c. For each batch, generate the prompt and spawn a {{ANALYSIS_MODEL}} subagent:**
 
 ```bash
-python3 .archie/intent_layer.py prompt "$PWD" --folders <comma-separated-folders> --child-summaries "$PWD/.archie/enrichments/" > /tmp/archie_intent_prompt_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.txt
+python3 .archie/intent_layer.py prompt "$PWD" --folders <comma-separated-folders> --child-summaries "$PWD/.archie/enrichments/" > .archie/tmp/archie_intent_prompt_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.txt
 ```
 
-Read the prompt file. **Before spawning**, append the following output contract to the prompt text you pass to the subagent (so the subagent writes its result directly to disk — the orchestrator must never copy or transcribe the subagent's output). The "file path named above" for this contract is `/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json`, and the output must be valid JSON with folder paths as keys — no prose, no code fences, no preamble:
+Read the prompt file. **Before spawning**, append the following output contract to the prompt text you pass to the subagent (so the subagent writes its result directly to disk — the orchestrator must never copy or transcribe the subagent's output). The "file path named above" for this contract is `.archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json`, and the output must be valid JSON with folder paths as keys — no prose, no code fences, no preamble:
 
 ```
 ---
@@ -315,12 +315,12 @@ Substitute the actual `<batch_id>` in the path before augmenting the prompt.
 
 **Spawn ALL batches of one wave as a single parallel batch** — they're independent by construction. Each batch runs as one {{ANALYSIS_MODEL}} subagent. {{>dispatch_parallel}}
 
-The dispatch call is blocking — it does not return until every sub-agent in the wave has finished. Do not hand-roll your own chunking; the dispatch primitive manages concurrency internally and processes the whole wave in one call. Do not treat "spawned" as completion: a wave is complete only after every batch in it has been ingested successfully.
+Dispatch every sub-agent for the current wave from one orchestration step, then wait until every sub-agent in that wave has finished before proceeding. Do not hand-roll your own chunking — use the ready wave and suggested batches exactly as produced. The runtime imposes a concurrency cap on how many sub-agents run at once; trust it to schedule the wave correctly. Do not treat "spawned" as completion: a wave is complete only after every output file has been ingested successfully.
 
 **d. After each subagent completes, ingest its pre-written file:**
 
 ```bash
-python3 .archie/intent_layer.py save-enrichment "$PWD" <batch_id> /tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json
+python3 .archie/intent_layer.py save-enrichment "$PWD" <batch_id> .archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_<batch_id>.json
 ```
 
 This extracts the JSON (handling conversation envelopes, code fences, multi-block merging), saves it to `.archie/enrichments/<batch_id>.json`, and updates `enrich_state.json` so `next-ready` can advance to the next wave.
@@ -346,7 +346,7 @@ This reads every `.archie/enrichments/*.json` and writes a `CLAUDE.md` into each
 ## Phase 4: Clean up temp files
 
 ```bash
-rm -f /tmp/archie_intent_prompt_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.txt /tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.json
+rm -f .archie/tmp/archie_intent_prompt_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.txt .archie/tmp/archie_enrichment_${PROJECT_SLUG}_${INTENT_RUN_ID}_*.json
 ```
 
 ---
@@ -364,7 +364,7 @@ Per-folder guidance lives at:
   ...
 
 Agents editing deep in the tree will now auto-load the closest folder's CLAUDE.md.
-Re-run this command after major structural changes, or let /archie-deep-scan regenerate when you re-baseline.
+Re-run this command after major structural changes, or let {{COMMAND_PREFIX}}archie-deep-scan regenerate when you re-baseline.
 ```
 
 Derive N (count of enriched folders) from `.archie/enrich_state.json`:
