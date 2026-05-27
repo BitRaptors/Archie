@@ -34,12 +34,22 @@ SAMPLE_CMD = CommandDef("archie-test", "Test command.", ".archie/prompts/skill_t
 
 
 @pytest.fixture
-def tmp_project(tmp_path: Path) -> Path:
+def tmp_project(tmp_path: Path, monkeypatch) -> Path:
     """A throwaway project root with .archie/hooks/ already populated.
 
     The connector's install_hook references archie/assets/hook_scripts/<name>.sh
     — those are committed under archie/assets/, so the connectors find them.
+
+    Redirects `Path.home()` to a fake home dir under tmp_path so any connector
+    that writes to `~/.codex/config.toml` during the test (CodexConnector.finalize
+    writes [agents] + [projects."<abs>"] trust_level there) does not pollute
+    the developer's real config file. Without this every test run would leave
+    a [projects."<pytest-tmp>"] entry behind permanently.
     """
+    fake_home = tmp_path / "_fake_home"
+    fake_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
     return tmp_path
 
 
@@ -259,3 +269,122 @@ def test_codex_patch_config_fills_in_missing_agents_keys(tmp_path: Path, monkeyp
     cfg = (fake_home / ".codex" / "config.toml").read_text()
     assert "max_threads = 12" in cfg  # user's value preserved
     assert "max_depth = 2" in cfg     # missing key filled in
+
+
+# ---------------------------------------------------------------------------
+# Codex execpolicy Rules file — pre-approves the deep-scan command surface
+# ---------------------------------------------------------------------------
+
+def test_codex_finalize_writes_archie_rules_file(tmp_path: Path, monkeypatch):
+    """finalize() drops .codex/rules/archie.rules with one prefix_rule per
+    standalone script + one per COMMAND_RULES entry. This is the documented
+    Codex mechanism for pre-approving shell commands at install time
+    (developers.openai.com/codex/rules)."""
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+    codex.finalize(tmp_path)
+
+    rules_file = tmp_path / ".codex" / "rules" / "archie.rules"
+    assert rules_file.is_file()
+    content = rules_file.read_text()
+    # Header references the docs source so the next contributor knows where
+    # the schema lives.
+    assert "developers.openai.com/codex/rules" in content
+    # All prefix_rules carry decision = "allow" — the Rules file is purely
+    # additive (no "prompt" or "forbidden" entries Archie ships).
+    assert 'decision = "allow"' in content
+    assert 'decision = "prompt"' not in content
+    assert 'decision = "forbidden"' not in content
+    # Every Archie Python script has its own prefix_rule by script name.
+    from archie.install import _STANDALONE_SCRIPTS
+    for script in _STANDALONE_SCRIPTS:
+        if not script.endswith(".py"):
+            continue
+        expected = f'"python3", ".archie/{script}"'
+        assert expected in content, f"archie.rules missing prefix_rule for {script}"
+    # Catalogue-driven shell utility entries land too — pick a representative.
+    assert '"mkdir"' in content
+    assert '"rm", "-f", ".archie/health.json"' in content
+    assert '"git", "log"' in content
+    # Inline Python (`python3 -c …`) is its own entry.
+    assert '"python3", "-c"' in content
+
+
+def test_codex_finalize_marks_project_trusted(tmp_path: Path, monkeypatch):
+    """The Codex Rules file (and our .codex/agents/, .codex/hooks.json) only
+    load when the project is marked trusted in ~/.codex/config.toml. The
+    install writes that trust marker — set-if-absent, so a manual
+    "untrusted" choice is respected."""
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+    codex.finalize(tmp_path)
+
+    cfg = (fake_home / ".codex" / "config.toml").read_text()
+    # Section header uses the documented quoted-key TOML form with the
+    # project's RESOLVED absolute path (symlinks collapsed).
+    abs_path = str(tmp_path.resolve())
+    assert f'[projects."{abs_path}"]' in cfg
+    assert 'trust_level = "trusted"' in cfg
+
+
+def test_codex_finalize_respects_user_untrusted_project_marker(tmp_path: Path, monkeypatch):
+    """A user who deliberately marked their project "untrusted" (knowing it
+    skips the project-scoped .codex/ layer) is respected — install does not
+    overwrite that choice."""
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    fake_home = tmp_path / "fake_home"
+    (fake_home / ".codex").mkdir(parents=True)
+    abs_path = str(tmp_path.resolve())
+    (fake_home / ".codex" / "config.toml").write_text(
+        f'[projects."{abs_path}"]\n'
+        'trust_level = "untrusted"\n'
+    )
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+    codex.finalize(tmp_path)
+
+    cfg = (fake_home / ".codex" / "config.toml").read_text()
+    assert 'trust_level = "untrusted"' in cfg
+    assert 'trust_level = "trusted"' not in cfg
+
+
+def test_codex_finalize_idempotent_trust_marker(tmp_path: Path, monkeypatch):
+    """Running finalize() twice produces no further changes — the trust
+    marker write is idempotent on subsequent installs."""
+    codex = next(c for c in ALL_CONNECTORS if c.name == "codex")
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+    codex.finalize(tmp_path)
+    first = (fake_home / ".codex" / "config.toml").read_text()
+    codex.finalize(tmp_path)
+    second = (fake_home / ".codex" / "config.toml").read_text()
+    assert first == second, "trust-level write is not idempotent"
+
+
+def test_command_catalogue_parity_with_claude(tmp_path: Path):
+    """Every COMMAND_RULES entry must declare both a Codex prefix pattern
+    and a Claude bash-glob string. If a new utility is added to one CLI
+    without the other, this test catches the drift."""
+    from archie.manifest_data import COMMAND_RULES
+    for rule in COMMAND_RULES:
+        assert rule.codex_pattern, f"{rule.name}: empty codex_pattern"
+        assert rule.claude_glob, f"{rule.name}: empty claude_glob"
+        assert rule.claude_glob.startswith("Bash("), (
+            f"{rule.name}: claude_glob must be a Bash(...) entry, got {rule.claude_glob!r}"
+        )
+        # First codex_pattern token reflects the same shell command as
+        # claude_glob — basic semantic parity.
+        first_token = rule.codex_pattern[0]
+        assert first_token in rule.claude_glob, (
+            f"{rule.name}: codex_pattern[0]={first_token!r} does not appear in "
+            f"claude_glob={rule.claude_glob!r}"
+        )

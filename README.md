@@ -437,8 +437,9 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | `.agents/skills/archie-*/SKILL.md` | Codex slash-command shims (parent-walked by Codex) |
 | `.codex/hooks.json` | Codex hook bindings with absolute paths and Codex-native matchers (`^apply_patch$`, etc.) |
 | `.git/hooks/pre-commit.archie` | Universal git pre-commit gate (works regardless of which CLI is active) |
-| `~/.codex/config.toml` *(patched)* | Idempotent merge: top-level `project_doc_max_bytes = 131072` + `CLAUDE.md` in `project_doc_fallback_filenames`, and `[agents] max_threads = 6, max_depth = 2` (depth 2 supports the root → workspace worker → Wave-1 worker call chain on monorepo deep-scans) |
-| `<project>/.codex/agents/archie-analysis.toml` | Project-scoped custom Codex subagent definition (per docs at developers.openai.com/codex/subagents) — `name`/`description`/`developer_instructions` + `sandbox_mode = "workspace-write"`, used by the rendered workflow's parallel dispatch |
+| `~/.codex/config.toml` *(patched)* | Idempotent merge: top-level `project_doc_max_bytes = 131072` + `CLAUDE.md` in `project_doc_fallback_filenames`; `[agents] max_threads = 6, max_depth = 2` (set-if-absent — depth 2 supports the root → workspace worker → Wave-1 worker call chain on monorepo deep-scans); `[projects."<abs-path>"] trust_level = "trusted"` (set-if-absent — required so the project-scoped `.codex/` layer loads, per developers.openai.com/codex/agent-approvals-security) |
+| `<project>/.codex/agents/archie-analysis.toml` | Project-scoped custom Codex subagent definition (per developers.openai.com/codex/subagents) — `name`/`description`/`developer_instructions` + `sandbox_mode = "workspace-write"`, used by the rendered workflow's parallel dispatch |
+| `<project>/.codex/rules/archie.rules` | Project-scoped execpolicy Rules (Starlark `prefix_rule(decision="allow", …)` per developers.openai.com/codex/rules). One rule per Archie Python script + one per shell-utility shape the workflow runs (`mkdir`, `cp`, `cat`, `rm -f .archie/health.json`, read-only `git status`/`diff`/`log`/`rev-parse`/`ls-files`/`ls-tree`/`show`, etc.). Auto-approves the deep-scan command surface so the user is not prompted mid-run. Generated from `archie/manifest_data.py::COMMAND_RULES` + `install._STANDALONE_SCRIPTS` — adding a new Archie script auto-extends the rules file. |
 
 ## CLI Compatibility
 
@@ -453,7 +454,16 @@ Scope: Mode 2A (stored credentials) targets AWS S3 virtual-hosted-style URLs. S3
 | Git pre-commit gate | ✅ | ✅ |
 | Per-folder context (CLAUDE.md / AGENTS.md) | ✅ | ✅ (installer auto-patches Codex's fallback list) |
 
-Implementation details differ per CLI but every CLI reaches the same user-facing outcome through the same shared `.archie/` pipeline. Codex auto-patches `~/.codex/config.toml` non-destructively: top-level `project_doc_max_bytes` + `project_doc_fallback_filenames` so per-folder context reads correctly, and `[agents] max_threads / max_depth` (Codex docs locate the `[agents]` block in user-home config) so the documented call chain root → workspace worker → Wave-1 worker fits within Codex's nesting cap on monorepo deep-scans. Codex sub-agent dispatch is native: the parallel partials ask Codex to spawn its `archie_analysis` custom agent (defined in `<project>/.codex/agents/archie-analysis.toml`) per workspace / Wave 1 worker; Codex waits for the full set to finish before the parent continues. All disk artifacts (`.archie/tmp/archie_*.json`) are workspace-relative so the default `workspace-write` sandbox covers them with no extra config.
+Implementation details differ per CLI but every CLI reaches the same user-facing outcome through the same shared `.archie/` pipeline.
+
+**Permissions & approvals** are pre-wired so the deep-scan runs prompt-free on both CLIs:
+
+- **Claude** — `.claude/settings.local.json` carries a permission allowlist (`Bash(python3 .archie/*.py *)`, `Bash(rm -f .archie/tmp/archie_*)`, file Read/Write/Edit on `.archie/**`, `Agent(*)`, etc.). Written by `ClaudeConnector.finalize()`.
+- **Codex** — three coordinated writes in `CodexConnector.finalize()`: (1) `<project>/.codex/rules/archie.rules` carries one Starlark `prefix_rule(decision="allow", …)` per Archie script and per shell-utility shape; (2) `<project>/.codex/agents/archie-analysis.toml` defines the project-scoped custom subagent the parallel dispatch asks Codex to spawn; (3) `~/.codex/config.toml` gets `[projects."<abs-path>"] trust_level = "trusted"` so Codex actually loads the project-scoped `.codex/` layer (rules + agents + hooks all gated on that trust marker, per Codex docs). Installing Archie *is* the trust act; the write is set-if-absent so a manual `"untrusted"` choice is respected.
+
+Codex sub-agent dispatch is native: the parallel partials ask Codex to spawn its `archie_analysis` custom agent (or built-in `worker` fallback) per workspace / Wave 1 worker; Codex waits for the full set to finish before the parent continues. All disk artifacts (`.archie/tmp/archie_*.json`) are workspace-relative so the default `workspace-write` sandbox covers them with no extra config.
+
+**What stays interactive (by design):** mutating git (`commit`, `push`, `reset`, `rebase`) is *not* in the auto-approve set — the user is intentionally prompted if a workflow ever attempts one. The first `/archie-share` upload on Codex also triggers the one-time `workspace-write` network-egress approval; the share SKILL documents this so it doesn't come as a surprise.
 
 ## How It Works
 

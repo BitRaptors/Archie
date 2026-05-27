@@ -42,3 +42,30 @@ class ConfigPatch:
     # `[<section>]` (used for `[agents]` keys like `max_threads`/`max_depth`,
     # which the Codex docs locate in the user-home `~/.codex/config.toml`).
     section: str | None = None
+
+
+@dataclass(frozen=True)
+class CommandRule:
+    """A shell command pattern the install pre-approves so the workflow runs
+    prompt-free on both CLIs.
+
+    `codex_pattern` is a tuple of exact-prefix argv tokens — the
+    `prefix_rule.pattern` shape from the Codex execpolicy Rules schema
+    (developers.openai.com/codex/rules). Codex's matcher treats the command
+    as the argv list `execvp(3)` receives; the pattern must be an exact
+    prefix of that list (each element is a literal string).
+
+    `claude_glob` is the corresponding Claude permission entry (e.g.
+    `Bash(python3 .archie/scanner.py *)`). The two shapes are kept
+    side-by-side because Claude's allowlist uses shell-glob semantics
+    while Codex's Rules use argv-prefix semantics — they're not
+    derivable from each other for cases like `rm -f .archie/tmp/archie_*`
+    where bash expands the glob to many literal argv entries.
+
+    `justification` is the human-readable reason exposed in both the
+    rendered Codex `.rules` file and (optionally) doc references.
+    """
+    name: str
+    codex_pattern: tuple[str, ...]
+    claude_glob: str
+    justification: str

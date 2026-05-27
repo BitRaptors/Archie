@@ -1,9 +1,18 @@
 """CodexConnector — installs Archie for OpenAI Codex CLI.
 
 Writes:
-  .agents/skills/archie-*/SKILL.md  — slash-command shims (parent-walk discovered)
-  .codex/hooks.json                  — hook registrations referencing .archie/hooks/*.sh
-  ~/.codex/config.toml               — idempotent merge: project_doc_max_bytes + fallback_filenames
+  .agents/skills/archie-*/SKILL.md    — slash-command shims (parent-walk discovered)
+  .codex/hooks.json                    — hook registrations referencing .archie/hooks/*.sh
+  .codex/agents/archie-analysis.toml   — project-scoped custom subagent definition
+  .codex/rules/archie.rules            — execpolicy Rules pre-approving the workflow's
+                                          shell command surface (per
+                                          developers.openai.com/codex/rules)
+  ~/.codex/config.toml *(patched)*     — idempotent merge: project_doc_max_bytes +
+                                          fallback_filenames (top-level), [agents]
+                                          max_threads + max_depth (set-if-absent),
+                                          [projects."<abs>"] trust_level = "trusted"
+                                          (set-if-absent) so the project-scoped
+                                          .codex/ layer above actually loads
 
 See docs/plans/2026-05-18-multi-agent-connector-architecture.md §9.2 and
 docs/plans/HANDOFF_CODEX.md for the full implementation contract. Codex
@@ -18,6 +27,13 @@ from pathlib import Path
 from ..manifest import CommandDef, ConfigPatch, HookDef
 from .base import Connector
 from .claude import HOOK_SCRIPTS_DIR
+
+# Imported lazily inside finalize so connectors stay independent of
+# manifest_data at module-import time.
+def _load_command_catalogue():
+    from ..manifest_data import COMMAND_RULES
+    from ..install import _STANDALONE_SCRIPTS
+    return COMMAND_RULES, _STANDALONE_SCRIPTS
 
 
 _EVENT_NAME_CODEX = {
@@ -205,7 +221,7 @@ class CodexConnector(Connector):
             cfg_path.write_text(updated)
 
     def finalize(self, project_root: Path) -> None:
-        # Project-scoped agent definition. Codex docs document
+        # 1. Project-scoped custom-agent definition. Codex docs document
         # `.codex/agents/*.toml` as the project-scoped location for custom
         # agents; [agents] globals live in `~/.codex/config.toml` and are
         # handled by patch_config() via CONFIG_PATCHES.
@@ -223,8 +239,98 @@ class CodexConnector(Connector):
                 '"""\n'
             )
 
+        # 2. Execpolicy Rules file — pre-approves every shell command shape
+        # the workflow runs so the user is not prompted mid-scan. The Rules
+        # schema is documented at developers.openai.com/codex/rules.
+        rules_dir = project_root / ".codex" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        (rules_dir / "archie.rules").write_text(_build_archie_rules_content())
+
+        # 3. Mark the project trusted in ~/.codex/config.toml so the
+        # project-scoped .codex/ layer (rules, agents, hooks) actually
+        # loads. Codex docs: "Untrusted projects skip project-scoped
+        # `.codex/` layers, including project-local config, hooks, and
+        # rules." Installing Archie is itself an explicit trust act; the
+        # write is set-if-absent so a user who manually marked the project
+        # "untrusted" is respected.
+        abs_path = str(project_root.resolve())
+        cfg_path = self.home_dir() / "config.toml"
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = cfg_path.read_text() if cfg_path.exists() else ""
+        # TOML quoted-key section header: [projects."<abs-path>"]
+        section = f'projects."{_toml_string(abs_path)}"'
+        updated = _toml_set_section_key(
+            existing, section, "trust_level", "trusted", overwrite=False,
+        )
+        if updated != existing:
+            cfg_path.write_text(updated)
+
 
 # ---------- helpers ----------
+
+
+def _starlark_str(value: str) -> str:
+    """Serialize a Python string as a Starlark double-quoted literal."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _prefix_rule_block(pattern: tuple[str, ...], justification: str, match: list[str] | None = None) -> str:
+    """Render one Starlark prefix_rule(...) declaration for archie.rules."""
+    pattern_repr = ", ".join(_starlark_str(p) for p in pattern)
+    lines = [
+        "prefix_rule(",
+        f"    pattern = [{pattern_repr}],",
+        "    decision = \"allow\",",
+        f"    justification = {_starlark_str(justification)},",
+    ]
+    if match:
+        match_repr = ",\n        ".join(_starlark_str(m) for m in match)
+        lines.append("    match = [")
+        lines.append(f"        {match_repr},")
+        lines.append("    ],")
+    lines.append(")")
+    return "\n".join(lines)
+
+
+def _build_archie_rules_content() -> str:
+    """Produce the full Starlark `archie.rules` content from the catalogue +
+    `_STANDALONE_SCRIPTS`. Adding a new Archie Python script automatically
+    gets a prefix_rule here for free."""
+    COMMAND_RULES, _STANDALONE_SCRIPTS = _load_command_catalogue()
+    header = (
+        "# Archie execpolicy Rules — auto-approve every shell command the\n"
+        "# deep-scan / scan / intent-layer / share / viewer workflows invoke,\n"
+        "# so the user is not prompted mid-run. Generated by\n"
+        "# CodexConnector.finalize() at install time from\n"
+        "# archie/manifest_data.py COMMAND_RULES + install._STANDALONE_SCRIPTS.\n"
+        "# Format: developers.openai.com/codex/rules\n"
+        "#\n"
+        "# Most-restrictive-wins (forbidden > prompt > allow), so any\n"
+        "# stricter user rule in this project still takes precedence over\n"
+        "# the entries below.\n\n"
+    )
+    blocks: list[str] = []
+
+    # One prefix_rule per Archie Python script — driven by the install's
+    # canonical script list, no manual enumeration.
+    for script in _STANDALONE_SCRIPTS:
+        if not script.endswith(".py"):
+            continue
+        script_path = f".archie/{script}"
+        blocks.append(_prefix_rule_block(
+            pattern=("python3", script_path),
+            justification=f"Run Archie's {script}",
+            match=[f"python3 {script_path}", f"python3 {script_path} \"$PROJECT_ROOT\""],
+        ))
+
+    # Catalogue entries — shell utilities, ad-hoc python, rm, read-only git.
+    for rule in COMMAND_RULES:
+        blocks.append(_prefix_rule_block(
+            pattern=rule.codex_pattern,
+            justification=rule.justification,
+        ))
+
+    return header + "\n\n".join(blocks) + "\n"
 
 
 def _codex_entry_present(bucket: list, matcher: str | None, command: str) -> bool:

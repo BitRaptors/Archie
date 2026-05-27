@@ -558,7 +558,9 @@ The installer (`npx @bitraptors/archie`) generates six hooks and registers them 
 
 ### Permissions
 
-The installer writes an `allow` list into `.claude/settings.local.json` so the workflow runs without interactive prompts:
+Both connectors pre-approve the deep-scan command surface at install time so the workflow runs without interactive prompts on either CLI. The two mechanisms are different — Claude's `permissions.allow` (shell-glob semantics) versus Codex's execpolicy Rules (argv-prefix semantics) — but they're seeded from a shared catalogue in `archie/manifest_data.py::COMMAND_RULES` so adding a new utility or Archie script extends both with one entry.
+
+**Claude side — `.claude/settings.local.json` `permissions.allow`:**
 
 - `Bash(python3 .archie/*.py *)`, `Bash(python3 -c *)`
 - `Bash(git *)`, `Bash(sort *)`, `Bash(head *)`, `Bash(test *)`, `Bash(cp *)`, `Bash(ls *)`, `Bash(wc *)`, `Bash(cat *)`, `Bash(echo *)`, `Bash(for *)`, `Bash(mkdir *)`, `Bash(date *)`
@@ -567,6 +569,19 @@ The installer writes an `allow` list into `.claude/settings.local.json` so the w
 - `Read(**)`
 - `Write(**/CLAUDE.md)`, `Edit(**/CLAUDE.md)`
 - `Agent(*)` for subagent spawning
+
+**Codex side — three coordinated writes** in `CodexConnector.finalize()`:
+
+1. `<project>/.codex/rules/archie.rules` — a Starlark file with one `prefix_rule(decision="allow", …)` per Archie Python script and per shell-utility shape from the catalogue. Format documented at developers.openai.com/codex/rules. Codex's argv-prefix matcher pre-approves these commands without asking the user.
+2. `<project>/.codex/agents/archie-analysis.toml` — the project-scoped custom subagent definition (`name = "archie_analysis"` + `sandbox_mode = "workspace-write"`) that the parallel-dispatch partials ask Codex to spawn.
+3. `~/.codex/config.toml` patches:
+   - top-level `project_doc_max_bytes` + `project_doc_fallback_filenames` (overwrite — Archie requirement for CLAUDE.md fallback to fit)
+   - `[agents] max_threads = 6, max_depth = 2` (set-if-absent — depth 2 supports root → workspace worker → Wave-1 worker on monorepo deep-scans)
+   - `[projects."<abs-path>"] trust_level = "trusted"` (set-if-absent — gates whether the project-scoped `.codex/` layer above loads at all; per Codex docs: "Untrusted projects skip project-scoped `.codex/` layers, including project-local config, hooks, and rules")
+
+Installing Archie is itself the trust act. All three `[…] section` writes use set-if-absent semantics so a user who manually customised `max_threads`, raised `max_depth`, or explicitly marked the project `"untrusted"` is respected.
+
+**Intentionally NOT auto-approved** on either CLI: mutating git (`commit`, `push`, `reset`, `rebase`, `checkout`), network egress (the share upload triggers Codex's one-time workspace-write network-access prompt — documented in `share/SKILL.md`), and anything outside the catalogue's command list.
 
 All hooks fail open: missing rules/config/marker files → hooks exit 0 silently.
 
