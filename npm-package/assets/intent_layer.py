@@ -33,7 +33,10 @@ import json
 import os
 import re
 import sys
+import time
+import hashlib
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -89,6 +92,16 @@ _SKIP_EXTENSIONS = {
 }
 
 MAX_FILE_SIZE = 15_000  # chars — safety valve for monster files only
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-._")
+    return slug or "project"
+
+
+def _make_intent_run_id(root: Path) -> str:
+    seed = f"{root.resolve()}::{time.time_ns()}".encode("utf-8")
+    return hashlib.sha1(seed).hexdigest()[:12]
 
 
 def _is_source_file(file_path: str) -> bool:
@@ -214,6 +227,8 @@ def cmd_prepare(root: Path, only_folders: list[str] | None = None):
 
     plan = {
         "version": 2,
+        "run_id": _make_intent_run_id(root),
+        "project_slug": _slugify(root.name),
         "folders": {
             d: {
                 "children": sorted(folder_children[d]),
@@ -260,12 +275,35 @@ def cmd_prepare(root: Path, only_folders: list[str] | None = None):
 _STATE_FILE = "enrich_state.json"
 
 
+@contextmanager
+def _state_lock(root: Path):
+    lock_path = root / ".archie" / "enrich_state.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(lock_path, "w")
+    try:
+        try:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            pass
+        yield
+    finally:
+        try:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except (ImportError, OSError):
+            pass
+        fh.close()
+
+
 def _load_state(root: Path) -> dict:
     """Load enrichment state (done folders, wave count)."""
     state_path = root / ".archie" / _STATE_FILE
     if state_path.exists():
         try:
-            return json.loads(state_path.read_text())
+            data = json.loads(state_path.read_text())
+            if isinstance(data, dict):
+                return data
         except (json.JSONDecodeError, OSError):
             pass
     return {"done": [], "wave": 0}
@@ -283,17 +321,18 @@ def _save_state(root: Path, state: dict):
 
 def cmd_mark_done(root: Path, folders: list[str]):
     """Mark folders as done in persistent state."""
-    state = _load_state(root)
-    done_set = set(state.get("done", []))
-    added = 0
-    for f in folders:
-        if f not in done_set:
-            done_set.add(f)
-            added += 1
-    state["done"] = sorted(done_set)
-    state["wave"] = state.get("wave", 0) + 1
-    _save_state(root, state)
-    print(f"Marked {added} folders done (total: {len(done_set)}, wave {state['wave']})", file=sys.stderr)
+    with _state_lock(root):
+        state = _load_state(root)
+        done_set = set(state.get("done", []))
+        added = 0
+        for f in folders:
+            if f not in done_set:
+                done_set.add(f)
+                added += 1
+        state["done"] = sorted(done_set)
+        state["wave"] = int(state.get("wave", 0) or 0) + 1
+        _save_state(root, state)
+        print(f"Marked {added} folders done (total: {len(done_set)}, wave {state['wave']})", file=sys.stderr)
 
 
 def cmd_reset_state(root: Path):
@@ -1292,11 +1331,22 @@ def cmd_save_enrichment(root: Path, name: str, input_file: str):
         # Fallback: keep all dict entries
         clean = {k: v for k, v in data.items() if isinstance(v, dict)}
 
+    plan = _load_json(root / ".archie" / "enrich_batches.json")
+    known_folders = set((plan.get("folders") or {}).keys())
+    foreign = sorted(k for k in clean if k not in known_folders)
+    if foreign:
+        print(
+            "Error: enrichment payload contains folders outside the current DAG: "
+            + ", ".join(foreign[:5])
+            + (" ..." if len(foreign) > 5 else ""),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     out_path = enrichments_dir / f"{name}.json"
     out_path.write_text(json.dumps(clean, indent=2))
     print(f"Saved {len(clean)} folders to {out_path}", file=sys.stderr)
 
-    # Mark these folders as done
     cmd_mark_done(root, list(clean.keys()))
 
     return clean

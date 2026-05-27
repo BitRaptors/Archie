@@ -47,6 +47,34 @@ def test_telemetry_writes_file(tmp_path):
     assert data["total_seconds"] > 0
 
 
+def test_telemetry_records_explicit_cli(tmp_path):
+    """An explicit cli argument lands verbatim in the run file."""
+    from tests.test_telemetry import _telemetry as telemetry
+
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    steps = [{"name": "scan", "started_at": "2026-04-17T10:00:00Z", "completed_at": "2026-04-17T10:00:30Z"}]
+    telemetry.write_telemetry(str(tmp_path), "scan", steps, cli="codex")
+
+    data = json.loads(list((archie / "telemetry").glob("scan_*.json"))[0].read_text())
+    assert data["cli"] == "codex"
+
+
+def test_telemetry_autodetects_cli_when_omitted(tmp_path, monkeypatch):
+    """With no cli argument the writer detects the harness — the common path,
+    since write_telemetry always runs inside the harness that drove the scan."""
+    from tests.test_telemetry import _telemetry as telemetry
+
+    monkeypatch.setattr(telemetry, "_detect_cli", lambda: "claude")
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    steps = [{"name": "scan", "started_at": "2026-04-17T10:00:00Z", "completed_at": "2026-04-17T10:00:30Z"}]
+    telemetry.write_telemetry(str(tmp_path), "scan", steps)
+
+    data = json.loads(list((archie / "telemetry").glob("scan_*.json"))[0].read_text())
+    assert data["cli"] == "claude"
+
+
 def test_telemetry_handles_missing_scan_json(tmp_path):
     from tests.test_telemetry import _telemetry as telemetry
 
