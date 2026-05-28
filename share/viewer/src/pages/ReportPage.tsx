@@ -789,13 +789,16 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </section>
           )}
 
-          {/* Architecture Diagram */}
+          {/* Architecture Diagram (AI-curated spine) */}
           {diagram && (
             <section id="diagram" className="space-y-8 scroll-mt-24">
               <Sections.SectionHeader title="Architecture Diagram" icon={Layout} />
               <div className={cn("p-10 rounded-3xl border shadow-2xl shadow-ink/5 bg-white/50 backdrop-blur-md overflow-hidden relative", theme.surface.panel)}>
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(45,161,176,0.03),transparent)] pointer-events-none" />
-                <div className="relative">
+                <div className="relative space-y-6">
+                  <div className="text-xs text-ink/50 italic leading-relaxed border-l-2 border-papaya-400/40 pl-3">
+                    Simplified overview — the architectural spine, not a complete dependency graph. Shows 8-12 curated nodes that tell the request-flow story; peripheral plumbing (analytics, logging, image loaders) is intentionally omitted. For the full component inventory see the <em>Components</em> section; for the persistence layer see <em>Persistence Stores</em>.
+                  </div>
                   <MermaidDiagram chart={diagram} />
                 </div>
                 <details className="mt-12 group overflow-hidden">
@@ -856,7 +859,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           {/* 10a. Data Models — persistence stores + per-model lifecycle */}
           {hasDataSurface && (
             <section id="data-models" className="scroll-mt-24">
-              <Sections.DataModelsSection models={dataModels} stores={persistenceStores} dataOverview={dataOverview} />
+              <Sections.DataModelsSection models={dataModels} stores={persistenceStores} dataOverview={dataOverview} components={componentsList} />
             </section>
           )}
 

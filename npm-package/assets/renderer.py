@@ -1039,6 +1039,7 @@ def _build_data_models_rule(bp: dict):
             mig = s.get("migrations_dir", "")
             backup = s.get("backup_strategy", "")
             owned = s.get("owned_models") or []
+            writers = s.get("writers") or []
             lines.append(f"### `{name}`")
             if description.strip():
                 lines.append("")
@@ -1053,7 +1054,12 @@ def _build_data_models_rule(bp: dict):
             if backup:
                 lines.append(f"- **Backup:** {backup}")
             if owned:
-                lines.append(f"- **Owned models:** {', '.join(owned)}")
+                lines.append(f"- **Lives here:** {', '.join(owned)}")
+            if writers:
+                # Derived from data_models[*].owned_by_component during finalize
+                # (see finalize.py::_derive_persistence_writers). Empty on
+                # blueprints rendered before that derivation existed.
+                lines.append(f"- **Written by:** {', '.join(writers)}")
             lines.append("")
 
     return {

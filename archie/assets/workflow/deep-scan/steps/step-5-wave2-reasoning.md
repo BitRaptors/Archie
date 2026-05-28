@@ -168,7 +168,7 @@ Tell the Reasoning agent:
 > Only describe problems grounded in actual code and observed decisions. Do NOT recommend alternatives the code doesn't use.
 >
 > ### 8. Architecture Diagram
-> Mermaid `graph TD` with 8-12 nodes. You have the full component list and communication patterns from the blueprint — use actual component names and real data flows.
+> Mermaid `graph TD` with 8-12 nodes. You have the full component list and communication patterns from the blueprint — use actual component names and real data flows. Tell the request-flow story: how a typical request/event moves through the spine of the app. Skip peripheral plumbing (analytics SDKs, logging libs, image loaders) — those go in `integrations` not the diagram. **Don't try to be exhaustive** — a 38-node graph is unreadable; 8-12 well-chosen nodes is the bar. Editorial judgment matters more than coverage. The persistence layer (components ↔ stores) is presented separately in the Data Models section from `data_models[*].owned_by_component` + `persistence_stores[*]`, so don't try to depict every store-write here — focus on the architectural spine.
 >
 > ### 9. Implementation Guidelines (5-8)
 > Capabilities using third-party libraries. Cross-reference the tech stack and pattern list from the blueprint. For each:
