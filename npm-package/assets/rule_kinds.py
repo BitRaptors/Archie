@@ -19,6 +19,7 @@ KINDS: tuple[str, ...] = (
     "file_placement",
     "naming_convention",
     "infrastructure",
+    "data_contract",
     "coding_practice",
 )
 
@@ -31,6 +32,7 @@ KIND_DESCRIPTIONS: dict[str, str] = {
     "file_placement": "Specifies which directory a class of files must live under; derived from `architecture_rules.file_placement_rules`.",
     "naming_convention": "Specifies a file or identifier naming pattern; typically expressible as a basename regex.",
     "infrastructure": "Build, CI, deploy, secrets, dependency-registry, signing conventions; lives in `azure-pipelines.yml`, `.github/`, `Dockerfile`, `package.json`, `pyproject.toml`, etc.",
+    "data_contract": "Structural rule about a data model — FK/unique/NOT-NULL invariant, repository-only-read discipline, idempotency requirement, or migration procedure; derived from `data_models[*]` / `persistence_stores[*]`.",
     "coding_practice": "General project-specific guidance the agent should remember at edit time; catch-all when no narrower kind fits.",
 }
 

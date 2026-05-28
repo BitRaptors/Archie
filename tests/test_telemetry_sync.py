@@ -41,3 +41,37 @@ def test_status_reports_resolved_endpoint(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("ARCHIE_TELEMETRY_ENDPOINT", "http://localhost:9999/stub")
     assert ts.status()["endpoint"] == "http://localhost:9999/stub"
+
+
+# ── cli attribution ──────────────────────────────────────────────────────
+
+def test_build_event_carries_cli_from_run_file(tmp_path, monkeypatch):
+    """The run file written by telemetry.py carries `cli`; _build_event trusts
+    it without re-detecting (it was detected inside the harness at write time)."""
+    ts = _telemetry_sync
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(ts, "_detect_cli", lambda: "claude")  # would mislead if used
+    run = {"command": "deep-scan", "cli": "codex", "total_seconds": 12, "steps": []}
+    event = ts._build_event(tmp_path, run)
+    assert event["cli"] == "codex"
+
+
+def test_build_event_detects_cli_when_run_file_lacks_it(tmp_path, monkeypatch):
+    """A run file from a client predating the field has no `cli` — fall back to
+    a live detection rather than emitting a null."""
+    ts = _telemetry_sync
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(ts, "_detect_cli", lambda: "claude")
+    run = {"command": "scan", "total_seconds": 5, "steps": []}
+    event = ts._build_event(tmp_path, run)
+    assert event["cli"] == "claude"
+
+
+def test_build_event_rejects_malformed_run_cli(tmp_path, monkeypatch):
+    """A `cli` outside the known set is not trusted — re-detect instead."""
+    ts = _telemetry_sync
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(ts, "_detect_cli", lambda: "codex")
+    run = {"command": "scan", "cli": "definitely-not-a-cli", "total_seconds": 5, "steps": []}
+    event = ts._build_event(tmp_path, run)
+    assert event["cli"] == "codex"

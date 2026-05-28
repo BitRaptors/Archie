@@ -279,11 +279,53 @@ def _glob_to_regex(glob: str) -> re.Pattern:
     return re.compile('^' + ''.join(out) + '$')
 
 
+def _find_archiebulk(root: Path) -> Path | None:
+    """Locate the nearest `.archiebulk` walking up from `root`.
+
+    Walk-up resolution (editorconfig/prettier style — NOT gitignore):
+    prefer a `.archiebulk` in the project root, otherwise walk up the
+    directory tree. Stops at the filesystem root, the user's home directory
+    (don't escape into ~), or when no further parent exists.
+
+    Required for monorepo scans: when `archie-deep-scan` runs with
+    `PROJECT_ROOT` set to a subpackage (e.g. `<monorepo>/packages/android/`),
+    the `.archiebulk` typically lives at the monorepo root. Without this
+    walk, `bulk_content_manifest` is empty and `frontend_ratio` collapses
+    to 0 — UI Layer never spawns and the agent misreads the project shape.
+
+    The walk deliberately ignores `.git` boundaries: a sub-project may be
+    a git submodule with its own `.git`, but the monorepo's `.archiebulk`
+    still describes the right bulk patterns for that subtree. `.archiebulk`
+    is an Archie convention, not a git one.
+    """
+    try:
+        current = root.resolve()
+    except OSError:
+        return None
+    try:
+        home = Path.home().resolve()
+    except (OSError, RuntimeError):
+        home = None
+    while True:
+        candidate = current / ".archiebulk"
+        if candidate.is_file():
+            return candidate
+        parent = current.parent
+        if parent == current:
+            return None  # filesystem root
+        # Stop before escaping into the user's home directory.
+        if home is not None and current == home:
+            return None
+        current = parent
+
+
 class BulkMatcher:
     """Classify files as bulk-content (visible to the scanner, never read).
 
-    Loads `.archiebulk` from the project root. Each non-comment line carries
-    three whitespace-separated columns: `<glob>  <category>  <framework>`. The
+    Loads `.archiebulk` from the project root, falling back to the nearest
+    ancestor with a `.archiebulk` (gitignore-style walk, bounded by the
+    enclosing git repo root). Each non-comment line carries three
+    whitespace-separated columns: `<glob>  <category>  <framework>`. The
     framework column is optional (use `-` or omit).
 
     `classify(rel_path)` returns `{category, framework}` for a match, else None.
@@ -294,8 +336,8 @@ class BulkMatcher:
         root = Path(root)
         self._root = root
         self._rules: list[tuple[re.Pattern, str, str]] = []
-        path = root / ".archiebulk"
-        if not path.exists():
+        path = _find_archiebulk(root)
+        if path is None:
             return
         try:
             text = path.read_text(encoding="utf-8", errors="replace")

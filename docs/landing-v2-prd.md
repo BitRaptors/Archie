@@ -282,9 +282,6 @@ Footer label: *"Fires on every edit."*
 
 #### Below both columns — Maintenance loop
 
-Single horizontal strip:
-> **`/archie-scan`** (1-3 min, run often) — Senior-architect pass on the diff. New findings become new rules. The model sharpens with every run.
-
 **Accent color:** `sky-blue` for build phase, `princeton-orange` for enforce.
 
 ---
@@ -431,7 +428,7 @@ The 5-frame deck is a designed emotional arc. Each frame has a target feeling an
 |---|---|---|---|
 | **1 — Hook** | Lands on page, reads headline, sees decay curve animate | **Recognition + discomfort.** "Yes, this is happening to my codebase." | Pain-first headline; mix-blend-difference makes it punch through; decay curve animates downward; stat block with cited research validates the feeling is shared |
 | **2 — Thesis** | Scrolls past curve, reads thesis headline, scans 4 pillars | **Relief + clarity.** "OK, there's an answer — and it's specific, not vaporware." | Hero pillar (At edit time) anchors with neon; subhead promises curated knowledge; four labeled mechanisms make the abstract concrete |
-| **3 — Mechanism** | Reads pipeline + rule card, sees severity gates | **Confidence + technical respect.** "This was built by people who know what they're doing." | Multi-wave AI breakdown shows real architecture; severity gates show enforcement nuance (not just block/allow); `/archie-scan` maintenance loop shows it's alive |
+| **3 — Mechanism** | Reads pipeline + rule card, sees severity gates | **Confidence + technical respect.** "This was built by people who know what they're doing." | Multi-wave AI breakdown shows real architecture; severity gates show enforcement nuance (not just block/allow); ongoing `/archie-deep-scan` runs keep the model alive |
 | **4 — Receipts** | Reads three real artifacts, opens modal on hook rejection | **Trust + visceral payoff.** "This is real output. I can see it working." | Hook rejection in terminal aesthetic feels native; per-folder CLAUDE.md shows depth; modal reveals full content for skeptics |
 | **5 — Outcomes** | Reads "Ship faster. Ship safer. Forever." + hero outcome, copies command | **Motivation + resolve.** "I want this. I'm installing now." | Hero outcome (compound learning) is the strongest closing argument; CTA is the literal install command, not a generic button |
 
@@ -848,7 +845,7 @@ All open questions from the initial PRD draft were resolved during plan-design-r
 
 - Multi-language support (English-only for now)
 - Dark/light mode toggle (the brand is dark-mode-only — keep it that way)
-- Embedded interactive demo (e.g., live `/archie-scan` runner) — too costly for v2; revisit for v3
+- Embedded interactive demo (e.g., live `/archie-deep-scan` runner) — too costly for v2; revisit for v3
 - Pricing / tiers — Archie is OSS
 - Customer testimonials — none yet
 - Blog / changelog integration — separate page if/when needed

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Archie finalize — one command to merge Agent X, normalize, render, validate.
 
-Run: python3 finalize.py /path/to/project [/tmp/archie_sub_x.json]
+Run: python3 finalize.py /path/to/project [.archie/tmp/archie_sub_x.json]
 
 Chains: merge Agent X → deterministic normalize → render → hooks → validate.
 Replaces 6+ manual commands with 1.

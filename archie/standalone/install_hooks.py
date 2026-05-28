@@ -1,617 +1,123 @@
 #!/usr/bin/env python3
-"""Archie standalone hook installer — creates enforcement hooks and registers them.
+"""Archie hook installer for Claude Code — backwards-compat entry point.
+
+Modern installs go through ClaudeConnector.install_hook via the Python install
+loop (archie/install.py). This script is preserved for legacy callers (older
+archie.mjs versions) and for manual debugging. It copies hook scripts from the
+canonical archie/assets/hook_scripts/ directory into .claude/hooks/ and merges
+hook bindings into .claude/settings.local.json.
 
 Run: python3 install_hooks.py /path/to/repo
-Output: Creates .claude/hooks/ scripts and updates .claude/settings.local.json
-
 Zero dependencies beyond Python 3.9+ stdlib.
 """
 from __future__ import annotations
 
 import json
-import os
+import shutil
 import stat
 import sys
 from pathlib import Path
 
 
-PRE_VALIDATE_HOOK = r'''#!/usr/bin/env bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
-RULES_FILE="$PROJECT_ROOT/.archie/rules.json"
-PLATFORM_RULES_FILE="$PROJECT_ROOT/.archie/platform_rules.json"
-# Fail open if no rules at all.
-if [ ! -f "$RULES_FILE" ] && [ ! -f "$PLATFORM_RULES_FILE" ]; then
-    exit 0
-fi
-TOOL_INPUT=$(cat || true)
-[ -z "$TOOL_INPUT" ] && exit 0
+def _find_canonical_hook_dir() -> Path:
+    """Locate the canonical hook scripts directory across deployment contexts.
 
-# Stable-named turn marker (cleared by pre-turn.sh on UserPromptSubmit).
-# Holds rule IDs already injected this turn so we don't re-surface the same
-# rule on every subsequent Write/Edit in the chain.
-TURN_HASH=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
-TURN_FILE="/tmp/.archie_turn_$TURN_HASH"
-
-# Stash the whole tool-call JSON in a temp file so Python can parse it
-# without shell quoting corrupting backslashes, newlines, or quotes in content.
-TOOL_JSON=$(mktemp)
-printf '%s' "$TOOL_INPUT" > "$TOOL_JSON"
-export _ARCHIE_TOOL_JSON="$TOOL_JSON"
-export _ARCHIE_ROOT="$PROJECT_ROOT"
-export _ARCHIE_RULES="$RULES_FILE"
-export _ARCHIE_PLATFORM_RULES="$PLATFORM_RULES_FILE"
-export _ARCHIE_TURN_FILE="$TURN_FILE"
-trap 'rm -f "$TOOL_JSON"' EXIT
-
-python3 << 'PYEOF'
-import json, sys, os, re, fnmatch
-
-tool_json_file = os.environ.get("_ARCHIE_TOOL_JSON", "")
-project_root = os.environ.get("_ARCHIE_ROOT", ".")
-rules_file = os.environ.get("_ARCHIE_RULES", "")
-platform_rules_file = os.environ.get("_ARCHIE_PLATFORM_RULES", "")
-turn_file = os.environ.get("_ARCHIE_TURN_FILE", "")
-
-try:
-    with open(tool_json_file) as f:
-        data = json.load(f)
-except Exception:
-    sys.exit(0)
-
-tool_name = data.get("tool_name", "")
-if tool_name not in ("Write", "Edit", "MultiEdit"):
-    sys.exit(0)
-
-ti = data.get("tool_input", {})
-fp = ti.get("file_path", "") or ti.get("path", "")
-if not fp:
-    sys.exit(0)
-
-# Skip absolute paths that live outside the project root.
-# Resolve symlinks on both sides — on macOS, git rev-parse returns
-# /private/var/... while tool_input may carry /var/... for tmp paths,
-# and any user with a symlinked project root would silently bypass
-# the hook without this normalization.
-def _real(p):
-    try:
-        return os.path.realpath(p)
-    except Exception:
-        return p
-fp_real = _real(fp) if fp.startswith("/") else fp
-project_root_real = _real(project_root)
-if fp_real.startswith("/") and not fp_real.startswith(project_root_real):
-    sys.exit(0)
-
-# Extract the content being written (Write.content, Edit.new_string,
-# MultiEdit.edits[*].new_string).
-content = ti.get("content", "") or ti.get("new_string", "")
-if not content and ti.get("edits"):
-    content = "\n".join(e.get("new_string", "") for e in ti["edits"])
-
-rules = []
-for rpath in (rules_file, platform_rules_file):
-    if not rpath or not os.path.isfile(rpath):
-        continue
-    try:
-        loaded = json.load(open(rpath))
-        rules.extend(loaded.get("rules", []) if isinstance(loaded, dict) else loaded)
-    except Exception:
-        pass
-
-rel_path = fp
-if fp_real.startswith(project_root_real):
-    rel_path = fp_real[len(project_root_real):].lstrip("/")
-filename = os.path.basename(fp)
-
-# ----- Severity helpers (Phase 1 inline rule shape) -----------------------
-# severity_class drives exit code + label. Falls back to legacy `severity`
-# (error/warn) when severity_class is missing — old-shape rules still work.
-SEVERITY_BLOCKING = {"decision_violation", "pitfall_triggered", "mechanical_violation"}
-SEVERITY_WARN = {"tradeoff_undermined"}
-SEVERITY_INFO = {"pattern_divergence"}
-
-def severity_label(rule):
-    sc = rule.get("severity_class", "")
-    if sc:
-        return sc
-    # legacy fallback
-    return "mechanical_violation" if rule.get("severity") == "error" else "tradeoff_undermined"
-
-def is_blocking(rule):
-    sc = rule.get("severity_class", "")
-    if sc:
-        return sc in SEVERITY_BLOCKING
-    return rule.get("severity") == "error"
-
-def _emit_labeled_block(label, value, prefix, sink):
-    """Append a "LABEL: text..." block to sink, indenting wrapped lines.
-
-    `sink` is the list-append callable (e.g. lines.append or a print wrapper).
+    - Source repo: archie/standalone/install_hooks.py → archie/assets/hook_scripts/
+    - pip wheel:   same package layout (package_data ships archie/assets/)
+    - npm install: <project>/.archie/install_hooks.py + <project>/.archie/hooks/
+                   (Python install loop and archie.mjs both write here)
     """
-    if not value:
-        return
-    pad = " " * len(label + ": ")
-    first = True
-    for ln in value.splitlines() or [value]:
-        sink(f"{prefix}  {label + ': ' if first else pad}{ln}")
-        first = False
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here.parent / "assets" / "hook_scripts",  # source repo / pip wheel
+        here / "hooks",                            # npm-deployed: .archie/install_hooks.py + .archie/hooks/
+    ]
+    for c in candidates:
+        if c.is_dir():
+            return c
+    raise FileNotFoundError(
+        "Canonical hook scripts directory not found. Searched: "
+        + ", ".join(str(c) for c in candidates)
+    )
 
 
-def render_rule_message(rule, prefix="  "):
-    """Render the rule's agent-facing message: header + WHY / FORCED BY /
-    ENABLES / DO INSTEAD / EXAMPLE blocks.
+CANONICAL_HOOK_DIR = _find_canonical_hook_dir()
 
-    Reads new-shape fields (`why`, `forced_by`, `enables`, `alternative`,
-    `example`) when present, falls back to legacy `rationale` so old-shape
-    rules still produce a useful message.
-    """
-    rid = rule.get("id", "unknown")
-    sev = severity_label(rule)
-    desc = rule.get("description", "")
-    lines = [f"{prefix}RULE {rid} [{sev}]: {desc}"]
-    _emit_labeled_block("WHY", rule.get("why", "") or rule.get("rationale", ""), prefix, lines.append)
-    _emit_labeled_block("FORCED BY", rule.get("forced_by", ""), prefix, lines.append)
-    _emit_labeled_block("ENABLES", rule.get("enables", ""), prefix, lines.append)
-    _emit_labeled_block("DO INSTEAD", rule.get("alternative", ""), prefix, lines.append)
-    _emit_labeled_block("EXAMPLE", rule.get("example", ""), prefix, lines.append)
-    return "\n".join(lines)
+# Map hook filename → (settings.local.json event bucket, matcher).
+# Must stay in sync with archie/manifest_data.HOOKS so legacy callers wire the
+# same hook surface as the connector-based path.
+HOOK_BINDINGS = [
+    ("pre-validate.sh",       "PreToolUse",       "Write|Edit|MultiEdit"),
+    ("pre-commit-review.sh",  "PreToolUse",       "Bash"),
+    ("blueprint-nudge.sh",    "PreToolUse",       "Glob|Grep"),
+    ("post-plan-review.sh",   "PostToolUse",      "ExitPlanMode"),
+    ("post-lint.sh",          "PostToolUse",      "Write|Edit|MultiEdit"),
+    ("pre-turn.sh",           "UserPromptSubmit", ""),
+]
 
-# ----- Tier 4: path-aware rule injection, deduped per turn ----------------
-already_injected = set()
-if turn_file and os.path.isfile(turn_file):
-    try:
-        already_injected = {line.strip() for line in open(turn_file) if line.strip()}
-    except Exception:
-        pass
-
-to_inject = []
-newly_injected = []
-for r in rules:
-    rid = r.get("id", "")
-    if not rid or rid in already_injected:
-        continue
-    applies_to = r.get("applies_to", "")
-    always = bool(r.get("always_inject"))
-    path_match = bool(applies_to) and rel_path.startswith(applies_to)
-    if always or path_match:
-        to_inject.append((r, "always" if (always and not path_match) else "path"))
-        already_injected.add(rid)
-        newly_injected.append(rid)
-
-if to_inject:
-    print(f"[Archie] Rules applying to {rel_path}:")
-    for r, how in to_inject:
-        tag = " (global)" if how == "always" else ""
-        rid = r.get("id", "unknown")
-        sev = severity_label(r)
-        desc = r.get("description", "")
-        print(f"  RULE {rid}{tag} [{sev}]: {desc}")
-        _emit_labeled_block("WHY", r.get("why", "") or r.get("rationale", ""), "  ", print)
-        _emit_labeled_block("FORCED BY", r.get("forced_by", ""), "  ", print)
-        _emit_labeled_block("ENABLES", r.get("enables", ""), "  ", print)
-        _emit_labeled_block("DO INSTEAD", r.get("alternative", ""), "  ", print)
-        _emit_labeled_block("EXAMPLE", r.get("example", ""), "  ", print)
-
-if newly_injected and turn_file:
-    try:
-        with open(turn_file, "a") as f:
-            for rid in newly_injected:
-                f.write(rid + "\n")
-    except Exception:
-        pass
-# ---------------------------------------------------------------------------
-
-def any_match(patterns, text):
-    for p in patterns:
-        try:
-            if re.search(p, text):
-                return True
-        except re.error:
-            continue
-    return False
-
-# ----- Phase 2 trigger primitives ----------------------------------------
-# Inline (no sibling import — the hook runs as a heredoc that can't sys.path).
-# Mirror the semantics of code_shape.py: regex-based path glob and
-# code_shape_match. Sonnet emits these alongside each rule's `triggers`
-# block at /archie-deep-scan Step 6 and /archie-scan Step 4.
-
-def _coerce_list(v):
-    if v is None:
-        return []
-    if isinstance(v, str):
-        return [v]
-    if isinstance(v, list):
-        return [str(x) for x in v if x]
-    return []
-
-def _path_glob_match(rel_path, pattern):
-    if not pattern:
-        return False
-    if pattern.endswith("/") and "*" not in pattern:
-        return rel_path.startswith(pattern) or rel_path == pattern.rstrip("/")
-    out = ["^"]
-    i = 0; n = len(pattern)
-    while i < n:
-        c = pattern[i]
-        if c == "*":
-            if i + 1 < n and pattern[i + 1] == "*":
-                left_slash = i > 0 and pattern[i - 1] == "/"
-                right_slash = i + 2 < n and pattern[i + 2] == "/"
-                if left_slash and right_slash:
-                    out[-1] = "(?:/.*)?/"
-                    i += 3; continue
-                if right_slash:
-                    out.append("(?:.*/)?"); i += 3; continue
-                if left_slash:
-                    out[-1] = "(?:/.*)?"; i += 2; continue
-                out.append(".*"); i += 2; continue
-            out.append("[^/]*"); i += 1; continue
-        if c in r".+?^$()[]{}|\\":
-            out.append("\\" + c)
-        else:
-            out.append(c)
-        i += 1
-    out.append("$")
-    try:
-        return bool(re.match("".join(out), rel_path))
-    except re.error:
-        return False
-
-def _code_shape_match(content, shape):
-    if not isinstance(shape, dict) or shape.get("kind", "regex_in_content") != "regex_in_content":
-        return False
-    must_match = _coerce_list(shape.get("must_match"))
-    must_not = _coerce_list(shape.get("must_not_match"))
-    if not must_match:
-        return False
-    if not any_match(must_match, content):
-        return False
-    if must_not and any_match(must_not, content):
-        return False
-    return True
-
-def _trigger_fires(rule, rel_path, content):
-    """Return (has_triggers, fires) for a rule's triggers block.
-
-    has_triggers=False: legacy rule, falls through to existing check field.
-    has_triggers=True, fires=True: trigger matched — rule is candidate.
-    has_triggers=True, fires=False: trigger present but didn't match — skip.
-    """
-    triggers = rule.get("triggers")
-    if not isinstance(triggers, dict):
-        return False, True  # legacy
-    globs = _coerce_list(triggers.get("path_glob"))
-    shapes = triggers.get("code_shape") or []
-    if not isinstance(shapes, list):
-        shapes = []
-    if not globs and not shapes:
-        # Empty triggers block -> classifier-only rule, never fires at edit time
-        return True, False
-    if globs and not any(_path_glob_match(rel_path, g) for g in globs):
-        return True, False
-    if shapes and not any(_code_shape_match(content, s) for s in shapes):
-        return True, False
-    return True, True
+ARCHIE_PERMISSIONS = [
+    "Bash(python3 .archie/*.py *)", "Bash(python3 .archie/*.py)", "Bash(python3 -c *)",
+    "Bash(git *)", "Bash(test *)", "Bash(cp *)", "Bash(ls *)", "Bash(wc *)",
+    "Bash(cat *)", "Bash(echo *)", "Bash(for *)", "Bash(mkdir *)", "Bash(date *)",
+    "Bash(sort *)", "Bash(head *)",
+    "Bash(rm -f .archie/tmp/archie_*)", "Bash(rm -f .archie/health.json)",
+    "Read(.archie/*)", "Read(.archie/**)",
+    "Write(.archie/*)", "Write(.archie/**)",
+    "Edit(.archie/*)", "Edit(.archie/**)",
+    "Read(**)",
+    "Write(**/CLAUDE.md)", "Edit(**/CLAUDE.md)",
+    "Agent(*)",
+]
 
 
-errors = []   # list of (rule, conf) — blocking
-warns = []    # list of (rule, conf) — non-blocking warn (tradeoff_undermined)
-infos = []    # list of (rule, conf) — non-blocking info (pattern_divergence)
-
-for r in rules:
-    check = r.get("check", "")
-    conf = r.get("confidence", 1.0)
-    matched = False
-
-    has_triggers, trigger_fires = _trigger_fires(r, rel_path, content)
-    if has_triggers and not trigger_fires:
-        # Trigger present but didn't match — rule isn't a candidate for this edit
-        continue
-
-    if check == "file_placement":
-        dirs = r.get("allowed_dirs", [])
-        if dirs and not any(fp.startswith(d) or rel_path.startswith(d) for d in dirs):
-            matched = True
-
-    elif check == "naming":
-        pat = r.get("pattern", "")
-        if pat and not re.search(pat, filename):
-            matched = True
-
-    elif check == "forbidden_import":
-        applies_to = r.get("applies_to", "")
-        if applies_to and rel_path.startswith(applies_to) and content:
-            matched = any_match(r.get("forbidden_patterns", []), content)
-
-    elif check == "required_pattern":
-        file_pat = r.get("file_pattern", "")
-        if file_pat and fnmatch.fnmatch(filename, file_pat) and content:
-            required = r.get("required_in_content", [])
-            if required and not any(req in content for req in required):
-                matched = True
-
-    elif check == "forbidden_content":
-        applies_to = r.get("applies_to", "")
-        if (not applies_to or rel_path.startswith(applies_to)) and content:
-            matched = any_match(r.get("forbidden_patterns", []), content)
-
-    elif check == "architectural_constraint":
-        file_pat = r.get("file_pattern", "")
-        if file_pat and fnmatch.fnmatch(filename, file_pat) and content:
-            matched = any_match(r.get("forbidden_patterns", []), content)
-
-    elif check == "file_naming":
-        applies_to = r.get("applies_to", "")
-        file_pat = r.get("file_pattern", "")
-        if applies_to and fnmatch.fnmatch(rel_path, applies_to) and file_pat:
-            try:
-                if not re.match(file_pat, filename):
-                    matched = True
-            except re.error:
-                pass
-
-    elif not check and has_triggers and trigger_fires:
-        # Phase 2: trigger-only rule (no `check` field). The trigger IS the
-        # mechanical detector. If the trigger fired, the rule is violated.
-        matched = True
-
-    if not matched:
-        continue
-
-    sc = r.get("severity_class", "")
-    if sc in SEVERITY_BLOCKING or (not sc and r.get("severity") == "error"):
-        errors.append((r, conf))
-    elif sc in SEVERITY_INFO:
-        infos.append((r, conf))
-    else:
-        warns.append((r, conf))
-
-def render_fired(rule, conf, prefix_label):
-    rid = rule.get("id", "unknown")
-    sev = severity_label(rule)
-    desc = rule.get("description", "")
-    confidence_tag = f" (confidence {int(conf * 100)}%)" if conf < 1.0 else ""
-    print(f"[Archie] {prefix_label}{confidence_tag} {rid} [{sev}]: {desc}")
-    _emit_labeled_block("WHY", rule.get("why", "") or rule.get("rationale", ""), "", print)
-    _emit_labeled_block("FORCED BY", rule.get("forced_by", ""), "", print)
-    _emit_labeled_block("ENABLES", rule.get("enables", ""), "", print)
-    _emit_labeled_block("DO INSTEAD", rule.get("alternative", ""), "", print)
-    _emit_labeled_block("EXAMPLE", rule.get("example", ""), "", print)
-
-for r, c in infos[:5]:
-    render_fired(r, c, "INFO")
-for r, c in warns[:5]:
-    render_fired(r, c, "WARN")
-for r, c in errors:
-    render_fired(r, c, "BLOCKED")
-if errors:
-    sys.exit(2)
-PYEOF
-'''
-
-
-POST_PLAN_HOOK = r'''#!/usr/bin/env bash
-# Archie post-plan review — Phase 3 semantic comparison.
-# Pipes the PostToolUse ExitPlanMode envelope to align_check.py, which
-# pulls the plan text, runs the architectural-rule classifier (Haiku
-# via claude CLI), and exits 2 if any decision_violation or
-# pitfall_triggered fires. Falls back to advisory mode (exit 0 + rule
-# context) if claude CLI is unavailable.
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
-[ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
-TOOL_INPUT=$(cat || true)
-[ -z "$TOOL_INPUT" ] && exit 0
-ALIGN="$PROJECT_ROOT/.archie/align_check.py"
-if [ -f "$ALIGN" ]; then
-    printf '%s' "$TOOL_INPUT" | python3 "$ALIGN" plan "$PROJECT_ROOT"
-    rc=$?
-    if [ $rc -ne 0 ]; then
-        exit $rc
-    fi
-fi
-# Always emit the existing prose review prompt as additional context for
-# the in-conversation Claude (kept for projects that want both the hard
-# classifier verdict and the advisory rule context).
-python3 "$PROJECT_ROOT/.archie/arch_review.py" plan "$PROJECT_ROOT"
-'''
-
-PRE_COMMIT_HOOK = r'''#!/usr/bin/env bash
-# Archie pre-commit review — Phase 3 semantic comparison on the staged diff.
-# Same flow as POST_PLAN_HOOK: align_check.py classifier first (blocks
-# on decision_violation / pitfall_triggered), then existing arch_review
-# prose for context.
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
-[ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
-# Only fire for git commit commands
-TOOL_INPUT=$(cat || true)
-COMMAND=$(echo "$TOOL_INPUT" | python3 -c "
-import sys, json
-try: print(json.load(sys.stdin).get('tool_input',{}).get('command',''))
-except: print('')
-" 2>/dev/null || echo "")
-case "$COMMAND" in *git\ commit*|*git\ -C*commit*) ;; *) exit 0 ;; esac
-ALIGN="$PROJECT_ROOT/.archie/align_check.py"
-if [ -f "$ALIGN" ]; then
-    python3 "$ALIGN" commit "$PROJECT_ROOT"
-    rc=$?
-    if [ $rc -ne 0 ]; then
-        exit $rc
-    fi
-fi
-python3 "$PROJECT_ROOT/.archie/arch_review.py" diff "$PROJECT_ROOT"
-'''
-
-
-PRE_TURN_HOOK = r'''#!/usr/bin/env bash
-# Archie pre-turn reset — clears the per-turn rule-injection marker so the
-# next Write/Edit surfaces applicable rules again. Runs on UserPromptSubmit.
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
-TURN_HASH=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
-rm -f "/tmp/.archie_turn_$TURN_HASH"
-exit 0
-'''
-
-
-POST_LINT_HOOK = r'''#!/usr/bin/env bash
-# Archie lint gate — opt-in via .archie/enforcement.json.
-# Runs the project's native linter on a single changed file after Write/Edit/MultiEdit.
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
-CFG="$PROJECT_ROOT/.archie/enforcement.json"
-GATE="$PROJECT_ROOT/.archie/lint_gate.py"
-# Fail open: no config, no gate script → nothing to do.
-[ ! -f "$CFG" ] && exit 0
-[ ! -f "$GATE" ] && exit 0
-export _ARCHIE_ROOT="$PROJECT_ROOT"
-python3 "$GATE"
-'''
-
-
-BLUEPRINT_NUDGE_HOOK = r'''#!/usr/bin/env bash
-# Archie blueprint nudge — reminds the AI about project architecture before searching.
-# Fires on Glob|Grep (PreToolUse) so the agent reads architecture context before
-# exploring the codebase. Inspired by Graphify's always-on hook pattern.
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
-BLUEPRINT="$PROJECT_ROOT/.archie/blueprint.json"
-[ ! -f "$BLUEPRINT" ] && exit 0
-# Only nudge once per session — create a marker file
-MARKER="/tmp/.archie_nudge_$$"
-[ -f "$MARKER" ] && exit 0
-touch "$MARKER"
-python3 -c "
-import json, os
-bp_path = os.path.join('$PROJECT_ROOT', '.archie', 'blueprint.json')
-try:
-    with open(bp_path) as f:
-        bp = json.load(f)
-    comps = bp.get('components', {}).get('components', [])
-    names = [c.get('name', '') for c in comps[:5] if c.get('name')]
-    style = bp.get('decisions', {}).get('architectural_style', {})
-    ptype = style.get('style', '') if isinstance(style, dict) else str(style)
-    parts = []
-    if ptype:
-        parts.append(ptype)
-    if names:
-        parts.append('Components: ' + ', '.join(names))
-    if parts:
-        print('[Archie] ' + ' | '.join(parts))
-        print('[Archie] Read .archie/blueprint.json for architecture context before searching.')
-except Exception:
-    pass
-" 2>/dev/null
-exit 0
-'''
-
-
-def _add_hook(hooks_list: list, matcher: str, command: str):
-    """Add a hook entry if not already present."""
-    if not any(
-        h.get("matcher") == matcher
-        and any(hh.get("command") == command for hh in h.get("hooks", []))
-        for h in hooks_list
-    ):
-        hooks_list.append({
-            "matcher": matcher,
-            "hooks": [{"type": "command", "command": command}],
-        })
+def _add_hook(hooks_list: list, matcher: str, command: str) -> None:
+    needle = matcher or "*"
+    for entry in hooks_list:
+        if entry.get("matcher") in (matcher, needle):
+            for h in entry.get("hooks", []):
+                if h.get("command") == command:
+                    return
+    hooks_list.append({
+        "matcher": needle if matcher == "" else matcher,
+        "hooks": [{"type": "command", "command": command}],
+    })
 
 
 def install(project_root: Path) -> None:
     hook_dir = project_root / ".claude" / "hooks"
     hook_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write hook scripts
-    for name, content in [
-        ("pre-validate.sh", PRE_VALIDATE_HOOK),
-        ("post-plan-review.sh", POST_PLAN_HOOK),
-        ("pre-commit-review.sh", PRE_COMMIT_HOOK),
-        ("blueprint-nudge.sh", BLUEPRINT_NUDGE_HOOK),
-        ("post-lint.sh", POST_LINT_HOOK),
-        ("pre-turn.sh", PRE_TURN_HOOK),
-    ]:
-        path = hook_dir / name
-        path.write_text(content)
-        path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # Copy hook scripts from the canonical location.
+    for script_name, _event, _matcher in HOOK_BINDINGS:
+        src = CANONICAL_HOOK_DIR / script_name
+        if not src.exists():
+            print(f"[install_hooks] missing canonical script: {src}", file=sys.stderr)
+            continue
+        dest = hook_dir / script_name
+        shutil.copyfile(src, dest)
+        dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-    # Update settings.local.json
+    # Merge into .claude/settings.local.json (preserves user content).
     settings_path = project_root / ".claude" / "settings.local.json"
     settings: dict = {}
     if settings_path.exists():
         try:
             settings = json.loads(settings_path.read_text())
         except (json.JSONDecodeError, OSError):
-            pass
+            settings = {}
 
-    # Merge hooks — preserve user's existing hooks, add ours
-    hooks = settings.get("hooks", {})
-    pre_tool = hooks.get("PreToolUse", [])
-    post_tool = hooks.get("PostToolUse", [])
-    user_prompt = hooks.get("UserPromptSubmit", [])
+    hooks = settings.setdefault("hooks", {})
+    for script_name, event_key, matcher in HOOK_BINDINGS:
+        bucket = hooks.setdefault(event_key, [])
+        _add_hook(bucket, matcher, f".claude/hooks/{script_name}")
 
-    _add_hook(pre_tool, "Write|Edit|MultiEdit", ".claude/hooks/pre-validate.sh")
-    _add_hook(pre_tool, "Bash", ".claude/hooks/pre-commit-review.sh")
-    _add_hook(post_tool, "ExitPlanMode", ".claude/hooks/post-plan-review.sh")
-
-    _add_hook(pre_tool, "Glob|Grep", ".claude/hooks/blueprint-nudge.sh")
-
-    # Lint gate (opt-in via .archie/enforcement.json — defaults to inert).
-    _add_hook(post_tool, "Write|Edit|MultiEdit", ".claude/hooks/post-lint.sh")
-
-    # Turn reset: clears per-turn rule-injection marker on UserPromptSubmit.
-    _add_hook(user_prompt, "", ".claude/hooks/pre-turn.sh")
-
-    hooks["PreToolUse"] = pre_tool
-    hooks["PostToolUse"] = post_tool
-    hooks["UserPromptSubmit"] = user_prompt
-    settings["hooks"] = hooks
-
-    # Add permissions so /archie-init and /archie-refresh run without
-    # interactive prompts.  Deny rules still take precedence.
-    perms = settings.get("permissions", {})
+    perms = settings.setdefault("permissions", {})
     allow = set(perms.get("allow", []))
-    archie_allow = [
-        # Running archie scripts
-        "Bash(python3 .archie/*.py *)",
-        "Bash(python3 .archie/*.py)",
-        "Bash(python3 -c *)",
-        # Shell utilities Claude uses during orchestration
-        "Bash(git *)",
-        "Bash(test *)",
-        "Bash(cp *)",
-        "Bash(ls *)",
-        "Bash(wc *)",
-        "Bash(cat *)",
-        "Bash(echo *)",
-        "Bash(for *)",
-        "Bash(mkdir *)",
-        "Bash(date *)",
-        "Bash(sort *)",
-        "Bash(head *)",
-        "Bash(rm -f /tmp/archie_*)",
-        "Bash(rm -f .archie/health.json)",
-        # Temp files for agent output
-        "Write(//tmp/archie_*)",
-        "Read(//tmp/archie_*)",
-        # Reading/writing archie data & generated files
-        "Read(.archie/*)",
-        "Read(.archie/**)",
-        "Write(.archie/*)",
-        "Write(.archie/**)",
-        "Edit(.archie/*)",
-        "Edit(.archie/**)",
-        # Reading project source files for analysis (scan verifies findings)
-        "Read(**)",
-        # Per-folder CLAUDE.md (intent layer writes these)
-        "Write(**/CLAUDE.md)",
-        "Edit(**/CLAUDE.md)",
-        # Subagent spawning (Wave 1, Wave 2, rules, intent layer)
-        "Agent(*)",
-    ]
-    for entry in archie_allow:
-        allow.add(entry)
+    for p in ARCHIE_PERMISSIONS:
+        allow.add(p)
     perms["allow"] = sorted(allow)
-    settings["permissions"] = perms
 
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
 
@@ -622,6 +128,4 @@ if __name__ == "__main__":
 
     root = Path(sys.argv[1]).resolve()
     install(root)
-    print("Installed .claude/hooks/pre-validate.sh", file=sys.stderr)
-    print("Installed .claude/hooks/blueprint-nudge.sh", file=sys.stderr)
-    print("Registered hooks in .claude/settings.local.json", file=sys.stderr)
+    print(f"Installed Claude hooks under {root}/.claude/", file=sys.stderr)

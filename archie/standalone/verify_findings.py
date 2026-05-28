@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Verify findings against actual code via parallel Haiku calls.
+"""Verify findings against actual code via parallel verifier calls.
 
-For each active entry in `.archie/findings.json`, spawn a Haiku subprocess
+For each active entry in `.archie/findings.json`, spawn a verifier subprocess
 that reads the cited `triggering_call_site` (verbatim caller quote produced
 by the synthesizer) plus the surrounding files, walks one level out, and
 returns one of three verdicts:
@@ -18,12 +18,13 @@ Output: `.archie/verdicts.json` — one verdict per active finding. The
 finalize.py merge step consumes this alongside `findings.json` to apply
 hysteresis-aware routing (see Phase 3).
 
-This script follows the rest of `archie/standalone/` in shelling out to
-the Claude Code CLI rather than importing the Anthropic SDK — keeps the
-zero-dependency invariant and inherits the user's auth.
+The actual model call goes through `agent_cli` — the runtime per-CLI
+adapter that auto-detects the harness (Claude Code vs Codex) and shells
+out to that CLI. This script stays CLI-agnostic; `--verifier` is only an
+explicit override (mainly for tests).
 
 Usage:
-    python3 verify_findings.py /path/to/project [--concurrency 10]
+    python3 verify_findings.py /path/to/project [--concurrency 10] [--verifier auto|claude|codex]
 """
 
 from __future__ import annotations
@@ -32,13 +33,13 @@ import argparse
 import concurrent.futures
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
-CLAUDE_CLI = "claude"
+from agent_cli import detect_verifier, run_verifier
+
 DEFAULT_CONCURRENCY = 10
-TIMEOUT_PER_CALL = 90  # seconds; Haiku is fast but file reads + a small walk add up
+TIMEOUT_PER_CALL = 90  # seconds; the verifier model is fast but file reads + a small walk add up
 MAX_FILE_LINES_TOTAL = 800  # budget across all cited files for a single verifier call
 
 # ---------------------------------------------------------------------------
@@ -121,7 +122,7 @@ def _looks_like_path(s: str) -> bool:
     """Heuristic: treat a token as a file path if it contains a slash OR
     matches the file-with-extension regex. Rejects bare prose like
     "the function does X" — without this gate, every quoted sentence would
-    end up in the file list and burn a Haiku call on garbage."""
+    end up in the file list and burn a verifier call on garbage."""
     if not s:
         return False
     cleaned = s.split(":")[0].strip()
@@ -197,41 +198,8 @@ def _read_files_bounded(project_root: Path, paths: list[str], budget: int = MAX_
     return "\n".join(chunks) if chunks else "(no files to inline)"
 
 
-# ---------------------------------------------------------------------------
-# Haiku invocation
-# ---------------------------------------------------------------------------
-
-def _run_haiku(prompt: str, project_root: Path) -> str:
-    """Spawn `claude -p --model haiku` synchronously. Returns result text or ""."""
-    try:
-        proc = subprocess.run(
-            [
-                CLAUDE_CLI,
-                "-p",
-                "--model", "haiku",
-                "--output-format", "json",
-                "--permission-mode", "bypassPermissions",
-                "--allowedTools", "Read,Grep,Glob",
-            ],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            cwd=str(project_root),
-            timeout=TIMEOUT_PER_CALL,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return ""
-    if proc.returncode != 0:
-        return ""
-    try:
-        envelope = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return ""
-    return envelope.get("result", "") or ""
-
-
 def _parse_verdict(text: str, finding_id: str) -> dict:
-    """Pull the verdict JSON out of the Haiku response. Failing-open default
+    """Pull the verdict JSON out of the verifier response. Failing-open default
     on any parse error — never drop a real finding because of a parser glitch."""
     s = text.strip()
     if s.startswith("```"):
@@ -269,12 +237,12 @@ def _failopen_verdict(finding_id: str, reason: str) -> dict:
 # Per-finding verification
 # ---------------------------------------------------------------------------
 
-def verify_one(finding: dict, project_root: Path) -> dict:
+def verify_one(finding: dict, project_root: Path, verifier: str = "claude") -> dict:
     fid = finding.get("id") or "?"
 
     # Auto-demote: no triggering_call_site means it's a risk class, not a
     # current finding. The synthesizer should have classified it as a
-    # pitfall already; demote it now without burning a Haiku call.
+    # pitfall already; demote it now without burning a verifier call.
     tcs = (finding.get("triggering_call_site") or "").strip()
     if not tcs:
         return {"id": fid, "verdict": "demote", "confidence": 1.0,
@@ -296,7 +264,7 @@ def verify_one(finding: dict, project_root: Path) -> dict:
         finding_json=json.dumps(finding_view, indent=2),
         file_contents=file_contents,
     )
-    result_text = _run_haiku(prompt, project_root)
+    result_text = run_verifier(prompt, project_root, verifier, TIMEOUT_PER_CALL)
     if not result_text:
         return _failopen_verdict(fid, "verifier call failed (timeout / cli missing / non-zero exit)")
     return _parse_verdict(result_text, fid)
@@ -307,14 +275,19 @@ def verify_one(finding: dict, project_root: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify .archie/findings.json against actual code via Haiku.")
+    parser = argparse.ArgumentParser(
+        description="Verify .archie/findings.json against actual code via a coding-agent CLI.")
     parser.add_argument("project_root", type=Path,
                         help="Project root (parent of .archie/).")
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
-                        help=f"Max concurrent Haiku calls (default {DEFAULT_CONCURRENCY}).")
+                        help=f"Max concurrent verifier calls (default {DEFAULT_CONCURRENCY}).")
     parser.add_argument("--output", type=Path, default=None,
                         help="Output path for verdicts.json. Default: <project>/.archie/verdicts.json")
+    parser.add_argument("--verifier", choices=("auto", "claude", "codex"), default="auto",
+                        help="Verifier CLI: 'auto' (default) detects the harness "
+                             "from the environment; 'claude'/'codex' force one.")
     args = parser.parse_args()
+    verifier = detect_verifier() if args.verifier == "auto" else args.verifier
 
     archie_dir = args.project_root / ".archie"
     if not archie_dir.is_dir():
@@ -330,11 +303,14 @@ def main() -> int:
         return 0
 
     print(f"verify_findings: {len(findings)} candidate(s) → "
-          f"spawning Haiku batch (concurrency={args.concurrency})...")
+          f"spawning {verifier} verifier batch (concurrency={args.concurrency})...")
 
     verdicts: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as ex:
-        futures = {ex.submit(verify_one, f, args.project_root): f for f in findings}
+        futures = {
+            ex.submit(verify_one, f, args.project_root, verifier): f
+            for f in findings
+        }
         for fut in concurrent.futures.as_completed(futures):
             v = fut.result()
             verdicts.append(v)

@@ -47,6 +47,34 @@ def test_telemetry_writes_file(tmp_path):
     assert data["total_seconds"] > 0
 
 
+def test_telemetry_records_explicit_cli(tmp_path):
+    """An explicit cli argument lands verbatim in the run file."""
+    from tests.test_telemetry import _telemetry as telemetry
+
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    steps = [{"name": "scan", "started_at": "2026-04-17T10:00:00Z", "completed_at": "2026-04-17T10:00:30Z"}]
+    telemetry.write_telemetry(str(tmp_path), "scan", steps, cli="codex")
+
+    data = json.loads(list((archie / "telemetry").glob("scan_*.json"))[0].read_text())
+    assert data["cli"] == "codex"
+
+
+def test_telemetry_autodetects_cli_when_omitted(tmp_path, monkeypatch):
+    """With no cli argument the writer detects the harness — the common path,
+    since write_telemetry always runs inside the harness that drove the scan."""
+    from tests.test_telemetry import _telemetry as telemetry
+
+    monkeypatch.setattr(telemetry, "_detect_cli", lambda: "claude")
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    steps = [{"name": "scan", "started_at": "2026-04-17T10:00:00Z", "completed_at": "2026-04-17T10:00:30Z"}]
+    telemetry.write_telemetry(str(tmp_path), "scan", steps)
+
+    data = json.loads(list((archie / "telemetry").glob("scan_*.json"))[0].read_text())
+    assert data["cli"] == "claude"
+
+
 def test_telemetry_handles_missing_scan_json(tmp_path):
     from tests.test_telemetry import _telemetry as telemetry
 
@@ -143,9 +171,9 @@ def test_telemetry_empty_steps(tmp_path):
 
 
 def test_legacy_write_fires_telemetry_sync(tmp_path, monkeypatch):
-    """Regression: /archie-scan uses the legacy --command/--timing-file path.
+    """Regression: legacy --command/--timing-file path still works for telemetry uploads.
     It must fire the anonymous-telemetry upload, not just write the local file —
-    otherwise scan runs are never reported (deep-scan was wired, scan was not).
+    otherwise runs taking this path are never reported.
     """
     from tests.test_telemetry import _telemetry as telemetry
 

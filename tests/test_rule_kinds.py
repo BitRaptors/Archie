@@ -11,7 +11,7 @@ def test_expected_kinds_present():
     expected = {
         "decision", "pitfall", "tradeoff", "layering",
         "semantic_pattern", "file_placement", "naming_convention",
-        "infrastructure", "coding_practice",
+        "infrastructure", "data_contract", "coding_practice",
     }
     assert set(KINDS) == expected
 

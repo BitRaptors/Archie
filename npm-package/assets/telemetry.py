@@ -20,7 +20,7 @@ Usage (CLI):
   telemetry.py clear    <project_root>                    — delete in-flight state
 
 Legacy (pre-compaction flow, still supported):
-  telemetry.py <project_root> --command deep-scan --timing-file /tmp/archie_timing.json
+  telemetry.py <project_root> --command deep-scan --timing-file .archie/tmp/archie_timing.json
 
 Programmatic:
   from archie.standalone.telemetry import write_telemetry
@@ -255,7 +255,28 @@ def _parse_extras(tokens: list[str]) -> dict:
 
 # ── Final telemetry file writer ──────────────────────────────────────────
 
-def write_telemetry(project_root: str, command: str, steps: list[dict]) -> Path:
+def _detect_cli() -> str:
+    """Identify the harness (claude/codex) for telemetry attribution.
+
+    Delegates to the sibling agent_cli module — imported as a top-level module
+    so this resolves identically whether telemetry.py runs from .archie/, from
+    npm-package/assets/, or as archie.standalone.telemetry (agent_cli.py is a
+    sibling in every one of those layouts). Returns "unknown" if agent_cli is
+    somehow unavailable; telemetry must never break a scan.
+    """
+    try:
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import agent_cli
+        return agent_cli.detect_cli()
+    except Exception:
+        return "unknown"
+
+
+def write_telemetry(
+    project_root: str, command: str, steps: list[dict], cli: str | None = None
+) -> Path:
     """Write a telemetry JSON file for one scan run.
 
     Args:
@@ -264,10 +285,15 @@ def write_telemetry(project_root: str, command: str, steps: list[dict]) -> Path:
         steps: List of step dicts, each with at least "name", "started_at",
                "completed_at". Extra fields (e.g. "model", "skipped",
                "folders_processed") are preserved.
+        cli: The coding-agent harness ("claude"/"codex"). Detected from the
+             environment when omitted — correct because this writer always
+             runs inside the harness that drove the scan.
 
     Returns:
         Path to the written telemetry file.
     """
+    if cli is None:
+        cli = _detect_cli()
     root = Path(project_root)
     archie_dir = root / ".archie"
     telemetry_dir = archie_dir / "telemetry"
@@ -301,6 +327,7 @@ def write_telemetry(project_root: str, command: str, steps: list[dict]) -> Path:
 
     output = {
         "command": command,
+        "cli": cli,
         "started_at": started_at,
         "completed_at": completed_at,
         "total_seconds": total_seconds,
@@ -321,7 +348,7 @@ def _fire_telemetry_sync(project_root: Path, out_path: Path) -> None:
     Silent on any failure: the local telemetry file is the source of truth
     and must always succeed regardless of the upload. Called by BOTH the
     disk-persisted writer and the legacy `--command --timing-file` path so
-    `/archie-scan` and `/archie-deep-scan` upload consistently.
+    `/archie-deep-scan` uploads consistently.
     """
     sync_script = Path(__file__).resolve().parent / "telemetry_sync.py"
     if not sync_script.exists():
@@ -398,7 +425,7 @@ def _legacy_write(argv: list[str]) -> None:
         sys.exit(1)
     out_path = write_telemetry(args.project_root, args.command, steps)
     # Same fire-and-forget upload the disk-persisted `write` path does, so
-    # /archie-scan (which uses this legacy path) also reports telemetry.
+    # the legacy --command/--timing-file path reports telemetry consistently.
     _fire_telemetry_sync(Path(args.project_root).resolve(), out_path)
 
 

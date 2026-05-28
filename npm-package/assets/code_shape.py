@@ -1,7 +1,7 @@
 """Code-shape matching primitives (Phase 2 of the richer-rules plan).
 
 A `code_shape` entry is a small JSON object that the AI rule synthesizer
-(Step 6 of /archie-deep-scan, Step 4 of /archie-scan) emits alongside a
+(Step 6 of /archie-deep-scan) emits alongside a
 rule. The pre-validate hook + the index builder consume these entries to
 narrow candidate rules at edit time without parsing the full rule set
 on every keystroke.

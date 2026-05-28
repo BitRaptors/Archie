@@ -805,7 +805,7 @@ export function DuplicationCard({
         </div>
         <div className="text-[11px] text-ink/50 leading-snug">
           {semanticCount === null ? (
-            'Not yet analyzed — run /archie-scan to detect near-twin functions.'
+            'Not yet analyzed — run /archie-deep-scan to detect near-twin functions.'
           ) : semanticCount === 0 ? (
             'No near-twin functions detected by AI analysis.'
           ) : (
@@ -937,6 +937,331 @@ export function ComponentsSection({ components }: { components: any[] }) {
           </div>
         ))}
       </div>
+    </section>
+  )
+}
+
+// Backward-compat normalizers — accept both the v2 data agent shape and the
+// legacy v1 shape so old blueprints still render usefully without re-scanning.
+
+const STORE_ROLE_PRIORITY: Record<string, number> = {
+  primary: 0, search: 1, queue: 2, cache: 3, local: 4, analytics: 5, object_storage: 6,
+}
+
+function modelImportance(m: any): [number, number] {
+  const consumers = Array.isArray(m?.consumers)
+    ? m.consumers.length
+    : Array.isArray(m?.lifecycle?.related_business_logic)
+      ? m.lifecycle.related_business_logic.length
+      : 0
+  const fields = Array.isArray(m?.fields) && m.fields.length > 0
+    ? m.fields.length
+    : Array.isArray(m?.key_fields) ? m.key_fields.length : 0
+  return [-consumers, -fields]
+}
+
+function sortDataModels(models: any[]): any[] {
+  return [...models]
+    .filter((m) => m && typeof m === 'object')
+    .sort((a, b) => {
+      const [ac, af] = modelImportance(a)
+      const [bc, bf] = modelImportance(b)
+      if (ac !== bc) return ac - bc
+      if (af !== bf) return af - bf
+      return String(a?.name ?? '').localeCompare(String(b?.name ?? ''))
+    })
+}
+
+function storeImportance(s: any): [number, number] {
+  const owned = Array.isArray(s?.owned_models) ? s.owned_models.length : 0
+  const role = String(s?.role ?? '').toLowerCase()
+  const roleRank = STORE_ROLE_PRIORITY[role] ?? 99
+  return [-owned, roleRank]
+}
+
+function sortPersistenceStores(stores: any[]): any[] {
+  return [...stores]
+    .filter((s) => s && typeof s === 'object')
+    .sort((a, b) => {
+      const [ao, ar] = storeImportance(a)
+      const [bo, br] = storeImportance(b)
+      if (ao !== bo) return ao - bo
+      if (ar !== br) return ar - br
+      return String(a?.name ?? '').localeCompare(String(b?.name ?? ''))
+    })
+}
+
+function normalizeFields(m: any): { name: string; type: string; description: string }[] {
+  if (Array.isArray(m?.fields) && m.fields.length > 0) {
+    return m.fields.map((f: any) =>
+      typeof f === 'string'
+        ? { name: f, type: '', description: '' }
+        : { name: String(f?.name ?? ''), type: String(f?.type ?? ''), description: String(f?.description ?? '') }
+    )
+  }
+  if (Array.isArray(m?.key_fields)) {
+    return m.key_fields.map((k: any) => ({ name: String(k ?? ''), type: '', description: '' }))
+  }
+  return []
+}
+
+function normalizeGuarantees(m: any): string[] {
+  if (Array.isArray(m?.guarantees)) return m.guarantees.map((g: any) => String(g))
+  if (Array.isArray(m?.invariants)) return m.invariants.map((g: any) => String(g))
+  return []
+}
+
+function normalizeConsumers(m: any): { object: string; file: string; role: string }[] {
+  if (Array.isArray(m?.consumers) && m.consumers.length > 0) {
+    return m.consumers.map((c: any) =>
+      typeof c === 'string'
+        ? { object: '', file: c, role: '' }
+        : { object: String(c?.object ?? ''), file: String(c?.file ?? ''), role: String(c?.role ?? '') }
+    )
+  }
+  const legacy = m?.lifecycle?.related_business_logic
+  if (Array.isArray(legacy)) {
+    return legacy.map((p: any) => ({ object: '', file: String(p ?? ''), role: '' }))
+  }
+  return []
+}
+
+function normalizeLifecycleStep(raw: any): { prose: string; example: string } {
+  if (raw && typeof raw === 'object') {
+    return { prose: String(raw.prose ?? ''), example: String(raw.example ?? '') }
+  }
+  if (typeof raw === 'string') return { prose: raw, example: '' }
+  return { prose: '', example: '' }
+}
+
+function LifecycleStep({ label, prose, example }: { label: string; prose: string; example: string }) {
+  if (!prose && !example) return null
+  return (
+    <div className="space-y-2">
+      <div className="text-sm">
+        <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">{label}:</span>
+        {prose && <span className="text-ink/70"><AutoCode text={prose} /></span>}
+      </div>
+      {example && (
+        <pre className="bg-ink/5 rounded-lg p-3 overflow-x-auto text-[11px] font-mono leading-snug text-ink/80 whitespace-pre">
+          <code>{example}</code>
+        </pre>
+      )}
+    </div>
+  )
+}
+
+const DATA_MODELS_SECTION_INTRO =
+  "Domain entities, DTOs, and value objects this codebase reads and writes."
+const PERSISTENCE_STORES_SECTION_INTRO =
+  "Where data lives across process or session boundaries — databases, caches, queues, mobile local storage."
+
+export function DataModelsSection({
+  models,
+  stores,
+  dataOverview,
+}: {
+  models: any[]
+  stores: any[]
+  dataOverview?: string
+}) {
+  // Models first (what an editor agent reaches for); stores after (reference
+  // material). Both sorted by importance: models by consumer count, stores
+  // by owned-model count.
+  const sortedModels = sortDataModels(models)
+  const sortedStores = sortPersistenceStores(stores)
+  return (
+    <section className="space-y-4" id="data-models">
+      <SectionHeader title="Data Models" icon={Database} />
+
+      {dataOverview && dataOverview.trim().length > 0 && (
+        <div className="text-sm text-ink/80 italic">
+          <Prose value={dataOverview.trim()} />
+        </div>
+      )}
+
+      {sortedModels.length > 0 && (
+        <div className="space-y-3">
+          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Models</div>
+          <div className="text-xs text-ink/50 italic">{DATA_MODELS_SECTION_INTRO}</div>
+          <div className="grid gap-4">
+            {sortedModels.map((m: any, i: number) => {
+              const fields = normalizeFields(m)
+              const guarantees = normalizeGuarantees(m)
+              const consumers = normalizeConsumers(m)
+              const howAdd = normalizeLifecycleStep(m?.lifecycle?.how_to_add)
+              const howMod = normalizeLifecycleStep(m?.lifecycle?.how_to_modify)
+              const howRead = normalizeLifecycleStep(m?.lifecycle?.how_to_read)
+              const backup = String(m?.lifecycle?.backup_strategy ?? '')
+              const tests = Array.isArray(m?.lifecycle?.tests) ? m.lifecycle.tests : []
+              const hasLifecycle =
+                howAdd.prose || howAdd.example ||
+                howMod.prose || howMod.example ||
+                howRead.prose || howRead.example ||
+                backup || tests.length > 0
+              return (
+                <div key={i} className={cn("rounded-3xl border overflow-hidden transition-all group hover:shadow-xl hover:-translate-y-0.5", theme.surface.panel)}>
+                  <details className="group/details">
+                    <summary className="list-none cursor-pointer p-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="p-3 rounded-2xl bg-white border border-papaya-400 shadow-sm group-hover:border-teal/30 transition-colors">
+                            <Database className="w-5 h-5 text-teal" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-bold text-lg text-ink truncate">{m.name}</h3>
+                              {m.kind && (
+                                <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">{m.kind}</Badge>
+                              )}
+                              {m.store && (
+                                <Badge className="text-[10px] uppercase font-bold tracking-wider bg-teal/10 border-teal/20 text-teal">{m.store}</Badge>
+                              )}
+                            </div>
+                            {m.location && (
+                              <div className="mt-1 block truncate">
+                                <PathChip path={m.location} className="text-[10px]" />
+                              </div>
+                            )}
+                            {m.description && String(m.description).trim().length > 0 && (
+                              <div className="mt-2 text-sm text-ink/70 leading-relaxed">
+                                <Prose value={String(m.description).trim()} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-ink/20 group-open/details:rotate-90 transition-transform shrink-0" />
+                      </div>
+                    </summary>
+                    <div className="px-6 pb-6 pt-2 border-t border-papaya-400/30 bg-white/30 backdrop-blur-sm space-y-6">
+                      {m.owned_by_component && (
+                        <div className="text-sm">
+                          <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mr-2">Owner:</span>
+                          <code className={codeInlineClassName}>{m.owned_by_component}</code>
+                        </div>
+                      )}
+
+                      {fields.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Fields</div>
+                          <div className="rounded-xl border border-papaya-400/30 overflow-hidden">
+                            <table className="w-full text-sm">
+                              <thead className="bg-ink/5">
+                                <tr>
+                                  <th className="text-left px-3 py-2 font-bold text-[10px] uppercase tracking-[0.15em] text-ink/50">Field</th>
+                                  <th className="text-left px-3 py-2 font-bold text-[10px] uppercase tracking-[0.15em] text-ink/50">Type</th>
+                                  <th className="text-left px-3 py-2 font-bold text-[10px] uppercase tracking-[0.15em] text-ink/50">Description</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {fields.map((f, idx) => (
+                                  <tr key={idx} className="border-t border-papaya-400/20 align-top">
+                                    <td className="px-3 py-2"><code className="font-mono text-[11px]">{f.name}</code></td>
+                                    <td className="px-3 py-2 text-ink/60 font-mono text-[11px]">{f.type || '—'}</td>
+                                    <td className="px-3 py-2 text-ink/70">{f.description || ''}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {guarantees.length > 0 && (
+                        <FieldList label="Data Guarantees" items={guarantees} mono />
+                      )}
+
+                      {consumers.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Consumers</div>
+                          <ul className="space-y-2">
+                            {consumers.map((c, idx) => (
+                              <li key={idx} className="text-sm">
+                                <div className="flex items-baseline gap-2 flex-wrap">
+                                  {c.object && (
+                                    <code className="font-mono text-[12px] font-semibold text-ink">{c.object}</code>
+                                  )}
+                                  {c.file && (
+                                    <PathChip path={c.file} className="text-[10px]" />
+                                  )}
+                                </div>
+                                {c.role && (
+                                  <div className="text-ink/70 italic mt-0.5">{c.role}</div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {hasLifecycle && (
+                        <div className="space-y-3">
+                          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Lifecycle</div>
+                          <LifecycleStep label="How to add" prose={howAdd.prose} example={howAdd.example} />
+                          <LifecycleStep label="How to modify" prose={howMod.prose} example={howMod.example} />
+                          <LifecycleStep label="How to read" prose={howRead.prose} example={howRead.example} />
+                          {backup && (
+                            <div className="text-sm">
+                              <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">Backup:</span>
+                              <span className="text-ink/70 italic">{backup}</span>
+                            </div>
+                          )}
+                          {tests.length > 0 && (
+                            <FieldList label="Tests" items={tests} mono />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {sortedStores.length > 0 && (
+        <div className="space-y-3">
+          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Persistence Stores</div>
+          <div className="text-xs text-ink/50 italic">{PERSISTENCE_STORES_SECTION_INTRO}</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {sortedStores.map((s: any, i: number) => (
+              <div key={i} className={cn("p-4 rounded-2xl border", theme.surface.panel)}>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="font-bold text-ink truncate">{s.name}</h3>
+                  {s.role && (
+                    <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">{s.role}</Badge>
+                  )}
+                </div>
+                {s.engine && (
+                  <div className="text-sm text-ink/70 mb-1">{s.engine}</div>
+                )}
+                {s.description && String(s.description).trim().length > 0 && (
+                  <div className="text-sm text-ink/70 italic leading-relaxed mt-2">
+                    <Prose value={String(s.description).trim()} />
+                  </div>
+                )}
+                {s.migrations_dir && (
+                  <div className="mt-2">
+                    <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mr-1">Migrations:</span>
+                    <PathChip path={s.migrations_dir} className="text-[10px]" />
+                  </div>
+                )}
+                {s.backup_strategy && (
+                  <div className="mt-2 text-sm text-ink/70 italic"><Prose value={s.backup_strategy} /></div>
+                )}
+                {Array.isArray(s.owned_models) && s.owned_models.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {s.owned_models.map((m: string, j: number) => (
+                      <Badge key={j} variant="outline" className="text-[10px]">{m}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   )
 }

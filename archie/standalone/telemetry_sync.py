@@ -141,6 +141,23 @@ def _normalized_arch() -> str:
     return "other"
 
 
+def _detect_cli() -> str:
+    """Identify the harness (claude/codex) for telemetry attribution.
+
+    agent_cli.py sits beside this file in every install layout (.archie/,
+    npm-package/assets/, archie/standalone/), so import it as a top-level
+    sibling. Returns "unknown" on any failure — telemetry must never break.
+    """
+    try:
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import agent_cli
+        return agent_cli.detect_cli()
+    except Exception:
+        return "unknown"
+
+
 def _detect_stack(project_root: Path) -> dict[str, list[str]]:
     """Read scan.json (if present) and return a broad-category stack tuple.
 
@@ -308,6 +325,12 @@ def _build_event(project_root: Path, run: dict, *, source: str = "live") -> dict
     stack = _detect_stack(project_root)
     steps = run.get("steps") if isinstance(run.get("steps"), list) else []
     command = str(run.get("command") or "")[:32]
+    # The run file written by telemetry.py carries `cli`; trust it (it was
+    # detected inside the harness at write time) and fall back to a live
+    # detection only if the field is missing or malformed.
+    cli = run.get("cli")
+    if cli not in ("claude", "codex", "unknown"):
+        cli = _detect_cli()
     return {
         "schema_version": SCHEMA_VERSION,
         "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -315,6 +338,7 @@ def _build_event(project_root: Path, run: dict, *, source: str = "live") -> dict
         "archie_version": _archie_version(),
         "os": _normalized_os(),
         "arch": _normalized_arch(),
+        "cli": cli,
         "command": command,
         "outcome": _outcome_for_run(run),
         "duration_s": int(run.get("total_seconds") or 0),
@@ -512,6 +536,7 @@ def record_event(
         "archie_version": _archie_version(),
         "os": _normalized_os(),
         "arch": _normalized_arch(),
+        "cli": _detect_cli(),
         "command": command[:32],
         "outcome": outcome if outcome in ALLOWED_OUTCOMES else "unknown",
         "duration_s": max(0, int(duration_s or 0)),
@@ -555,6 +580,7 @@ def record_install(version: str | None = None) -> dict:
         "archie_version": (version or _archie_version())[:32],
         "os": _normalized_os(),
         "arch": _normalized_arch(),
+        "cli": _detect_cli(),
         "command": "install",
         "outcome": "success",
         "duration_s": 0,

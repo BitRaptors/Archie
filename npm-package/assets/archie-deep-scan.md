@@ -1,7 +1,7 @@
-# Archie Deep Scan — Comprehensive Architecture Baseline
+---
+description: Comprehensive architecture baseline (15-20 min). Two-wave AI analysis producing blueprint.json, per-folder CLAUDE.md, AI-synthesized rules, health metrics.
+---
 
-Invoke the `archie-deep-scan` skill via the Skill tool to run a comprehensive architecture baseline scan (15-20 min). The skill produces blueprint.json, per-folder CLAUDE.md files, AI-synthesized rules, health metrics, and drift detection through a two-wave AI analysis.
+Read `.archie/prompts/skill_archie_deep_scan.md` in full and execute the instructions as written.
 
-Pass any arguments the user supplied (e.g. `--incremental`, `--from N`, `--continue`) to the skill via the `args` parameter. The skill's `SKILL.md` lives at `.claude/skills/archie-deep-scan/SKILL.md` and contains the full step-by-step workflow.
-
-If the Skill tool is unavailable, fall back to reading `.claude/skills/archie-deep-scan/SKILL.md` directly and following its instructions.
+For Claude Code: the deep-scan body references step files under `.claude/skills/archie-deep-scan/steps/` — those substeps are Claude-specific extensions installed by the npx installer. Other CLIs (Codex) execute the inlined SKILL body without the substep router; the analysis pipeline produces the same outputs (blueprint, rules, intent layer) regardless.
