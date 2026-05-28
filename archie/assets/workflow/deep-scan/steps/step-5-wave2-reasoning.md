@@ -167,8 +167,8 @@ Tell the Reasoning agent:
 >
 > Only describe problems grounded in actual code and observed decisions. Do NOT recommend alternatives the code doesn't use.
 >
-> ### 8. Architecture Diagram
-> Mermaid `graph TD` with 8-12 nodes. You have the full component list and communication patterns from the blueprint — use actual component names and real data flows.
+> ### 8. Architecture Diagram — DO NOT EMIT
+> The `architecture_diagram` field is rendered deterministically from the structured blueprint by `archie/standalone/diagram.py` during finalize. **Skip this section entirely** — do not emit `architecture_diagram` in your output JSON. If you include it, the finalize step will overwrite it with the deterministic version. Saves Wave 2 tokens; eliminates a hallucination surface; surfaces persistence-layer edges (component → store) that this prompt previously couldn't include.
 >
 > ### 9. Implementation Guidelines (5-8)
 > Capabilities using third-party libraries. Cross-reference the tech stack and pattern list from the blueprint. For each:
@@ -249,7 +249,6 @@ Tell the Reasoning agent:
 >       "confirmed_in_scan": 1
 >     }
 >   ],
->   "architecture_diagram": "graph TD\n  A[...] --> B[...]",
 >   "implementation_guidelines": [
 >     {"capability": "", "category": "", "libraries": [], "pattern_description": "", "key_files": [], "usage_example": "", "applicable_when": "", "do_not_apply_when": [], "scope": [], "tips": []}
 >   ],

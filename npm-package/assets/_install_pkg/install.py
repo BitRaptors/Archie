@@ -43,6 +43,7 @@ _STANDALONE_SCRIPTS = [
     # Analysis pipeline (referenced by SKILL bodies via `python3 .archie/<name>`)
     "scanner.py", "renderer.py", "validate.py", "intent_layer.py",
     "finalize.py", "merge.py", "measure_health.py", "detect_cycles.py",
+    "diagram.py",
     "drift.py", "extract_output.py", "arch_review.py", "align_check.py",
     "check_rules.py", "code_shape.py", "rule_index.py", "lint_gate.py",
     "agent_cli.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py",

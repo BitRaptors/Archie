@@ -159,6 +159,19 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
     from _common import normalize_blueprint  # noqa: E402
     normalize_blueprint(bp)
 
+    # ── 2b. Deterministic architecture diagram ─────────────────────────────
+    # Overwrites whatever `architecture_diagram` value Wave 2 may have
+    # emitted with one rendered purely from the structured blueprint
+    # (components, depends_on, integrations, data_models, persistence_stores).
+    # Single source of truth — see archie/standalone/diagram.py for the rules.
+    # The Wave 2 prompt no longer asks for a diagram; this is the canonical
+    # producer for `bp["architecture_diagram"]`.
+    try:
+        generate_diagram = _import_sibling("diagram").generate
+        bp["architecture_diagram"] = generate_diagram(bp)
+    except Exception as e:  # pragma: no cover — defensive
+        print(f"  Warning: diagram generation failed ({e}); keeping prior value", file=sys.stderr)
+
     bp_path = archie_dir / "blueprint.json"
     bp_path.write_text(json.dumps(bp, indent=2))
 
