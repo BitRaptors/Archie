@@ -738,14 +738,111 @@ def _build_infrastructure_rule(bp: dict):
     }
 
 
+def _normalize_data_model_fields(m: dict) -> list[dict]:
+    """Coerce a data_model's field list to the new {name, type, description}
+    shape. Accepts both the new shape and the legacy `key_fields: ["id", ...]`
+    string array for blueprints produced before the schema upgrade."""
+    fields = m.get("fields")
+    if isinstance(fields, list) and fields:
+        out: list[dict] = []
+        for f in fields:
+            if isinstance(f, dict):
+                out.append({
+                    "name": str(f.get("name", "")),
+                    "type": str(f.get("type", "")),
+                    "description": str(f.get("description", "")),
+                })
+            elif isinstance(f, str):
+                out.append({"name": f, "type": "", "description": ""})
+        return out
+    # Legacy fallback: key_fields was a string list.
+    legacy = m.get("key_fields") or []
+    if isinstance(legacy, list):
+        return [
+            {"name": str(k), "type": "", "description": ""}
+            for k in legacy if isinstance(k, (str, int))
+        ]
+    return []
+
+
+def _normalize_data_model_guarantees(m: dict) -> list[str]:
+    """Return the guarantees array. Accepts new `guarantees` key, falls back
+    to legacy `invariants`."""
+    g = m.get("guarantees")
+    if isinstance(g, list):
+        return [str(x) for x in g if isinstance(x, (str, int))]
+    legacy = m.get("invariants")
+    if isinstance(legacy, list):
+        return [str(x) for x in legacy if isinstance(x, (str, int))]
+    return []
+
+
+def _normalize_data_model_consumers(m: dict) -> list[dict]:
+    """Return consumers in the new {object, file, role} shape. Falls back to
+    legacy `lifecycle.related_business_logic: ["path/to/file.py"]` by mapping
+    each path to a consumer with empty object/role."""
+    c = m.get("consumers")
+    if isinstance(c, list) and c:
+        out: list[dict] = []
+        for item in c:
+            if isinstance(item, dict):
+                out.append({
+                    "object": str(item.get("object", "")),
+                    "file": str(item.get("file", "")),
+                    "role": str(item.get("role", "")),
+                })
+            elif isinstance(item, str):
+                out.append({"object": "", "file": item, "role": ""})
+        return out
+    lifecycle = m.get("lifecycle") or {}
+    if isinstance(lifecycle, dict):
+        legacy = lifecycle.get("related_business_logic") or []
+        if isinstance(legacy, list):
+            return [
+                {"object": "", "file": str(p), "role": ""}
+                for p in legacy if isinstance(p, str)
+            ]
+    return []
+
+
+def _normalize_data_model_lifecycle(m: dict) -> dict:
+    """Return the lifecycle dict with how_to_* entries as {prose, example}
+    objects. Accepts legacy strings (where prose was the entire value and
+    no example existed) and wraps them."""
+    lifecycle = m.get("lifecycle") or {}
+    if not isinstance(lifecycle, dict):
+        return {}
+    out: dict = {}
+    for key in ("how_to_add", "how_to_modify", "how_to_read"):
+        raw = lifecycle.get(key)
+        if isinstance(raw, dict):
+            out[key] = {
+                "prose": str(raw.get("prose", "")),
+                "example": str(raw.get("example", "")),
+            }
+        elif isinstance(raw, str) and raw:
+            out[key] = {"prose": raw, "example": ""}
+        else:
+            out[key] = {"prose": "", "example": ""}
+    out["backup_strategy"] = str(lifecycle.get("backup_strategy") or "")
+    tests = lifecycle.get("tests") or []
+    out["tests"] = [str(t) for t in tests if isinstance(t, str)]
+    return out
+
+
 def _build_data_models_rule(bp: dict):
     """Persistence stores, data models, and per-model lifecycle.
 
     Renders the full `data_models` + `persistence_stores` blueprint sections
-    so an agent touching a model has the lifecycle context (how_to_add,
-    how_to_modify, how_to_read, backup_strategy, related_business_logic,
-    tests) without re-reading the blueprint. Returns None when neither
-    section is populated — silently elides for repos with no persistence.
+    so an agent touching a model has the full per-model picture (fields with
+    business descriptions, data guarantees, consumers with their role, and
+    lifecycle prose + code examples) without re-reading the blueprint.
+    Returns None when neither section is populated — silently elides for
+    repos with no persistence.
+
+    Accepts both the new schema (fields/guarantees/consumers/lifecycle.*.example)
+    and the legacy schema (key_fields/invariants/lifecycle.related_business_logic
+    /lifecycle.how_to_* as strings) for blueprints produced before the upgrade.
     """
     data_models = bp.get("data_models") or []
     persistence_stores = bp.get("persistence_stores") or []
@@ -790,9 +887,10 @@ def _build_data_models_rule(bp: dict):
             location = m.get("location", "")
             store = m.get("store", "")
             owner = m.get("owned_by_component", "")
-            key_fields = m.get("key_fields") or []
-            invariants = m.get("invariants") or []
-            lifecycle = m.get("lifecycle") or {}
+            fields = _normalize_data_model_fields(m)
+            guarantees = _normalize_data_model_guarantees(m)
+            consumers = _normalize_data_model_consumers(m)
+            lifecycle = _normalize_data_model_lifecycle(m)
 
             head = f"### `{name}`"
             if kind:
@@ -804,44 +902,80 @@ def _build_data_models_rule(bp: dict):
                 lines.append(f"- **Store:** `{store}`")
             if owner:
                 lines.append(f"- **Owner:** `{owner}`")
-            if key_fields:
-                lines.append(f"- **Key fields:** {', '.join(f'`{k}`' for k in key_fields)}")
-            if invariants:
-                lines.append("- **Invariants:**")
-                for inv in invariants:
-                    lines.append(f"  - {inv}")
 
-            if isinstance(lifecycle, dict) and any(lifecycle.get(k) for k in (
-                "how_to_add", "how_to_modify", "how_to_read",
-                "backup_strategy", "related_business_logic", "tests",
-            )):
-                lines.append("- **Lifecycle:**")
+            if fields:
+                lines.append("")
+                lines.append("**Fields:**")
+                lines.append("")
+                lines.append("| Field | Type | Description |")
+                lines.append("|---|---|---|")
+                for f in fields:
+                    fn = f["name"]
+                    ft = f["type"] or "—"
+                    fd = f["description"] or ""
+                    # Escape pipes in description so the table doesn't break.
+                    fd = fd.replace("|", "\\|")
+                    lines.append(f"| `{fn}` | {ft} | {fd} |")
+                lines.append("")
+
+            if guarantees:
+                lines.append("**Data Guarantees:**")
+                for g in guarantees:
+                    lines.append(f"- {g}")
+                lines.append("")
+
+            if consumers:
+                lines.append("**Consumers:**")
+                for c in consumers:
+                    obj = c["object"]
+                    fpath = c["file"]
+                    role = c["role"]
+                    head_str = f"- `{obj}`" if obj else "-"
+                    if fpath:
+                        head_str += f" — `{fpath}`" if obj else f" `{fpath}`"
+                    if role:
+                        head_str += f": {role}"
+                    lines.append(head_str)
+                lines.append("")
+
+            lifecycle_has_content = any(
+                lifecycle.get(k, {}).get("prose") or lifecycle.get(k, {}).get("example")
+                for k in ("how_to_add", "how_to_modify", "how_to_read")
+            ) or lifecycle.get("backup_strategy") or lifecycle.get("tests")
+            if lifecycle_has_content:
+                lines.append("**Lifecycle:**")
                 for label, key in (
                     ("How to add", "how_to_add"),
                     ("How to modify", "how_to_modify"),
                     ("How to read", "how_to_read"),
-                    ("Backup", "backup_strategy"),
                 ):
-                    val = lifecycle.get(key) or ""
-                    if val:
-                        lines.append(f"  - *{label}:* {val}")
-                rbl = lifecycle.get("related_business_logic") or []
-                if rbl:
-                    lines.append(
-                        "  - *Related business logic:* "
-                        + ", ".join(f"`{p}`" for p in rbl)
-                    )
+                    entry = lifecycle.get(key) or {}
+                    prose = entry.get("prose") or ""
+                    example = entry.get("example") or ""
+                    if not prose and not example:
+                        continue
+                    lines.append(f"- *{label}:* {prose}" if prose else f"- *{label}:*")
+                    if example:
+                        lines.append("")
+                        lines.append("  ```")
+                        for ex_line in example.split("\n"):
+                            lines.append(f"  {ex_line}")
+                        lines.append("  ```")
+                        lines.append("")
+                backup = lifecycle.get("backup_strategy") or ""
+                if backup:
+                    lines.append(f"- *Backup:* {backup}")
                 tests = lifecycle.get("tests") or []
                 if tests:
                     lines.append(
-                        "  - *Tests:* " + ", ".join(f"`{p}`" for p in tests)
+                        "- *Tests:* " + ", ".join(f"`{p}`" for p in tests)
                     )
             lines.append("")
 
     return {
         "topic": "data-models",
         "body": "\n".join(lines).rstrip(),
-        "description": "Persistence stores, data models, per-model lifecycle (how to add/modify/read, backups, tests)",
+        "description": "Persistence stores, data models, per-model fields/guarantees/consumers/lifecycle",
         "always_apply": False,
         "globs": [],
     }

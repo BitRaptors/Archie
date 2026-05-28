@@ -941,6 +941,69 @@ export function ComponentsSection({ components }: { components: any[] }) {
   )
 }
 
+// Backward-compat normalizers — accept both the v2 data agent shape and the
+// legacy v1 shape so old blueprints still render usefully without re-scanning.
+
+function normalizeFields(m: any): { name: string; type: string; description: string }[] {
+  if (Array.isArray(m?.fields) && m.fields.length > 0) {
+    return m.fields.map((f: any) =>
+      typeof f === 'string'
+        ? { name: f, type: '', description: '' }
+        : { name: String(f?.name ?? ''), type: String(f?.type ?? ''), description: String(f?.description ?? '') }
+    )
+  }
+  if (Array.isArray(m?.key_fields)) {
+    return m.key_fields.map((k: any) => ({ name: String(k ?? ''), type: '', description: '' }))
+  }
+  return []
+}
+
+function normalizeGuarantees(m: any): string[] {
+  if (Array.isArray(m?.guarantees)) return m.guarantees.map((g: any) => String(g))
+  if (Array.isArray(m?.invariants)) return m.invariants.map((g: any) => String(g))
+  return []
+}
+
+function normalizeConsumers(m: any): { object: string; file: string; role: string }[] {
+  if (Array.isArray(m?.consumers) && m.consumers.length > 0) {
+    return m.consumers.map((c: any) =>
+      typeof c === 'string'
+        ? { object: '', file: c, role: '' }
+        : { object: String(c?.object ?? ''), file: String(c?.file ?? ''), role: String(c?.role ?? '') }
+    )
+  }
+  const legacy = m?.lifecycle?.related_business_logic
+  if (Array.isArray(legacy)) {
+    return legacy.map((p: any) => ({ object: '', file: String(p ?? ''), role: '' }))
+  }
+  return []
+}
+
+function normalizeLifecycleStep(raw: any): { prose: string; example: string } {
+  if (raw && typeof raw === 'object') {
+    return { prose: String(raw.prose ?? ''), example: String(raw.example ?? '') }
+  }
+  if (typeof raw === 'string') return { prose: raw, example: '' }
+  return { prose: '', example: '' }
+}
+
+function LifecycleStep({ label, prose, example }: { label: string; prose: string; example: string }) {
+  if (!prose && !example) return null
+  return (
+    <div className="space-y-2">
+      <div className="text-sm">
+        <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">{label}:</span>
+        {prose && <span className="text-ink/70"><AutoCode text={prose} /></span>}
+      </div>
+      {example && (
+        <pre className="bg-ink/5 rounded-lg p-3 overflow-x-auto text-[11px] font-mono leading-snug text-ink/80 whitespace-pre">
+          <code>{example}</code>
+        </pre>
+      )}
+    </div>
+  )
+}
+
 export function DataModelsSection({ models, stores }: { models: any[]; stores: any[] }) {
   return (
     <section className="space-y-4" id="data-models">
@@ -988,13 +1051,19 @@ export function DataModelsSection({ models, stores }: { models: any[]; stores: a
           <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Models</div>
           <div className="grid gap-4">
             {models.map((m: any, i: number) => {
-              const lifecycle = m?.lifecycle || {}
-              const hasLifecycle = lifecycle && (
-                lifecycle.how_to_add || lifecycle.how_to_modify || lifecycle.how_to_read ||
-                lifecycle.backup_strategy ||
-                (Array.isArray(lifecycle.related_business_logic) && lifecycle.related_business_logic.length > 0) ||
-                (Array.isArray(lifecycle.tests) && lifecycle.tests.length > 0)
-              )
+              const fields = normalizeFields(m)
+              const guarantees = normalizeGuarantees(m)
+              const consumers = normalizeConsumers(m)
+              const howAdd = normalizeLifecycleStep(m?.lifecycle?.how_to_add)
+              const howMod = normalizeLifecycleStep(m?.lifecycle?.how_to_modify)
+              const howRead = normalizeLifecycleStep(m?.lifecycle?.how_to_read)
+              const backup = String(m?.lifecycle?.backup_strategy ?? '')
+              const tests = Array.isArray(m?.lifecycle?.tests) ? m.lifecycle.tests : []
+              const hasLifecycle =
+                howAdd.prose || howAdd.example ||
+                howMod.prose || howMod.example ||
+                howRead.prose || howRead.example ||
+                backup || tests.length > 0
               return (
                 <div key={i} className={cn("rounded-3xl border overflow-hidden transition-all group hover:shadow-xl hover:-translate-y-0.5", theme.surface.panel)}>
                   <details className="group/details">
@@ -1031,46 +1100,74 @@ export function DataModelsSection({ models, stores }: { models: any[]; stores: a
                           <code className={codeInlineClassName}>{m.owned_by_component}</code>
                         </div>
                       )}
-                      <div className="grid md:grid-cols-2 gap-8">
-                        {Array.isArray(m.key_fields) && m.key_fields.length > 0 && (
-                          <FieldList label="Key fields" items={m.key_fields} mono />
-                        )}
-                        {Array.isArray(m.invariants) && m.invariants.length > 0 && (
-                          <FieldList label="Invariants" items={m.invariants} mono />
-                        )}
-                      </div>
+
+                      {fields.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Fields</div>
+                          <div className="rounded-xl border border-papaya-400/30 overflow-hidden">
+                            <table className="w-full text-sm">
+                              <thead className="bg-ink/5">
+                                <tr>
+                                  <th className="text-left px-3 py-2 font-bold text-[10px] uppercase tracking-[0.15em] text-ink/50">Field</th>
+                                  <th className="text-left px-3 py-2 font-bold text-[10px] uppercase tracking-[0.15em] text-ink/50">Type</th>
+                                  <th className="text-left px-3 py-2 font-bold text-[10px] uppercase tracking-[0.15em] text-ink/50">Description</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {fields.map((f, idx) => (
+                                  <tr key={idx} className="border-t border-papaya-400/20 align-top">
+                                    <td className="px-3 py-2"><code className="font-mono text-[11px]">{f.name}</code></td>
+                                    <td className="px-3 py-2 text-ink/60 font-mono text-[11px]">{f.type || '—'}</td>
+                                    <td className="px-3 py-2 text-ink/70">{f.description || ''}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {guarantees.length > 0 && (
+                        <FieldList label="Data Guarantees" items={guarantees} mono />
+                      )}
+
+                      {consumers.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Consumers</div>
+                          <ul className="space-y-2">
+                            {consumers.map((c, idx) => (
+                              <li key={idx} className="text-sm">
+                                <div className="flex items-baseline gap-2 flex-wrap">
+                                  {c.object && (
+                                    <code className="font-mono text-[12px] font-semibold text-ink">{c.object}</code>
+                                  )}
+                                  {c.file && (
+                                    <PathChip path={c.file} className="text-[10px]" />
+                                  )}
+                                </div>
+                                {c.role && (
+                                  <div className="text-ink/70 italic mt-0.5">{c.role}</div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
                       {hasLifecycle && (
                         <div className="space-y-3">
                           <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Lifecycle</div>
-                          {lifecycle.how_to_add && (
-                            <div className="text-sm">
-                              <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">How to add:</span>
-                              <span className="text-ink/70"><AutoCode text={lifecycle.how_to_add} /></span>
-                            </div>
-                          )}
-                          {lifecycle.how_to_modify && (
-                            <div className="text-sm">
-                              <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">How to modify:</span>
-                              <span className="text-ink/70"><AutoCode text={lifecycle.how_to_modify} /></span>
-                            </div>
-                          )}
-                          {lifecycle.how_to_read && (
-                            <div className="text-sm">
-                              <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">How to read:</span>
-                              <span className="text-ink/70"><AutoCode text={lifecycle.how_to_read} /></span>
-                            </div>
-                          )}
-                          {lifecycle.backup_strategy && (
+                          <LifecycleStep label="How to add" prose={howAdd.prose} example={howAdd.example} />
+                          <LifecycleStep label="How to modify" prose={howMod.prose} example={howMod.example} />
+                          <LifecycleStep label="How to read" prose={howRead.prose} example={howRead.example} />
+                          {backup && (
                             <div className="text-sm">
                               <span className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mr-2">Backup:</span>
-                              <span className="text-ink/70 italic">{lifecycle.backup_strategy}</span>
+                              <span className="text-ink/70 italic">{backup}</span>
                             </div>
                           )}
-                          {Array.isArray(lifecycle.related_business_logic) && lifecycle.related_business_logic.length > 0 && (
-                            <FieldList label="Related business logic" items={lifecycle.related_business_logic} mono />
-                          )}
-                          {Array.isArray(lifecycle.tests) && lifecycle.tests.length > 0 && (
-                            <FieldList label="Tests" items={lifecycle.tests} mono />
+                          {tests.length > 0 && (
+                            <FieldList label="Tests" items={tests} mono />
                           )}
                         </div>
                       )}

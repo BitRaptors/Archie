@@ -1573,12 +1573,20 @@ def _render_scoped_section_from_items(
             lines.append(head)
             lifecycle = m.get("lifecycle") or {}
             if isinstance(lifecycle, dict):
-                how_to_modify = lifecycle.get("how_to_modify") or ""
-                if how_to_modify:
-                    lines.append(f"  - *How to modify:* {how_to_modify}")
-                how_to_read = lifecycle.get("how_to_read") or ""
-                if how_to_read:
-                    lines.append(f"  - *How to read:* {how_to_read}")
+                # Read new {prose, example} shape, fall back to legacy strings.
+                for label, key in (
+                    ("How to modify", "how_to_modify"),
+                    ("How to read", "how_to_read"),
+                ):
+                    raw = lifecycle.get(key)
+                    if isinstance(raw, dict):
+                        prose = raw.get("prose") or ""
+                    elif isinstance(raw, str):
+                        prose = raw
+                    else:
+                        prose = ""
+                    if prose:
+                        lines.append(f"  - *{label}:* {prose}")
         lines.append("")
 
     lines.append(_SCOPED_END)
