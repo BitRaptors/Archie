@@ -17,6 +17,16 @@
 >
 > Read all source files relevant to data: schema files (`schema.prisma`, `*.sql`, `*.proto`, `*.graphql`, `*.fbs`), ORM model files, config files (`alembic.ini`, `database.yml`, Spring `application.yml`, Room `@Database` declarations, CoreData `*.xcdatamodeld` references, app DB init code), Terraform / Helm / Compose blocks that declare DBs, scheduled-backup scripts, repository/DAO classes that read and mutate models.
 >
+> ### 0. Data Overview (top-level, 1-2 sentences)
+>
+> Emit a top-level `data_overview` string giving a **repo-specific** one-or-two sentence summary of this codebase's data shape. Examples of the shape this field captures:
+>
+> - *"BabyWeather persists user state in 6 SharedPreferences blobs (Moshi-serialized), with profile/baby images in Firebase Storage and feedback in Firestore. Repository pattern fronts every read; the Firestore store is the only `primary` role."*
+> - *"Orders, users, and audit logs live in PostgreSQL with hand-written alembic migrations; Redis caches the dashboard read path; product images are S3-backed. Reads go through repositories, writes through service classes."*
+> - *"Pure-frontend SPA — no persistence beyond browser localStorage for a single 'theme' key."*
+>
+> Same anti-fabrication discipline as the per-model fields. If the codebase has no persistence layer at all, emit `data_overview: ""`. Do NOT pad. One sentence beats two if one suffices.
+>
 > ### 1. Persistence Stores
 >
 > Enumerate every store. A "store" is anywhere data lives across a process or session boundary. Categories: primary DBs (PostgreSQL/MySQL/SQLite/Mongo/DynamoDB/etc.), caches (Redis/Memcached/in-memory/localStorage), search (Elastic/Meilisearch/Algolia/SQLite FTS), queues/streams (RabbitMQ/Kafka/SQS/Redis Streams), object storage **with declared schema/config** (S3/GCS/R2 — only when prefixes/lifecycles/access policies are in-repo), mobile local persistence (UserDefaults/SharedPreferences/DataStore/Room/CoreData/Realm/sqflite/Hive/AsyncStorage/MMKV), app-level files (bundled SQLite, JSON/CSV/YAML treated as authoritative state).
@@ -25,6 +35,9 @@
 > - **name** — stable identifier you can reference from `data_models[*].store` (lowercase snake_case, e.g. `primary_postgres`, `redis_cache`, `room_db`, `shared_preferences`).
 > - **engine** — actual engine + version when visible (`PostgreSQL 15`, `Redis 7`, `Room 2.6.1`, `SQLite (bundled)`).
 > - **role** — one of `primary | cache | search | queue | local | analytics | object_storage`.
+> - **description** (OPTIONAL, FREQUENTLY EMPTY) — one sentence of **project-specific role context** when the name + engine + role don't already convey it. NOT a re-statement of the engine name. ALWAYS ends with a `(see file:line)` citation when filled.
+>   - *Good:* `"Holds user-uploaded profile and baby photos, written from the settings flow; never queried in bulk — read-by-URL only (see SettingsRepositoryImpl.kt:88)."`
+>   - *Bad (restates engine):* `"Firebase Cloud Storage for files."` — leave empty instead.
 > - **migrations_dir** — directory path relative to project root, or empty string when the store has no migrations (caches, local prefs).
 > - **backup_strategy** — extract from infra config, scheduled jobs, README/runbook references. Empty string when no evidence exists in the repo — do NOT invent.
 > - **owned_models** — array of `data_models[*].name` values (filled in section 2).
@@ -36,6 +49,11 @@
 > - **name** — class/type/table name as it appears in code (`Order`, `users`, `UserDocument`). Don't normalize casing — match the source.
 > - **location** — file path relative to project root. MUST exist in the scan's file_tree. For multi-file models (e.g. a Room `@Entity` declared in one file with DAO in another) cite the entity declaration file.
 > - **kind** — one of `table | document | entity | dto | value_object | key_value | local_persistence`.
+> - **description** (OPTIONAL, FREQUENTLY EMPTY) — one sentence answering *what business concept does this represent?* and *what's its lifecycle role?*, ONLY when the name + kind don't already convey it. ALWAYS ends with a `(see file:line)` citation when filled.
+>   - *Good:* `"A single Place Order intent created BEFORE payment confirmation; advances through OrderStateMachine until it becomes a fulfillable shipment (see backend/domain/order_state.py:34)."`
+>   - *Good:* `"Migration source for the v1 SharedPreferences blob — read-only, never written after onboarding completes (see MigrationModule.kt:18)."`
+>   - *Bad (restates name):* `"The User model represents users in the system."` — leave empty instead.
+>   - *Bad (no citation):* `"The order table stores orders for the e-commerce platform."` — leave empty.
 > - **store** — the `persistence_stores[*].name` this model lives in. Empty string for pure DTOs / value objects that are not persisted.
 > - **owned_by_component** — best-effort attribution to a component from this codebase. Since the Structure agent runs in parallel and you cannot read its output, use a heuristic: nearest enclosing folder whose name matches a component-typical pattern (`services`, `repositories`, `models`, `entities`, `domain`, `page_<feature>`, `feature_<name>`, `<feature>/data`). If no clear owner, leave as empty string — Wave 2 reconciles ownership in synthesis.
 >
@@ -171,9 +189,11 @@
 >
 > ```json
 > {
+>   "data_overview": "",
 >   "data_models": [
 >     {
 >       "name": "",
+>       "description": "",
 >       "location": "",
 >       "kind": "table|document|entity|dto|value_object|key_value|local_persistence",
 >       "store": "",
@@ -197,6 +217,7 @@
 >   "persistence_stores": [
 >     {
 >       "name": "",
+>       "description": "",
 >       "engine": "",
 >       "role": "primary|cache|search|queue|local|analytics|object_storage",
 >       "migrations_dir": "",
@@ -208,4 +229,4 @@
 > }
 > ```
 >
-> Empty arrays are valid output. Do NOT fabricate models, fields, examples, or roles to fill the section.
+> Empty arrays and empty description strings are valid output. Do NOT fabricate models, fields, examples, descriptions, or roles to fill the section.

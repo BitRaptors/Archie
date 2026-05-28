@@ -944,6 +944,53 @@ export function ComponentsSection({ components }: { components: any[] }) {
 // Backward-compat normalizers — accept both the v2 data agent shape and the
 // legacy v1 shape so old blueprints still render usefully without re-scanning.
 
+const STORE_ROLE_PRIORITY: Record<string, number> = {
+  primary: 0, search: 1, queue: 2, cache: 3, local: 4, analytics: 5, object_storage: 6,
+}
+
+function modelImportance(m: any): [number, number] {
+  const consumers = Array.isArray(m?.consumers)
+    ? m.consumers.length
+    : Array.isArray(m?.lifecycle?.related_business_logic)
+      ? m.lifecycle.related_business_logic.length
+      : 0
+  const fields = Array.isArray(m?.fields) && m.fields.length > 0
+    ? m.fields.length
+    : Array.isArray(m?.key_fields) ? m.key_fields.length : 0
+  return [-consumers, -fields]
+}
+
+function sortDataModels(models: any[]): any[] {
+  return [...models]
+    .filter((m) => m && typeof m === 'object')
+    .sort((a, b) => {
+      const [ac, af] = modelImportance(a)
+      const [bc, bf] = modelImportance(b)
+      if (ac !== bc) return ac - bc
+      if (af !== bf) return af - bf
+      return String(a?.name ?? '').localeCompare(String(b?.name ?? ''))
+    })
+}
+
+function storeImportance(s: any): [number, number] {
+  const owned = Array.isArray(s?.owned_models) ? s.owned_models.length : 0
+  const role = String(s?.role ?? '').toLowerCase()
+  const roleRank = STORE_ROLE_PRIORITY[role] ?? 99
+  return [-owned, roleRank]
+}
+
+function sortPersistenceStores(stores: any[]): any[] {
+  return [...stores]
+    .filter((s) => s && typeof s === 'object')
+    .sort((a, b) => {
+      const [ao, ar] = storeImportance(a)
+      const [bo, br] = storeImportance(b)
+      if (ao !== bo) return ao - bo
+      if (ar !== br) return ar - br
+      return String(a?.name ?? '').localeCompare(String(b?.name ?? ''))
+    })
+}
+
 function normalizeFields(m: any): { name: string; type: string; description: string }[] {
   if (Array.isArray(m?.fields) && m.fields.length > 0) {
     return m.fields.map((f: any) =>
@@ -1004,53 +1051,41 @@ function LifecycleStep({ label, prose, example }: { label: string; prose: string
   )
 }
 
-export function DataModelsSection({ models, stores }: { models: any[]; stores: any[] }) {
+const DATA_MODELS_SECTION_INTRO =
+  "Domain entities, DTOs, and value objects this codebase reads and writes."
+const PERSISTENCE_STORES_SECTION_INTRO =
+  "Where data lives across process or session boundaries — databases, caches, queues, mobile local storage."
+
+export function DataModelsSection({
+  models,
+  stores,
+  dataOverview,
+}: {
+  models: any[]
+  stores: any[]
+  dataOverview?: string
+}) {
+  // Models first (what an editor agent reaches for); stores after (reference
+  // material). Both sorted by importance: models by consumer count, stores
+  // by owned-model count.
+  const sortedModels = sortDataModels(models)
+  const sortedStores = sortPersistenceStores(stores)
   return (
     <section className="space-y-4" id="data-models">
       <SectionHeader title="Data Models" icon={Database} />
 
-      {stores.length > 0 && (
-        <div className="space-y-3">
-          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Persistence Stores</div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {stores.map((s: any, i: number) => (
-              <div key={i} className={cn("p-4 rounded-2xl border", theme.surface.panel)}>
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="font-bold text-ink truncate">{s.name}</h3>
-                  {s.role && (
-                    <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">{s.role}</Badge>
-                  )}
-                </div>
-                {s.engine && (
-                  <div className="text-sm text-ink/70 mb-1">{s.engine}</div>
-                )}
-                {s.migrations_dir && (
-                  <div className="mt-2">
-                    <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mr-1">Migrations:</span>
-                    <PathChip path={s.migrations_dir} className="text-[10px]" />
-                  </div>
-                )}
-                {s.backup_strategy && (
-                  <div className="mt-2 text-sm text-ink/70 italic"><Prose value={s.backup_strategy} /></div>
-                )}
-                {Array.isArray(s.owned_models) && s.owned_models.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {s.owned_models.map((m: string, j: number) => (
-                      <Badge key={j} variant="outline" className="text-[10px]">{m}</Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+      {dataOverview && dataOverview.trim().length > 0 && (
+        <div className="text-sm text-ink/80 italic">
+          <Prose value={dataOverview.trim()} />
         </div>
       )}
 
-      {models.length > 0 && (
+      {sortedModels.length > 0 && (
         <div className="space-y-3">
           <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Models</div>
+          <div className="text-xs text-ink/50 italic">{DATA_MODELS_SECTION_INTRO}</div>
           <div className="grid gap-4">
-            {models.map((m: any, i: number) => {
+            {sortedModels.map((m: any, i: number) => {
               const fields = normalizeFields(m)
               const guarantees = normalizeGuarantees(m)
               const consumers = normalizeConsumers(m)
@@ -1086,6 +1121,11 @@ export function DataModelsSection({ models, stores }: { models: any[]; stores: a
                             {m.location && (
                               <div className="mt-1 block truncate">
                                 <PathChip path={m.location} className="text-[10px]" />
+                              </div>
+                            )}
+                            {m.description && String(m.description).trim().length > 0 && (
+                              <div className="mt-2 text-sm text-ink/70 leading-relaxed">
+                                <Prose value={String(m.description).trim()} />
                               </div>
                             )}
                           </div>
@@ -1176,6 +1216,49 @@ export function DataModelsSection({ models, stores }: { models: any[]; stores: a
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {sortedStores.length > 0 && (
+        <div className="space-y-3">
+          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Persistence Stores</div>
+          <div className="text-xs text-ink/50 italic">{PERSISTENCE_STORES_SECTION_INTRO}</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {sortedStores.map((s: any, i: number) => (
+              <div key={i} className={cn("p-4 rounded-2xl border", theme.surface.panel)}>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="font-bold text-ink truncate">{s.name}</h3>
+                  {s.role && (
+                    <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">{s.role}</Badge>
+                  )}
+                </div>
+                {s.engine && (
+                  <div className="text-sm text-ink/70 mb-1">{s.engine}</div>
+                )}
+                {s.description && String(s.description).trim().length > 0 && (
+                  <div className="text-sm text-ink/70 italic leading-relaxed mt-2">
+                    <Prose value={String(s.description).trim()} />
+                  </div>
+                )}
+                {s.migrations_dir && (
+                  <div className="mt-2">
+                    <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mr-1">Migrations:</span>
+                    <PathChip path={s.migrations_dir} className="text-[10px]" />
+                  </div>
+                )}
+                {s.backup_strategy && (
+                  <div className="mt-2 text-sm text-ink/70 italic"><Prose value={s.backup_strategy} /></div>
+                )}
+                {Array.isArray(s.owned_models) && s.owned_models.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {s.owned_models.map((m: string, j: number) => (
+                      <Badge key={j} variant="outline" className="text-[10px]">{m}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

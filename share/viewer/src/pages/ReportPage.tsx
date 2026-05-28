@@ -295,6 +295,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
   const deployment = bp.deployment || {}
   const dataModels = Array.isArray(bp.data_models) ? bp.data_models : []
   const persistenceStores = Array.isArray(bp.persistence_stores) ? bp.persistence_stores : []
+  const dataOverview = typeof bp.data_overview === 'string' ? bp.data_overview : ''
   const hasDataSurface = dataModels.length > 0 || persistenceStores.length > 0
   const implementationGuidelines = [
     ...(bp.implementation_guidelines || []),
@@ -855,7 +856,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           {/* 10a. Data Models — persistence stores + per-model lifecycle */}
           {hasDataSurface && (
             <section id="data-models" className="scroll-mt-24">
-              <Sections.DataModelsSection models={dataModels} stores={persistenceStores} />
+              <Sections.DataModelsSection models={dataModels} stores={persistenceStores} dataOverview={dataOverview} />
             </section>
           )}
 
