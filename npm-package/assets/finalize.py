@@ -108,6 +108,109 @@ def _import_sibling(name: str):
     return mod
 
 
+def _resolve_owner_to_component(
+    owner_slug: str,
+    components: list,
+    component_name_set: set,
+) -> str:
+    """Resolve a Wave 1 `owned_by_component` value to a known component name.
+
+    The Data agent emits owner values in several shapes:
+      1. Exact component name ("OrderService")
+      2. Descriptive string with parenthetical ("common/domain (domainModule)")
+      3. Folder slug ("page_settings" — matches component whose location
+         ends with `/page_settings`)
+      4. Deep sub-folder slug ("common/domain/repository/settings" — walk
+         up the path: settings → repository → domain → common, return the
+         component whose location ends with the deepest matching ancestor)
+
+    Returns the empty string when no match — caller skips that owner
+    rather than fabricating an attribution.
+    """
+    if not isinstance(owner_slug, str) or not owner_slug.strip():
+        return ""
+    raw = owner_slug.strip()
+    # 1. Exact name match.
+    if raw in component_name_set:
+        return raw
+    # 2. Strip parenthetical, try again.
+    stripped = raw.split("(", 1)[0].strip().rstrip(",").strip()
+    if stripped and stripped != raw and stripped in component_name_set:
+        return stripped
+    candidate = (stripped or raw).lstrip("./").rstrip("/")
+    if not candidate:
+        return ""
+
+    def _match_slug(slug: str) -> str:
+        for c in components:
+            if not isinstance(c, dict):
+                continue
+            loc = (c.get("location") or "").rstrip("/")
+            if loc and (loc.endswith("/" + slug) or loc == slug):
+                return c.get("name", "")
+        return ""
+
+    # 3. Exact slug suffix match against component locations.
+    hit = _match_slug(candidate)
+    if hit:
+        return hit
+    # 4. Ancestor walk — strip the deepest segment and retry until match.
+    parts = candidate.split("/")
+    for i in range(len(parts) - 1, 0, -1):
+        parent = "/".join(parts[:i])
+        if not parent:
+            continue
+        hit = _match_slug(parent)
+        if hit:
+            return hit
+    return ""
+
+
+def _derive_persistence_writers(bp: dict) -> None:
+    """Populate `persistence_stores[*].writers` from `data_models[*]`.
+
+    Single source of truth for "who writes which store." Both the React
+    viewer (DataModelsSection) and the markdown renderer
+    (`.claude/rules/data-models.md`) read this field — no client-side
+    re-derivation needed, no divergence risk.
+
+    Idempotent: existing `writers` fields are overwritten on each
+    finalize so re-running keeps them in sync with current data_models.
+    Mutates the blueprint in place.
+    """
+    stores = bp.get("persistence_stores") or []
+    if not isinstance(stores, list) or not stores:
+        return
+    components = (bp.get("components") or {}).get("components") or []
+    components = [c for c in components if isinstance(c, dict) and c.get("name")]
+    name_set = {c.get("name") for c in components}
+    data_models = bp.get("data_models") or []
+
+    writers_by_store: dict[str, list[str]] = {}
+    for m in data_models:
+        if not isinstance(m, dict):
+            continue
+        owner_raw = (m.get("owned_by_component") or "").strip()
+        store = (m.get("store") or "").strip()
+        if not owner_raw or not store:
+            continue
+        resolved = _resolve_owner_to_component(owner_raw, components, name_set)
+        if not resolved:
+            continue
+        bucket = writers_by_store.setdefault(store, [])
+        if resolved not in bucket:
+            bucket.append(resolved)
+
+    # Sort alphabetically inside each bucket for stable, diff-friendly output.
+    for s in stores:
+        if not isinstance(s, dict):
+            continue
+        store_name = s.get("name")
+        if not store_name:
+            continue
+        s["writers"] = sorted(writers_by_store.get(store_name, []))
+
+
 def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = False):
     """Run the full finalization pipeline."""
     archie_dir = root / ".archie"
@@ -158,6 +261,17 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
     sys.path.insert(0, str(_SCRIPT_DIR))
     from _common import normalize_blueprint  # noqa: E402
     normalize_blueprint(bp)
+
+    # ── 2b. Derive persistence_stores[*].writers ──────────────────────────
+    # Walk data_models, resolve each `owned_by_component` slug to a known
+    # component name (ancestor-walk algorithm — handles bare names, folder
+    # slugs like `page_settings`, descriptive strings with parens, and
+    # deeper sub-folder paths like `common/domain/repository/settings`
+    # whose closest enclosing component is at `common/domain/repository`).
+    # Aggregate unique writer-component names per store and store on
+    # `persistence_stores[*].writers` so the renderer + viewers can show
+    # "Written by: <component>" without recomputing client-side.
+    _derive_persistence_writers(bp)
 
     bp_path = archie_dir / "blueprint.json"
     bp_path.write_text(json.dumps(bp, indent=2))

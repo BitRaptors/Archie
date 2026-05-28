@@ -991,6 +991,73 @@ function sortPersistenceStores(stores: any[]): any[] {
     })
 }
 
+// Resolve a Wave 1 `owned_by_component` slug to a known component name.
+// Mirrors the algorithm in archie/standalone/diagram.py::_resolve_to_component
+// so client-side rendering stays consistent with server-side derivation if
+// we add caching later.
+function resolveOwnerToComponent(
+  ownerSlug: string,
+  components: any[],
+  componentNames: Set<string>,
+): string {
+  const raw = (ownerSlug || '').trim()
+  if (!raw) return ''
+  if (componentNames.has(raw)) return raw
+  const stripped = raw.split('(')[0].trim().replace(/,$/, '').trim()
+  if (stripped && stripped !== raw && componentNames.has(stripped)) return stripped
+  const candidate = (stripped || raw).replace(/^\.\//, '').replace(/\/$/, '')
+  if (!candidate) return ''
+
+  const matchSlug = (slug: string): string => {
+    for (const c of components) {
+      const loc = String(c?.location ?? '').replace(/\/$/, '')
+      if (loc.endsWith('/' + slug) || loc === slug) {
+        return String(c?.name ?? '')
+      }
+    }
+    return ''
+  }
+
+  // 1. Exact slug suffix match
+  const direct = matchSlug(candidate)
+  if (direct) return direct
+
+  // 2. Ancestor walk — `common/domain/repository/settings` → `common/domain/repository` → ...
+  const parts = candidate.split('/')
+  for (let i = parts.length - 1; i > 0; i--) {
+    const parent = parts.slice(0, i).join('/')
+    if (!parent) continue
+    const hit = matchSlug(parent)
+    if (hit) return hit
+  }
+  return ''
+}
+
+function deriveWritersByStore(
+  models: any[],
+  components: any[],
+): Record<string, string[]> {
+  const componentNames = new Set<string>(
+    components.map((c: any) => String(c?.name ?? '')).filter(Boolean),
+  )
+  const writersByStore: Record<string, Set<string>> = {}
+  for (const m of models) {
+    const owner = String(m?.owned_by_component ?? '').trim()
+    const store = String(m?.store ?? '').trim()
+    if (!owner || !store) continue
+    const resolved = resolveOwnerToComponent(owner, components, componentNames)
+    if (!resolved) continue
+    if (!writersByStore[store]) writersByStore[store] = new Set()
+    writersByStore[store].add(resolved)
+  }
+  // Sort writers alphabetically for stable rendering across runs.
+  const out: Record<string, string[]> = {}
+  for (const [store, writers] of Object.entries(writersByStore)) {
+    out[store] = Array.from(writers).sort()
+  }
+  return out
+}
+
 function normalizeFields(m: any): { name: string; type: string; description: string }[] {
   if (Array.isArray(m?.fields) && m.fields.length > 0) {
     return m.fields.map((f: any) =>
@@ -1053,23 +1120,24 @@ function LifecycleStep({ label, prose, example }: { label: string; prose: string
 
 const DATA_MODELS_SECTION_INTRO =
   "Domain entities, DTOs, and value objects this codebase reads and writes."
-const PERSISTENCE_STORES_SECTION_INTRO =
-  "Where data lives across process or session boundaries — databases, caches, queues, mobile local storage."
 
 export function DataModelsSection({
   models,
   stores,
   dataOverview,
+  components,
 }: {
   models: any[]
   stores: any[]
   dataOverview?: string
+  components?: any[]
 }) {
   // Models first (what an editor agent reaches for); stores after (reference
   // material). Both sorted by importance: models by consumer count, stores
   // by owned-model count.
   const sortedModels = sortDataModels(models)
   const sortedStores = sortPersistenceStores(stores)
+  const writersByStore = deriveWritersByStore(models || [], components || [])
   return (
     <section className="space-y-4" id="data-models">
       <SectionHeader title="Data Models" icon={Database} />
@@ -1222,43 +1290,68 @@ export function DataModelsSection({
 
       {sortedStores.length > 0 && (
         <div className="space-y-3">
-          <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Persistence Stores</div>
-          <div className="text-xs text-ink/50 italic">{PERSISTENCE_STORES_SECTION_INTRO}</div>
+          <div className="flex items-baseline gap-3">
+            <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Persistence Stores</div>
+            <span className="text-xs text-ink/40 italic">— where state lives and who writes it</span>
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
-            {sortedStores.map((s: any, i: number) => (
-              <div key={i} className={cn("p-4 rounded-2xl border", theme.surface.panel)}>
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="font-bold text-ink truncate">{s.name}</h3>
-                  {s.role && (
-                    <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">{s.role}</Badge>
+            {sortedStores.map((s: any, i: number) => {
+              const writers = writersByStore[s.name] || []
+              return (
+                <div key={i} className={cn("p-4 rounded-2xl border", theme.surface.panel)}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="font-bold text-ink truncate">{s.name}</h3>
+                    {s.role && (
+                      <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">{s.role}</Badge>
+                    )}
+                  </div>
+                  {s.engine && (
+                    <div className="text-sm text-ink/70 mb-1">{s.engine}</div>
+                  )}
+                  {s.description && String(s.description).trim().length > 0 && (
+                    <div className="text-sm text-ink/70 italic leading-relaxed mt-2">
+                      <Prose value={String(s.description).trim()} />
+                    </div>
+                  )}
+
+                  {Array.isArray(s.owned_models) && s.owned_models.length > 0 && (
+                    <div className="mt-4">
+                      <div className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mb-1.5">Lives here</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {s.owned_models.map((m: string, j: number) => (
+                          <Badge key={j} variant="outline" className="text-[10px]">{m}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {writers.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-[10px] font-black text-ink/40 uppercase tracking-[0.15em] mb-1.5">Written by</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {writers.map((w, j) => (
+                          <Badge key={j} className="text-[10px] bg-teal/10 border-teal/20 text-teal border">{w}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(s.migrations_dir || s.backup_strategy) && (
+                    <div className="mt-3 pt-3 border-t border-papaya-400/20 space-y-1.5">
+                      {s.migrations_dir && (
+                        <div className="flex items-baseline gap-2 text-xs">
+                          <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em]">Migrations:</span>
+                          <PathChip path={s.migrations_dir} className="text-[10px]" />
+                        </div>
+                      )}
+                      {s.backup_strategy && (
+                        <div className="text-xs text-ink/60 italic"><Prose value={s.backup_strategy} /></div>
+                      )}
+                    </div>
                   )}
                 </div>
-                {s.engine && (
-                  <div className="text-sm text-ink/70 mb-1">{s.engine}</div>
-                )}
-                {s.description && String(s.description).trim().length > 0 && (
-                  <div className="text-sm text-ink/70 italic leading-relaxed mt-2">
-                    <Prose value={String(s.description).trim()} />
-                  </div>
-                )}
-                {s.migrations_dir && (
-                  <div className="mt-2">
-                    <span className="text-[10px] font-black text-ink/30 uppercase tracking-[0.15em] mr-1">Migrations:</span>
-                    <PathChip path={s.migrations_dir} className="text-[10px]" />
-                  </div>
-                )}
-                {s.backup_strategy && (
-                  <div className="mt-2 text-sm text-ink/70 italic"><Prose value={s.backup_strategy} /></div>
-                )}
-                {Array.isArray(s.owned_models) && s.owned_models.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {s.owned_models.map((m: string, j: number) => (
-                      <Badge key={j} variant="outline" className="text-[10px]">{m}</Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
