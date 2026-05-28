@@ -33,6 +33,9 @@ Ranked by severity, grouped by novelty.
 ### RESOLVED
 <only if prior report exists; otherwise omit. "None" if nothing resolved.>
 
+### Data Architecture
+<only if `blueprint.data_models` is non-empty in the current scan. List findings whose `applies_to[*]` overlaps any `data_models[*].location` OR whose `root_cause` mentions schema/migration/persistence/store/ORM keywords. For schema drift, orphan FK, denormalized field drift, missing audit trail, or migration-without-model-update findings emitted by Wave 2 §7, include them here with their full 4-field shape (problem_statement, evidence, root_cause, fix_direction). Render "None" if the blueprint carries `data_models` but no data-shaped findings emerged this scan — that is itself a positive signal worth recording.>
+
 ## Proposed Rules
 
 <Any new rules proposed by Step 6 synthesis that are not yet in rules.json. Reference proposed_rules.json.>

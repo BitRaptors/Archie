@@ -738,6 +738,333 @@ def _build_infrastructure_rule(bp: dict):
     }
 
 
+_STORE_ROLE_PRIORITY = {
+    "primary": 0,
+    "search": 1,
+    "queue": 2,
+    "cache": 3,
+    "local": 4,
+    "analytics": 5,
+    "object_storage": 6,
+}
+
+
+def _data_model_weight(m: dict) -> tuple[int, int, str]:
+    """Sort key for data_models — most-referenced first (consumers count
+    desc, then field count desc, then name asc). Negated counts so that
+    descending order falls out of a default-ascending sort.
+
+    Falls back to legacy `key_fields` when a pre-v2 blueprint hasn't been
+    rescanned yet, so old blueprints still order sensibly under the new
+    UI.
+    """
+    if not isinstance(m, dict):
+        return (0, 0, "")
+    consumers = m.get("consumers")
+    if isinstance(consumers, list):
+        c_count = len(consumers)
+    else:
+        legacy = (m.get("lifecycle") or {}).get("related_business_logic") or []
+        c_count = len(legacy) if isinstance(legacy, list) else 0
+    fields = m.get("fields")
+    if isinstance(fields, list) and fields:
+        f_count = len(fields)
+    else:
+        kf = m.get("key_fields") or []
+        f_count = len(kf) if isinstance(kf, list) else 0
+    return (-c_count, -f_count, str(m.get("name", "")))
+
+
+def _persistence_store_weight(s: dict) -> tuple[int, int, str]:
+    """Sort key for persistence_stores — most-data first (owned model count
+    desc, then role priority asc, then name asc)."""
+    if not isinstance(s, dict):
+        return (0, 99, "")
+    owned = s.get("owned_models") or []
+    owned_count = len(owned) if isinstance(owned, list) else 0
+    role = (s.get("role") or "").strip().lower()
+    role_rank = _STORE_ROLE_PRIORITY.get(role, 99)
+    return (-owned_count, role_rank, str(s.get("name", "")))
+
+
+def _sort_data_models(models: list) -> list:
+    """Return data_models sorted by importance (see `_data_model_weight`)."""
+    return sorted([m for m in models if isinstance(m, dict)], key=_data_model_weight)
+
+
+def _sort_persistence_stores(stores: list) -> list:
+    """Return persistence_stores sorted by importance (see
+    `_persistence_store_weight`)."""
+    return sorted([s for s in stores if isinstance(s, dict)], key=_persistence_store_weight)
+
+
+_DATA_MODELS_SECTION_INTRO = (
+    "Domain entities, DTOs, and value objects this codebase reads and writes."
+)
+_PERSISTENCE_STORES_SECTION_INTRO = (
+    "Where data lives across process or session boundaries — databases, "
+    "caches, queues, mobile local storage."
+)
+
+
+def _normalize_data_model_fields(m: dict) -> list[dict]:
+    """Coerce a data_model's field list to the new {name, type, description}
+    shape. Accepts both the new shape and the legacy `key_fields: ["id", ...]`
+    string array for blueprints produced before the schema upgrade."""
+    fields = m.get("fields")
+    if isinstance(fields, list) and fields:
+        out: list[dict] = []
+        for f in fields:
+            if isinstance(f, dict):
+                out.append({
+                    "name": str(f.get("name", "")),
+                    "type": str(f.get("type", "")),
+                    "description": str(f.get("description", "")),
+                })
+            elif isinstance(f, str):
+                out.append({"name": f, "type": "", "description": ""})
+        return out
+    # Legacy fallback: key_fields was a string list.
+    legacy = m.get("key_fields") or []
+    if isinstance(legacy, list):
+        return [
+            {"name": str(k), "type": "", "description": ""}
+            for k in legacy if isinstance(k, (str, int))
+        ]
+    return []
+
+
+def _normalize_data_model_guarantees(m: dict) -> list[str]:
+    """Return the guarantees array. Accepts new `guarantees` key, falls back
+    to legacy `invariants`."""
+    g = m.get("guarantees")
+    if isinstance(g, list):
+        return [str(x) for x in g if isinstance(x, (str, int))]
+    legacy = m.get("invariants")
+    if isinstance(legacy, list):
+        return [str(x) for x in legacy if isinstance(x, (str, int))]
+    return []
+
+
+def _normalize_data_model_consumers(m: dict) -> list[dict]:
+    """Return consumers in the new {object, file, role} shape. Falls back to
+    legacy `lifecycle.related_business_logic: ["path/to/file.py"]` by mapping
+    each path to a consumer with empty object/role."""
+    c = m.get("consumers")
+    if isinstance(c, list) and c:
+        out: list[dict] = []
+        for item in c:
+            if isinstance(item, dict):
+                out.append({
+                    "object": str(item.get("object", "")),
+                    "file": str(item.get("file", "")),
+                    "role": str(item.get("role", "")),
+                })
+            elif isinstance(item, str):
+                out.append({"object": "", "file": item, "role": ""})
+        return out
+    lifecycle = m.get("lifecycle") or {}
+    if isinstance(lifecycle, dict):
+        legacy = lifecycle.get("related_business_logic") or []
+        if isinstance(legacy, list):
+            return [
+                {"object": "", "file": str(p), "role": ""}
+                for p in legacy if isinstance(p, str)
+            ]
+    return []
+
+
+def _normalize_data_model_lifecycle(m: dict) -> dict:
+    """Return the lifecycle dict with how_to_* entries as {prose, example}
+    objects. Accepts legacy strings (where prose was the entire value and
+    no example existed) and wraps them."""
+    lifecycle = m.get("lifecycle") or {}
+    if not isinstance(lifecycle, dict):
+        return {}
+    out: dict = {}
+    for key in ("how_to_add", "how_to_modify", "how_to_read"):
+        raw = lifecycle.get(key)
+        if isinstance(raw, dict):
+            out[key] = {
+                "prose": str(raw.get("prose", "")),
+                "example": str(raw.get("example", "")),
+            }
+        elif isinstance(raw, str) and raw:
+            out[key] = {"prose": raw, "example": ""}
+        else:
+            out[key] = {"prose": "", "example": ""}
+    out["backup_strategy"] = str(lifecycle.get("backup_strategy") or "")
+    tests = lifecycle.get("tests") or []
+    out["tests"] = [str(t) for t in tests if isinstance(t, str)]
+    return out
+
+
+def _build_data_models_rule(bp: dict):
+    """Persistence stores, data models, and per-model lifecycle.
+
+    Renders the full `data_models` + `persistence_stores` blueprint sections
+    so an agent touching a model has the full per-model picture (fields with
+    business descriptions, data guarantees, consumers with their role, and
+    lifecycle prose + code examples) without re-reading the blueprint.
+    Returns None when neither section is populated — silently elides for
+    repos with no persistence.
+
+    Accepts both the new schema (fields/guarantees/consumers/lifecycle.*.example)
+    and the legacy schema (key_fields/invariants/lifecycle.related_business_logic
+    /lifecycle.how_to_* as strings) for blueprints produced before the upgrade.
+    """
+    data_models = _sort_data_models(bp.get("data_models") or [])
+    persistence_stores = _sort_persistence_stores(bp.get("persistence_stores") or [])
+    if not data_models and not persistence_stores:
+        return None
+
+    lines: list[str] = []
+
+    overview = bp.get("data_overview") or ""
+    if isinstance(overview, str) and overview.strip():
+        lines.append(overview.strip())
+        lines.append("")
+
+    if data_models:
+        lines.append("## Models")
+        lines.append("")
+        lines.append(f"_{_DATA_MODELS_SECTION_INTRO}_")
+        lines.append("")
+        for m in data_models:
+            name = m.get("name", "")
+            description = m.get("description") or ""
+            kind = m.get("kind", "")
+            location = m.get("location", "")
+            store = m.get("store", "")
+            owner = m.get("owned_by_component", "")
+            fields = _normalize_data_model_fields(m)
+            guarantees = _normalize_data_model_guarantees(m)
+            consumers = _normalize_data_model_consumers(m)
+            lifecycle = _normalize_data_model_lifecycle(m)
+
+            head = f"### `{name}`"
+            if kind:
+                head += f" *({kind})*"
+            lines.append(head)
+            if description.strip():
+                lines.append("")
+                lines.append(description.strip())
+                lines.append("")
+            if location:
+                lines.append(f"- **Location:** `{location}`")
+            if store:
+                lines.append(f"- **Store:** `{store}`")
+            if owner:
+                lines.append(f"- **Owner:** `{owner}`")
+
+            if fields:
+                lines.append("")
+                lines.append("**Fields:**")
+                lines.append("")
+                lines.append("| Field | Type | Description |")
+                lines.append("|---|---|---|")
+                for f in fields:
+                    fn = f["name"]
+                    ft = f["type"] or "—"
+                    fd = f["description"] or ""
+                    # Escape pipes in description so the table doesn't break.
+                    fd = fd.replace("|", "\\|")
+                    lines.append(f"| `{fn}` | {ft} | {fd} |")
+                lines.append("")
+
+            if guarantees:
+                lines.append("**Data Guarantees:**")
+                for g in guarantees:
+                    lines.append(f"- {g}")
+                lines.append("")
+
+            if consumers:
+                lines.append("**Consumers:**")
+                for c in consumers:
+                    obj = c["object"]
+                    fpath = c["file"]
+                    role = c["role"]
+                    head_str = f"- `{obj}`" if obj else "-"
+                    if fpath:
+                        head_str += f" — `{fpath}`" if obj else f" `{fpath}`"
+                    if role:
+                        head_str += f": {role}"
+                    lines.append(head_str)
+                lines.append("")
+
+            lifecycle_has_content = any(
+                lifecycle.get(k, {}).get("prose") or lifecycle.get(k, {}).get("example")
+                for k in ("how_to_add", "how_to_modify", "how_to_read")
+            ) or lifecycle.get("backup_strategy") or lifecycle.get("tests")
+            if lifecycle_has_content:
+                lines.append("**Lifecycle:**")
+                for label, key in (
+                    ("How to add", "how_to_add"),
+                    ("How to modify", "how_to_modify"),
+                    ("How to read", "how_to_read"),
+                ):
+                    entry = lifecycle.get(key) or {}
+                    prose = entry.get("prose") or ""
+                    example = entry.get("example") or ""
+                    if not prose and not example:
+                        continue
+                    lines.append(f"- *{label}:* {prose}" if prose else f"- *{label}:*")
+                    if example:
+                        lines.append("")
+                        lines.append("  ```")
+                        for ex_line in example.split("\n"):
+                            lines.append(f"  {ex_line}")
+                        lines.append("  ```")
+                        lines.append("")
+                backup = lifecycle.get("backup_strategy") or ""
+                if backup:
+                    lines.append(f"- *Backup:* {backup}")
+                tests = lifecycle.get("tests") or []
+                if tests:
+                    lines.append(
+                        "- *Tests:* " + ", ".join(f"`{p}`" for p in tests)
+                    )
+            lines.append("")
+
+    if persistence_stores:
+        lines.append("## Persistence Stores")
+        lines.append("")
+        lines.append(f"_{_PERSISTENCE_STORES_SECTION_INTRO}_")
+        lines.append("")
+        for s in persistence_stores:
+            name = s.get("name", "")
+            description = s.get("description") or ""
+            engine = s.get("engine", "")
+            role = s.get("role", "")
+            mig = s.get("migrations_dir", "")
+            backup = s.get("backup_strategy", "")
+            owned = s.get("owned_models") or []
+            lines.append(f"### `{name}`")
+            if description.strip():
+                lines.append("")
+                lines.append(description.strip())
+                lines.append("")
+            if engine:
+                lines.append(f"- **Engine:** {engine}")
+            if role:
+                lines.append(f"- **Role:** {role}")
+            if mig:
+                lines.append(f"- **Migrations dir:** `{mig}`")
+            if backup:
+                lines.append(f"- **Backup:** {backup}")
+            if owned:
+                lines.append(f"- **Owned models:** {', '.join(owned)}")
+            lines.append("")
+
+    return {
+        "topic": "data-models",
+        "body": "\n".join(lines).rstrip(),
+        "description": "Models (sorted by most-referenced) and the stores they live in, with descriptions and per-model lifecycle",
+        "always_apply": False,
+        "globs": [],
+    }
+
+
 # Keywords that mark a command as "essential" — what an agent reaches for
 # in 80% of sessions. Anything not matching one of these gets pushed to
 # the technology.md catalog and out of the lean root file.
@@ -976,6 +1303,52 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
             lines.append(f"**CI/CD:** {', '.join(cleaned)}")
         lines.append("")
 
+    # Data Models — concise summary; full lifecycle lives in
+    # .claude/rules/data-models.md (rendered by _build_data_models_rule).
+    # Section is elided entirely on blueprints with no data surface.
+    # Order: AI-written overview, models (most-referenced first), stores
+    # (most-data first). Models lead because that's what an editor agent
+    # reaches for; stores are reference material.
+    data_models = _sort_data_models(bp.get("data_models") or [])
+    persistence_stores = _sort_persistence_stores(bp.get("persistence_stores") or [])
+    overview = bp.get("data_overview") or ""
+    if data_models or persistence_stores:
+        lines.append("## Data Models")
+        lines.append("")
+        if isinstance(overview, str) and overview.strip():
+            lines.append(overview.strip())
+            lines.append("")
+        if data_models:
+            lines.append(
+                "**Models** (full lifecycle in "
+                "[`.claude/rules/data-models.md`](.claude/rules/data-models.md)):"
+            )
+            for m in data_models[:8]:
+                lines.append(
+                    f"- `{m.get('name','')}` ({m.get('kind','')}) — `{m.get('location','')}`"
+                )
+            if len(data_models) > 8:
+                lines.append(
+                    f"- _… {len(data_models) - 8} more in "
+                    f"[`.claude/rules/data-models.md`](.claude/rules/data-models.md)_"
+                )
+            lines.append("")
+        if persistence_stores:
+            lines.append("**Stores:**")
+            for s in persistence_stores:
+                name = s.get("name", "")
+                engine = s.get("engine", "")
+                role = s.get("role", "")
+                owned = s.get("owned_models") or []
+                meta_parts = [p for p in (engine, f"role: {role}" if role else "") if p]
+                head = f"- `{name}`"
+                if meta_parts:
+                    head += f" ({', '.join(meta_parts)})"
+                if owned:
+                    head += f" — owns: {', '.join(owned)}"
+                lines.append(head)
+            lines.append("")
+
     # Architecture Diagram
     diagram = bp.get("architecture_diagram") or ""
     if diagram:
@@ -1076,6 +1449,7 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
         ("architecture", "Components, file placement, naming conventions"),
         ("patterns", "Communication patterns, integrations, key decisions, trade-offs (with violation signals)"),
         ("technology", "Tech stack, project structure, code templates, testing tooling"),
+        ("data-models", "Persistence stores, data models, per-model lifecycle (how to add/modify/read, backups, tests)"),
         ("guidelines", "Implementation guidelines for existing capabilities"),
         ("pitfalls", "Documented traps with evidence + fix direction"),
         ("dev-rules", "Coding-time imperatives (patterns, anti-patterns, boundaries, wiring)"),
@@ -1091,6 +1465,7 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
         "architecture": bool(_get(bp, "components", "components") or _get(bp, "architecture_rules", "file_placement_rules")),
         "patterns": bool(_get(bp, "communication", "patterns") or _get(bp, "decisions", "key_decisions") or _get(bp, "decisions", "trade_offs")),
         "technology": bool(_get(bp, "technology", "stack") or _get(bp, "technology", "project_structure") or _get(bp, "technology", "templates")),
+        "data-models": bool(bp.get("data_models") or bp.get("persistence_stores")),
         "guidelines": bool(bp.get("implementation_guidelines")),
         "pitfalls": bool(bp.get("pitfalls")),
         "dev-rules": bool(bp.get("development_rules")),
@@ -1517,6 +1892,7 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
         _build_pitfalls_rule,
         _build_dev_rules_rule,
         _build_infrastructure_rule,
+        _build_data_models_rule,
     ]
 
     for builder in builders:

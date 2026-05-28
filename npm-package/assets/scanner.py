@@ -470,6 +470,188 @@ def detect_frameworks(files: list[dict], deps: list[dict]) -> list[dict]:
     return sorted(seen.values(), key=lambda s: s["name"])
 
 
+# ── Persistence Signal Detector ────────────────────────────────────────────
+#
+# Decides whether the Wave 1 Data agent should spawn. ANY positive signal
+# flips `has_persistence_signal` to True. The signals are intentionally broad
+# — a false positive costs one extra sub-agent ($) on a repo without a DB;
+# a false negative loses the entire data-models surface. Tilt toward
+# spawning. The agent itself gracefully returns empty arrays when there's
+# nothing to inventory.
+
+PERSISTENCE_DEP_SIGNALS = {
+    # Python ORMs / DB toolkits
+    "sqlalchemy", "alembic", "django", "tortoise-orm", "peewee", "pony",
+    "psycopg2", "psycopg2-binary", "psycopg", "asyncpg", "aiomysql",
+    "aiosqlite", "pymysql", "pymongo", "motor", "redis", "aioredis",
+    "elasticsearch", "boto3",
+    # Node.js ORMs / DB clients
+    "prisma", "@prisma/client", "typeorm", "sequelize", "mikro-orm",
+    "@mikro-orm/core", "drizzle-orm", "kysely", "knex", "objection",
+    "bookshelf", "mongoose", "ioredis", "@elastic/elasticsearch", "pg",
+    "mysql", "mysql2", "sqlite3", "better-sqlite3", "level", "lowdb",
+    # Go ORMs
+    "gorm.io/gorm", "github.com/jinzhu/gorm", "entgo.io/ent",
+    "github.com/jmoiron/sqlx", "github.com/go-pg/pg",
+    "github.com/uptrace/bun", "github.com/lib/pq",
+    "github.com/go-sql-driver/mysql", "github.com/mattn/go-sqlite3",
+    "go.mongodb.org/mongo-driver",
+    # Rust ORMs
+    "diesel", "sqlx", "sea-orm", "rusqlite", "mongodb",
+    # Java / Kotlin
+    "org.hibernate:hibernate-core", "org.springframework.boot:spring-boot-starter-data-jpa",
+    "androidx.room:room-runtime", "androidx.room:room-ktx",
+    "io.objectbox:objectbox-android", "io.realm:realm-gradle-plugin",
+    # Ruby
+    "activerecord", "sequel", "rom-sql", "mongoid",
+    # PHP
+    "doctrine/orm", "illuminate/database",
+    # .NET
+    "entityframework", "entityframeworkcore", "dapper",
+    # Mobile / Dart
+    "sqflite", "drift", "isar", "hive", "realm",
+    # iOS / Swift Package Manager-style
+    "grdb.swift", "realm-swift",
+}
+
+PERSISTENCE_FILE_NAME_SIGNALS = {
+    # Schema files
+    "schema.prisma", "schema.sql", "schema.rb", "structure.sql",
+    "ddl.sql", "init.sql", "create-tables.sql",
+    # ORM config
+    "alembic.ini", "alembic.cfg", "database.yml", "database.yaml",
+    "ormconfig.json", "ormconfig.ts", "ormconfig.js",
+    "knexfile.js", "knexfile.ts", "drizzle.config.ts", "drizzle.config.js",
+    "mikro-orm.config.ts", "sequelize.config.js",
+    # Mobile / desktop DB
+    "Realm.swift", "CoreDataModel.xcdatamodeld",
+}
+
+PERSISTENCE_DIR_NAMES = {
+    "migrations", "migration", "alembic", "db",
+}
+
+PERSISTENCE_PATH_SUFFIXES = (
+    "/migrations", "/migration", "/alembic/versions",
+    "/prisma/migrations", "/db/migrate", "/database/migrations",
+    "/app/database/migrations",
+)
+
+# Local persistence markers visible inside source files (mobile / desktop).
+# These are content checks, not extension checks — we scan a small sample
+# rather than every file to keep the scanner fast.
+LOCAL_PERSISTENCE_KEYWORDS = (
+    "UserDefaults.standard",
+    "NSUserDefaults",
+    "SharedPreferences",
+    "androidx.datastore",
+    "@Entity",
+    "NSManagedObject",
+    "RealmObject",
+    "@Persistent",
+)
+
+# Tech-stack engine names that indicate a primary DB (matched case-insensitively
+# against `framework_signals[*].name` — fed to detector after detect_frameworks).
+PERSISTENCE_FRAMEWORK_NAMES = {
+    "postgresql", "postgres", "mysql", "mariadb", "sqlite", "mongodb",
+    "redis", "elasticsearch", "dynamodb", "cassandra", "firestore",
+    "supabase", "firebase", "snowflake",
+}
+
+
+def detect_persistence_signal(
+    files: list[dict],
+    deps: list[dict],
+    bulk_manifest: dict,
+    frameworks: list[dict],
+    root: Path,
+) -> dict:
+    """Detect whether this codebase has any data-persistence surface.
+
+    Returns {"has_signal": bool, "evidence": {category: [hits, ...]}}.
+    Evidence is informational — the Data agent reads it to know where to
+    look first. The boolean gates whether the Data agent spawns at all.
+    """
+    evidence: dict[str, list[str]] = {
+        "deps": [],
+        "schema_files": [],
+        "migrations_dirs": [],
+        "frameworks": [],
+        "local_persistence": [],
+    }
+
+    # 1. Dependency-driven detection (highest signal).
+    for dep in deps:
+        key = dep.get("name", "").lower()
+        if key in PERSISTENCE_DEP_SIGNALS:
+            evidence["deps"].append(key)
+
+    # 2. Schema / config files by basename.
+    for f in files:
+        path = f.get("path", "")
+        basename = path.rsplit("/", 1)[-1] if "/" in path else path
+        if basename in PERSISTENCE_FILE_NAME_SIGNALS:
+            evidence["schema_files"].append(path)
+        # Catch any *.sql with a "schema" or "migration" parent dir
+        if path.endswith(".sql") and any(
+            seg in PERSISTENCE_DIR_NAMES for seg in path.split("/")
+        ):
+            evidence["schema_files"].append(path)
+
+    # 3. Migrations directory detection — from bulk_manifest's `migration`
+    # category (set by `.archiebulk`) and from raw file paths.
+    migration_bulk = bulk_manifest.get("migration") or {}
+    migration_paths = migration_bulk.get("files") or []
+    seen_dirs: set[str] = set()
+    for p in migration_paths:
+        parent = "/".join(p.split("/")[:-1])
+        if parent:
+            seen_dirs.add(parent)
+    # Also catch migration dirs that aren't bulk-tagged (small repos)
+    for f in files:
+        path = f.get("path", "")
+        for suffix in PERSISTENCE_PATH_SUFFIXES:
+            if suffix in ("/" + path):
+                # Find the directory matching this suffix and record it
+                idx = path.find(suffix.lstrip("/"))
+                if idx >= 0:
+                    seen_dirs.add(path[: idx + len(suffix.lstrip("/"))])
+                break
+    evidence["migrations_dirs"] = sorted(seen_dirs)
+
+    # 4. Tech-stack engine names already detected by detect_frameworks.
+    for fw in frameworks:
+        name = fw.get("name", "").lower()
+        if any(known in name for known in PERSISTENCE_FRAMEWORK_NAMES):
+            evidence["frameworks"].append(fw.get("name", ""))
+
+    # 5. Local-persistence keyword sniff. Sample up to 200 readable
+    # source files to keep this fast — a single hit is enough to flip
+    # the flag for mobile / desktop repos with no other signal.
+    extensions = {".swift", ".kt", ".java", ".m", ".mm", ".dart", ".cs"}
+    sampled = 0
+    for f in files:
+        if sampled >= 200:
+            break
+        ext = f.get("extension", "")
+        if ext not in extensions:
+            continue
+        path = root / f.get("path", "")
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        sampled += 1
+        for keyword in LOCAL_PERSISTENCE_KEYWORDS:
+            if keyword in text:
+                evidence["local_persistence"].append(f.get("path", ""))
+                break
+
+    has_signal = any(evidence.values())
+    return {"has_signal": has_signal, "evidence": evidence}
+
+
 # ── Import Graph ───────────────────────────────────────────────────────────
 
 PYTHON_EXTS = {".py"}
@@ -885,6 +1067,13 @@ def run_scan(repo_path: str) -> dict:
     total_source += sum(1 for f in files if f.get("bulk", {}).get("category") in source_bulk_categories)
     frontend_ratio = (frontend_files + ui_bulk_files) / max(total_source, 1)
 
+    # ── Persistence signal ────────────────────────────────────────────────
+    # Gates whether the Wave 1 Data agent spawns. Evidence dict is exposed
+    # so the agent can read it as a starting point rather than re-deriving.
+    persistence = detect_persistence_signal(
+        readable_files, deps, bulk_manifest, frameworks, root
+    )
+
     return {
         "file_tree": files,
         "token_counts": tokens,
@@ -896,6 +1085,8 @@ def run_scan(repo_path: str) -> dict:
         "file_hashes": hashes,
         "entry_points": entry_points,
         "frontend_ratio": round(frontend_ratio, 2),
+        "has_persistence_signal": persistence["has_signal"],
+        "persistence_signals": persistence["evidence"],
         "bulk_content_manifest": bulk_manifest,
         "_skeletons": skeletons,
     }
