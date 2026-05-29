@@ -1740,6 +1740,23 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
 // still render correctly.
 // ---------------------------------------------------------------------------
 
+// Plain-text explanations shown on hover over a rule's kind badge. Kept in
+// sync with archie/standalone/rule_kinds.py::KIND_DESCRIPTIONS. Native `title`
+// is used (not a positioned popover) because the rule card is overflow-hidden,
+// which would clip an absolutely-positioned tooltip.
+const KIND_DESCRIPTIONS: Record<string, string> = {
+  decision: 'Clarifies an invariant rooted in a key architectural decision; violating it breaks the constraint chain that justified the decision.',
+  pitfall: 'Guards against a documented causal trap; walking into it produces a known failure mode.',
+  tradeoff: 'Formalizes a violation signal from an explicit tradeoff; firing means the agent is undermining the property the tradeoff bought.',
+  layering: 'Enforces a dependency direction or layer boundary; typically expressible as forbidden imports between modules or layers.',
+  semantic_pattern: 'Captures a project-specific code shape from components.patterns or implementation_guidelines; divergence is structural, not catastrophic.',
+  file_placement: 'Specifies which directory a class of files must live under; derived from architecture_rules.file_placement_rules.',
+  naming_convention: 'Specifies a file or identifier naming pattern; typically expressible as a basename regex.',
+  infrastructure: 'Build, CI, deploy, secrets, dependency-registry, signing conventions; lives in azure-pipelines.yml, .github/, Dockerfile, package.json, pyproject.toml, etc.',
+  data_contract: 'Structural rule about a data model — FK/unique/NOT-NULL invariant, repository-only-read discipline, idempotency requirement, or migration procedure; derived from data_models / persistence_stores.',
+  coding_practice: 'General project-specific guidance the agent should remember at edit time; catch-all when no narrower kind fits.',
+}
+
 function severityFromClass(sc: string | undefined): 'error' | 'warn' | 'info' | null {
   if (sc === 'decision_violation' || sc === 'pitfall_triggered' || sc === 'mechanical_violation') return 'error'
   if (sc === 'tradeoff_undermined') return 'warn'
@@ -1789,7 +1806,11 @@ function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <code className={cn(codeInlineClassName, 'text-[10px] font-bold text-ink/40')}>{id}</code>
             {kind && (
-              <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wide text-teal/70 border-teal/30 bg-teal/5">
+              <Badge
+                variant="outline"
+                title={KIND_DESCRIPTIONS[kind] || kind}
+                className="text-[9px] font-mono uppercase tracking-wide text-teal/70 border-teal/30 bg-teal/5 cursor-help"
+              >
                 {kind}
               </Badge>
             )}
