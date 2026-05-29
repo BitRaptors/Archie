@@ -1814,11 +1814,6 @@ function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule
                 {kind}
               </Badge>
             )}
-            {sevClass && (
-              <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wide text-ink/40 border-papaya-400/40">
-                {sevClass}
-              </Badge>
-            )}
             {ruleState === 'active' && (
               <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-teal/60">
                 <CheckCircle2 className="w-2.5 h-2.5" />
