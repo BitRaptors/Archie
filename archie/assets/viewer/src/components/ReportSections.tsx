@@ -1946,6 +1946,90 @@ function RulesStats({ adopted, proposed, ignored }: { adopted: any[]; proposed: 
   )
 }
 
+// Stable color per kind for the distribution donut + legend.
+const KIND_COLORS: Record<string, string> = {
+  decision: '#0d9488',
+  pitfall: '#dc2626',
+  tradeoff: '#f59e0b',
+  layering: '#2563eb',
+  semantic_pattern: '#7c3aed',
+  file_placement: '#0891b2',
+  naming_convention: '#db2777',
+  infrastructure: '#65a30d',
+  data_contract: '#ea580c',
+  coding_practice: '#64748b',
+}
+const KIND_FALLBACK_COLOR = '#94a3b8'
+
+function KindDistribution({ rules, label }: { rules: any[]; label: string }) {
+  const counts: Record<string, number> = {}
+  for (const r of rules) {
+    const k = (r && r.kind) || 'unspecified'
+    counts[k] = (counts[k] || 0) + 1
+  }
+  const total = rules.length
+  if (total === 0) return null
+
+  const segments = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([kind, count]) => ({
+      kind,
+      count,
+      pct: (count / total) * 100,
+      color: KIND_COLORS[kind] || KIND_FALLBACK_COLOR,
+    }))
+
+  const R = 42
+  const C = 2 * Math.PI * R
+  let acc = 0
+
+  return (
+    <div className={cn('p-5 rounded-2xl border mb-8', theme.surface.panel)}>
+      <div className="flex items-center gap-2 mb-4">
+        <BarChart3 className={cn('w-3.5 h-3.5', theme.active.iconColor)} />
+        <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest leading-none">{label} by kind</span>
+      </div>
+      <div className="flex flex-col sm:flex-row items-center gap-6">
+        <svg viewBox="0 0 100 100" className="w-32 h-32 shrink-0">
+          <g transform="rotate(-90 50 50)">
+            {segments.map((s) => {
+              const dash = (s.pct / 100) * C
+              const seg = (
+                <circle
+                  key={s.kind}
+                  cx={50}
+                  cy={50}
+                  r={R}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth={14}
+                  strokeDasharray={`${dash} ${C - dash}`}
+                  strokeDashoffset={-acc}
+                />
+              )
+              acc += dash
+              return seg
+            })}
+          </g>
+          <text x={50} y={50} textAnchor="middle" dominantBaseline="central" style={{ fontSize: '16px', fontWeight: 700, fill: '#1a1a2e' }}>
+            {total}
+          </text>
+        </svg>
+        <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+          {segments.map((s) => (
+            <div key={s.kind} className="flex items-center gap-2 text-[11px]">
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
+              <span className="font-mono text-ink/70 truncate">{s.kind}</span>
+              <span className="ml-auto tabular-nums text-ink/40">{s.count}</span>
+              <span className="tabular-nums font-bold text-ink/70 w-9 text-right">{Math.round(s.pct)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function RulesSection({ adopted, proposed, ignored = [] }: { adopted: any[]; proposed: any[]; ignored?: any[] }) {
   const [tab, setTab] = useState<'active' | 'proposed' | 'ignored'>('active')
   const [search, setSearch] = useState('')
@@ -1972,6 +2056,11 @@ export function RulesSection({ adopted, proposed, ignored = [] }: { adopted: any
       />
 
       <RulesStats adopted={adopted} proposed={proposed} ignored={ignored} />
+
+      <KindDistribution
+        rules={adopted.length > 0 ? adopted : proposed}
+        label={adopted.length > 0 ? 'Active rules' : 'Proposed rules'}
+      />
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div className="bg-ink/[0.03] p-1 rounded-xl flex items-center border border-ink/5 shadow-inner self-start">
