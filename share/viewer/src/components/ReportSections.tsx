@@ -1752,6 +1752,7 @@ function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule
 
   const sevClass: string = rule?.severity_class || ''
   const sev: string = rule?.severity || severityFromClass(sevClass) || 'warn'
+  const kind: string = rule?.kind || ''
   const id: string = rule?.id || '?'
   const desc: string = rule?.description || ''
   const why: string = rule?.why || rule?.rationale || ''
@@ -1787,6 +1788,11 @@ function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <code className={cn(codeInlineClassName, 'text-[10px] font-bold text-ink/40')}>{id}</code>
+            {kind && (
+              <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wide text-teal/70 border-teal/30 bg-teal/5">
+                {kind}
+              </Badge>
+            )}
             {sevClass && (
               <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wide text-ink/40 border-papaya-400/40">
                 {sevClass}
