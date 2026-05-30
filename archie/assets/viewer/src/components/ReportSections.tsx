@@ -1833,6 +1833,23 @@ export function ImplementationGuidelinesSection({ items }: { items: any[] }) {
 // still render correctly.
 // ---------------------------------------------------------------------------
 
+// Plain-text explanations shown on hover over a rule's kind badge. Kept in
+// sync with archie/standalone/rule_kinds.py::KIND_DESCRIPTIONS. Native `title`
+// is used (not a positioned popover) because the rule card is overflow-hidden,
+// which would clip an absolutely-positioned tooltip.
+const KIND_DESCRIPTIONS: Record<string, string> = {
+  decision: 'Clarifies an invariant rooted in a key architectural decision; violating it breaks the constraint chain that justified the decision.',
+  pitfall: 'Guards against a documented causal trap; walking into it produces a known failure mode.',
+  tradeoff: 'Formalizes a violation signal from an explicit tradeoff; firing means the agent is undermining the property the tradeoff bought.',
+  layering: 'Enforces a dependency direction or layer boundary; typically expressible as forbidden imports between modules or layers.',
+  semantic_pattern: 'Captures a project-specific code shape from components.patterns or implementation_guidelines; divergence is structural, not catastrophic.',
+  file_placement: 'Specifies which directory a class of files must live under; derived from architecture_rules.file_placement_rules.',
+  naming_convention: 'Specifies a file or identifier naming pattern; typically expressible as a basename regex.',
+  infrastructure: 'Build, CI, deploy, secrets, dependency-registry, signing conventions; lives in azure-pipelines.yml, .github/, Dockerfile, package.json, pyproject.toml, etc.',
+  data_contract: 'Structural rule about a data model — FK/unique/NOT-NULL invariant, repository-only-read discipline, idempotency requirement, or migration procedure; derived from data_models / persistence_stores.',
+  coding_practice: 'General project-specific guidance the agent should remember at edit time; catch-all when no narrower kind fits.',
+}
+
 function severityFromClass(sc: string | undefined): 'error' | 'warn' | 'info' | null {
   if (sc === 'decision_violation' || sc === 'pitfall_triggered' || sc === 'mechanical_violation') return 'error'
   if (sc === 'tradeoff_undermined') return 'warn'
@@ -1845,6 +1862,7 @@ function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule
 
   const sevClass: string = rule?.severity_class || ''
   const sev: string = rule?.severity || severityFromClass(sevClass) || 'warn'
+  const kind: string = rule?.kind || ''
   const id: string = rule?.id || '?'
   const desc: string = rule?.description || ''
   const why: string = rule?.why || rule?.rationale || ''
@@ -1880,9 +1898,13 @@ function EnforcementRuleCard({ rule, dim = false, ruleState = 'active' }: { rule
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <code className={cn(codeInlineClassName, 'text-[10px] font-bold text-ink/40')}>{id}</code>
-            {sevClass && (
-              <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wide text-ink/40 border-papaya-400/40">
-                {sevClass}
+            {kind && (
+              <Badge
+                variant="outline"
+                title={KIND_DESCRIPTIONS[kind] || kind}
+                className="text-[9px] font-mono uppercase tracking-wide text-teal/70 border-teal/30 bg-teal/5 cursor-help"
+              >
+                {kind}
               </Badge>
             )}
             {ruleState === 'active' && (
@@ -2017,6 +2039,90 @@ function RulesStats({ adopted, proposed, ignored }: { adopted: any[]; proposed: 
   )
 }
 
+// Stable color per kind for the distribution donut + legend.
+const KIND_COLORS: Record<string, string> = {
+  decision: '#0d9488',
+  pitfall: '#dc2626',
+  tradeoff: '#f59e0b',
+  layering: '#2563eb',
+  semantic_pattern: '#7c3aed',
+  file_placement: '#0891b2',
+  naming_convention: '#db2777',
+  infrastructure: '#65a30d',
+  data_contract: '#ea580c',
+  coding_practice: '#64748b',
+}
+const KIND_FALLBACK_COLOR = '#94a3b8'
+
+function KindDistribution({ rules, label }: { rules: any[]; label: string }) {
+  const counts: Record<string, number> = {}
+  for (const r of rules) {
+    const k = (r && r.kind) || 'unspecified'
+    counts[k] = (counts[k] || 0) + 1
+  }
+  const total = rules.length
+  if (total === 0) return null
+
+  const segments = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([kind, count]) => ({
+      kind,
+      count,
+      pct: (count / total) * 100,
+      color: KIND_COLORS[kind] || KIND_FALLBACK_COLOR,
+    }))
+
+  const R = 42
+  const C = 2 * Math.PI * R
+  let acc = 0
+
+  return (
+    <div className={cn('p-5 rounded-2xl border mb-8', theme.surface.panel)}>
+      <div className="flex items-center gap-2 mb-4">
+        <BarChart3 className={cn('w-3.5 h-3.5', theme.active.iconColor)} />
+        <span className="text-[10px] font-black text-ink/30 uppercase tracking-widest leading-none">{label} by kind</span>
+      </div>
+      <div className="flex flex-col sm:flex-row items-center gap-6">
+        <svg viewBox="0 0 100 100" className="w-32 h-32 shrink-0">
+          <g transform="rotate(-90 50 50)">
+            {segments.map((s) => {
+              const dash = (s.pct / 100) * C
+              const seg = (
+                <circle
+                  key={s.kind}
+                  cx={50}
+                  cy={50}
+                  r={R}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth={14}
+                  strokeDasharray={`${dash} ${C - dash}`}
+                  strokeDashoffset={-acc}
+                />
+              )
+              acc += dash
+              return seg
+            })}
+          </g>
+          <text x={50} y={50} textAnchor="middle" dominantBaseline="central" style={{ fontSize: '16px', fontWeight: 700, fill: '#1a1a2e' }}>
+            {total}
+          </text>
+        </svg>
+        <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+          {segments.map((s) => (
+            <div key={s.kind} className="flex items-center gap-2 text-[11px]">
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
+              <span className="font-mono text-ink/70 truncate">{s.kind}</span>
+              <span className="ml-auto tabular-nums text-ink/40">{s.count}</span>
+              <span className="tabular-nums font-bold text-ink/70 w-9 text-right">{Math.round(s.pct)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function RulesSection({ adopted, proposed, ignored = [] }: { adopted: any[]; proposed: any[]; ignored?: any[] }) {
   const [tab, setTab] = useState<'active' | 'proposed' | 'ignored'>('active')
   const [search, setSearch] = useState('')
@@ -2043,6 +2149,11 @@ export function RulesSection({ adopted, proposed, ignored = [] }: { adopted: any
       />
 
       <RulesStats adopted={adopted} proposed={proposed} ignored={ignored} />
+
+      <KindDistribution
+        rules={adopted.length > 0 ? adopted : proposed}
+        label={adopted.length > 0 ? 'Active rules' : 'Proposed rules'}
+      />
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div className="bg-ink/[0.03] p-1 rounded-xl flex items-center border border-ink/5 shadow-inner self-start">

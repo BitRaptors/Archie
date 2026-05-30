@@ -46,6 +46,7 @@ _STANDALONE_SCRIPTS = [
     "drift.py", "extract_output.py", "arch_review.py", "align_check.py",
     "check_rules.py", "code_shape.py", "rule_index.py", "lint_gate.py",
     "agent_cli.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py",
+    "rule_kinds.py", "backfill_kinds.py",
     "telemetry.py", "telemetry_sync.py",
     "analytics.py", "config.py",
     "update_check.py", "upload.py", "share_setup.py", "refresh.py",

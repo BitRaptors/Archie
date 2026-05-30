@@ -74,17 +74,22 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > > `enables`: "Per-test Koin module substitution without instrumentation; fast unit tests for ViewModels and Repositories."
 > > `alternative`: "Add new bindings as a Koin `module { single { ... } }` block under the relevant `page_<feature>/ModulesX.kt` and load it in `BabyWeatherApplication.startKoin`."
 >
-> **The `kind` field** — names the conceptual *type* of rule, independent of which blueprint section motivated it. The viewer groups rules in the UI by kind so a user curating proposed rules can scan all file-placement rules together, all naming conventions together, etc. Pick exactly one:
+> **The `kind` field** — names the conceptual *type* of rule, independent of which blueprint section motivated it. The viewer groups rules in the UI by kind so a user curating proposed rules can scan all layering rules together, all file-placement rules together, etc. Pick exactly one:
 >
 > - `decision` — clarifies a `decisions.key_decisions[*]` invariant. Pair with `severity_class: "decision_violation"`.
 > - `pitfall` — guards against a `pitfalls[*]` causal chain. Pair with `severity_class: "pitfall_triggered"`.
-> - `semantic_pattern` — captures a `components.patterns` or `implementation_guidelines` shape. Pair with `severity_class: "pattern_divergence"` (or `tradeoff_undermined` when it formalizes a `trade_offs[*].violation_signals`).
+> - `tradeoff` — formalizes a `decisions.trade_offs[*].violation_signals[*]` signal. Pair with `severity_class: "tradeoff_undermined"`.
+> - `layering` — enforces a dependency direction or layer boundary between modules/components (e.g. "ViewModel cannot import View", "domain cannot depend on framework"). Expressible as forbidden imports between layers. Pair with `severity_class: "pattern_divergence"` (or `mechanical_violation` when a regex captures it cleanly).
+> - `semantic_pattern` — captures a project-specific code shape from `components.patterns` or `implementation_guidelines` (e.g. "use Repository pattern", "wrap mutations in entutils.Tx"). Pair with `severity_class: "pattern_divergence"`.
 > - `file_placement` — derived from `blueprint.architecture_rules.file_placement_rules` (or directly observed): which kind of file belongs under which directory. Pair with `severity_class: "pattern_divergence"` by default; bump to `mechanical_violation` when a regex is reliable.
 > - `naming_convention` — derived from `blueprint.architecture_rules.naming_conventions`: which file/identifier names must follow which pattern. Pair with `severity_class: "mechanical_violation"` when expressible as a file-basename regex.
-> - `coding_practice` — derived from `blueprint.development_rules` (or `infrastructure_rules` when build/CI-flavored): general guidance the agent should remember at edit time. Pair with `severity_class: "pattern_divergence"` (informational).
+> - `infrastructure` — derived from `blueprint.infrastructure_rules` or directly from CI/build/deploy/secrets files (`azure-pipelines.yml`, `.github/`, `Dockerfile`, `package.json`, `pyproject.toml`, entitlements, lock files). Onboarding/pipeline knowledge an engineer needs once, not when writing features. Pair with `severity_class: "pattern_divergence"`.
+> - `coding_practice` — derived from `blueprint.development_rules`: general project-specific guidance the agent should remember at edit time. Catch-all of last resort — prefer one of the narrower kinds above when possible. Pair with `severity_class: "pattern_divergence"`.
 > - `data_contract` — derived from `blueprint.data_models[*].invariants` or `blueprint.data_models[*].lifecycle`: a structural rule about a data model (FK / unique / NOT-NULL invariant, repository-only-read, idempotency requirement, migration procedure). Pair with `severity_class: "decision_violation"` when the invariant is FK/unique/NOT-NULL — those are schema-enforced contracts; pair with `pattern_divergence` for repository discipline and lifecycle reminders. The hook fires when editing files inside the model's `location` or its `lifecycle.related_business_logic`.
 >
 > `kind` and `severity_class` are not redundant: `kind` is *what the rule is about* (UI grouping), `severity_class` is *how the hook responds* (enforcement behavior).
+>
+> **Choosing between `layering` and `semantic_pattern`:** if the rule is about *which module/file can depend on which*, it's `layering`. If it's about *how to shape code within a module*, it's `semantic_pattern`. If unsure, prefer `layering` — it's the more enforceable category.
 >
 > **The `topic` field** — a short kebab-case slug naming the conceptual area the rule governs. The renderer groups rules by topic into per-file markdown topic pages under `.claude/rules/enforcement/by-topic/<topic>.md`, so an agent can load only the topic relevant to the current task instead of the full enforcement set.
 >
@@ -181,7 +186,7 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > ```json
 > {
 >   "id": "cache-001",
->   "kind": "semantic_pattern",
+>   "kind": "tradeoff",
 >   "topic": "data-access",
 >   "severity_class": "tradeoff_undermined",
 >   "description": "Avoid sync I/O inside the cache hot path",
@@ -292,12 +297,13 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > |---|---|---|
 > | `decisions.key_decisions[*]` | `decision` | `decision_violation` |
 > | `pitfalls[*]` | `pitfall` | `pitfall_triggered` |
-> | `decisions.trade_offs[*].violation_signals[*]` | `semantic_pattern` | `tradeoff_undermined` |
+> | `decisions.trade_offs[*].violation_signals[*]` | `tradeoff` | `tradeoff_undermined` |
+> | Dependency-direction / layer rules in decisions or pitfalls | `layering` | `pattern_divergence` or `mechanical_violation` |
 > | `components.patterns[*]` / `implementation_guidelines[*]` | `semantic_pattern` | `pattern_divergence` |
 > | `architecture_rules.file_placement_rules[*]` | `file_placement` | `pattern_divergence` (or `mechanical_violation` if a regex captures it cleanly) |
 > | `architecture_rules.naming_conventions[*]` | `naming_convention` | `mechanical_violation` (file-basename regex) or `pattern_divergence` |
+> | `infrastructure_rules[*]` | `infrastructure` | `pattern_divergence` |
 > | `development_rules[*]` | `coding_practice` | `pattern_divergence` |
-> | `infrastructure_rules[*]` | `coding_practice` | `pattern_divergence` |
 > | `data_models[*].invariants` (FK / unique / NOT-NULL / soft-delete / audit) | `data_contract` | `decision_violation` (schema-enforced contract) |
 > | `data_models[*].lifecycle.how_to_*` (modify/read discipline) | `data_contract` | `pattern_divergence` |
 > | `persistence_stores[*]` (e.g. "all reads via cache before primary", "queue-only writes") | `data_contract` | `pattern_divergence` |
@@ -313,7 +319,7 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > ## Critical:
 > - Every rule must be specific to THIS project — never generic programming advice
 > - Focus on what an AI coding agent would get wrong without knowing this codebase
-> - **`kind` is required.** Pick one of: `decision`, `pitfall`, `semantic_pattern`, `file_placement`, `naming_convention`, `coding_practice`. The viewer groups rules by this for user curation.
+> - **`kind` is required.** Pick one of: `decision`, `pitfall`, `tradeoff`, `layering`, `semantic_pattern`, `file_placement`, `naming_convention`, `infrastructure`, `data_contract`, `coding_practice`. The viewer groups rules by this for user curation. Never emit `"unknown"` or a value outside this set — `coding_practice` is the explicit catch-all.
 > - **`severity_class` is required.** Pick the one that matches which blueprint section motivated the rule.
 > - **`topic` is required.** Pick from the recommended list (or a project-specific topic when justified) — the renderer groups rules into per-topic files using this slug.
 > - **`description` is the title** — one imperative sentence, no version pins, no config flags, no project-name references. See "Description shape" above for the canonical bad-vs-good comparison.
