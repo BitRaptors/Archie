@@ -5,7 +5,7 @@ import { LocalEditContext } from '@/components/local/context/LocalEditContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, Layers, FileText, BookOpen } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, Layers, FileText, AlertCircle } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
 import { formatBlueprintTitle } from '@/lib/blueprintTitle'
@@ -172,7 +172,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       'tradeoffs',
       'guidelines',
       'communications',
-      'pattern-playbook',
+      'errors',
       'components',
       'data-models',
       'integrations',
@@ -298,10 +298,11 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
   const persistenceStores = Array.isArray(bp.persistence_stores) ? bp.persistence_stores : []
   const dataOverview = typeof bp.data_overview === 'string' ? bp.data_overview : ''
   const hasDataSurface = dataModels.length > 0 || persistenceStores.length > 0
-  // Pattern Playbook — quick_reference.pattern_selection (scenario → pattern →
-  // scope) + error_mapping (domain error → HTTP status). pattern_selection is
-  // normally a list; an older/alternate dict shape ({scenario: pattern}) is
-  // normalized to the list-of-rows shape the section expects.
+  // quick_reference: pattern_selection (scenario → pattern → scope) folds into
+  // Communications as a scenario index; error_mapping (domain error → HTTP
+  // status) renders as its own Errors section. pattern_selection is normally a
+  // list; an older/alternate dict shape ({scenario: pattern}) is normalized to
+  // the list-of-rows shape the index expects.
   const quickRef = bp.quick_reference || {}
   const rawPatternSelection = quickRef.pattern_selection
   const patternSelection = Array.isArray(rawPatternSelection)
@@ -310,7 +311,6 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       ? Object.entries(rawPatternSelection).map(([scenario, pattern]) => ({ scenario, pattern }))
       : []
   const errorMapping = Array.isArray(quickRef.error_mapping) ? quickRef.error_mapping : []
-  const hasPlaybook = patternSelection.length > 0 || errorMapping.length > 0
   const implementationGuidelines = [
     ...(bp.implementation_guidelines || []),
     ...(bp.decisions?.implementation_guidelines || []),
@@ -534,7 +534,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           )}
 
           {/* Practice */}
-          {(implementationGuidelines.length > 0 || communications.length > 0 || hasPlaybook) && (
+          {(implementationGuidelines.length > 0 || communications.length > 0 || patternSelection.length > 0 || errorMapping.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Practice</p>
               {implementationGuidelines.length > 0 && (
@@ -545,20 +545,20 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                   label="Implementation Guidelines"
                 />
               )}
-              {hasPlaybook && (
-                <NavButton
-                  active={activeSection === 'pattern-playbook'}
-                  onClick={() => scrollToSection('pattern-playbook')}
-                  icon={BookOpen}
-                  label="Pattern Playbook"
-                />
-              )}
-              {communications.length > 0 && (
+              {(communications.length > 0 || patternSelection.length > 0) && (
                 <NavButton
                   active={activeSection === 'communications'}
                   onClick={() => scrollToSection('communications')}
                   icon={Activity}
                   label="Communications"
+                />
+              )}
+              {errorMapping.length > 0 && (
+                <NavButton
+                  active={activeSection === 'errors'}
+                  onClick={() => scrollToSection('errors')}
+                  icon={AlertCircle}
+                  label="Errors"
                 />
               )}
             </div>
@@ -864,17 +864,19 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </section>
           )}
 
-          {/* 8b. Pattern Playbook — quick_reference (scenario→pattern→scope) + error map */}
-          {hasPlaybook && (
-            <section id="pattern-playbook" className="scroll-mt-24">
-              <Sections.PatternPlaybookSection patternSelection={patternSelection} errorMapping={errorMapping} />
+          {/* 9. Communications — patterns + a scenario index folded in from
+              quick_reference.pattern_selection (each scenario links to the
+              pattern card that explains it). */}
+          {(communications.length > 0 || patternSelection.length > 0) && (
+            <section id="communications" className="scroll-mt-24">
+              <Sections.CommunicationsSection communications={communications} patternSelection={patternSelection} />
             </section>
           )}
 
-          {/* 9. Communications */}
-          {communications.length > 0 && (
-            <section id="communications" className="scroll-mt-24">
-              <Sections.CommunicationsSection communications={communications} />
+          {/* 9b. Errors — quick_reference.error_mapping (domain error → HTTP status) */}
+          {errorMapping.length > 0 && (
+            <section id="errors" className="scroll-mt-24">
+              <Sections.ErrorsSection errorMapping={errorMapping} />
             </section>
           )}
 

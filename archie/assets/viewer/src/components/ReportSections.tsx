@@ -8,7 +8,7 @@ import { Badge } from './ui/badge'
 import { Progress } from './ui/progress'
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, BookOpen } from 'lucide-react'
+import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
 // @ts-ignore
@@ -1407,107 +1407,159 @@ function statusTone(code: number): string {
   return 'text-ink/60 border-ink/10 bg-white'
 }
 
-// quick_reference.pattern_selection + error_mapping — the "what to reach for
-// when building X" cheat sheet. pattern_selection is normally a list of
-// {scenario, pattern, scope[]}; an older/alternate dict shape ({scenario:
-// pattern}) is normalized to the same row shape by the caller. error_mapping
-// is {error, status_code, description}.
-export function PatternPlaybookSection({
-  patternSelection,
-  errorMapping,
-}: {
-  patternSelection: any[]
-  errorMapping: any[]
-}) {
-  const patterns = Array.isArray(patternSelection)
-    ? patternSelection.filter((p) => p && (p.scenario || p.pattern))
-    : []
+// Standalone Errors section — quick_reference.error_mapping. The domain
+// error → HTTP status contract. (pattern_selection is NOT here: it's folded
+// into Communications as a scenario index, since each entry just points at a
+// communication pattern that already carries the full explanation.)
+export function ErrorsSection({ errorMapping }: { errorMapping: any[] }) {
   const errors = Array.isArray(errorMapping)
     ? errorMapping.filter((e) => e && (e.error || e.status_code != null || e.status != null))
     : []
-  if (patterns.length === 0 && errors.length === 0) return null
-
+  if (errors.length === 0) return null
   return (
     <section className="space-y-4">
       <SectionHeader
-        title="Pattern Playbook"
-        icon={BookOpen}
-        hint="What to reach for when building X — the canonical pattern per scenario, the directories it lives in, and how domain errors map to HTTP status."
+        title="Errors"
+        icon={AlertCircle}
+        hint="The domain error → HTTP status contract: which error types map to which response codes."
       />
-
-      {patterns.length > 0 && (
-        <div className={cn('rounded-3xl border overflow-hidden', theme.surface.panel)}>
-          <div className="hidden md:grid grid-cols-[minmax(0,0.9fr),minmax(0,1.1fr)] text-[10px] font-black uppercase tracking-[0.15em] text-ink/40 border-b border-papaya-400/20 bg-ink/[0.02]">
-            <div className="px-5 py-3">When building</div>
-            <div className="px-5 py-3">Use this pattern</div>
-          </div>
-          <div className="divide-y divide-papaya-400/20">
-            {patterns.map((p, i) => {
-              const scope = Array.isArray(p.scope) ? p.scope.filter(Boolean) : []
+      <div className={cn('rounded-3xl border overflow-hidden', theme.surface.panel)}>
+        <div className="px-5 py-3 bg-ink/[0.02] border-b border-papaya-400/20">
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/40">Error → HTTP status</span>
+        </div>
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-papaya-400/20">
+            {errors.map((e, i) => {
+              const code = e.status_code ?? e.status
               return (
-                <div
-                  key={i}
-                  className="grid grid-cols-1 md:grid-cols-[minmax(0,0.9fr),minmax(0,1.1fr)] gap-x-6 gap-y-2 px-5 py-4 hover:bg-white/40 transition-colors"
-                >
-                  <div className="font-bold text-ink text-sm leading-snug min-w-0">
-                    <AutoCode text={p.scenario || ''} />
-                  </div>
-                  <div className="min-w-0 space-y-2">
-                    {p.pattern && (
-                      <div className="text-sm text-ink/80 leading-snug">
-                        <AutoCode text={p.pattern} />
-                      </div>
+                <tr key={i} className="align-top hover:bg-white/40 transition-colors">
+                  <td className="px-5 py-3 whitespace-nowrap">
+                    <code className={cn(codeInlineClassName, 'text-[11px]')}>{e.error}</code>
+                  </td>
+                  <td className="px-3 py-3 w-px">
+                    {code != null && (
+                      <Badge
+                        variant="outline"
+                        className={cn('text-[11px] font-bold tabular-nums', statusTone(Number(code)))}
+                      >
+                        {code}
+                      </Badge>
                     )}
-                    {scope.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {scope.map((s: string, j: number) => (
-                          <PathChip key={j} path={s} className="text-[10px]" />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  </td>
+                  <td className="px-5 py-3 text-ink/70 leading-relaxed">
+                    {e.description && <AutoCode text={e.description} />}
+                  </td>
+                </tr>
               )
             })}
-          </div>
-        </div>
-      )}
-
-      {errors.length > 0 && (
-        <div className={cn('rounded-3xl border overflow-hidden', theme.surface.panel)}>
-          <div className="px-5 py-3 bg-ink/[0.02] border-b border-papaya-400/20">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/40">Error → HTTP status</span>
-          </div>
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-papaya-400/20">
-              {errors.map((e, i) => {
-                const code = e.status_code ?? e.status
-                return (
-                  <tr key={i} className="align-top hover:bg-white/40 transition-colors">
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <code className={cn(codeInlineClassName, 'text-[11px]')}>{e.error}</code>
-                    </td>
-                    <td className="px-3 py-3 w-px">
-                      {code != null && (
-                        <Badge
-                          variant="outline"
-                          className={cn('text-[11px] font-bold tabular-nums', statusTone(Number(code)))}
-                        >
-                          {code}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-ink/70 leading-relaxed">
-                      {e.description && <AutoCode text={e.description} />}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+          </tbody>
+        </table>
+      </div>
     </section>
+  )
+}
+
+// --- pattern_selection → Communications scenario index ---------------------
+const PS_STOP = new Set(
+  'the a an of for and or to in on with per under at as is are be by from into via using use new each any'.split(' '),
+)
+function psToks(s: string): Set<string> {
+  return new Set((s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !PS_STOP.has(t)))
+}
+// Stable per-card anchor derived from the pattern name.
+export function commSlug(name: string): string {
+  return 'comm-' + (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+}
+// Best-effort join of a pattern_selection entry to a communication pattern, by
+// token overlap on the pattern body plus shared scope dirs. Returns the
+// matching index or -1. Low-harm: used only to turn the scenario label into a
+// jump link — an uncertain match renders as plain text instead of guessing.
+// (The robust path is an explicit pattern_ref emitted by the scan; when that
+// lands this heuristic becomes the fallback for older blueprints.)
+function matchScenarioToComm(entry: any, communications: any[]): number {
+  const q = new Set<string>([...psToks(entry?.pattern), ...psToks(entry?.scenario)])
+  const escope: string[] = Array.isArray(entry?.scope) ? entry.scope : []
+  let best = -1
+  let bestScore = 0
+  communications.forEach((c, i) => {
+    const bt = psToks([c?.type, c?.how_it_works, c?.when_to_use].filter(Boolean).join(' '))
+    if (q.size === 0 || bt.size === 0) return
+    let inter = 0
+    q.forEach((t) => { if (bt.has(t)) inter++ })
+    const overlap = inter / q.size
+    const cscope: string[] = Array.isArray(c?.scope) ? c.scope : []
+    const scov = escope.filter((s) => cscope.includes(s)).length
+    const score = overlap + 0.15 * scov
+    const confident = inter >= 3 || scov >= 2 || score >= 0.6
+    if (confident && score > bestScore) {
+      bestScore = score
+      best = i
+    }
+  })
+  return best
+}
+
+function scrollToAnchor(id: string) {
+  return (ev: React.MouseEvent) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    ev.preventDefault()
+    const top = el.getBoundingClientRect().top + window.scrollY - 100
+    window.scrollTo({ top, behavior: 'smooth' })
+    history.replaceState(null, '', '#' + id)
+  }
+}
+
+// The scenario jump-table rendered at the top of Communications: scenario →
+// pattern (linking down to the matching card) → scope dirs.
+function ScenarioIndex({ patternSelection, communications }: { patternSelection: any[]; communications: any[] }) {
+  const rows = Array.isArray(patternSelection) ? patternSelection.filter((e) => e && (e.scenario || e.pattern)) : []
+  if (rows.length === 0) return null
+  return (
+    <div className={cn('rounded-3xl border overflow-hidden', theme.surface.panel)}>
+      <div className="px-5 py-3 bg-ink/[0.02] border-b border-papaya-400/20 flex items-center justify-between">
+        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/40">Choose a pattern by scenario</span>
+        <span className="text-[10px] text-ink/30 tabular-nums">{rows.length}</span>
+      </div>
+      <div className="divide-y divide-papaya-400/20">
+        {rows.map((e, i) => {
+          const mi = matchScenarioToComm(e, communications)
+          const target = mi >= 0 ? commSlug(communications[mi]?.type) : null
+          const scope = Array.isArray(e.scope) ? e.scope.filter(Boolean) : []
+          return (
+            <div
+              key={i}
+              className="grid grid-cols-1 md:grid-cols-[minmax(0,0.8fr),minmax(0,1.2fr)] gap-x-6 gap-y-1.5 px-5 py-3.5 hover:bg-white/40 transition-colors"
+            >
+              <div className="font-bold text-ink text-sm leading-snug min-w-0">
+                <AutoCode text={e.scenario || ''} />
+              </div>
+              <div className="min-w-0 space-y-1.5">
+                {target ? (
+                  <a
+                    href={'#' + target}
+                    onClick={scrollToAnchor(target)}
+                    className="text-sm text-teal hover:text-teal-700 font-medium inline-flex items-start gap-1 group"
+                  >
+                    <span className="min-w-0"><AutoCode text={e.pattern || ''} /></span>
+                    <ChevronRight className="w-3 h-3 mt-1 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </a>
+                ) : (
+                  <div className="text-sm text-ink/80"><AutoCode text={e.pattern || ''} /></div>
+                )}
+                {scope.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {scope.map((s: string, j: number) => (
+                      <PathChip key={j} path={s} className="text-[10px]" />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -2394,13 +2446,14 @@ export function InfrastructureRulesSection({ rules }: { rules: any[] }) {
     </section>
   )
 }
-export function CommunicationsSection({ communications }: { communications: any[] }) {
+export function CommunicationsSection({ communications, patternSelection = [] }: { communications: any[]; patternSelection?: any[] }) {
   return (
     <section className="space-y-4">
       <SectionHeader title="Communications" icon={Activity} />
+      <ScenarioIndex patternSelection={patternSelection} communications={communications} />
       <div className="grid gap-4 md:grid-cols-2">
         {communications.map((c: any, i: number) => (
-          <div key={i} className={cn("p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg min-w-0 overflow-hidden", theme.surface.panel)}>
+          <div key={i} id={commSlug(c.type)} className={cn("scroll-mt-24 p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg min-w-0 overflow-hidden", theme.surface.panel)}>
             <div className="flex items-center gap-2 mb-4">
                <div className="p-2 rounded-xl bg-ink/5">
                  <Zap className="w-4 h-4 text-tangerine" />
