@@ -5,7 +5,7 @@ import { LocalEditContext } from '@/components/local/context/LocalEditContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, Layers, FileText } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, Layers, FileText, BookOpen } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
 import { formatBlueprintTitle } from '@/lib/blueprintTitle'
@@ -172,6 +172,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       'tradeoffs',
       'guidelines',
       'communications',
+      'pattern-playbook',
       'components',
       'data-models',
       'integrations',
@@ -297,6 +298,19 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
   const persistenceStores = Array.isArray(bp.persistence_stores) ? bp.persistence_stores : []
   const dataOverview = typeof bp.data_overview === 'string' ? bp.data_overview : ''
   const hasDataSurface = dataModels.length > 0 || persistenceStores.length > 0
+  // Pattern Playbook — quick_reference.pattern_selection (scenario → pattern →
+  // scope) + error_mapping (domain error → HTTP status). pattern_selection is
+  // normally a list; an older/alternate dict shape ({scenario: pattern}) is
+  // normalized to the list-of-rows shape the section expects.
+  const quickRef = bp.quick_reference || {}
+  const rawPatternSelection = quickRef.pattern_selection
+  const patternSelection = Array.isArray(rawPatternSelection)
+    ? rawPatternSelection
+    : rawPatternSelection && typeof rawPatternSelection === 'object'
+      ? Object.entries(rawPatternSelection).map(([scenario, pattern]) => ({ scenario, pattern }))
+      : []
+  const errorMapping = Array.isArray(quickRef.error_mapping) ? quickRef.error_mapping : []
+  const hasPlaybook = patternSelection.length > 0 || errorMapping.length > 0
   const implementationGuidelines = [
     ...(bp.implementation_guidelines || []),
     ...(bp.decisions?.implementation_guidelines || []),
@@ -520,7 +534,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           )}
 
           {/* Practice */}
-          {(implementationGuidelines.length > 0 || communications.length > 0) && (
+          {(implementationGuidelines.length > 0 || communications.length > 0 || hasPlaybook) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Practice</p>
               {implementationGuidelines.length > 0 && (
@@ -529,6 +543,14 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                   onClick={() => scrollToSection('guidelines')}
                   icon={Info}
                   label="Implementation Guidelines"
+                />
+              )}
+              {hasPlaybook && (
+                <NavButton
+                  active={activeSection === 'pattern-playbook'}
+                  onClick={() => scrollToSection('pattern-playbook')}
+                  icon={BookOpen}
+                  label="Pattern Playbook"
                 />
               )}
               {communications.length > 0 && (
@@ -839,6 +861,13 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           {implementationGuidelines.length > 0 && (
             <section id="guidelines" className="scroll-mt-24">
               <Sections.ImplementationGuidelinesSection items={implementationGuidelines} />
+            </section>
+          )}
+
+          {/* 8b. Pattern Playbook — quick_reference (scenario→pattern→scope) + error map */}
+          {hasPlaybook && (
+            <section id="pattern-playbook" className="scroll-mt-24">
+              <Sections.PatternPlaybookSection patternSelection={patternSelection} errorMapping={errorMapping} />
             </section>
           )}
 

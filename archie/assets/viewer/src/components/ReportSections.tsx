@@ -8,7 +8,7 @@ import { Badge } from './ui/badge'
 import { Progress } from './ui/progress'
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2 } from 'lucide-react'
+import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, BookOpen } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
 // @ts-ignore
@@ -1393,6 +1393,120 @@ export function TradeOffsSection({ tradeoffs }: { tradeoffs: any[] }) {
           </div>
         ))}
       </div>
+    </section>
+  )
+}
+
+// Color the HTTP status badge by class: 2xx teal, 4xx tangerine, 5xx brandy.
+// Anything else (3xx, unknown) stays neutral so a malformed code never reads
+// as a hard error.
+function statusTone(code: number): string {
+  if (code >= 500) return 'text-brandy border-brandy/30 bg-brandy/5'
+  if (code >= 400) return 'text-tangerine-800 border-tangerine/30 bg-tangerine/5'
+  if (code >= 200 && code < 300) return 'text-teal border-teal/30 bg-teal/5'
+  return 'text-ink/60 border-ink/10 bg-white'
+}
+
+// quick_reference.pattern_selection + error_mapping — the "what to reach for
+// when building X" cheat sheet. pattern_selection is normally a list of
+// {scenario, pattern, scope[]}; an older/alternate dict shape ({scenario:
+// pattern}) is normalized to the same row shape by the caller. error_mapping
+// is {error, status_code, description}.
+export function PatternPlaybookSection({
+  patternSelection,
+  errorMapping,
+}: {
+  patternSelection: any[]
+  errorMapping: any[]
+}) {
+  const patterns = Array.isArray(patternSelection)
+    ? patternSelection.filter((p) => p && (p.scenario || p.pattern))
+    : []
+  const errors = Array.isArray(errorMapping)
+    ? errorMapping.filter((e) => e && (e.error || e.status_code != null || e.status != null))
+    : []
+  if (patterns.length === 0 && errors.length === 0) return null
+
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Pattern Playbook"
+        icon={BookOpen}
+        hint="What to reach for when building X — the canonical pattern per scenario, the directories it lives in, and how domain errors map to HTTP status."
+      />
+
+      {patterns.length > 0 && (
+        <div className={cn('rounded-3xl border overflow-hidden', theme.surface.panel)}>
+          <div className="hidden md:grid grid-cols-[minmax(0,0.9fr),minmax(0,1.1fr)] text-[10px] font-black uppercase tracking-[0.15em] text-ink/40 border-b border-papaya-400/20 bg-ink/[0.02]">
+            <div className="px-5 py-3">When building</div>
+            <div className="px-5 py-3">Use this pattern</div>
+          </div>
+          <div className="divide-y divide-papaya-400/20">
+            {patterns.map((p, i) => {
+              const scope = Array.isArray(p.scope) ? p.scope.filter(Boolean) : []
+              return (
+                <div
+                  key={i}
+                  className="grid grid-cols-1 md:grid-cols-[minmax(0,0.9fr),minmax(0,1.1fr)] gap-x-6 gap-y-2 px-5 py-4 hover:bg-white/40 transition-colors"
+                >
+                  <div className="font-bold text-ink text-sm leading-snug min-w-0">
+                    <AutoCode text={p.scenario || ''} />
+                  </div>
+                  <div className="min-w-0 space-y-2">
+                    {p.pattern && (
+                      <div className="text-sm text-ink/80 leading-snug">
+                        <AutoCode text={p.pattern} />
+                      </div>
+                    )}
+                    {scope.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {scope.map((s: string, j: number) => (
+                          <PathChip key={j} path={s} className="text-[10px]" />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {errors.length > 0 && (
+        <div className={cn('rounded-3xl border overflow-hidden', theme.surface.panel)}>
+          <div className="px-5 py-3 bg-ink/[0.02] border-b border-papaya-400/20">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/40">Error → HTTP status</span>
+          </div>
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-papaya-400/20">
+              {errors.map((e, i) => {
+                const code = e.status_code ?? e.status
+                return (
+                  <tr key={i} className="align-top hover:bg-white/40 transition-colors">
+                    <td className="px-5 py-3 whitespace-nowrap">
+                      <code className={cn(codeInlineClassName, 'text-[11px]')}>{e.error}</code>
+                    </td>
+                    <td className="px-3 py-3 w-px">
+                      {code != null && (
+                        <Badge
+                          variant="outline"
+                          className={cn('text-[11px] font-bold tabular-nums', statusTone(Number(code)))}
+                        >
+                          {code}
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-ink/70 leading-relaxed">
+                      {e.description && <AutoCode text={e.description} />}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   )
 }
