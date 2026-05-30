@@ -1499,69 +1499,8 @@ function matchScenarioToComm(entry: any, communications: any[]): number {
   return best
 }
 
-function scrollToAnchor(id: string) {
-  return (ev: React.MouseEvent) => {
-    const el = document.getElementById(id)
-    if (!el) return
-    ev.preventDefault()
-    const top = el.getBoundingClientRect().top + window.scrollY - 100
-    window.scrollTo({ top, behavior: 'smooth' })
-    history.replaceState(null, '', '#' + id)
-  }
-}
-
-// The scenario jump-table rendered at the top of Communications: scenario →
-// pattern (linking down to the matching card) → scope dirs.
-function ScenarioIndex({ patternSelection, communications }: { patternSelection: any[]; communications: any[] }) {
-  const rows = Array.isArray(patternSelection) ? patternSelection.filter((e) => e && (e.scenario || e.pattern)) : []
-  if (rows.length === 0) return null
-  return (
-    <div className={cn('rounded-3xl border overflow-hidden', theme.surface.panel)}>
-      <div className="px-5 py-3 bg-ink/[0.02] border-b border-papaya-400/20 flex items-center justify-between">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/40">Choose a pattern by scenario</span>
-        <span className="text-[10px] text-ink/30 tabular-nums">{rows.length}</span>
-      </div>
-      <div className="divide-y divide-papaya-400/20">
-        {rows.map((e, i) => {
-          const mi = matchScenarioToComm(e, communications)
-          const target = mi >= 0 ? commSlug(communications[mi]?.type) : null
-          const scope = Array.isArray(e.scope) ? e.scope.filter(Boolean) : []
-          return (
-            <div
-              key={i}
-              className="grid grid-cols-1 md:grid-cols-[minmax(0,0.8fr),minmax(0,1.2fr)] gap-x-6 gap-y-1.5 px-5 py-3.5 hover:bg-white/40 transition-colors"
-            >
-              <div className="font-bold text-ink text-sm leading-snug min-w-0">
-                <AutoCode text={e.scenario || ''} />
-              </div>
-              <div className="min-w-0 space-y-1.5">
-                {target ? (
-                  <a
-                    href={'#' + target}
-                    onClick={scrollToAnchor(target)}
-                    className="text-sm text-teal hover:text-teal-700 font-medium inline-flex items-start gap-1 group"
-                  >
-                    <span className="min-w-0"><AutoCode text={e.pattern || ''} /></span>
-                    <ChevronRight className="w-3 h-3 mt-1 shrink-0 transition-transform group-hover:translate-x-0.5" />
-                  </a>
-                ) : (
-                  <div className="text-sm text-ink/80"><AutoCode text={e.pattern || ''} /></div>
-                )}
-                {scope.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {scope.map((s: string, j: number) => (
-                      <PathChip key={j} path={s} className="text-[10px]" />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
+// (Scenario rows are folded onto the matching Communications cards below as
+// "Reach for this when" triggers — see CommunicationsSection.)
 
 export function PitfallsSection({
   pitfalls,
@@ -2447,12 +2386,28 @@ export function InfrastructureRulesSection({ rules }: { rules: any[] }) {
   )
 }
 export function CommunicationsSection({ communications, patternSelection = [] }: { communications: any[]; patternSelection?: any[] }) {
+  // Fold quick_reference.pattern_selection onto the card it matches: each card
+  // gains the task-trigger phrasing ("reach for this when…") instead of a
+  // separate, redundant index table. Entries with no confident match fall to
+  // `orphans` and render as a small footnote so the data isn't silently lost.
+  const scenariosByCard: Record<number, any[]> = {}
+  const orphans: any[] = []
+  ;(Array.isArray(patternSelection) ? patternSelection : []).forEach((e) => {
+    if (!e || !(e.scenario || e.pattern)) return
+    const mi = matchScenarioToComm(e, communications)
+    if (mi < 0) {
+      orphans.push(e)
+      return
+    }
+    ;(scenariosByCard[mi] = scenariosByCard[mi] || []).push(e)
+  })
   return (
     <section className="space-y-4">
       <SectionHeader title="Communications" icon={Activity} />
-      <ScenarioIndex patternSelection={patternSelection} communications={communications} />
       <div className="grid gap-4 md:grid-cols-2">
-        {communications.map((c: any, i: number) => (
+        {communications.map((c: any, i: number) => {
+          const scenarios = scenariosByCard[i] || []
+          return (
           <div key={i} id={commSlug(c.type)} className={cn("scroll-mt-24 p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg min-w-0 overflow-hidden", theme.surface.panel)}>
             <div className="flex items-center gap-2 mb-4">
                <div className="p-2 rounded-xl bg-ink/5">
@@ -2467,6 +2422,18 @@ export function CommunicationsSection({ communications, patternSelection = [] }:
             </div>
             
             <div className="space-y-4">
+              {scenarios.length > 0 && (
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-teal block mb-2">Reach for this when</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {scenarios.map((s: any, j: number) => (
+                      <Badge key={j} variant="outline" className="text-[10px] font-medium text-ink/70 border-teal/20 bg-teal/5">
+                        {s.scenario || s.pattern}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
               {c.how_it_works && <Prose value={c.how_it_works} className="text-sm text-ink/70 leading-relaxed" />}
 
               {c.when_to_use && (
@@ -2547,8 +2514,19 @@ export function CommunicationsSection({ communications, patternSelection = [] }:
               )}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
+      {orphans.length > 0 && (
+        <div className="text-xs text-ink/45 leading-relaxed px-1 pt-1">
+          <span className="font-black uppercase tracking-widest text-[9px] text-ink/35 mr-2">Other scenarios</span>
+          {orphans.map((e: any, j: number) => (
+            <span key={j} className="mr-3 inline-block">
+              <AutoCode text={e.scenario || ''} /> → <AutoCode text={e.pattern || ''} />
+            </span>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
