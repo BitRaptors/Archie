@@ -478,14 +478,54 @@ def cmd_scan_config(root: Path, action: str):
     sys.exit(1)
 
 
-def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
+# --- Test snapshots (safe repeated single-step re-runs) ---------------------
+# Static installed .archie/ entries that pipeline steps never mutate — excluded
+# from test snapshots (re-copying them is wasteful and restoring code is wrong).
+_SNAPSHOT_ARCHIE_SKIP = {
+    ".test_snapshots", "__pycache__", "workflow", "viewer", "_install_pkg", "hooks",
+}
+# Generated artifacts OUTSIDE .archie/ that a step mutates AND that are gitignored
+# (so git can't restore them — the snapshot must). Paths relative to project root.
+_SNAPSHOT_OUTSIDE = [".claude/hooks", ".claude/settings.local.json", ".codex/hooks.json"]
+# Generated but git-TRACKED — restore via git, not the snapshot (don't duplicate git).
+_SNAPSHOT_GIT_DEFERRED = ["CLAUDE.md", "AGENTS.md", ".claude/rules", "per-folder CLAUDE.md"]
+
+
+def _snapshot_archie_entries(archie_dir: Path) -> list[Path]:
+    """Mutable .archie/ top-level entries to capture (skips static tooling)."""
+    if not archie_dir.is_dir():
+        return []
+    out = []
+    for p in sorted(archie_dir.iterdir()):
+        if p.name in _SNAPSHOT_ARCHIE_SKIP or p.suffix == ".py":
+            continue
+        out.append(p)
+    return out
+
+
+def _valid_snapshot_label(label: str | None) -> bool:
+    return bool(label) and label not in (".", "..") and all(
+        c.isalnum() or c in "._-" for c in label
+    )
+
+
+def cmd_deep_scan_state(root: Path, action: str, step: int | None = None, label: str | None = None):
     """Manage deep scan state for resume capability.
 
     Actions:
       init            — reset state for fresh run
       complete-step N — mark step N as completed
       read            — print current state as JSON to stdout
-      check-prereqs N — validate artifacts exist for step N
+      check-prereqs N — validate artifacts exist for step N; also warns (stderr)
+                        when the ledger shows step N-1 was never completed, or a
+                        prereq artifact predates this run (stale-input signal)
+      snapshot <label>   — capture all mutable pipeline state into
+                           .archie/.test_snapshots/<label>/ (for safe repeated
+                           single-step re-runs via --from N). Git-tracked
+                           generated docs/rules are NOT captured — restore those
+                           via git (the command prints how).
+      restore <label>    — restore a snapshot (exact within captured scope)
+      list-snapshots     — list available snapshots as JSON
       save-context    — stdin JSON merged into state["run_context"]; stores
                         shell-recoverable state (scope, intent_layer, scan_mode,
                         project_root, workspaces, monorepo_type, start_step)
@@ -692,12 +732,156 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None):
             8: [],
             9: [".archie/blueprint.json"],
         }
+        # Ledger cross-check (general, all steps): --from N trusts artifact
+        # existence only. Consult the ledger we already maintain and make a
+        # skipped/never-completed upstream step impossible to miss. Warnings go
+        # to stderr so the JSON stdout contract is untouched; never blocking
+        # (--from is an explicit override).
+        state = _load_state()
+        last = state.get("last_completed", 0) or 0
+        if isinstance(step, int) and last < step - 1:
+            gap = f"{last + 1}" if last + 1 == step - 1 else f"{last + 1}-{step - 1}"
+            print(
+                f"⚠️  --from {step}: ledger last_completed={last} — step(s) {gap} were "
+                f"never completed in this run. Upstream artifacts may be stale or "
+                f"inconsistent. Proceeding anyway (explicit override).",
+                file=sys.stderr,
+            )
+        started = state.get("started_at")
+        if started:
+            try:
+                from datetime import datetime
+                started_ts = datetime.fromisoformat(started).timestamp()
+                for p in prereqs.get(step, []):
+                    fp = root / p
+                    if fp.exists() and fp.stat().st_mtime < started_ts:
+                        print(
+                            f"⚠️  prereq {p} predates this run (started_at={started}) "
+                            f"— likely stale input.",
+                            file=sys.stderr,
+                        )
+            except (ValueError, OSError):
+                pass
+
         missing = [p for p in prereqs.get(step, []) if not (root / p).exists()]
         if missing:
             print(json.dumps({"ok": False, "missing": missing, "step": step}))
             sys.exit(1)
         else:
             print(json.dumps({"ok": True, "step": step}))
+    elif action in ("snapshot", "restore"):
+        import shutil
+        archie_dir = root / ".archie"
+        if not _valid_snapshot_label(label):
+            print("Error: snapshot label required (alphanumerics, '.', '-', '_' only)", file=sys.stderr)
+            sys.exit(1)
+        snap_root = archie_dir / ".test_snapshots" / label
+
+        if action == "snapshot":
+            if snap_root.exists():
+                shutil.rmtree(snap_root)
+            (snap_root / "archie").mkdir(parents=True)
+            for p in _snapshot_archie_entries(archie_dir):
+                dest = snap_root / "archie" / p.name
+                if p.is_dir():
+                    shutil.copytree(p, dest)
+                else:
+                    shutil.copy2(p, dest)
+            captured_outside = []
+            for rel in _SNAPSHOT_OUTSIDE:
+                src = root / rel
+                if not src.exists():
+                    continue
+                dest = snap_root / "outside" / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if src.is_dir():
+                    shutil.copytree(src, dest)
+                else:
+                    shutil.copy2(src, dest)
+                captured_outside.append(rel)
+            import subprocess
+            try:
+                sha = subprocess.run(
+                    ["git", "-C", str(root), "rev-parse", "HEAD"],
+                    capture_output=True, text=True, timeout=5,
+                ).stdout.strip()
+            except Exception:
+                sha = ""
+            from datetime import datetime, timezone
+            manifest = {
+                "label": label,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "archie_entries": [p.name for p in _snapshot_archie_entries(archie_dir)],
+                "outside": captured_outside,
+                "git_deferred": _SNAPSHOT_GIT_DEFERRED,
+                "git_sha": sha,
+            }
+            (snap_root / "manifest.json").write_text(json.dumps(manifest, indent=2))
+            print(f"Snapshot '{label}' captured ({len(manifest['archie_entries'])} .archie entries, "
+                  f"{len(captured_outside)} outside files).", file=sys.stderr)
+            print("Note: generated docs/rules are git-tracked and NOT in the snapshot — "
+                  "restore those with git (see `restore` output).", file=sys.stderr)
+
+        else:  # restore
+            if not snap_root.is_dir():
+                print(f"Error: no snapshot '{label}' under .archie/.test_snapshots/", file=sys.stderr)
+                sys.exit(1)
+            # 1. Clear current in-scope .archie state so files created since the
+            #    snapshot are undone (exact restore within captured scope). The
+            #    snapshot dir itself is in the skip set, so it survives.
+            for p in _snapshot_archie_entries(archie_dir):
+                if p.is_dir():
+                    shutil.rmtree(p)
+                else:
+                    p.unlink()
+            # 2. Copy the snapshot's .archie state back.
+            snap_archie = snap_root / "archie"
+            if snap_archie.is_dir():
+                for p in sorted(snap_archie.iterdir()):
+                    dest = archie_dir / p.name
+                    if p.is_dir():
+                        shutil.copytree(p, dest)
+                    else:
+                        shutil.copy2(p, dest)
+            # 3. Restore captured outside files (remove current, copy back).
+            try:
+                manifest = json.loads((snap_root / "manifest.json").read_text())
+            except (OSError, json.JSONDecodeError):
+                manifest = {"outside": []}
+            for rel in manifest.get("outside", []):
+                cur = root / rel
+                if cur.is_dir():
+                    shutil.rmtree(cur, ignore_errors=True)
+                elif cur.exists():
+                    cur.unlink()
+                src = snap_root / "outside" / rel
+                if src.exists():
+                    cur.parent.mkdir(parents=True, exist_ok=True)
+                    if src.is_dir():
+                        shutil.copytree(src, cur)
+                    else:
+                        shutil.copy2(src, cur)
+            print(f"Snapshot '{label}' restored.", file=sys.stderr)
+            print("Generated docs/rules are git-tracked (not snapshotted). To reset them too:",
+                  file=sys.stderr)
+            print("  git checkout -- CLAUDE.md AGENTS.md .claude/rules", file=sys.stderr)
+            print("  (plus any per-folder CLAUDE.md the Intent Layer regenerated)", file=sys.stderr)
+
+    elif action == "list-snapshots":
+        snaps_dir = root / ".archie" / ".test_snapshots"
+        items = []
+        if snaps_dir.is_dir():
+            for d in sorted(snaps_dir.iterdir()):
+                if not d.is_dir():
+                    continue
+                created = ""
+                try:
+                    created = json.loads((d / "manifest.json").read_text()).get("created_at", "")
+                except (OSError, json.JSONDecodeError):
+                    pass
+                items.append({"label": d.name, "created_at": created})
+        print(json.dumps({"snapshots": items}, indent=2))
+
     elif action == "save-baseline":
         import subprocess
         try:
@@ -2135,7 +2319,7 @@ if __name__ == "__main__":
         print("  python3 intent_layer.py mark-done /path/to/repo <folder1> [folder2 ...]", file=sys.stderr)
         print("  python3 intent_layer.py reset-state /path/to/repo", file=sys.stderr)
         print("  python3 intent_layer.py merge /path/to/repo", file=sys.stderr)
-        print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs|save-context|save-baseline|detect-changes> [step|mode]", file=sys.stderr)
+        print("  python3 intent_layer.py deep-scan-state /path/to/repo <init|complete-step|read|check-prereqs|save-context|save-baseline|detect-changes|snapshot|restore|list-snapshots> [step|label]", file=sys.stderr)
         print("  python3 intent_layer.py scan-config /path/to/repo <read|write|validate>  (write reads JSON from stdin)", file=sys.stderr)
         print("  python3 intent_layer.py inspect /path/to/repo <filename> [--query .key.path]", file=sys.stderr)
         sys.exit(1)
@@ -2230,12 +2414,15 @@ if __name__ == "__main__":
     elif subcmd == "deep-scan-state":
         action = sys.argv[3] if len(sys.argv) > 3 else ""
         step_arg = None
-        if len(sys.argv) > 4:
+        raw_arg = sys.argv[4] if len(sys.argv) > 4 else None
+        if raw_arg is not None:
             try:
-                step_arg = int(sys.argv[4])
+                step_arg = int(raw_arg)
             except ValueError:
                 step_arg = None
-        cmd_deep_scan_state(root, action, step_arg)
+        # raw_arg carries the string form (snapshot/restore label); step_arg
+        # the int form (complete-step / check-prereqs N).
+        cmd_deep_scan_state(root, action, step_arg, label=raw_arg)
     elif subcmd == "scan-config":
         action = sys.argv[3] if len(sys.argv) > 3 else ""
         if action not in {"read", "write", "validate"}:

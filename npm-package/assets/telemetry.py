@@ -446,13 +446,98 @@ def _usage_and_exit() -> None:
     sys.exit(2)
 
 
+# --- Parallel sub-agent timing ----------------------------------------------
+# Steps that fan out into concurrent sub-agents (e.g. Wave 2: Design/Risk/
+# Overview) can't use mark_step/finish_step — those auto-chain "next step's
+# start = prior step's end", a sequential assumption that's wrong for parallel
+# work, and 3 agents writing one file at once would race. Instead each agent
+# self-times into its OWN file under .archie/telemetry/agents/, then the
+# orchestrator folds them into the step via collect_agents (race-free).
+
+def _agents_dir(project_root: str | Path) -> Path:
+    return Path(project_root) / ".archie" / "telemetry" / "agents"
+
+
+def _agent_safe(name: str) -> str:
+    return "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(name))
+
+
+def _agent_timing_path(project_root: str | Path, step: str, agent: str) -> Path:
+    return _agents_dir(project_root) / f"{_agent_safe(step)}__{_agent_safe(agent)}.json"
+
+
+def agent_start(project_root: str | Path, step: str, agent: str) -> None:
+    """Record a parallel sub-agent's start (own file — no shared-file race)."""
+    path = _agent_timing_path(project_root, step, agent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"step": step, "agent": agent, "started_at": _now_iso()}))
+
+
+def agent_finish(project_root: str | Path, step: str, agent: str) -> None:
+    """Record a parallel sub-agent's completion timestamp."""
+    path = _agent_timing_path(project_root, step, agent)
+    data: dict = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            data = {}
+    data.setdefault("step", step)
+    data.setdefault("agent", agent)
+    data["completed_at"] = _now_iso()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data))
+
+
+def collect_agents(project_root: str | Path, step: str) -> None:
+    """Fold per-agent timing files for `step` into the current-run step entry
+    as `steps[].agents`, then delete the temp files. Idempotent + graceful."""
+    d = _agents_dir(project_root)
+    if not d.is_dir():
+        return
+    prefix = f"{_agent_safe(step)}__"
+    agents: list[dict] = []
+    consumed: list[Path] = []
+    for f in sorted(d.glob(f"{prefix}*.json")):
+        try:
+            data = json.loads(f.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        sa, ca = data.get("started_at", ""), data.get("completed_at", "")
+        agents.append({
+            "name": data.get("agent", ""),
+            "started_at": sa,
+            "completed_at": ca,
+            "seconds": _compute_seconds(sa, ca) if (sa and ca) else None,
+        })
+        consumed.append(f)
+    if not agents:
+        return
+    state = _load_current_run(project_root)
+    steps = state.setdefault("steps", [])
+    target = next((s for s in steps if s.get("name") == step), None)
+    if target is None:
+        target = {"name": step}
+        steps.append(target)
+    target["agents"] = agents
+    _save_current_run(project_root, state)
+    for f in consumed:
+        try:
+            f.unlink()
+        except OSError:
+            pass
+    summary = ", ".join(f"{a['name']}={a['seconds']}s" for a in agents if a.get("seconds") is not None)
+    print(f"telemetry: step '{step}' agent durations — {summary or '(incomplete)'}", file=sys.stderr)
+
+
 def main():
     argv = sys.argv[1:]
     if not argv:
         _usage_and_exit()
 
     sub = argv[0]
-    KNOWN = {"mark", "finish", "extra", "read", "write", "clear", "steps-count"}
+    KNOWN = {"mark", "finish", "extra", "read", "write", "clear", "steps-count",
+             "agent-start", "agent-finish", "collect-agents"}
 
     # Legacy entry point: first arg is a path, plus --command / --timing-file
     if sub not in KNOWN:
@@ -488,6 +573,18 @@ def main():
         state = _load_current_run(root)
         steps = state.get("steps") if isinstance(state, dict) else None
         print(len(steps) if isinstance(steps, list) else 0)
+    elif sub == "agent-start":
+        if len(argv) < 4:
+            _usage_and_exit()
+        agent_start(root, argv[2], argv[3])
+    elif sub == "agent-finish":
+        if len(argv) < 4:
+            _usage_and_exit()
+        agent_finish(root, argv[2], argv[3])
+    elif sub == "collect-agents":
+        if len(argv) < 3:
+            _usage_and_exit()
+        collect_agents(root, argv[2])
 
 
 if __name__ == "__main__":

@@ -101,8 +101,7 @@
 > {
 >   "meta": {
 >     "architecture_style": "plain language description",
->     "platforms": ["backend", "web-frontend"],
->     "executive_summary": "3-5 factual sentences: what this does, primary tech, architecture style. No filler."
+>     "platforms": ["backend", "web-frontend"]
 >   },
 >   "components": {
 >     "structure_type": "layered | flat | modular | feature-based",
