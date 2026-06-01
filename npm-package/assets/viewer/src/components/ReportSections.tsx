@@ -8,7 +8,7 @@ import { Badge } from './ui/badge'
 import { Progress } from './ui/progress'
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2 } from 'lucide-react'
+import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
 // @ts-ignore
@@ -1397,6 +1397,111 @@ export function TradeOffsSection({ tradeoffs }: { tradeoffs: any[] }) {
   )
 }
 
+// Color the HTTP status badge by class: 2xx teal, 4xx tangerine, 5xx brandy.
+// Anything else (3xx, unknown) stays neutral so a malformed code never reads
+// as a hard error.
+function statusTone(code: number): string {
+  if (code >= 500) return 'text-brandy border-brandy/30 bg-brandy/5'
+  if (code >= 400) return 'text-tangerine-800 border-tangerine/30 bg-tangerine/5'
+  if (code >= 200 && code < 300) return 'text-teal border-teal/30 bg-teal/5'
+  return 'text-ink/60 border-ink/10 bg-white'
+}
+
+// Standalone Errors section — quick_reference.error_mapping. The domain
+// error → HTTP status contract. (pattern_selection is NOT here: it's folded
+// into Communications as a scenario index, since each entry just points at a
+// communication pattern that already carries the full explanation.)
+export function ErrorsSection({ errorMapping }: { errorMapping: any[] }) {
+  const errors = Array.isArray(errorMapping)
+    ? errorMapping.filter((e) => e && (e.error || e.status_code != null || e.status != null))
+    : []
+  if (errors.length === 0) return null
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Errors"
+        icon={AlertCircle}
+        hint="The domain error → HTTP status contract: which error types map to which response codes."
+      />
+      <div className={cn('rounded-3xl border overflow-hidden', theme.surface.panel)}>
+        <div className="px-5 py-3 bg-ink/[0.02] border-b border-papaya-400/20">
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/40">Error → HTTP status</span>
+        </div>
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-papaya-400/20">
+            {errors.map((e, i) => {
+              const code = e.status_code ?? e.status
+              return (
+                <tr key={i} className="align-top hover:bg-white/40 transition-colors">
+                  <td className="px-5 py-3 whitespace-nowrap">
+                    <code className={cn(codeInlineClassName, 'text-[11px]')}>{e.error}</code>
+                  </td>
+                  <td className="px-3 py-3 w-px">
+                    {code != null && (
+                      <Badge
+                        variant="outline"
+                        className={cn('text-[11px] font-bold tabular-nums', statusTone(Number(code)))}
+                      >
+                        {code}
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-ink/70 leading-relaxed">
+                    {e.description && <AutoCode text={e.description} />}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+// --- pattern_selection → Communications scenario index ---------------------
+const PS_STOP = new Set(
+  'the a an of for and or to in on with per under at as is are be by from into via using use new each any'.split(' '),
+)
+function psToks(s: string): Set<string> {
+  return new Set((s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !PS_STOP.has(t)))
+}
+// Stable per-card anchor derived from the pattern name.
+export function commSlug(name: string): string {
+  return 'comm-' + (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+}
+// Best-effort join of a pattern_selection entry to a communication pattern, by
+// token overlap on the pattern body plus shared scope dirs. Returns the
+// matching index or -1. Low-harm: used only to turn the scenario label into a
+// jump link — an uncertain match renders as plain text instead of guessing.
+// (The robust path is an explicit pattern_ref emitted by the scan; when that
+// lands this heuristic becomes the fallback for older blueprints.)
+function matchScenarioToComm(entry: any, communications: any[]): number {
+  const q = new Set<string>([...psToks(entry?.pattern), ...psToks(entry?.scenario)])
+  const escope: string[] = Array.isArray(entry?.scope) ? entry.scope : []
+  let best = -1
+  let bestScore = 0
+  communications.forEach((c, i) => {
+    const bt = psToks([c?.type, c?.how_it_works, c?.when_to_use].filter(Boolean).join(' '))
+    if (q.size === 0 || bt.size === 0) return
+    let inter = 0
+    q.forEach((t) => { if (bt.has(t)) inter++ })
+    const overlap = inter / q.size
+    const cscope: string[] = Array.isArray(c?.scope) ? c.scope : []
+    const scov = escope.filter((s) => cscope.includes(s)).length
+    const score = overlap + 0.15 * scov
+    const confident = inter >= 3 || scov >= 2 || score >= 0.6
+    if (confident && score > bestScore) {
+      bestScore = score
+      best = i
+    }
+  })
+  return best
+}
+
+// (Scenario rows are folded onto the matching Communications cards below as
+// "Reach for this when" triggers — see CommunicationsSection.)
+
 export function PitfallsSection({
   pitfalls,
   blueprint,
@@ -2280,13 +2385,30 @@ export function InfrastructureRulesSection({ rules }: { rules: any[] }) {
     </section>
   )
 }
-export function CommunicationsSection({ communications }: { communications: any[] }) {
+export function CommunicationsSection({ communications, patternSelection = [] }: { communications: any[]; patternSelection?: any[] }) {
+  // Fold quick_reference.pattern_selection onto the card it matches: each card
+  // gains the task-trigger phrasing ("reach for this when…") instead of a
+  // separate, redundant index table. Entries with no confident match fall to
+  // `orphans` and render as a small footnote so the data isn't silently lost.
+  const scenariosByCard: Record<number, any[]> = {}
+  const orphans: any[] = []
+  ;(Array.isArray(patternSelection) ? patternSelection : []).forEach((e) => {
+    if (!e || !(e.scenario || e.pattern)) return
+    const mi = matchScenarioToComm(e, communications)
+    if (mi < 0) {
+      orphans.push(e)
+      return
+    }
+    ;(scenariosByCard[mi] = scenariosByCard[mi] || []).push(e)
+  })
   return (
     <section className="space-y-4">
       <SectionHeader title="Communications" icon={Activity} />
       <div className="grid gap-4 md:grid-cols-2">
-        {communications.map((c: any, i: number) => (
-          <div key={i} className={cn("p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg min-w-0 overflow-hidden", theme.surface.panel)}>
+        {communications.map((c: any, i: number) => {
+          const scenarios = scenariosByCard[i] || []
+          return (
+          <div key={i} id={commSlug(c.type)} className={cn("scroll-mt-24 p-6 rounded-3xl border flex flex-col transition-all hover:shadow-lg min-w-0 overflow-hidden", theme.surface.panel)}>
             <div className="flex items-center gap-2 mb-4">
                <div className="p-2 rounded-xl bg-ink/5">
                  <Zap className="w-4 h-4 text-tangerine" />
@@ -2300,6 +2422,18 @@ export function CommunicationsSection({ communications }: { communications: any[
             </div>
             
             <div className="space-y-4">
+              {scenarios.length > 0 && (
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-teal block mb-2">Reach for this when</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {scenarios.map((s: any, j: number) => (
+                      <Badge key={j} variant="outline" className="text-[10px] font-medium text-ink/70 border-teal/20 bg-teal/5">
+                        {s.scenario || s.pattern}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
               {c.how_it_works && <Prose value={c.how_it_works} className="text-sm text-ink/70 leading-relaxed" />}
 
               {c.when_to_use && (
@@ -2380,8 +2514,19 @@ export function CommunicationsSection({ communications }: { communications: any[
               )}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
+      {orphans.length > 0 && (
+        <div className="text-xs text-ink/45 leading-relaxed px-1 pt-1">
+          <span className="font-black uppercase tracking-widest text-[9px] text-ink/35 mr-2">Other scenarios</span>
+          {orphans.map((e: any, j: number) => (
+            <span key={j} className="mr-3 inline-block">
+              <AutoCode text={e.scenario || ''} /> → <AutoCode text={e.pattern || ''} />
+            </span>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
