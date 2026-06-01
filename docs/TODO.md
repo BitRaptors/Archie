@@ -3,7 +3,7 @@ Tracks:
     - Twitter posts and outreach
     - Every day pick one library, see what Archie says about it, and publish it
 
-    - Comparable benchmarking: e.g. run a feature request with Archie and without — record token count and time for each.
+    - Comparable benchmarking: e.g. run a feature request with Archie and without — record token count and time for each. (CSACSI)
 
     - How to start a project from a blueprint — in the share view let users say "I want to work this way"
 
@@ -15,6 +15,7 @@ Tracks:
 
 - Engineering
    - Deep scan is slow (HAMU)
+        - Separate Risk Agent (parallel agents)
         - Make it more predictable and faster
         - Scriptify it
         - Restructure the drift logic
@@ -28,13 +29,7 @@ Tracks:
 
    - Rethink what scan should actually do
 
-   Quick tasks:
-   - When splitting rules, `kind` doesn't work — fix the criterion we split them by (CSACSI)
-   - Remove scan for now (CSACSI)
-   - Work with Codex (HAMU)
-        - Remove Pi
-
 Future:
 - Add future-forwarding decisions into the blueprint
 - Blueprint on GitHub
-- Handling multi-repo setups
+- Handling multi-repo setups (POC)
