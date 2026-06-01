@@ -64,7 +64,9 @@ except ImportError:
         load_config,
     )
 
-SCHEMA_VERSION = 1
+# v2: `steps` changed from a flat {name: seconds} map to the structured array
+# [{step, key, name, seconds, sub_agents?}] (telemetry.build_summary shape).
+SCHEMA_VERSION = 2
 # Default telemetry-ingest endpoint. ARCHIE_TELEMETRY_ENDPOINT overrides it (via
 # _endpoint(), read at call time) — tests point it at a stub so a test run can
 # never POST to production. Mirrors gstack's GSTACK_SUPABASE_URL test override.
@@ -288,19 +290,19 @@ def _detect_stack(project_root: Path) -> dict[str, list[str]]:
 
 # ── Run-file → event ─────────────────────────────────────────────────────
 
-def _summarize_steps(steps: list[dict]) -> dict[str, int]:
-    """Reduce a list of step dicts to {short_name: seconds}, capped at 32 keys."""
-    out: dict[str, int] = {}
+def _event_steps(steps: list[dict]) -> list[dict]:
+    """Forward the canonical structured step summary for the wire event.
+
+    The run record's `steps` are already in the structured shape produced by
+    telemetry.build_summary ({step, key, name, seconds, sub_agents?}); we pass
+    them through (capped at 32) rather than flattening to {name: seconds}, so
+    the uploaded analytics keep the step→sub-agent hierarchy.
+    """
+    out: list[dict] = []
     for s in steps:
         if not isinstance(s, dict):
             continue
-        name = str(s.get("name") or "")[:64]
-        if not name:
-            continue
-        seconds = s.get("seconds")
-        if not isinstance(seconds, (int, float)):
-            seconds = 0
-        out[name] = max(0, int(seconds))
+        out.append(s)
         if len(out) >= 32:
             break
     return out
@@ -343,7 +345,7 @@ def _build_event(project_root: Path, run: dict, *, source: str = "live") -> dict
         "outcome": _outcome_for_run(run),
         "duration_s": int(run.get("total_seconds") or 0),
         "error_class": run.get("error_class") if isinstance(run.get("error_class"), str) else None,
-        "steps": _summarize_steps(steps),
+        "steps": _event_steps(steps),
         "stack": stack,
         "source": source,
         # Local-only — stripped on upload.
@@ -541,7 +543,7 @@ def record_event(
         "outcome": outcome if outcome in ALLOWED_OUTCOMES else "unknown",
         "duration_s": max(0, int(duration_s or 0)),
         "error_class": error_class[:200] if isinstance(error_class, str) else None,
-        "steps": {},
+        "steps": [],
         "stack": stack,
         "source": "live",
     }
@@ -585,7 +587,7 @@ def record_install(version: str | None = None) -> dict:
         "outcome": "success",
         "duration_s": 0,
         "error_class": None,
-        "steps": {},
+        "steps": [],
         "stack": None,
         "source": "live",
     }

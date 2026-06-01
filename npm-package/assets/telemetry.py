@@ -15,9 +15,12 @@ Usage (CLI):
   telemetry.py finish   <project_root> <step>             — record completion
   telemetry.py extra    <project_root> <step> key=value…  — attach fields
   telemetry.py read     <project_root>                    — dump _current_run.json
+  telemetry.py summary  <project_root>                    — structured step+sub-agent summary
   telemetry.py write    <project_root>                    — consume disk state
                                                              into a final file
   telemetry.py clear    <project_root>                    — delete in-flight state
+  telemetry.py agent-start/agent-finish <project_root> <step> <agent>  — per-agent timing
+  telemetry.py collect-agents <project_root> <step>       — fold agent timings into step
 
 Legacy (pre-compaction flow, still supported):
   telemetry.py <project_root> --command deep-scan --timing-file .archie/tmp/archie_timing.json
@@ -274,6 +277,100 @@ def _detect_cli() -> str:
         return "unknown"
 
 
+# --- Structured summary (canonical telemetry output shape) ------------------
+# Ordered array of steps, each with a stable `key`, a friendly `name`, and its
+# `seconds`; the reasoning step carries nested `sub_agents`. This is the one
+# shape every telemetry surface emits (run record, `summary` command, sync
+# event) so output is readable and hierarchical instead of a flat name→seconds
+# map that mixed steps and sub-agents at the same level.
+
+_STEP_LABELS = {
+    "scan": "Scanner",
+    "read": "Read prior knowledge",
+    "wave1": "Wave 1 — fact agents",
+    "merge": "Wave 1 merge",
+    "wave2_synthesis": "Wave 2 — reasoning",
+    "rule_synthesis": "Rule synthesis",
+    "intent_layer": "Intent Layer",
+    "cleanup": "Cleanup",
+    "drift": "Drift & assessment",
+}
+# Wave-2 sub-agents: friendly labels AND the single source of truth for which
+# names are sub-agents (so they're nested under the reasoning step, never listed
+# as top-level steps — older runs sometimes recorded them flat). Add a new
+# reasoning sub-agent here and both the label and the re-nesting pick it up.
+_AGENT_LABELS = {"design": "Design", "risk": "Risk", "overview": "Overview"}
+_WAVE2_AGENT_KEYS = set(_AGENT_LABELS)
+_WAVE2_STEP_KEY = "wave2_synthesis"
+
+
+def _friendly(key: str, labels: dict) -> str:
+    return labels.get(key) or (key.replace("_", " ").strip().capitalize() if key else key)
+
+
+def _seconds_of(d: dict) -> int:
+    s = d.get("seconds")
+    if isinstance(s, (int, float)):
+        return max(0, int(s))
+    return _compute_seconds(d.get("started_at", ""), d.get("completed_at", ""))
+
+
+def build_summary(steps: list[dict] | None) -> dict:
+    """Transform raw step records into the canonical structured summary:
+
+        {"total_seconds": int,
+         "steps": [{"step": 1, "key": "scan", "name": "Scanner", "seconds": 7},
+                   {"step": 5, "key": "wave2_synthesis", "name": "Wave 2 — reasoning",
+                    "seconds": 163,
+                    "sub_agents": [{"key": "risk", "name": "Risk", "seconds": 163}, ...]}]}
+
+    - Sub-agents come from a step's `agents` array (collect-agents) OR from any
+      Wave-2 agent that leaked in as a top-level step; both get nested.
+    - Timing fix: a step's `seconds` is bounded below by its longest sub-agent —
+      a parallel step can never be shorter than its slowest child.
+    - total_seconds is the sum of the (fixed) step seconds — for the sequential
+      deep-scan pipeline this is the wall-clock total, now immune to a single
+      step's mis-recorded timestamps.
+    """
+    raw = [s for s in (steps or []) if isinstance(s, dict)]
+    leaked: dict[str, int] = {}
+    real: list[dict] = []
+    for s in raw:
+        name = str(s.get("name") or "")
+        if name in _WAVE2_AGENT_KEYS:
+            leaked[name] = _seconds_of(s)
+        else:
+            real.append(s)
+
+    # Fields the summary transforms/derives — everything else on a step
+    # (model, folders_processed, skipped, …) passes through unchanged.
+    _reserved = {"name", "started_at", "completed_at", "seconds", "agents", "step", "key"}
+    out: list[dict] = []
+    for i, s in enumerate(real, 1):
+        key = str(s.get("name") or "")
+        entry = {"step": i, "key": key, "name": _friendly(key, _STEP_LABELS), "seconds": _seconds_of(s)}
+        for k, v in s.items():
+            if k not in _reserved:
+                entry[k] = v
+        agents = []
+        for a in (s.get("agents") or []):
+            if isinstance(a, dict) and a.get("name"):
+                ak = str(a["name"])
+                agents.append({"key": ak, "name": _friendly(ak, _AGENT_LABELS), "seconds": _seconds_of(a)})
+        if key == _WAVE2_STEP_KEY:
+            have = {a["key"] for a in agents}
+            for ak, asec in leaked.items():
+                if ak not in have:
+                    agents.append({"key": ak, "name": _friendly(ak, _AGENT_LABELS), "seconds": asec})
+        if agents:
+            agents.sort(key=lambda a: a["key"])
+            entry["sub_agents"] = agents
+            entry["seconds"] = max(entry["seconds"], max(a["seconds"] for a in agents))
+        out.append(entry)
+
+    return {"total_seconds": sum(s["seconds"] for s in out), "steps": out}
+
+
 def write_telemetry(
     project_root: str, command: str, steps: list[dict], cli: str | None = None
 ) -> Path:
@@ -301,26 +398,20 @@ def write_telemetry(
 
     project_meta = _read_project_metadata(archie_dir)
 
-    # Enrich each step with computed seconds
-    enriched_steps = []
-    for step in steps:
-        started = step.get("started_at", "")
-        completed = step.get("completed_at", "")
-        seconds = _compute_seconds(started, completed)
-        enriched = {**step, "seconds": seconds}
-        enriched_steps.append(enriched)
+    # Canonical structured summary (step #, friendly name, nested sub-agents,
+    # parent-bounds-children timing fix).
+    summary = build_summary(steps)
 
-    # Derive top-level timestamps from first/last step
+    # Keep first/last wall-clock timestamps on the record for reference.
     started_at = ""
     completed_at = ""
-    total_seconds = 0
-    if enriched_steps:
-        started_at = enriched_steps[0].get("started_at", "")
-        for s in reversed(enriched_steps):
+    raw_steps = [s for s in steps if isinstance(s, dict)]
+    if raw_steps:
+        started_at = raw_steps[0].get("started_at", "")
+        for s in reversed(raw_steps):
             if s.get("completed_at"):
                 completed_at = s["completed_at"]
                 break
-        total_seconds = _compute_seconds(started_at, completed_at)
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     filename = f"{command}_{now}.json"
@@ -330,9 +421,9 @@ def write_telemetry(
         "cli": cli,
         "started_at": started_at,
         "completed_at": completed_at,
-        "total_seconds": total_seconds,
+        "total_seconds": summary["total_seconds"],
         "project": project_meta,
-        "steps": enriched_steps,
+        "steps": summary["steps"],
     }
 
     out_path = telemetry_dir / filename
@@ -435,10 +526,14 @@ def _usage_and_exit() -> None:
         "  telemetry.py mark   <project_root> <command> <step>\n"
         "  telemetry.py finish <project_root> [<step>]\n"
         "  telemetry.py extra  <project_root> <step> key=value [key=value ...]\n"
-        "  telemetry.py read   <project_root>\n"
-        "  telemetry.py write  <project_root>\n"
-        "  telemetry.py clear  <project_root>\n"
-        "  telemetry.py steps-count <project_root>\n"
+        "  telemetry.py read    <project_root>\n"
+        "  telemetry.py summary <project_root>                  — structured step+sub-agent summary\n"
+        "  telemetry.py write   <project_root>\n"
+        "  telemetry.py clear   <project_root>\n"
+        "  telemetry.py steps-count   <project_root>\n"
+        "  telemetry.py agent-start   <project_root> <step> <agent>\n"
+        "  telemetry.py agent-finish  <project_root> <step> <agent>\n"
+        "  telemetry.py collect-agents <project_root> <step>    — fold per-agent timings into the step\n"
         "\n"
         "  (legacy) telemetry.py <project_root> --command <name> --timing-file <path>",
         file=sys.stderr,
@@ -537,7 +632,7 @@ def main():
 
     sub = argv[0]
     KNOWN = {"mark", "finish", "extra", "read", "write", "clear", "steps-count",
-             "agent-start", "agent-finish", "collect-agents"}
+             "agent-start", "agent-finish", "collect-agents", "summary"}
 
     # Legacy entry point: first arg is a path, plus --command / --timing-file
     if sub not in KNOWN:
@@ -562,6 +657,11 @@ def main():
     elif sub == "read":
         state = _load_current_run(root)
         json.dump(state, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    elif sub == "summary":
+        # Canonical structured view of the current run (steps + nested sub-agents).
+        state = _load_current_run(root)
+        json.dump(build_summary(state.get("steps")), sys.stdout, indent=2)
         sys.stdout.write("\n")
     elif sub == "write":
         write_from_disk(root)
