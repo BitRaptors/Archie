@@ -12,7 +12,7 @@ def test_schema_defines_both_tables_and_view():
     assert "benchmark_summary" in text
     # key sample columns referenced by store.py / aggregate.py exist
     for col in ["tool_calls", "tool_breakdown", "cost_usd", "quality_score",
-                "cache_read_tokens", "judge_seed", "completed", "arm"]:
+                "cache_read_tokens", "judge_seed", "completed", "attempted", "arm"]:
         assert col in text
     # prep cost lives on the run, separate from measured samples
     assert "prep_cost_usd" in text

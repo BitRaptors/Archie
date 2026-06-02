@@ -6,11 +6,20 @@ def _mean(values):
 
 
 def _arm_stats(samples):
-    stats = {"n": len(samples), "completed_n": sum(1 for s in samples if s.get("completed"))}
+    # A sample "attempted" the task if it produced a non-empty diff. Legacy
+    # samples without the flag are treated as attempted (back-compat).
+    stats = {
+        "n": len(samples),
+        "completed_n": sum(1 for s in samples if s.get("completed")),
+        "attempted_n": sum(1 for s in samples if s.get("attempted", True)),
+    }
     for f in NUMERIC_FIELDS:
         vals = [s[f] for s in samples if s.get(f) is not None]
         stats[f + "_mean"] = _mean(vals)
-    qvals = [s["quality_score"] for s in samples if s.get("quality_score") is not None]
+    # Quality only counts attempts: an empty-diff run that the judge scored low
+    # is "not attempted", not "poor quality" — exclude it from the mean.
+    qvals = [s["quality_score"] for s in samples
+             if s.get("attempted", True) and s.get("quality_score") is not None]
     stats["quality_mean"] = _mean(qvals)
     return stats
 

@@ -184,3 +184,31 @@ def test_prepared_branches_pass_fairness_guard(tmp_path):
     assert result["aggregate"]["control"]["n"] == 1
     # git_base_commit is the shared merge-base (a real 40-char sha)
     assert len(result["run"]["git_base_commit"]) == 40
+
+
+def test_empty_diff_marks_not_attempted(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "_merge_base", lambda repo, a, b: "same")
+    monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "base")
+    import contextlib
+    @contextlib.contextmanager
+    def fake_worktree(repo, branch, dest):
+        yield tmp_path / ("wt-" + branch)
+    monkeypatch.setattr(orchestrator, "worktree", fake_worktree)
+    monkeypatch.setattr(orchestrator, "prune", lambda repo: None)
+
+    # treatment produces a diff; control produces an empty (whitespace-only) diff
+    def diff_fn(wt):
+        return "real change\n" if "treatment" in str(wt) else "   \n"
+
+    stored = {}
+    orchestrator.run_benchmark(
+        _cfg(tmp_path, reps=1),
+        run_fn=lambda p, m, cwd, t: (SampleMetrics(completed=True, cost_usd=1.0), "raw"),
+        judge_fn=lambda *a, **k: {"treatment": {"overall": 7},
+                                  "control": {"overall": 1}, "seed": 0},
+        store_fn=lambda r, s, p: stored.update(samples=s),
+        diff_fn=diff_fn,
+    )
+    arms = {s["arm"]: s for s in stored["samples"]}
+    assert arms["treatment"]["attempted"] is True
+    assert arms["control"]["attempted"] is False

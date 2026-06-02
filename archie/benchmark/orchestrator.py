@@ -56,7 +56,7 @@ def _run_one(cfg, branch, repetition, run_fn, diff_fn):
         return metrics, diff
 
 
-def _sample_row(arm, repetition, metrics, quality_score, quality_detail, seed):
+def _sample_row(arm, repetition, metrics, quality_score, quality_detail, seed, attempted):
     return {
         "arm": arm,
         "repetition": repetition,
@@ -70,6 +70,7 @@ def _sample_row(arm, repetition, metrics, quality_score, quality_detail, seed):
         "duration_ms": metrics.duration_ms,
         "num_turns": metrics.num_turns,
         "completed": metrics.completed,
+        "attempted": attempted,
         "quality_score": quality_score,
         "quality_detail": quality_detail,
         "judge_seed": seed,
@@ -96,6 +97,12 @@ def run_benchmark(cfg, run_fn=run_claude, judge_fn=run_judge,
         t_metrics, t_diff = _run_one(cfg, cfg.branches["treatment"], rep, run_fn, diff_fn)
         c_metrics, c_diff = _run_one(cfg, cfg.branches["control"], rep, run_fn, diff_fn)
 
+        # "Attempted" = the agent actually produced a code change. An empty
+        # diff means the task was not attempted, regardless of how the judge
+        # scores it — tracked so it can be excluded from quality means.
+        t_attempted = bool((t_diff or "").strip())
+        c_attempted = bool((c_diff or "").strip())
+
         seed = _seed(cfg.name, rep)
         try:
             verdict = judge_fn(cfg.task_prompt, t_diff, c_diff, cfg.judge.rubric,
@@ -107,9 +114,11 @@ def run_benchmark(cfg, run_fn=run_claude, judge_fn=run_judge,
             # record the samples without a quality score instead of aborting.
             t_q = c_q = None
         samples.append(_sample_row("treatment", rep, t_metrics,
-                                    t_q.get("overall") if t_q else None, t_q, seed))
+                                    t_q.get("overall") if t_q else None, t_q, seed,
+                                    t_attempted))
         samples.append(_sample_row("control", rep, c_metrics,
-                                    c_q.get("overall") if c_q else None, c_q, seed))
+                                    c_q.get("overall") if c_q else None, c_q, seed,
+                                    c_attempted))
     prune(cfg.repo)
 
     agg = aggregate_samples(samples)

@@ -48,3 +48,27 @@ def test_handles_empty_arm():
     assert agg["control"]["n"] == 0
     assert agg["control"]["cost_usd_mean"] is None
     assert agg["savings"]["cost_pct"] is None
+
+
+def test_attempted_n_and_quality_excludes_not_attempted():
+    samples = [
+        {"arm": "treatment", "cost_usd": 1.0, "tool_calls": 9, "duration_ms": 100,
+         "input_tokens": 1, "output_tokens": 1, "quality_score": 8.0,
+         "completed": True, "attempted": True},
+        {"arm": "control", "cost_usd": 0.5, "tool_calls": 28, "duration_ms": 100,
+         "input_tokens": 1, "output_tokens": 1, "quality_score": 1.0,
+         "completed": True, "attempted": False},
+    ]
+    agg = aggregate_samples(samples)
+    assert agg["treatment"]["attempted_n"] == 1
+    assert agg["control"]["attempted_n"] == 0
+    # control's q1 came from an empty diff -> excluded from quality_mean
+    assert agg["treatment"]["quality_mean"] == 8.0
+    assert agg["control"]["quality_mean"] is None
+
+
+def test_attempted_defaults_true_for_legacy_samples():
+    # samples without an explicit 'attempted' key count as attempted (back-compat)
+    agg = aggregate_samples([_s("treatment", 1.0, 10, 8.0)])
+    assert agg["treatment"]["attempted_n"] == 1
+    assert agg["treatment"]["quality_mean"] == 8.0

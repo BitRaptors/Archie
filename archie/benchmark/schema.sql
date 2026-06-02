@@ -31,6 +31,7 @@ create table if not exists benchmark_samples (
     duration_ms           int,
     num_turns             int,
     completed             boolean,
+    attempted             boolean,        -- agent produced a non-empty diff
     quality_score         numeric,
     quality_detail        jsonb,
     judge_seed            int,
@@ -49,11 +50,13 @@ select
     s.arm           as arm,
     count(*)                          as samples,
     count(*) filter (where s.completed) as completed_samples,
+    count(*) filter (where s.attempted) as attempted_samples,
     avg(s.tool_calls)                 as tool_calls_mean,
     avg(s.cost_usd)                   as cost_usd_mean,
     avg(s.duration_ms)                as duration_ms_mean,
     avg(s.input_tokens + s.output_tokens) as total_tokens_mean,
-    avg(s.quality_score)              as quality_mean
+    -- quality only over real attempts (empty-diff runs excluded)
+    avg(s.quality_score) filter (where s.attempted) as quality_mean
 from benchmark_runs r
 join benchmark_samples s on s.run_id = r.id
 group by r.id, r.name, r.repo_name, r.model, s.arm;

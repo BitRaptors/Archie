@@ -12,7 +12,7 @@ def _print_summary(result):
     print("\n=== Benchmark summary ===")
     for arm in ("treatment", "control"):
         a = agg[arm]
-        print(f"[{arm}] n={a['n']} completed={a['completed_n']} "
+        print(f"[{arm}] n={a['n']} attempted={a['attempted_n']} completed={a['completed_n']} "
               f"cost=${_fmt(a['cost_usd_mean'])} tools={_fmt(a['tool_calls_mean'])} "
               f"dur={_fmt(a['duration_ms_mean'])}ms quality={_fmt(a['quality_mean'])}")
     s = agg["savings"]
