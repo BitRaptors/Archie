@@ -329,6 +329,10 @@ def build_component(bp: dict, name: str | None = None,
             resp = (c.get("responsibility") or c.get("kind") or "").replace('"', "'")[:60]
             lines.append(f'  Component({cid}, "{c.get("name", "")}", "{resp}")')
         lines.append("}")
+    # Only draw edges that CROSS a group boundary — within-group coupling is left
+    # implicit (the modules sit in the same box). Keeps all nodes, cuts the
+    # hairball to architectural inter-group dependencies.
+    name_group = {c.get("name"): (c.get("group") or _group_of(c.get("location", ""))) for c in comps}
     if dir_graph:
         # GROUND TRUTH: aggregate the real directory dependency graph to the
         # component level (each dir owned by its longest-prefix component).
@@ -339,14 +343,15 @@ def build_component(bp: dict, name: str | None = None,
                 continue
             for d2 in deps:
                 b = owner(d2)
-                if b is not None and b != a:
+                if b is not None and b != a and name_group.get(a) != name_group.get(b):
                     rels.append(f'Rel({_slug(a)}, {_slug(b)}, "depends on")')
     else:
         # Fallback: the AI `depends_on` field (no import graph for this language).
         for c in comps:
-            src = _slug(c.get("name", ""))
+            src_name = c.get("name", "")
+            src = _slug(src_name)
             for dep in sorted(c.get("depends_on", []) or []):
-                if dep in by_name:
+                if dep in by_name and name_group.get(dep) != name_group.get(src_name):
                     rels.append(f'Rel({src}, {_slug(dep)}, "depends on")')
     return "\n".join(lines + sorted(set(rels)))
 

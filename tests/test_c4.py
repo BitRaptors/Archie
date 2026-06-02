@@ -116,6 +116,19 @@ def test_component_edges_from_dir_graph():
     assert 'Rel(openmeter_billing, pkg_models, "depends on")' in out
 
 
+def test_component_draws_only_cross_group_edges():
+    # Within-group edges (openmeter/* -> openmeter/*) are dropped; cross-group kept.
+    bp = _bp()
+    bp["components"]["components"].append({"name": "openmeter/meter", "location": "openmeter/meter"})
+    c4.enrich_components(bp, _scan())
+    dg = {"openmeter/billing": {"openmeter/meter", "pkg/models"},
+          "openmeter/meter": set(), "pkg/models": set()}
+    out = c4.build_component(bp, None, dg)
+    assert 'Rel(openmeter_billing, openmeter_meter' not in out      # intra-group dropped
+    assert 'Rel(openmeter_billing, pkg_models, "depends on")' in out  # cross-group kept
+    assert 'Component(openmeter_meter,' in out                       # node still present
+
+
 def test_build_container_empty_when_no_nodes():
     # No entrypoints, no stores, no externals → node-less → "" (viewer hides it).
     empty = {"meta": {}, "components": {"components": []},
