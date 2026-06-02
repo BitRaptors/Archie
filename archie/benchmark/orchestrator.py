@@ -120,3 +120,77 @@ def _archie_version():
         return __version__
     except Exception:
         return "unknown"
+
+
+ARCHIE_PATHS = ["CLAUDE.md", "AGENTS.md", ".claude", ".archie"]
+
+
+def _is_clean(repo):
+    out = _git_out(["status", "--porcelain"], repo)
+    return out == ""
+
+
+def _archie_present(repo):
+    return any((Path(repo) / p).exists() for p in ARCHIE_PATHS)
+
+
+def _branch_exists(repo, branch):
+    res = subprocess.run(["git", "rev-parse", "--verify", branch],
+                         cwd=str(repo), capture_output=True, text=True)
+    return res.returncode == 0
+
+
+def _create_branch(repo, branch, base):
+    if _branch_exists(repo, branch):
+        subprocess.run(["git", "branch", "-D", branch], cwd=str(repo),
+                       capture_output=True, text=True)
+    _git_out(["branch", branch, base], repo)
+
+
+def _strip_archie_on_branch(repo, branch):
+    """Check out branch, remove Archie artifacts (incl. per-folder CLAUDE.md), commit."""
+    current = _git_out(["rev-parse", "--abbrev-ref", "HEAD"], repo)
+    _git_out(["checkout", branch], repo)
+    try:
+        # remove root-level + nested CLAUDE.md and known Archie dirs/files
+        subprocess.run(["git", "rm", "-r", "--quiet", "--ignore-unmatch",
+                        *ARCHIE_PATHS], cwd=str(repo), capture_output=True, text=True)
+        # nested per-folder CLAUDE.md files
+        nested = subprocess.run(["git", "ls-files", "*/CLAUDE.md"], cwd=str(repo),
+                                capture_output=True, text=True).stdout.split()
+        if nested:
+            subprocess.run(["git", "rm", "--quiet", "--ignore-unmatch", *nested],
+                           cwd=str(repo), capture_output=True, text=True)
+        if not _is_clean(repo):
+            _git_out(["commit", "-m", "benchmark: strip Archie artifacts (control arm)"], repo)
+    finally:
+        _git_out(["checkout", current], repo)
+
+
+def prepare_branches(cfg):
+    """Create control (no Archie) and treatment (with Archie) branches from current HEAD.
+
+    Returns a status dict; if Archie is absent, `needs_deep_scan` is True and the
+    caller (cli) must run the interactive deep-scan on the treatment branch.
+    """
+    repo = cfg.repo
+    if not _is_clean(repo):
+        raise ValueError("working tree is not clean; commit or stash before benchmarking")
+
+    base = _base_commit(repo)
+    archie_present = _archie_present(repo)
+
+    _create_branch(repo, cfg.branches["treatment"], base)
+    _create_branch(repo, cfg.branches["control"], base)
+
+    if archie_present:
+        _strip_archie_on_branch(repo, cfg.branches["control"])
+    # if absent, control already has no Archie files; treatment will be populated
+    # by the interactive deep-scan (cli handles the pause).
+
+    return {
+        "archie_present": archie_present,
+        "needs_deep_scan": not archie_present,
+        "base": base,
+        "branches": cfg.branches,
+    }
