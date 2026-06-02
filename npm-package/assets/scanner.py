@@ -970,6 +970,30 @@ def detect_entry_points(files: list[dict]) -> list[str]:
     return [f["path"] for f in files if f["path"].rsplit("/", 1)[-1] in ENTRY_POINT_NAMES]
 
 
+def _entry_kind(path: str) -> str:
+    """Classify a deployable entrypoint by its parent directory name."""
+    parts = path.split("/")
+    parent = parts[-2].lower() if len(parts) >= 2 else ""
+    if "worker" in parent:
+        return "worker"
+    if parent == "server" or parent.endswith("-service") or parent.endswith("_service") or "service" in parent:
+        return "service"
+    if parent in ("jobs", "cli") or parent.endswith("-cli"):
+        return "cli"
+    return "app"
+
+
+def detect_build_targets(files: list[dict]) -> list[dict]:
+    """Deployable units = files whose basename is a known entrypoint, tagged
+    with a coarse kind from the parent dir. Sorted by path (byte-stable)."""
+    targets = [
+        {"path": f["path"], "kind": _entry_kind(f["path"])}
+        for f in files
+        if f["path"].rsplit("/", 1)[-1] in ENTRY_POINT_NAMES
+    ]
+    return sorted(targets, key=lambda t: t["path"])
+
+
 # ── Config Collector ───────────────────────────────────────────────────────
 
 CONFIG_FILES = [
@@ -1084,6 +1108,7 @@ def run_scan(repo_path: str) -> dict:
         "import_graph": imports,
         "file_hashes": hashes,
         "entry_points": entry_points,
+        "entrypoints": detect_build_targets(readable_files),
         "frontend_ratio": round(frontend_ratio, 2),
         "has_persistence_signal": persistence["has_signal"],
         "persistence_signals": persistence["evidence"],
