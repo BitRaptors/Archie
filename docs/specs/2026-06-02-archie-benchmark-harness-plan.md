@@ -1770,7 +1770,7 @@ def test_cli_run_invokes_benchmark(tmp_path, monkeypatch):
     }))
     called = {}
     monkeypatch.setattr(cli, "run_benchmark",
-                        lambda cfg: called.setdefault("ran", True) or {
+                        lambda cfg: called.update(ran=True) or {
                             "aggregate": {"treatment": {"n": 0, "completed_n": 0,
                                 "cost_usd_mean": None, "tool_calls_mean": None,
                                 "duration_ms_mean": None, "quality_mean": None},
