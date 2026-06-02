@@ -87,14 +87,19 @@ def run_benchmark(cfg, run_fn=run_claude, judge_fn=run_judge,
         c_metrics, c_diff = _run_one(cfg, cfg.branches["control"], rep, run_fn, diff_fn)
 
         seed = _seed(cfg.name, rep)
-        verdict = judge_fn(cfg.task_prompt, t_diff, c_diff, cfg.judge.rubric,
-                           cfg.judge.model, seed)
-        t_q = verdict["treatment"]
-        c_q = verdict["control"]
+        try:
+            verdict = judge_fn(cfg.task_prompt, t_diff, c_diff, cfg.judge.rubric,
+                               cfg.judge.model, seed)
+            t_q = verdict["treatment"]
+            c_q = verdict["control"]
+        except Exception:
+            # A judge failure must not discard the (expensive) completed runs;
+            # record the samples without a quality score instead of aborting.
+            t_q = c_q = None
         samples.append(_sample_row("treatment", rep, t_metrics,
-                                    t_q.get("overall"), t_q, seed))
+                                    t_q.get("overall") if t_q else None, t_q, seed))
         samples.append(_sample_row("control", rep, c_metrics,
-                                    c_q.get("overall"), c_q, seed))
+                                    c_q.get("overall") if c_q else None, c_q, seed))
     prune(cfg.repo)
 
     agg = aggregate_samples(samples)

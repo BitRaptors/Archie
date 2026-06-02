@@ -110,3 +110,32 @@ def test_failed_sample_does_not_sink_run(tmp_path, monkeypatch):
     arms = {s["arm"]: s for s in stored["samples"]}
     assert arms["treatment"]["completed"] is False
     assert arms["control"]["completed"] is True
+
+
+def test_judge_failure_does_not_sink_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "_branch_base", lambda repo, b: "same")
+    monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "base")
+    import contextlib
+    @contextlib.contextmanager
+    def fake_worktree(repo, branch, dest):
+        yield tmp_path / ("wt-" + branch)
+    monkeypatch.setattr(orchestrator, "worktree", fake_worktree)
+    monkeypatch.setattr(orchestrator, "prune", lambda repo: None)
+
+    def boom(*a, **k):
+        raise ValueError("judge returned unparseable output twice")
+
+    stored = {}
+    result = orchestrator.run_benchmark(
+        _cfg(tmp_path, reps=1),
+        run_fn=lambda p, m, cwd, t: (SampleMetrics(completed=True, cost_usd=1.0), "raw"),
+        judge_fn=boom,
+        store_fn=lambda r, s, p: stored.update(samples=s) or {"mode": "offline"},
+        diff_fn=lambda wt: "",
+    )
+    # both samples still recorded and stored, with no quality score
+    assert len(stored["samples"]) == 2
+    assert all(s["quality_score"] is None for s in stored["samples"])
+    assert all(s["quality_detail"] is None for s in stored["samples"])
+    # the run still produced an aggregate
+    assert result["aggregate"]["treatment"]["n"] == 1
