@@ -970,6 +970,21 @@ def detect_entry_points(files: list[dict]) -> list[str]:
     return [f["path"] for f in files if f["path"].rsplit("/", 1)[-1] in ENTRY_POINT_NAMES]
 
 
+# A *deployable* (a runnable process / binary) is a much narrower idea than a
+# generic "entry point". ENTRY_POINT_NAMES includes barrel files (index.ts/js)
+# and UI roots (App.tsx) that are NOT deployables — including them pollutes the
+# C4 Container level with non-binaries (e.g. api/client/javascript/index.ts).
+# This set keeps only process-launching mains.
+CONTAINER_ENTRY_NAMES = {
+    "main.py", "app.py", "server.py", "manage.py", "cli.py", "__main__.py",
+    "main.ts", "server.ts",
+    "main.js", "server.js",
+    "main.go", "main.rs", "main.kt", "Main.kt", "Application.kt",
+    "MainActivity.kt", "Main.java", "Application.java",
+    "AppDelegate.swift", "main.swift",
+}
+
+
 def _entry_kind(path: str) -> str:
     """Classify a deployable entrypoint by its parent directory name."""
     parts = path.split("/")
@@ -984,12 +999,13 @@ def _entry_kind(path: str) -> str:
 
 
 def detect_build_targets(files: list[dict]) -> list[dict]:
-    """Deployable units = files whose basename is a known entrypoint, tagged
-    with a coarse kind from the parent dir. Sorted by path (byte-stable)."""
+    """Deployable units = files whose basename launches a process, tagged with
+    a coarse kind from the parent dir. Narrower than detect_entry_points (no
+    barrel/UI-root files). Sorted by path (byte-stable)."""
     targets = [
         {"path": f["path"], "kind": _entry_kind(f["path"])}
         for f in files
-        if f["path"].rsplit("/", 1)[-1] in ENTRY_POINT_NAMES
+        if f["path"].rsplit("/", 1)[-1] in CONTAINER_ENTRY_NAMES
     ]
     return sorted(targets, key=lambda t: t["path"])
 

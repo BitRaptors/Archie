@@ -156,30 +156,82 @@ def _binary_name(path: str) -> str:
     return parts[-2] if len(parts) >= 2 else parts[0]
 
 
+def _path_related(a: str, b: str) -> bool:
+    """True when two component paths overlap (equal / ancestor / descendant)."""
+    a, b = a.strip("/"), b.strip("/")
+    if not a or not b:
+        return False
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def _anchor_component(ep_path: str, components: list[dict]) -> dict | None:
+    """The component a binary belongs to: longest `location` that prefixes the
+    entrypoint path, or a component naming it in key_files."""
+    best, best_len = None, -1
+    for c in components:
+        loc = (c.get("location") or "").strip("/")
+        if loc and (ep_path == loc or ep_path.startswith(loc + "/")) and len(loc) > best_len:
+            best, best_len = c, len(loc)
+        for kf in c.get("key_files") or []:
+            if ep_path == kf or ep_path.startswith(str(kf).rstrip("/") + "/"):
+                if best_len < 0:
+                    best, best_len = c, 0
+    return best
+
+
+def _store_writers(bp: dict) -> dict[str, list[str]]:
+    """Map persistence store name -> writer component names (when present)."""
+    out: dict[str, list[str]] = {}
+    for s in bp.get("persistence_stores", []) or []:
+        if isinstance(s, dict) and s.get("name"):
+            out[s["name"]] = [w for w in (s.get("writers") or []) if w]
+    return out
+
+
 def build_container(bp: dict, scan: dict, name: str | None = None) -> str:
     name = _system_name(bp, name)
-    lines = ["C4Container", f"title Containers — {name}"]
     rels: list[str] = []
     entrypoints = sorted(
         (scan.get("entrypoints", []) if isinstance(scan, dict) else []),
         key=lambda e: e.get("path", ""),
     )
+    stores = sorted(_persistence_names(bp), key=_slug)
+    externals = _externals(bp)
+    # Node-less guard: a C4 diagram with only a title fails to render. Signal the
+    # viewer (which filters empty strings) to hide this level.
+    if not entrypoints and not stores and not externals:
+        return ""
+
+    components = _components(bp)
+    writers = _store_writers(bp)
+
+    lines = ["C4Container", f"title Containers — {name}"]
     groups: dict[str, list[dict]] = {}
     for ep in entrypoints:
         groups.setdefault(_group_of(ep.get("path", "")), []).append(ep)
     for grp in sorted(groups):
         lines.append(f'System_Boundary(b_{_slug(grp)}, "{grp}") {{')
         for ep in groups[grp]:
-            bid = _slug(ep.get("path", ""))
-            bn = _binary_name(ep.get("path", ""))
-            lines.append(f'  Container({bid}, "{bn}", "{ep.get("kind", "app")}")')
+            p = ep.get("path", "")
+            lines.append(f'  Container({_slug(p)}, "{_binary_name(p)}", "{ep.get("kind", "app")}")')
         lines.append("}")
-    for store in sorted(_persistence_names(bp), key=_slug):
+    for store in stores:
         lines.append(f'ContainerDb({_slug(store)}, "{store}", "Datastore")')
-    for ext in _externals(bp):
+    for ext in externals:
         lines.append(f'System_Ext({_slug(ext)}, "{ext}", "External system")')
-    # v1: nodes are exact; cross-binary edges are deferred (see plan deferred work).
-    return "\n".join(lines + sorted(rels))
+
+    # Edges: binary -> datastore, derived from the binary's anchor-component
+    # dependencies vs each store's writers (path-prefix match). Wiring-based, so
+    # partial — a binary that delegates persistence via DI may show no edge.
+    for ep in entrypoints:
+        anchor = _anchor_component(ep.get("path", ""), components)
+        if not anchor:
+            continue
+        deps = list(anchor.get("depends_on") or []) + [anchor.get("name", ""), anchor.get("location", "")]
+        for store, ws in writers.items():
+            if any(_path_related(d, w) for d in deps for w in ws):
+                rels.append(f'Rel({_slug(ep.get("path", ""))}, {_slug(store)}, "writes")')
+    return "\n".join(lines + sorted(set(rels)))
 
 
 # ── Component level ─────────────────────────────────────────────────────────
@@ -187,6 +239,8 @@ def build_container(bp: dict, scan: dict, name: str | None = None) -> str:
 def build_component(bp: dict, name: str | None = None) -> str:
     name = _system_name(bp, name)
     comps = [c for c in _components(bp) if c.get("kind") != "datastore"]
+    if not comps:  # node-less guard (see build_container)
+        return ""
     by_name = {c.get("name"): c for c in comps}
     lines = ["C4Component", f"title Components — {name}"]
     rels: list[str] = []

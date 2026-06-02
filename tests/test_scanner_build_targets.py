@@ -32,3 +32,15 @@ def test_build_targets_is_sorted_for_determinism():
     files = _files("cmd/b/main.go", "cmd/a/main.go")
     targets = scanner.detect_build_targets(files)
     assert [t["path"] for t in targets] == ["cmd/a/main.go", "cmd/b/main.go"]
+
+
+def test_build_targets_excludes_barrel_and_ui_files():
+    # index.ts/js (barrels) and App.tsx (UI root) are NOT deployable containers.
+    files = _files(
+        "api/client/javascript/index.ts",
+        "api/spec/packages/legacy/lib/index.js",
+        "src/App.tsx",
+        "cmd/server/main.go",   # the only real deployable
+    )
+    paths = {t["path"] for t in scanner.detect_build_targets(files)}
+    assert paths == {"cmd/server/main.go"}

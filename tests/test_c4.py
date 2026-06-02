@@ -84,6 +84,29 @@ def test_build_container_byte_stable():
     assert c4.build_container(_bp(), _scan()) == c4.build_container(_bp(), _scan())
 
 
+def test_build_container_draws_binary_to_datastore_edges():
+    # cmd/server's anchor component depends on a writer of postgres → edge.
+    bp = _bp()
+    bp["components"]["components"][0]["depends_on"] = ["internal/billing"]
+    bp["persistence_stores"] = [{"name": "primary_postgres", "writers": ["internal/billing"]}]
+    bp["components"]["components"].append({"name": "internal/billing", "location": "internal/billing"})
+    c4.enrich_components(bp, _scan())
+    out = c4.build_container(bp, _scan())
+    assert 'Rel(cmd_server_main_go, primary_postgres, "writes")' in out
+
+
+def test_build_container_empty_when_no_nodes():
+    # No entrypoints, no stores, no externals → node-less → "" (viewer hides it).
+    empty = {"meta": {}, "components": {"components": []},
+             "persistence_stores": [], "communication": {"integrations": []}}
+    assert c4.build_container(empty, {"entrypoints": []}) == ""
+
+
+def test_build_component_empty_when_no_components():
+    empty = {"meta": {}, "components": {"components": []}}
+    assert c4.build_component(empty) == ""
+
+
 # ── Component level ─────────────────────────────────────────────────────────
 
 def test_build_component_uses_depends_on_and_groups():
