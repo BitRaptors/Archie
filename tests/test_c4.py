@@ -56,12 +56,12 @@ def test_enrich_is_idempotent():
 
 def test_build_context_separates_externals_from_datastores():
     out = c4.build_context(_bp())
-    assert out.startswith("C4Context")
-    assert "System(" in out
-    assert "System_Ext(" in out and "Stripe" in out
-    assert "SystemDb(" in out and "primary_postgres" in out
-    # PostgreSQL is a store, not an external → must not appear as System_Ext
-    ext_lines = [ln for ln in out.splitlines() if ln.startswith("System_Ext(")]
+    assert "flowchart" in out
+    assert ":::sys" in out
+    assert ":::ext" in out and "Stripe" in out
+    assert ":::store" in out and "primary_postgres" in out
+    # PostgreSQL is a store, not an external → must not appear as an :::ext node
+    ext_lines = [ln for ln in out.splitlines() if ln.rstrip().endswith(":::ext")]
     assert not any("PostgreSQL" in ln for ln in ext_lines)
 
 
@@ -73,11 +73,11 @@ def test_build_context_is_byte_stable():
 
 def test_build_container_nodes_are_entrypoints():
     out = c4.build_container(_bp(), _scan())
-    assert out.startswith("C4Container")
+    assert "flowchart" in out
     assert "server" in out and "billing-worker" in out
-    assert "ContainerDb(" in out and "primary_postgres" in out
-    assert "System_Ext(" in out and "Stripe" in out
-    assert "System_Boundary(" in out
+    assert ":::store" in out and "primary_postgres" in out
+    assert ":::ext" in out and "Stripe" in out
+    assert "subgraph" in out
 
 
 def test_build_container_byte_stable():
@@ -92,7 +92,7 @@ def test_build_container_draws_binary_to_datastore_edges():
     bp["components"]["components"].append({"name": "internal/billing", "location": "internal/billing"})
     c4.enrich_components(bp, _scan())
     out = c4.build_container(bp, _scan())
-    assert 'Rel(cmd_server_main_go, primary_postgres, "writes")' in out
+    assert 'cmd_server_main_go -->|writes| primary_postgres' in out
 
 
 def test_container_edges_from_dir_graph_reachability():
@@ -104,7 +104,7 @@ def test_container_edges_from_dir_graph_reachability():
     c4.enrich_components(bp, _scan())
     dg = {"cmd/server": {"internal/api"}, "internal/api": {"internal/billing"}, "internal/billing": set()}
     out = c4.build_container(bp, _scan(), None, dg)
-    assert 'Rel(cmd_server_main_go, primary_postgres, "writes")' in out
+    assert 'cmd_server_main_go -->|writes| primary_postgres' in out
 
 
 def test_component_edges_from_dir_graph():
@@ -113,7 +113,7 @@ def test_component_edges_from_dir_graph():
     c4.enrich_components(bp, _scan())
     dg = {"openmeter/billing/charges": {"pkg/models"}, "pkg/models": set()}
     out = c4.build_component(bp, None, dg)
-    assert 'Rel(openmeter_billing, pkg_models, "depends on")' in out
+    assert 'openmeter_billing --> pkg_models' in out
 
 
 def test_component_draws_only_cross_group_edges():
@@ -124,9 +124,9 @@ def test_component_draws_only_cross_group_edges():
     dg = {"openmeter/billing": {"openmeter/meter", "pkg/models"},
           "openmeter/meter": set(), "pkg/models": set()}
     out = c4.build_component(bp, None, dg)
-    assert 'Rel(openmeter_billing, openmeter_meter' not in out      # intra-group dropped
-    assert 'Rel(openmeter_billing, pkg_models, "depends on")' in out  # cross-group kept
-    assert 'Component(openmeter_meter,' in out                       # node still present
+    assert 'openmeter_billing --> openmeter_meter' not in out      # intra-group dropped
+    assert 'openmeter_billing --> pkg_models' in out  # cross-group kept
+    assert 'openmeter_meter[' in out                                # node still present
 
 
 def test_build_container_empty_when_no_nodes():
@@ -149,10 +149,10 @@ def test_build_component_per_module_in_group_boundaries():
     bp["components"]["components"][2]["depends_on"] = ["pkg/models"]  # openmeter/billing -> pkg/models
     c4.enrich_components(bp, _scan())
     out = c4.build_component(bp)
-    assert out.startswith("C4Component")
-    assert "Container_Boundary(" in out                 # grouped
-    assert 'Component(openmeter_billing,' in out         # per-module node
-    assert 'Rel(openmeter_billing, pkg_models, "depends on")' in out
+    assert "flowchart" in out
+    assert "subgraph" in out                            # grouped
+    assert 'openmeter_billing[' in out                  # per-module node
+    assert 'openmeter_billing --> pkg_models' in out
 
 
 # ── build_all + CLI ─────────────────────────────────────────────────────────
@@ -165,6 +165,6 @@ def test_build_all_writes_three_levels(tmp_path):
     c4.build_all(tmp_path)
     data = json.loads((a / "c4.json").read_text())
     assert set(data) == {"context", "container", "component"}
-    assert data["context"].startswith("C4Context")
+    assert "flowchart" in data["context"]
     bp = json.loads((a / "blueprint.json").read_text())
     assert all("kind" in c and "group" in c for c in bp["components"]["components"])
