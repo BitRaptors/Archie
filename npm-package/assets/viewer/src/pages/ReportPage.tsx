@@ -63,6 +63,8 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
   const [activeSection, setActiveSection] = useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [ignoredRules, setIgnoredRules] = useState<any[]>([])
+  const [diagramTab, setDiagramTab] = useState<'overview' | 'c4'>('overview')
+  const [c4Level, setC4Level] = useState<'context' | 'container' | 'component'>('container')
 
   // LocalEditContext is null in share mode and a real ctx in local-viewer mode.
   // We only fetch /api/ignored-rules when localCtx is non-null so share-mode
@@ -112,7 +114,19 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
   const bp = bundle?.blueprint || {}
   const meta = bp.meta || {}
   const diagram: string = typeof bp.architecture_diagram === 'string' ? bp.architecture_diagram : bp.architecture_diagram?.mermaid || ''
-  
+
+  // Deterministic, script-built C4 diagrams (optional — older bundles omit them).
+  const c4 = bundle?.c4
+  const c4Levels = ([
+    ['container', 'Container', 'Deployable units, datastores, and external systems.'],
+    ['context', 'Context', 'The system and the external systems it talks to.'],
+    ['component', 'Component', 'Internal modules and their dependencies.'],
+  ] as const).filter(([k]) => typeof c4?.[k] === 'string' && (c4![k] as string).trim().length > 0)
+  const hasC4 = c4Levels.length > 0
+  // Fall back to the first available level if the default isn't present.
+  const activeC4Level = c4Levels.some(([k]) => k === c4Level) ? c4Level : c4Levels[0]?.[0]
+  const activeC4 = hasC4 ? (c4Levels.find(([k]) => k === activeC4Level) ?? c4Levels[0]) : undefined
+
   const findings = useMemo(() => {
     // Prefer the structured shared store when present — gives us the 4-field
     // shape (evidence/root_cause/fix_direction). Fall back to parsing the
@@ -492,7 +506,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                 label="System Health"
               />
             )}
-            {diagram && (
+            {(diagram || hasC4) && (
               <NavButton
                 active={activeSection === 'diagram'}
                 onClick={() => scrollToSection('diagram')}
@@ -811,27 +825,83 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </section>
           )}
 
-          {/* Architecture Diagram (AI-curated spine) */}
-          {diagram && (
+          {/* Architecture Diagram — AI-curated spine + deterministic C4 model */}
+          {(diagram || hasC4) && (
             <section id="diagram" className="space-y-8 scroll-mt-24">
               <Sections.SectionHeader title="Architecture Diagram" icon={Layout} />
               <div className={cn("p-10 rounded-3xl border shadow-2xl shadow-ink/5 bg-white/50 backdrop-blur-md overflow-hidden relative", theme.surface.panel)}>
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(45,161,176,0.03),transparent)] pointer-events-none" />
                 <div className="relative space-y-6">
-                  <div className="text-xs text-ink/50 italic leading-relaxed border-l-2 border-papaya-400/40 pl-3">
-                    Simplified overview — the architectural spine, not a complete dependency graph. Shows 8-12 curated nodes that tell the request-flow story; peripheral plumbing (analytics, logging, image loaders) is intentionally omitted. For the full component inventory see the <em>Components</em> section; for the persistence layer see <em>Persistence Stores</em>.
-                  </div>
-                  <MermaidDiagram chart={diagram} />
+                  {/* Outer tabs: Simplified Overview vs C4 Model (only when both exist) */}
+                  {diagram && hasC4 && (
+                    <div className="inline-flex rounded-xl bg-ink/5 p-1 text-[10px] font-black uppercase tracking-widest">
+                      {([['overview', 'Simplified Overview'], ['c4', 'C4 Model']] as const).map(([id, label]) => (
+                        <button
+                          key={id}
+                          onClick={() => setDiagramTab(id)}
+                          className={cn(
+                            "px-4 py-2 rounded-lg transition-all",
+                            diagramTab === id ? "bg-white text-ink shadow-sm" : "text-ink/40 hover:text-ink"
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Simplified Overview (default when present, or when C4 absent) */}
+                  {diagram && (!hasC4 || diagramTab === 'overview') && (
+                    <>
+                      <div className="text-xs text-ink/50 italic leading-relaxed border-l-2 border-papaya-400/40 pl-3">
+                        Simplified overview — the architectural spine, not a complete dependency graph. Shows 8-12 curated nodes that tell the request-flow story; peripheral plumbing (analytics, logging, image loaders) is intentionally omitted. For the full component inventory see the <em>Components</em> section; for the persistence layer see <em>Persistence Stores</em>.
+                      </div>
+                      <MermaidDiagram chart={diagram} />
+                      <details className="mt-12 group overflow-hidden">
+                        <summary className="list-none cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-ink/5 rounded-xl text-[10px] font-black uppercase tracking-widest text-ink/40 hover:text-ink hover:bg-ink/10 transition-all">
+                          <Database className="w-3.5 h-3.5" />
+                          <span>Scale Logic (Mermaid Source)</span>
+                        </summary>
+                        <div className="mt-4 p-8 rounded-2xl font-mono text-xs overflow-x-auto ring-1 ring-white/10 shadow-inner bg-ink text-papaya-300">
+                          <pre>{diagram}</pre>
+                        </div>
+                      </details>
+                    </>
+                  )}
+
+                  {/* C4 Model — deterministic, script-built. Inner level toggle. */}
+                  {hasC4 && (!diagram || diagramTab === 'c4') && activeC4 && (
+                    <>
+                      <div className="inline-flex rounded-xl bg-ink/5 p-1 text-[10px] font-black uppercase tracking-widest">
+                        {c4Levels.map(([id, label]) => (
+                          <button
+                            key={id}
+                            onClick={() => setC4Level(id)}
+                            className={cn(
+                              "px-4 py-2 rounded-lg transition-all",
+                              activeC4Level === id ? "bg-white text-ink shadow-sm" : "text-ink/40 hover:text-ink"
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="text-xs text-ink/50 italic leading-relaxed border-l-2 border-teal/40 pl-3">
+                        {activeC4[2]} Built deterministically from the blueprint — the C4 model view, complete rather than curated.
+                      </div>
+                      <MermaidDiagram chart={activeC4 && c4 ? (c4[activeC4[0]] as string) : ''} />
+                      <details className="mt-12 group overflow-hidden">
+                        <summary className="list-none cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-ink/5 rounded-xl text-[10px] font-black uppercase tracking-widest text-ink/40 hover:text-ink hover:bg-ink/10 transition-all">
+                          <Database className="w-3.5 h-3.5" />
+                          <span>C4 Source (Mermaid)</span>
+                        </summary>
+                        <div className="mt-4 p-8 rounded-2xl font-mono text-xs overflow-x-auto ring-1 ring-white/10 shadow-inner bg-ink text-papaya-300">
+                          <pre>{activeC4 && c4 ? (c4[activeC4[0]] as string) : ''}</pre>
+                        </div>
+                      </details>
+                    </>
+                  )}
                 </div>
-                <details className="mt-12 group overflow-hidden">
-                  <summary className="list-none cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-ink/5 rounded-xl text-[10px] font-black uppercase tracking-widest text-ink/40 hover:text-ink hover:bg-ink/10 transition-all">
-                    <Database className="w-3.5 h-3.5" />
-                    <span>Scale Logic (Mermaid Source)</span>
-                  </summary>
-                  <div className="mt-4 p-8 rounded-2xl font-mono text-xs overflow-x-auto ring-1 ring-white/10 shadow-inner bg-ink text-papaya-300">
-                    <pre>{diagram}</pre>
-                  </div>
-                </details>
               </div>
             </section>
           )}
