@@ -659,11 +659,17 @@ JS_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs"}
 KOTLIN_EXTS = {".kt", ".kts"}
 JAVA_EXTS = {".java"}
 SWIFT_EXTS = {".swift"}
+GO_EXTS = {".go"}
+RUST_EXTS = {".rs"}
 
 JS_IMPORT_RE = re.compile(r"""(?:import\s+.*?from\s+['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\))""")
 KOTLIN_IMPORT_RE = re.compile(r'^import\s+([\w.]+)', re.MULTILINE)
 JAVA_IMPORT_RE = re.compile(r'^import\s+(?:static\s+)?([\w.]+)', re.MULTILINE)
 SWIFT_IMPORT_RE = re.compile(r'^import\s+(\w+)', re.MULTILINE)
+GO_BLOCK_RE = re.compile(r'import\s*\(([^)]*)\)', re.S)
+GO_SINGLE_RE = re.compile(r'import\s+(?:[.\w]+\s+)?"([^"]+)"')
+GO_QUOTED_RE = re.compile(r'"([^"]+)"')
+RUST_USE_RE = re.compile(r'^\s*(?:pub\s+)?use\s+([^;]+);', re.MULTILINE)
 
 STDLIB_MODULES = {
     "os", "sys", "re", "json", "ast", "math", "time", "datetime",
@@ -677,8 +683,34 @@ STDLIB_MODULES = {
 }
 
 
+def _go_module_path(root: Path) -> str:
+    """The module path declared in go.mod (prefix of internal import paths)."""
+    try:
+        text = (root / "go.mod").read_text(errors="ignore")
+    except OSError:
+        return ""
+    m = re.search(r'^\s*module\s+(\S+)', text, re.MULTILINE)
+    return m.group(1) if m else ""
+
+
+def _all_dirs(files: list[dict]) -> set[str]:
+    """Every directory (and ancestor) present in the file tree."""
+    dirs: set[str] = set()
+    for f in files:
+        p = f["path"]
+        if "/" not in p:
+            continue
+        parent = p.rsplit("/", 1)[0]
+        segs = parent.split("/")
+        for i in range(1, len(segs) + 1):
+            dirs.add("/".join(segs[:i]))
+    return dirs
+
+
 def build_import_graph(root: Path, files: list[dict]) -> dict[str, list[str]]:
     graph = {}
+    go_module = _go_module_path(root)
+    dirs = _all_dirs(files)  # for Go/Rust internal resolution
     for f in files:
         ext = f.get("extension", "")
         path = root / f["path"]
@@ -694,6 +726,10 @@ def build_import_graph(root: Path, files: list[dict]) -> dict[str, list[str]]:
             imports = _regex_imports(path, JAVA_IMPORT_RE)
         elif ext in SWIFT_EXTS:
             imports = _regex_imports(path, SWIFT_IMPORT_RE)
+        elif ext in GO_EXTS:
+            imports = _go_imports(path, go_module)
+        elif ext in RUST_EXTS:
+            imports = _rust_imports(path, f["path"], dirs)
 
         if imports:
             graph[f["path"]] = imports
@@ -735,6 +771,79 @@ def _regex_imports(path: Path, pattern: re.Pattern) -> list[str]:
     except OSError:
         return []
     return pattern.findall(source)
+
+
+def _go_imports(path: Path, module_prefix: str) -> list[str]:
+    """Internal Go imports resolved to repo-relative package dirs.
+
+    Go imports are absolute package paths (e.g. `github.com/org/repo/foo/bar`).
+    Internal ones start with the go.mod module path; stripping it yields the
+    package directory (`foo/bar`). Std-lib / third-party imports are dropped.
+    """
+    if not module_prefix:
+        return []
+    try:
+        source = path.read_text(errors="ignore")
+    except OSError:
+        return []
+    raw: list[str] = []
+    for block in GO_BLOCK_RE.findall(source):
+        raw.extend(GO_QUOTED_RE.findall(block))
+    raw.extend(GO_SINGLE_RE.findall(source))
+    out = []
+    for imp in raw:
+        if imp == module_prefix or imp.startswith(module_prefix + "/"):
+            rel = imp[len(module_prefix):].lstrip("/")
+            if rel:
+                out.append(rel)
+    return out
+
+
+def _parent_dir(d: str) -> str:
+    return d.rsplit("/", 1)[0] if "/" in d else ""
+
+
+def _rust_imports(path: Path, rel_path: str, dirs: set[str]) -> list[str]:
+    """Internal Rust imports resolved to repo-relative dirs (best-effort).
+
+    Resolves only the explicit-internal forms `crate::`, `self::`, `super::`
+    (external crates and 2018-edition bare paths are ambiguous with crate names,
+    so they are skipped — a miss yields no edge, never a wrong one). Rust's
+    module tree is not 1:1 with directories, so the longest path prefix that
+    matches a real directory is used.
+    """
+    try:
+        source = path.read_text(errors="ignore")
+    except OSError:
+        return []
+    parts = rel_path.split("/")
+    src_root = "/".join(parts[:parts.index("src") + 1]) if "src" in parts else ""
+    file_dir = _parent_dir(rel_path)
+    out: set[str] = set()
+    for use in RUST_USE_RE.findall(source):
+        head = use.strip().split("{")[0].split(" as ")[0].strip().rstrip(":")
+        segs = [s for s in head.split("::") if s]
+        if not segs:
+            continue
+        if segs[0] == "crate":
+            base, rest = src_root, segs[1:]
+        elif segs[0] == "self":
+            base, rest = file_dir, segs[1:]
+        elif segs[0] == "super":
+            base, i = file_dir, 0
+            while i < len(segs) and segs[i] == "super":
+                base = _parent_dir(base)
+                i += 1
+            rest = segs[i:]
+        else:
+            continue  # external crate or bare path — skip
+        # The trailing segments may name a type/fn; try longest dir prefix.
+        for drop in range(0, len(rest) + 1):
+            cand = "/".join(([base] if base else []) + rest[:len(rest) - drop]).strip("/")
+            if cand and cand in dirs:
+                out.add(cand)
+                break
+    return sorted(out)
 
 
 # ── File Hasher ────────────────────────────────────────────────────────────
@@ -970,6 +1079,155 @@ def detect_entry_points(files: list[dict]) -> list[str]:
     return [f["path"] for f in files if f["path"].rsplit("/", 1)[-1] in ENTRY_POINT_NAMES]
 
 
+# ── Deployable-unit detection (language / platform agnostic) ─────────────────
+# A C4 "container" is an independently deployable unit. Detected from two
+# agnostic signals, NOT a hand-tuned per-language filename list:
+#
+#   (1) ENTRY_STEMS — source files whose name *stem* is a universal
+#       process-entry convention, across ANY extension. Covers Go (main.go),
+#       Rust (main.rs), C/C++ (main.cpp), C# (Program.cs), Java/Kotlin
+#       (Main.*, Application.*), Android (MainActivity.kt), Swift
+#       (main.swift, AppDelegate.swift), Dart (main.dart), Python
+#       (__main__.py + idiomatic app/server/manage/wsgi), Node (main.ts/js).
+#       Barrels (index.*) and UI roots (App.tsx) are deliberately excluded.
+#       This recovers per-binary splits in monorepos (Go cmd/*, Rust src/bin/*).
+#
+#   (2) MANIFEST markers — project/deploy manifests that mark a deployable app
+#       even with no conventional entry file, and carry the platform: mobile
+#       (AndroidManifest.xml, pubspec.yaml), desktop (*.csproj), apple
+#       (Package.swift), containerized service (Dockerfile), etc. An umbrella
+#       manifest (root go.mod/Dockerfile sitting above cmd/* binaries) is
+#       suppressed so it does not double-count; a mobile/desktop manifest
+#       upgrades the platform `kind` of the entry files beneath it.
+
+ENTRY_STEMS = {
+    "main", "Main", "Program", "__main__",
+    "MainActivity", "AppDelegate", "Application",
+}
+PY_ENTRY_STEMS = {"app", "server", "manage", "wsgi", "asgi"}
+# The stem rule applies only to programming-language source files — so that a
+# `main.tsp` (TypeSpec schema), `main.css`, `main.md` etc. is NOT a deployable.
+# This is a "is it code?" set, not a per-language entrypoint list.
+CODE_EXTS = {
+    ".go", ".rs", ".c", ".cc", ".cpp", ".cxx", ".cs", ".fs", ".vb",
+    ".java", ".kt", ".kts", ".scala", ".clj", ".cljs", ".groovy",
+    ".swift", ".m", ".mm", ".dart", ".py", ".rb", ".php", ".ex", ".exs",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".lua", ".jl",
+    ".erl", ".hs", ".ml", ".nim", ".zig", ".cr",
+}
+
+# Manifest basename -> coarse platform kind.
+MANIFEST_KINDS = {
+    "Dockerfile": "service", "Containerfile": "service",
+    "AndroidManifest.xml": "mobile", "pubspec.yaml": "mobile",
+    "Package.swift": "app",
+    "go.mod": "service", "Cargo.toml": "app",
+    "pom.xml": "service", "build.gradle": "app", "build.gradle.kts": "app",
+}
+MANIFEST_EXT_KINDS = {".csproj": "desktop", ".fsproj": "desktop", ".vcxproj": "desktop"}
+# Source-root segments stripped when naming a module from its directory.
+_MODULE_STRIP = {"src", "main", "java", "kotlin", "lib"}
+
+
+def _entry_kind(path: str) -> str:
+    """Classify a deployable entrypoint by its parent directory name."""
+    parts = path.split("/")
+    parent = parts[-2].lower() if len(parts) >= 2 else ""
+    if "worker" in parent:
+        return "worker"
+    if parent == "server" or parent.endswith(("-service", "_service")) or "service" in parent:
+        return "service"
+    if parent in ("jobs", "cli") or parent.endswith("-cli"):
+        return "cli"
+    return "app"
+
+
+def _dir_of(path: str) -> str:
+    return path.rsplit("/", 1)[0] if "/" in path else ""
+
+
+def _module_name(d: str) -> str:
+    """Human name for a deployable's directory (strips src/main/... roots)."""
+    segs = [s for s in d.split("/") if s]
+    while len(segs) > 1 and segs[-1] in _MODULE_STRIP:
+        segs.pop()
+    return segs[-1] if segs else ""
+
+
+def _under(child: str, parent: str) -> bool:
+    """True if `child` dir is at or under `parent` dir ('' == repo root)."""
+    if parent == "":
+        return True
+    return child == parent or child.startswith(parent + "/")
+
+
+def _manifest_kind(base: str) -> str | None:
+    if base in MANIFEST_KINDS:
+        return MANIFEST_KINDS[base]
+    ext = base[base.rfind("."):] if "." in base else ""
+    return MANIFEST_EXT_KINDS.get(ext)
+
+
+def _pkgjson_is_app(root: Path, rel: str) -> bool:
+    """package.json is a deployable only if it declares a bin or start/dev script."""
+    try:
+        data = json.loads((root / rel).read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    if data.get("bin"):
+        return True
+    scripts = data.get("scripts") or {}
+    return any(k in scripts for k in ("start", "dev", "serve"))
+
+
+def detect_build_targets(files: list[dict], root: Path | None = None) -> list[dict]:
+    """Deployable units (C4 containers) from entry-stem files + manifests.
+    Returns [{path, kind, name}], sorted by path (byte-stable)."""
+    paths = sorted(f["path"] for f in files)
+
+    # (1) source entry files, keyed by directory (one deployable per dir)
+    entries: dict[str, dict] = {}
+    for p in paths:
+        base = p.rsplit("/", 1)[-1]
+        if "." not in base:
+            continue
+        stem = base.split(".", 1)[0]
+        ext = base[base.rfind("."):]
+        if ext not in CODE_EXTS:
+            continue
+        if not (stem in ENTRY_STEMS or (ext == ".py" and stem in PY_ENTRY_STEMS)):
+            continue
+        d = _dir_of(p)
+        entries.setdefault(d, {"path": p, "kind": _entry_kind(p),
+                               "name": _module_name(d) or stem})
+
+    # (2) manifests
+    manifests: list[tuple[str, str, str]] = []
+    for p in paths:
+        base = p.rsplit("/", 1)[-1]
+        if base == "package.json":
+            if root is not None and _pkgjson_is_app(root, p):
+                manifests.append((_dir_of(p), "service", p))
+            continue
+        k = _manifest_kind(base)
+        if k:
+            manifests.append((_dir_of(p), k, p))
+
+    # platform upgrade: a mobile/desktop manifest sets the platform of entries beneath it
+    for d, k, _ in manifests:
+        if k in ("mobile", "desktop"):
+            for ed, e in entries.items():
+                if _under(ed, d):
+                    e["kind"] = k
+
+    # standalone manifests: a deployable app with no source entry beneath it
+    for d, k, mp in manifests:
+        if not any(_under(ed, d) for ed in entries):
+            entries.setdefault(d, {"path": mp, "kind": k, "name": _module_name(d) or "app"})
+
+    return sorted(entries.values(), key=lambda t: t["path"])
+
+
 # ── Config Collector ───────────────────────────────────────────────────────
 
 CONFIG_FILES = [
@@ -1084,6 +1342,7 @@ def run_scan(repo_path: str) -> dict:
         "import_graph": imports,
         "file_hashes": hashes,
         "entry_points": entry_points,
+        "entrypoints": detect_build_targets(readable_files, root),
         "frontend_ratio": round(frontend_ratio, 2),
         "has_persistence_signal": persistence["has_signal"],
         "persistence_signals": persistence["evidence"],

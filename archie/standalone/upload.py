@@ -189,6 +189,12 @@ def build_bundle(project_root: Path) -> dict:
     elif isinstance(findings_store, list):
         bundle["findings"] = findings_store
 
+    # C4 diagrams (Context/Container/Component Mermaid). Deterministic, script-
+    # built. Optional — old bundles without it make the viewer hide the C4 tab.
+    c4 = _read_json(archie_dir / "c4.json")
+    if isinstance(c4, dict):
+        bundle["c4"] = c4
+
     # Structured semantic duplications. Two upstream sources, merged here so
     # the share viewer always sees a single authoritative count regardless of
     # which scan path produced them:

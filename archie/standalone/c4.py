@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""Archie C4 — deterministic C4 diagram generation (no AI).
+
+Reads an enriched blueprint + scan.json, writes .archie/c4.json with three
+byte-stable Mermaid C4 strings: context, container, component.
+
+    python3 c4.py /path/to/project        # writes .archie/c4.json
+
+Three data sources, each used where it is strongest:
+  - kind   (app/service/worker/cli/lib/datastore) <- scanner entrypoints +
+           persistence_stores. Answers "is it deployable?".
+  - group  (cmd / openmeter / api / pkg ...)      <- first path segment.
+           Answers "what layer?". Drives System_Boundary grouping.
+  - Container level is driven by scanner entrypoints (the real binaries);
+    Component level by the components + depends_on; Context needs neither.
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _slug(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
+    return s or "n"
+
+
+def _group_of(location: str) -> str:
+    loc = (location or "").strip("/")
+    return loc.split("/")[0] if loc else "root"
+
+
+def _components(bp: dict) -> list[dict]:
+    comps = bp.get("components", {})
+    items = comps.get("components", []) if isinstance(comps, dict) else comps
+    return [c for c in items if isinstance(c, dict)]
+
+
+def _persistence_names(bp: dict) -> list[str]:
+    out = []
+    for s in bp.get("persistence_stores", []) or []:
+        out.append(s if isinstance(s, str) else s.get("name", ""))
+    return [s for s in out if s]
+
+
+def _integrations(bp: dict) -> list[str]:
+    out = []
+    for i in bp.get("communication", {}).get("integrations", []) or []:
+        name = (i.get("service") or i.get("name")) if isinstance(i, dict) else i
+        if name:
+            out.append(name)
+    return out
+
+
+# Datastore/message-bus names that show up in `integrations` but are our own
+# infrastructure, not third-party systems. Their canonical nodes come from
+# `persistence_stores`; we drop the integration duplicate so the Context level
+# does not double-count them as external systems.
+DATASTORE_HINTS = (
+    "postgres", "mysql", "mariadb", "clickhouse", "redis", "kafka", "mongo",
+    "sqlite", "dynamodb", "cassandra", "elasticsearch", "opensearch",
+    "rabbitmq", "memcached", "cockroach", "watermill",
+)
+
+
+def _is_datastore_name(name: str) -> bool:
+    sl = _slug(name)
+    return any(h in sl for h in DATASTORE_HINTS)
+
+
+def _externals(bp: dict) -> list[str]:
+    """Third-party systems = integrations minus our own datastores/buses.
+
+    Two filters because integration names rarely match persistence_store names
+    textually (e.g. integration "PostgreSQL" vs store "primary_postgres"):
+    (1) slug equality with a known store, (2) a datastore/bus keyword hint.
+    """
+    stores_norm = {_slug(s) for s in _persistence_names(bp)}
+    seen, out = set(), []
+    for name in _integrations(bp):
+        sl = _slug(name)
+        if sl in stores_norm or _is_datastore_name(name) or sl in seen:
+            continue
+        seen.add(sl)
+        out.append(name)
+    return sorted(out, key=_slug)
+
+
+# ── enrichment ─────────────────────────────────────────────────────────────
+
+def enrich_components(bp: dict, scan: dict) -> None:
+    """Stamp `kind` and `group` onto each component, in place. Idempotent."""
+    entrypoints = scan.get("entrypoints", []) if isinstance(scan, dict) else []
+    store_slugs = {_slug(s) for s in _persistence_names(bp)}
+    for comp in _components(bp):
+        loc = (comp.get("location") or "").strip("/")
+        key_files = comp.get("key_files") or []
+        # key_files are the more specific signal: a component at location `cmd`
+        # subtree-matches every cmd/* binary, but its key_files name the one it
+        # actually owns. Prefer key_files matches; fall back to location subtree.
+        kf_kinds, loc_kinds = [], []
+        for ep in entrypoints:
+            p = ep.get("path", "")
+            in_keyfiles = any(
+                p == kf or p.startswith(str(kf).rstrip("/") + "/") for kf in key_files
+            )
+            under_loc = bool(loc) and (p == loc or p.startswith(loc + "/"))
+            if in_keyfiles:
+                kf_kinds.append(ep.get("kind", "app"))
+            elif under_loc:
+                loc_kinds.append(ep.get("kind", "app"))
+        matched = kf_kinds or loc_kinds
+        if matched:
+            comp["kind"] = sorted(set(matched))[0]
+        elif _slug(comp.get("name", "")) in store_slugs or _slug(loc) in store_slugs:
+            comp["kind"] = "datastore"
+        else:
+            comp["kind"] = "lib"
+        comp["group"] = _group_of(loc)
+
+
+# ── Context level ──────────────────────────────────────────────────────────
+
+def _system_name(bp: dict, name: str | None) -> str:
+    return name or bp.get("meta", {}).get("name") or "System"
+
+
+def build_context(bp: dict, name: str | None = None) -> str:
+    name = _system_name(bp, name)
+    sys_id = _slug(name)
+    lines = [
+        "C4Context",
+        f"title System Context — {name}",
+        f'System({sys_id}, "{name}", "This system")',
+    ]
+    rels = []
+    for ext in _externals(bp):
+        eid = _slug(ext)
+        lines.append(f'System_Ext({eid}, "{ext}", "External system")')
+        rels.append(f'Rel({sys_id}, {eid}, "uses")')
+    for store in sorted(_persistence_names(bp), key=_slug):
+        sid = _slug(store)
+        lines.append(f'SystemDb({sid}, "{store}", "Datastore")')
+        rels.append(f'Rel({sys_id}, {sid}, "reads/writes")')
+    return "\n".join(lines + sorted(rels))
+
+
+# ── Container level (entrypoint-driven) ──────────────────────────────────────
+
+def _binary_name(path: str) -> str:
+    parts = path.split("/")
+    return parts[-2] if len(parts) >= 2 else parts[0]
+
+
+def _path_related(a: str, b: str) -> bool:
+    """True when two component paths overlap (equal / ancestor / descendant)."""
+    a, b = a.strip("/"), b.strip("/")
+    if not a or not b:
+        return False
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def _anchor_component(ep_path: str, components: list[dict]) -> dict | None:
+    """The component a binary belongs to: longest `location` that prefixes the
+    entrypoint path, or a component naming it in key_files."""
+    best, best_len = None, -1
+    for c in components:
+        loc = (c.get("location") or "").strip("/")
+        if loc and (ep_path == loc or ep_path.startswith(loc + "/")) and len(loc) > best_len:
+            best, best_len = c, len(loc)
+        for kf in c.get("key_files") or []:
+            if ep_path == kf or ep_path.startswith(str(kf).rstrip("/") + "/"):
+                if best_len < 0:
+                    best, best_len = c, 0
+    return best
+
+
+def _store_writers(bp: dict) -> dict[str, list[str]]:
+    """Map persistence store name -> writer component names (when present)."""
+    out: dict[str, list[str]] = {}
+    for s in bp.get("persistence_stores", []) or []:
+        if isinstance(s, dict) and s.get("name"):
+            out[s["name"]] = [w for w in (s.get("writers") or []) if w]
+    return out
+
+
+# ── scanner-derived dependency graph (ground truth, no AI) ───────────────────
+
+def _detect_cycles_mod():
+    try:
+        import detect_cycles as dc  # type: ignore
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import detect_cycles as dc  # type: ignore
+    return dc
+
+
+def dir_dependency_graph(scan: dict) -> dict[str, set]:
+    """Directory-level dependency graph from the scanner's real import graph
+    (the ground-truth edge source). Empty when no imports were parsed."""
+    if not isinstance(scan, dict):
+        return {}
+    import_graph = scan.get("import_graph") or {}
+    file_tree = scan.get("file_tree") or []
+    if not import_graph or not file_tree:
+        return {}
+    try:
+        graph, _ = _detect_cycles_mod().build_directory_graph(import_graph, file_tree)
+        return {k: set(v) for k, v in graph.items()}
+    except Exception:
+        return {}
+
+
+def _owner_resolver(components: list[dict]):
+    """Return fn(dir) -> owning component name (longest-prefix location match)."""
+    locs = sorted(
+        ((c.get("location") or "").strip("/"), c.get("name"))
+        for c in components if c.get("location") and c.get("name")
+    )
+    locs.sort(key=lambda x: -len(x[0]))
+
+    def owner(d: str):
+        for loc, name in locs:
+            if d == loc or d.startswith(loc + "/"):
+                return name
+        return None
+    return owner
+
+
+def _reachable(start: str, dir_graph: dict[str, set]) -> set:
+    seen, stack = set(), [start]
+    while stack:
+        cur = stack.pop()
+        for dep in dir_graph.get(cur, ()):  # noqa: SIM118
+            if dep not in seen:
+                seen.add(dep)
+                stack.append(dep)
+    return seen
+
+
+def build_container(bp: dict, scan: dict, name: str | None = None,
+                    dir_graph: dict | None = None) -> str:
+    name = _system_name(bp, name)
+    rels: list[str] = []
+    entrypoints = sorted(
+        (scan.get("entrypoints", []) if isinstance(scan, dict) else []),
+        key=lambda e: e.get("path", ""),
+    )
+    stores = sorted(_persistence_names(bp), key=_slug)
+    externals = _externals(bp)
+    # Node-less guard: a C4 diagram with only a title fails to render. Signal the
+    # viewer (which filters empty strings) to hide this level.
+    if not entrypoints and not stores and not externals:
+        return ""
+
+    components = _components(bp)
+    writers = _store_writers(bp)
+
+    lines = ["C4Container", f"title Containers — {name}"]
+    groups: dict[str, list[dict]] = {}
+    for ep in entrypoints:
+        groups.setdefault(_group_of(ep.get("path", "")), []).append(ep)
+    for grp in sorted(groups):
+        lines.append(f'System_Boundary(b_{_slug(grp)}, "{grp}") {{')
+        for ep in groups[grp]:
+            p = ep.get("path", "")
+            label = ep.get("name") or _binary_name(p)
+            lines.append(f'  Container({_slug(p)}, "{label}", "{ep.get("kind", "app")}")')
+        lines.append("}")
+    for store in stores:
+        lines.append(f'ContainerDb({_slug(store)}, "{store}", "Datastore")')
+    for ext in externals:
+        lines.append(f'System_Ext({_slug(ext)}, "{ext}", "External system")')
+
+    # Edges: binary -> datastore.
+    name_to_loc = {c.get("name"): (c.get("location") or "").strip("/") for c in components}
+    if dir_graph:
+        # GROUND TRUTH: a binary writes to a store if, following the *real* import
+        # graph, it transitively reaches any dir that owns one of the store's
+        # writer components. This catches cases the AI `depends_on` misses (e.g. a
+        # server that reaches the DB layer through several hops).
+        for ep in entrypoints:
+            bdir = _group_of(ep.get("path", "")) if "/" not in ep.get("path", "") else ep["path"].rsplit("/", 1)[0]
+            reach = _reachable(bdir, dir_graph) | {bdir}
+            for store, ws in writers.items():
+                wdirs = [name_to_loc.get(w, "") for w in ws]
+                if any(w and any(r == w or r.startswith(w + "/") for r in reach) for w in wdirs):
+                    rels.append(f'Rel({_slug(ep.get("path", ""))}, {_slug(store)}, "writes")')
+    else:
+        # Fallback (no import graph for this language): the binary's anchor
+        # component dependencies vs each store's writers (path-prefix match).
+        for ep in entrypoints:
+            anchor = _anchor_component(ep.get("path", ""), components)
+            if not anchor:
+                continue
+            deps = list(anchor.get("depends_on") or []) + [anchor.get("name", ""), anchor.get("location", "")]
+            for store, ws in writers.items():
+                if any(_path_related(d, w) for d in deps for w in ws):
+                    rels.append(f'Rel({_slug(ep.get("path", ""))}, {_slug(store)}, "writes")')
+    return "\n".join(lines + sorted(set(rels)))
+
+
+# ── Component level ─────────────────────────────────────────────────────────
+
+def build_component(bp: dict, name: str | None = None,
+                    dir_graph: dict | None = None) -> str:
+    """Per-module view: each component node lives inside its folder-group
+    boundary, with edges from the real directory dependency graph (or AI
+    `depends_on` when no import graph exists for the language)."""
+    name = _system_name(bp, name)
+    comps = [c for c in _components(bp) if c.get("kind") != "datastore"]
+    if not comps:  # node-less guard (see build_container)
+        return ""
+    by_name = {c.get("name"): c for c in comps}
+    lines = ["C4Component", f"title Components — {name}"]
+    rels: list[str] = []
+    groups: dict[str, list[dict]] = {}
+    for c in comps:
+        grp = c.get("group") or _group_of(c.get("location", ""))
+        groups.setdefault(grp, []).append(c)
+    for grp in sorted(groups):
+        lines.append(f'Container_Boundary(bc_{_slug(grp)}, "{grp}") {{')
+        for c in sorted(groups[grp], key=lambda x: _slug(x.get("name", ""))):
+            cid = _slug(c.get("name", ""))
+            resp = (c.get("responsibility") or c.get("kind") or "").replace('"', "'")[:60]
+            lines.append(f'  Component({cid}, "{c.get("name", "")}", "{resp}")')
+        lines.append("}")
+    # Only draw edges that CROSS a group boundary — within-group coupling is left
+    # implicit (the modules sit in the same box). Keeps all nodes, cuts the
+    # hairball to architectural inter-group dependencies.
+    name_group = {c.get("name"): (c.get("group") or _group_of(c.get("location", ""))) for c in comps}
+    if dir_graph:
+        # GROUND TRUTH: aggregate the real directory dependency graph to the
+        # component level (each dir owned by its longest-prefix component).
+        owner = _owner_resolver(comps)
+        for d1, deps in dir_graph.items():
+            a = owner(d1)
+            if a is None:
+                continue
+            for d2 in deps:
+                b = owner(d2)
+                if b is not None and b != a and name_group.get(a) != name_group.get(b):
+                    rels.append(f'Rel({_slug(a)}, {_slug(b)}, "depends on")')
+    else:
+        # Fallback: the AI `depends_on` field (no import graph for this language).
+        for c in comps:
+            src_name = c.get("name", "")
+            src = _slug(src_name)
+            for dep in sorted(c.get("depends_on", []) or []):
+                if dep in by_name and name_group.get(dep) != name_group.get(src_name):
+                    rels.append(f'Rel({src}, {_slug(dep)}, "depends on")')
+    return "\n".join(lines + sorted(set(rels)))
+
+
+# ── orchestration ────────────────────────────────────────────────────────────
+
+def build_all(project_root: Path) -> dict:
+    archie = Path(project_root) / ".archie"
+    bp = json.loads((archie / "blueprint.json").read_text())
+    scan_path = archie / "scan.json"
+    scan = json.loads(scan_path.read_text()) if scan_path.exists() else {}
+    enrich_components(bp, scan)
+    (archie / "blueprint.json").write_text(json.dumps(bp, indent=2))
+    name = Path(project_root).resolve().name
+    dir_graph = dir_dependency_graph(scan)  # ground-truth edges (empty if unparsed lang)
+    out = {
+        "context": build_context(bp, name),
+        "container": build_container(bp, scan, name, dir_graph),
+        "component": build_component(bp, name, dir_graph),
+    }
+    (archie / "c4.json").write_text(json.dumps(out, indent=2))
+    return out
+
+
+def main(argv: list[str]) -> int:
+    if not argv:
+        print("usage: c4.py /path/to/project", file=sys.stderr)
+        return 2
+    build_all(Path(argv[0]).resolve())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
