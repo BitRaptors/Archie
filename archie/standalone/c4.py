@@ -129,42 +129,24 @@ def _system_name(bp: dict, name: str | None) -> str:
     return name or bp.get("meta", {}).get("name") or "System"
 
 
-# Rendered as a Mermaid FLOWCHART (not the native C4 diagram type) so the viewer
-# can lay it out with the ELK engine — orthogonal, circuit-style edge routing
-# that doesn't overlap labels. The C4 semantics are preserved via node shapes +
-# classes (system / external / datastore / binary / module).
-_FLOW_HEADER = "---\nconfig:\n  layout: elk\n---\nflowchart TB"
-_CLASSDEFS = [
-    "classDef sys fill:#FFB703,stroke:#023047,color:#023047;",
-    "classDef ext fill:#E5E7EB,stroke:#6B7280,color:#111827;",
-    "classDef store fill:#8ECAE6,stroke:#023047,color:#023047;",
-    "classDef bin fill:#219EBC,stroke:#023047,color:#ffffff;",
-    "classDef mod fill:#CEEEF6,stroke:#219EBC,color:#023047;",
-]
-
-
-def _lbl(s: str) -> str:
-    return str(s).replace('"', "'").replace("\n", " ")
-
-
-def _flow(lines: list[str], edges: list[str]) -> str:
-    return "\n".join([_FLOW_HEADER] + lines + sorted(set(edges)) + [""] + _CLASSDEFS)
-
-
 def build_context(bp: dict, name: str | None = None) -> str:
     name = _system_name(bp, name)
-    sid = _slug(name)
-    nodes = [f'  {sid}["{_lbl(name)}"]:::sys']
-    edges = []
+    sys_id = _slug(name)
+    lines = [
+        "C4Context",
+        f"title System Context — {name}",
+        f'System({sys_id}, "{name}", "This system")',
+    ]
+    rels = []
     for ext in _externals(bp):
         eid = _slug(ext)
-        nodes.append(f'  {eid}["{_lbl(ext)}"]:::ext')
-        edges.append(f'  {sid} -->|uses| {eid}')
+        lines.append(f'System_Ext({eid}, "{ext}", "External system")')
+        rels.append(f'Rel({sys_id}, {eid}, "uses")')
     for store in sorted(_persistence_names(bp), key=_slug):
-        stid = _slug(store)
-        nodes.append(f'  {stid}[("{_lbl(store)}")]:::store')
-        edges.append(f'  {sid} -->|reads/writes| {stid}')
-    return _flow(nodes, edges)
+        sid = _slug(store)
+        lines.append(f'SystemDb({sid}, "{store}", "Datastore")')
+        rels.append(f'Rel({sys_id}, {sid}, "reads/writes")')
+    return "\n".join(lines + sorted(rels))
 
 
 # ── Container level (entrypoint-driven) ──────────────────────────────────────
@@ -278,21 +260,21 @@ def build_container(bp: dict, scan: dict, name: str | None = None,
     components = _components(bp)
     writers = _store_writers(bp)
 
-    lines: list[str] = []
+    lines = ["C4Container", f"title Containers — {name}"]
     groups: dict[str, list[dict]] = {}
     for ep in entrypoints:
         groups.setdefault(_group_of(ep.get("path", "")), []).append(ep)
     for grp in sorted(groups):
-        lines.append(f'  subgraph g_{_slug(grp)}["{_lbl(grp)}"]')
+        lines.append(f'System_Boundary(b_{_slug(grp)}, "{grp}") {{')
         for ep in groups[grp]:
             p = ep.get("path", "")
             label = ep.get("name") or _binary_name(p)
-            lines.append(f'    {_slug(p)}["{_lbl(label)}<br/>{ep.get("kind", "app")}"]:::bin')
-        lines.append("  end")
+            lines.append(f'  Container({_slug(p)}, "{label}", "{ep.get("kind", "app")}")')
+        lines.append("}")
     for store in stores:
-        lines.append(f'  {_slug(store)}[("{_lbl(store)}")]:::store')
+        lines.append(f'ContainerDb({_slug(store)}, "{store}", "Datastore")')
     for ext in externals:
-        lines.append(f'  {_slug(ext)}["{_lbl(ext)}"]:::ext')
+        lines.append(f'System_Ext({_slug(ext)}, "{ext}", "External system")')
 
     # Edges: binary -> datastore.
     name_to_loc = {c.get("name"): (c.get("location") or "").strip("/") for c in components}
@@ -307,7 +289,7 @@ def build_container(bp: dict, scan: dict, name: str | None = None,
             for store, ws in writers.items():
                 wdirs = [name_to_loc.get(w, "") for w in ws]
                 if any(w and any(r == w or r.startswith(w + "/") for r in reach) for w in wdirs):
-                    rels.append(f'  {_slug(ep.get("path", ""))} -->|writes| {_slug(store)}')
+                    rels.append(f'Rel({_slug(ep.get("path", ""))}, {_slug(store)}, "writes")')
     else:
         # Fallback (no import graph for this language): the binary's anchor
         # component dependencies vs each store's writers (path-prefix match).
@@ -318,8 +300,8 @@ def build_container(bp: dict, scan: dict, name: str | None = None,
             deps = list(anchor.get("depends_on") or []) + [anchor.get("name", ""), anchor.get("location", "")]
             for store, ws in writers.items():
                 if any(_path_related(d, w) for d in deps for w in ws):
-                    rels.append(f'  {_slug(ep.get("path", ""))} -->|writes| {_slug(store)}')
-    return _flow(lines, rels)
+                    rels.append(f'Rel({_slug(ep.get("path", ""))}, {_slug(store)}, "writes")')
+    return "\n".join(lines + sorted(set(rels)))
 
 
 # ── Component level ─────────────────────────────────────────────────────────
@@ -334,18 +316,19 @@ def build_component(bp: dict, name: str | None = None,
     if not comps:  # node-less guard (see build_container)
         return ""
     by_name = {c.get("name"): c for c in comps}
-    lines: list[str] = []
+    lines = ["C4Component", f"title Components — {name}"]
     rels: list[str] = []
     groups: dict[str, list[dict]] = {}
     for c in comps:
         grp = c.get("group") or _group_of(c.get("location", ""))
         groups.setdefault(grp, []).append(c)
     for grp in sorted(groups):
-        lines.append(f'  subgraph gc_{_slug(grp)}["{_lbl(grp)}"]')
+        lines.append(f'Container_Boundary(bc_{_slug(grp)}, "{grp}") {{')
         for c in sorted(groups[grp], key=lambda x: _slug(x.get("name", ""))):
             cid = _slug(c.get("name", ""))
-            lines.append(f'    {cid}["{_lbl(c.get("name", ""))}"]:::mod')
-        lines.append("  end")
+            resp = (c.get("responsibility") or c.get("kind") or "").replace('"', "'")[:60]
+            lines.append(f'  Component({cid}, "{c.get("name", "")}", "{resp}")')
+        lines.append("}")
     # Only draw edges that CROSS a group boundary — within-group coupling is left
     # implicit (the modules sit in the same box). Keeps all nodes, cuts the
     # hairball to architectural inter-group dependencies.
@@ -361,7 +344,7 @@ def build_component(bp: dict, name: str | None = None,
             for d2 in deps:
                 b = owner(d2)
                 if b is not None and b != a and name_group.get(a) != name_group.get(b):
-                    rels.append(f'  {_slug(a)} --> {_slug(b)}')
+                    rels.append(f'Rel({_slug(a)}, {_slug(b)}, "depends on")')
     else:
         # Fallback: the AI `depends_on` field (no import graph for this language).
         for c in comps:
@@ -369,8 +352,8 @@ def build_component(bp: dict, name: str | None = None,
             src = _slug(src_name)
             for dep in sorted(c.get("depends_on", []) or []):
                 if dep in by_name and name_group.get(dep) != name_group.get(src_name):
-                    rels.append(f'  {src} --> {_slug(dep)}')
-    return _flow(lines, rels)
+                    rels.append(f'Rel({src}, {_slug(dep)}, "depends on")')
+    return "\n".join(lines + sorted(set(rels)))
 
 
 # ── orchestration ────────────────────────────────────────────────────────────

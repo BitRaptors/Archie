@@ -24,4 +24,4 @@ def test_finalize_writes_c4_and_enriches(tmp_path):
     comp = bp["components"]["components"][0]
     assert comp["kind"] == "service" and comp["group"] == "cmd"
     c4 = json.loads((a / "c4.json").read_text())
-    assert "flowchart" in c4["context"]
+    assert c4["context"].startswith("C4Context")

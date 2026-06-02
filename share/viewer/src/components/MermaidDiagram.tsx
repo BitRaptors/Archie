@@ -20,15 +20,6 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
         const mermaid = (await import('mermaid')).default
 
         if (!isInitialized) {
-          // Register the ELK layout engine so diagrams with `layout: elk`
-          // (the C4 flowcharts) get orthogonal, non-overlapping edge routing.
-          try {
-            const elkLayouts = (await import('@mermaid-js/layout-elk')).default
-            ;(mermaid as unknown as { registerLayoutLoaders: (l: unknown) => void })
-              .registerLayoutLoaders(elkLayouts)
-          } catch {
-            // ELK unavailable → mermaid falls back to its default layout.
-          }
           mermaid.initialize({
             startOnLoad: false,
             theme: 'base',
