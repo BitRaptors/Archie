@@ -66,6 +66,19 @@ def test_entry_stem_rule_is_language_agnostic():
     }
 
 
+def test_stem_rule_ignores_non_code_extensions():
+    # main.* that isn't a programming-language source file is NOT a deployable.
+    files = _files(
+        "api/spec/legacy/src/main.tsp",   # TypeSpec schema
+        "styles/main.css",                # CSS
+        "docs/main.md",                   # Markdown
+        "infra/main.tf",                  # Terraform
+        "cmd/app/main.go",                # the only real one
+    )
+    paths = {t["path"] for t in scanner.detect_build_targets(files)}
+    assert paths == {"cmd/app/main.go"}
+
+
 def test_manifest_marks_standalone_mobile_app():
     # A Flutter app: pubspec at root + main.dart under lib → one mobile container.
     files = _files("pubspec.yaml", "lib/main.dart")

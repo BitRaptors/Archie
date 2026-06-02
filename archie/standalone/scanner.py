@@ -996,6 +996,16 @@ ENTRY_STEMS = {
     "MainActivity", "AppDelegate", "Application",
 }
 PY_ENTRY_STEMS = {"app", "server", "manage", "wsgi", "asgi"}
+# The stem rule applies only to programming-language source files — so that a
+# `main.tsp` (TypeSpec schema), `main.css`, `main.md` etc. is NOT a deployable.
+# This is a "is it code?" set, not a per-language entrypoint list.
+CODE_EXTS = {
+    ".go", ".rs", ".c", ".cc", ".cpp", ".cxx", ".cs", ".fs", ".vb",
+    ".java", ".kt", ".kts", ".scala", ".clj", ".cljs", ".groovy",
+    ".swift", ".m", ".mm", ".dart", ".py", ".rb", ".php", ".ex", ".exs",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".lua", ".jl",
+    ".erl", ".hs", ".ml", ".nim", ".zig", ".cr",
+}
 
 # Manifest basename -> coarse platform kind.
 MANIFEST_KINDS = {
@@ -1074,6 +1084,8 @@ def detect_build_targets(files: list[dict], root: Path | None = None) -> list[di
             continue
         stem = base.split(".", 1)[0]
         ext = base[base.rfind("."):]
+        if ext not in CODE_EXTS:
+            continue
         if not (stem in ENTRY_STEMS or (ext == ".py" and stem in PY_ENTRY_STEMS)):
             continue
         d = _dir_of(p)
