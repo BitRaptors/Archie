@@ -832,21 +832,47 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
               <div className={cn("p-10 rounded-3xl border shadow-2xl shadow-ink/5 bg-white/50 backdrop-blur-md overflow-hidden relative", theme.surface.panel)}>
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(45,161,176,0.03),transparent)] pointer-events-none" />
                 <div className="relative space-y-6">
-                  {/* Outer tabs: Simplified Overview vs C4 Model (only when both exist) */}
-                  {diagram && hasC4 && (
-                    <div className="inline-flex rounded-xl bg-ink/5 p-1 text-[10px] font-black uppercase tracking-widest">
-                      {([['overview', 'Simplified Overview'], ['c4', 'C4 Model']] as const).map(([id, label]) => (
-                        <button
-                          key={id}
-                          onClick={() => setDiagramTab(id)}
-                          className={cn(
-                            "px-4 py-2 rounded-lg transition-all",
-                            diagramTab === id ? "bg-white text-ink shadow-sm" : "text-ink/40 hover:text-ink"
-                          )}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                  {/* Diagram controls — two distinct groups: the view tabs
+                      (Simplified Overview / C4 Model) and, for C4, the level
+                      toggle (Container / Context / Component). Separated by a
+                      gap + divider so they read as separate controls. */}
+                  {hasC4 && (
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                      {diagram && (
+                        <div className="inline-flex rounded-xl bg-ink/5 p-1 text-[10px] font-black uppercase tracking-widest">
+                          {([['overview', 'Simplified Overview'], ['c4', 'C4 Model']] as const).map(([id, label]) => (
+                            <button
+                              key={id}
+                              onClick={() => setDiagramTab(id)}
+                              className={cn(
+                                "px-4 py-2 rounded-lg transition-all",
+                                diagramTab === id ? "bg-white text-ink shadow-sm" : "text-ink/40 hover:text-ink"
+                              )}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {(!diagram || diagramTab === 'c4') && (
+                        <div className="inline-flex items-center gap-4">
+                          {diagram && <span className="h-6 w-px bg-ink/15" aria-hidden />}
+                          <div className="inline-flex rounded-xl bg-ink/5 p-1 text-[10px] font-black uppercase tracking-widest">
+                            {c4Levels.map(([id, label]) => (
+                              <button
+                                key={id}
+                                onClick={() => setC4Level(id)}
+                                className={cn(
+                                  "px-4 py-2 rounded-lg transition-all",
+                                  activeC4Level === id ? "bg-white text-ink shadow-sm" : "text-ink/40 hover:text-ink"
+                                )}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -872,22 +898,8 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                   {/* C4 Model — deterministic, script-built. Inner level toggle. */}
                   {hasC4 && (!diagram || diagramTab === 'c4') && activeC4 && (
                     <>
-                      <div className="inline-flex rounded-xl bg-ink/5 p-1 text-[10px] font-black uppercase tracking-widest">
-                        {c4Levels.map(([id, label]) => (
-                          <button
-                            key={id}
-                            onClick={() => setC4Level(id)}
-                            className={cn(
-                              "px-4 py-2 rounded-lg transition-all",
-                              activeC4Level === id ? "bg-white text-ink shadow-sm" : "text-ink/40 hover:text-ink"
-                            )}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
                       <div className="text-xs text-ink/50 italic leading-relaxed border-l-2 border-teal/40 pl-3">
-                        {activeC4[2]} Built deterministically from the blueprint — the C4 model view, complete rather than curated.
+                        {activeC4[2]} Script-generated from the blueprint — reproducible and complete (not redrawn by an LLM each scan), so it's only as accurate as the blueprint's data. Deployable units come from the file scan; relationships are inferred by the analysis.
                       </div>
                       <MermaidDiagram chart={activeC4 && c4 ? (c4[activeC4[0]] as string) : ''} />
                       <details className="mt-12 group overflow-hidden">
