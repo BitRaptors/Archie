@@ -18,8 +18,7 @@ def test_build_targets_tags_kind_from_parent_dir():
         "cmd/benthos-collector/main.go",
         "openmeter/billing/service.go",   # not an entrypoint
     )
-    targets = scanner.detect_build_targets(files)
-    by_path = {t["path"]: t["kind"] for t in targets}
+    by_path = {t["path"]: t["kind"] for t in scanner.detect_build_targets(files)}
     assert by_path == {
         "cmd/server/main.go": "service",
         "cmd/billing-worker/main.go": "worker",
@@ -44,3 +43,49 @@ def test_build_targets_excludes_barrel_and_ui_files():
     )
     paths = {t["path"] for t in scanner.detect_build_targets(files)}
     assert paths == {"cmd/server/main.go"}
+
+
+def test_entry_stem_rule_is_language_agnostic():
+    # Universal process-entry stems across any extension — no per-language list.
+    files = _files(
+        "src/main.rs",                 # Rust
+        "app/Program.cs",              # C# / .NET
+        "svc/main.cpp",                # C++
+        "lib/main.dart",              # Dart / Flutter
+        "pkg/__main__.py",            # Python module
+        "web/main.ts",                 # Node
+        "android/MainActivity.kt",     # Android
+        "ios/AppDelegate.swift",       # iOS
+        "components/Button.tsx",       # NOT an entry
+    )
+    paths = {t["path"] for t in scanner.detect_build_targets(files)}
+    assert paths == {
+        "src/main.rs", "app/Program.cs", "svc/main.cpp", "lib/main.dart",
+        "pkg/__main__.py", "web/main.ts", "android/MainActivity.kt",
+        "ios/AppDelegate.swift",
+    }
+
+
+def test_manifest_marks_standalone_mobile_app():
+    # A Flutter app: pubspec at root + main.dart under lib → one mobile container.
+    files = _files("pubspec.yaml", "lib/main.dart")
+    targets = scanner.detect_build_targets(files)
+    # pubspec (root) is an umbrella over lib/main.dart → suppressed; the entry is
+    # upgraded to platform 'mobile'.
+    assert len(targets) == 1
+    assert targets[0]["path"] == "lib/main.dart" and targets[0]["kind"] == "mobile"
+
+
+def test_csproj_desktop_app_without_entry_file():
+    # A .NET app with no recognized source entry → the manifest IS the container.
+    files = _files("App/App.csproj", "App/Window.xaml.cs")
+    targets = scanner.detect_build_targets(files)
+    assert len(targets) == 1
+    assert targets[0]["kind"] == "desktop" and targets[0]["name"] == "App"
+
+
+def test_umbrella_manifest_suppressed_by_binaries():
+    # Root go.mod + Dockerfile over cmd/* binaries → only the binaries, no umbrella.
+    files = _files("go.mod", "Dockerfile", "cmd/a/main.go", "cmd/b/main.go")
+    paths = {t["path"] for t in scanner.detect_build_targets(files)}
+    assert paths == {"cmd/a/main.go", "cmd/b/main.go"}

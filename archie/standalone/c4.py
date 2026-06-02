@@ -213,7 +213,8 @@ def build_container(bp: dict, scan: dict, name: str | None = None) -> str:
         lines.append(f'System_Boundary(b_{_slug(grp)}, "{grp}") {{')
         for ep in groups[grp]:
             p = ep.get("path", "")
-            lines.append(f'  Container({_slug(p)}, "{_binary_name(p)}", "{ep.get("kind", "app")}")')
+            label = ep.get("name") or _binary_name(p)
+            lines.append(f'  Container({_slug(p)}, "{label}", "{ep.get("kind", "app")}")')
         lines.append("}")
     for store in stores:
         lines.append(f'ContainerDb({_slug(store)}, "{store}", "Datastore")')

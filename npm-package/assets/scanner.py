@@ -970,19 +970,44 @@ def detect_entry_points(files: list[dict]) -> list[str]:
     return [f["path"] for f in files if f["path"].rsplit("/", 1)[-1] in ENTRY_POINT_NAMES]
 
 
-# A *deployable* (a runnable process / binary) is a much narrower idea than a
-# generic "entry point". ENTRY_POINT_NAMES includes barrel files (index.ts/js)
-# and UI roots (App.tsx) that are NOT deployables — including them pollutes the
-# C4 Container level with non-binaries (e.g. api/client/javascript/index.ts).
-# This set keeps only process-launching mains.
-CONTAINER_ENTRY_NAMES = {
-    "main.py", "app.py", "server.py", "manage.py", "cli.py", "__main__.py",
-    "main.ts", "server.ts",
-    "main.js", "server.js",
-    "main.go", "main.rs", "main.kt", "Main.kt", "Application.kt",
-    "MainActivity.kt", "Main.java", "Application.java",
-    "AppDelegate.swift", "main.swift",
+# ── Deployable-unit detection (language / platform agnostic) ─────────────────
+# A C4 "container" is an independently deployable unit. Detected from two
+# agnostic signals, NOT a hand-tuned per-language filename list:
+#
+#   (1) ENTRY_STEMS — source files whose name *stem* is a universal
+#       process-entry convention, across ANY extension. Covers Go (main.go),
+#       Rust (main.rs), C/C++ (main.cpp), C# (Program.cs), Java/Kotlin
+#       (Main.*, Application.*), Android (MainActivity.kt), Swift
+#       (main.swift, AppDelegate.swift), Dart (main.dart), Python
+#       (__main__.py + idiomatic app/server/manage/wsgi), Node (main.ts/js).
+#       Barrels (index.*) and UI roots (App.tsx) are deliberately excluded.
+#       This recovers per-binary splits in monorepos (Go cmd/*, Rust src/bin/*).
+#
+#   (2) MANIFEST markers — project/deploy manifests that mark a deployable app
+#       even with no conventional entry file, and carry the platform: mobile
+#       (AndroidManifest.xml, pubspec.yaml), desktop (*.csproj), apple
+#       (Package.swift), containerized service (Dockerfile), etc. An umbrella
+#       manifest (root go.mod/Dockerfile sitting above cmd/* binaries) is
+#       suppressed so it does not double-count; a mobile/desktop manifest
+#       upgrades the platform `kind` of the entry files beneath it.
+
+ENTRY_STEMS = {
+    "main", "Main", "Program", "__main__",
+    "MainActivity", "AppDelegate", "Application",
 }
+PY_ENTRY_STEMS = {"app", "server", "manage", "wsgi", "asgi"}
+
+# Manifest basename -> coarse platform kind.
+MANIFEST_KINDS = {
+    "Dockerfile": "service", "Containerfile": "service",
+    "AndroidManifest.xml": "mobile", "pubspec.yaml": "mobile",
+    "Package.swift": "app",
+    "go.mod": "service", "Cargo.toml": "app",
+    "pom.xml": "service", "build.gradle": "app", "build.gradle.kts": "app",
+}
+MANIFEST_EXT_KINDS = {".csproj": "desktop", ".fsproj": "desktop", ".vcxproj": "desktop"}
+# Source-root segments stripped when naming a module from its directory.
+_MODULE_STRIP = {"src", "main", "java", "kotlin", "lib"}
 
 
 def _entry_kind(path: str) -> str:
@@ -991,23 +1016,95 @@ def _entry_kind(path: str) -> str:
     parent = parts[-2].lower() if len(parts) >= 2 else ""
     if "worker" in parent:
         return "worker"
-    if parent == "server" or parent.endswith("-service") or parent.endswith("_service") or "service" in parent:
+    if parent == "server" or parent.endswith(("-service", "_service")) or "service" in parent:
         return "service"
     if parent in ("jobs", "cli") or parent.endswith("-cli"):
         return "cli"
     return "app"
 
 
-def detect_build_targets(files: list[dict]) -> list[dict]:
-    """Deployable units = files whose basename launches a process, tagged with
-    a coarse kind from the parent dir. Narrower than detect_entry_points (no
-    barrel/UI-root files). Sorted by path (byte-stable)."""
-    targets = [
-        {"path": f["path"], "kind": _entry_kind(f["path"])}
-        for f in files
-        if f["path"].rsplit("/", 1)[-1] in CONTAINER_ENTRY_NAMES
-    ]
-    return sorted(targets, key=lambda t: t["path"])
+def _dir_of(path: str) -> str:
+    return path.rsplit("/", 1)[0] if "/" in path else ""
+
+
+def _module_name(d: str) -> str:
+    """Human name for a deployable's directory (strips src/main/... roots)."""
+    segs = [s for s in d.split("/") if s]
+    while len(segs) > 1 and segs[-1] in _MODULE_STRIP:
+        segs.pop()
+    return segs[-1] if segs else ""
+
+
+def _under(child: str, parent: str) -> bool:
+    """True if `child` dir is at or under `parent` dir ('' == repo root)."""
+    if parent == "":
+        return True
+    return child == parent or child.startswith(parent + "/")
+
+
+def _manifest_kind(base: str) -> str | None:
+    if base in MANIFEST_KINDS:
+        return MANIFEST_KINDS[base]
+    ext = base[base.rfind("."):] if "." in base else ""
+    return MANIFEST_EXT_KINDS.get(ext)
+
+
+def _pkgjson_is_app(root: Path, rel: str) -> bool:
+    """package.json is a deployable only if it declares a bin or start/dev script."""
+    try:
+        data = json.loads((root / rel).read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    if data.get("bin"):
+        return True
+    scripts = data.get("scripts") or {}
+    return any(k in scripts for k in ("start", "dev", "serve"))
+
+
+def detect_build_targets(files: list[dict], root: Path | None = None) -> list[dict]:
+    """Deployable units (C4 containers) from entry-stem files + manifests.
+    Returns [{path, kind, name}], sorted by path (byte-stable)."""
+    paths = sorted(f["path"] for f in files)
+
+    # (1) source entry files, keyed by directory (one deployable per dir)
+    entries: dict[str, dict] = {}
+    for p in paths:
+        base = p.rsplit("/", 1)[-1]
+        if "." not in base:
+            continue
+        stem = base.split(".", 1)[0]
+        ext = base[base.rfind("."):]
+        if not (stem in ENTRY_STEMS or (ext == ".py" and stem in PY_ENTRY_STEMS)):
+            continue
+        d = _dir_of(p)
+        entries.setdefault(d, {"path": p, "kind": _entry_kind(p),
+                               "name": _module_name(d) or stem})
+
+    # (2) manifests
+    manifests: list[tuple[str, str, str]] = []
+    for p in paths:
+        base = p.rsplit("/", 1)[-1]
+        if base == "package.json":
+            if root is not None and _pkgjson_is_app(root, p):
+                manifests.append((_dir_of(p), "service", p))
+            continue
+        k = _manifest_kind(base)
+        if k:
+            manifests.append((_dir_of(p), k, p))
+
+    # platform upgrade: a mobile/desktop manifest sets the platform of entries beneath it
+    for d, k, _ in manifests:
+        if k in ("mobile", "desktop"):
+            for ed, e in entries.items():
+                if _under(ed, d):
+                    e["kind"] = k
+
+    # standalone manifests: a deployable app with no source entry beneath it
+    for d, k, mp in manifests:
+        if not any(_under(ed, d) for ed in entries):
+            entries.setdefault(d, {"path": mp, "kind": k, "name": _module_name(d) or "app"})
+
+    return sorted(entries.values(), key=lambda t: t["path"])
 
 
 # ── Config Collector ───────────────────────────────────────────────────────
@@ -1124,7 +1221,7 @@ def run_scan(repo_path: str) -> dict:
         "import_graph": imports,
         "file_hashes": hashes,
         "entry_points": entry_points,
-        "entrypoints": detect_build_targets(readable_files),
+        "entrypoints": detect_build_targets(readable_files, root),
         "frontend_ratio": round(frontend_ratio, 2),
         "has_persistence_signal": persistence["has_signal"],
         "persistence_signals": persistence["evidence"],
