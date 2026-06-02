@@ -1,4 +1,5 @@
 # tests/benchmark/test_orchestrator.py
+import subprocess
 import pytest
 from archie.benchmark.config import BenchmarkConfig, JudgeConfig
 from archie.benchmark.metrics import SampleMetrics
@@ -29,7 +30,7 @@ def _fake_run(metrics_by_branch):
 def test_run_benchmark_builds_matrix_and_aggregates(tmp_path, monkeypatch):
     # neutralize real worktree/diff/base-commit side effects
     monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "abc123")
-    monkeypatch.setattr(orchestrator, "_branch_base", lambda repo, b: "abc123")
+    monkeypatch.setattr(orchestrator, "_merge_base", lambda repo, a, b: "abc123")
 
     import contextlib
     @contextlib.contextmanager
@@ -74,17 +75,19 @@ def test_run_benchmark_builds_matrix_and_aggregates(tmp_path, monkeypatch):
     assert len({c[1] for c in seen["calls"]}) == 1
 
 
-def test_fairness_guard_rejects_divergent_base(tmp_path, monkeypatch):
-    monkeypatch.setattr(orchestrator, "_branch_base",
-                        lambda repo, b: "AAA" if b == "treatment" else "BBB")
-    with pytest.raises(ValueError, match="base commit"):
+def test_fairness_guard_rejects_unrelated_branches(tmp_path, monkeypatch):
+    # No common ancestor -> git merge-base exits non-zero.
+    def no_common_ancestor(repo, a, b):
+        raise subprocess.CalledProcessError(128, ["git", "merge-base", a, b])
+    monkeypatch.setattr(orchestrator, "_merge_base", no_common_ancestor)
+    with pytest.raises(ValueError, match="common ancestor"):
         orchestrator.run_benchmark(_cfg(tmp_path), run_fn=lambda *a: None,
                                    judge_fn=lambda *a, **k: None,
                                    store_fn=lambda *a: None, diff_fn=lambda w: "")
 
 
 def test_failed_sample_does_not_sink_run(tmp_path, monkeypatch):
-    monkeypatch.setattr(orchestrator, "_branch_base", lambda repo, b: "same")
+    monkeypatch.setattr(orchestrator, "_merge_base", lambda repo, a, b: "same")
     monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "base")
     import contextlib
     @contextlib.contextmanager
@@ -113,7 +116,7 @@ def test_failed_sample_does_not_sink_run(tmp_path, monkeypatch):
 
 
 def test_judge_failure_does_not_sink_run(tmp_path, monkeypatch):
-    monkeypatch.setattr(orchestrator, "_branch_base", lambda repo, b: "same")
+    monkeypatch.setattr(orchestrator, "_merge_base", lambda repo, a, b: "same")
     monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "base")
     import contextlib
     @contextlib.contextmanager
@@ -139,3 +142,45 @@ def test_judge_failure_does_not_sink_run(tmp_path, monkeypatch):
     assert all(s["quality_detail"] is None for s in stored["samples"])
     # the run still produced an aggregate
     assert result["aggregate"]["treatment"]["n"] == 1
+
+
+def _git(args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def test_prepared_branches_pass_fairness_guard(tmp_path):
+    # Regression: prepare_branches adds a strip commit to the control branch, so
+    # the two branch TIPS differ. The fairness guard must compare the merge-base
+    # (common ancestor), not the tips, and therefore must NOT raise here.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(["init"], repo)
+    _git(["config", "user.email", "t@t.t"], repo)
+    _git(["config", "user.name", "t"], repo)
+    (repo / "CLAUDE.md").write_text("# conventions\n")
+    (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    _git(["add", "-A"], repo)
+    _git(["commit", "-m", "init"], repo)
+
+    cfg = BenchmarkConfig(
+        name="reg", repo=repo, task_prompt="do it", model="m",
+        branches={"treatment": "archie-bench/with-archie",
+                  "control": "archie-bench/no-archie"},
+        repetitions=1, judge=JudgeConfig(), timeout_seconds=60,
+    )
+    status = orchestrator.prepare_branches(cfg)
+    assert status["archie_present"] is True  # control got an extra strip commit
+
+    # Real worktree creation; only run_fn/judge_fn/store_fn/diff_fn are stubbed.
+    result = orchestrator.run_benchmark(
+        cfg,
+        run_fn=lambda p, m, cwd, t: (SampleMetrics(completed=True, cost_usd=1.0), "raw"),
+        judge_fn=lambda *a, **k: {"treatment": {"overall": 8},
+                                  "control": {"overall": 6}, "seed": 0},
+        store_fn=lambda r, s, p: {"mode": "offline", "run": r},
+        diff_fn=lambda wt: "diff",
+    )
+    assert result["aggregate"]["treatment"]["n"] == 1
+    assert result["aggregate"]["control"]["n"] == 1
+    # git_base_commit is the shared merge-base (a real 40-char sha)
+    assert len(result["run"]["git_base_commit"]) == 40

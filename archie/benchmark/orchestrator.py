@@ -21,9 +21,15 @@ def _base_commit(repo):
     return _git_out(["rev-parse", "HEAD"], repo)
 
 
-def _branch_base(repo, branch):
-    """The commit the branch resolves to (used to verify both arms share a base)."""
-    return _git_out(["rev-parse", branch], repo)
+def _merge_base(repo, a, b):
+    """The common-ancestor commit of two branches.
+
+    Used to verify both arms descend from the same base. We compare the
+    merge-base (not branch tips): prep intentionally adds a strip/deep-scan
+    commit to an arm, so the tips legitimately differ while the shared base
+    does not.
+    """
+    return _git_out(["merge-base", a, b], repo)
 
 
 def _seed(name, repetition):
@@ -72,13 +78,17 @@ def _sample_row(arm, repetition, metrics, quality_score, quality_detail, seed):
 
 def run_benchmark(cfg, run_fn=run_claude, judge_fn=run_judge,
                   store_fn=store_results, diff_fn=capture_diff):
-    # Fairness guard: both arms must descend from the same base commit.
-    t_base = _branch_base(cfg.repo, cfg.branches["treatment"])
-    c_base = _branch_base(cfg.repo, cfg.branches["control"])
-    if t_base != c_base:
+    # Fairness guard: both arms must descend from the same base commit. We
+    # compare the merge-base, not branch tips — prep adds a strip/deep-scan
+    # commit to an arm, so tips differ while the common base must not.
+    try:
+        base = _merge_base(cfg.repo, cfg.branches["treatment"], cfg.branches["control"])
+    except subprocess.CalledProcessError:
+        base = ""
+    if not base:
         raise ValueError(
-            f"arms have divergent base commit (treatment={t_base}, control={c_base}); "
-            "both benchmark branches must branch from the same commit")
+            "benchmark arms have no common ancestor base commit; both branches "
+            "must branch from the same commit")
 
     prune(cfg.repo)
     samples = []
@@ -110,7 +120,7 @@ def run_benchmark(cfg, run_fn=run_claude, judge_fn=run_judge,
         "model": cfg.model,
         "judge_model": cfg.judge.model,
         "repetitions": cfg.repetitions,
-        "git_base_commit": _base_commit(cfg.repo),
+        "git_base_commit": base,
         "prep_cost_usd": None,
         "archie_version": _archie_version(),
     }
