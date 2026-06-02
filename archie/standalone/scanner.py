@@ -659,11 +659,17 @@ JS_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs"}
 KOTLIN_EXTS = {".kt", ".kts"}
 JAVA_EXTS = {".java"}
 SWIFT_EXTS = {".swift"}
+GO_EXTS = {".go"}
+RUST_EXTS = {".rs"}
 
 JS_IMPORT_RE = re.compile(r"""(?:import\s+.*?from\s+['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\))""")
 KOTLIN_IMPORT_RE = re.compile(r'^import\s+([\w.]+)', re.MULTILINE)
 JAVA_IMPORT_RE = re.compile(r'^import\s+(?:static\s+)?([\w.]+)', re.MULTILINE)
 SWIFT_IMPORT_RE = re.compile(r'^import\s+(\w+)', re.MULTILINE)
+GO_BLOCK_RE = re.compile(r'import\s*\(([^)]*)\)', re.S)
+GO_SINGLE_RE = re.compile(r'import\s+(?:[.\w]+\s+)?"([^"]+)"')
+GO_QUOTED_RE = re.compile(r'"([^"]+)"')
+RUST_USE_RE = re.compile(r'^\s*(?:pub\s+)?use\s+([^;]+);', re.MULTILINE)
 
 STDLIB_MODULES = {
     "os", "sys", "re", "json", "ast", "math", "time", "datetime",
@@ -677,8 +683,34 @@ STDLIB_MODULES = {
 }
 
 
+def _go_module_path(root: Path) -> str:
+    """The module path declared in go.mod (prefix of internal import paths)."""
+    try:
+        text = (root / "go.mod").read_text(errors="ignore")
+    except OSError:
+        return ""
+    m = re.search(r'^\s*module\s+(\S+)', text, re.MULTILINE)
+    return m.group(1) if m else ""
+
+
+def _all_dirs(files: list[dict]) -> set[str]:
+    """Every directory (and ancestor) present in the file tree."""
+    dirs: set[str] = set()
+    for f in files:
+        p = f["path"]
+        if "/" not in p:
+            continue
+        parent = p.rsplit("/", 1)[0]
+        segs = parent.split("/")
+        for i in range(1, len(segs) + 1):
+            dirs.add("/".join(segs[:i]))
+    return dirs
+
+
 def build_import_graph(root: Path, files: list[dict]) -> dict[str, list[str]]:
     graph = {}
+    go_module = _go_module_path(root)
+    dirs = _all_dirs(files)  # for Go/Rust internal resolution
     for f in files:
         ext = f.get("extension", "")
         path = root / f["path"]
@@ -694,6 +726,10 @@ def build_import_graph(root: Path, files: list[dict]) -> dict[str, list[str]]:
             imports = _regex_imports(path, JAVA_IMPORT_RE)
         elif ext in SWIFT_EXTS:
             imports = _regex_imports(path, SWIFT_IMPORT_RE)
+        elif ext in GO_EXTS:
+            imports = _go_imports(path, go_module)
+        elif ext in RUST_EXTS:
+            imports = _rust_imports(path, f["path"], dirs)
 
         if imports:
             graph[f["path"]] = imports
@@ -735,6 +771,79 @@ def _regex_imports(path: Path, pattern: re.Pattern) -> list[str]:
     except OSError:
         return []
     return pattern.findall(source)
+
+
+def _go_imports(path: Path, module_prefix: str) -> list[str]:
+    """Internal Go imports resolved to repo-relative package dirs.
+
+    Go imports are absolute package paths (e.g. `github.com/org/repo/foo/bar`).
+    Internal ones start with the go.mod module path; stripping it yields the
+    package directory (`foo/bar`). Std-lib / third-party imports are dropped.
+    """
+    if not module_prefix:
+        return []
+    try:
+        source = path.read_text(errors="ignore")
+    except OSError:
+        return []
+    raw: list[str] = []
+    for block in GO_BLOCK_RE.findall(source):
+        raw.extend(GO_QUOTED_RE.findall(block))
+    raw.extend(GO_SINGLE_RE.findall(source))
+    out = []
+    for imp in raw:
+        if imp == module_prefix or imp.startswith(module_prefix + "/"):
+            rel = imp[len(module_prefix):].lstrip("/")
+            if rel:
+                out.append(rel)
+    return out
+
+
+def _parent_dir(d: str) -> str:
+    return d.rsplit("/", 1)[0] if "/" in d else ""
+
+
+def _rust_imports(path: Path, rel_path: str, dirs: set[str]) -> list[str]:
+    """Internal Rust imports resolved to repo-relative dirs (best-effort).
+
+    Resolves only the explicit-internal forms `crate::`, `self::`, `super::`
+    (external crates and 2018-edition bare paths are ambiguous with crate names,
+    so they are skipped — a miss yields no edge, never a wrong one). Rust's
+    module tree is not 1:1 with directories, so the longest path prefix that
+    matches a real directory is used.
+    """
+    try:
+        source = path.read_text(errors="ignore")
+    except OSError:
+        return []
+    parts = rel_path.split("/")
+    src_root = "/".join(parts[:parts.index("src") + 1]) if "src" in parts else ""
+    file_dir = _parent_dir(rel_path)
+    out: set[str] = set()
+    for use in RUST_USE_RE.findall(source):
+        head = use.strip().split("{")[0].split(" as ")[0].strip().rstrip(":")
+        segs = [s for s in head.split("::") if s]
+        if not segs:
+            continue
+        if segs[0] == "crate":
+            base, rest = src_root, segs[1:]
+        elif segs[0] == "self":
+            base, rest = file_dir, segs[1:]
+        elif segs[0] == "super":
+            base, i = file_dir, 0
+            while i < len(segs) and segs[i] == "super":
+                base = _parent_dir(base)
+                i += 1
+            rest = segs[i:]
+        else:
+            continue  # external crate or bare path — skip
+        # The trailing segments may name a type/fn; try longest dir prefix.
+        for drop in range(0, len(rest) + 1):
+            cand = "/".join(([base] if base else []) + rest[:len(rest) - drop]).strip("/")
+            if cand and cand in dirs:
+                out.add(cand)
+                break
+    return sorted(out)
 
 
 # ── File Hasher ────────────────────────────────────────────────────────────

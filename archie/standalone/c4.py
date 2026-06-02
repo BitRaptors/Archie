@@ -188,7 +188,62 @@ def _store_writers(bp: dict) -> dict[str, list[str]]:
     return out
 
 
-def build_container(bp: dict, scan: dict, name: str | None = None) -> str:
+# ── scanner-derived dependency graph (ground truth, no AI) ───────────────────
+
+def _detect_cycles_mod():
+    try:
+        import detect_cycles as dc  # type: ignore
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import detect_cycles as dc  # type: ignore
+    return dc
+
+
+def dir_dependency_graph(scan: dict) -> dict[str, set]:
+    """Directory-level dependency graph from the scanner's real import graph
+    (the ground-truth edge source). Empty when no imports were parsed."""
+    if not isinstance(scan, dict):
+        return {}
+    import_graph = scan.get("import_graph") or {}
+    file_tree = scan.get("file_tree") or []
+    if not import_graph or not file_tree:
+        return {}
+    try:
+        graph, _ = _detect_cycles_mod().build_directory_graph(import_graph, file_tree)
+        return {k: set(v) for k, v in graph.items()}
+    except Exception:
+        return {}
+
+
+def _owner_resolver(components: list[dict]):
+    """Return fn(dir) -> owning component name (longest-prefix location match)."""
+    locs = sorted(
+        ((c.get("location") or "").strip("/"), c.get("name"))
+        for c in components if c.get("location") and c.get("name")
+    )
+    locs.sort(key=lambda x: -len(x[0]))
+
+    def owner(d: str):
+        for loc, name in locs:
+            if d == loc or d.startswith(loc + "/"):
+                return name
+        return None
+    return owner
+
+
+def _reachable(start: str, dir_graph: dict[str, set]) -> set:
+    seen, stack = set(), [start]
+    while stack:
+        cur = stack.pop()
+        for dep in dir_graph.get(cur, ()):  # noqa: SIM118
+            if dep not in seen:
+                seen.add(dep)
+                stack.append(dep)
+    return seen
+
+
+def build_container(bp: dict, scan: dict, name: str | None = None,
+                    dir_graph: dict | None = None) -> str:
     name = _system_name(bp, name)
     rels: list[str] = []
     entrypoints = sorted(
@@ -221,23 +276,38 @@ def build_container(bp: dict, scan: dict, name: str | None = None) -> str:
     for ext in externals:
         lines.append(f'System_Ext({_slug(ext)}, "{ext}", "External system")')
 
-    # Edges: binary -> datastore, derived from the binary's anchor-component
-    # dependencies vs each store's writers (path-prefix match). Wiring-based, so
-    # partial — a binary that delegates persistence via DI may show no edge.
-    for ep in entrypoints:
-        anchor = _anchor_component(ep.get("path", ""), components)
-        if not anchor:
-            continue
-        deps = list(anchor.get("depends_on") or []) + [anchor.get("name", ""), anchor.get("location", "")]
-        for store, ws in writers.items():
-            if any(_path_related(d, w) for d in deps for w in ws):
-                rels.append(f'Rel({_slug(ep.get("path", ""))}, {_slug(store)}, "writes")')
+    # Edges: binary -> datastore.
+    name_to_loc = {c.get("name"): (c.get("location") or "").strip("/") for c in components}
+    if dir_graph:
+        # GROUND TRUTH: a binary writes to a store if, following the *real* import
+        # graph, it transitively reaches any dir that owns one of the store's
+        # writer components. This catches cases the AI `depends_on` misses (e.g. a
+        # server that reaches the DB layer through several hops).
+        for ep in entrypoints:
+            bdir = _group_of(ep.get("path", "")) if "/" not in ep.get("path", "") else ep["path"].rsplit("/", 1)[0]
+            reach = _reachable(bdir, dir_graph) | {bdir}
+            for store, ws in writers.items():
+                wdirs = [name_to_loc.get(w, "") for w in ws]
+                if any(w and any(r == w or r.startswith(w + "/") for r in reach) for w in wdirs):
+                    rels.append(f'Rel({_slug(ep.get("path", ""))}, {_slug(store)}, "writes")')
+    else:
+        # Fallback (no import graph for this language): the binary's anchor
+        # component dependencies vs each store's writers (path-prefix match).
+        for ep in entrypoints:
+            anchor = _anchor_component(ep.get("path", ""), components)
+            if not anchor:
+                continue
+            deps = list(anchor.get("depends_on") or []) + [anchor.get("name", ""), anchor.get("location", "")]
+            for store, ws in writers.items():
+                if any(_path_related(d, w) for d in deps for w in ws):
+                    rels.append(f'Rel({_slug(ep.get("path", ""))}, {_slug(store)}, "writes")')
     return "\n".join(lines + sorted(set(rels)))
 
 
 # ── Component level ─────────────────────────────────────────────────────────
 
-def build_component(bp: dict, name: str | None = None) -> str:
+def build_component(bp: dict, name: str | None = None,
+                    dir_graph: dict | None = None) -> str:
     name = _system_name(bp, name)
     comps = [c for c in _components(bp) if c.get("kind") != "datastore"]
     if not comps:  # node-less guard (see build_container)
@@ -256,11 +326,25 @@ def build_component(bp: dict, name: str | None = None) -> str:
             resp = (c.get("responsibility") or c.get("kind") or "").replace('"', "'")[:60]
             lines.append(f'  Component({cid}, "{c.get("name", "")}", "{resp}")')
         lines.append("}")
-    for c in comps:
-        src = _slug(c.get("name", ""))
-        for dep in sorted(c.get("depends_on", []) or []):
-            if dep in by_name:
-                rels.append(f'Rel({src}, {_slug(dep)}, "depends on")')
+    if dir_graph:
+        # GROUND TRUTH: aggregate the real directory dependency graph to the
+        # component level (each dir owned by its longest-prefix component).
+        owner = _owner_resolver(comps)
+        for d1, deps in dir_graph.items():
+            a = owner(d1)
+            if a is None:
+                continue
+            for d2 in deps:
+                b = owner(d2)
+                if b is not None and b != a:
+                    rels.append(f'Rel({_slug(a)}, {_slug(b)}, "depends on")')
+    else:
+        # Fallback: the AI `depends_on` field (no import graph for this language).
+        for c in comps:
+            src = _slug(c.get("name", ""))
+            for dep in sorted(c.get("depends_on", []) or []):
+                if dep in by_name:
+                    rels.append(f'Rel({src}, {_slug(dep)}, "depends on")')
     return "\n".join(lines + sorted(set(rels)))
 
 
@@ -274,10 +358,11 @@ def build_all(project_root: Path) -> dict:
     enrich_components(bp, scan)
     (archie / "blueprint.json").write_text(json.dumps(bp, indent=2))
     name = Path(project_root).resolve().name
+    dir_graph = dir_dependency_graph(scan)  # ground-truth edges (empty if unparsed lang)
     out = {
         "context": build_context(bp, name),
-        "container": build_container(bp, scan, name),
-        "component": build_component(bp, name),
+        "container": build_container(bp, scan, name, dir_graph),
+        "component": build_component(bp, name, dir_graph),
     }
     (archie / "c4.json").write_text(json.dumps(out, indent=2))
     return out

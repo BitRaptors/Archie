@@ -95,6 +95,26 @@ def test_build_container_draws_binary_to_datastore_edges():
     assert 'Rel(cmd_server_main_go, primary_postgres, "writes")' in out
 
 
+def test_container_edges_from_dir_graph_reachability():
+    # Ground truth: cmd/server transitively reaches internal/billing (a postgres
+    # writer) through the real import graph, even with no direct depends_on.
+    bp = _bp()
+    bp["persistence_stores"] = [{"name": "primary_postgres", "writers": ["internal/billing"]}]
+    bp["components"]["components"].append({"name": "internal/billing", "location": "internal/billing"})
+    c4.enrich_components(bp, _scan())
+    dg = {"cmd/server": {"internal/api"}, "internal/api": {"internal/billing"}, "internal/billing": set()}
+    out = c4.build_container(bp, _scan(), None, dg)
+    assert 'Rel(cmd_server_main_go, primary_postgres, "writes")' in out
+
+
+def test_component_edges_from_dir_graph():
+    bp = _bp()
+    c4.enrich_components(bp, _scan())
+    dg = {"openmeter/billing": {"pkg/models"}, "pkg/models": set()}
+    out = c4.build_component(bp, None, dg)
+    assert 'Rel(openmeter_billing, pkg_models, "depends on")' in out
+
+
 def test_build_container_empty_when_no_nodes():
     # No entrypoints, no stores, no externals → node-less → "" (viewer hides it).
     empty = {"meta": {}, "components": {"components": []},

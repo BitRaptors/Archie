@@ -84,6 +84,11 @@ def _resolve_import_to_dir(
 
     Returns the directory (relative to repo root) or None if unresolvable.
     """
+    # Pre-resolved repo-relative dir (Go/Rust internal imports are emitted by
+    # the scanner already mapped to their package/module directory).
+    if imp in dir_set:
+        return imp
+
     # JS/TS relative imports: starts with . or ..
     if imp.startswith("."):
         return _resolve_js_relative(imp, importing_file, file_paths, dir_set)
