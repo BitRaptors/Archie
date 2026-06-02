@@ -84,12 +84,26 @@ OUTPUT CONTRACT (mandatory):
 {{>output_contract}}
 ```
 
+**Also prepend a timing instruction to each sub-agent's prompt** so each fact
+agent self-times its run (same mechanism as Wave 2 — gives per-agent durations,
+not just the aggregate wave1 step). The sub-agent's FIRST action is
+`python3 .archie/telemetry.py agent-start wave1 <key>` and its LAST action
+(after writing its output file) is `python3 .archie/telemetry.py agent-finish wave1 <key>`,
+where `<key>` is: Structure → `structure`, Patterns → `patterns`,
+Technology → `technology`, UI Layer → `ui`, Data → `data`.
+
 The merge step (Step 4) reads each agent's output file directly — do NOT
 copy or transcribe a subagent's output yourself.
 
 All spawned sub-agents (3 always + UI Layer and/or Data as applicable) run at the {{ANALYSIS_MODEL}} model. {{>dispatch_parallel}}
 
-After the parallel dispatch returns, record per-agent counts for trend tracking. Each call no-ops gracefully when its source file is missing (skipped agent — sub5 absent when `has_persistence_signal == false`). Uses the standard `python3 -c …` form that both Claude and Codex auto-approve via the installer's command catalogue — no new permission rules needed:
+After the parallel dispatch returns, fold the per-agent timings into the `wave1` step so it reports each fact agent's duration (Structure / Patterns / Technology / UI Layer / Data) the same way `wave2_synthesis` does, instead of one aggregate number:
+
+```bash
+python3 .archie/telemetry.py collect-agents "$PROJECT_ROOT" wave1
+```
+
+Then record per-agent counts for trend tracking. Each call no-ops gracefully when its source file is missing (skipped agent — sub5 absent when `has_persistence_signal == false`). Uses the standard `python3 -c …` form that both Claude and Codex auto-approve via the installer's command catalogue — no new permission rules needed:
 
 ```bash
 DATA_COUNT=$(python3 -c "import json,os,sys; p=sys.argv[1]; print(len((json.load(open(p)).get('data_models') or [])) if os.path.exists(p) else 0)" .archie/tmp/archie_sub5_$PROJECT_NAME.json)

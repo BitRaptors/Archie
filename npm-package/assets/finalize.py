@@ -211,8 +211,47 @@ def _derive_persistence_writers(bp: dict) -> None:
         s["writers"] = sorted(writers_by_store.get(store_name, []))
 
 
-def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = False):
-    """Run the full finalization pipeline."""
+def _reset_reasoning_sections(bp: dict, payloads: list[dict]) -> None:
+    """Full-mode redo-safety: clear the Wave-2-regenerated sections that the
+    incoming payloads actually carry, so the subsequent merge REPLACES them
+    instead of appending.
+
+    Why: `deep_merge` concatenates lists (key_decisions / trade_offs / pitfalls
+    have no `name` to dedup on) and refuses to overwrite a non-empty scalar
+    (architecture_diagram / executive_summary). Without this, re-running step 5
+    (`--from 5`) onto a blueprint_raw that still holds the prior run's Wave-2
+    would duplicate the lists and keep a stale diagram/summary.
+
+    Only clears a key when a payload provides it — never blanks a section that
+    nothing will repopulate (e.g. a malformed/empty agent file). `communication`
+    is intentionally NOT cleared: its patterns dedup by `name`, and Wave 1 owns
+    the base array. Caller must gate this to full (non-patch) mode — patch mode
+    returns deltas and must preserve unchanged sections.
+    """
+    present = set()
+    for p in payloads:
+        present.update(p.keys())
+    for key in ("decisions", "implementation_guidelines", "pitfalls", "architecture_diagram"):
+        if key in present:
+            bp.pop(key, None)
+    # Nested: Overview owns meta.executive_summary; keep the rest of meta (Wave-1
+    # platforms / architecture_style).
+    if any(isinstance(p.get("meta"), dict) and "executive_summary" in p["meta"] for p in payloads):
+        if isinstance(bp.get("meta"), dict):
+            bp["meta"].pop("executive_summary", None)
+
+
+def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode: bool = False):
+    """Run the full finalization pipeline.
+
+    `agent_files` may be a single path (legacy) or a list of paths — Wave 2's
+    Design/Risk/Overview agents each write their own file and all are merged in
+    one call. Merging in a single call keeps step 5 atomic: the blueprint is
+    written once, so resume re-runs step 5 from scratch the same way the
+    single-agent pipeline did.
+    """
+    if isinstance(agent_files, str):
+        agent_files = [agent_files]
     archie_dir = root / ".archie"
     bp_raw_path = archie_dir / "blueprint_raw.json"
 
@@ -225,37 +264,52 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
         print("Error: no blueprint found (.archie/blueprint_raw.json or .archie/blueprint.json)", file=sys.stderr)
         sys.exit(1)
 
-    # ── 1. Merge Agent X / patch output ───────────────────────────────────
-    if agent_x_file:
+    # ── 1. Merge reasoning agent output(s) / patch output ─────────────────
+    # Wave 2 may hand us one file (legacy / incremental single-agent) or three
+    # (Design / Risk / Overview). Merge them all in this one call so the
+    # blueprint is written exactly once — disjoint key ownership means order is
+    # irrelevant, and findings are routed per file (only Risk emits them).
+    if agent_files:
         _merge = _import_sibling("merge")
         extract_json_from_text = _merge.extract_json_from_text
         deep_merge = _merge.deep_merge
 
-        agent_x_path = Path(agent_x_file)
-        if agent_x_path.exists():
-            text = agent_x_path.read_text()
-            parsed = extract_json_from_text(text)
-            if parsed:
-                # Findings live in .archie/findings.json, not in the blueprint.
-                # Extract and merge id-stably before deep-merging the rest.
-                new_findings = parsed.pop("findings", None)
-                if isinstance(new_findings, list) and new_findings:
-                    total = _merge_findings_into_store(archie_dir, new_findings)
-                    print(f"  Findings store: {total} entries after deep-scan upgrade", file=sys.stderr)
+        # Parse every agent file up front (routing findings to the store as we
+        # go) so we know which reasoning sections will be regenerated before we
+        # touch the base — needed for safe clear-then-merge below.
+        payloads = []
+        for agent_file in agent_files:
+            agent_path = Path(agent_file)
+            if not agent_path.exists():
+                print(f"  Warning: {agent_file} not found, skipping merge", file=sys.stderr)
+                continue
+            parsed = extract_json_from_text(agent_path.read_text())
+            if not parsed:
+                print(f"  Warning: could not parse JSON from {agent_file}", file=sys.stderr)
+                continue
+            # Findings live in .archie/findings.json, not in the blueprint.
+            # Extract and merge id-stably before deep-merging the rest.
+            new_findings = parsed.pop("findings", None)
+            if isinstance(new_findings, list) and new_findings:
+                total = _merge_findings_into_store(archie_dir, new_findings)
+                print(f"  Findings store: {total} entries after deep-scan upgrade", file=sys.stderr)
+            payloads.append(parsed)
 
+        if payloads:
+            # Redo-safety (full mode only): replace, don't append, the Wave-2
+            # sections so `--from 5` is idempotent. See _reset_reasoning_sections.
+            if not patch_mode:
+                _reset_reasoning_sections(bp, payloads)
+            for parsed in payloads:
                 bp = deep_merge(bp, parsed)
-                if patch_mode:
-                    # In patch mode, write directly to blueprint.json (skip raw)
-                    bp_path = archie_dir / "blueprint.json"
-                    bp_path.write_text(json.dumps(bp, indent=2))
-                    print("  Patched blueprint.json with incremental reasoning", file=sys.stderr)
-                else:
-                    bp_raw_path.write_text(json.dumps(bp, indent=2))
-                    print("  Merged Agent X output into blueprint_raw.json", file=sys.stderr)
+
+            if patch_mode:
+                # In patch mode, write directly to blueprint.json (skip raw)
+                (archie_dir / "blueprint.json").write_text(json.dumps(bp, indent=2))
+                print("  Patched blueprint.json with incremental reasoning", file=sys.stderr)
             else:
-                print(f"  Warning: could not parse JSON from {agent_x_file}", file=sys.stderr)
-        else:
-            print(f"  Warning: {agent_x_file} not found, skipping merge", file=sys.stderr)
+                bp_raw_path.write_text(json.dumps(bp, indent=2))
+                print("  Merged reasoning output into blueprint_raw.json", file=sys.stderr)
 
     # ── 2. Deterministic normalize ─────────────────────────────────────────
     sys.path.insert(0, str(_SCRIPT_DIR))
@@ -324,9 +378,16 @@ def finalize(root: Path, agent_x_file: str | None = None, patch_mode: bool = Fal
     # ── 7. Validate (informational) ────────────────────────────────────────
     _validate = _import_sibling("validate")
     check_paths, check_methods, check_pitfalls = _validate.check_paths, _validate.check_methods, _validate.check_pitfalls
+    # check_crosslinks measures Wave-2 cross-reference integrity (pitfall→decision,
+    # finding→pitfall, trade_off→decision, chain→key_decisions). WARN-only — it is
+    # the no-regress signal for the 3-agent split, never a hard gate.
+    check_crosslinks = getattr(_validate, "check_crosslinks", None)
 
     all_errors = []
-    for name, fn in [("paths", check_paths), ("methods", check_methods), ("pitfalls", check_pitfalls)]:
+    checks = [("paths", check_paths), ("methods", check_methods), ("pitfalls", check_pitfalls)]
+    if check_crosslinks is not None:
+        checks.append(("crosslinks", check_crosslinks))
+    for name, fn in checks:
         errors = fn(root)
         all_errors.extend(errors)
 
@@ -366,18 +427,21 @@ def normalize_only(root: Path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 finalize.py /path/to/project [agent_x_output.json]", file=sys.stderr)
-        print("  Or:  python3 finalize.py /path/to/project --patch incremental_reasoning.json", file=sys.stderr)
+        print("Usage: python3 finalize.py /path/to/project [agent1.json agent2.json ...]", file=sys.stderr)
+        print("  Or:  python3 finalize.py /path/to/project --patch [agent1.json ...]", file=sys.stderr)
         print("  Or:  python3 finalize.py /path/to/project --normalize-only", file=sys.stderr)
         sys.exit(1)
 
     project_root = Path(sys.argv[1]).resolve()
+    rest = sys.argv[2:]
 
-    if len(sys.argv) > 2 and sys.argv[2] == "--normalize-only":
+    if rest and rest[0] == "--normalize-only":
         normalize_only(project_root)
-    elif len(sys.argv) > 2 and sys.argv[2] == "--patch":
-        agent_x = sys.argv[3] if len(sys.argv) > 3 else None
-        finalize(project_root, agent_x, patch_mode=True)
     else:
-        agent_x = sys.argv[2] if len(sys.argv) > 2 else None
-        finalize(project_root, agent_x)
+        patch_mode = False
+        if rest and rest[0] == "--patch":
+            patch_mode = True
+            rest = rest[1:]
+        # rest is now zero or more agent output files (one for the legacy /
+        # incremental single agent, three for the Design/Risk/Overview split).
+        finalize(project_root, rest or None, patch_mode=patch_mode)

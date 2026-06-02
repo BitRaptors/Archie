@@ -108,7 +108,7 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
    | 2 | read accumulated knowledge |
    | 3 | Wave 1 analytical agents |
    | 4 | Wave 1 merge |
-   | 5 | Wave 2 reasoning agent |
+   | 5 | Wave 2 reasoning agents (Design/Risk/Overview) |
    | 6 | AI rule synthesis |
    | 7 | Intent Layer |
    | 8 | Cleanup |
@@ -167,7 +167,7 @@ If `START_STEP > N` (the Preamble decided to skip earlier steps), do not Read or
 | 2 | Read accumulated knowledge from prior runs | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-2-read-scan.md` |
 | 3 | Wave 1 — spawn parallel analytical agents | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/orchestration.md` |
 | 4 | Save & merge Wave 1 output | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-4-merge.md` |
-| 5 | Wave 2 — reasoning agent ({{REASONING_MODEL}}) | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-5-wave2-reasoning.md` |
+| 5 | Wave 2 — reasoning agents: Design · Risk · Overview ({{REASONING_MODEL}}, parallel) | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-5-wave2-reasoning.md` |
 | 6 | AI rule synthesis | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-6-rule-synthesis.md` |
 | 7 | Intent Layer — per-folder CLAUDE.md | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-7-intent-layer.md` |
 | 8 | Cleanup | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-8-cleanup.md` |

@@ -100,6 +100,12 @@ Collect the subprojects that pass the test (call this list `WORKSPACE_BLUEPRINTS
 
 For the remaining Phase 0 steps and all subsequent phases, use `$PROJECT_ROOT` instead of `$PWD` when passing the project root as a script argument.
 
+**Start the run timer (standalone only).** Record when this standalone run begins so its total duration is captured on completion. When invoked from `{{COMMAND_PREFIX}}archie-deep-scan` Step 7 you will have SKIPPED this entire Phase 0 (per the deep-scan deltas), so this never fires inside a deep scan — deep-scan times its own `intent_layer` step.
+
+```bash
+python3 .archie/telemetry.py mark "$PROJECT_ROOT" intent-layer run
+```
+
 ### Step 0.b: Check scan.json
 
 ```bash
@@ -256,6 +262,13 @@ If `detect-changes` returns `mode=full` with `reason="no previous deep scan"` �
 If `MODE=incremental` and `affected_folders` is empty (user just ran deep-scan, nothing has changed since), print:
 
 > No folders have changed since the last deep scan. Every folder's CLAUDE.md is already current. Nothing to regenerate.
+
+Before exiting, close out the run timer so it doesn't dangle into the next run's record:
+
+```bash
+python3 .archie/telemetry.py finish "$PROJECT_ROOT" run
+python3 .archie/telemetry.py write  "$PROJECT_ROOT"
+```
 
 Exit gracefully. This is a success, not an error.
 
@@ -452,8 +465,16 @@ python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" enrich_state.json --quer
 
 M (CLAUDE.md files written) is reported by `merge` on stderr in Phase 3 — capture it from that output rather than re-computing.
 
-## Telemetry (run after the run completes, silent if opted out)
+## Telemetry — close the run timer (standalone only, silent if opted out)
+
+Close and flush the run timer started in Phase 0. `write` consumes the in-flight
+state into `.archie/telemetry/intent-layer_<timestamp>.json` (carrying
+`total_seconds` = how long the standalone run took) and fires the opt-in sync.
+Skip this when invoked from `{{COMMAND_PREFIX}}archie-deep-scan` Step 7 — you ran
+only Phases 1–4 there, never reaching this section, and deep-scan records the
+`intent_layer` step in its own run.
 
 ```bash
-python3 .archie/telemetry_sync.py record-event --command intent-layer --outcome success --project-root "$PROJECT_ROOT" 2>/dev/null || true
+python3 .archie/telemetry.py finish "$PROJECT_ROOT" run
+python3 .archie/telemetry.py write  "$PROJECT_ROOT"
 ```

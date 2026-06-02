@@ -587,6 +587,136 @@ def check_data_models(root: Path) -> list[dict]:
     return errors
 
 
+# ---------------------------------------------------------------------------
+# Check: Wave-2 cross-reference integrity (informational, WARN-only)
+# ---------------------------------------------------------------------------
+
+_CROSSLINK_STOP = {"the", "a", "an", "of", "for", "and", "or", "to", "in", "on",
+                   "with", "by", "from", "via", "is", "are", "be", "this", "that"}
+
+
+def _crosslink_tokens(s: str) -> set[str]:
+    return {t for t in re.split(r"[^a-z0-9]+", (s or "").lower())
+            if len(t) > 2 and t not in _CROSSLINK_STOP}
+
+
+def _references_any(text: str, titles: list[str]) -> bool:
+    """Tolerant prose match: does `text` plausibly name any of `titles`?
+
+    Prose root_cause/caused_by rarely quotes a decision title verbatim, so we
+    match on token overlap — at least half of a title's significant tokens
+    (min 2) present in the text. Deliberately loose: this is a WARN signal, and
+    over-strict matching would flood it with false positives.
+    """
+    tt = _crosslink_tokens(text)
+    if not tt:
+        return False
+    for title in titles:
+        nt = _crosslink_tokens(title)
+        if nt and len(tt & nt) >= max(2, (len(nt) + 1) // 2):
+            return True
+    return False
+
+
+def check_crosslinks(root: Path) -> list[dict]:
+    """Measure Wave-2 cross-reference integrity. Always WARN-only.
+
+    The Design / Risk / Overview agents run in parallel, so Risk cannot cite
+    Design's exact decision titles. These checks quantify how well the
+    cross-references still resolve, so a regression vs the single-agent output
+    is visible rather than silent:
+      1. pitfall.root_cause names a known decision/pattern
+      2. trade_off.caused_by matches a key_decision title
+      3. decision_chain decisions appear in key_decisions
+      4. finding.pitfall_id resolves to a real pitfall (the one hard link)
+    """
+    errors: list[dict] = []
+    bp = _load_json(root / ".archie" / "blueprint.json")
+
+    decisions = bp.get("decisions") if isinstance(bp.get("decisions"), dict) else {}
+    key_decisions = [d for d in decisions.get("key_decisions", []) if isinstance(d, dict)]
+    decision_titles = [str(d.get("title", "")) for d in key_decisions if d.get("title")]
+    style = decisions.get("architectural_style")
+    if isinstance(style, dict) and style.get("title"):
+        decision_titles.append(str(style["title"]))
+    comm = bp.get("communication") if isinstance(bp.get("communication"), dict) else {}
+    pattern_names = [str(p.get("name", "")) for p in comm.get("patterns", [])
+                     if isinstance(p, dict) and p.get("name")]
+    decision_refs = decision_titles + pattern_names
+
+    pitfalls = bp.get("pitfalls") if isinstance(bp.get("pitfalls"), list) else []
+    pitfall_ids = {str(p.get("id")) for p in pitfalls if isinstance(p, dict) and p.get("id")}
+
+    # 1. pitfall.root_cause → decision/pattern
+    for p in pitfalls:
+        if not isinstance(p, dict):
+            continue
+        rc = str(p.get("root_cause", ""))
+        if rc and decision_refs and not _references_any(rc, decision_refs):
+            errors.append({
+                "check": "crosslink_pitfall_root_cause",
+                "file": "blueprint.json pitfalls",
+                "claim": str(p.get("id", "?")),
+                "status": "WARNING",
+                "detail": f"pitfall {p.get('id', '?')} root_cause names no known decision/pattern",
+            })
+
+    # 2. trade_off.caused_by → key_decision title
+    for t in decisions.get("trade_offs", []):
+        if not isinstance(t, dict):
+            continue
+        cb = str(t.get("caused_by", ""))
+        if cb and decision_titles and not _references_any(cb, decision_titles):
+            errors.append({
+                "check": "crosslink_tradeoff_caused_by",
+                "file": "blueprint.json trade_offs",
+                "claim": cb[:60],
+                "status": "WARNING",
+                "detail": f"trade_off caused_by '{cb[:60]}' matches no key_decision title",
+            })
+
+    # 3. decision_chain decisions → key_decisions
+    chain_decisions: list[str] = []
+
+    def _walk(forces):
+        for f in forces or []:
+            if isinstance(f, dict):
+                if f.get("decision"):
+                    chain_decisions.append(str(f["decision"]))
+                _walk(f.get("forces"))
+
+    chain = decisions.get("decision_chain")
+    if isinstance(chain, dict):
+        _walk(chain.get("forces"))
+    for cd in chain_decisions:
+        if decision_titles and not _references_any(cd, decision_titles):
+            errors.append({
+                "check": "crosslink_chain_decision",
+                "file": "blueprint.json decision_chain",
+                "claim": cd[:60],
+                "status": "WARNING",
+                "detail": f"decision_chain decision '{cd[:60]}' not found among key_decisions",
+            })
+
+    # 4. finding.pitfall_id → pitfall.id (hard link)
+    store = _load_json(root / ".archie" / "findings.json")
+    findings = store.get("findings", []) if isinstance(store, dict) else (store if isinstance(store, list) else [])
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        pid = f.get("pitfall_id")
+        if pid and str(pid) not in pitfall_ids:
+            errors.append({
+                "check": "crosslink_finding_pitfall_id",
+                "file": "findings.json",
+                "claim": str(pid),
+                "status": "WARNING",
+                "detail": f"finding {f.get('id', '?')} pitfall_id '{pid}' has no matching pitfall",
+            })
+
+    return errors
+
+
 def _print_results(errors: list[dict]):
     fails = [e for e in errors if e["status"] == "FAIL"]
     warns = [e for e in errors if e["status"] == "WARNING"]
@@ -615,6 +745,7 @@ if __name__ == "__main__":
         print("  python3 validate.py files /path/to/repo", file=sys.stderr)
         print("  python3 validate.py pitfalls /path/to/repo", file=sys.stderr)
         print("  python3 validate.py data /path/to/repo", file=sys.stderr)
+        print("  python3 validate.py crosslinks /path/to/repo", file=sys.stderr)
         sys.exit(1)
 
     subcmd = sys.argv[1]
@@ -628,6 +759,7 @@ if __name__ == "__main__":
         "verbs": ("Component verbs", check_component_verbs),
         "workspace": ("Workspace topology", check_workspace_topology),
         "data": ("Data models cross-refs", check_data_models),
+        "crosslinks": ("Wave-2 cross-link integrity", check_crosslinks),
     }
 
     if subcmd == "all":
