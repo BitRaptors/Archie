@@ -52,6 +52,16 @@ npx @bitraptors/archie /path/to/project
 python -m pytest tests/ -v
 ```
 
+### Benchmark Harness (internal)
+```bash
+# Measure Archie effectiveness: same task, control (no Archie) vs treatment (full Archie)
+python3 -m archie.benchmark auto /path/to/repo --prompt "..."   # prep + run from a plain repo
+python3 -m archie.benchmark run config.json                     # run on existing branches
+```
+Internal-only (not shipped via npm). Captures tool calls / tokens / cost / time +
+blind judge-Claude quality, writes to Supabase (`benchmark_runs`, `benchmark_samples`).
+See `archie/benchmark/README.md`.
+
 ## Command Architecture
 
 - **`/archie-deep-scan`** — Comprehensive baseline (15-20 min). Full 2-wave AI analysis producing blueprint, per-folder CLAUDE.md, rules, and health metrics. Rerun to refresh the baseline; each run builds on prior findings.
