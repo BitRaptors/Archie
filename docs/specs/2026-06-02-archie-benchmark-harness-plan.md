@@ -1228,7 +1228,7 @@ from archie.benchmark import orchestrator
 def _cfg(tmp_path, reps=2):
     return BenchmarkConfig(
         name="demo", repo=tmp_path, task_prompt="do it",
-        model="m", branches={"treatment": "t", "control": "c"},
+        model="m", branches={"treatment": "treatment", "control": "control"},
         repetitions=reps, judge=JudgeConfig(model="jm", rubric=["correctness"]),
         timeout_seconds=60,
     )
@@ -1296,7 +1296,7 @@ def test_run_benchmark_builds_matrix_and_aggregates(tmp_path, monkeypatch):
 
 def test_fairness_guard_rejects_divergent_base(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator, "_branch_base",
-                        lambda repo, b: "AAA" if b == "t" else "BBB")
+                        lambda repo, b: "AAA" if b == "treatment" else "BBB")
     with pytest.raises(ValueError, match="base commit"):
         orchestrator.run_benchmark(_cfg(tmp_path), run_fn=lambda *a: None,
                                    judge_fn=lambda *a, **k: None,
@@ -1305,6 +1305,7 @@ def test_fairness_guard_rejects_divergent_base(tmp_path, monkeypatch):
 
 def test_failed_sample_does_not_sink_run(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator, "_branch_base", lambda repo, b: "same")
+    monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "base")
     import contextlib
     @contextlib.contextmanager
     def fake_worktree(repo, branch, dest):
