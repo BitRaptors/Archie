@@ -30,3 +30,32 @@ def test_empty_diff_when_no_changes(tmp_path):
     _init_repo(tmp_path)
     diff = capture_diff(tmp_path)
     assert diff.strip() == ""
+
+
+def test_excludes_build_and_cache_noise(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "calc.py").write_text("def f():\n    return 1\n")   # real change
+    # universal build/cache noise (no .gitignore in this repo):
+    pyc_dir = tmp_path / "__pycache__"
+    pyc_dir.mkdir()
+    (pyc_dir / "calc.cpython-311.pyc").write_text("BYTECODE")
+    (tmp_path / ".DS_Store").write_text("junk")
+    nm = tmp_path / "node_modules" / "left-pad"
+    nm.mkdir(parents=True)
+    (nm / "index.js").write_text("module.exports = 1\n")
+
+    diff = capture_diff(tmp_path)
+    # real source change is present
+    assert "calc.py" in diff
+    # noise is excluded
+    assert "__pycache__" not in diff
+    assert "calc.cpython-311.pyc" not in diff
+    assert ".DS_Store" not in diff
+    assert "node_modules" not in diff
+
+
+def test_still_includes_plain_untracked(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "b.txt").write_text("new file\n")
+    diff = capture_diff(tmp_path)
+    assert "b.txt" in diff
