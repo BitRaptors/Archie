@@ -108,11 +108,12 @@ def test_container_edges_from_dir_graph_reachability():
 
 
 def test_component_edges_from_dir_graph():
+    # dir graph edges aggregate to group-level edges.
     bp = _bp()
     c4.enrich_components(bp, _scan())
-    dg = {"openmeter/billing": {"pkg/models"}, "pkg/models": set()}
+    dg = {"openmeter/billing/charges": {"pkg/models"}, "pkg/models": set()}
     out = c4.build_component(bp, None, dg)
-    assert 'Rel(openmeter_billing, pkg_models, "depends on")' in out
+    assert 'Rel(openmeter, pkg, "depends on")' in out
 
 
 def test_build_container_empty_when_no_nodes():
@@ -129,15 +130,18 @@ def test_build_component_empty_when_no_components():
 
 # ── Component level ─────────────────────────────────────────────────────────
 
-def test_build_component_uses_depends_on_and_groups():
+def test_build_component_collapses_to_groups():
+    # Component level = folder-group nodes + group edges (fallback via depends_on).
     bp = _bp()
-    bp["components"]["components"][2]["depends_on"] = ["pkg/models"]
+    bp["components"]["components"][2]["depends_on"] = ["pkg/models"]  # openmeter/billing -> pkg/models
     c4.enrich_components(bp, _scan())
     out = c4.build_component(bp)
     assert out.startswith("C4Component")
-    assert "Component(" in out
-    assert "Rel(" in out
-    assert "Container_Boundary(" in out
+    # group nodes, not per-module nodes
+    assert 'Component(openmeter,' in out and 'Component(pkg,' in out
+    assert 'Component(openmeter_billing,' not in out
+    # group-level edge
+    assert 'Rel(openmeter, pkg, "depends on")' in out
 
 
 # ── build_all + CLI ─────────────────────────────────────────────────────────
