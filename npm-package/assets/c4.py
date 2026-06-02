@@ -308,48 +308,46 @@ def build_container(bp: dict, scan: dict, name: str | None = None,
 
 def build_component(bp: dict, name: str | None = None,
                     dir_graph: dict | None = None) -> str:
-    """Module-layer view: one node per folder GROUP (cmd / openmeter / api / pkg
-    …), edges between groups. The real per-module graph is complete but a
-    hairball on mature monorepos, so we collapse to groups for legibility — the
-    full module inventory stays in the blueprint Components section."""
+    """Per-module view: each component node lives inside its folder-group
+    boundary, with edges from the real directory dependency graph (or AI
+    `depends_on` when no import graph exists for the language)."""
     name = _system_name(bp, name)
     comps = [c for c in _components(bp) if c.get("kind") != "datastore"]
     if not comps:  # node-less guard (see build_container)
         return ""
+    by_name = {c.get("name"): c for c in comps}
+    lines = ["C4Component", f"title Components — {name}"]
+    rels: list[str] = []
     groups: dict[str, list[dict]] = {}
     for c in comps:
         grp = c.get("group") or _group_of(c.get("location", ""))
         groups.setdefault(grp, []).append(c)
-    known = set(groups)
-    lines = ["C4Component", f"title Module groups — {name}"]
     for grp in sorted(groups):
-        n = len(groups[grp])
-        lines.append(f'Component({_slug(grp)}, "{grp}", "{n} module{"" if n == 1 else "s"}")')
-
-    rels: list[str] = []
+        lines.append(f'Container_Boundary(bc_{_slug(grp)}, "{grp}") {{')
+        for c in sorted(groups[grp], key=lambda x: _slug(x.get("name", ""))):
+            cid = _slug(c.get("name", ""))
+            resp = (c.get("responsibility") or c.get("kind") or "").replace('"', "'")[:60]
+            lines.append(f'  Component({cid}, "{c.get("name", "")}", "{resp}")')
+        lines.append("}")
     if dir_graph:
-        # GROUND TRUTH: aggregate the real directory dependency graph to groups
-        # (a dir's group = its first path segment, when that segment is a group).
-        def grp_of(d: str):
-            seg = d.split("/", 1)[0]
-            return seg if seg in known else None
+        # GROUND TRUTH: aggregate the real directory dependency graph to the
+        # component level (each dir owned by its longest-prefix component).
+        owner = _owner_resolver(comps)
         for d1, deps in dir_graph.items():
-            ga = grp_of(d1)
-            if ga is None:
+            a = owner(d1)
+            if a is None:
                 continue
             for d2 in deps:
-                gb = grp_of(d2)
-                if gb is not None and gb != ga:
-                    rels.append(f'Rel({_slug(ga)}, {_slug(gb)}, "depends on")')
+                b = owner(d2)
+                if b is not None and b != a:
+                    rels.append(f'Rel({_slug(a)}, {_slug(b)}, "depends on")')
     else:
-        # Fallback: aggregate the AI `depends_on` field to groups.
-        name_group = {c.get("name"): (c.get("group") or _group_of(c.get("location", ""))) for c in comps}
+        # Fallback: the AI `depends_on` field (no import graph for this language).
         for c in comps:
-            ga = name_group.get(c.get("name"))
-            for dep in c.get("depends_on", []) or []:
-                gb = name_group.get(dep)
-                if ga and gb and ga != gb:
-                    rels.append(f'Rel({_slug(ga)}, {_slug(gb)}, "depends on")')
+            src = _slug(c.get("name", ""))
+            for dep in sorted(c.get("depends_on", []) or []):
+                if dep in by_name:
+                    rels.append(f'Rel({src}, {_slug(dep)}, "depends on")')
     return "\n".join(lines + sorted(set(rels)))
 
 
