@@ -31,6 +31,9 @@ python3 .archie/drift.py "$PROJECT_ROOT"
 Set the drift window by depth. Default depth: last 30 days, capped at 100 files. When `DEPTH=comprehensive`: full history, effectively unbounded. The pipeline shape stays identical in both depths — only these two vars change. Use a bash **array** for the `--since` argument so the value (which contains a space) is passed as a single argument, not word-split.
 
 ```bash
+# Re-derive DEPTH from persisted state so this late step does not depend on the
+# shell variable surviving from Phase 0 across a long run / compaction.
+DEPTH=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state.json --query .run_context.depth 2>/dev/null)
 if [ "$DEPTH" = "comprehensive" ]; then
   SINCE_ARGS=()            # full history
   DRIFT_MAX=1000000        # effectively unbounded

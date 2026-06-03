@@ -16,16 +16,27 @@ def _read(p):
     return Path(p).read_text()
 
 
+DEPTH_REDERIVE = ".run_context.depth"
+
+
 def test_step1_passes_comprehensive_to_scanner():
     t = _read(STEPS / "step-1-scanner.md")
     assert 'DEPTH" = "comprehensive"' in t and "COMP_FLAG" in t
     assert "scanner.py" in t and "$COMP_FLAG" in t
+    # must re-derive DEPTH from disk, not rely on cross-step shell persistence
+    assert DEPTH_REDERIVE in t
 
 
 def test_step6_passes_comprehensive_to_renderer():
     t = _read(STEPS / "step-6-rule-synthesis.md")
     # the renderer invocation must carry the flag
     assert "renderer.py" in t and "$COMP_FLAG" in t
+    assert DEPTH_REDERIVE in t
+
+
+def test_step9_rederives_depth_from_disk():
+    t = _read(STEPS / "step-9-drift.md")
+    assert DEPTH_REDERIVE in t and "SINCE_ARGS" in t
 
 
 def test_step5_preamble_injects_depth():

@@ -365,6 +365,7 @@ python3 .archie/rule_index.py build "$PROJECT_ROOT"
 Refresh the rendered topic files now that `rules.json` exists. This re-emits the `.claude/rules/enforcement/` directory (index.md + by-topic/ + universal.md) and refreshes the other topic files / CLAUDE.md / AGENTS.md idempotently — merge markers preserve any hand-edits:
 
 ```bash
+DEPTH=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state.json --query .run_context.depth 2>/dev/null)
 COMP_FLAG=""; [ "$DEPTH" = "comprehensive" ] && COMP_FLAG="--comprehensive"
 python3 .archie/renderer.py "$PROJECT_ROOT" $COMP_FLAG
 ```
