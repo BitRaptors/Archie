@@ -216,3 +216,18 @@ def test_telemetry_steps_count_after_mark(tmp_path):
     _run_telemetry("mark", str(tmp_path), "deep-scan", "step_two")
     r = _run_telemetry("steps-count", str(tmp_path))
     assert r.stdout.strip() == "2"
+
+
+def test_save_run_context_persists_depth(tmp_path):
+    import subprocess, json, sys
+    root = tmp_path
+    script = "archie/standalone/intent_layer.py"
+    subprocess.run([sys.executable, script, "deep-scan-state", str(root), "init"], check=True)
+    subprocess.run(
+        [sys.executable, script, "deep-scan-state", str(root),
+         "save-run-context", "--depth", "comprehensive", "--scan-mode", "full"],
+        check=True,
+    )
+    state = json.loads((root / ".archie" / "deep_scan_state.json").read_text())
+    assert state["run_context"]["depth"] == "comprehensive"
+    assert state["run_context"]["scan_mode"] == "full"
