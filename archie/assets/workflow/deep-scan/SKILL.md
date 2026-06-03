@@ -10,7 +10,7 @@ Run a comprehensive architecture analysis. Produces full blueprint, per-folder C
 **Modes:**
 - `{{COMMAND_PREFIX}}archie-deep-scan` — full baseline from step 1 (default, proven workflow)
 - `{{COMMAND_PREFIX}}archie-deep-scan --incremental` — only process files changed since last deep scan (fast, 3-6 min)
-- `{{COMMAND_PREFIX}}archie-deep-scan comprehensive` — lift quotas + scope caps for a fully comprehensive baseline (slower). Composes with `--incremental`.
+- `{{COMMAND_PREFIX}}archie-deep-scan --comprehensive` — lift quotas + scope caps for a fully comprehensive baseline (slower). Composes with `--incremental`.
 - `{{COMMAND_PREFIX}}archie-deep-scan --from N` — resume from step N (runs N through 9)
 - `{{COMMAND_PREFIX}}archie-deep-scan --continue` — resume from where the last run stopped
 
@@ -48,7 +48,7 @@ If you need data not covered by these commands, proceed without it or ask the us
 
 Check the user's message (ARGUMENTS) for flags:
 
-**Depth (independent of the flags above):** Parse this first, regardless of which flag branch runs below. If ARGUMENTS contains the word `comprehensive`, set `DEPTH=comprehensive`. Otherwise set `DEPTH=default`.
+**Depth (independent of the flags above):** Parse this first, regardless of which flag branch runs below. If ARGUMENTS contains `--comprehensive` (the canonical form; a bare `comprehensive` is also accepted), set `DEPTH=comprehensive`. Otherwise set `DEPTH=default`.
 
 **If `--from N` is present** (e.g., `{{COMMAND_PREFIX}}archie-deep-scan --from 5`):
 1. Set `START_STEP = N` (the number after --from) and `RESUME_ACTION=resume` (so the Resume Prelude rehydrates shell variables from `deep_scan_state.run_context`).
