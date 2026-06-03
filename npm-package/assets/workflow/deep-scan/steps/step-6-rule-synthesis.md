@@ -21,7 +21,7 @@ The blueprint contains architectural facts. This step synthesizes them into **ar
 
 Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 
-**Prepend the resolved depth to the prompt** (so the "In comprehensive depth" clause below is actionable): add a first line `Analysis depth: <DEPTH>` — replace `<DEPTH>` with this run's resolved value (`default` or `comprehensive`).
+**Prepend the depth contract to the prompt.** When `DEPTH=comprehensive`, add this first line verbatim: *COMPREHENSIVE MODE — be exhaustive. Every item-count in these instructions ("N-M", "up to N", "soft floor of N", "top N", "the most important") is a FLOOR, not a ceiling: emit every item that meets the quality bar, with no upper bound and no padding.* When `DEPTH=default`, prepend nothing.
 
 > Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, development_rules, infrastructure_rules, and architecture_rules (file_placement_rules + naming_conventions).
 >

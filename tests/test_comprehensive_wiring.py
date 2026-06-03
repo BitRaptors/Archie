@@ -39,19 +39,31 @@ def test_step9_rederives_depth_from_disk():
     assert DEPTH_REDERIVE in t and "SINCE_ARGS" in t
 
 
-def test_step5_preamble_injects_depth():
+CONTRACT = "COMPREHENSIVE MODE — be exhaustive"
+
+
+def test_skill_has_global_contract():
+    t = _read(WF / "SKILL.md")
+    assert "Comprehensive Mode Contract" in t
+    # the contract must state the FLOOR-not-ceiling rule and the two surviving limits
+    assert "FLOOR" in t and "8-12 nodes" in t
+
+
+def test_step5_preamble_injects_contract():
+    # Wave-2 preamble covers design + risk + overview, so this is what makes the
+    # Risk agent's findings/pitfalls unbounded (the previously-missed step-5b).
     t = _read(STEPS / "step-5-wave2-reasoning.md")
-    assert "Analysis depth: `<DEPTH>`" in t
+    assert CONTRACT in t
 
 
-def test_step6_prompt_injects_depth():
+def test_step6_prompt_injects_contract():
     t = _read(STEPS / "step-6-rule-synthesis.md")
-    assert "Analysis depth: <DEPTH>" in t
+    assert CONTRACT in t
 
 
-def test_wave1_dispatch_injects_depth():
+def test_wave1_dispatch_injects_contract():
     t = _read(STEPS / "step-3-wave1" / "orchestration.md")
-    assert "Analysis depth: <DEPTH>" in t
+    assert CONTRACT in t
 
 
 def test_npm_package_workflow_in_sync():

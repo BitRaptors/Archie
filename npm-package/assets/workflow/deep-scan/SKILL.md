@@ -50,6 +50,15 @@ Check the user's message (ARGUMENTS) for flags:
 
 **Depth (independent of the flags above):** Parse this first, regardless of which flag branch runs below. If ARGUMENTS contains `--comprehensive` (the canonical form; a bare `comprehensive` is also accepted), set `DEPTH=comprehensive`. Otherwise set `DEPTH=default`.
 
+> ### Comprehensive Mode Contract (governs EVERY step when `DEPTH=comprehensive`)
+> This is the single global rule for comprehensive depth — it overrides any per-step count, everywhere, including steps that carry no explicit comprehensive clause.
+>
+> **Treat every item-count anywhere in this workflow — `N-M`, "up to N", "top N", "the N most", "soft floor of N", "a handful", "the most important" — as a FLOOR with no ceiling.** Produce every item that genuinely meets its quality bar; never trim to a number, never stop at a "natural" count. The quality bar is unchanged: do NOT pad, invent, or weaken per-item rigor to inflate counts.
+>
+> Only two limits survive comprehensive mode: **(1)** the architecture diagram stays **8-12 nodes** (readability), and **(2)** the scripts' mechanical safety/context budgets (per-file read size, per-batch token budget, recursion). Everything else — rules, findings, pitfalls, decisions, trade-offs, components, guidelines, examples, drift findings, naming examples, per-field prose length — is uncapped.
+>
+> Whenever a step dispatches a sub-agent in comprehensive depth, prepend the contract line shown at that dispatch site so the sub-agent inherits this rule.
+
 **If `--from N` is present** (e.g., `{{COMMAND_PREFIX}}archie-deep-scan --from 5`):
 1. Set `START_STEP = N` (the number after --from) and `RESUME_ACTION=resume` (so the Resume Prelude rehydrates shell variables from `deep_scan_state.run_context`).
 2. Validate prerequisites exist:
