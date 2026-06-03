@@ -32,6 +32,26 @@ from pathlib import Path
 ARCHIE_MARKER_START = "<!-- archie:generated:start -->"
 ARCHIE_MARKER_END = "<!-- archie:generated:end -->"
 
+
+# ---------------------------------------------------------------------------
+# Comprehensive-depth render switch
+# ---------------------------------------------------------------------------
+#
+# Default depth trims several blueprint sections to a fixed cap so the rendered
+# CLAUDE.md / AGENTS.md stay lean. Comprehensive depth (the `--comprehensive`
+# CLI flag, set in main()) lifts those caps so every blueprint item renders.
+# Implemented as a module-level switch read by `_cap` rather than a parameter
+# threaded through every render function — the slice sites are scattered across
+# several builders, and a flag keeps the change small and localized.
+
+_COMPREHENSIVE = False
+
+
+def _cap(seq, n):
+    """Return `seq` trimmed to `n` in default depth; the full `seq` when the
+    comprehensive switch is on."""
+    return seq if _COMPREHENSIVE else seq[:n]
+
 # Files that may coexist with hand-authored content. Everything else the
 # renderer emits (rule files under .claude/rules/, CLAUDE.md pointer) is
 # fully Archie-owned — those still get a straight overwrite because the
@@ -285,7 +305,7 @@ def _build_architecture_rule(bp: dict):
         lines.append("## Naming Conventions")
         lines.append("")
         for nc in naming:
-            examples = ", ".join(f"`{e}`" for e in (nc.get("examples") or [])[:4])
+            examples = ", ".join(f"`{e}`" for e in _cap(nc.get("examples") or [], 4))
             lines.append(f"- **{nc.get('scope', '')}**: {nc.get('pattern', '')} (e.g. {examples})")
         lines.append("")
 
@@ -615,7 +635,7 @@ def _render_pitfall_lines(pitfall: dict) -> list[str]:
         lines = [f"- **{pitfall['problem_statement']}**"]
         evidence = pitfall.get("evidence") or []
         if evidence:
-            ev_preview = "; ".join(str(e) for e in evidence[:3])
+            ev_preview = "; ".join(str(e) for e in _cap(evidence, 3))
             if len(evidence) > 3:
                 ev_preview += f"; … ({len(evidence)} total)"
             lines.append(f"  - *Evidence:* {ev_preview}")
@@ -1167,7 +1187,7 @@ def _build_technology_rule(bp: dict):
     if templates:
         lines.append("## Code Templates")
         lines.append("")
-        for tmpl in templates[:6]:
+        for tmpl in _cap(templates, 6):
             code = tmpl.get("code")
             if not code:
                 continue
@@ -1281,7 +1301,7 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
     dc = _get(bp, "decisions", "decision_chain", default={}) or {}
     if dc.get("root"):
         lines.append(f"**Root constraint:** {dc['root']}")
-        for f in (dc.get("forces") or [])[:5]:
+        for f in _cap(dc.get("forces") or [], 5):
             if not isinstance(f, dict):
                 continue
             lines.append(f"- → {f.get('decision', '')}")
@@ -1292,7 +1312,7 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
     valid_trade_offs = [to for to in trade_offs if isinstance(to, dict)]
     if valid_trade_offs:
         lines.append("**Key trade-offs:**")
-        for to in valid_trade_offs[:3]:
+        for to in _cap(valid_trade_offs, 3):
             accept = to.get("accept", "") or to.get("accepted", "")
             benefit = to.get("benefit", "") or to.get("gained", "")
             lines.append(f"- {accept} → {benefit}")
@@ -1329,7 +1349,7 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
                 "**Models** (full lifecycle in "
                 "[`.claude/rules/data-models.md`](.claude/rules/data-models.md)):"
             )
-            for m in data_models[:8]:
+            for m in _cap(data_models, 8):
                 lines.append(
                     f"- `{m.get('name','')}` ({m.get('kind','')}) — `{m.get('location','')}`"
                 )
@@ -1940,6 +1960,10 @@ def main():
         sys.exit(1)
 
     project_root = Path(sys.argv[1]).resolve()
+
+    global _COMPREHENSIVE
+    _COMPREHENSIVE = "--comprehensive" in sys.argv
+
     blueprint_path = project_root / ".archie" / "blueprint.json"
 
     if not blueprint_path.exists():
