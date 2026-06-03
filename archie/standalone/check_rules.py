@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (  # noqa: E402
     DECISION_RE as _DECISION_RE,
+    IgnoreMatcher,
     SKIP_DIRS,
     SOURCE_EXTENSIONS,
     _cc_python_function,
@@ -34,13 +35,23 @@ from _common import (  # noqa: E402
 
 
 def _walk_source_files(repo: Path) -> list[tuple[str, Path]]:
-    """Walk repo returning (rel_path, abs_path) for source files."""
+    """Walk repo returning (rel_path, abs_path) for source files, honoring
+    .gitignore/.archieignore via IgnoreMatcher."""
+    matcher = IgnoreMatcher(repo)
     results: list[tuple[str, Path]] = []
     for dirpath, dirnames, filenames in os.walk(repo):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        rel_dir = os.path.relpath(dirpath, repo)
+        if rel_dir == ".":
+            rel_dir = ""
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in SKIP_DIRS and not matcher.should_skip_dir(d, rel_dir)
+        ]
         for fname in filenames:
             ext = os.path.splitext(fname)[1].lower()
             if ext not in SOURCE_EXTENSIONS:
+                continue
+            if matcher.should_skip_file(fname, rel_dir):
                 continue
             abs_path = Path(dirpath) / fname
             rel_path = str(abs_path.relative_to(repo))
