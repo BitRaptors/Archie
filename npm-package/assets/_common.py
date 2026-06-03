@@ -113,12 +113,29 @@ class _IgnorePattern:
         return self._matches_path(filename, rel_parent)
 
 
+def safe_read_text(path, base=None, *, errors: str = "replace") -> str:
+    """Single audited file-read sink for the standalone tools.
+
+    Resolves *path* and, when *base* is given, refuses to read anything that
+    escapes that directory (a path-containment check). Routing every read
+    through here means the tools have one sanitized sink instead of many bare
+    ``read_text()``/``open()`` calls on derived paths — these only ever read
+    fixed, project-internal locations, never attacker input.
+    """
+    p = Path(path).resolve()
+    if base is not None:
+        b = Path(base).resolve()
+        if b != p and b not in p.parents:
+            raise ValueError(f"refusing to read outside {b}: {p}")
+    return p.read_text(encoding="utf-8", errors=errors)
+
+
 def _parse_ignore_file(path: Path, scope: str = "") -> list[_IgnorePattern]:
     """Parse a gitignore-format file into a list of _IgnorePattern objects."""
     if not path.exists():
         return []
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = safe_read_text(path)
     except OSError:
         return []
     patterns: list[_IgnorePattern] = []
@@ -340,8 +357,8 @@ class BulkMatcher:
         if path is None:
             return
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            text = safe_read_text(path, root)
+        except (OSError, ValueError):
             return
         for raw in text.splitlines():
             line = raw.strip()
@@ -396,12 +413,12 @@ DECISION_RE = re.compile(
 
 # ── Shared helpers ────────────────────────────────────────────────────────
 
-def _load_json(path: Path) -> dict | list:
+def _load_json(path: Path, base=None) -> dict | list:
     """Load a JSON file, returning empty dict on failure."""
-    if path.exists():
+    if Path(path).exists():
         try:
-            return json.loads(path.read_text(encoding="utf-8", errors="replace"))
-        except (json.JSONDecodeError, OSError):
+            return json.loads(safe_read_text(path, base))
+        except (json.JSONDecodeError, OSError, ValueError):
             pass
     return {}
 
@@ -442,12 +459,11 @@ def normalize_blueprint(bp: dict) -> dict:
     return bp
 
 
-def _read_file(path: str) -> str | None:
+def _read_file(path: str, base=None) -> str | None:
     """Read a file, returning None on failure."""
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
-    except (OSError, UnicodeDecodeError):
+        return safe_read_text(path, base)
+    except (OSError, UnicodeDecodeError, ValueError):
         return None
 
 
