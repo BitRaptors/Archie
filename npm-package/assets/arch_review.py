@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import _load_json  # noqa: E402
+from _common import _load_json, safe_read_text  # noqa: E402
 
 
 def _get_blueprint_context(root: Path) -> str:
@@ -155,7 +155,7 @@ def _get_folder_context(root: Path, changed_files: list[str]) -> str:
 
         claude_md = root / folder / "CLAUDE.md"
         if claude_md.exists():
-            content = claude_md.read_text()
+            content = safe_read_text(claude_md, root)
             # Truncate to keep context manageable
             if len(content) > 1500:
                 content = content[:1500] + "\n... (truncated)"

@@ -35,6 +35,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import safe_read_text  # noqa: E402
+
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 CLASSIFIER_TIMEOUT_SECS = 90
 
@@ -46,8 +49,8 @@ CLASSIFIER_TIMEOUT_SECS = 90
 
 def _load_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+        return json.loads(safe_read_text(path))
+    except (OSError, json.JSONDecodeError, ValueError):
         return None
 
 

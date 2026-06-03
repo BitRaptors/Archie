@@ -2,7 +2,11 @@ const SUPABASE_FUNCTIONS_URL =
   import.meta.env.VITE_SUPABASE_FUNCTIONS_URL ||
   'https://chlmyhkjnirrcrjdsvrc.supabase.co/functions/v1'
 
-const ENTERPRISE_TOKEN = 'ext'
+// Public URL-route sentinel (NOT a secret/credential): the value `ext` in
+// `/r/ext#<data>` selects the enterprise fetch path (data comes from the URL
+// fragment) instead of the Supabase-token path. Real share tokens are random
+// and validated server-side; this is plain routing, not authentication.
+const ENTERPRISE_ROUTE = 'ext'
 
 export interface SemanticDuplication {
   function?: string
@@ -75,7 +79,8 @@ async function fetchEnterpriseReport(): Promise<ReportResponse> {
 }
 
 export async function fetchReport(token: string): Promise<ReportResponse> {
-  if (token === ENTERPRISE_TOKEN) {
+  // Route selection by sentinel, not credential comparison (see ENTERPRISE_ROUTE).
+  if (token === ENTERPRISE_ROUTE) {
     return fetchEnterpriseReport()
   }
   const res = await fetch(`${SUPABASE_FUNCTIONS_URL}/blueprint?token=${token}`)

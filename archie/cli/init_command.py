@@ -13,6 +13,7 @@ from archie.engine.scan import run_scan
 from archie.hooks.generator import install_git_hook, install_hooks
 from archie.renderer.render import render_outputs
 from archie.rules.extractor import save_rules
+from archie.cli.setup_helpers import write_archie_gitignore
 
 
 def run_init(repo_path: Path, local_only: bool = False) -> None:
@@ -27,6 +28,7 @@ def run_init(repo_path: Path, local_only: bool = False) -> None:
     root = Path(repo_path).resolve()
     archie_dir = root / ".archie"
     archie_dir.mkdir(parents=True, exist_ok=True)
+    write_archie_gitignore(archie_dir)
 
     # 1. Scan
     click.echo("Scanning repository...")

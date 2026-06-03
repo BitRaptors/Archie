@@ -39,6 +39,7 @@ from typing import Any
 
 _SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(_SCRIPT_DIR))
+from _common import safe_read_text  # noqa: E402
 
 
 def _load_rules(archie_dir: Path) -> list[dict[str, Any]]:
@@ -49,8 +50,8 @@ def _load_rules(archie_dir: Path) -> list[dict[str, Any]]:
         if not path.is_file():
             continue
         try:
-            data = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
+            data = json.loads(safe_read_text(path, archie_dir))
+        except (OSError, json.JSONDecodeError, ValueError):
             continue
         items = data if isinstance(data, list) else data.get("rules", [])
         if isinstance(items, list):
@@ -143,7 +144,7 @@ def cmd_show(project_root: str) -> int:
     if not path.is_file():
         print(f"No index at {path} — run `rule_index.py build <root>` first.", file=sys.stderr)
         return 1
-    print(path.read_text())
+    print(safe_read_text(path))
     return 0
 
 

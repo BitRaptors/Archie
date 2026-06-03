@@ -291,6 +291,16 @@ if (commandsDirArg) {
 
 mkdirSync(archieDir, { recursive: true });
 
+// Tool-managed .archie/.gitignore — excludes Archie's vendored internals
+// (_install_pkg/, viewer/, node_modules, caches) so they're never committed
+// into the host repo. Overwritten each install to stay current; it's purely
+// tool-internal (users edit their own root .gitignore, not this one).
+const gitignoreSrc = join(ASSETS, "gitignore.default");
+if (existsSync(gitignoreSrc)) {
+  writeFileSync(join(archieDir, ".gitignore"), readFileSync(gitignoreSrc, "utf8"));
+  console.log(`  ${GREEN}✓${RESET} .archie/.gitignore (tool internals excluded)`);
+}
+
 let cleanedCount = 0;
 
 if (existsSync(archieDir)) {

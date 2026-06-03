@@ -8,6 +8,7 @@ import click
 
 from archie.coordinator.prompts import build_subagent_prompt
 from archie.engine.scan import run_scan
+from archie.cli.setup_helpers import write_archie_gitignore
 
 
 def _load_existing_hashes(archie_dir: Path) -> dict[str, str]:
@@ -138,6 +139,7 @@ def run_refresh(project_root: Path, deep: bool = False) -> None:
 
         # 7. Save
         archie_dir.mkdir(parents=True, exist_ok=True)
+        write_archie_gitignore(archie_dir)
         prompt_path = archie_dir / "refresh_prompt.md"
         prompt_path.write_text(full_prompt, encoding="utf-8")
 

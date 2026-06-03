@@ -31,6 +31,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import safe_read_text  # noqa: E402
+
 
 # File extension → logical linter kind.
 EXT_TO_KIND = {
@@ -51,8 +54,8 @@ def load_config(project_root: Path) -> dict | None:
     if not cfg_path.is_file():
         return None
     try:
-        cfg = json.loads(cfg_path.read_text())
-    except (json.JSONDecodeError, OSError):
+        cfg = json.loads(safe_read_text(cfg_path, project_root))
+    except (json.JSONDecodeError, OSError, ValueError):
         return None
     if not cfg.get("enabled"):
         return None
@@ -119,10 +122,10 @@ def _detect_python_linter(project_root: Path) -> str | None:
     pyproject = project_root / "pyproject.toml"
     if pyproject.is_file():
         try:
-            text = pyproject.read_text()
+            text = safe_read_text(pyproject, project_root)
             if "[tool.ruff]" in text or "[tool.ruff." in text:
                 return "ruff check --quiet"
-        except OSError:
+        except (OSError, ValueError):
             pass
     if (project_root / "ruff.toml").is_file():
         return "ruff check --quiet"
@@ -148,14 +151,14 @@ def _detect_js_linter(project_root: Path) -> str | None:
     pkg = project_root / "package.json"
     if pkg.is_file():
         try:
-            data = json.loads(pkg.read_text())
+            data = json.loads(safe_read_text(pkg, project_root))
             deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
             if "eslint" in deps:
                 if local.is_file():
                     return f"{local} --quiet"
                 if shutil.which("eslint"):
                     return "eslint --quiet"
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, ValueError):
             pass
     return None
 
