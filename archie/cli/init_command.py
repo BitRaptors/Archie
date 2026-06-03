@@ -28,6 +28,16 @@ def run_init(repo_path: Path, local_only: bool = False) -> None:
     archie_dir = root / ".archie"
     archie_dir.mkdir(parents=True, exist_ok=True)
 
+    # Tool-managed .archie/.gitignore so vendored tool internals (_install_pkg/,
+    # viewer/, caches) are never committed into the host repo. See the npx
+    # installer (npm-package/bin/archie.mjs) for the canonical write.
+    try:
+        _gi = Path(__file__).resolve().parent.parent / "assets" / "gitignore.default"
+        if _gi.exists():
+            (archie_dir / ".gitignore").write_text(_gi.read_text())
+    except OSError:
+        pass
+
     # 1. Scan
     click.echo("Scanning repository...")
     scan = run_scan(root, save=True)

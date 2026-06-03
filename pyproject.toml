@@ -64,6 +64,7 @@ archie = [
     "assets/platform_rules.json",
     "assets/archieignore.default",
     "assets/archiebulk.default",
+    "assets/gitignore.default",
 ]
 
 [tool.pytest.ini_options]
