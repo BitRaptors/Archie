@@ -28,9 +28,22 @@ python3 .archie/drift.py "$PROJECT_ROOT"
 
 ### Phase 2: Deep architectural drift (AI)
 
+Set the drift window by depth. Default depth: last 30 days, capped at 100 files. When `DEPTH=comprehensive`: full history, effectively unbounded. The pipeline shape stays identical in both depths — only these two vars change. Use a bash **array** for the `--since` argument so the value (which contains a space) is passed as a single argument, not word-split.
+
+```bash
+if [ "$DEPTH" = "comprehensive" ]; then
+  SINCE_ARGS=()            # full history
+  DRIFT_MAX=1000000        # effectively unbounded
+else
+  SINCE_ARGS=(--since="30 days ago")
+  DRIFT_MAX=100
+fi
+```
+
 Identify files to analyze:
 ```bash
-git -C "$PROJECT_ROOT" log --name-only --pretty=format: --since="30 days ago" -- '*.kt' '*.java' '*.swift' '*.ts' '*.tsx' '*.py' '*.go' '*.rs' | sort -u | head -100
+git -C "$PROJECT_ROOT" log --name-only --pretty=format: "${SINCE_ARGS[@]}" -- '*.kt' '*.java' '*.swift' '*.ts' '*.tsx' '*.py' '*.go' '*.rs' \
+  | sort -u | python3 .archie/intent_layer.py filter-ignored "$PROJECT_ROOT" | head -n "$DRIFT_MAX"
 ```
 If that returns nothing (new repo or no recent changes), use all source files from the scan:
 ```bash
@@ -105,9 +118,9 @@ List the generated artefacts with counts:
 
 From the blueprint, summarize in 5-10 lines:
 - **Architecture style** (from `meta.architecture_style`)
-- **Key components** (top 5-7 from `components.components` — name + one-line responsibility)
+- **Key components** (top 5-7 from `components.components` — name + one-line responsibility). In comprehensive depth (`DEPTH=comprehensive`), list all (no top-N cap).
 - **Technology stack highlights** (from `technology.stack` — framework, language, key libs)
-- **Key decisions** (from `decisions.key_decisions` — the 2-3 most impactful, one line each)
+- **Key decisions** (from `decisions.key_decisions` — the 2-3 most impactful, one line each). In comprehensive depth (`DEPTH=comprehensive`), list all (no top-N cap).
 
 #### Part 3: Architecture Health Assessment
 
@@ -137,7 +150,7 @@ If 0 findings, say so — that's a positive signal.
 
 #### Part 5: Top Risks & Recommendations
 
-Synthesize from pitfalls, trade-offs, drift findings (both mechanical and deep), and your observations. List the **3-5 most important architectural risks**, ordered by impact:
+Synthesize from pitfalls, trade-offs, drift findings (both mechanical and deep), and your observations. List the **3-5 most important architectural risks**, ordered by impact (in comprehensive depth (`DEPTH=comprehensive`), list all — no top-N cap):
 - What the risk is (one sentence)
 - Where it manifests (specific components/files/drift findings)
 - What to watch for going forward

@@ -7,7 +7,7 @@ Execute this block **before any other step** when resuming. It rehydrates every 
 - `--from N` flag was passed (explicit opt-in; also sets `START_STEP=N`)
 - **No flag was passed, partial state was detected, and the user chose "Resume"** at the interactive prompt (the bare-invocation path added in v2.4)
 
-In all three cases, the variables `SCOPE`, `INTENT_LAYER`, `SCAN_MODE`, `MONOREPO_TYPE`, `WORKSPACES`, `PROJECT_NAME` need to be rehydrated from `deep_scan_state.run_context` — they were set during the original run and persisted to disk. Without this block, the resumed run has no idea what scope was chosen, whether Intent Layer was opt-in, etc. `PROJECT_ROOT` is NOT persisted (would leak machine-specific paths into committable state) — it's set to `$PWD` at resume time. In the common case (slash command invoked from the repo root, the typical case) that's correct. If `$PWD` differs from where the `.archie/` directory lives — e.g. the user invoked `{{COMMAND_PREFIX}}archie-deep-scan --continue` from a subdirectory — the `inspect` call below will fail to find state at `$PWD/.archie/deep_scan_state.json`, `LAST` stays at 0, and the Resume Prelude falls through to a fresh Phase 0 with no corruption. Symlinked `.archie/` directories resolve correctly because `$PWD/.archie/*` follows symlinks on read.
+In all three cases, the variables `SCOPE`, `INTENT_LAYER`, `SCAN_MODE`, `DEPTH`, `MONOREPO_TYPE`, `WORKSPACES`, `PROJECT_NAME` need to be rehydrated from `deep_scan_state.run_context` — they were set during the original run and persisted to disk. Without this block, the resumed run has no idea what scope was chosen, whether Intent Layer was opt-in, etc. `PROJECT_ROOT` is NOT persisted (would leak machine-specific paths into committable state) — it's set to `$PWD` at resume time. In the common case (slash command invoked from the repo root, the typical case) that's correct. If `$PWD` differs from where the `.archie/` directory lives — e.g. the user invoked `{{COMMAND_PREFIX}}archie-deep-scan --continue` from a subdirectory — the `inspect` call below will fail to find state at `$PWD/.archie/deep_scan_state.json`, `LAST` stays at 0, and the Resume Prelude falls through to a fresh Phase 0 with no corruption. Symlinked `.archie/` directories resolve correctly because `$PWD/.archie/*` follows symlinks on read.
 
 Safe to run on a fresh invocation too — the `LAST=0` branch short-circuits back to normal Phase 0 flow.
 
@@ -27,6 +27,8 @@ if [ "$LAST" -gt 0 ]; then
     [ "$INTENT_LAYER" = "null" ] || [ -z "$INTENT_LAYER" ] && INTENT_LAYER=yes
     SCAN_MODE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.scan_mode 2>/dev/null)
     [ "$SCAN_MODE" = "null" ] || [ -z "$SCAN_MODE" ] && SCAN_MODE=full
+    DEPTH=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.depth 2>/dev/null)
+    [ "$DEPTH" = "null" ] || [ -z "$DEPTH" ] && DEPTH=default
     MONOREPO_TYPE=$(python3 .archie/intent_layer.py inspect "$PWD" deep_scan_state.json --query .run_context.monorepo_type 2>/dev/null)
     [ "$MONOREPO_TYPE" = "null" ] || [ -z "$MONOREPO_TYPE" ] && MONOREPO_TYPE=none
     # WORKSPACES as newline-separated (matches the scope picker's original shape).
@@ -51,7 +53,7 @@ if [ "$LAST" -gt 0 ]; then
         echo "WARNING: deep_scan_state says last_completed=$LAST but telemetry has only $TELEMETRY_STEPS step marks. Final per-step timing may be incomplete. Scan output itself is not affected." >&2
     fi
 
-    echo "Resuming from persisted state: SCOPE=$SCOPE SCAN_MODE=$SCAN_MODE INTENT_LAYER=$INTENT_LAYER last_completed=$LAST start_step=$START_STEP" >&2
+    echo "Resuming from persisted state: SCOPE=$SCOPE SCAN_MODE=$SCAN_MODE DEPTH=$DEPTH INTENT_LAYER=$INTENT_LAYER last_completed=$LAST start_step=$START_STEP" >&2
 
     # 5. Skip Phase 0 (scope resolution) — we already have the answers on disk.
     # Jump directly to Step $START_STEP in the main pipeline below.

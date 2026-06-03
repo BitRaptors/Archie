@@ -40,7 +40,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import _load_json  # noqa: E402
+from _common import _load_json, IgnoreMatcher  # noqa: E402
 
 
 def _get_components(blueprint: dict) -> list[dict]:
@@ -656,6 +656,7 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None, label:
             "scan_mode": None,
             "monorepo_type": None,
             "start_step": None,
+            "depth": None,
         }
         workspaces_from_stdin = False
         # CLI layout: [script, "deep-scan-state", <root>, "save-run-context", ...flags...]
@@ -681,7 +682,7 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None, label:
                     continue
             i += 1
         payload: dict = {}
-        for k in ("scope", "intent_layer", "scan_mode", "monorepo_type"):
+        for k in ("scope", "intent_layer", "scan_mode", "monorepo_type", "depth"):
             v = fields[k]
             if v is not None:
                 payload[k] = v
@@ -2303,6 +2304,26 @@ def cmd_inspect(root: Path, filename: str, query: str | None = None, as_list: bo
     print(json.dumps(data, indent=2))
 
 
+def cmd_filter_ignored(root: Path):
+    """Read newline-separated repo-relative paths on stdin; print those NOT
+    ignored by .gitignore/.archieignore. Used by step-9 drift so its git-log
+    file list honors the ignore system (git does not know .archieignore).
+
+    ``IgnoreMatcher.is_ignored`` applies full gitignore semantics, including
+    ancestor-directory matches (``vendor/`` hides ``vendor/b.py``)."""
+    matcher = IgnoreMatcher(root)
+
+    def _is_path_ignored(rel: str) -> bool:
+        return matcher.is_ignored(rel.replace(os.sep, "/"))
+
+    for line in sys.stdin:
+        rel = line.strip()
+        if not rel:
+            continue
+        if not _is_path_ignored(rel):
+            print(rel)
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -2435,6 +2456,8 @@ if __name__ == "__main__":
         cmd_inject_scoped(root)
     elif subcmd == "extract-guardrails":
         cmd_extract_guardrails(root)
+    elif subcmd == "filter-ignored":
+        cmd_filter_ignored(Path(sys.argv[2]).resolve())
     elif subcmd == "inspect":
         if len(sys.argv) < 4:
             print("Usage: inspect /path/to/repo <filename> [--query .key.path] [--list]", file=sys.stderr)

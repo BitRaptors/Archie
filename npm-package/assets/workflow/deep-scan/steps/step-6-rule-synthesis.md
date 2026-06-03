@@ -27,6 +27,8 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 >
 > Produce 30-60 architectural rules. Each rule captures an enforcement intent a coding agent must respect when planning or making changes. Coverage MUST span every blueprint section that carries enforcement signal — not just decisions and pitfalls. See "Coverage" below.
 >
+> **In comprehensive depth (`DEPTH=comprehensive`):** no upper bound — produce every rule that meets the quality bar and carries genuine enforcement signal. Keep ALL required fields (`severity_class`/`why`/`example`); comprehensiveness must never lower per-rule quality.
+>
 > **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `why` and `example` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*. The hook also surfaces these inline at edit time when the rule applies, so the agent sees the canonical reasoning + example without any extra lookup.
 >
 > **Secondary enforcement is mechanical (optional):** if a rule can also be expressed as a regex, add `check` + `forbidden_patterns`/`required_in_content` fields so the pre-edit hook catches obvious violations instantly. Most rules won't have this — that's fine. Don't force regex where it doesn't fit.
