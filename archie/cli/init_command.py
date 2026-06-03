@@ -13,6 +13,7 @@ from archie.engine.scan import run_scan
 from archie.hooks.generator import install_git_hook, install_hooks
 from archie.renderer.render import render_outputs
 from archie.rules.extractor import save_rules
+from archie.cli.setup_helpers import write_archie_gitignore
 
 
 def run_init(repo_path: Path, local_only: bool = False) -> None:
@@ -27,16 +28,7 @@ def run_init(repo_path: Path, local_only: bool = False) -> None:
     root = Path(repo_path).resolve()
     archie_dir = root / ".archie"
     archie_dir.mkdir(parents=True, exist_ok=True)
-
-    # Tool-managed .archie/.gitignore so vendored tool internals (_install_pkg/,
-    # viewer/, caches) are never committed into the host repo. See the npx
-    # installer (npm-package/bin/archie.mjs) for the canonical write.
-    try:
-        _gi = Path(__file__).resolve().parent.parent / "assets" / "gitignore.default"
-        if _gi.exists():
-            (archie_dir / ".gitignore").write_text(_gi.read_text())
-    except OSError:
-        pass
+    write_archie_gitignore(archie_dir)
 
     # 1. Scan
     click.echo("Scanning repository...")
