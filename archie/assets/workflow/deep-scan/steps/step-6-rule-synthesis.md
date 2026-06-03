@@ -21,6 +21,8 @@ The blueprint contains architectural facts. This step synthesizes them into **ar
 
 Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 
+**Prepend the resolved depth to the prompt** (so the "In comprehensive depth" clause below is actionable): add a first line `Analysis depth: <DEPTH>` — replace `<DEPTH>` with this run's resolved value (`default` or `comprehensive`).
+
 > Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, development_rules, infrastructure_rules, and architecture_rules (file_placement_rules + naming_conventions).
 >
 > **You are the SOLE producer of `proposed_rules.json`.** Every rule shape the user can adopt/reject/edit through the viewer's Rules section originates from this synthesis. The other deep-scan agents (structure, technology, patterns, reasoning) write architectural FACTS into the blueprint — your job is to turn those facts into agent-facing enforcement rules in the unified schema.
@@ -363,7 +365,8 @@ python3 .archie/rule_index.py build "$PROJECT_ROOT"
 Refresh the rendered topic files now that `rules.json` exists. This re-emits the `.claude/rules/enforcement/` directory (index.md + by-topic/ + universal.md) and refreshes the other topic files / CLAUDE.md / AGENTS.md idempotently — merge markers preserve any hand-edits:
 
 ```bash
-python3 .archie/renderer.py "$PROJECT_ROOT"
+COMP_FLAG=""; [ "$DEPTH" = "comprehensive" ] && COMP_FLAG="--comprehensive"
+python3 .archie/renderer.py "$PROJECT_ROOT" $COMP_FLAG
 ```
 
 ```bash

@@ -42,7 +42,7 @@ fi
 
 Identify files to analyze:
 ```bash
-git -C "$PROJECT_ROOT" log --name-only --pretty=format: "${SINCE_ARGS[@]}" -- '*.kt' '*.java' '*.swift' '*.ts' '*.tsx' '*.py' '*.go' '*.rs' \
+git -C "$PROJECT_ROOT" log --name-only --pretty=format: ${SINCE_ARGS[@]+"${SINCE_ARGS[@]}"} -- '*.kt' '*.java' '*.swift' '*.ts' '*.tsx' '*.py' '*.go' '*.rs' \
   | sort -u | python3 .archie/intent_layer.py filter-ignored "$PROJECT_ROOT" | head -n "$DRIFT_MAX"
 ```
 If that returns nothing (new repo or no recent changes), use all source files from the scan:

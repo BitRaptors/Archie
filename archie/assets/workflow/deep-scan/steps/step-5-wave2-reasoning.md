@@ -50,6 +50,9 @@ All paths are relative to the project root (your cwd).
 
 **Mode preamble — prepend the SAME block to all three prompts:**
 
+- **Always prepend (both scan modes) — inject the resolved depth so the sub-agent can act on the "In comprehensive depth" instructions in its body:**
+  > **Analysis depth: `<DEPTH>`** — replace `<DEPTH>` with this run's resolved value (`default` or `comprehensive`). When `comprehensive`, obey every "In comprehensive depth" instruction in your prompt body: emit every item that meets the quality bar with NO upper bound. When `default`, apply the stated caps.
+
 - **If SCAN_MODE = "full" (default):**
   > Produce your sections fresh from the full Wave-1 analysis in `$PROJECT_ROOT/.archie/blueprint_raw.json` (components, communication patterns, technology, deployment, frontend, data models and persistence stores when the Data agent spawned).
 

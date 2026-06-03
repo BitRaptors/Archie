@@ -9,7 +9,8 @@ TELEMETRY_STEP1_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 **If START_STEP > 1, skip this step.**
 
 ```bash
-python3 .archie/scanner.py "$PROJECT_ROOT"
+COMP_FLAG=""; [ "$DEPTH" = "comprehensive" ] && COMP_FLAG="--comprehensive"
+python3 .archie/scanner.py "$PROJECT_ROOT" $COMP_FLAG
 python3 .archie/detect_cycles.py "$PROJECT_ROOT" --full 2>/dev/null
 ```
 

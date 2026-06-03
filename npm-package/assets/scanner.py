@@ -1319,11 +1319,16 @@ def run_scan(repo_path: str, comprehensive: bool = False) -> dict:
     # data) are excluded from both ratio sides.
     frontend_exts = {".tsx", ".jsx", ".vue", ".svelte", ".swift", ".xib",
                      ".storyboard", ".dart", ".xaml"}
-    frontend_files = sum(1 for f in readable_files if f.get("extension", "") in frontend_exts)
+    # Compute the ratio on the NON-BULK set regardless of depth: bulk-shaped
+    # files are added back via the bulk-category sums below. Using readable_files
+    # here would double-count bulk files in comprehensive depth (where
+    # readable_files == files), making frontend_ratio depth-dependent.
+    non_bulk_files = [f for f in files if "bulk" not in f]
+    frontend_files = sum(1 for f in non_bulk_files if f.get("extension", "") in frontend_exts)
     ui_bulk_files = sum(1 for f in files if f.get("bulk", {}).get("category") == "ui_resource")
 
     source_bulk_categories = {"ui_resource", "generated", "localization", "migration", "fixture"}
-    total_source = sum(1 for f in readable_files if f.get("extension", "") not in (
+    total_source = sum(1 for f in non_bulk_files if f.get("extension", "") not in (
         ".json", ".xml", ".yaml", ".yml", ".toml", ".lock", ".md", ".txt",
         ".png", ".jpg", ".svg", ".gif", ".ico", ".webp",
     ))

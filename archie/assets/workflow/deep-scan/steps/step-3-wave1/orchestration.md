@@ -88,6 +88,12 @@ OUTPUT CONTRACT (mandatory):
 {{>output_contract}}
 ```
 
+**Also prepend the resolved analysis depth to each sub-agent's prompt** so the
+"In comprehensive depth" clauses in the agent bodies (bulk-content reads, the
+Data agent's migration cap, the Structure agent's naming-examples cap) are
+actionable: add the line `Analysis depth: <DEPTH>` — replace `<DEPTH>` with this
+run's resolved value (`default` or `comprehensive`).
+
 **Also prepend a timing instruction to each sub-agent's prompt** so each fact
 agent self-times its run (same mechanism as Wave 2 — gives per-agent durations,
 not just the aggregate wave1 step). The sub-agent's FIRST action is
