@@ -342,6 +342,7 @@ def _build_event(project_root: Path, run: dict, *, source: str = "live") -> dict
         "arch": _normalized_arch(),
         "cli": cli,
         "command": command,
+        "meta": run.get("meta") if isinstance(run.get("meta"), dict) else None,
         "outcome": _outcome_for_run(run),
         "duration_s": int(run.get("total_seconds") or 0),
         "error_class": run.get("error_class") if isinstance(run.get("error_class"), str) else None,
