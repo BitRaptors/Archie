@@ -175,7 +175,7 @@ def check_naming_conventions(root: Path) -> list[dict]:
                 "type": "naming_violation",
                 "convention": description or pattern,
                 "scope": scope,
-                "violating_files": violations[:10],
+                "violating_files": violations if _COMPREHENSIVE else violations[:10],
                 "count": len(violations),
                 "severity": "info",
             })
@@ -379,7 +379,7 @@ def check_antipattern_clusters(root: Path) -> list[dict]:
                 "type": "antipattern_cluster",
                 "folder": folder,
                 "count": count,
-                "anti_patterns": anti[:5],
+                "anti_patterns": anti if _COMPREHENSIVE else anti[:5],
                 "message": f"Has {count} anti-patterns (avg: {avg:.1f}) — high-risk area for accidental violations",
                 "severity": "warn",
             })
@@ -689,6 +689,19 @@ def cmd_history(root: Path):
     print(json.dumps(entries, indent=2))
 
 
+# Comprehensive-depth switch: lift the report detail-list caps (full lists, no
+# [:10]/[:5]). Read from run state; *count fields are unaffected.
+_COMPREHENSIVE = False
+
+
+def _is_comprehensive(root) -> bool:
+    try:
+        st = _load_json(Path(root) / ".archie" / "deep_scan_state.json")
+        return (st.get("run_context") or {}).get("depth") == "comprehensive"
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage:", file=sys.stderr)
@@ -705,4 +718,5 @@ if __name__ == "__main__":
         cmd_history(root)
     else:
         root = Path(sys.argv[1]).resolve()
+        _COMPREHENSIVE = _is_comprehensive(root) or ("--comprehensive" in sys.argv)
         cmd_run(root)

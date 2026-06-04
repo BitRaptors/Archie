@@ -43,20 +43,28 @@ Before writing key decisions, run these three probes across the codebase. They s
 Only read source directly when Wave 1's output is genuinely insufficient to answer a probe (e.g., Wave 1 named a seam but didn't record what varies across it, or flagged a gate without naming the invariant). Judge file-by-file — no blanket re-read. If a signal clearly exists in the codebase but Wave 1's data is thin, prefer to record that as a gap (the Risk agent will pick it up as a pitfall) over re-doing Wave 1's job here.
 
 **Emitting decisions.** Consolidate what the probes surface into `key_decisions` (target 3-7). Each with: title, chosen, rationale, alternatives_rejected.
+
+**In comprehensive depth (`DEPTH=comprehensive`):** no upper bound on key decisions — emit every commitment the probes surface that meets the quality bar; do not trim to a count and do not pad. (This mirrors the soft-floor-no-ceiling shape already used in step-5b.)
 - **rationale** must reference specific components, patterns, or tech from the blueprint AND cite the concrete file/module that implements the commitment.
 - **forced_by**: what constraint or other decision made this one necessary
 - **enables**: what this decision makes possible downstream
 
-A codebase with few commitments (template apps, naive CRUD) may genuinely have only 2-3 meaningful decisions — do not invent filler. A codebase heavy in protocols, gates, and seams will have more than 7 candidates; in that case keep the most load-bearing and note the rest in `trade_offs`.
+A codebase with few commitments (template apps, naive CRUD) may genuinely have only 2-3 meaningful decisions — do not invent filler. A codebase heavy in protocols, gates, and seams will have more than 7 candidates; in that case keep the most load-bearing and note the rest in `trade_offs`. **In comprehensive depth (`DEPTH=comprehensive`):** the "keep the most load-bearing" cap is lifted — emit every load-bearing candidate that meets the quality bar as its own key decision rather than folding the surplus into `trade_offs`; do not trim to a count and do not pad.
 
 ### 4. Trade-offs (3-5)
 Each with: accept, benefit, caused_by (which decision created this trade-off — reference a `key_decisions[].title`), violation_signals (code patterns that would indicate someone is undoing this trade-off, e.g., removing Puppeteer → `["uninstall puppeteer", "remove puppeteer", "playwright"]`)
+
+**In comprehensive depth (`DEPTH=comprehensive`):** no upper bound on trade-offs — emit every trade-off that meets the quality bar; do not trim to a count and do not pad. (This mirrors the soft-floor-no-ceiling shape already used in step-5b.)
 
 ### 5. Out-of-Scope
 What this codebase does NOT do. For each item, optionally note which decision makes it out of scope.
 
 ### 9. Implementation Guidelines (5-8)
-Capabilities using third-party libraries. Cross-reference the tech stack and pattern list from the blueprint. For each:
+Capabilities using third-party libraries. Cross-reference the tech stack and pattern list from the blueprint.
+
+**In comprehensive depth (`DEPTH=comprehensive`):** no upper bound on guidelines — emit every capability that meets the quality bar; do not trim to a count and do not pad. (This mirrors the soft-floor-no-ceiling shape already used in step-5b.)
+
+For each:
 - **capability**: Human-readable name
 - **category**: auth | notifications | media | storage | networking | analytics | persistence | ui | payments | location | state_management | navigation | testing
 - **libraries**: Libraries used with versions (from tech stack)

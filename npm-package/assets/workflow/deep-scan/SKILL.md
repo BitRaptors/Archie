@@ -10,6 +10,7 @@ Run a comprehensive architecture analysis. Produces full blueprint, per-folder C
 **Modes:**
 - `{{COMMAND_PREFIX}}archie-deep-scan` — full baseline from step 1 (default, proven workflow)
 - `{{COMMAND_PREFIX}}archie-deep-scan --incremental` — only process files changed since last deep scan (fast, 3-6 min)
+- `{{COMMAND_PREFIX}}archie-deep-scan --comprehensive` — lift quotas + scope caps for a fully comprehensive baseline (slower). Composes with `--incremental`.
 - `{{COMMAND_PREFIX}}archie-deep-scan --from N` — resume from step N (runs N through 9)
 - `{{COMMAND_PREFIX}}archie-deep-scan --continue` — resume from where the last run stopped
 
@@ -47,6 +48,17 @@ If you need data not covered by these commands, proceed without it or ask the us
 
 Check the user's message (ARGUMENTS) for flags:
 
+**Depth (independent of the flags above):** Parse this first, regardless of which flag branch runs below. If ARGUMENTS contains `--comprehensive` (the canonical form; a bare `comprehensive` is also accepted), set `DEPTH=comprehensive`. Otherwise set `DEPTH=default`.
+
+> ### Comprehensive Mode Contract (governs EVERY step when `DEPTH=comprehensive`)
+> This is the single global rule for comprehensive depth — it overrides any per-step count, everywhere, including steps that carry no explicit comprehensive clause.
+>
+> **Treat every item-count anywhere in this workflow — `N-M`, "up to N", "top N", "the N most", "soft floor of N", "a handful", "the most important" — as a FLOOR with no ceiling.** Produce every item that genuinely meets its quality bar; never trim to a number, never stop at a "natural" count. The quality bar is unchanged: do NOT pad, invent, or weaken per-item rigor to inflate counts.
+>
+> Only two limits survive comprehensive mode: **(1)** the architecture diagram stays **8-12 nodes** (readability), and **(2)** the scripts' mechanical safety/context budgets (per-file read size, per-batch token budget, recursion). Everything else — rules, findings, pitfalls, decisions, trade-offs, components, guidelines, examples, drift findings, naming examples, per-field prose length — is uncapped.
+>
+> Whenever a step dispatches a sub-agent in comprehensive depth, prepend the contract line shown at that dispatch site so the sub-agent inherits this rule.
+
 **If `--from N` is present** (e.g., `{{COMMAND_PREFIX}}archie-deep-scan --from 5`):
 1. Set `START_STEP = N` (the number after --from) and `RESUME_ACTION=resume` (so the Resume Prelude rehydrates shell variables from `deep_scan_state.run_context`).
 2. Validate prerequisites exist:
@@ -76,9 +88,10 @@ python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" detect-changes
    - If `mode` is "full" (threshold exceeded or no previous scan): print the `reason` and say "Running full baseline." Set SCAN_MODE = "full", START_STEP = 1.
    - If `mode` is "incremental" and `changed_count` is 0: print "No files changed since last deep scan. Nothing to do." Exit.
    - If `mode` is "incremental": Set SCAN_MODE = "incremental". Save `changed_files` and `affected_folders` from the output. Print "Incremental deep scan: N files changed. Analyzing changes only." Set START_STEP = 1.
-4. Initialize state:
+4. Initialize state, then persist the run depth + scan mode:
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
+python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-run-context --depth "$DEPTH" --scan-mode "$SCAN_MODE"
 ```
 
 **If no flags (default — detect interrupted run, otherwise full baseline):**
@@ -94,7 +107,11 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
 
 2. **If `LAST == 0` or `STATUS == "completed"`** → no interrupted run. Proceed as fresh:
    - Set `SCAN_MODE=full`, `START_STEP=1`, `RESUME_ACTION=fresh`.
-   - Initialize state: `python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init`.
+   - Initialize state, then persist the run depth + scan mode:
+     ```bash
+     python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" init
+     python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-run-context --depth "$DEPTH" --scan-mode "$SCAN_MODE"
+     ```
 
 3. **Otherwise** (`LAST > 0` and `STATUS == "in_progress"`) → an interrupted run exists. Figure out which step stopped it and where enrichment state stands:
    ```bash
@@ -131,7 +148,10 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
      rm -f .archie/tmp/archie_enrichment_${PROJECT_NAME}_*.json .archie/tmp/archie_intent_prompt_${PROJECT_NAME}_*.txt
      ```
      `reset-state` wipes both `.archie/enrich_state.json` and the `.archie/enrichments/` directory — no `rm -rf` needed in the slash-command layer (keeps the command inside the default Bash permission allowlist so this runs prompt-free).
-     Set `SCAN_MODE=full`, `START_STEP=1`, `RESUME_ACTION=fresh`. Print `"Starting fresh. Previous progress discarded."`.
+     Set `SCAN_MODE=full`, `START_STEP=1`, `RESUME_ACTION=fresh`. Print `"Starting fresh. Previous progress discarded."`. Then persist the run depth + scan mode:
+     ```bash
+     python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" save-run-context --depth "$DEPTH" --scan-mode "$SCAN_MODE"
+     ```
 
 4. Regardless of branch above, `RESUME_ACTION` is now set. It gates the Resume Prelude (below) and the Step 7 delta (passes `RESUME_INTENT` to the Intent Layer).
 

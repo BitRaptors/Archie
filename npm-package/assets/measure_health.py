@@ -290,9 +290,9 @@ def _detect_waste(skeletons: dict) -> dict:
                 })
 
     return {
-        "single_method_classes": single_method_classes[:30],
+        "single_method_classes": single_method_classes if _COMPREHENSIVE else single_method_classes[:30],
         "single_method_class_count": len(single_method_classes),
-        "tiny_functions": tiny_functions[:30],
+        "tiny_functions": tiny_functions if _COMPREHENSIVE else tiny_functions[:30],
         "tiny_function_count": len(tiny_functions),
     }
 
@@ -444,12 +444,30 @@ def _find_duplicates(repo: Path, skeletons: dict) -> tuple[list[dict], int, int]
 
 # ── Main ─────────────────────────────────────────────────────────────────
 
+# Comprehensive-depth switch: lift the report list caps (full detail, no [:30]).
+# Read from the deep-scan run state so it works without an explicit flag; the
+# *_count fields are unaffected (totals were always exact).
+_COMPREHENSIVE = False
+
+
+def _is_comprehensive(root) -> bool:
+    try:
+        p = Path(root) / ".archie" / "deep_scan_state.json"
+        if not p.exists():
+            return False
+        return (json.loads(p.read_text()).get("run_context") or {}).get("depth") == "comprehensive"
+    except Exception:
+        return False
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: python3 measure_health.py /path/to/repo", file=sys.stderr)
         sys.exit(1)
 
     repo = Path(sys.argv[1]).resolve()
+    global _COMPREHENSIVE
+    _COMPREHENSIVE = _is_comprehensive(repo) or ("--comprehensive" in sys.argv)
     archie_dir = repo / ".archie"
 
     # --compare-history: read health_history.json, print prev vs curr with deltas

@@ -8,7 +8,7 @@
 > **DO NOT:**
 > - Fabricate field descriptions, lifecycle examples, consumer roles, or backup claims that aren't visible in the codebase or infra config.
 > - Restate what a field's name already says. `created_at` does NOT need a description "creation timestamp" — that's noise. `idempotency_key` DOES need one because the business semantics aren't visible from the name.
-> - Read every migration file. The orchestration step's bulk-content rule applies: `migration` is a bulk category. You MAY surgically Read 1-2 recent migration files per store to extract the observed procedure — this is a stated exception, not a license to enumerate.
+> - Read every migration file. The orchestration step's bulk-content rule applies: `migration` is a bulk category. You MAY surgically Read 1-2 recent migration files per store to extract the observed procedure — this is a stated exception, not a license to enumerate. In comprehensive depth (`DEPTH=comprehensive`), read all migration files per store — the 1-2 cap is a default-depth bound only.
 >
 > **DO:**
 > - Cite a code artifact for every claim. `how_to_read: "Always go through repository"` is filler; `how_to_read: {prose: "...", example: "OrderRepository().find_pending(user_id=u.id)"}` with a real callsite is grounded.

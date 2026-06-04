@@ -50,6 +50,11 @@ All paths are relative to the project root (your cwd).
 
 **Mode preamble — prepend the SAME block to all three prompts:**
 
+- **Always prepend the depth contract (both scan modes).** When this run's `DEPTH=comprehensive`, prepend this line verbatim (it makes ALL counts in the body floors, so the Risk agent's "soft floor of 3" findings/pitfalls and every other count go unbounded):
+  > *COMPREHENSIVE MODE — be exhaustive. Every item-count in these instructions ("N-M", "up to N", "soft floor of N", "top N", "the most important") is a FLOOR, not a ceiling: emit every item that meets the quality bar, with no upper bound and no padding. Exception: keep the architecture diagram to 8-12 nodes.*
+
+  When `DEPTH=default`, prepend nothing and apply the stated caps.
+
 - **If SCAN_MODE = "full" (default):**
   > Produce your sections fresh from the full Wave-1 analysis in `$PROJECT_ROOT/.archie/blueprint_raw.json` (components, communication patterns, technology, deployment, frontend, data models and persistence stores when the Data agent spawned).
 

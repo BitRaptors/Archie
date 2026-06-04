@@ -14,6 +14,9 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import IgnoreMatcher  # noqa: E402
+
 SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
     ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
@@ -37,15 +40,24 @@ ALLOWED_DOTFILES = {".env.example", ".gitignore", ".dockerignore", ".editorconfi
 
 
 def current_hashes(root: Path) -> dict[str, str]:
-    """Hash all source files in the repo."""
+    """Hash all source files in the repo, honoring .gitignore/.archieignore."""
+    matcher = IgnoreMatcher(root)
     hashes = {}
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        rel_dir = os.path.relpath(dirpath, root)
+        if rel_dir == ".":
+            rel_dir = ""
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in SKIP_DIRS and not matcher.should_skip_dir(d, rel_dir)
+        ]
         for fname in filenames:
             ext = os.path.splitext(fname)[1].lower()
             if ext in SKIP_EXTENSIONS:
                 continue
             if fname.startswith(".") and fname not in ALLOWED_DOTFILES:
+                continue
+            if matcher.should_skip_file(fname, rel_dir):
                 continue
             full = Path(dirpath) / fname
             try:

@@ -21,11 +21,15 @@ The blueprint contains architectural facts. This step synthesizes them into **ar
 
 Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 
+**Prepend the depth contract to the prompt.** When `DEPTH=comprehensive`, add this first line verbatim: *COMPREHENSIVE MODE — be exhaustive. Every item-count in these instructions ("N-M", "up to N", "soft floor of N", "top N", "the most important") is a FLOOR, not a ceiling: emit every item that meets the quality bar, with no upper bound and no padding.* When `DEPTH=default`, prepend nothing.
+
 > Read `$PROJECT_ROOT/.archie/blueprint.json` ONCE (do not re-read it). It contains the full architecture: components, decisions (with decision chains and violation keywords), patterns, trade-offs (with violation signals), pitfalls (with causal chains), technology stack, development_rules, infrastructure_rules, and architecture_rules (file_placement_rules + naming_conventions).
 >
 > **You are the SOLE producer of `proposed_rules.json`.** Every rule shape the user can adopt/reject/edit through the viewer's Rules section originates from this synthesis. The other deep-scan agents (structure, technology, patterns, reasoning) write architectural FACTS into the blueprint — your job is to turn those facts into agent-facing enforcement rules in the unified schema.
 >
 > Produce 30-60 architectural rules. Each rule captures an enforcement intent a coding agent must respect when planning or making changes. Coverage MUST span every blueprint section that carries enforcement signal — not just decisions and pitfalls. See "Coverage" below.
+>
+> **In comprehensive depth (`DEPTH=comprehensive`):** no upper bound — produce every rule that meets the quality bar and carries genuine enforcement signal. Keep ALL required fields (`severity_class`/`why`/`example`); comprehensiveness must never lower per-rule quality.
 >
 > **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `why` and `example` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*. The hook also surfaces these inline at edit time when the rule applies, so the agent sees the canonical reasoning + example without any extra lookup.
 >
@@ -361,7 +365,9 @@ python3 .archie/rule_index.py build "$PROJECT_ROOT"
 Refresh the rendered topic files now that `rules.json` exists. This re-emits the `.claude/rules/enforcement/` directory (index.md + by-topic/ + universal.md) and refreshes the other topic files / CLAUDE.md / AGENTS.md idempotently — merge markers preserve any hand-edits:
 
 ```bash
-python3 .archie/renderer.py "$PROJECT_ROOT"
+DEPTH=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state.json --query .run_context.depth 2>/dev/null)
+COMP_FLAG=""; [ "$DEPTH" = "comprehensive" ] && COMP_FLAG="--comprehensive"
+python3 .archie/renderer.py "$PROJECT_ROOT" $COMP_FLAG
 ```
 
 ```bash

@@ -342,11 +342,11 @@ def scan_files(root: Path, matcher: IgnoreMatcher | None = None) -> list[dict]:
 
 # ── Dependency Parser ──────────────────────────────────────────────────────
 
-def parse_dependencies(root: Path) -> list[dict]:
+def parse_dependencies(root: Path, max_depth: int | None = 3) -> list[dict]:
     deps = []
     for dirpath, dirnames, filenames in os.walk(root):
         depth = str(Path(dirpath).relative_to(root)).count(os.sep)
-        if depth >= 3:
+        if max_depth is not None and depth >= max_depth:
             dirnames.clear()
             continue
         dirnames[:] = [d for d in dirnames if d not in {"node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build"}]
@@ -1253,7 +1253,7 @@ def collect_configs(root: Path) -> dict[str, str]:
 
 # ── Main Scanner ───────────────────────────────────────────────────────────
 
-def run_scan(repo_path: str) -> dict:
+def run_scan(repo_path: str, comprehensive: bool = False) -> dict:
     root = Path(repo_path).resolve()
 
     matcher = IgnoreMatcher(root)
@@ -1269,9 +1269,14 @@ def run_scan(repo_path: str) -> dict:
         if bulk_info:
             f["bulk"] = bulk_info
 
-    readable_files = [f for f in files if "bulk" not in f]
+    # Comprehensive: the read-boundary is the ignore system alone. `.archiebulk`
+    # still classifies (frontend_ratio etc.) but no longer gates reading.
+    if comprehensive:
+        readable_files = files
+    else:
+        readable_files = [f for f in files if "bulk" not in f]
 
-    deps = parse_dependencies(root)
+    deps = parse_dependencies(root, max_depth=None if comprehensive else 3)
     frameworks = detect_frameworks(readable_files, deps)
     hashes = hash_files(root, readable_files)
     tokens = estimate_tokens(root, readable_files)
@@ -1314,11 +1319,16 @@ def run_scan(repo_path: str) -> dict:
     # data) are excluded from both ratio sides.
     frontend_exts = {".tsx", ".jsx", ".vue", ".svelte", ".swift", ".xib",
                      ".storyboard", ".dart", ".xaml"}
-    frontend_files = sum(1 for f in readable_files if f.get("extension", "") in frontend_exts)
+    # Compute the ratio on the NON-BULK set regardless of depth: bulk-shaped
+    # files are added back via the bulk-category sums below. Using readable_files
+    # here would double-count bulk files in comprehensive depth (where
+    # readable_files == files), making frontend_ratio depth-dependent.
+    non_bulk_files = [f for f in files if "bulk" not in f]
+    frontend_files = sum(1 for f in non_bulk_files if f.get("extension", "") in frontend_exts)
     ui_bulk_files = sum(1 for f in files if f.get("bulk", {}).get("category") == "ui_resource")
 
     source_bulk_categories = {"ui_resource", "generated", "localization", "migration", "fixture"}
-    total_source = sum(1 for f in readable_files if f.get("extension", "") not in (
+    total_source = sum(1 for f in non_bulk_files if f.get("extension", "") not in (
         ".json", ".xml", ".yaml", ".yml", ".toml", ".lock", ".md", ".txt",
         ".png", ".jpg", ".svg", ".gif", ".ico", ".webp",
     ))
@@ -1360,6 +1370,8 @@ if __name__ == "__main__":
 
     args = sys.argv[1:]
     detect_only = "--detect-subprojects" in args
+    comprehensive = "--comprehensive" in args
+    args = [a for a in args if a != "--comprehensive"]
     repo = [a for a in args if not a.startswith("--")][0]
 
     if not Path(repo).is_dir():
@@ -1377,7 +1389,7 @@ if __name__ == "__main__":
         json.dump({"monorepo_type": monorepo_type, "subprojects": subprojects}, sys.stdout, indent=2)
         sys.exit(0)
 
-    scan = run_scan(repo)
+    scan = run_scan(repo, comprehensive=comprehensive)
 
     # Add sub-project info to full scan
     scan["subprojects"] = detect_subprojects(Path(repo))
