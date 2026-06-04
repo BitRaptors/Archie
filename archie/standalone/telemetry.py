@@ -425,9 +425,22 @@ def write_telemetry(
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     filename = f"{command}_{now}.json"
 
+    # Command-specific extras go in `meta` (a shallow object) rather than a
+    # dedicated column. For deep-scan we record the scan depth so telemetry can
+    # distinguish comprehensive runs from default ones. null for other commands.
+    meta = None
+    if command == "deep-scan":
+        try:
+            st = json.loads((archie_dir / "deep_scan_state.json").read_text(encoding="utf-8"))
+            depth = (st.get("run_context") or {}).get("depth") or "default"
+        except Exception:
+            depth = "default"
+        meta = {"depth": depth}
+
     output = {
         "command": command,
         "cli": cli,
+        "meta": meta,
         "started_at": started_at,
         "completed_at": completed_at,
         "total_seconds": summary["total_seconds"],
