@@ -382,13 +382,22 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
                     r.setdefault("_archie_source", src)
                     enforcement_rules.append(r)
 
-    generate_all = _import_sibling("renderer").generate_all
+    renderer = _import_sibling("renderer")
+    generate_all = renderer.generate_all
 
     files = generate_all(bp, enforcement_rules=enforcement_rules)
     for rel_path, content in files.items():
         full_path = root / rel_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content)
+        # AGENTS.md / CLAUDE.md may coexist with hand-authored content. Route
+        # mergeable files through render_mergeable so any user-written section
+        # outside Archie's generated block is preserved (mirrors renderer.main()).
+        # A straight write_text here was the regression that overwrote curated
+        # AGENTS.md files. Everything else is fully Archie-owned → plain write.
+        if rel_path in renderer.MERGEABLE_FILES:
+            full_path.write_text(renderer.render_mergeable(full_path, content))
+        else:
+            full_path.write_text(content)
     print(f"  Rendered {len(files)} files", file=sys.stderr)
 
     # ── 4. Hooks ───────────────────────────────────────────────────────────
