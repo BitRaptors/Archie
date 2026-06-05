@@ -12,10 +12,13 @@
  * Archie used to flag the problem in the first place.
  *
  * No I/O, no React, no Archie tooling assumed in the resulting prompt: the
- * verification trailer points the agent at the project's own commands
- * (preferring `bp.technology.run_commands` when present), and
- * folder-context instructions name a generic set of agent convention
- * files (CLAUDE.md, AGENTS.md, .cursorrules, ...).
+ * verification section states a language-agnostic floor (format, fast lint,
+ * tests for the changed packages) plus a conditional tier, then hands the
+ * final command selection to the receiving agent — listing the project's own
+ * commands (`bp.technology.run_commands`) only as a reference menu, with the
+ * heavy whole-repo / CI targets fenced off so they are not run per fix. The
+ * folder-context instructions name a generic set of agent convention files
+ * (CLAUDE.md, AGENTS.md, .cursorrules, ...).
  */
 
 import type { Finding } from './findings'
@@ -113,7 +116,7 @@ export function buildFixPrompt(item: FixItem, opts: BuildOpts = {}): string {
   const chainPath = resolveDecisionChain(item, bp)
   const schemaRules = resolveSchemaRules(item, bp)
   const semDup = resolveSemanticDup(item, opts.semanticDuplications)
-  const runCmdLines = formatRunCommands(bp)
+  const verifySection = buildVerificationSection(bp)
   const dirs = extractAffectedDirs(item)
 
   const sections: string[] = []
@@ -341,17 +344,15 @@ export function buildFixPrompt(item: FixItem, opts: BuildOpts = {}): string {
     sections.push(`## Enforcement rules to keep satisfied\n${lines.join('\n')}`)
   }
 
-  // ───── Working constraints (agent-agnostic + run_commands when known) ──
-  const verifyLine =
-    runCmdLines.length > 0
-      ? `- After editing, run the project's verification commands before reporting done:\n${runCmdLines.join('\n')}`
-      : `- After editing, run the project's standard verification (lint, type-check, tests) before reporting done.`
+  // ───── Working constraints (agent-agnostic) ────────────────────────────
   const constraintLines: string[] = [
     `- If the repository has agent-context files (\`CLAUDE.md\`, \`AGENTS.md\`, \`.cursorrules\`, \`.clinerules\`, \`.windsurfrules\`, or similar), read them before editing${dirs.length > 0 ? ` — especially any in the directories you'll touch: ${dirs.map((d) => `\`${d}\``).join(', ')}` : ''}.`,
     `- Make ONLY the changes needed to fix this specific problem. No surrounding refactors, no new features, no restructuring of unrelated modules.`,
-    verifyLine,
   ]
   sections.push(`## Working constraints\n${constraintLines.join('\n')}`)
+
+  // ───── Verifying your fix (scoped floor + conditional, agent picks) ────
+  sections.push(verifySection)
 
   // ───── Output expectation ──────────────────────────────────────────────
   const idCite = item.id ? ` Cite id \`${item.id}\` so reviewers can match it back to the original analysis.` : ''
@@ -702,35 +703,133 @@ function resolveSemanticDup(
   return null
 }
 
-// ── run_commands extraction ─────────────────────────────────────────────
+// ── Verification checklist ───────────────────────────────────────────────
 
-function formatRunCommands(bp: any): string[] {
-  const rc = bp?.technology?.run_commands
-  if (!rc || typeof rc !== 'object') return []
-  // Preferred order: verify-shaped commands first, so the trailer reads as a
-  // verification checklist. Skip install/dev because they aren't verify steps.
-  const preferred = [
-    'lint', 'format', 'typecheck', 'type_check', 'typescript', 'check',
-    'test', 'tests', 'unit_test', 'integration_test', 'build',
+interface RunCmd {
+  key: string
+  cmd: string
+}
+
+/** Build the "Verifying your fix" section.
+ *
+ * Language-agnostic by design. The floor + conditional tiers are universal
+ * prose: every ecosystem has a format / fast-lint / test / build role, only
+ * the command names differ, and the agent — standing in the repo with the
+ * diff — resolves the names better than a frozen scan-time guess. The
+ * discovered `run_commands` are surfaced only as a reference menu to pick
+ * from; heavy whole-repo / CI targets are fenced into a do-not-run bucket so
+ * a single scoped fix never triggers the full pre-merge gate. The floor stays
+ * mandatory (no silent under-verification); the ceiling stays fenced; the
+ * agent owns everything in between. */
+function buildVerificationSection(bp: any): string {
+  const { fixLoop, ciOnly } = classifyRunCommands(bp)
+
+  const parts: string[] = [
+    'Run the **minimum** set of checks that covers what you changed — not the whole suite. ' +
+      'You are in the repo: inspect your diff and choose the commands that apply.',
+    [
+      '**Floor — always, before you report done:**',
+      '- format the files you touched',
+      '- run the fast linter, scoped to the changed packages/paths',
+      '- run the tests that cover the changed packages/paths',
+    ].join('\n'),
+    [
+      '**Add only if your diff touched the matching area:**',
+      '- build / type-check — if you changed compiled or typed code',
+      '- regenerate — if you edited a generated source (API spec, schema, codegen input); any enforcement rule above that names a generated path tells you which command owns it',
+      '- spec / schema / infra lint — only if you edited API specs, schemas, or deployment charts',
+    ].join('\n'),
   ]
-  const seen = new Set<string>()
-  const lines: string[] = []
-  for (const key of preferred) {
-    const val = rc[key]
-    if (typeof val === 'string' && val.trim()) {
-      lines.push(`    ${key}: ${val.trim()}`)
-      seen.add(key)
-    }
+
+  if (fixLoop.length > 0) {
+    parts.push(
+      '**Commands this repo exposes** (reference — pick the minimal covering set, do not run all):\n' +
+        fixLoop.map((c) => `    ${c.key}: ${c.cmd}`).join('\n'),
+    )
   }
-  // Anything else (custom keys), excluding obvious non-verify commands.
-  const skipExtra = new Set(['install', 'dev', 'serve', 'start', 'run', 'clean'])
-  for (const [key, val] of Object.entries(rc)) {
-    if (seen.has(key) || skipExtra.has(key)) continue
-    if (typeof val === 'string' && val.trim()) {
-      lines.push(`    ${key}: ${val.trim()}`)
-    }
+  if (ciOnly.length > 0) {
+    parts.push(
+      '**Do NOT run these per fix** — whole-repo / CI gates that run before merge, not in the fix loop:\n' +
+        ciOnly.map((c) => `    ${c.key}: ${c.cmd}`).join('\n'),
+    )
   }
-  return lines
+  if (fixLoop.length === 0 && ciOnly.length === 0) {
+    parts.push(
+      'This repo did not expose named commands to Archie — discover them from the build manifest ' +
+        '(Makefile, package.json scripts, justfile, Cargo.toml, pyproject.toml, …) and apply the floor above.',
+    )
+  }
+
+  return `## Verifying your fix\n${parts.join('\n\n')}`
+}
+
+/** Split `bp.technology.run_commands` into commands worth running in a scoped
+ * fix loop vs heavy whole-repo / CI targets that get listed but fenced off.
+ * Pure key/value heuristics, no language table — so on an unfamiliar
+ * toolchain it degrades to "treat it as a fix-loop command" rather than
+ * guessing wrong and hiding something the agent needs. */
+function classifyRunCommands(bp: any): { fixLoop: RunCmd[]; ciOnly: RunCmd[] } {
+  const fixLoop: RunCmd[] = []
+  const ciOnly: RunCmd[] = []
+  const rc = bp?.technology?.run_commands
+  if (!rc || typeof rc !== 'object') return { fixLoop, ciOnly }
+
+  // Non-verify commands: they run the app, manage infra, or ship a release.
+  // GENERIC role tokens only (no project-specific binary names), so this
+  // holds for any repo. Keys are segment-split on `-`, `_` and `:` so
+  // npm-script names (`test:watch`) classify too; the trailing boundary stops
+  // e.g. `up` from swallowing `update-openapi`.
+  const skipPrefix =
+    /^(install|deps|dependencies|bootstrap|dev|serve|start|watch|server|daemon|console|shell|repl|up|down|seed|deploy|release|publish|package|docs?|bench|benchmark)([-_:]|$)/i
+  // `worker`/`service`/`daemon`/`watch` anywhere marks a long-running process.
+  const skipSegment = /(^|[-_:])(workers?|services?|daemon|watch)([-_:]|$)/i
+
+  // Heavy / whole-repo / pre-merge gates: a `ci`/`e2e` job, an `all` umbrella,
+  // or a `slow` suite. Listed but fenced off.
+  const ciOnlyKey = /(^|[-_:])(ci|e2e|all|slow)([-_:]|$)/i
+
+  for (const [key, raw] of Object.entries(rc)) {
+    if (typeof raw !== 'string') continue
+    const cmd = raw.trim()
+    if (!cmd || skipPrefix.test(key) || skipSegment.test(key)) continue
+    if (ciOnlyKey.test(key) || isHeavyCommand(cmd)) ciOnly.push({ key, cmd })
+    else fixLoop.push({ key, cmd })
+  }
+
+  fixLoop.sort((a, b) => roleRank(a.key) - roleRank(b.key) || a.key.localeCompare(b.key))
+  ciOnly.sort((a, b) => a.key.localeCompare(b.key))
+  return { fixLoop, ciOnly }
+}
+
+/** A command body is "heavy" when it fans out across the whole repo. Detected
+ * by language-neutral conventions, not a runner allowlist: an aggregate target
+ * shelling out to siblings, a container-stack stand-up, a sub-make of an e2e
+ * harness, or Go's canonical whole-module test glob. Each is a recognizer, not
+ * an assumption — an ecosystem that uses none of them just relies on the key
+ * heuristics plus the floor's "scope it" instruction, and nothing is wrongly
+ * fenced.
+ *
+ * Deliberately NOT heavy: a trailing `.` (`eslint .`, `ruff check .`) or
+ * `go build ./...` — those are normal scoped/build commands and are often a
+ * repo's only linter or builder, so fencing them would empty the menu. */
+function isHeavyCommand(cmd: string): boolean {
+  if (cmd.includes(' => ')) return true // aggregate target -> sibling targets
+  if (/docker[-\s]?compose/i.test(cmd)) return true // stands up a service stack
+  if (/(^|\s)-C\s+e2e(\s|$)/.test(cmd)) return true // sub-make into an e2e harness
+  if (/\bgo test\b[^\n]*\.\/\.\.\./.test(cmd)) return true // whole-module Go test
+  return false
+}
+
+/** Order the reference menu format → lint → typecheck → build → test → other,
+ * so the cheapest, most-likely-relevant commands read first. */
+function roleRank(key: string): number {
+  const k = key.toLowerCase()
+  if (/(format|fmt|style)/.test(k)) return 0
+  if (/(lint|clippy)/.test(k)) return 1
+  if (/(typecheck|type[-_]?check|typescript|tsc|mypy)/.test(k)) return 2
+  if (/build/.test(k)) return 3
+  if (/test/.test(k)) return 4
+  return 5
 }
 
 // ── Path helpers ────────────────────────────────────────────────────────
