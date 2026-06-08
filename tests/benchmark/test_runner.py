@@ -37,6 +37,28 @@ def test_run_claude_parses_metrics(monkeypatch):
     assert "--model" in captured["cmd"] and "claude-sonnet-4-6" in captured["cmd"]
 
 
+def test_prompt_wraps_task_with_autonomy_framing(monkeypatch):
+    # Headless `claude -p` has no human to approve/answer. Without an explicit
+    # autonomy directive the agent obeys global "describe approach and wait for
+    # approval / ask clarifying questions" rules and stops without editing —
+    # producing an empty diff on both arms. The wrapper must override that.
+    captured = {}
+
+    def fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout=_stream(), stderr="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    runner.run_claude("Add a sleep timer feature", "m", "/tmp/wt", 60)
+
+    sent = captured["cmd"][2]
+    assert "Add a sleep timer feature" in sent  # original task preserved verbatim
+    low = sent.lower()
+    assert "autonomous" in low                  # framed as autonomous
+    assert "do not ask" in low                  # overrides clarifying-questions rule
+    assert "do not stop" in low                 # overrides wait-for-approval rule
+
+
 def test_timeout_marks_incomplete(monkeypatch):
     def fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None):
         raise subprocess.TimeoutExpired(cmd, timeout, output=_stream())
