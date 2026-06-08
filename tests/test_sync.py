@@ -1,0 +1,220 @@
+"""Tests for sync.py — the Living Blueprint change ledger, Phase 1.
+
+Phase 1 guarantee: `record` produces a versioned change file under .archie/changes/
+and mutates NOTHING else (no blueprint.json, no CLAUDE.md). These tests pin that
+guarantee plus the diff acquisition, claim classification, provenance (branch),
+versioning, and malformed-input rejection.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+_STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
+sys.path.insert(0, str(_STANDALONE))
+
+import sync  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def _init_repo(tmp_path: Path) -> Path:
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@t.com")
+    _git(tmp_path, "config", "user.name", "Tester")
+    _git(tmp_path, "checkout", "-q", "-b", "main")
+    (tmp_path / "seed.txt").write_text("seed\n")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "init")
+    return tmp_path
+
+
+def _stage_change(root: Path, rel: str, content: str = "x\n") -> None:
+    """Create + stage a file so `git diff --name-only HEAD` (fallback) sees it."""
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content)
+    _git(root, "add", "-A")
+
+
+def _write_payload(tmp_path: Path, claims: list) -> Path:
+    p = tmp_path / "payload.json"
+    p.write_text(json.dumps(claims))
+    return p
+
+
+def _record(root: Path, payload: Path, capsys, agent: str = "claude") -> dict:
+    rc = sync.main(["sync.py", "record", str(root), "--input", str(payload), "--agent", agent])
+    out = capsys.readouterr().out.strip()
+    return {"rc": rc, **json.loads(out)}
+
+
+def _claim(ctype="decision", title="Add repository layer", evidence=None,
+           confidence="high", reconstructed=False):
+    return {
+        "type": ctype,
+        "title": title,
+        "rationale": "decouples persistence",
+        "evidence_files": evidence if evidence is not None else ["data/Repo.kt"],
+        "confidence": confidence,
+        "reconstructed": reconstructed,
+    }
+
+
+# ---------------------------------------------------------------------------
+# tests
+# ---------------------------------------------------------------------------
+
+def test_record_writes_versioned_change_file(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    _stage_change(root, "data/Repo.kt")
+    res = _record(root, _write_payload(tmp_path, [_claim()]), capsys)
+
+    assert res["ok"] is True
+    assert res["version"] == 1
+    assert res["folded"] is False
+    changes = sorted((root / ".archie" / "changes").glob("change_*.json"))
+    assert len(changes) == 1
+    assert (root / ".archie" / "changes" / "latest.json").exists()
+    rec = json.loads(changes[0].read_text())
+    assert rec["folded"] is False
+    assert rec["diff"]["changed_files"] == ["data/Repo.kt"]
+    assert "data" in rec["diff"]["affected_folders"]
+
+
+def test_phase1_does_not_touch_blueprint_or_claude(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    archie = root / ".archie"
+    archie.mkdir()
+    bp = archie / "blueprint.json"
+    bp.write_text(json.dumps({"meta": {"x": 1}}))
+    claude = root / "CLAUDE.md"
+    claude.write_text("# hand authored\n")
+    bp_before, claude_before = bp.read_bytes(), claude.read_bytes()
+
+    _stage_change(root, "data/Repo.kt")
+    res = _record(root, _write_payload(tmp_path, [_claim()]), capsys)
+
+    assert res["ok"] is True
+    # The Phase-1 guarantee: nothing but the ledger changed.
+    assert bp.read_bytes() == bp_before
+    assert claude.read_bytes() == claude_before
+
+
+def test_classification_eligible_vs_staged(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    _stage_change(root, "data/Repo.kt")
+    claims = [
+        _claim(title="Eligible one", evidence=["data/Repo.kt"], confidence="high"),
+        _claim(title="No evidence in diff", evidence=["unrelated/other.kt"], confidence="high"),
+        _claim(title="Low confidence", evidence=["data/Repo.kt"], confidence="low"),
+    ]
+    res = _record(root, _write_payload(tmp_path, claims), capsys)
+    assert res["eligible"] == 1
+    assert res["staged"] == 2
+
+    rec = json.loads((root / ".archie" / "changes" / "latest.json").read_text())
+    by_title = {c["title"]: c["status"] for c in rec["claims"]}
+    assert by_title["Eligible one"] == "eligible"
+    assert by_title["No evidence in diff"] == "staged"
+    assert by_title["Low confidence"] == "staged"
+
+
+def test_reconstructed_claim_is_staged(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    _stage_change(root, "data/Repo.kt")
+    claims = [_claim(evidence=["data/Repo.kt"], confidence="high", reconstructed=True)]
+    res = _record(root, _write_payload(tmp_path, claims), capsys)
+    assert res["eligible"] == 0
+    assert res["staged"] == 1
+    rec = json.loads((root / ".archie" / "changes" / "latest.json").read_text())
+    assert rec["provenance"]["reconstructed"] is True
+
+
+def test_branch_captured_in_provenance(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    _git(root, "checkout", "-q", "-b", "feature/living-blueprint")
+    _stage_change(root, "data/Repo.kt")
+    _record(root, _write_payload(tmp_path, [_claim()]), capsys)
+    rec = json.loads((root / ".archie" / "changes" / "latest.json").read_text())
+    assert rec["provenance"]["branch"] == "feature/living-blueprint"
+    assert rec["provenance"]["git_head"]
+
+
+def test_version_increments_and_latest_matches(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    _stage_change(root, "data/Repo.kt")
+    _record(root, _write_payload(tmp_path, [_claim()]), capsys)
+    _stage_change(root, "data/Other.kt")
+    res2 = _record(root, _write_payload(tmp_path, [_claim(title="Second")]), capsys)
+
+    assert res2["version"] == 2
+    files = sorted((root / ".archie" / "changes").glob("change_*.json"))
+    assert len(files) == 2
+    latest = json.loads((root / ".archie" / "changes" / "latest.json").read_text())
+    assert latest["version"] == 2
+    assert latest["id"] == res2["id"]
+
+
+def test_malformed_payload_rejected_nothing_written(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    _stage_change(root, "data/Repo.kt")
+    bad = _write_payload(tmp_path, [{"type": "bogus", "title": "x"}])
+    res = _record(root, bad, capsys)
+    assert res["ok"] is False
+    assert "invalid payload" in res["error"]
+    assert not (root / ".archie" / "changes").exists()
+
+
+def test_too_large_diff_writes_nothing(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    archie = root / ".archie"
+    archie.mkdir()
+    base_sha = _git(root, "rev-parse", "HEAD")
+    # Small known universe so the ratio guard trips, plus >30 changed files.
+    (archie / "scan.json").write_text(json.dumps({"file_tree": ["seed.txt"]}))
+    (archie / "last_deep_scan.json").write_text(json.dumps({"commit_sha": base_sha, "mode": "full"}))
+    for i in range(31):
+        (root / f"f{i}.txt").write_text("y\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "many")
+
+    res = _record(root, _write_payload(tmp_path, [_claim()]), capsys)
+    assert res["ok"] is False
+    assert res["mode"] == "full"
+    assert not (archie / "changes").exists()
+
+
+def test_list_returns_records(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    _stage_change(root, "data/Repo.kt")
+    _record(root, _write_payload(tmp_path, [_claim()]), capsys)
+    capsys.readouterr()  # drain
+
+    rc = sync.main(["sync.py", "list", str(root), "--json"])
+    out = json.loads(capsys.readouterr().out.strip())
+    assert rc == 0
+    assert len(out) == 1
+    assert out[0]["version"] == 1
+    assert out[0]["eligible"] == 1
+
+
+def test_list_empty_ledger(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    rc = sync.main(["sync.py", "list", str(root), "--json"])
+    out = json.loads(capsys.readouterr().out.strip())
+    assert rc == 0
+    assert out == []
