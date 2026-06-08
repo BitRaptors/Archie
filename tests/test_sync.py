@@ -250,3 +250,94 @@ def test_list_empty_ledger(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out.strip())
     assert rc == 0
     assert out == []
+
+
+# --------------------------------------------------------------------------
+# Phase 2 — fold plumbing (scope resolution + apply). The AI edit between the
+# two steps is simulated here by editing blueprint.json directly.
+# --------------------------------------------------------------------------
+
+def _minimal_blueprint() -> dict:
+    return {
+        "meta": {"architecture_style": "MVVM"},
+        "components": {"components": []},
+        "decisions": {"key_decisions": [], "decision_chain": {}, "trade_offs": []},
+        "pitfalls": [],
+        "communication": {"patterns": []},
+        "technology": {},
+        "implementation_guidelines": {},
+        "development_rules": [],
+        "quick_reference": {},
+    }
+
+
+def _setup_foldable(tmp_path, capsys, claims):
+    root = _init_repo(tmp_path)
+    archie = root / ".archie"
+    archie.mkdir()
+    (archie / "blueprint.json").write_text(json.dumps(_minimal_blueprint()))
+    (root / "app").mkdir()
+    (root / "app" / "CLAUDE.md").write_text("# app context\n")
+    _stage_change(root, "app/Main.kt")
+    _record(root, _write_payload(tmp_path, claims), capsys)
+    capsys.readouterr()  # drain record output
+    return root, archie
+
+
+def test_fold_context_resolves_scope(tmp_path, capsys):
+    root, archie = _setup_foldable(tmp_path, capsys, [
+        _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),
+        _claim(ctype="rule", title="R", evidence=["app/Main.kt"], confidence="high"),
+    ])
+    rc = sync.main(["sync.py", "fold-context", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["ok"]
+    assert out["eligible_count"] == 2
+    by = {t["type"]: t for t in out["targets"]}
+    assert by["pitfall"]["edit_file"].endswith("blueprint.json")
+    assert by["pitfall"]["blueprint_section"] == "pitfalls"
+    assert by["pitfall"]["also_update"].endswith("findings.json")
+    assert by["rule"]["edit_file"].endswith("rules.json")
+    assert "app/CLAUDE.md" in out["intent_files"]
+    # guardrail snapshot persisted into the change record
+    rec = json.loads((archie / "changes" / "latest.json").read_text())
+    assert "blueprint_top_level_keys" in rec["fold_guardrail"]
+
+
+def test_fold_apply_renders_and_marks_folded(tmp_path, capsys):
+    root, archie = _setup_foldable(tmp_path, capsys, [
+        _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),
+    ])
+    sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
+    # Simulate the AI fold: add a pitfall to the blueprint (source of truth).
+    bp = json.loads((archie / "blueprint.json").read_text())
+    bp["pitfalls"].append({"id": "pf_new", "problem_statement": "P", "evidence": []})
+    (archie / "blueprint.json").write_text(json.dumps(bp))
+
+    rc = sync.main(["sync.py", "fold-apply", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["ok"], out
+    assert out["folded"] == 1
+    assert (root / "CLAUDE.md").exists()  # root docs re-rendered
+    assert (root / "AGENTS.md").exists()
+    rec = json.loads((archie / "changes" / "latest.json").read_text())
+    assert rec["folded"] is True
+    assert all(c["status"] == "folded" for c in rec["claims"])
+
+
+def test_fold_apply_guardrail_aborts_on_dropped_section(tmp_path, capsys):
+    root, archie = _setup_foldable(tmp_path, capsys, [
+        _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),
+    ])
+    sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
+    # Simulate a BAD edit that drops a whole top-level section.
+    bp = json.loads((archie / "blueprint.json").read_text())
+    del bp["decisions"]
+    (archie / "blueprint.json").write_text(json.dumps(bp))
+
+    rc = sync.main(["sync.py", "fold-apply", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1 and out["ok"] is False
+    assert "guardrail" in out["error"]
+    rec = json.loads((archie / "changes" / "latest.json").read_text())
+    assert rec.get("folded") in (False, None)  # not marked folded

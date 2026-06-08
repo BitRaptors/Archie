@@ -401,13 +401,241 @@ def cmd_list(root: Path, as_json: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2 — fold plumbing (the AI fold itself is done by the /archie-sync agent;
+# these are the deterministic bookends: scope resolution + apply/re-render/validate)
+# ---------------------------------------------------------------------------
+
+# claim type -> blueprint.json section the agent edits (None => rules.json)
+_BLUEPRINT_SECTION = {
+    "decision": "decisions",
+    "pitfall": "pitfalls",
+    "guideline": "implementation_guidelines",
+    "rule": None,
+}
+
+
+def _newest_change(root: Path) -> Path | None:
+    changes_dir = _changes_dir(root)
+    if not changes_dir.is_dir():
+        return None
+    files = sorted(
+        [f for f in changes_dir.iterdir()
+         if f.name.startswith("change_") and f.name.endswith(".json")],
+        key=lambda f: f.name,
+    )
+    return files[-1] if files else None
+
+
+def _load_change(root: Path, change_file: str | None):
+    """Return (path, data). Defaults to the newest change_*.json (NOT latest.json,
+    so marking folded updates the real record)."""
+    if change_file:
+        p = Path(change_file)
+        if not p.is_absolute():
+            p = root / change_file
+    else:
+        p = _newest_change(root)
+    if not p or not p.exists():
+        return None, None
+    try:
+        return p, json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError):
+        return p, None
+
+
+def _persist_change(root: Path, path: Path, data: dict) -> None:
+    path.write_text(json.dumps(data, indent=2))
+    newest = _newest_change(root)
+    if newest and newest.name == path.name:
+        (_changes_dir(root) / "latest.json").write_text(json.dumps(data, indent=2))
+
+
+def _load_enforcement_rules(archie: Path) -> list:
+    """Mirror finalize.py's enforcement-rule loading for the render step."""
+    rules = []
+    for fname, src in (("rules.json", "project"), ("platform_rules.json", "platform")):
+        p = archie / fname
+        if not p.exists():
+            continue
+        try:
+            d = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        items = d if isinstance(d, list) else d.get("rules", [])
+        if isinstance(items, list):
+            for r in items:
+                if isinstance(r, dict):
+                    r.setdefault("_archie_source", src)
+                    rules.append(r)
+    return rules
+
+
+def _run_inject_scoped(root: Path) -> bool:
+    """Propagate edited scoped sections into per-folder CLAUDE.md (no-op if the
+    intent layer is absent). Run as a subprocess to isolate its output."""
+    intent_layer = _SCRIPT_DIR / "intent_layer.py"
+    if not intent_layer.exists():
+        return False
+    try:
+        r = subprocess.run(
+            [sys.executable, str(intent_layer), "inject-scoped", str(root)],
+            capture_output=True, text=True, timeout=180,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def cmd_fold_context(root: Path, change_file: str | None) -> int:
+    """Resolve scope for the eligible claims: which blueprint section / rules.json
+    each claim edits, plus the per-folder CLAUDE.md in scope. Hands the agent a
+    bounded edit target list (never the whole blueprint) and stores a guardrail
+    snapshot for fold-apply. Deterministic."""
+    path, data = _load_change(root, change_file)
+    if data is None:
+        print(json.dumps({"ok": False, "error": "no change record found"}))
+        return 1
+    eligible = [c for c in data.get("claims", []) if c.get("status") == "eligible"]
+    archie = root / ".archie"
+    bp_path = archie / "blueprint.json"
+    bp = {}
+    if bp_path.exists():
+        try:
+            bp = json.loads(bp_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            bp = {}
+
+    targets = []
+    for c in eligible:
+        ctype = c.get("section")
+        section = _BLUEPRINT_SECTION.get(ctype)
+        targets.append({
+            "claim_id": c.get("id"),
+            "type": ctype,
+            "title": c.get("title"),
+            "rationale": c.get("rationale"),
+            "evidence_files": c.get("evidence_files", []),
+            "edit_file": ".archie/rules.json" if ctype == "rule" else ".archie/blueprint.json",
+            "blueprint_section": section,
+            "also_update": ".archie/findings.json" if ctype == "pitfall" else None,
+        })
+
+    affected = data.get("diff", {}).get("affected_folders", [])
+    intent_files = []
+    for folder in affected:
+        cf = root / folder / "CLAUDE.md"
+        if cf.exists():
+            intent_files.append(str(cf.relative_to(root)))
+
+    # Persist a guardrail snapshot so fold-apply can refuse a render that dropped
+    # a whole top-level section.
+    data["fold_guardrail"] = {"blueprint_top_level_keys": sorted(bp.keys())}
+    _persist_change(root, path, data)
+
+    print(json.dumps({
+        "ok": True,
+        "change_file": str(path.relative_to(root)) if path.is_relative_to(root) else str(path),
+        "eligible_count": len(eligible),
+        "targets": targets,
+        "intent_files": intent_files,
+        "instructions": (
+            "For each target: read ONLY the named blueprint_section (or rules.json) and "
+            "the evidence files, decide the operation (add / change-supersede / augment / "
+            "remove / new-section), and edit blueprint.json (source of truth) or rules.json "
+            "accordingly. For pitfalls also add a verifier-shaped entry to findings.json. "
+            "Do NOT hand-edit per-folder CLAUDE.md Archie blocks — fold-apply re-renders "
+            "them from the blueprint. Then run: sync.py fold-apply ."
+        ),
+    }, indent=2))
+    return 0
+
+
+def cmd_fold_apply(root: Path, change_file: str | None) -> int:
+    """After the agent edited blueprint.json / rules.json: validate the guardrail,
+    re-render root docs from the edited blueprint, propagate to the intent layer,
+    and mark the record folded. Deterministic plumbing."""
+    path, data = _load_change(root, change_file)
+    if data is None:
+        print(json.dumps({"ok": False, "error": "no change record found"}))
+        return 1
+    archie = root / ".archie"
+    bp_path = archie / "blueprint.json"
+    if not bp_path.exists():
+        print(json.dumps({"ok": False, "error": "no blueprint.json"}))
+        return 1
+    try:
+        bp = json.loads(bp_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        print(json.dumps({"ok": False, "error": f"blueprint.json invalid after edit, aborting render: {e}"}))
+        return 1
+
+    snapshot = (data.get("fold_guardrail") or {}).get("blueprint_top_level_keys", [])
+    missing = [k for k in snapshot if k not in bp]
+    if missing:
+        print(json.dumps({"ok": False, "error": f"guardrail tripped — blueprint top-level sections dropped: {missing}"}))
+        return 1
+
+    sys.path.insert(0, str(_SCRIPT_DIR))
+    from _common import normalize_blueprint  # noqa: E402
+    import renderer  # noqa: E402
+    try:
+        import intent_layer  # noqa: E402
+        lock = intent_layer._state_lock(root)
+    except Exception:
+        from contextlib import nullcontext
+        lock = nullcontext()
+
+    rendered = []
+    with lock:
+        normalize_blueprint(bp)
+        bp_path.write_text(json.dumps(bp, indent=2))
+        enforcement_rules = _load_enforcement_rules(archie)
+        files = renderer.generate_all(bp, enforcement_rules=enforcement_rules)
+        for rel, content in files.items():
+            full = root / rel
+            full.parent.mkdir(parents=True, exist_ok=True)
+            if rel in renderer.MERGEABLE_FILES:
+                full.write_text(renderer.render_mergeable(full, content))
+            else:
+                full.write_text(content)
+            rendered.append(rel)
+
+    intent_updated = _run_inject_scoped(root)
+
+    folded = 0
+    for c in data.get("claims", []):
+        if c.get("status") == "eligible":
+            c["status"] = "folded"
+            folded += 1
+    data["folded"] = True
+    _persist_change(root, path, data)
+
+    print(json.dumps({
+        "ok": True,
+        "folded": folded,
+        "rendered_count": len(rendered),
+        "intent_updated": intent_updated,
+    }))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def _usage() -> None:
     print("Usage:", file=sys.stderr)
-    print("  python3 sync.py record /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]", file=sys.stderr)
-    print("  python3 sync.py list   /path/to/repo [--json]", file=sys.stderr)
+    print("  python3 sync.py record       /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]", file=sys.stderr)
+    print("  python3 sync.py list         /path/to/repo [--json]", file=sys.stderr)
+    print("  python3 sync.py fold-context /path/to/repo [--change <file>]   (Phase 2: scope for the agent)", file=sys.stderr)
+    print("  python3 sync.py fold-apply   /path/to/repo [--change <file>]   (Phase 2: re-render + propagate + mark folded)", file=sys.stderr)
+
+
+def _opt(rest: list[str], name: str) -> str | None:
+    for i, a in enumerate(rest):
+        if a == name and i + 1 < len(rest):
+            return rest[i + 1]
+    return None
 
 
 def main(argv: list[str]) -> int:
@@ -436,6 +664,12 @@ def main(argv: list[str]) -> int:
 
     if cmd == "list":
         return cmd_list(root, "--json" in rest)
+
+    if cmd == "fold-context":
+        return cmd_fold_context(root, _opt(rest, "--change"))
+
+    if cmd == "fold-apply":
+        return cmd_fold_apply(root, _opt(rest, "--change"))
 
     _usage()
     return 1
