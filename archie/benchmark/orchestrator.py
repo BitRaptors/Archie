@@ -179,9 +179,13 @@ def _strip_archie_on_branch(repo, branch):
         # remove root-level + nested CLAUDE.md and known Archie dirs/files
         subprocess.run(["git", "rm", "-r", "--quiet", "--ignore-unmatch",
                         *ARCHIE_PATHS], cwd=str(repo), capture_output=True, text=True)
-        # nested per-folder CLAUDE.md files
-        nested = subprocess.run(["git", "ls-files", "*/CLAUDE.md"], cwd=str(repo),
-                                capture_output=True, text=True).stdout.split()
+        # nested per-folder CLAUDE.md files. Use -z (NUL-delimited) so paths
+        # containing spaces (e.g. Xcode "Button icons/") are not fragmented —
+        # splitting on whitespace would break them and git rm would skip them,
+        # leaking Archie context onto the control arm.
+        out = subprocess.run(["git", "ls-files", "-z", "*/CLAUDE.md"], cwd=str(repo),
+                             capture_output=True, text=True).stdout
+        nested = [p for p in out.split("\0") if p]
         if nested:
             subprocess.run(["git", "rm", "--quiet", "--ignore-unmatch", *nested],
                            cwd=str(repo), capture_output=True, text=True)

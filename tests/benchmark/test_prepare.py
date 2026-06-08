@@ -51,6 +51,29 @@ def test_control_branch_strips_archie_files(tmp_path):
     assert status["needs_deep_scan"] is False
 
 
+def test_control_strips_nested_claude_md_with_spaces_in_path(tmp_path):
+    # Regression: directory names with spaces (e.g. Xcode asset catalogs like
+    # "Button icons/") must not survive the strip. The old impl split git
+    # ls-files output on all whitespace, fragmenting space-containing paths so
+    # `git rm` silently skipped them — leaking Archie context onto the control arm.
+    repo = _repo(tmp_path, with_archie=True)
+    nested_dir = repo / "Assets" / "Button icons"
+    nested_dir.mkdir(parents=True)
+    (nested_dir / "CLAUDE.md").write_text("# Button icons\n<!-- archie:ai-start -->\n")
+    (nested_dir / "icon.txt").write_text("keep me\n")  # non-Archie file must survive
+    _git(["add", "-A"], repo)
+    _git(["commit", "-m", "add nested archie context in spaced dir"], repo)
+
+    orch.prepare_branches(_cfg(repo))
+
+    leftover = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "archie-bench/no-archie"],
+        cwd=repo, check=True, capture_output=True, text=True).stdout.splitlines()
+    assert not any(p.endswith("CLAUDE.md") for p in leftover), \
+        f"control arm still has CLAUDE.md files: {[p for p in leftover if p.endswith('CLAUDE.md')]}"
+    assert "Assets/Button icons/icon.txt" in leftover  # real content preserved
+
+
 def test_treatment_keeps_archie_files(tmp_path):
     repo = _repo(tmp_path, with_archie=True)
     orch.prepare_branches(_cfg(repo))
