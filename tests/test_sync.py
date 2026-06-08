@@ -51,7 +51,9 @@ def _stage_change(root: Path, rel: str, content: str = "x\n") -> None:
 
 
 def _write_payload(tmp_path: Path, claims: list) -> Path:
-    p = tmp_path / "payload.json"
+    # Write OUTSIDE the repo (tmp_path is the repo root) so the payload file does not
+    # itself appear as an untracked working-tree change.
+    p = tmp_path.parent / f"payload_{tmp_path.name}.json"
     p.write_text(json.dumps(claims))
     return p
 
@@ -196,6 +198,36 @@ def test_too_large_diff_writes_nothing(tmp_path, capsys):
     assert res["ok"] is False
     assert res["mode"] == "full"
     assert not (archie / "changes").exists()
+
+
+def test_stale_baseline_captures_worktree_change(tmp_path, capsys):
+    """The real BabyWeather bug: a stale/huge committed baseline (detect-changes says
+    'too large') must NOT block recording a small uncommitted edit. Capture the work
+    in the tree; ignore the stale committed delta."""
+    root = _init_repo(tmp_path)
+    archie = root / ".archie"
+    archie.mkdir()
+    base_sha = _git(root, "rev-parse", "HEAD")
+    # Simulate the stale baseline: tiny known universe, then >30 committed files so
+    # detect-changes reports full/too-large against the baseline.
+    (archie / "scan.json").write_text(json.dumps({"file_tree": ["seed.txt"]}))
+    (archie / "last_deep_scan.json").write_text(json.dumps({"commit_sha": base_sha, "mode": "full"}))
+    for i in range(40):
+        (root / f"bulk{i}.txt").write_text("y\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "bulk baseline drift")
+    # Now the actual session change: one uncommitted source edit.
+    (root / "app" / "Main.kt").parent.mkdir(parents=True, exist_ok=True)
+    (root / "app" / "Main.kt").write_text("// real fix\n")
+
+    res = _record(root, _write_payload(tmp_path, [
+        _claim(title="Silence background errors", evidence=["app/Main.kt"], confidence="high")
+    ]), capsys)
+
+    assert res["ok"] is True, res
+    rec = json.loads((root / ".archie" / "changes" / "latest.json").read_text())
+    assert rec["diff"]["changed_files"] == ["app/Main.kt"]  # only the real edit, no bulk/.archie
+    assert res["eligible"] == 1
 
 
 def test_list_returns_records(tmp_path, capsys):

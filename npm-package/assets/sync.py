@@ -101,55 +101,78 @@ def _detect_changes(root: Path) -> dict:
         return {"mode": "full", "reason": f"detect-changes failed: {e}"}
 
 
-def _fallback_diff(root: Path, since: str | None) -> list[str]:
-    """Compute changed files directly when there's no deep-scan baseline.
+# Tooling / VCS dirs that are never "the change" (mirrors refresh.py SKIP_DIRS).
+# Keeps the ledger from recording its own .archie/ output or editor/CLI scaffolding.
+_SKIP_PREFIXES = (".git/", ".archie/", ".claude/", ".codex/", ".agents/")
 
-    Precedence: explicit --since, else uncommitted working-tree changes, else the
-    last commit (HEAD~1..HEAD). Keeps `record` usable on any repo for review.
+
+def _skipped(path: str) -> bool:
+    return any(path == p.rstrip("/") or path.startswith(p) for p in _SKIP_PREFIXES)
+
+
+def _worktree_changes(root: Path) -> list[str]:
+    """Uncommitted changes — tracked modifications AND untracked files.
+
+    This is the design's "+ working-tree state": the agent harvests intent while the
+    work is still uncommitted, so the change to capture is in the working tree, not in
+    any commit. We use clean path-listing commands (not `status --porcelain`, whose
+    fixed-column format breaks once the surrounding shell strips leading whitespace):
+      - tracked, modified/staged/deleted vs HEAD: `git diff --name-only HEAD`
+      - untracked (respecting .gitignore):        `git ls-files --others --exclude-standard`
+    Tooling/VCS dirs are filtered out.
     """
-    if since:
-        out = _git(root, "diff", "--name-only", f"{since}..HEAD")
-        return [f for f in out.split("\n") if f]
-    # uncommitted (staged + unstaged) vs HEAD
-    out = _git(root, "diff", "--name-only", "HEAD")
-    changed = [f for f in out.split("\n") if f]
-    if changed:
-        return changed
-    # fall back to the last commit
-    out = _git(root, "diff", "--name-only", "HEAD~1..HEAD")
-    return [f for f in out.split("\n") if f]
+    tracked = _git(root, "diff", "--name-only", "HEAD")
+    untracked = _git(root, "ls-files", "--others", "--exclude-standard")
+    files = []
+    for out in (tracked, untracked):
+        for f in out.split("\n"):
+            f = f.strip()
+            if f and not _skipped(f):
+                files.append(f)
+    return files
+
+
+def _committed_since(root: Path, ref: str) -> list[str]:
+    out = _git(root, "diff", "--name-only", f"{ref}..HEAD")
+    return [f for f in out.split("\n") if f and not _skipped(f)]
 
 
 def _resolve_diff(root: Path, since: str | None) -> dict:
     """Return {mode, changed_files, affected_folders, ratio} or {too_large:True,...}.
 
-    Reuses detect-changes for the diff + the too-large guard; when detect-changes
-    reports `full` only because no baseline exists, we still compute a diff so the
-    user can produce reviewable output.
+    The change to capture = uncommitted working-tree changes UNION the committed delta
+    since the baseline. A stale/huge committed baseline (the "too large" guard) is
+    IGNORED when there is current work in the tree — we record the work in front of us.
+    We only bail with `too_large` when there is nothing uncommitted AND the committed
+    delta is too large to evolve piecemeal.
     """
     dc = _detect_changes(root)
     mode = dc.get("mode")
     reason = dc.get("reason", "")
+    threshold_full = mode == "full" and "exceeds threshold" in reason
 
-    # Respect the real "too large" guard — do not record piecemeal.
-    if mode == "full" and "exceeds threshold" in reason:
+    worktree = _worktree_changes(root)
+
+    if since:
+        committed = _committed_since(root, since)
+    elif mode == "incremental" and dc.get("changed_files") is not None:
+        committed = [f for f in dc.get("changed_files", []) if not _skipped(f)]
+    elif threshold_full:
+        committed = []  # stale/huge committed baseline — capture current work instead
+    else:
+        # No baseline: fall back to the last commit so there's something to review.
+        committed = _committed_since(root, "HEAD~1") if not worktree else []
+
+    changed = sorted(set(worktree) | set(committed))
+
+    if not changed and threshold_full:
         return {"too_large": True, "reason": reason}
 
-    if mode == "incremental" and dc.get("changed_files") is not None:
-        return {
-            "mode": "incremental",
-            "changed_files": dc.get("changed_files", []),
-            "affected_folders": dc.get("affected_folders", []),
-            "ratio": dc.get("ratio", 0.0),
-        }
-
-    # No baseline (or other non-threshold full): compute the diff ourselves.
-    changed = _fallback_diff(root, since)
     return {
         "mode": "incremental",
         "changed_files": changed,
         "affected_folders": _ancestors(changed),
-        "ratio": 0.0,
+        "ratio": dc.get("ratio", 0.0) if mode == "incremental" else 0.0,
     }
 
 
