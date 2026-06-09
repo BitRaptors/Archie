@@ -64,12 +64,11 @@ def _record(root: Path, payload: Path, capsys, agent: str = "claude") -> dict:
     return {"rc": rc, **json.loads(out)}
 
 
-def _claim(ctype="decision", title="Add repository layer", evidence=None,
+def _claim(kind="behavior", statement="Repo now persists via DataSource", evidence=None,
            confidence="high", reconstructed=False):
     return {
-        "type": ctype,
-        "title": title,
-        "rationale": "decouples persistence",
+        "kind": kind,
+        "statement": statement,
         "evidence_files": evidence if evidence is not None else ["data/Repo.kt"],
         "confidence": confidence,
         "reconstructed": reconstructed,
@@ -120,19 +119,19 @@ def test_classification_eligible_vs_staged(tmp_path, capsys):
     root = _init_repo(tmp_path)
     _stage_change(root, "data/Repo.kt")
     claims = [
-        _claim(title="Eligible one", evidence=["data/Repo.kt"], confidence="high"),
-        _claim(title="No evidence in diff", evidence=["unrelated/other.kt"], confidence="high"),
-        _claim(title="Low confidence", evidence=["data/Repo.kt"], confidence="low"),
+        _claim(statement="Eligible one", evidence=["data/Repo.kt"], confidence="high"),
+        _claim(statement="No evidence in diff", evidence=["unrelated/other.kt"], confidence="high"),
+        _claim(statement="Low confidence", evidence=["data/Repo.kt"], confidence="low"),
     ]
     res = _record(root, _write_payload(tmp_path, claims), capsys)
     assert res["eligible"] == 1
     assert res["staged"] == 2
 
     rec = json.loads((root / ".archie" / "changes" / "latest.json").read_text())
-    by_title = {c["title"]: c["status"] for c in rec["claims"]}
-    assert by_title["Eligible one"] == "eligible"
-    assert by_title["No evidence in diff"] == "staged"
-    assert by_title["Low confidence"] == "staged"
+    by_stmt = {c["statement"]: c["status"] for c in rec["claims"]}
+    assert by_stmt["Eligible one"] == "eligible"
+    assert by_stmt["No evidence in diff"] == "staged"
+    assert by_stmt["Low confidence"] == "staged"
 
 
 def test_reconstructed_claim_is_staged(tmp_path, capsys):
@@ -161,7 +160,7 @@ def test_version_increments_and_latest_matches(tmp_path, capsys):
     _stage_change(root, "data/Repo.kt")
     _record(root, _write_payload(tmp_path, [_claim()]), capsys)
     _stage_change(root, "data/Other.kt")
-    res2 = _record(root, _write_payload(tmp_path, [_claim(title="Second")]), capsys)
+    res2 = _record(root, _write_payload(tmp_path, [_claim(statement="Second")]), capsys)
 
     assert res2["version"] == 2
     files = sorted((root / ".archie" / "changes").glob("change_*.json"))
@@ -221,7 +220,7 @@ def test_stale_baseline_captures_worktree_change(tmp_path, capsys):
     (root / "app" / "Main.kt").write_text("// real fix\n")
 
     res = _record(root, _write_payload(tmp_path, [
-        _claim(title="Silence background errors", evidence=["app/Main.kt"], confidence="high")
+        _claim(statement="Silence background errors", evidence=["app/Main.kt"], confidence="high")
     ]), capsys)
 
     assert res["ok"] is True, res
@@ -286,27 +285,45 @@ def _setup_foldable(tmp_path, capsys, claims):
 
 def test_fold_context_resolves_scope(tmp_path, capsys):
     root, archie = _setup_foldable(tmp_path, capsys, [
-        _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),
-        _claim(ctype="rule", title="R", evidence=["app/Main.kt"], confidence="high"),
+        _claim(kind="behavior", statement="MainViewModel now filters background errors",
+               evidence=["app/Main.kt"], confidence="high"),
+        _claim(kind="rule", statement="Only user errors show the dialog",
+               evidence=["app/Main.kt"], confidence="high"),
     ])
     rc = sync.main(["sync.py", "fold-context", str(root)])
     out = json.loads(capsys.readouterr().out)
     assert rc == 0 and out["ok"]
     assert out["eligible_count"] == 2
-    by = {t["type"]: t for t in out["targets"]}
-    assert by["pitfall"]["edit_file"].endswith("blueprint.json")
-    assert by["pitfall"]["blueprint_section"] == "pitfalls"
-    assert by["pitfall"]["also_update"].endswith("findings.json")
+    by = {t["kind"]: t for t in out["targets"]}
+    # descriptive kind is the default: behavior -> components/communication, not rules
+    assert by["behavior"]["edit_file"].endswith("blueprint.json")
+    assert by["behavior"]["blueprint_sections"] == ["components", "communication"]
+    assert by["behavior"]["advisory"] is False
+    # advisory rule routes to rules.json
     assert by["rule"]["edit_file"].endswith("rules.json")
+    assert by["rule"]["advisory"] is True
     assert "app/CLAUDE.md" in out["intent_files"]
     # guardrail snapshot persisted into the change record
     rec = json.loads((archie / "changes" / "latest.json").read_text())
     assert "blueprint_top_level_keys" in rec["fold_guardrail"]
 
 
+def test_fold_context_pitfall_also_updates_findings(tmp_path, capsys):
+    root, archie = _setup_foldable(tmp_path, capsys, [
+        _claim(kind="pitfall", statement="P", evidence=["app/Main.kt"], confidence="high"),
+    ])
+    rc = sync.main(["sync.py", "fold-context", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    t = out["targets"][0]
+    assert t["kind"] == "pitfall"
+    assert t["blueprint_sections"] == ["pitfalls"]
+    assert t["also_update"].endswith("findings.json")
+    assert t["advisory"] is True
+
+
 def test_fold_apply_renders_and_marks_folded(tmp_path, capsys):
     root, archie = _setup_foldable(tmp_path, capsys, [
-        _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),
+        _claim(kind="pitfall", statement="P", evidence=["app/Main.kt"], confidence="high"),
     ])
     sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
     # Simulate the AI fold: add a pitfall to the blueprint (source of truth).
@@ -325,11 +342,35 @@ def test_fold_apply_renders_and_marks_folded(tmp_path, capsys):
     assert all(c["status"] == "folded" for c in rec["claims"])
 
 
+def test_fold_apply_does_not_backfill_unrelated_folders(tmp_path, capsys):
+    """The churn fix: fold-apply must NOT mass-rewrite per-folder CLAUDE.md
+    (no repo-wide inject-scoped). An unrelated folder's CLAUDE.md stays untouched."""
+    root, archie = _setup_foldable(tmp_path, capsys, [
+        _claim(kind="behavior", statement="X now does Y", evidence=["app/Main.kt"], confidence="high"),
+    ])
+    unrel = root / "unrelated" / "CLAUDE.md"
+    unrel.parent.mkdir()
+    unrel.write_text("# unrelated folder context\n")
+    before = unrel.read_bytes()
+
+    sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
+    # Simulate the agent's descriptive edit to the blueprint.
+    bp = json.loads((archie / "blueprint.json").read_text())
+    bp["components"]["components"].append({"name": "X", "responsibilities": ["does Y"]})
+    (archie / "blueprint.json").write_text(json.dumps(bp))
+
+    rc = sync.main(["sync.py", "fold-apply", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["ok"]
+    assert "intent_updated" not in out  # no repo-wide inject-scoped
+    assert unrel.read_bytes() == before  # unrelated folder untouched
+
+
 def test_fold_apply_render_failure_is_clean(tmp_path, capsys, monkeypatch):
     """If the render throws, fold-apply must NOT leave a half-applied blueprint,
     must report a JSON error (not a traceback), and must not mark the record folded."""
     root, archie = _setup_foldable(tmp_path, capsys, [
-        _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),
+        _claim(kind="pitfall", statement="P", evidence=["app/Main.kt"], confidence="high"),
     ])
     sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
     bp_before = (archie / "blueprint.json").read_bytes()
@@ -350,7 +391,7 @@ def test_fold_apply_render_failure_is_clean(tmp_path, capsys, monkeypatch):
 
 def test_fold_apply_guardrail_aborts_on_dropped_section(tmp_path, capsys):
     root, archie = _setup_foldable(tmp_path, capsys, [
-        _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),
+        _claim(kind="pitfall", statement="P", evidence=["app/Main.kt"], confidence="high"),
     ])
     sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
     # Simulate a BAD edit that drops a whole top-level section.

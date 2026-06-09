@@ -1,75 +1,88 @@
 ---
-description: Capture this session's work into the Living Blueprint — record the change (diff + intent), then fold eligible claims into blueprint.json, rules.json, and the per-folder intent layer. Pure producer (no commit/PR).
+description: Reconcile this session's code delta back into the Living Blueprint and intent layer so they stay an accurate snapshot of the codebase. Mostly descriptive (what the code now is), not rules. Pure producer (no commit/PR).
 ---
 
-# /archie-sync — evolve the Living Blueprint
+# /archie-sync — keep the snapshot current
 
-Capture the work just done and fold it into Archie's living dataset. Two phases run in one
-command. **No git writes** — record + edit files only; the user decides what to commit.
+The blueprint and per-folder CLAUDE.md are **living snapshots of the codebase**. Capture
+the work just done and **reconcile** it back so those snapshots stay accurate. No git
+writes — record + edit files only; the user decides what to commit.
 
 ## Phase 1 — record the change ledger
 
 ### Step 1 — Get context: PROVIDE or BUILD
 
-Produce a set of *intent claims* describing the architectural decisions in this change:
+Produce *statements about what the code now is* (not a changelog of your edits):
 
-- **PROVIDE** — if you still hold the reasoning from this session: emit claims from what
-  you know. Real `confidence`, `reconstructed: false`.
-- **BUILD** — if you do NOT (context cleared/compacted, or a fresh session): run `git diff`
-  and build claims from the change itself. Structural facts you can read off the diff are
-  fine; mark any inferred "why" as `confidence: "low"`, `reconstructed: true`. Do not
-  invent rationale the diff doesn't support.
+- **PROVIDE** — you hold the reasoning: emit statements from what you know. Real
+  `confidence`, `reconstructed: false`.
+- **BUILD** — context cleared/compacted or fresh session: read `git diff` and derive
+  statements from the change itself. Structural facts are fine; mark inferred intent
+  `confidence: "low"`, `reconstructed: true`. Don't invent beyond the diff.
 
 ### Step 2 — Record
 
-Pipe a JSON array of claims to the recorder:
+Pipe a JSON array of statements. **Descriptive kinds are the default** — what the code
+now is. Advisory kinds (decision/pitfall/rule) only when a change genuinely establishes
+one; they are NOT the point.
 
 ```json
-{ "type": "decision | rule | pitfall | guideline",
-  "title": "short title", "rationale": "the why",
+{ "statement": "MainViewModel now filters background subscription-refresh errors so they no longer surface the purchase dialog",
+  "kind": "behavior",
   "evidence_files": ["path/touched/by/this/change.ext"],
   "confidence": "low | medium | high", "reconstructed": false }
 ```
+
+Descriptive kinds: `behavior` (what a component/flow now does) · `structure` (component/
+layer/file role added·changed·removed) · `dataflow` (a changed interaction/event/dependency)
+· `data` (data-model/persistence) · `tech` (stack/dependency) · `reference` (a quick-ref
+fact). Advisory (optional): `decision` · `pitfall` · `rule`.
 
 ```bash
 echo '<your JSON array>' | python3 .archie/sync.py record . --agent claude
 ```
 
-(`--agent codex` under Codex.) A claim is **eligible** to fold only if it is
-`confidence: medium|high`, `reconstructed: false`, and grounded in a file inside the diff;
-everything else is recorded as `staged` (provisional) and is NOT folded.
+A statement is **eligible** to fold only if `confidence: medium|high`, `reconstructed:
+false`, and grounded in a file inside the diff; else it's `staged` (provisional).
 
-## Phase 2 — fold eligible claims into the blueprint + intent layer
+## Phase 2 — reconcile eligible statements into the snapshot
 
 If `record` reported `eligible > 0`, fold them. **The fold is your job (AI)** — you
-understand the claims; the script only resolves scope and re-renders.
+reconcile; the script resolves scope and re-renders.
 
-### Step 3 — Get the scoped edit targets
+### Step 3 — Get the scoped targets
 
 ```bash
 python3 .archie/sync.py fold-context .
 ```
 
-This returns, per eligible claim, the `edit_file` and `blueprint_section` to touch and the
-per-folder CLAUDE.md in scope. **Read only those sections** (not the whole blueprint).
+Returns, per eligible statement, the descriptive `blueprint_sections` to reconcile, the
+`edit_file`, and the touched per-folder CLAUDE.md (`intent_files`). **Read only those
+sections** — not the whole blueprint.
 
-### Step 4 — Edit (the understanding step)
+### Step 4 — Reconcile (do NOT just append)
 
-For each target, decide the operation and edit the source of truth:
+For each statement, read the target section of the CURRENT snapshot and pick ONE op:
 
-- **ADD** a new section · **CHANGE/supersede** a section that this change made false ·
-  **AUGMENT** an existing section · **REMOVE** one no longer true · **NEW** descriptive section.
-- `decision` → `blueprint.json` `decisions.key_decisions[]` (keep `decision_chain` /
-  `forced_by` / `enables` consistent).
-- `pitfall` → `blueprint.json` `pitfalls[]` **and** add a verifier-shaped entry to
-  `.archie/findings.json` (`id`, `problem_statement`, `evidence`, `first_seen`,
-  `confirmed_in_scan`, `status`).
-- `guideline` → `blueprint.json` `implementation_guidelines`.
-- `rule` → `.archie/rules.json` (`id`, `kind`, `topic`, `severity_class`, `description`,
-  `why`, `applies_to`).
-- Set/curate each section's `applies_to` scope so it lands in the right per-folder file.
-- Do **not** hand-edit per-folder CLAUDE.md Archie blocks — they re-render from the blueprint.
-- Preserve every untouched section. Never drop a whole top-level blueprint key.
+- **NO-OP** — the snapshot already describes this accurately → change nothing. (Common —
+  "it's already there." Don't manufacture an edit.)
+- **UPDATE** — described but now wrong → correct it in place.
+- **ADD** — not represented → add it to the right section.
+- **REMOVE** — the section describes behavior the code no longer has → remove/correct it.
+
+Where edits land (descriptive = the headline):
+- `behavior`/`structure` → `blueprint.json` `components[]` (responsibilities) / `communication`
+- `dataflow` → `communication`, `architecture_diagram`
+- `data` → `data_models` / `persistence_stores` / `data_overview`
+- `tech` → `technology` · `reference` → `quick_reference`
+- advisory: `decision` → `decisions` · `pitfall` → `pitfalls` + a verifier entry in
+  `.archie/findings.json` · `rule` → `.archie/rules.json`
+
+Then **reconcile the intent layer**: for each touched folder in `intent_files`, update the
+**descriptive (AI-authored) section** of that folder's CLAUDE.md to match the code now —
+same NO-OP/UPDATE/ADD/REMOVE discipline, **touched folders only**. These are the folder
+snapshots; edit them directly. Preserve every untouched section; never drop a whole
+top-level blueprint key.
 
 ### Step 5 — Apply
 
@@ -77,38 +90,24 @@ For each target, decide the operation and edit the source of truth:
 python3 .archie/sync.py fold-apply .
 ```
 
-This re-renders root `CLAUDE.md` / `AGENTS.md` / rule docs from your edited blueprint,
-propagates the edited scoped sections into the matching per-folder `CLAUDE.md` via
-`inject-scoped` (no-op if the intent layer is absent), validates that no top-level section
-was dropped (aborts the render if so), and marks the change record `folded`.
+Re-renders root `CLAUDE.md` / `AGENTS.md` / rule docs from your edited blueprint, validates
+that no top-level section was dropped (aborts the render otherwise), and marks the record
+folded. It does **not** mass-rewrite per-folder CLAUDE.md — those you reconciled directly
+in Step 4.
 
 ### Step 6 — Report what changed ARCHITECTURALLY (not a file list)
 
-Lead with the architectural meaning, in plain language. The user wants to know how the
-system's architecture is now *described differently* — not which IDs or files moved. For
-the fold as a whole (and per significant claim), answer:
+Lead with the architectural meaning, plain language:
 
-- **What the blueprint now asserts that it didn't before** — the new constraint /
-  invariant / decision, named at the boundary or component it governs. e.g. "the
-  subscription layer now distinguishes user-initiated errors (may show UI) from background
-  refresh errors (must stay silent)" — not "added pf_0010".
-- **What was corrected** — if you superseded or augmented an existing section because it
-  was no longer true, say what the blueprint *used to* claim, why that was wrong, and what
-  it says now.
-- **Where it bites** — which component / layer / boundary this governs, and what a future
-  agent editing that area will now be told or enforced to do at edit time.
+- **What the snapshot now says that it didn't before** — the changed behavior/structure/
+  flow, named at the component or boundary it concerns. e.g. "the subscription layer now
+  distinguishes background refresh errors from user-initiated ones" — not "added pf_0010".
+- **What was corrected** — if you UPDATEd/REMOVEd a now-false section, say what it used to
+  claim and what it says now.
+- **Where it lives** — which component/folder snapshot now reflects it.
 
-Rules of the report:
-- Do NOT lead with entry IDs (`pf_…`, `f_…`, rule ids), row counts, or a list of
-  re-rendered CLAUDE.md files. That accounting is noise.
-- Keep the mechanics to ONE closing line: record version + branch, that the
-  blueprint/rules/findings were updated and docs re-rendered, and that nothing was
-  committed (the diff is the user's to review).
-- If the fold produced no real architectural change (pure re-render), say exactly that —
-  don't dress it up.
+Rules of the report: don't lead with entry IDs, row counts, or a list of files. Keep
+mechanics (version, branch, that blueprint/intent were updated, nothing committed) to ONE
+closing line. If the fold was mostly NO-OPs (already current), say that plainly.
 
-Review the ledger any time:
-
-```bash
-python3 .archie/sync.py list .
-```
+Review the ledger any time: `python3 .archie/sync.py list .`

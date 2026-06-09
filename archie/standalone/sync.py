@@ -36,8 +36,12 @@ from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 
-# Claim types that map onto canonical blueprint sections.
-_VALID_TYPES = {"decision", "rule", "pitfall", "guideline"}
+# A claim is a STATEMENT about what the code now is. Descriptive kinds are the
+# default (keep the blueprint snapshot current); advisory kinds are an optional
+# side-output, emitted only when a change genuinely establishes one.
+_DESCRIPTIVE_KINDS = {"behavior", "structure", "dataflow", "data", "tech", "reference"}
+_ADVISORY_KINDS = {"decision", "pitfall", "rule", "guideline"}
+_VALID_KINDS = _DESCRIPTIVE_KINDS | _ADVISORY_KINDS
 _VALID_CONFIDENCE = {"low", "medium", "high"}
 _CHANGES_DIR = "changes"
 
@@ -200,12 +204,12 @@ def _read_payload(input_file: str | None) -> list[dict]:
 def _validate_claim(claim: object, idx: int) -> dict:
     if not isinstance(claim, dict):
         raise ValueError(f"claim #{idx} is not an object")
-    ctype = claim.get("type") or claim.get("section")
-    if ctype not in _VALID_TYPES:
-        raise ValueError(f"claim #{idx}: type must be one of {sorted(_VALID_TYPES)}, got {ctype!r}")
-    title = (claim.get("title") or "").strip()
-    if not title:
-        raise ValueError(f"claim #{idx}: missing title")
+    kind = claim.get("kind") or claim.get("type") or claim.get("section")
+    if kind not in _VALID_KINDS:
+        raise ValueError(f"claim #{idx}: kind must be one of {sorted(_VALID_KINDS)}, got {kind!r}")
+    statement = (claim.get("statement") or claim.get("title") or "").strip()
+    if not statement:
+        raise ValueError(f"claim #{idx}: missing statement")
     confidence = claim.get("confidence", "low")
     if confidence not in _VALID_CONFIDENCE:
         raise ValueError(f"claim #{idx}: confidence must be one of {sorted(_VALID_CONFIDENCE)}")
@@ -213,9 +217,8 @@ def _validate_claim(claim: object, idx: int) -> dict:
     if not isinstance(evidence, list):
         raise ValueError(f"claim #{idx}: evidence_files must be a list")
     return {
-        "type": ctype,
-        "title": title,
-        "rationale": (claim.get("rationale") or "").strip(),
+        "kind": kind,
+        "statement": statement,
         "evidence_files": [str(e) for e in evidence],
         "confidence": confidence,
         "reconstructed": bool(claim.get("reconstructed", False)),
@@ -298,11 +301,10 @@ def cmd_record(root: Path, input_file: str | None, agent: str, since: str | None
     for c in claims:
         status = _classify(c, changed_files, affected)
         out_claims.append({
-            "id": f"{c['type']}:{_slugify(c['title'])}",
-            "section": c["type"],
+            "id": f"{c['kind']}:{_slugify(c['statement'])[:60]}",
+            "kind": c["kind"],
             "status": status,
-            "title": c["title"],
-            "rationale": c["rationale"],
+            "statement": c["statement"],
             "evidence_files": c["evidence_files"],
             "confidence": c["confidence"],
             "reconstructed": c["reconstructed"],
@@ -405,12 +407,22 @@ def cmd_list(root: Path, as_json: bool) -> int:
 # these are the deterministic bookends: scope resolution + apply/re-render/validate)
 # ---------------------------------------------------------------------------
 
-# claim type -> blueprint.json section the agent edits (None => rules.json)
-_BLUEPRINT_SECTION = {
-    "decision": "decisions",
-    "pitfall": "pitfalls",
-    "guideline": "implementation_guidelines",
-    "rule": None,
+# claim kind -> the descriptive blueprint section(s) the agent reconciles.
+# Descriptive kinds (the default) keep the snapshot current; advisory kinds are
+# optional. `rule` is the only kind that edits rules.json instead of blueprint.json.
+_KIND_TARGET = {
+    # descriptive — the snapshot of what the code IS
+    "behavior":  {"sections": ["components", "communication"]},
+    "structure": {"sections": ["components"]},
+    "dataflow":  {"sections": ["communication", "architecture_diagram"]},
+    "data":      {"sections": ["data_models", "persistence_stores", "data_overview"]},
+    "tech":      {"sections": ["technology"]},
+    "reference": {"sections": ["quick_reference"]},
+    # advisory — optional side-output
+    "decision":  {"sections": ["decisions"]},
+    "pitfall":   {"sections": ["pitfalls"], "also": ".archie/findings.json"},
+    "guideline": {"sections": ["implementation_guidelines"]},
+    "rule":      {"sections": [], "edit_file": ".archie/rules.json"},
 }
 
 
@@ -470,22 +482,6 @@ def _load_enforcement_rules(archie: Path) -> list:
     return rules
 
 
-def _run_inject_scoped(root: Path) -> bool:
-    """Propagate edited scoped sections into per-folder CLAUDE.md (no-op if the
-    intent layer is absent). Run as a subprocess to isolate its output."""
-    intent_layer = _SCRIPT_DIR / "intent_layer.py"
-    if not intent_layer.exists():
-        return False
-    try:
-        r = subprocess.run(
-            [sys.executable, str(intent_layer), "inject-scoped", str(root)],
-            capture_output=True, text=True, timeout=180,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
 def cmd_fold_context(root: Path, change_file: str | None) -> int:
     """Resolve scope for the eligible claims: which blueprint section / rules.json
     each claim edits, plus the per-folder CLAUDE.md in scope. Hands the agent a
@@ -507,17 +503,17 @@ def cmd_fold_context(root: Path, change_file: str | None) -> int:
 
     targets = []
     for c in eligible:
-        ctype = c.get("section")
-        section = _BLUEPRINT_SECTION.get(ctype)
+        kind = c.get("kind") or c.get("section")
+        spec = _KIND_TARGET.get(kind, {"sections": []})
         targets.append({
             "claim_id": c.get("id"),
-            "type": ctype,
-            "title": c.get("title"),
-            "rationale": c.get("rationale"),
+            "kind": kind,
+            "advisory": kind in _ADVISORY_KINDS,
+            "statement": c.get("statement") or c.get("title"),
             "evidence_files": c.get("evidence_files", []),
-            "edit_file": ".archie/rules.json" if ctype == "rule" else ".archie/blueprint.json",
-            "blueprint_section": section,
-            "also_update": ".archie/findings.json" if ctype == "pitfall" else None,
+            "edit_file": spec.get("edit_file", ".archie/blueprint.json"),
+            "blueprint_sections": spec.get("sections", []),
+            "also_update": spec.get("also"),
         })
 
     affected = data.get("diff", {}).get("affected_folders", [])
@@ -539,12 +535,17 @@ def cmd_fold_context(root: Path, change_file: str | None) -> int:
         "targets": targets,
         "intent_files": intent_files,
         "instructions": (
-            "For each target: read ONLY the named blueprint_section (or rules.json) and "
-            "the evidence files, decide the operation (add / change-supersede / augment / "
-            "remove / new-section), and edit blueprint.json (source of truth) or rules.json "
-            "accordingly. For pitfalls also add a verifier-shaped entry to findings.json. "
-            "Do NOT hand-edit per-folder CLAUDE.md Archie blocks — fold-apply re-renders "
-            "them from the blueprint. Then run: sync.py fold-apply ."
+            "RECONCILE each statement into the snapshot — do not just append. For each "
+            "target: read ONLY the named blueprint_sections (the descriptive snapshot of "
+            "what the code IS) and the evidence files, then pick ONE op: NO-OP (already "
+            "accurately described — common), UPDATE (described but now wrong — correct in "
+            "place), ADD (new), REMOVE (code dropped it). Descriptive kinds "
+            "(behavior/structure/dataflow/data/tech/reference) are the point; advisory "
+            "kinds (decision/pitfall/rule) only when genuinely warranted. Edit "
+            "blueprint.json (source of truth); rule -> rules.json; pitfall -> also "
+            "findings.json. Then reconcile the DESCRIPTIVE section of each touched "
+            "per-folder CLAUDE.md in `intent_files` (direct edit — these are the folder "
+            "snapshots). Finally run: sync.py fold-apply ."
         ),
     }, indent=2))
     return 0
@@ -611,8 +612,11 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
         print(json.dumps({"ok": False, "error": f"fold-apply render failed (record NOT marked folded): {e}"}))
         return 1
 
-    intent_updated = _run_inject_scoped(root)
-
+    # NOTE: per-folder CLAUDE.md (the intent-layer folder snapshots) are reconciled
+    # DIRECTLY by the agent during the edit step, scoped to the touched folders. We do
+    # NOT run a repo-wide inject-scoped here — that backfilled every scoped block and
+    # produced churn unrelated to the change. The render above only regenerates the
+    # root docs (CLAUDE.md / AGENTS.md / .claude/rules) from the edited blueprint.
     folded = 0
     for c in data.get("claims", []):
         if c.get("status") == "eligible":
@@ -625,7 +629,6 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
         "ok": True,
         "folded": folded,
         "rendered_count": len(rendered),
-        "intent_updated": intent_updated,
     }))
     return 0
 
