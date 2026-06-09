@@ -82,10 +82,30 @@ propagates the edited scoped sections into the matching per-folder `CLAUDE.md` v
 `inject-scoped` (no-op if the intent layer is absent), validates that no top-level section
 was dropped (aborts the render if so), and marks the change record `folded`.
 
-### Step 6 — Report
+### Step 6 — Report what changed ARCHITECTURALLY (not a file list)
 
-Tell the user: version, branch, what folded vs stayed staged, which files changed
-(blueprint, rules, root + per-folder CLAUDE.md). Remind them nothing was committed.
+Lead with the architectural meaning, in plain language. The user wants to know how the
+system's architecture is now *described differently* — not which IDs or files moved. For
+the fold as a whole (and per significant claim), answer:
+
+- **What the blueprint now asserts that it didn't before** — the new constraint /
+  invariant / decision, named at the boundary or component it governs. e.g. "the
+  subscription layer now distinguishes user-initiated errors (may show UI) from background
+  refresh errors (must stay silent)" — not "added pf_0010".
+- **What was corrected** — if you superseded or augmented an existing section because it
+  was no longer true, say what the blueprint *used to* claim, why that was wrong, and what
+  it says now.
+- **Where it bites** — which component / layer / boundary this governs, and what a future
+  agent editing that area will now be told or enforced to do at edit time.
+
+Rules of the report:
+- Do NOT lead with entry IDs (`pf_…`, `f_…`, rule ids), row counts, or a list of
+  re-rendered CLAUDE.md files. That accounting is noise.
+- Keep the mechanics to ONE closing line: record version + branch, that the
+  blueprint/rules/findings were updated and docs re-rendered, and that nothing was
+  committed (the diff is the user's to review).
+- If the fold produced no real architectural change (pure re-render), say exactly that —
+  don't dress it up.
 
 Review the ledger any time:
 
