@@ -325,6 +325,29 @@ def test_fold_apply_renders_and_marks_folded(tmp_path, capsys):
     assert all(c["status"] == "folded" for c in rec["claims"])
 
 
+def test_fold_apply_render_failure_is_clean(tmp_path, capsys, monkeypatch):
+    """If the render throws, fold-apply must NOT leave a half-applied blueprint,
+    must report a JSON error (not a traceback), and must not mark the record folded."""
+    root, archie = _setup_foldable(tmp_path, capsys, [
+        _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),
+    ])
+    sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
+    bp_before = (archie / "blueprint.json").read_bytes()
+
+    import renderer
+    def _boom(*a, **k):
+        raise RuntimeError("render exploded")
+    monkeypatch.setattr(renderer, "generate_all", _boom)
+
+    rc = sync.main(["sync.py", "fold-apply", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1 and out["ok"] is False
+    assert "render failed" in out["error"]
+    assert (archie / "blueprint.json").read_bytes() == bp_before  # untouched
+    rec = json.loads((archie / "changes" / "latest.json").read_text())
+    assert rec.get("folded") in (False, None)  # not marked folded
+
+
 def test_fold_apply_guardrail_aborts_on_dropped_section(tmp_path, capsys):
     root, archie = _setup_foldable(tmp_path, capsys, [
         _claim(ctype="pitfall", title="P", evidence=["app/Main.kt"], confidence="high"),

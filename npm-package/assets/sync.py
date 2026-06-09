@@ -576,8 +576,12 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
         return 1
 
     sys.path.insert(0, str(_SCRIPT_DIR))
-    from _common import normalize_blueprint  # noqa: E402
-    import renderer  # noqa: E402
+    try:
+        from _common import normalize_blueprint  # noqa: E402
+        import renderer  # noqa: E402
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"cannot load renderer/_common (blueprint NOT modified): {e}"}))
+        return 1
     try:
         import intent_layer  # noqa: E402
         lock = intent_layer._state_lock(root)
@@ -585,20 +589,27 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
         from contextlib import nullcontext
         lock = nullcontext()
 
+    # Render to memory FIRST (generate_all is pure). Only touch disk once the
+    # render succeeded, so a render failure leaves blueprint.json + docs untouched
+    # (no half-applied state) and reports a clean JSON error instead of a traceback.
     rendered = []
-    with lock:
-        normalize_blueprint(bp)
-        bp_path.write_text(json.dumps(bp, indent=2))
-        enforcement_rules = _load_enforcement_rules(archie)
-        files = renderer.generate_all(bp, enforcement_rules=enforcement_rules)
-        for rel, content in files.items():
-            full = root / rel
-            full.parent.mkdir(parents=True, exist_ok=True)
-            if rel in renderer.MERGEABLE_FILES:
-                full.write_text(renderer.render_mergeable(full, content))
-            else:
-                full.write_text(content)
-            rendered.append(rel)
+    try:
+        with lock:
+            normalize_blueprint(bp)
+            enforcement_rules = _load_enforcement_rules(archie)
+            files = renderer.generate_all(bp, enforcement_rules=enforcement_rules)
+            bp_path.write_text(json.dumps(bp, indent=2))
+            for rel, content in files.items():
+                full = root / rel
+                full.parent.mkdir(parents=True, exist_ok=True)
+                if rel in renderer.MERGEABLE_FILES:
+                    full.write_text(renderer.render_mergeable(full, content))
+                else:
+                    full.write_text(content)
+                rendered.append(rel)
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"fold-apply render failed (record NOT marked folded): {e}"}))
+        return 1
 
     intent_updated = _run_inject_scoped(root)
 
