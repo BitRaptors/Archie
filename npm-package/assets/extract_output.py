@@ -30,6 +30,15 @@ from merge import extract_json_from_text  # noqa: E402
 # rules — extract rules JSON from agent output
 # ---------------------------------------------------------------------------
 
+def _read_rule_ids(path: Path) -> set:
+    """Rule ids in a {"rules": [...]} file; empty set on missing/malformed."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {r.get("id") for r in data.get("rules", []) if isinstance(r, dict) and r.get("id")}
+
+
 def cmd_rules(input_file: str, output_path: str):
     """Extract rules JSON from raw agent output, merge with existing rules, save.
 
@@ -37,6 +46,13 @@ def cmd_rules(input_file: str, output_path: str):
     so downstream tooling and humans can trace lineage even if the model omits
     the field. Existing `source` values (e.g., `adopted`, `scan`, `scan-amended`)
     are never overwritten.
+
+    Adoption gate: on a RERUN (output rules.json already has rules), rules with
+    an id not seen before go to proposed_rules.json — the user adopts or rejects
+    them in the viewer's Rules card before hooks enforce them. Updates to
+    already-active ids still apply directly. Ids sitting in proposed_rules.json
+    or ignored_rules.json are not re-proposed. The first scan (empty baseline)
+    keeps auto-adopting, otherwise a fresh install would enforce nothing.
     """
     text = Path(input_file).read_text()
     data = extract_json_from_text(text)
@@ -59,25 +75,52 @@ def cmd_rules(input_file: str, output_path: str):
 
     # Merge with existing rules — preserve user-adopted rules from prior runs
     out = Path(output_path)
+    existing_by_id = {}
     if out.exists():
         try:
             existing = json.loads(out.read_text())
             existing_rules = existing.get("rules", [])
-            # Index existing rules by id
             existing_by_id = {r.get("id", ""): r for r in existing_rules if isinstance(r, dict)}
-            # Index new rules by id
-            new_by_id = {r.get("id", ""): r for r in new_rules if isinstance(r, dict)}
-            # Keep existing rules that aren't replaced by new ones (user-adopted rules)
-            # Also keep existing rules that have source="adopted" — these came from prior incremental runs
-            preserved = 0
-            for rid, rule in existing_by_id.items():
-                if rid not in new_by_id:
-                    new_rules.append(rule)
-                    preserved += 1
-            if preserved:
-                print(f"  Preserved {preserved} existing rules not in new set", file=sys.stderr)
         except (json.JSONDecodeError, OSError):
-            pass
+            existing_by_id = {}
+
+    if existing_by_id:
+        # RERUN — route brand-new rules through the proposal queue.
+        proposed_path = out.parent / "proposed_rules.json"
+        ignored_ids = _read_rule_ids(out.parent / "ignored_rules.json")
+        already_proposed = _read_rule_ids(proposed_path)
+
+        active, to_propose = [], []
+        for r in new_rules:
+            rid = r.get("id") if isinstance(r, dict) else None
+            if rid in existing_by_id:
+                active.append(r)  # update of an already-active rule
+            elif rid in ignored_ids or rid in already_proposed:
+                continue  # user already rejected it, or it's awaiting review
+            else:
+                to_propose.append(r)
+
+        new_by_id = {r.get("id", ""): r for r in active if isinstance(r, dict)}
+        preserved = 0
+        for rid, rule in existing_by_id.items():
+            if rid not in new_by_id:
+                active.append(rule)
+                preserved += 1
+        if preserved:
+            print(f"  Preserved {preserved} existing rules not in new set", file=sys.stderr)
+
+        if to_propose:
+            try:
+                proposed = json.loads(proposed_path.read_text())
+            except (OSError, json.JSONDecodeError):
+                proposed = {}
+            proposed.setdefault("rules", []).extend(to_propose)
+            proposed_path.write_text(json.dumps(proposed, indent=2))
+            print(f"  {len(to_propose)} NEW rule(s) -> {proposed_path.name} — "
+                  f"awaiting adoption (review in /archie-viewer Rules card); "
+                  f"hooks will not enforce them until adopted", file=sys.stderr)
+
+        new_rules = active
 
     data["rules"] = new_rules
     out.write_text(json.dumps(data, indent=2))
