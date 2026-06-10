@@ -315,11 +315,15 @@ def test_fold_context_intent_files_are_leaf_scoped(tmp_path, capsys):
     archie = root / ".archie"
     archie.mkdir()
     (archie / "blueprint.json").write_text(json.dumps(_minimal_blueprint()))
-    # CLAUDE.md at both a top ancestor and the leaf
+    # CLAUDE.md at both a top ancestor and the leaf — already committed (as in a
+    # real repo), so they are NOT part of the change delta.
     (root / "a").mkdir()
     (root / "a" / "CLAUDE.md").write_text("# a (top)\n")
     (root / "a" / "b" / "c").mkdir(parents=True)
     (root / "a" / "b" / "c" / "CLAUDE.md").write_text("# leaf\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "intent layer")
+    # The actual change: one source file in the leaf folder.
     _stage_change(root, "a/b/c/Main.kt")
     _record(root, _write_payload(tmp_path, [
         _claim(kind="behavior", statement="leaf change", evidence=["a/b/c/Main.kt"], confidence="high"),
