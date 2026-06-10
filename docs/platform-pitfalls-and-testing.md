@@ -52,8 +52,10 @@ detect_platform_   →  "platform_pitfall_   →    merge_platform_pitfalls  →
 ### Key invariants
 - **Deterministic** — detection is a filesystem/string check, never an LLM call.
 - **Idempotent** — dedup by `id`; running the scan twice does not duplicate the pitfall.
-- **Scoped** — a signal only fires when its precondition holds (e.g. an Xcode project
-  that is NOT folder-synchronized; SPM-only projects emit nothing).
+- **Scoped** — a signal only fires when its precondition holds. The iOS one requires
+  BOTH a legacy (non-folder-synchronized) `.xcodeproj` AND `.swift` files in the repo;
+  a non-iOS repo, an SPM-only project, or an Xcode project with no Swift sources all
+  emit nothing.
 - **Two scanners exist:** `archie/standalone/scanner.py` is the one deep-scan runs (edit
   this); `archie/engine/scanner.py` is a separate packaged scanner — leave it alone unless
   the task is about the `archie-cli` package.

@@ -30,6 +30,7 @@ def _write(path: Path, content: str) -> None:
 
 def test_legacy_xcode_emits_signal(tmp_path):
     _write(tmp_path / "App.xcodeproj" / "project.pbxproj", _LEGACY_PBX)
+    _write(tmp_path / "App" / "AppDelegate.swift", "import UIKit\n")
     signals = detect(tmp_path)
     assert signals == [{
         "signal": "ios_legacy_xcode_no_folder_sync",
@@ -39,17 +40,28 @@ def test_legacy_xcode_emits_signal(tmp_path):
 
 def test_folder_synchronized_xcode_emits_nothing(tmp_path):
     _write(tmp_path / "App.xcodeproj" / "project.pbxproj", _SYNC_PBX)
+    _write(tmp_path / "App" / "AppDelegate.swift", "import UIKit\n")
     assert detect(tmp_path) == []
 
 
 def test_spm_only_emits_nothing(tmp_path):
+    # Has Swift files but NO .xcodeproj — SPM compiles by convention, no signal.
     _write(tmp_path / "Package.swift", "// swift-tools-version:5.9\n")
     _write(tmp_path / "Sources" / "App" / "main.swift", "print(1)\n")
     assert detect(tmp_path) == []
 
 
+def test_xcodeproj_without_swift_emits_nothing(tmp_path):
+    # An Xcode project with no .swift sources (e.g. pure Obj-C) is not the target
+    # of the pbxproj-registration pitfall — both conditions must hold.
+    _write(tmp_path / "App.xcodeproj" / "project.pbxproj", _LEGACY_PBX)
+    _write(tmp_path / "App" / "main.m", "int main(void){return 0;}\n")
+    assert detect(tmp_path) == []
+
+
 def test_run_scan_includes_platform_pitfall_signals_key(tmp_path):
     _write(tmp_path / "App.xcodeproj" / "project.pbxproj", _LEGACY_PBX)
+    _write(tmp_path / "App" / "AppDelegate.swift", "import UIKit\n")
     scan = _scanner.run_scan(str(tmp_path))
     assert scan["platform_pitfall_signals"] == [{
         "signal": "ios_legacy_xcode_no_folder_sync",

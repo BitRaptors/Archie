@@ -305,14 +305,25 @@ def detect_subprojects(root: Path) -> list[dict]:
     return accepted
 
 
+def _has_swift_files(root) -> bool:
+    """True if the repo contains at least one .swift source (skip-dirs pruned)."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SUBPROJECT_SKIP_DIRS]
+        if any(f.endswith(".swift") for f in filenames):
+            return True
+    return False
+
+
 def detect_platform_pitfall_signals(root) -> list:
     """Deterministic platform-pitfall signals consumed by finalize.
 
     Currently one: a legacy (non-folder-synchronized) Xcode project — a
     project.pbxproj lacking the PBXFileSystemSynchronizedRootGroup marker —
     requires new source files to be registered in PBXSourcesBuildPhase or they
-    are silently excluded from the build. SPM-only projects (no .xcodeproj)
-    compile by directory convention and emit nothing.
+    are silently excluded from the build. The signal fires ONLY when BOTH hold:
+    a legacy .xcodeproj/project.pbxproj exists AND the repo contains .swift
+    files. A non-iOS repo (no .xcodeproj), an SPM-only project (no .xcodeproj),
+    or an Xcode project with no Swift sources all emit nothing.
     """
     root = Path(root).resolve()
     for pbx in sorted(root.glob("**/*.xcodeproj/project.pbxproj")):
@@ -324,6 +335,10 @@ def detect_platform_pitfall_signals(root) -> list:
         except OSError:
             continue
         if "PBXFileSystemSynchronizedRootGroup" not in text:
+            # The pitfall is about registering new .swift files, so require the
+            # project to actually contain Swift sources.
+            if not _has_swift_files(root):
+                return []
             return [{
                 "signal": "ios_legacy_xcode_no_folder_sync",
                 "evidence_path": str(rel),
