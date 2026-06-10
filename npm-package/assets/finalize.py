@@ -445,6 +445,9 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
             full_path.write_text(renderer.render_mergeable(full_path, content))
         else:
             full_path.write_text(content)
+    removed = renderer.cleanup_stale_rule_files(root, files)
+    if removed:
+        print(f"  Removed {len(removed)} stale rule files", file=sys.stderr)
     print(f"  Rendered {len(files)} files", file=sys.stderr)
 
     # ── 4. Hooks ───────────────────────────────────────────────────────────

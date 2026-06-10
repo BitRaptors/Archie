@@ -647,6 +647,8 @@ Produces:
 - `CLAUDE.md` — a thin **pointer** to `AGENTS.md`, so Claude Code and agent-agnostic tools load the same context (the renderer can still preserve hand-authored content in either file via bracketed markers)
 - `.claude/rules/*.md` — topic-split rule files: `architecture`, `patterns`, `frontend`, `guidelines`, `pitfalls`, `dev-rules`, `infrastructure`, `technology` (the lean Commands catalog moved here), plus a browsable `enforcement/` directory (`index.md` + per-topic + `universal.md`) indexing every rule the pre-edit hook and the plan/commit classifier consult, grouped by severity and path glob
 
+**Topic-file chunking.** A topic file whose rendered body exceeds 8 KB is split per H2 section (falling back to H3 categories when the body has a single H2 wrapper, e.g. `dev-rules`): the sections move to `.claude/rules/<topic>/<section-slug>.md` and the topic file itself — at the same path AGENTS.md already links to — becomes a routing index: a table of section · file · ~token estimate · contents summary (H3 entry names or rule counts). An agent reads the ~1 KB index and loads only the 2–6 KB section it needs. Small topics stay single-file. `cleanup_stale_rule_files()` runs after every render and removes the retired pre-2.5 `enforcement.md` monolith, orphaned chunks after section renames, and the chunk directory when a topic shrinks back to a single file.
+
 Pitfalls and findings use a shared `_render_pitfall_lines` helper that handles the 4-field shape (`problem_statement` / `evidence` / `root_cause` / `fix_direction` as list or string) and falls back to the legacy `{area, description, recommendation}` shape for blueprints written before 2.3.0.
 
 ### Intent Layer (`archie/standalone/intent_layer.py`)
