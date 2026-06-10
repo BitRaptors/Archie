@@ -516,9 +516,15 @@ def cmd_fold_context(root: Path, change_file: str | None) -> int:
             "also_update": spec.get("also"),
         })
 
-    affected = data.get("diff", {}).get("affected_folders", [])
+    # Intent targets = the LEAF folder(s) that directly contain the changed files —
+    # NOT every ancestor. A change's description belongs in the folder snapshot that
+    # owns it (e.g. activity_main/CLAUDE.md), not in the top-level app/CLAUDE.md.
+    changed = data.get("diff", {}).get("changed_files", [])
+    leaf_dirs = sorted({str(Path(f).parent) for f in changed})
     intent_files = []
-    for folder in affected:
+    for folder in leaf_dirs:
+        if folder in (".", ""):
+            continue  # root CLAUDE.md is the generated pointer, not a folder snapshot
         cf = root / folder / "CLAUDE.md"
         if cf.exists():
             intent_files.append(str(cf.relative_to(root)))

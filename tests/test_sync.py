@@ -308,6 +308,30 @@ def test_fold_context_resolves_scope(tmp_path, capsys):
     assert "blueprint_top_level_keys" in rec["fold_guardrail"]
 
 
+def test_fold_context_intent_files_are_leaf_scoped(tmp_path, capsys):
+    """Intent targets must be the LEAF folder owning the change, not every ancestor.
+    A change in a/b/c must target a/b/c/CLAUDE.md, never the top-level a/CLAUDE.md."""
+    root = _init_repo(tmp_path)
+    archie = root / ".archie"
+    archie.mkdir()
+    (archie / "blueprint.json").write_text(json.dumps(_minimal_blueprint()))
+    # CLAUDE.md at both a top ancestor and the leaf
+    (root / "a").mkdir()
+    (root / "a" / "CLAUDE.md").write_text("# a (top)\n")
+    (root / "a" / "b" / "c").mkdir(parents=True)
+    (root / "a" / "b" / "c" / "CLAUDE.md").write_text("# leaf\n")
+    _stage_change(root, "a/b/c/Main.kt")
+    _record(root, _write_payload(tmp_path, [
+        _claim(kind="behavior", statement="leaf change", evidence=["a/b/c/Main.kt"], confidence="high"),
+    ]), capsys)
+    capsys.readouterr()
+
+    sync.main(["sync.py", "fold-context", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    assert out["intent_files"] == ["a/b/c/CLAUDE.md"]  # leaf only
+    assert "a/CLAUDE.md" not in out["intent_files"]     # NOT the ancestor
+
+
 def test_fold_context_pitfall_also_updates_findings(tmp_path, capsys):
     root, archie = _setup_foldable(tmp_path, capsys, [
         _claim(kind="pitfall", statement="P", evidence=["app/Main.kt"], confidence="high"),
