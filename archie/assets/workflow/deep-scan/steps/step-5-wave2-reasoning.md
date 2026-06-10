@@ -14,7 +14,7 @@ Wave 2 reasoning is split into **up to four sub-agents** that run **in parallel*
 - **Design** — decision chain, architectural style, key decisions, trade-offs, out-of-scope, implementation guidelines, communication-pattern enrichment.
 - **Risk** — findings + pitfalls.
 - **Overview** — architecture diagram + executive summary.
-- **Product** — `product_model` (domain map) + `derived_invariants` (reasoned product laws) + `unenforced_invariants` (the ungrounded gap list). It reasons over the Wave 1 Domain agent's `domain_invariants`. **Spawn whenever the blueprint's `domain_invariants` array is non-empty** (the Domain agent always runs; this gate is driven by its actual output, not a heuristic — skip only when there are genuinely no laws to reason from).
+- **Product** — `product_model` (domain map) + `derived_invariants` (reasoned product laws) + `unenforced_invariants` (the ungrounded gap list). It reasons over the Wave 1 Domain agent's `domain_invariants`. **Spawn on a FULL scan when `domain_invariants` is non-empty.** It is skipped in incremental mode: `derived_invariants`/`unenforced_invariants` are *global* reasoning over the whole law set, not per-change deltas, so they don't compose with a patch merge — the prior full scan's product sections are preserved unchanged by the patch and refresh on the next full scan (Wave 1 still updates the observed `domain_invariants` incrementally).
 
 Key ownership is disjoint, so the outputs merge cleanly. The same dispatch runs in BOTH full and incremental modes — only the injected context preamble and the finalize flag differ (no special-case workflow).
 
@@ -48,7 +48,15 @@ All paths are relative to the project root (your cwd).
 | Design | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-5a-design.md` | `.archie/tmp/archie_sub_design_$PROJECT_NAME.json` | Always |
 | Risk | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-5b-risk.md` | `.archie/tmp/archie_sub_risk_$PROJECT_NAME.json` | Always |
 | Overview | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-5c-overview.md` | `.archie/tmp/archie_sub_overview_$PROJECT_NAME.json` | Always |
-| Product | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-5d-product.md` | `.archie/tmp/archie_sub_product_$PROJECT_NAME.json` | When `domain_invariants` non-empty |
+| Product | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-5d-product.md` | `.archie/tmp/archie_sub_product_$PROJECT_NAME.json` | Full scan + `domain_invariants` non-empty |
+
+**Evaluate the Product spawn gate first (full mode only).** In incremental mode, do NOT spawn Product — skip straight to Design / Risk / Overview. In full mode, count the laws the Wave 1 Domain agent produced (the merged `blueprint_raw.json` already carries `domain_invariants`) using the auto-approved `python3 -c …` form:
+
+```bash
+DOMAIN_LAW_COUNT=$(python3 -c "import json,os,sys; p=sys.argv[1]; print(len((json.load(open(p)).get('domain_invariants') or [])) if os.path.exists(p) else 0)" .archie/blueprint_raw.json)
+```
+
+Spawn the **Product** sub-agent only when `DOMAIN_LAW_COUNT` is greater than 0. Design, Risk, and Overview always spawn regardless of this count, in both modes.
 
 **Mode preamble — prepend the SAME block to all sub-agent prompts:**
 
@@ -78,8 +86,8 @@ The merge step below reads each agent's output file directly — do NOT copy or 
 **Verify the expected output files exist before merging.** Check that
 `archie_sub_design_$PROJECT_NAME.json`, `archie_sub_risk_$PROJECT_NAME.json`, and
 `archie_sub_overview_$PROJECT_NAME.json` are all on disk under `.archie/tmp/` — and
-`archie_sub_product_$PROJECT_NAME.json` too **when the Product agent was spawned** (i.e.
-`domain_invariants` was non-empty). If any expected file is
+`archie_sub_product_$PROJECT_NAME.json` too **when the Product agent was spawned** (full
+scan with non-empty `domain_invariants`; never in incremental mode). If any expected file is
 missing, that sub-agent failed — **STOP, report which file is missing, and do NOT
 run the merge or `complete-step 5`.** Re-run Step 5 (`{{COMMAND_PREFIX}}archie-deep-scan
 --from 5`) to respawn the agents. Proceeding with a partial merge would mark Step 5

@@ -76,6 +76,26 @@ def test_product_agent_dispatched_and_gated():
     assert w2.count("archie_sub_product_$PROJECT_NAME.json") >= 3  # table + 2 finalize calls
 
 
+def test_product_gate_has_concrete_eval_mechanism():
+    """The 'spawn when domain_invariants non-empty' gate must be evaluable by the
+    orchestrator, not just stated — otherwise it's ambiguous wiring."""
+    w2 = _read("step-5-wave2-reasoning.md")
+    assert "DOMAIN_LAW_COUNT" in w2
+    assert "domain_invariants" in w2 and "blueprint_raw.json" in w2
+    # Product is full-mode only (avoids patch-merge duplication of global laws)
+    assert "full mode only" in w2.lower() or "Full scan" in w2
+    assert "incremental" in w2.lower()
+
+
+def test_step6_warns_against_fileline_in_path_glob():
+    """enforced_at entries are file:line citations; the prompt must tell the agent
+    to strip :line and broaden, or hook triggers silently never match."""
+    s6 = _read("step-6-rule-synthesis.md")
+    assert "enforced_at" in s6 and "path_glob" in s6
+    assert ":line" in s6  # the explicit caveat about the suffix
+    assert "match nothing" in s6 or "broaden" in s6
+
+
 def test_design_and_risk_consume_domain_invariants():
     design = _read("step-5a-design.md")
     risk = _read("step-5b-risk.md")
