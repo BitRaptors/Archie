@@ -21,6 +21,39 @@ def _now_iso_short() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H%M")
 
 
+def merge_platform_pitfalls(pitfalls, signals, catalog):
+    """Append deterministic platform pitfalls for present scanner signals.
+
+    pitfalls : existing blueprint pitfalls (list).
+    signals  : scan.json["platform_pitfall_signals"] — list of {signal, evidence_path}.
+    catalog  : loaded platform_pitfalls.json — {"pitfalls": [{signal, pitfall}]}.
+
+    Pure (no I/O). Dedup by pitfall id so re-scans are idempotent. Returns a new list.
+    """
+    result = list(pitfalls or [])
+    existing_ids = {p.get("id") for p in result if isinstance(p, dict)}
+    by_signal = {}
+    for entry in (catalog or {}).get("pitfalls", []):
+        sig = entry.get("signal")
+        if sig and entry.get("pitfall"):
+            by_signal.setdefault(sig, entry["pitfall"])
+    for sig in signals or []:
+        name = sig.get("signal") if isinstance(sig, dict) else sig
+        seed = by_signal.get(name)
+        if not seed or seed.get("id") in existing_ids:
+            continue
+        pitfall = json.loads(json.dumps(seed))  # deep copy
+        ev = sig.get("evidence_path") if isinstance(sig, dict) else None
+        if ev:
+            pitfall["evidence"] = [
+                f"{ev} — registered sources are enumerated here; a new file absent "
+                f"from this manifest is excluded from the build"
+            ]
+        result.append(pitfall)
+        existing_ids.add(pitfall.get("id"))
+    return result
+
+
 # Verifier-pipeline state fields owned by apply_verdicts.py. The synthesizer
 # never re-emits these on a fresh finding, so finalize must preserve them
 # from the prior entry when merging — otherwise every scan wipes the
