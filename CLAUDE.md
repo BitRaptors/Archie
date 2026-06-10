@@ -59,17 +59,18 @@ python -m pytest tests/ -v
 ## Deep Scan Pipeline (2-Wave)
 
 1. **Scanner** — Counts files, detects frameworks, builds file tree
-2. **Wave 1** (parallel) — 3-4 Sonnet agents gather facts:
+2. **Wave 1** (parallel) — Sonnet agents gather facts. Structure, Patterns, Technology, **Data**, and **Domain** ALWAYS run; UI Layer is the only optional one (frontend_ratio >= 0.20):
    - Structure agent: Components, layers, file placement
    - Patterns agent: Communication, design patterns, integrations
    - Technology agent: Stack, deployment, dev rules
+   - Data agent: Data models, persistence stores, schema-enforced `guarantees`
+   - Domain agent: Product behavioral invariants the schema can't enforce → `domain_invariants` (cite-or-omit; balance bounds, lifecycle immutability, idempotency, tenant scoping)
    - UI Layer agent: UI components, state, routing (only if frontend_ratio >= 0.20)
-3. **Wave 2** — Reasoning agent (Opus) reads all Wave 1 output, produces architectural reasoning:
-   - Decision chain (rooted constraint tree with violation keywords)
-   - Key decisions with forced_by/enables links
-   - Trade-offs with violation signals
-   - Pitfalls with causal chains (stems_from)
-   - Architecture diagram, implementation guidelines
+3. **Wave 2** — Reasoning agents (Opus, parallel: Design · Risk · Overview · Product) read all Wave 1 output:
+   - Design: decision chain, key decisions with forced_by/enables (linked to the `domain_invariants` each preserves), trade-offs, implementation guidelines
+   - Risk: findings + pitfalls (incl. product-law-violation pitfalls)
+   - Overview: architecture diagram + executive summary
+   - Product (spawns when `domain_invariants` non-empty): `product_model` (domain map) + `derived_invariants` (reasoned laws, ≥2-anchor derivation) + `unenforced_invariants` (ungrounded gap list, advisory only)
 4. **Normalize** — AI reshapes raw output to canonical schema
 5. **Render** — Deterministic JSON→Markdown (CLAUDE.md, AGENTS.md, rule files)
 6. **Validate** — Cross-reference output against actual codebase
@@ -78,7 +79,7 @@ python -m pytest tests/ -v
 
 ## Key Data Model
 
-Blueprint JSON (`blueprint.json`) contains: `meta`, `architecture_rules`, `decisions` (with `decision_chain`), `components`, `communication`, `quick_reference`, `technology`, `deployment`, `frontend`, `pitfalls`, `implementation_guidelines`, `development_rules`, `architecture_diagram`.
+Blueprint JSON (`blueprint.json`) contains: `meta`, `architecture_rules`, `decisions` (with `decision_chain`), `components`, `communication`, `quick_reference`, `technology`, `deployment`, `frontend`, `pitfalls`, `implementation_guidelines`, `development_rules`, `architecture_diagram`, `data_models`, `persistence_stores`, and the product-law sections: `domain_invariants` (observed, cited) + `derived_invariants` (reasoned) — both seed `domain_invariant` rules; `product_model` + `unenforced_invariants` are informational only (rendered to `.claude/rules/product-laws.md` + `product-model.md`, never enforced).
 
 ## Rules System
 
