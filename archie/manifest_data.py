@@ -50,6 +50,11 @@ COMMANDS = [
         "Upload the blueprint and return a share link.",
         "share/SKILL.md",
     ),
+    CommandDef(
+        "archie-sync",
+        "Reconcile the code delta into the Living Blueprint + intent layer (keeps the snapshot current).",
+        "sync/SKILL.md",
+    ),
 ]
 
 
