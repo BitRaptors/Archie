@@ -1329,6 +1329,36 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
             lines.append(f"**CI/CD:** {', '.join(cleaned)}")
         lines.append("")
 
+    # Product Laws — concise summary; the full set (grounded + unverified) lives
+    # in .claude/rules/product-laws.md, the domain map in product-model.md.
+    domain_inv = [x for x in (bp.get("domain_invariants") or []) if isinstance(x, dict)]
+    derived_inv = [x for x in (bp.get("derived_invariants") or []) if isinstance(x, dict)]
+    unenforced_inv = [x for x in (bp.get("unenforced_invariants") or []) if isinstance(x, dict)]
+    if domain_inv or derived_inv or unenforced_inv:
+        lines.append("## Product Laws")
+        lines.append("")
+        if domain_inv or derived_inv:
+            lines.append(
+                "**Enforced (grounded)** — correctness laws; full list in "
+                "[`.claude/rules/product-laws.md`](.claude/rules/product-laws.md):"
+            )
+            for inv in _cap(domain_inv, 6):
+                lines.append(f"- {inv.get('invariant', '')}")
+            extra = len(domain_inv) - 6
+            if extra > 0:
+                lines.append(
+                    f"- _… {extra} more in "
+                    f"[`.claude/rules/product-laws.md`](.claude/rules/product-laws.md)_"
+                )
+            lines.append("")
+        if unenforced_inv:
+            lines.append(
+                f"**⚠️ Unverified** — {len(unenforced_inv)} implied-but-unenforced "
+                "law(s) worth knowing (may not be true); see "
+                "[`.claude/rules/product-laws.md`](.claude/rules/product-laws.md)."
+            )
+            lines.append("")
+
     # Data Models — concise summary; full lifecycle lives in
     # .claude/rules/data-models.md (rendered by _build_data_models_rule).
     # Section is elided entirely on blueprints with no data surface.
@@ -1896,6 +1926,134 @@ def build_enforcement_directory(rules: list[dict]) -> dict[str, str]:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
+def _render_grounded_invariant_lines(inv: dict) -> list[str]:
+    """One observed (Wave 1) product law as markdown bullet + sub-bullets."""
+    if not isinstance(inv, dict):
+        return []
+    lines = [f"- **{inv.get('invariant', '')}**"]
+    meta = " · ".join(p for p in (inv.get("entity"), inv.get("category")) if p)
+    if meta:
+        lines.append(f"  - _{meta}_")
+    if inv.get("failure_mode"):
+        lines.append(f"  - *If violated:* {inv['failure_mode']}")
+    enforced = inv.get("enforced_at") or []
+    if enforced:
+        lines.append("  - *Enforced at:* " + ", ".join(f"`{e}`" for e in enforced))
+    return lines
+
+
+def _render_derived_invariant_lines(d: dict) -> list[str]:
+    """One derived (Wave 2) product law — anchored to its premises."""
+    if not isinstance(d, dict):
+        return []
+    lines = [f"- **{d.get('invariant', '')}** _(derived)_"]
+    df = d.get("derived_from") or []
+    if df:
+        lines.append("  - *Derived from:* " + ", ".join(f"`{x}`" for x in df))
+    if d.get("failure_mode"):
+        lines.append(f"  - *If violated:* {d['failure_mode']}")
+    return lines
+
+
+def _render_unenforced_lines(g: dict) -> list[str]:
+    """One ungrounded gap entry — must surface its `searched` proof-of-work."""
+    if not isinstance(g, dict):
+        return []
+    lines = [f"- **{g.get('expected_law', '')}**"]
+    meta = " · ".join(p for p in (g.get("entity"), g.get("category")) if p)
+    if meta:
+        lines.append(f"  - _{meta}_")
+    if g.get("why_expected"):
+        lines.append(f"  - *Why expected:* {g['why_expected']}")
+    if g.get("risk"):
+        lines.append(f"  - *Risk if real:* {g['risk']}")
+    searched = g.get("searched") or []
+    if searched:
+        lines.append("  - *Searched (no enforcement found):* "
+                     + ", ".join(f"`{s}`" for s in searched))
+    return lines
+
+
+def _build_product_model_rule(bp: dict):
+    """`.claude/rules/product-model.md` — the domain map (informational only)."""
+    pm = bp.get("product_model")
+    if not isinstance(pm, dict):
+        return None
+    summary = (pm.get("summary") or "").strip()
+    entities = [e for e in (pm.get("entities") or []) if isinstance(e, dict)]
+    workflow = [str(s) for s in (pm.get("core_workflow") or []) if s]
+    if not (summary or entities or workflow):
+        return None
+
+    lines = ["## Product Model", ""]
+    if summary:
+        lines += [summary, ""]
+    if workflow:
+        lines += ["**Core workflow:** " + " → ".join(workflow), ""]
+    if entities:
+        lines += ["**Entities:**", ""]
+        for e in entities:
+            bits = " — ".join(b for b in (e.get("role"), e.get("lifecycle")) if b)
+            lines.append(f"- **{e.get('name', '')}**" + (f" — {bits}" if bits else ""))
+        lines.append("")
+
+    return {
+        "topic": "product-model",
+        "body": "\n".join(lines).rstrip(),
+        "description": "The product's domain map — entities, lifecycle, core workflow",
+        "always_apply": True,
+        "globs": [],
+    }
+
+
+def _build_product_laws_rule(bp: dict):
+    """`.claude/rules/product-laws.md` — BOTH epistemic tiers in one file with an
+    unmissable boundary: enforced (grounded) laws vs implied-but-unenforced
+    (unverified). The grounded/ungrounded distinction is drawn identically here,
+    in the CLI viewer, and in the web report."""
+    domain = [x for x in (bp.get("domain_invariants") or []) if isinstance(x, dict)]
+    derived = [x for x in (bp.get("derived_invariants") or []) if isinstance(x, dict)]
+    unenforced = [x for x in (bp.get("unenforced_invariants") or []) if isinstance(x, dict)]
+    if not (domain or derived or unenforced):
+        return None
+
+    lines: list[str] = []
+    if domain or derived:
+        lines += [
+            "## Product Laws — enforced (grounded)",
+            "",
+            "_Correctness laws this product enforces in code. Violating one breaks the "
+            "product's behavior, not just its style._",
+            "",
+        ]
+        for inv in domain:
+            lines += _render_grounded_invariant_lines(inv)
+        for d in derived:
+            lines += _render_derived_invariant_lines(d)
+        lines.append("")
+
+    if unenforced:
+        lines += [
+            "## ⚠️ Unverified — implied but NOT enforced by any code we found (may not be true)",
+            "",
+            "_These laws are inferred from the domain, not observed in code. They may be "
+            "false — but if real and unenforced, each is a latent bug. Each lists where we "
+            "looked (`searched`) so you can confirm in seconds. Not enforced by any hook._",
+            "",
+        ]
+        for g in unenforced:
+            lines += _render_unenforced_lines(g)
+        lines.append("")
+
+    return {
+        "topic": "product-laws",
+        "body": "\n".join(lines).rstrip(),
+        "description": "Product correctness laws — enforced (grounded) and implied-but-unenforced (unverified)",
+        "always_apply": True,
+        "globs": [],
+    }
+
+
 def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
     """Generate all output files from a blueprint dict.
 
@@ -1919,6 +2077,8 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
         _build_dev_rules_rule,
         _build_infrastructure_rule,
         _build_data_models_rule,
+        _build_product_model_rule,
+        _build_product_laws_rule,
     ]
 
     for builder in builders:
