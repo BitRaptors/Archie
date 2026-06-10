@@ -60,6 +60,8 @@ python3 -m archie.benchmark run config.json                     # run on existin
 ```
 Internal-only (not shipped via npm). Captures tool calls / tokens / cost / time +
 blind judge-Claude quality, writes to Supabase (`benchmark_runs`, `benchmark_samples`).
+Before benchmarking, copy `archie/benchmark/secrets.env.example` → `.archie-bench/secrets.env`
+and fill in the Supabase URL + service_role key (else runs fall back to offline mode).
 See `archie/benchmark/README.md`.
 
 ## Command Architecture

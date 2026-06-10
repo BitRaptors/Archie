@@ -5,6 +5,21 @@ branch (no Archie) and a treatment branch (full Archie docs + hooks), capturing
 tool calls / tokens / cost / time + a blind judge-Claude quality score, and writes
 results to Supabase. **Not** shipped via npm.
 
+## Setup — do this before your first benchmark
+
+Provide Supabase credentials so results are stored (see [Supabase](#supabase) for
+detail). In short:
+
+```bash
+cp archie/benchmark/secrets.env.example .archie-bench/secrets.env
+# edit .archie-bench/secrets.env: real SUPABASE_URL + service_role key
+set -a; source .archie-bench/secrets.env; set +a
+```
+
+This must be filled in **before** you benchmark if you want results in Supabase. If
+you skip it, runs still work but fall back to **offline mode** (a local
+`results.json`), and nothing is written to the database.
+
 ## Usage
 
 ```bash
@@ -38,9 +53,19 @@ deep-scan is **never** counted in the measured metrics.
 
 ## Supabase
 
-Set `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the environment. Without them the
-harness writes `.archie/benchmark/<name>/results.json` locally (offline mode).
-Apply `archie/benchmark/schema.sql` to the project once.
+Copy the credentials template and fill it in (the copy lives in gitignored
+`.archie-bench/`, so real keys are never committed):
+
+```bash
+cp archie/benchmark/secrets.env.example .archie-bench/secrets.env
+# edit .archie-bench/secrets.env: real SUPABASE_URL + service_role key
+set -a; source .archie-bench/secrets.env; set +a
+```
+
+`store.py` reads `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` from the environment.
+Without them the harness writes `.archie/benchmark/<name>/results.json` locally
+(offline mode). Use the **service_role** key (not anon) so inserts bypass RLS, and
+apply `archie/benchmark/schema.sql` in the Supabase SQL Editor once.
 
 ## Fairness invariants
 
