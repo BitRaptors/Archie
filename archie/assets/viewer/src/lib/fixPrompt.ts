@@ -28,6 +28,10 @@ export type FixItem = Finding & {
    * have a structured `pitfall_id`; pitfalls themselves use this field as a
    * self-id marker so the same builder works for both. */
   __kind?: 'finding' | 'pitfall'
+  /** For derived_invariant items: the ids of the domain_invariants this was
+   * derived from. When present, the builder inlines the premise texts so the
+   * receiving agent sees the full grounding chain. */
+  derived_from?: string[]
 }
 
 interface ResolvedPitfall {
@@ -109,6 +113,7 @@ export function buildFixPrompt(item: FixItem, opts: BuildOpts = {}): string {
 
   const pitfall = resolvePitfall(item, bp)
   const decision = pitfall?.stems_from ? resolveDecision(pitfall.stems_from, bp) : null
+  const premises = resolveDerivedFromPremises(item, bp)
   const guideline = resolveGuideline(item, bp)
   const rules = resolveRules(item, opts.adoptedRules, bp)
   const components = resolveComponents(item, bp)
@@ -241,6 +246,19 @@ export function buildFixPrompt(item: FixItem, opts: BuildOpts = {}): string {
     if (lines.length > 0) {
       sections.push(`## The architectural decision behind it\n${lines.join('\n')}`)
     }
+  }
+
+  // ───── Derived-invariant premises ─────────────────────────────────────
+  if (premises.length > 0) {
+    const blocks = premises.map((p) => {
+      const lines: string[] = [`- \`${p.id}\``]
+      if (p.invariant) lines.push(`  **Law:** ${p.invariant}`)
+      if (p.failure_mode) lines.push(`  **Failure mode:** ${p.failure_mode}`)
+      return lines.join('\n')
+    })
+    sections.push(
+      `## Grounding premises (this law is derived from)\nThe derived invariant above holds only if all premises below hold.\n\n${blocks.join('\n\n')}`,
+    )
   }
 
   // ───── Decision chain (root → matching constraint) ─────────────────────
@@ -429,6 +447,39 @@ function formatAlternatives(alts: any): string[] {
     }
   }
   return out.slice(0, 5)
+}
+
+// ── Derived-invariant premise resolution ────────────────────────────────
+// When a FixItem carries `derived_from` ids, resolve each id to its
+// matching domain_invariant so the prompt includes the grounding premises.
+
+interface ResolvedPremise {
+  id: string
+  invariant?: string
+  failure_mode?: string
+}
+
+function resolveDerivedFromPremises(item: FixItem, bp: any): ResolvedPremise[] {
+  const ids = Array.isArray(item.derived_from) ? item.derived_from : []
+  if (ids.length === 0) return []
+  const domainInvariants: any[] = Array.isArray(bp?.domain_invariants) ? bp.domain_invariants : []
+  if (domainInvariants.length === 0) return []
+  const out: ResolvedPremise[] = []
+  for (const id of ids) {
+    const found = domainInvariants.find((d: any) => d?.id === id)
+    if (found) {
+      out.push({
+        id,
+        invariant: found.invariant,
+        failure_mode: found.failure_mode,
+      })
+    } else {
+      // id not found — include it as an unresolved reference so the agent
+      // knows it exists but can't be expanded.
+      out.push({ id })
+    }
+  }
+  return out
 }
 
 // ── Guideline resolution ─────────────────────────────────────────────────

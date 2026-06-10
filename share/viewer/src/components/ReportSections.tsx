@@ -8,7 +8,7 @@ import { Badge } from './ui/badge'
 import { Progress } from './ui/progress'
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react'
+import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, AlertCircle, BookOpen, GitMerge } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
 // @ts-ignore
@@ -2584,6 +2584,397 @@ export function IntegrationsSection({
             )}
           </div>
         ))}
+      </div>
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Product Model — the domain map: summary, entities, core workflow.
+// Informational — no epistemic tier labeling needed.
+// ---------------------------------------------------------------------------
+
+export function ProductModelSection({ productModel }: { productModel: any }) {
+  const summary: string = productModel?.summary || ''
+  const entities: any[] = Array.isArray(productModel?.entities) ? productModel.entities : []
+  const workflow: string[] = Array.isArray(productModel?.core_workflow) ? productModel.core_workflow : []
+
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Product Model"
+        icon={BookOpen}
+        hint="The domain map — key entities, their lifecycles, and the core workflow that ties them together."
+      />
+      <div className={cn('p-8 rounded-3xl border space-y-8', theme.surface.panel)}>
+        {summary && (
+          <Prose value={summary} className="text-sm text-ink/70 leading-relaxed italic border-l-2 border-teal/20 pl-6" />
+        )}
+
+        {workflow.length > 0 && (
+          <div className="space-y-3">
+            <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Core Workflow</div>
+            <div className="flex flex-wrap items-center gap-2">
+              {workflow.map((step, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="px-3 py-1.5 rounded-xl bg-teal/10 border border-teal/20 text-xs font-bold text-teal">
+                    {step}
+                  </div>
+                  {i < workflow.length - 1 && (
+                    <ChevronRight className="w-3.5 h-3.5 text-ink/25 shrink-0" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {entities.length > 0 && (
+          <div className="space-y-3">
+            <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Entities</div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {entities.map((e: any, i: number) => (
+                <div
+                  key={i}
+                  className="p-4 rounded-2xl bg-white/50 border border-papaya-400/50 space-y-2 transition-all hover:border-teal/20 hover:shadow-sm"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-teal/10">
+                      <Database className="w-3.5 h-3.5 text-teal" />
+                    </div>
+                    <h3 className="font-bold text-sm text-ink">{e.name}</h3>
+                    {e.role && (
+                      <Badge variant="outline" className="ml-auto text-[9px] uppercase tracking-widest font-bold text-teal border-teal/20 bg-teal/5">
+                        {e.role}
+                      </Badge>
+                    )}
+                  </div>
+                  {e.lifecycle && (
+                    <div className="text-xs text-ink/60 leading-relaxed pl-1">
+                      <span className="text-[9px] font-black uppercase tracking-[0.15em] text-ink/30 mr-1.5">Lifecycle:</span>
+                      <AutoCode text={e.lifecycle} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Confidence badge used in ProductLawsSection
+// ---------------------------------------------------------------------------
+
+function ConfidenceBadge({ confidence }: { confidence?: string }) {
+  if (!confidence) return null
+  const isStated = confidence === 'stated'
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'text-[9px] font-black uppercase tracking-widest',
+        isStated
+          ? 'text-teal border-teal/30 bg-teal/5'
+          : 'text-ink/40 border-ink/10 bg-white',
+      )}
+    >
+      {confidence}
+    </Badge>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Product Laws — GROUNDED tier: domain_invariants + derived_invariants.
+// These are authoritative. Derived ones show their premises (derived_from).
+// ---------------------------------------------------------------------------
+
+export function ProductLawsSection({
+  domainInvariants,
+  derivedInvariants,
+}: {
+  domainInvariants: any[]
+  derivedInvariants: any[]
+}) {
+  // Build a lookup map id → invariant text for derived_from resolution
+  const domainById: Record<string, string> = {}
+  for (const inv of domainInvariants) {
+    if (inv?.id) domainById[inv.id] = inv.invariant || inv.id
+  }
+
+  const hasObserved = domainInvariants.length > 0
+  const hasDerived = derivedInvariants.length > 0
+
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Product Laws"
+        icon={Shield}
+        hint="Grounded product invariants observed and reasoned from the codebase. These are authoritative — each is anchored to code evidence."
+      />
+
+      {hasObserved && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Observed Laws</div>
+            <Badge className="text-[9px] font-black uppercase tracking-widest bg-teal/10 border border-teal/20 text-teal">
+              Grounded
+            </Badge>
+          </div>
+          <div className="grid gap-4">
+            {domainInvariants.map((inv: any, i: number) => {
+              const enforced: string[] = Array.isArray(inv.enforced_at) ? inv.enforced_at : []
+              const evidence: string[] = Array.isArray(inv.evidence) ? inv.evidence : []
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    'p-6 rounded-2xl border transition-all hover:shadow-lg',
+                    theme.surface.panel,
+                  )}
+                >
+                  <div className="flex items-start gap-3 mb-3 flex-wrap">
+                    <div className="shrink-0 h-7 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest self-start bg-teal/10 border-teal/20 text-teal">
+                      <CheckCircle2 className="w-3 h-3" />
+                      {inv.category || 'invariant'}
+                    </div>
+                    {inv.entity && (
+                      <Badge variant="outline" className="text-[10px] font-bold uppercase border-papaya-400 text-ink/50 self-start">
+                        {inv.entity}
+                      </Badge>
+                    )}
+                    <div className="ml-auto self-start">
+                      <ConfidenceBadge confidence={inv.confidence} />
+                    </div>
+                    {inv.id && (
+                      <span className="text-[10px] font-mono text-ink/30 self-start">{inv.id}</span>
+                    )}
+                  </div>
+
+                  <p className="text-sm font-semibold text-ink leading-relaxed mb-4">
+                    <AutoCode text={inv.invariant || ''} />
+                  </p>
+
+                  {inv.failure_mode && (
+                    <div className="mb-4 p-3 rounded-xl border border-brandy/15 bg-brandy/5">
+                      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brandy/70 mb-1">Failure mode</div>
+                      <p className="text-xs text-ink/70 leading-relaxed"><AutoCode text={inv.failure_mode} /></p>
+                    </div>
+                  )}
+
+                  {enforced.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">Enforced at</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {enforced.map((loc, j) => (
+                          <PathChip key={j} path={loc} className="text-[10px]" />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {evidence.length > 0 && (
+                    <div className="mt-3 space-y-1">
+                      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">Evidence</div>
+                      <ul className="space-y-1">
+                        {evidence.map((e, j) => (
+                          <li key={j} className="text-xs text-ink/60 leading-relaxed flex gap-2">
+                            <span className="mt-1.5 w-1 h-1 rounded-full bg-teal shrink-0" />
+                            <AutoCode text={e} />
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {hasDerived && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Derived Laws</div>
+            <Badge className="text-[9px] font-black uppercase tracking-widest bg-tangerine/10 border border-tangerine/20 text-tangerine-800">
+              Inferred from premises
+            </Badge>
+          </div>
+          <div className="grid gap-4">
+            {derivedInvariants.map((inv: any, i: number) => {
+              const premises: string[] = Array.isArray(inv.derived_from) ? inv.derived_from : []
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    'p-6 rounded-2xl border transition-all hover:shadow-lg',
+                    theme.surface.panel,
+                  )}
+                >
+                  <div className="flex items-start gap-3 mb-3 flex-wrap">
+                    <div className="shrink-0 h-7 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest self-start bg-tangerine/10 border-tangerine/20 text-tangerine-800">
+                      <GitMerge className="w-3 h-3" />
+                      derived
+                    </div>
+                    <div className="ml-auto self-start">
+                      <ConfidenceBadge confidence={inv.confidence} />
+                    </div>
+                    {inv.id && (
+                      <span className="text-[10px] font-mono text-ink/30 self-start">{inv.id}</span>
+                    )}
+                  </div>
+
+                  <p className="text-sm font-semibold text-ink leading-relaxed mb-4">
+                    <AutoCode text={inv.invariant || ''} />
+                  </p>
+
+                  {inv.failure_mode && (
+                    <div className="mb-4 p-3 rounded-xl border border-brandy/15 bg-brandy/5">
+                      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brandy/70 mb-1">Failure mode</div>
+                      <p className="text-xs text-ink/70 leading-relaxed"><AutoCode text={inv.failure_mode} /></p>
+                    </div>
+                  )}
+
+                  {premises.length > 0 && (
+                    <div className="pt-3 border-t border-papaya-400/20 space-y-2">
+                      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">Derived from</div>
+                      <div className="space-y-1.5">
+                        {premises.map((pid, j) => {
+                          const text = domainById[pid]
+                          return (
+                            <div key={j} className="flex items-start gap-2 text-xs">
+                              <code className="text-[10px] font-mono text-tangerine-800 bg-tangerine/5 border border-tangerine/20 px-1.5 py-0.5 rounded-md shrink-0">
+                                {pid}
+                              </code>
+                              {text && (
+                                <span className="text-ink/60 leading-relaxed"><AutoCode text={text} /></span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Unverified Invariants — UNGROUNDED gap list. Visually distinct from the
+// grounded tier: amber/warning surface + a prominent "Unverified" badge.
+// Shows searched[] so a reader can falsify "nothing enforces it."
+// ---------------------------------------------------------------------------
+
+export function UnverifiedInvariantsSection({ unenforcedInvariants }: { unenforcedInvariants: any[] }) {
+  return (
+    <section className="space-y-4">
+      {/* Warning header — makes the epistemic tier unmissable */}
+      <SectionHeader
+        title="Unverified Gaps"
+        icon={AlertTriangle}
+        hint="Inferred enforcement gaps — laws the analysis expected to find but did not locate. These are speculative and may not be true. Each entry lists what was searched so you can falsify the claim."
+      />
+
+      {/* One-line banner reinforcing the epistemic status */}
+      <div className="flex items-center gap-3 p-4 rounded-2xl border border-amber-300/60 bg-amber-50/60">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <p className="text-xs text-amber-900 leading-relaxed">
+          <strong>These are inferred and may not be true.</strong> Each item is a law the analysis expected to find enforced but could not locate. Verify with the listed search targets before acting.
+        </p>
+      </div>
+
+      <div className="grid gap-4">
+        {unenforcedInvariants.map((inv: any, i: number) => {
+          const searched: string[] = Array.isArray(inv.searched) ? inv.searched : []
+          return (
+            <div
+              key={i}
+              className="p-6 rounded-2xl border border-amber-200/60 bg-amber-50/40 transition-all hover:shadow-lg hover:border-amber-300/80"
+            >
+              {/* Unverified badge + category/entity metadata */}
+              <div className="flex items-start gap-2 mb-3 flex-wrap">
+                <div className="shrink-0 h-7 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest self-start bg-amber-100 border-amber-300/60 text-amber-800">
+                  <AlertTriangle className="w-3 h-3" />
+                  Unverified
+                </div>
+                {inv.category && (
+                  <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-widest border-amber-300/40 text-amber-700 bg-amber-50/80 self-start">
+                    {inv.category}
+                  </Badge>
+                )}
+                {inv.entity && (
+                  <Badge variant="outline" className="text-[10px] font-bold uppercase border-papaya-400 text-ink/50 self-start">
+                    {inv.entity}
+                  </Badge>
+                )}
+                {inv.confidence && (
+                  <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest text-ink/40 border-ink/10 bg-white self-start ml-auto">
+                    {inv.confidence}
+                  </Badge>
+                )}
+                {inv.id && (
+                  <span className="text-[10px] font-mono text-ink/30 self-start">{inv.id}</span>
+                )}
+              </div>
+
+              {/* The expected law */}
+              <p className="text-sm font-semibold text-ink leading-relaxed mb-3">
+                <AutoCode text={inv.expected_law || ''} />
+              </p>
+
+              {/* Why it was expected */}
+              {inv.why_expected && (
+                <div className="mb-4 p-3 rounded-xl border border-amber-200/60 bg-white/50">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700/70 mb-1">Why expected</div>
+                  <p className="text-xs text-ink/70 leading-relaxed"><AutoCode text={inv.why_expected} /></p>
+                </div>
+              )}
+
+              {/* Risk of the gap */}
+              {inv.risk && (
+                <div className="mb-4 p-3 rounded-xl border border-brandy/15 bg-brandy/5">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brandy/70 mb-1">Risk</div>
+                  <p className="text-xs text-ink/70 leading-relaxed"><AutoCode text={inv.risk} /></p>
+                </div>
+              )}
+
+              {/* Searched targets — key for falsifiability */}
+              {searched.length > 0 && (
+                <div className="pt-3 border-t border-amber-200/40 space-y-1.5">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700/60">
+                    Searched (nothing found)
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {searched.map((loc, j) => (
+                      <PathChip
+                        key={j}
+                        path={loc}
+                        className="text-[10px] border-amber-300/40 bg-amber-50/60 text-amber-800"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {inv.found_enforcement && inv.found_enforcement !== 'none' && (
+                <div className="mt-3 pt-3 border-t border-amber-200/40">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-1">Found enforcement</div>
+                  <p className="text-xs text-ink/60 italic"><AutoCode text={inv.found_enforcement} /></p>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </section>
   )

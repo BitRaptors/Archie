@@ -5,7 +5,7 @@ import { LocalEditContext } from '@/components/local/context/LocalEditContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, Layers, FileText, AlertCircle } from 'lucide-react'
+import { Copy, Check, ExternalLink, ChevronRight, Layout, Github, Menu, X, Info, Activity, Database, Shield, Zap, Rocket, AlertTriangle, Layers, FileText, AlertCircle, BookOpen } from 'lucide-react'
 import { fetchReport, type Bundle } from '@/lib/api'
 import { autoBacktick } from '@/lib/autocode'
 import { formatBlueprintTitle } from '@/lib/blueprintTitle'
@@ -192,6 +192,9 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
       'integrations',
       'technology',
       'deployment',
+      'product-model',
+      'product-laws',
+      'unverified-laws',
       'problems',
       'pitfalls',
       'try-archie',
@@ -301,6 +304,11 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
   const keyDecisions = bp.decisions?.key_decisions || []
   const tradeOffs = bp.decisions?.trade_offs || []
   const pitfalls = Array.isArray(bp.pitfalls) ? bp.pitfalls : []
+  const domainInvariants = Array.isArray(bp.domain_invariants) ? bp.domain_invariants : []
+  const derivedInvariants = Array.isArray(bp.derived_invariants) ? bp.derived_invariants : []
+  const unenforcedInvariants = Array.isArray(bp.unenforced_invariants) ? bp.unenforced_invariants : []
+  const productModel = bp.product_model && typeof bp.product_model === 'object' ? bp.product_model : null
+  const hasProductLaws = domainInvariants.length > 0 || derivedInvariants.length > 0
   const archRules = bp.architecture_rules || {}
   const filePlacement = archRules.file_placement_rules || []
   const naming = archRules.naming_conventions || []
@@ -525,7 +533,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           </div>
 
           {/* Design */}
-          {(keyDecisions.length > 0 || tradeOffs.length > 0) && (
+          {(keyDecisions.length > 0 || tradeOffs.length > 0 || productModel || hasProductLaws || unenforcedInvariants.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Design</p>
               {keyDecisions.length > 0 && (
@@ -542,6 +550,30 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                   onClick={() => scrollToSection('tradeoffs')}
                   icon={Activity}
                   label="Trade-offs"
+                />
+              )}
+              {productModel && (
+                <NavButton
+                  active={activeSection === 'product-model'}
+                  onClick={() => scrollToSection('product-model')}
+                  icon={BookOpen}
+                  label="Product Model"
+                />
+              )}
+              {hasProductLaws && (
+                <NavButton
+                  active={activeSection === 'product-laws'}
+                  onClick={() => scrollToSection('product-laws')}
+                  icon={Shield}
+                  label="Product Laws"
+                />
+              )}
+              {unenforcedInvariants.length > 0 && (
+                <NavButton
+                  active={activeSection === 'unverified-laws'}
+                  onClick={() => scrollToSection('unverified-laws')}
+                  icon={AlertTriangle}
+                  label="Unverified Gaps"
                 />
               )}
             </div>
@@ -936,6 +968,27 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           {tradeOffs.length > 0 && (
             <section id="tradeoffs" className="scroll-mt-24">
               <Sections.TradeOffsSection tradeoffs={tradeOffs} />
+            </section>
+          )}
+
+          {/* 7b. Product Model — domain map */}
+          {productModel && (
+            <section id="product-model" className="scroll-mt-24">
+              <Sections.ProductModelSection productModel={productModel} />
+            </section>
+          )}
+
+          {/* 7c. Product Laws — grounded tier (domain_invariants + derived_invariants) */}
+          {hasProductLaws && (
+            <section id="product-laws" className="scroll-mt-24">
+              <Sections.ProductLawsSection domainInvariants={domainInvariants} derivedInvariants={derivedInvariants} />
+            </section>
+          )}
+
+          {/* 7d. Unverified Gaps — speculative unenforced_invariants, visually distinct */}
+          {unenforcedInvariants.length > 0 && (
+            <section id="unverified-laws" className="scroll-mt-24">
+              <Sections.UnverifiedInvariantsSection unenforcedInvariants={unenforcedInvariants} />
             </section>
           )}
 
