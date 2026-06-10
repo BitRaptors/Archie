@@ -72,6 +72,44 @@ def test_agents_md_summarizes_product_laws():
     assert "⚠️ Unverified" in agents
 
 
+def test_product_laws_grouped_by_role_core_first():
+    """domain_role groups the grounded tier with Core before Supporting before Platform."""
+    bp = {
+        "meta": {"architecture_style": "x"}, "components": {"components": []},
+        "domain_invariants": [
+            {"id": "inv-sub-1", "domain_role": "supporting", "category": "lifecycle/state",
+             "invariant": "Pro is granted only on an active entitlement.", "enforced_at": ["a:1"]},
+            {"id": "inv-core-1", "domain_role": "core", "category": "conservation/accounting",
+             "invariant": "Temperature is normalized before the recommendation lookup.", "enforced_at": ["b:2"]},
+            {"id": "inv-plat-1", "domain_role": "platform", "category": "tenant-isolation",
+             "invariant": "All API calls carry a bearer token.", "enforced_at": ["c:3"]},
+        ],
+    }
+    normalize_blueprint(bp)
+    laws = renderer.generate_all(bp)[".claude/rules/product-laws.md"]
+    assert "### Core product laws" in laws
+    assert "### Supporting features" in laws
+    assert "### Platform" in laws
+    # ordering: core subheading precedes supporting precedes platform
+    assert laws.index("### Core product laws") < laws.index("### Supporting features") < laws.index("### Platform")
+    # the core law sits under Core, above the supporting law
+    assert laws.index("Temperature is normalized") < laws.index("Pro is granted only")
+
+
+def test_product_laws_flat_when_no_role():
+    """Backward compat: no domain_role anywhere → flat list, no role subheadings."""
+    bp = {
+        "meta": {"architecture_style": "x"}, "components": {"components": []},
+        "domain_invariants": [
+            {"id": "inv-1", "invariant": "A law without a role.", "enforced_at": ["a:1"]},
+        ],
+    }
+    normalize_blueprint(bp)
+    laws = renderer.generate_all(bp)[".claude/rules/product-laws.md"]
+    assert "A law without a role." in laws
+    assert "### Core product laws" not in laws  # flat fallback
+
+
 def test_derived_only_blueprint_no_dangling_header():
     """Regression (Reviewer-2): a blueprint with derived but no observed laws must
     still list the derived law in the AGENTS.md summary, not a bare header."""

@@ -30,6 +30,7 @@
       "id": "inv-balance-001",
       "entity": "AccountBalance",
       "category": "value-bound",
+      "domain_role": "core",
       "invariant": "An account's spendable balance never goes negative — debits are checked against the remaining balance and rejected past zero.",
       "enforced_at": ["app/wallet/balance_repo.ext:214", "app/wallet/engine/"],
       "evidence": ["code-comment:app/wallet/balance.ext:43", "guard:app/wallet/balance_repo.ext:214"],
@@ -41,6 +42,7 @@
       "id": "inv-ingest-001",
       "entity": "UsageEvent",
       "category": "idempotency",
+      "domain_role": "core",
       "invariant": "Event ingestion is at-most-once per idempotency key; re-delivering the same event must not double-count usage.",
       "enforced_at": ["app/ingest/dedupe.ext:88"],
       "evidence": ["guard:app/ingest/dedupe.ext:88"],
@@ -62,6 +64,7 @@
       "id": "der-001",
       "invariant": "A credit cannot be retroactively reduced below the amount already spent against it.",
       "derived_from": ["inv-balance-001", "inv-ingest-001"],
+      "domain_role": "core",
       "failure_mode": "Forces a negative historical balance; recompute silently corrupts ledger vs balance.",
       "confidence": "inferred",
       "keywords": ["credit", "ledger", "balance"]

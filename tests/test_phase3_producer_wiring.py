@@ -30,6 +30,26 @@ def test_domain_agent_prompt_exists_and_is_grounded():
     assert "schema" in body.lower()
 
 
+def test_domain_agent_steers_distribution_core_first():
+    """The Domain agent must counteract the guard-density skew: anchor to the core,
+    tag domain_role, cap supporting subsystems in default depth, and lift caps in
+    comprehensive."""
+    body = _read("step-3-wave1/domain-agent.md")
+    # core-first anchoring + the named bias it counteracts
+    assert "primary value workflow" in body
+    assert "domain_role" in body
+    assert "guard code is dense" in body or "guards are dense" in body
+    # role values
+    for role in ("core", "supporting", "platform"):
+        assert f'"{role}"' in body or role in body
+    # mine-the-data-flow instruction (so core isn't starved)
+    assert "data flow" in body.lower()
+    # default-depth caps on supporting + explicit comprehensive no-cap
+    assert "per-subsystem cap" in body or "2–3 laws" in body or "2-3 laws" in body
+    assert "NO CAPS" in body or "no caps" in body.lower()
+    assert "comprehensive" in body.lower()
+
+
 def test_domain_and_data_always_spawn_only_ui_optional():
     orch = _read("step-3-wave1/orchestration.md")
     # dispatch table rows

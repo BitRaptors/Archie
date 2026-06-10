@@ -1339,6 +1339,11 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
         lines.append("")
         grounded = [inv for inv in (domain_inv + derived_inv)
                     if (inv.get("invariant") or "").strip()]
+        # Lead the (capped) summary with core laws so a densely-guarded support
+        # subsystem can't crowd the core out of the first 6 shown.
+        _role_rank = {"core": 0, "supporting": 1, "platform": 2}
+        grounded.sort(key=lambda i: _role_rank.get(
+            (i.get("domain_role") or "supporting").strip().lower(), 1))
         if grounded:
             lines.append(
                 "**Enforced (grounded)** — correctness laws; full list in "
@@ -1977,6 +1982,52 @@ def _render_unenforced_lines(g: dict) -> list[str]:
     return lines
 
 
+_DOMAIN_ROLE_ORDER = (
+    ("core", "Core product laws"),
+    ("supporting", "Supporting features (auth, subscription, settings)"),
+    ("platform", "Platform"),
+)
+
+
+def _render_grounded_by_role(domain: list, derived: list) -> list[str]:
+    """Render observed + derived laws grouped by domain_role (core first).
+
+    Falls back to a flat list when no law carries domain_role (blueprints that
+    predate the field, or fixtures), so old output renders unchanged."""
+    items = [("d", x) for x in domain] + [("r", x) for x in derived]
+
+    def _render_one(kind, item):
+        return (_render_grounded_invariant_lines(item) if kind == "d"
+                else _render_derived_invariant_lines(item))
+
+    has_role = any((it.get("domain_role") or "").strip() for _, it in items)
+    if not has_role:
+        out: list[str] = []
+        for kind, item in items:
+            out += _render_one(kind, item)
+        return out
+
+    by_role: dict[str, list] = {}
+    for kind, item in items:
+        role = (item.get("domain_role") or "supporting").strip().lower()
+        if role not in ("core", "supporting", "platform"):
+            role = "supporting"
+        by_role.setdefault(role, []).append((kind, item))
+
+    out = []
+    for role, heading in _DOMAIN_ROLE_ORDER:
+        bucket = by_role.get(role) or []
+        rendered: list[str] = []
+        for kind, item in bucket:
+            rendered += _render_one(kind, item)
+        if rendered:
+            out.append(f"### {heading}")
+            out.append("")
+            out += rendered
+            out.append("")
+    return out
+
+
 def _build_product_model_rule(bp: dict):
     """`.claude/rules/product-model.md` — the domain map (informational only)."""
     pm = bp.get("product_model")
@@ -2026,13 +2077,11 @@ def _build_product_laws_rule(bp: dict):
             "## Product Laws — enforced (grounded)",
             "",
             "_Correctness laws this product enforces in code. Violating one breaks the "
-            "product's behavior, not just its style._",
+            "product's behavior, not just its style. Grouped by role — the core laws are "
+            "what the product fundamentally does; supporting laws gate/monetize/secure it._",
             "",
         ]
-        for inv in domain:
-            lines += _render_grounded_invariant_lines(inv)
-        for d in derived:
-            lines += _render_derived_invariant_lines(d)
+        lines += _render_grounded_by_role(domain, derived)
         lines.append("")
 
     if unenforced:
