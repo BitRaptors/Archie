@@ -40,6 +40,11 @@ create table if not exists benchmark_samples (
 
 create index if not exists benchmark_samples_run_id_idx on benchmark_samples(run_id);
 
+-- Service-role writes bypass RLS; enabling RLS with no policies keeps
+-- anon/authenticated locked out (same posture as the other Archie tables).
+alter table benchmark_runs enable row level security;
+alter table benchmark_samples enable row level security;
+
 -- Per-run, per-arm rollup the website reads (separate spec).
 create or replace view benchmark_summary as
 select

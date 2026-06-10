@@ -13,7 +13,7 @@ detail). In short:
 ```bash
 cp archie/benchmark/secrets.env.example .archie-bench/secrets.env
 # edit .archie-bench/secrets.env: real SUPABASE_URL + service_role key
-set -a; source .archie-bench/secrets.env; set +a
+python3 -m archie.benchmark verify   # auto-loads .archie-bench/secrets.env; checks tables + creds
 ```
 
 This must be filled in **before** you benchmark if you want results in Supabase. If
@@ -59,7 +59,7 @@ Copy the credentials template and fill it in (the copy lives in gitignored
 ```bash
 cp archie/benchmark/secrets.env.example .archie-bench/secrets.env
 # edit .archie-bench/secrets.env: real SUPABASE_URL + service_role key
-set -a; source .archie-bench/secrets.env; set +a
+python3 -m archie.benchmark verify   # auto-loads .archie-bench/secrets.env; checks tables + creds
 ```
 
 `store.py` reads `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` from the environment.

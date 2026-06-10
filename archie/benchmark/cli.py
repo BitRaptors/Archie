@@ -74,6 +74,20 @@ def _interactive_deep_scan(cfg):
         sys.exit(1)
 
 
+def _cmd_verify(args):
+    from .store import verify
+    result = verify()
+    for name, ok, detail in result["checks"]:
+        mark = "OK " if ok else "FAIL"
+        print(f"  [{mark}] {name}" + (f" — {detail}" if detail else ""))
+    if result["ok"]:
+        print("Supabase store ready — benchmark runs will be stored online.")
+    else:
+        print("Supabase store NOT ready — runs would fall back to offline JSON.",
+              file=sys.stderr)
+        sys.exit(1)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="archie-benchmark",
                                      description="Measure Archie effectiveness (control vs treatment).")
@@ -93,6 +107,9 @@ def main(argv=None):
     p_auto.add_argument("--prompt", help="task prompt (when no --config)")
     p_auto.add_argument("--model", default="claude-sonnet-4-6")
     p_auto.set_defaults(func=_cmd_auto)
+
+    p_verify = sub.add_parser("verify", help="self-test the Supabase store connection")
+    p_verify.set_defaults(func=_cmd_verify)
 
     args = parser.parse_args(argv)
     args.func(args)
