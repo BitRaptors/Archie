@@ -1337,14 +1337,17 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
     if domain_inv or derived_inv or unenforced_inv:
         lines.append("## Product Laws")
         lines.append("")
-        if domain_inv or derived_inv:
+        grounded = [inv for inv in (domain_inv + derived_inv)
+                    if (inv.get("invariant") or "").strip()]
+        if grounded:
             lines.append(
                 "**Enforced (grounded)** — correctness laws; full list in "
                 "[`.claude/rules/product-laws.md`](.claude/rules/product-laws.md):"
             )
-            for inv in _cap(domain_inv, 6):
+            shown = _cap(grounded, 6)
+            for inv in shown:
                 lines.append(f"- {inv.get('invariant', '')}")
-            extra = len(domain_inv) - 6
+            extra = len(grounded) - len(shown)
             if extra > 0:
                 lines.append(
                     f"- _… {extra} more in "
@@ -1928,7 +1931,7 @@ def build_enforcement_directory(rules: list[dict]) -> dict[str, str]:
 
 def _render_grounded_invariant_lines(inv: dict) -> list[str]:
     """One observed (Wave 1) product law as markdown bullet + sub-bullets."""
-    if not isinstance(inv, dict):
+    if not isinstance(inv, dict) or not (inv.get("invariant") or "").strip():
         return []
     lines = [f"- **{inv.get('invariant', '')}**"]
     meta = " · ".join(p for p in (inv.get("entity"), inv.get("category")) if p)
@@ -1944,7 +1947,7 @@ def _render_grounded_invariant_lines(inv: dict) -> list[str]:
 
 def _render_derived_invariant_lines(d: dict) -> list[str]:
     """One derived (Wave 2) product law — anchored to its premises."""
-    if not isinstance(d, dict):
+    if not isinstance(d, dict) or not (d.get("invariant") or "").strip():
         return []
     lines = [f"- **{d.get('invariant', '')}** _(derived)_"]
     df = d.get("derived_from") or []
@@ -1957,7 +1960,7 @@ def _render_derived_invariant_lines(d: dict) -> list[str]:
 
 def _render_unenforced_lines(g: dict) -> list[str]:
     """One ungrounded gap entry — must surface its `searched` proof-of-work."""
-    if not isinstance(g, dict):
+    if not isinstance(g, dict) or not (g.get("expected_law") or "").strip():
         return []
     lines = [f"- **{g.get('expected_law', '')}**"]
     meta = " · ".join(p for p in (g.get("entity"), g.get("category")) if p)

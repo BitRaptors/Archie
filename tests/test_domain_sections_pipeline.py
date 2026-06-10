@@ -12,10 +12,14 @@ and the Wave 2 Product agent (`product_model`, `derived_invariants`,
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from archie.standalone._common import normalize_blueprint
 from archie.standalone.finalize import _reset_reasoning_sections
+
+MERGE_SCRIPT = Path(__file__).resolve().parent.parent / "archie" / "standalone" / "merge.py"
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "blueprint_domain_invariants.json"
 
@@ -83,6 +87,35 @@ def test_reset_never_clears_wave1_domain_invariants():
     bp = _load_fixture()
     _reset_reasoning_sections(bp, [{"product_model": {"summary": "x"}}])
     assert len(bp["domain_invariants"]) == 2  # untouched
+
+
+def test_incremental_patch_upserts_domain_law_by_id(tmp_path):
+    """Regression (Reviewer-1 blocker): an incremental --patch that re-emits an
+    existing domain law with changed text must REPLACE it (upsert by id), not
+    append a stale duplicate. deep_merge dedups by `name`; these are id-keyed."""
+    archie = tmp_path / ".archie"
+    archie.mkdir()
+    (archie / "blueprint_raw.json").write_text(json.dumps({
+        "components": {"components": []},
+        "domain_invariants": [
+            {"id": "inv-balance-001", "invariant": "old text"},
+            {"id": "inv-ingest-001", "invariant": "unchanged"},
+        ],
+    }))
+    patch = tmp_path / "patch.json"
+    patch.write_text(json.dumps({
+        "domain_invariants": [{"id": "inv-balance-001", "invariant": "UPDATED text"}],
+    }))
+    res = subprocess.run(
+        [sys.executable, str(MERGE_SCRIPT), str(tmp_path), "--patch", str(patch)],
+        capture_output=True, text=True,
+    )
+    assert res.returncode == 0, res.stderr
+    merged = json.loads((archie / "blueprint_raw.json").read_text())
+    laws = {d["id"]: d["invariant"] for d in merged["domain_invariants"]}
+    assert len(merged["domain_invariants"]) == 2  # no duplicate id
+    assert laws["inv-balance-001"] == "UPDATED text"  # patch wins
+    assert laws["inv-ingest-001"] == "unchanged"  # untouched law preserved
 
 
 def test_reset_is_noop_when_payload_absent():

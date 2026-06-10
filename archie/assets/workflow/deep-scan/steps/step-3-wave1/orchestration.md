@@ -112,15 +112,15 @@ Technology → `technology`, UI Layer → `ui`, Data → `data`, Domain → `dom
 The merge step (Step 4) reads each agent's output file directly — do NOT
 copy or transcribe a subagent's output yourself.
 
-All spawned sub-agents (3 always + UI Layer and/or Data and/or Domain as applicable) run at the {{ANALYSIS_MODEL}} model. {{>dispatch_parallel}}
+All spawned sub-agents (5 core always + UI Layer when `frontend_ratio >= 0.20`) run at the {{ANALYSIS_MODEL}} model. {{>dispatch_parallel}}
 
-After the parallel dispatch returns, fold the per-agent timings into the `wave1` step so it reports each fact agent's duration (Structure / Patterns / Technology / UI Layer / Data) the same way `wave2_synthesis` does, instead of one aggregate number:
+After the parallel dispatch returns, fold the per-agent timings into the `wave1` step so it reports each fact agent's duration (Structure / Patterns / Technology / Data / Domain / UI Layer) the same way `wave2_synthesis` does, instead of one aggregate number:
 
 ```bash
 python3 .archie/telemetry.py collect-agents "$PROJECT_ROOT" wave1
 ```
 
-Then record per-agent counts for trend tracking. Each call no-ops gracefully when its source file is missing (skipped agent — sub5 absent when `has_persistence_signal == false`). Uses the standard `python3 -c …` form that both Claude and Codex auto-approve via the installer's command catalogue — no new permission rules needed:
+Then record per-agent counts for trend tracking. Each call no-ops gracefully when its source file is missing (skipped agent — e.g. sub4 absent when `frontend_ratio < 0.20`; the five core agents always produce their file). Uses the standard `python3 -c …` form that both Claude and Codex auto-approve via the installer's command catalogue — no new permission rules needed:
 
 ```bash
 DATA_COUNT=$(python3 -c "import json,os,sys; p=sys.argv[1]; print(len((json.load(open(p)).get('data_models') or [])) if os.path.exists(p) else 0)" .archie/tmp/archie_sub5_$PROJECT_NAME.json)

@@ -72,6 +72,37 @@ def test_agents_md_summarizes_product_laws():
     assert "⚠️ Unverified" in agents
 
 
+def test_derived_only_blueprint_no_dangling_header():
+    """Regression (Reviewer-2): a blueprint with derived but no observed laws must
+    still list the derived law in the AGENTS.md summary, not a bare header."""
+    bp = {
+        "meta": {"architecture_style": "x"}, "components": {"components": []},
+        "derived_invariants": [{"id": "der-001", "invariant": "A derived law holds."}],
+    }
+    normalize_blueprint(bp)
+    agents = renderer.generate_all(bp)["AGENTS.md"]
+    assert "## Product Laws" in agents
+    assert "A derived law holds." in agents  # listed, not a dangling header
+    # the grounded summary line is immediately followed by content, not another header
+    assert "**Enforced (grounded)**" in agents
+
+
+def test_empty_invariant_entry_skipped():
+    """Regression (Reviewer-2): a malformed entry with empty invariant text must
+    not render as an empty bold bullet (`- ****`)."""
+    bp = {
+        "meta": {"architecture_style": "x"}, "components": {"components": []},
+        "domain_invariants": [
+            {"id": "inv-1", "invariant": "Real law."},
+            {"id": "inv-2", "invariant": "   "},  # malformed
+        ],
+    }
+    normalize_blueprint(bp)
+    laws = renderer.generate_all(bp)[".claude/rules/product-laws.md"]
+    assert "Real law." in laws
+    assert "- ****" not in laws
+
+
 def test_no_product_files_when_sections_absent():
     """A blueprint with none of the new sections emits neither descriptive file."""
     bp = {"meta": {"architecture_style": "x"}, "components": {"components": []}}
