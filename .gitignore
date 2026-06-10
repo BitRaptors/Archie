@@ -74,3 +74,4 @@ htmlcov/
 # Ad-hoc plan/spec docs (kept out of repo to avoid accidental commits)
 docs/plans/
 docs/superpowers/
+.archie-bench/
