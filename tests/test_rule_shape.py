@@ -283,10 +283,9 @@ def test_cmd_rules_stamps_missing_source(tmp_path: Path) -> None:
     assert by_id["explicit"]["source"] == "scan", "existing source got overwritten"
 
 
-def test_cmd_rules_preserves_adopted_rules(tmp_path: Path) -> None:
-    """Existing rules with id not in new set should be preserved (today's
-    behavior). New behavior: still preserved AND any of those without
-    source remain untouched (cmd_rules only stamps NEW rules)."""
+def test_cmd_rules_preserves_adopted_rules_and_proposes_new(tmp_path: Path) -> None:
+    """On a rerun, existing rules are preserved; brand-new ids are NOT
+    auto-adopted — they land in proposed_rules.json awaiting user review."""
     out_path = tmp_path / "rules.json"
     out_path.write_text(json.dumps({"rules": [
         {"id": "old-1", "description": "kept", "source": "adopted"},
@@ -301,7 +300,65 @@ def test_cmd_rules_preserves_adopted_rules(tmp_path: Path) -> None:
     saved = {r["id"]: r for r in json.loads(out_path.read_text())["rules"]}
     assert "old-1" in saved
     assert saved["old-1"]["source"] == "adopted"
-    assert saved["new-1"]["source"] == "deep_scan"
+    assert "new-1" not in saved, "rerun must not auto-adopt a brand-new rule"
+
+    proposed = {r["id"]: r for r in
+                json.loads((tmp_path / "proposed_rules.json").read_text())["rules"]}
+    assert proposed["new-1"]["source"] == "deep_scan"
+
+
+def test_cmd_rules_first_scan_auto_adopts(tmp_path: Path) -> None:
+    """First scan (no/empty rules.json) keeps auto-adopting the baseline."""
+    raw_input = tmp_path / "raw.txt"
+    raw_input.write_text(json.dumps({"rules": [{"id": "r1", "description": "x"}]}))
+    out_path = tmp_path / "rules.json"
+
+    _extract_output.cmd_rules(str(raw_input), str(out_path))
+
+    saved = {r["id"] for r in json.loads(out_path.read_text())["rules"]}
+    assert saved == {"r1"}
+    assert not (tmp_path / "proposed_rules.json").exists()
+
+
+def test_cmd_rules_rerun_updates_active_rule_in_place(tmp_path: Path) -> None:
+    """A re-emitted rule whose id is already active updates rules.json
+    directly (refinement, not a new proposal)."""
+    out_path = tmp_path / "rules.json"
+    out_path.write_text(json.dumps({"rules": [
+        {"id": "r1", "description": "old wording", "source": "deep_scan"},
+    ]}))
+    raw_input = tmp_path / "raw.txt"
+    raw_input.write_text(json.dumps({"rules": [
+        {"id": "r1", "description": "refined wording", "source": "deep_scan"},
+    ]}))
+
+    _extract_output.cmd_rules(str(raw_input), str(out_path))
+
+    saved = {r["id"]: r for r in json.loads(out_path.read_text())["rules"]}
+    assert saved["r1"]["description"] == "refined wording"
+    assert not (tmp_path / "proposed_rules.json").exists()
+
+
+def test_cmd_rules_rerun_skips_ignored_and_already_proposed(tmp_path: Path) -> None:
+    """Rejected rules are never re-proposed; pending proposals don't duplicate."""
+    out_path = tmp_path / "rules.json"
+    out_path.write_text(json.dumps({"rules": [{"id": "active-1", "source": "deep_scan"}]}))
+    (tmp_path / "ignored_rules.json").write_text(json.dumps({"rules": [{"id": "rejected-1"}]}))
+    (tmp_path / "proposed_rules.json").write_text(json.dumps({"rules": [{"id": "pending-1"}]}))
+    raw_input = tmp_path / "raw.txt"
+    raw_input.write_text(json.dumps({"rules": [
+        {"id": "rejected-1", "description": "came back"},
+        {"id": "pending-1", "description": "still pending"},
+        {"id": "fresh-1", "description": "genuinely new"},
+    ]}))
+
+    _extract_output.cmd_rules(str(raw_input), str(out_path))
+
+    proposed_ids = [r["id"] for r in
+                    json.loads((tmp_path / "proposed_rules.json").read_text())["rules"]]
+    assert proposed_ids == ["pending-1", "fresh-1"], "no dup, no resurrected reject"
+    saved_ids = {r["id"] for r in json.loads(out_path.read_text())["rules"]}
+    assert saved_ids == {"active-1"}
 
 
 # ---------------------------------------------------------------------------
