@@ -337,3 +337,13 @@ class TestScannerIgnoreIntegration:
 
         assert "app.py" in paths
         assert not any("tmp_output" in p for p in paths)
+
+
+def test_filter_ignored_command(tmp_path):
+    import subprocess, sys
+    (tmp_path / ".archieignore").write_text("vendor/\n")
+    cmd = [sys.executable, "archie/standalone/intent_layer.py", "filter-ignored", str(tmp_path)]
+    out = subprocess.run(cmd, input="src/a.py\nvendor/b.py\nsrc/c.py\n",
+                         capture_output=True, text=True, check=True)
+    lines = [l for l in out.stdout.splitlines() if l.strip()]
+    assert lines == ["src/a.py", "src/c.py"]

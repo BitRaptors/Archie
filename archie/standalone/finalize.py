@@ -374,8 +374,30 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
         except Exception as _e:  # pragma: no cover - defensive
             print(f"  Warning: platform-pitfall seed skipped: {_e}", file=sys.stderr)
 
+    # ── C4 enrichment (deterministic, no AI) ─────────────────────────────────
+    # Stamp kind/group onto components before the blueprint is written so the
+    # viewer's Components section and the C4 diagram both see them. The diagram
+    # itself (.archie/c4.json) is generated just after the write. Runs in full
+    # + incremental alike; pure function of blueprint + scan.json.
+    _c4 = None
+    try:
+        _c4 = _import_sibling("c4")
+        _scan_path = archie_dir / "scan.json"
+        _scan = json.loads(_scan_path.read_text()) if _scan_path.exists() else {}
+        _c4.enrich_components(bp, _scan)
+    except Exception as e:  # never block finalize on diagram generation
+        print(f"  C4 enrich skipped: {e}", file=sys.stderr)
+
     bp_path = archie_dir / "blueprint.json"
     bp_path.write_text(json.dumps(bp, indent=2))
+
+    # c4.json reads the freshly-written enriched blueprint + scan.
+    if _c4 is not None:
+        try:
+            _c4.build_all(root)
+            print("  C4 diagram written (.archie/c4.json)", file=sys.stderr)
+        except Exception as e:
+            print(f"  C4 diagram skipped: {e}", file=sys.stderr)
 
     comps = bp.get("components", {})
     comp_count = len(comps.get("components", [])) if isinstance(comps, dict) else 0
@@ -407,13 +429,22 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
                     r.setdefault("_archie_source", src)
                     enforcement_rules.append(r)
 
-    generate_all = _import_sibling("renderer").generate_all
+    renderer = _import_sibling("renderer")
+    generate_all = renderer.generate_all
 
     files = generate_all(bp, enforcement_rules=enforcement_rules)
     for rel_path, content in files.items():
         full_path = root / rel_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content)
+        # AGENTS.md / CLAUDE.md may coexist with hand-authored content. Route
+        # mergeable files through render_mergeable so any user-written section
+        # outside Archie's generated block is preserved (mirrors renderer.main()).
+        # A straight write_text here was the regression that overwrote curated
+        # AGENTS.md files. Everything else is fully Archie-owned → plain write.
+        if rel_path in renderer.MERGEABLE_FILES:
+            full_path.write_text(renderer.render_mergeable(full_path, content))
+        else:
+            full_path.write_text(content)
     print(f"  Rendered {len(files)} files", file=sys.stderr)
 
     # ── 4. Hooks ───────────────────────────────────────────────────────────

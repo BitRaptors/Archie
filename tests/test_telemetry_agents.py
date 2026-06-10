@@ -80,6 +80,24 @@ def test_build_summary_renests_leaked_top_level_agents():
     assert w2["seconds"] == 163
 
 
+def test_build_summary_nests_wave1_agents():
+    # Wave 1 fact agents nest under the `wave1` step (inline + a leaked top-level one).
+    steps = [
+        {"name": "wave1", "seconds": 1776,
+         "agents": [{"name": "structure", "seconds": 600}, {"name": "patterns", "seconds": 500}]},
+        {"name": "technology", "seconds": 400},  # leaked wave1 agent recorded top-level
+        {"name": "wave2_synthesis", "seconds": 420, "agents": [{"name": "risk", "seconds": 262}]},
+    ]
+    out = telemetry.build_summary(steps)
+    assert [s["key"] for s in out["steps"]] == ["wave1", "wave2_synthesis"]  # technology re-homed
+    w1 = out["steps"][0]
+    assert {a["key"] for a in w1["sub_agents"]} == {"structure", "patterns", "technology"}
+    names = {a["key"]: a["name"] for a in w1["sub_agents"]}
+    assert names["technology"] == "Technology" and names["structure"] == "Structure"
+    # wave2 still nests its own agents, independently
+    assert out["steps"][1]["sub_agents"][0]["key"] == "risk"
+
+
 def test_build_summary_friendly_name_fallback():
     out = telemetry.build_summary([{"name": "some_custom_step", "seconds": 5}])
     assert out["steps"][0]["key"] == "some_custom_step"

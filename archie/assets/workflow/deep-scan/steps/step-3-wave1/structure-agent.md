@@ -91,7 +91,7 @@
 > ### 5. File Placement & Naming
 > - Where do tests, configs, components, services actually live? With naming patterns observed.
 > - Search the file_tree for where test files, config files, build output, and generated code actually live. Do NOT assume conventional locations.
-> - Document actual naming conventions: PascalCase components, snake_case utils, kebab-case files, etc. With 2-4 examples each.
+> - Document actual naming conventions: PascalCase components, snake_case utils, kebab-case files, etc. With 2-4 examples each. In comprehensive depth, document every distinct naming convention with all observed examples (the 2-4 cap is default-depth only).
 >
 > ### 6. Framework Usage
 > Catalog external frameworks/libraries from import statements. For each, note the framework name and usage scope.

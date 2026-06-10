@@ -295,13 +295,21 @@ _STEP_LABELS = {
     "cleanup": "Cleanup",
     "drift": "Drift & assessment",
 }
-# Wave-2 sub-agents: friendly labels AND the single source of truth for which
-# names are sub-agents (so they're nested under the reasoning step, never listed
-# as top-level steps — older runs sometimes recorded them flat). Add a new
-# reasoning sub-agent here and both the label and the re-nesting pick it up.
-_AGENT_LABELS = {"design": "Design", "risk": "Risk", "overview": "Overview"}
-_WAVE2_AGENT_KEYS = set(_AGENT_LABELS)
-_WAVE2_STEP_KEY = "wave2_synthesis"
+# Parallel sub-agent friendly labels (Wave 1 fact agents + Wave 2 reasoning agents).
+_AGENT_LABELS = {
+    "structure": "Structure", "patterns": "Patterns", "technology": "Technology",
+    "ui": "UI Layer", "data": "Data",
+    "design": "Design", "risk": "Risk", "overview": "Overview",
+}
+# Each parallel sub-agent → the step it nests under. Drives two things: which
+# names are sub-agents (not top-level steps) and, if one leaked in as a
+# top-level step, which step to re-home it under. Add a new sub-agent here and
+# both the label (above) and nesting pick it up.
+_AGENT_PARENT_STEP = {
+    "structure": "wave1", "patterns": "wave1", "technology": "wave1",
+    "ui": "wave1", "data": "wave1",
+    "design": "wave2_synthesis", "risk": "wave2_synthesis", "overview": "wave2_synthesis",
+}
 
 
 def _friendly(key: str, labels: dict) -> str:
@@ -325,7 +333,8 @@ def build_summary(steps: list[dict] | None) -> dict:
                     "sub_agents": [{"key": "risk", "name": "Risk", "seconds": 163}, ...]}]}
 
     - Sub-agents come from a step's `agents` array (collect-agents) OR from any
-      Wave-2 agent that leaked in as a top-level step; both get nested.
+      parallel agent (Wave 1 or Wave 2) that leaked in as a top-level step; both
+      get nested under their parent step (`_AGENT_PARENT_STEP`).
     - Timing fix: a step's `seconds` is bounded below by its longest sub-agent —
       a parallel step can never be shorter than its slowest child.
     - total_seconds is the sum of the (fixed) step seconds — for the sequential
@@ -333,12 +342,13 @@ def build_summary(steps: list[dict] | None) -> dict:
       step's mis-recorded timestamps.
     """
     raw = [s for s in (steps or []) if isinstance(s, dict)]
-    leaked: dict[str, int] = {}
+    leaked: dict[str, dict[str, int]] = {}  # parent step key -> {agent key: seconds}
     real: list[dict] = []
     for s in raw:
         name = str(s.get("name") or "")
-        if name in _WAVE2_AGENT_KEYS:
-            leaked[name] = _seconds_of(s)
+        parent = _AGENT_PARENT_STEP.get(name)
+        if parent:
+            leaked.setdefault(parent, {})[name] = _seconds_of(s)
         else:
             real.append(s)
 
@@ -357,11 +367,10 @@ def build_summary(steps: list[dict] | None) -> dict:
             if isinstance(a, dict) and a.get("name"):
                 ak = str(a["name"])
                 agents.append({"key": ak, "name": _friendly(ak, _AGENT_LABELS), "seconds": _seconds_of(a)})
-        if key == _WAVE2_STEP_KEY:
-            have = {a["key"] for a in agents}
-            for ak, asec in leaked.items():
-                if ak not in have:
-                    agents.append({"key": ak, "name": _friendly(ak, _AGENT_LABELS), "seconds": asec})
+        have = {a["key"] for a in agents}
+        for ak, asec in leaked.get(key, {}).items():
+            if ak not in have:
+                agents.append({"key": ak, "name": _friendly(ak, _AGENT_LABELS), "seconds": asec})
         if agents:
             agents.sort(key=lambda a: a["key"])
             entry["sub_agents"] = agents
@@ -416,9 +425,22 @@ def write_telemetry(
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     filename = f"{command}_{now}.json"
 
+    # Command-specific extras go in `meta` (a shallow object) rather than a
+    # dedicated column. For deep-scan we record the scan depth so telemetry can
+    # distinguish comprehensive runs from default ones. null for other commands.
+    meta = None
+    if command == "deep-scan":
+        try:
+            st = json.loads((archie_dir / "deep_scan_state.json").read_text(encoding="utf-8"))
+            depth = (st.get("run_context") or {}).get("depth") or "default"
+        except Exception:
+            depth = "default"
+        meta = {"depth": depth}
+
     output = {
         "command": command,
         "cli": cli,
+        "meta": meta,
         "started_at": started_at,
         "completed_at": completed_at,
         "total_seconds": summary["total_seconds"],

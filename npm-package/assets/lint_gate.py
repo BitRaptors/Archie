@@ -26,10 +26,14 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import safe_read_text  # noqa: E402
 
 
 # File extension → logical linter kind.
@@ -51,8 +55,8 @@ def load_config(project_root: Path) -> dict | None:
     if not cfg_path.is_file():
         return None
     try:
-        cfg = json.loads(cfg_path.read_text())
-    except (json.JSONDecodeError, OSError):
+        cfg = json.loads(safe_read_text(cfg_path, project_root))
+    except (json.JSONDecodeError, OSError, ValueError):
         return None
     if not cfg.get("enabled"):
         return None
@@ -119,10 +123,10 @@ def _detect_python_linter(project_root: Path) -> str | None:
     pyproject = project_root / "pyproject.toml"
     if pyproject.is_file():
         try:
-            text = pyproject.read_text()
+            text = safe_read_text(pyproject, project_root)
             if "[tool.ruff]" in text or "[tool.ruff." in text:
                 return "ruff check --quiet"
-        except OSError:
+        except (OSError, ValueError):
             pass
     if (project_root / "ruff.toml").is_file():
         return "ruff check --quiet"
@@ -148,14 +152,14 @@ def _detect_js_linter(project_root: Path) -> str | None:
     pkg = project_root / "package.json"
     if pkg.is_file():
         try:
-            data = json.loads(pkg.read_text())
+            data = json.loads(safe_read_text(pkg, project_root))
             deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
             if "eslint" in deps:
                 if local.is_file():
                     return f"{local} --quiet"
                 if shutil.which("eslint"):
                     return "eslint --quiet"
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, ValueError):
             pass
     return None
 
@@ -190,30 +194,24 @@ def run_linter(
 ) -> tuple[int, str]:
     """Run the linter on a single file. Returns (exit_code, combined_output).
 
-    Uses shell=True so commands like ``ruff check --quiet`` stay readable.
-    Wraps any spawn error as exit 0 (fail open — we will not pretend a missing
-    linter is a lint failure).
+    Runs without a shell (``shell=False``): the command string is split into
+    argv with ``shlex`` and the file path is appended as its own argument, so a
+    path or filename can never be interpreted as shell syntax. Wraps any spawn
+    error as exit 0 (fail open — we will not pretend a missing linter is a lint
+    failure).
     """
     try:
         proc = subprocess.run(
-            f"{command} {_shquote(str(file_path))}",
-            shell=True,
+            shlex.split(command) + [str(file_path)],
             cwd=str(cwd),
             capture_output=True,
             text=True,
             timeout=timeout,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError, ValueError):
         return 0, ""
     output = (proc.stdout or "") + (proc.stderr or "")
     return proc.returncode, output.strip()
-
-
-def _shquote(s: str) -> str:
-    """Minimal shell-quoting for a single arg."""
-    if not s or any(c in s for c in " '\"\\$`"):
-        return "'" + s.replace("'", "'\\''") + "'"
-    return s
 
 
 def gate(

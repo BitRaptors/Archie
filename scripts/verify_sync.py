@@ -162,7 +162,7 @@ def check_archie_asset_mirrors(errors: list[str]) -> None:
         elif canonical.exists() and backend.exists() and canonical.read_bytes() != backend.read_bytes():
             errors.append(f"OUT OF SYNC: archie/standalone/{name} != archie/assets/{name}")
 
-    for name in ("archieignore.default", "archiebulk.default"):
+    for name in ("archieignore.default", "archiebulk.default", "gitignore.default"):
         backend = ARCHIE_ASSETS / name
         asset = ASSETS / name
         if asset.exists() and not backend.exists():
