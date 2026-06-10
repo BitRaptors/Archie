@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "architecture_style": "Generic metered-billing service (illustrative fixture)",
+    "executive_summary": "Fixture blueprint exercising the domain-invariant + product-model sections."
+  },
+  "components": {
+    "components": [
+      {"name": "WalletService", "location": "app/wallet", "responsibility": "Account balances and debits"},
+      {"name": "BillingService", "location": "app/billing", "responsibility": "Charge records"}
+    ]
+  },
+  "architecture_rules": {"file_placement_rules": [], "naming_conventions": []},
+  "decisions": {
+    "architectural_style": {"title": "Layered service/adapter"},
+    "key_decisions": [
+      {"title": "Balances are recomputed from an append-only ledger",
+       "forced_by": "Balance must never go negative",
+       "enables": "Replayable balance at any timestamp"}
+    ],
+    "trade_offs": [],
+    "out_of_scope": [],
+    "decision_chain": {"root": "Provide metered billing with correct accounting.", "forces": []}
+  },
+  "data_models": [
+    {"name": "AccountBalance", "location": "app/wallet/balance.ext", "kind": "entity",
+     "store": "primary", "guarantees": ["PK id", "NOT NULL account_id"], "fields": [{"name": "id"}]}
+  ],
+  "domain_invariants": [
+    {
+      "id": "inv-balance-001",
+      "entity": "AccountBalance",
+      "category": "value-bound",
+      "invariant": "An account's spendable balance never goes negative — debits are checked against the remaining balance and rejected past zero.",
+      "enforced_at": ["app/wallet/balance_repo.ext:214", "app/wallet/engine/"],
+      "evidence": ["code-comment:app/wallet/balance.ext:43", "guard:app/wallet/balance_repo.ext:214"],
+      "failure_mode": "A customer spends value they never funded; the ledger and the charged total diverge.",
+      "confidence": "stated",
+      "keywords": ["balance", "debit", "wallet"]
+    },
+    {
+      "id": "inv-ingest-001",
+      "entity": "UsageEvent",
+      "category": "idempotency",
+      "invariant": "Event ingestion is at-most-once per idempotency key; re-delivering the same event must not double-count usage.",
+      "enforced_at": ["app/ingest/dedupe.ext:88"],
+      "evidence": ["guard:app/ingest/dedupe.ext:88"],
+      "failure_mode": "Re-delivered events double-count usage and over-bill the customer.",
+      "confidence": "stated",
+      "keywords": ["ingest", "idempotency", "dedupe"]
+    }
+  ],
+  "product_model": {
+    "summary": "Illustrative: a metered-billing service where append-only events draw down account balances, a ledger gates spend, and issued charge records are immutable.",
+    "entities": [
+      {"name": "AccountBalance", "lifecycle": "created on account open; recomputed per debit", "role": "spend gate"},
+      {"name": "ChargeRecord", "lifecycle": "draft -> issued (immutable)", "role": "billing artifact"}
+    ],
+    "core_workflow": ["event ingested", "metered", "deducted from balance", "charge record issued"]
+  },
+  "derived_invariants": [
+    {
+      "id": "der-001",
+      "invariant": "A credit cannot be retroactively reduced below the amount already spent against it.",
+      "derived_from": ["inv-balance-001", "inv-ingest-001"],
+      "failure_mode": "Forces a negative historical balance; recompute silently corrupts ledger vs balance.",
+      "confidence": "inferred",
+      "keywords": ["credit", "ledger", "balance"]
+    }
+  ],
+  "unenforced_invariants": [
+    {
+      "id": "gap-001",
+      "expected_law": "An issued charge record's total equals the sum of its line amounts.",
+      "entity": "ChargeRecord",
+      "category": "conservation",
+      "why_expected": "Standard double-entry conservation; the product issues charge records customers are billed against.",
+      "searched": ["app/billing/**/validate.ext", "app/billing/**/*_test.ext", "charge-record state machine"],
+      "found_enforcement": "none",
+      "risk": "A line-mutation path that skips total recompute drifts the charged amount from the line sum, undetected.",
+      "confidence": "inferred"
+    }
+  ],
+  "pitfalls": [],
+  "implementation_guidelines": [],
+  "development_rules": [],
+  "architecture_diagram": ""
+}

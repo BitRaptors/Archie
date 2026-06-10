@@ -450,7 +450,7 @@ def normalize_blueprint(bp: dict) -> dict:
     # Sections that must be dicts
     for key in ("meta", "architecture_rules", "decisions",
                 "communication", "quick_reference", "technology", "frontend",
-                "deployment"):
+                "deployment", "product_model"):
         val = bp.get(key)
         if not isinstance(val, dict):
             bp[key] = {} if val is None else {}
@@ -465,7 +465,8 @@ def normalize_blueprint(bp: dict) -> dict:
         bp["components"]["components"] = []
 
     # Sections that must be lists
-    for key in ("pitfalls", "implementation_guidelines", "development_rules"):
+    for key in ("pitfalls", "implementation_guidelines", "development_rules",
+                "domain_invariants", "derived_invariants", "unenforced_invariants"):
         val = bp.get(key)
         if not isinstance(val, list):
             bp[key] = []

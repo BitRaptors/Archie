@@ -231,7 +231,13 @@ def _reset_reasoning_sections(bp: dict, payloads: list[dict]) -> None:
     present = set()
     for p in payloads:
         present.update(p.keys())
-    for key in ("decisions", "implementation_guidelines", "pitfalls", "architecture_diagram"):
+    # Product agent (Wave 2) owns product_model / derived_invariants /
+    # unenforced_invariants — same redo-safety as the Design/Risk sections so
+    # `--from 5` REPLACES them instead of concatenating (lists) or stale-merging
+    # (product_model.entities). domain_invariants is Wave 1 (lives in
+    # blueprint_raw) and is intentionally NOT reset here.
+    for key in ("decisions", "implementation_guidelines", "pitfalls", "architecture_diagram",
+                "product_model", "derived_invariants", "unenforced_invariants"):
         if key in present:
             bp.pop(key, None)
     # Nested: Overview owns meta.executive_summary; keep the rest of meta (Wave-1
