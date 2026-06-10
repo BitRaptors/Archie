@@ -222,7 +222,7 @@ def _copy_canonical_assets(project_root: Path) -> None:
             target.chmod(0o755)
 
     # Data files consumed by scanner / hooks / viewer.
-    for name in ("platform_rules.json",):
+    for name in ("platform_rules.json", "platform_pitfalls.json"):
         src = ASSETS_ROOT / name
         if not src.exists():
             continue
