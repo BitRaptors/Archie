@@ -21,6 +21,39 @@ def _now_iso_short() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H%M")
 
 
+def merge_platform_pitfalls(pitfalls, signals, catalog):
+    """Append deterministic platform pitfalls for present scanner signals.
+
+    pitfalls : existing blueprint pitfalls (list).
+    signals  : scan.json["platform_pitfall_signals"] — list of {signal, evidence_path}.
+    catalog  : loaded platform_pitfalls.json — {"pitfalls": [{signal, pitfall}]}.
+
+    Pure (no I/O). Dedup by pitfall id so re-scans are idempotent. Returns a new list.
+    """
+    result = list(pitfalls or [])
+    existing_ids = {p.get("id") for p in result if isinstance(p, dict)}
+    by_signal = {}
+    for entry in (catalog or {}).get("pitfalls", []):
+        sig = entry.get("signal")
+        if sig and entry.get("pitfall"):
+            by_signal.setdefault(sig, entry["pitfall"])
+    for sig in signals or []:
+        name = sig.get("signal") if isinstance(sig, dict) else sig
+        seed = by_signal.get(name)
+        if not seed or seed.get("id") in existing_ids:
+            continue
+        pitfall = json.loads(json.dumps(seed))  # deep copy
+        ev = sig.get("evidence_path") if isinstance(sig, dict) else None
+        if ev:
+            pitfall["evidence"] = [
+                f"{ev} — registered sources are enumerated here; a new file absent "
+                f"from this manifest is excluded from the build"
+            ]
+        result.append(pitfall)
+        existing_ids.add(pitfall.get("id"))
+    return result
+
+
 # Verifier-pipeline state fields owned by apply_verdicts.py. The synthesizer
 # never re-emits these on a fresh finding, so finalize must preserve them
 # from the prior entry when merging — otherwise every scan wipes the
@@ -326,6 +359,20 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
     # `persistence_stores[*].writers` so the renderer + viewers can show
     # "Written by: <component>" without recomputing client-side.
     _derive_persistence_writers(bp)
+
+    # ── Deterministic platform-pitfall seed ───────────────────────────────
+    # Inject known platform pitfalls (e.g. legacy-Xcode pbxproj registration)
+    # from scanner signals before the blueprint is rendered. Dedup by id keeps
+    # re-scans idempotent. Best-effort: never fail finalize over the seed.
+    scan_path = archie_dir / "scan.json"
+    pp_path = archie_dir / "platform_pitfalls.json"
+    if scan_path.exists() and pp_path.exists():
+        try:
+            _signals = json.loads(scan_path.read_text()).get("platform_pitfall_signals", [])
+            _catalog = json.loads(pp_path.read_text())
+            bp["pitfalls"] = merge_platform_pitfalls(bp.get("pitfalls", []), _signals, _catalog)
+        except Exception as _e:  # pragma: no cover - defensive
+            print(f"  Warning: platform-pitfall seed skipped: {_e}", file=sys.stderr)
 
     # ── C4 enrichment (deterministic, no AI) ─────────────────────────────────
     # Stamp kind/group onto components before the blueprint is written so the
