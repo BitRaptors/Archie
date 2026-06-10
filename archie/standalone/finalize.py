@@ -360,6 +360,20 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
     # "Written by: <component>" without recomputing client-side.
     _derive_persistence_writers(bp)
 
+    # ── Deterministic platform-pitfall seed ───────────────────────────────
+    # Inject known platform pitfalls (e.g. legacy-Xcode pbxproj registration)
+    # from scanner signals before the blueprint is rendered. Dedup by id keeps
+    # re-scans idempotent. Best-effort: never fail finalize over the seed.
+    scan_path = archie_dir / "scan.json"
+    pp_path = archie_dir / "platform_pitfalls.json"
+    if scan_path.exists() and pp_path.exists():
+        try:
+            _signals = json.loads(scan_path.read_text()).get("platform_pitfall_signals", [])
+            _catalog = json.loads(pp_path.read_text())
+            bp["pitfalls"] = merge_platform_pitfalls(bp.get("pitfalls", []), _signals, _catalog)
+        except Exception as _e:  # pragma: no cover - defensive
+            print(f"  Warning: platform-pitfall seed skipped: {_e}", file=sys.stderr)
+
     bp_path = archie_dir / "blueprint.json"
     bp_path.write_text(json.dumps(bp, indent=2))
 
