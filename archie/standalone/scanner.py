@@ -305,6 +305,32 @@ def detect_subprojects(root: Path) -> list[dict]:
     return accepted
 
 
+def detect_platform_pitfall_signals(root) -> list:
+    """Deterministic platform-pitfall signals consumed by finalize.
+
+    Currently one: a legacy (non-folder-synchronized) Xcode project — a
+    project.pbxproj lacking the PBXFileSystemSynchronizedRootGroup marker —
+    requires new source files to be registered in PBXSourcesBuildPhase or they
+    are silently excluded from the build. SPM-only projects (no .xcodeproj)
+    compile by directory convention and emit nothing.
+    """
+    root = Path(root).resolve()
+    for pbx in sorted(root.glob("**/*.xcodeproj/project.pbxproj")):
+        rel = pbx.relative_to(root)
+        if any(part in SUBPROJECT_SKIP_DIRS for part in rel.parts):
+            continue
+        try:
+            text = pbx.read_text(errors="replace")
+        except OSError:
+            continue
+        if "PBXFileSystemSynchronizedRootGroup" not in text:
+            return [{
+                "signal": "ios_legacy_xcode_no_folder_sync",
+                "evidence_path": str(rel),
+            }]
+    return []
+
+
 # ── File Scanner ───────────────────────────────────────────────────────────
 
 def scan_files(root: Path, matcher: IgnoreMatcher | None = None) -> list[dict]:
@@ -1088,6 +1114,7 @@ def run_scan(repo_path: str) -> dict:
         "has_persistence_signal": persistence["has_signal"],
         "persistence_signals": persistence["evidence"],
         "bulk_content_manifest": bulk_manifest,
+        "platform_pitfall_signals": detect_platform_pitfall_signals(root),
         "_skeletons": skeletons,
     }
 
