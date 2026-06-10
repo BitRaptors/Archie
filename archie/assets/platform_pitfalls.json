@@ -1,0 +1,24 @@
+{
+  "pitfalls": [
+    {
+      "signal": "ios_legacy_xcode_no_folder_sync",
+      "pitfall": {
+        "id": "pf_ios_pbxproj_registration",
+        "problem_statement": "New .swift source files are not auto-discovered in this legacy .pbxproj-listed Xcode target (no folder-synchronized groups), so a freshly created file that is not registered in the target's PBXSourcesBuildPhase is silently excluded from compilation and any code referencing it fails to build.",
+        "evidence": [],
+        "root_cause": "The project predates Xcode 16 folder-synchronized groups, so target membership is governed by hand-maintained .pbxproj records rather than file presence on disk. Creating a file outside Xcode's \"Add Files…\" writes it to disk but never registers it, and no build or test gate surfaces the omission until compilation fails.",
+        "fix_direction": [
+          "When adding a new .swift file, also edit the target's project.pbxproj: add a PBXFileReference, a PBXBuildFile, the owning group's child entry, and a PBXSourcesBuildPhase files entry — mirror an existing file.",
+          "Prefer extending an existing same-layer file over creating a new one when the addition is small, to avoid pbxproj surgery.",
+          "Use unique 24-hex-character object IDs for the new pbxproj entries (never synthetic placeholders like FAV1/FAV2).",
+          "After adding, confirm the file appears under the target's Compile Sources before relying on it."
+        ],
+        "severity": "error",
+        "confidence": 1.0,
+        "applies_to": [],
+        "source": "platform_signal",
+        "depth": "canonical"
+      }
+    }
+  ]
+}

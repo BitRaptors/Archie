@@ -1,0 +1,214 @@
+# tests/benchmark/test_orchestrator.py
+import subprocess
+import pytest
+from archie.benchmark.config import BenchmarkConfig, JudgeConfig
+from archie.benchmark.metrics import SampleMetrics
+from archie.benchmark import orchestrator
+
+
+def _cfg(tmp_path, reps=2):
+    return BenchmarkConfig(
+        name="demo", repo=tmp_path, task_prompt="do it",
+        model="m", branches={"treatment": "treatment", "control": "control"},
+        repetitions=reps, judge=JudgeConfig(model="jm", rubric=["correctness"]),
+        timeout_seconds=60,
+    )
+
+
+def _fake_run(metrics_by_branch):
+    seen = {"calls": []}
+
+    def run_fn(prompt, model, cwd, timeout):
+        # branch name is encoded in the worktree path by the orchestrator
+        branch = "treatment" if "treatment" in str(cwd) else "control"
+        seen["calls"].append((branch, prompt, model))
+        return metrics_by_branch[branch], "raw"
+
+    return run_fn, seen
+
+
+def test_run_benchmark_builds_matrix_and_aggregates(tmp_path, monkeypatch):
+    # neutralize real worktree/diff/base-commit side effects
+    monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "abc123")
+    monkeypatch.setattr(orchestrator, "_merge_base", lambda repo, a, b: "abc123")
+
+    import contextlib
+    @contextlib.contextmanager
+    def fake_worktree(repo, branch, dest):
+        yield tmp_path / ("wt-" + branch)
+    monkeypatch.setattr(orchestrator, "worktree", fake_worktree)
+    monkeypatch.setattr(orchestrator, "prune", lambda repo: None)
+
+    t_metrics = SampleMetrics(tool_calls=5, cost_usd=1.0, duration_ms=100,
+                              input_tokens=10, output_tokens=20, completed=True)
+    c_metrics = SampleMetrics(tool_calls=12, cost_usd=3.0, duration_ms=300,
+                              input_tokens=30, output_tokens=40, completed=True)
+    run_fn, seen = _fake_run({"treatment": t_metrics, "control": c_metrics})
+
+    judged = {"calls": 0}
+    def judge_fn(task, t_diff, c_diff, rubric, model, seed):
+        judged["calls"] += 1
+        return {"treatment": {"overall": 9.0}, "control": {"overall": 5.0}, "seed": seed}
+
+    stored = {}
+    def store_fn(run_row, sample_rows, offline_path):
+        stored["run"] = run_row
+        stored["samples"] = sample_rows
+        return {"mode": "offline", "path": str(offline_path)}
+
+    result = orchestrator.run_benchmark(
+        _cfg(tmp_path, reps=2),
+        run_fn=run_fn, judge_fn=judge_fn, store_fn=store_fn,
+        diff_fn=lambda wt: f"diff:{wt}",
+    )
+
+    # 2 reps x 2 arms = 4 runs; 2 reps = 2 pairwise judge calls
+    assert len(seen["calls"]) == 4
+    assert judged["calls"] == 2
+    assert len(stored["samples"]) == 4
+    # quality assigned per arm
+    t_samples = [s for s in stored["samples"] if s["arm"] == "treatment"]
+    assert all(s["quality_score"] == 9.0 for s in t_samples)
+    # aggregate shows treatment cheaper
+    assert result["aggregate"]["savings"]["cost_pct"] > 0
+    # prompt identical across all runs
+    assert len({c[1] for c in seen["calls"]}) == 1
+
+
+def test_fairness_guard_rejects_unrelated_branches(tmp_path, monkeypatch):
+    # No common ancestor -> git merge-base exits non-zero.
+    def no_common_ancestor(repo, a, b):
+        raise subprocess.CalledProcessError(128, ["git", "merge-base", a, b])
+    monkeypatch.setattr(orchestrator, "_merge_base", no_common_ancestor)
+    with pytest.raises(ValueError, match="common ancestor"):
+        orchestrator.run_benchmark(_cfg(tmp_path), run_fn=lambda *a: None,
+                                   judge_fn=lambda *a, **k: None,
+                                   store_fn=lambda *a: None, diff_fn=lambda w: "")
+
+
+def test_failed_sample_does_not_sink_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "_merge_base", lambda repo, a, b: "same")
+    monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "base")
+    import contextlib
+    @contextlib.contextmanager
+    def fake_worktree(repo, branch, dest):
+        yield tmp_path / ("wt-" + branch)
+    monkeypatch.setattr(orchestrator, "worktree", fake_worktree)
+    monkeypatch.setattr(orchestrator, "prune", lambda repo: None)
+
+    def run_fn(prompt, model, cwd, timeout):
+        if "treatment" in str(cwd):
+            raise RuntimeError("treatment crashed")
+        return SampleMetrics(completed=True, cost_usd=2.0), "raw"
+
+    stored = {}
+    result = orchestrator.run_benchmark(
+        _cfg(tmp_path, reps=1),
+        run_fn=run_fn,
+        judge_fn=lambda *a, **k: {"treatment": {"overall": 0}, "control": {"overall": 5}, "seed": 0},
+        store_fn=lambda r, s, p: stored.update(samples=s) or {"mode": "offline"},
+        diff_fn=lambda wt: "",
+    )
+    # treatment sample recorded as not-completed; control still present
+    arms = {s["arm"]: s for s in stored["samples"]}
+    assert arms["treatment"]["completed"] is False
+    assert arms["control"]["completed"] is True
+
+
+def test_judge_failure_does_not_sink_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "_merge_base", lambda repo, a, b: "same")
+    monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "base")
+    import contextlib
+    @contextlib.contextmanager
+    def fake_worktree(repo, branch, dest):
+        yield tmp_path / ("wt-" + branch)
+    monkeypatch.setattr(orchestrator, "worktree", fake_worktree)
+    monkeypatch.setattr(orchestrator, "prune", lambda repo: None)
+
+    def boom(*a, **k):
+        raise ValueError("judge returned unparseable output twice")
+
+    stored = {}
+    result = orchestrator.run_benchmark(
+        _cfg(tmp_path, reps=1),
+        run_fn=lambda p, m, cwd, t: (SampleMetrics(completed=True, cost_usd=1.0), "raw"),
+        judge_fn=boom,
+        store_fn=lambda r, s, p: stored.update(samples=s) or {"mode": "offline"},
+        diff_fn=lambda wt: "",
+    )
+    # both samples still recorded and stored, with no quality score
+    assert len(stored["samples"]) == 2
+    assert all(s["quality_score"] is None for s in stored["samples"])
+    assert all(s["quality_detail"] is None for s in stored["samples"])
+    # the run still produced an aggregate
+    assert result["aggregate"]["treatment"]["n"] == 1
+
+
+def _git(args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def test_prepared_branches_pass_fairness_guard(tmp_path):
+    # Regression: prepare_branches adds a strip commit to the control branch, so
+    # the two branch TIPS differ. The fairness guard must compare the merge-base
+    # (common ancestor), not the tips, and therefore must NOT raise here.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(["init"], repo)
+    _git(["config", "user.email", "t@t.t"], repo)
+    _git(["config", "user.name", "t"], repo)
+    (repo / "CLAUDE.md").write_text("# conventions\n")
+    (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    _git(["add", "-A"], repo)
+    _git(["commit", "-m", "init"], repo)
+
+    cfg = BenchmarkConfig(
+        name="reg", repo=repo, task_prompt="do it", model="m",
+        branches={"treatment": "archie-bench/with-archie",
+                  "control": "archie-bench/no-archie"},
+        repetitions=1, judge=JudgeConfig(), timeout_seconds=60,
+    )
+    status = orchestrator.prepare_branches(cfg)
+    assert status["archie_present"] is True  # control got an extra strip commit
+
+    # Real worktree creation; only run_fn/judge_fn/store_fn/diff_fn are stubbed.
+    result = orchestrator.run_benchmark(
+        cfg,
+        run_fn=lambda p, m, cwd, t: (SampleMetrics(completed=True, cost_usd=1.0), "raw"),
+        judge_fn=lambda *a, **k: {"treatment": {"overall": 8},
+                                  "control": {"overall": 6}, "seed": 0},
+        store_fn=lambda r, s, p: {"mode": "offline", "run": r},
+        diff_fn=lambda wt: "diff",
+    )
+    assert result["aggregate"]["treatment"]["n"] == 1
+    assert result["aggregate"]["control"]["n"] == 1
+    # git_base_commit is the shared merge-base (a real 40-char sha)
+    assert len(result["run"]["git_base_commit"]) == 40
+
+
+def test_empty_diff_marks_not_attempted(tmp_path, monkeypatch):
+    monkeypatch.setattr(orchestrator, "_merge_base", lambda repo, a, b: "same")
+    monkeypatch.setattr(orchestrator, "_base_commit", lambda repo: "base")
+    import contextlib
+    @contextlib.contextmanager
+    def fake_worktree(repo, branch, dest):
+        yield tmp_path / ("wt-" + branch)
+    monkeypatch.setattr(orchestrator, "worktree", fake_worktree)
+    monkeypatch.setattr(orchestrator, "prune", lambda repo: None)
+
+    # treatment produces a diff; control produces an empty (whitespace-only) diff
+    def diff_fn(wt):
+        return "real change\n" if "treatment" in str(wt) else "   \n"
+
+    stored = {}
+    orchestrator.run_benchmark(
+        _cfg(tmp_path, reps=1),
+        run_fn=lambda p, m, cwd, t: (SampleMetrics(completed=True, cost_usd=1.0), "raw"),
+        judge_fn=lambda *a, **k: {"treatment": {"overall": 7},
+                                  "control": {"overall": 1}, "seed": 0},
+        store_fn=lambda r, s, p: stored.update(samples=s),
+        diff_fn=diff_fn,
+    )
+    arms = {s["arm"]: s for s in stored["samples"]}
+    assert arms["treatment"]["attempted"] is True
+    assert arms["control"]["attempted"] is False

@@ -1240,6 +1240,142 @@ def _render_claude(rule: dict) -> str:
     return rule["body"]
 
 
+# ---------------------------------------------------------------------------
+# Topic-file chunking. Topic bodies above _CHUNK_THRESHOLD_BYTES get split
+# into per-H2-section files under .claude/rules/<topic>/, and the topic file
+# itself (.claude/rules/<topic>.md — the path AGENTS.md already links to)
+# becomes a small index: one table row per section with a content summary and
+# a token estimate, so an agent reads ~1 KB to decide which 2-5 KB chunk it
+# actually needs.
+# ---------------------------------------------------------------------------
+
+_CHUNK_THRESHOLD_BYTES = 8000
+# Rough chars-per-token ratio for the ~Tokens column (markdown English text).
+_CHARS_PER_TOKEN = 4
+
+
+def _slugify_heading(heading: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", heading.lower()).strip("-")
+    return slug or "section"
+
+
+def _split_h2_sections(body: str, level: int = 2):
+    """Split a markdown body into (preamble, [(heading, section_text), ...])
+    at the given heading level.
+
+    The preamble is everything before the first heading at that level.
+    Fenced code blocks are respected — a heading line inside a fence does
+    not start a section.
+    """
+    marker = "#" * level + " "
+    preamble: list[str] = []
+    sections: list[tuple[str, list[str]]] = []
+    in_fence = False
+    current: list[str] | None = None
+    for line in body.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+        if not in_fence and line.startswith(marker):
+            current = []
+            sections.append((line[len(marker):].strip(), current))
+            continue
+        (current if current is not None else preamble).append(line)
+    return "\n".join(preamble).strip(), [
+        (h, "\n".join(ls).strip()) for h, ls in sections
+    ]
+
+
+def _section_summary(text: str) -> str:
+    """One-line routing summary for a section: its H3 entry names when
+    present (capped), else the first prose sentence."""
+    entries = [
+        m.strip("`* ") for m in re.findall(r"^#{3,4} (.+)$", text, flags=re.MULTILINE)
+    ]
+    if entries:
+        shown = ", ".join(entries[:6])
+        more = f", +{len(entries) - 6} more" if len(entries) > 6 else ""
+        return f"{len(entries)} entries: {shown}{more}"
+    bullets = sum(1 for ln in text.splitlines() if ln.startswith("- "))
+    if bullets:
+        return f"{bullets} rules"
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith(("#", "|", "```", "-", "*", "_")):
+            return line[:140]
+    return ""
+
+
+def _est_tokens(text: str) -> int:
+    return max(1, len(text) // _CHARS_PER_TOKEN)
+
+
+def _chunk_topic_file(rule: dict, level: int = 2) -> dict:
+    """Return {relative_path: content} for one oversized topic rule:
+    `<topic>.md` index + `<topic>/<section-slug>.md` chunks."""
+    topic = rule["topic"]
+    preamble, sections = _split_h2_sections(rule["body"], level)
+    # A split below H2 leaves the wrapping heading dangling at the end of
+    # the preamble — drop trailing heading-only lines.
+    pre_lines = preamble.splitlines()
+    while pre_lines and (not pre_lines[-1].strip() or pre_lines[-1].startswith("#")):
+        pre_lines.pop()
+    preamble = "\n".join(pre_lines).strip()
+
+    out: dict[str, str] = {}
+    rows: list[str] = []
+    seen: dict[str, int] = {}
+    for heading, text in sections:
+        slug = _slugify_heading(heading)
+        if slug in seen:
+            seen[slug] += 1
+            slug = f"{slug}-{seen[slug]}"
+        else:
+            seen[slug] = 1
+        chunk_body = f"# {topic.replace('-', ' ').title()}: {heading}\n\n{text}\n"
+        out[f"{topic}/{slug}.md"] = _render_claude({**rule, "body": chunk_body})
+        summary = _section_summary(text)
+        rows.append(
+            f"| {_escape_table_cell(heading)} | [`{topic}/{slug}.md`]({topic}/{slug}.md) "
+            f"| ~{_est_tokens(chunk_body)} | {_escape_table_cell(summary)} |"
+        )
+
+    index_lines = [
+        f"# {rule.get('description') or topic}",
+        "",
+        f"This topic is chunked. Load only the section file(s) under "
+        f"`.claude/rules/{topic}/` relevant to your task — this index is the "
+        f"routing table.",
+        "",
+        "| Section | File | ~Tokens | Contains |",
+        "|---------|------|---------|----------|",
+        *rows,
+    ]
+    if preamble:
+        index_lines += ["", preamble]
+    out[f"{topic}.md"] = _render_claude(
+        {**rule, "body": "\n".join(index_lines).rstrip() + "\n"}
+    )
+    return out
+
+
+def _render_topic_files(rule: dict) -> dict:
+    """Render one topic rule into its output file(s), chunking when the
+    rendered body crosses the size threshold and has enough H2 sections."""
+    topic = rule["topic"]
+    content = _render_claude(rule)
+    if len(content.encode("utf-8")) > _CHUNK_THRESHOLD_BYTES:
+        # Prefer H2 sections; bodies with a single H2 wrapper (e.g. grouped
+        # rule lists) fall back to splitting at their H3 categories.
+        for level in (2, 3):
+            _, sections = _split_h2_sections(rule["body"], level)
+            if len(sections) >= 2:
+                return {
+                    f".claude/rules/{p}": c
+                    for p, c in _chunk_topic_file(rule, level).items()
+                }
+    return {f".claude/rules/{topic}.md": content}
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -1540,7 +1676,13 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
 
     lines.append("## Architectural Rules")
     lines.append("")
-    lines.append("Detailed rules live as topic files under `.claude/rules/`. Read the relevant one when the task touches that surface:")
+    lines.append(
+        "Detailed rules live as topic files under `.claude/rules/`. Read the "
+        "relevant one when the task touches that surface. Large topics are "
+        "chunked: the topic file is then an index table (section, file, "
+        "~tokens, contents) routing to `.claude/rules/<topic>/<section>.md` — "
+        "load only the section you need:"
+    )
     lines.append("")
     for topic, blurb in available_topics:
         if has_topic.get(topic):
@@ -2149,8 +2291,7 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
     }
 
     for rf in rule_files:
-        topic = rf["topic"]
-        files[f".claude/rules/{topic}.md"] = _render_claude(rf)
+        files.update(_render_topic_files(rf))
 
     # Enforcement rules topic — only emitted when caller passes the rules
     # list (typically loaded from .archie/rules.json + platform_rules.json).
@@ -2160,6 +2301,54 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
             files[f".claude/rules/{rel_path}"] = content
 
     return files
+
+
+def cleanup_stale_rule_files(project_root: Path, files: dict) -> list[str]:
+    """Remove previously generated .claude/rules/ files this render no longer
+    emits: the retired enforcement.md monolith, stale chunks inside topic
+    directories we own, and chunk directories for topics that render
+    unchunked again. Never touches files outside .claude/rules/ or topic
+    files we don't generate. Returns the relative paths removed."""
+    rules_root = project_root / ".claude" / "rules"
+    if not rules_root.is_dir():
+        return []
+    removed: list[str] = []
+
+    def _rm(p: Path):
+        p.unlink()
+        removed.append(str(p.relative_to(project_root)))
+
+    # Retired monolith (pre-2.5 renders emitted enforcement.md alongside
+    # the chunked enforcement/ directory).
+    monolith = rules_root / "enforcement.md"
+    if monolith.is_file() and ".claude/rules/enforcement.md" not in files:
+        _rm(monolith)
+
+    # Topics rendered this run: prune their chunk dirs of anything we did
+    # not just emit (covers renamed sections and de-chunked topics).
+    topics = {
+        Path(p).stem
+        for p in files
+        if p.startswith(".claude/rules/") and Path(p).parent.name == "rules"
+    }
+    for topic in topics:
+        chunk_dir = rules_root / topic
+        if not chunk_dir.is_dir():
+            continue
+        for md in chunk_dir.rglob("*.md"):
+            rel = str(md.relative_to(project_root))
+            if rel not in files:
+                _rm(md)
+        if not any(chunk_dir.iterdir()):
+            chunk_dir.rmdir()
+    # Stale enforcement by-topic files (topic disappeared from rules.json).
+    enf_dir = rules_root / "enforcement"
+    if enf_dir.is_dir() and any(p.startswith(".claude/rules/enforcement/") for p in files):
+        for md in enf_dir.rglob("*.md"):
+            rel = str(md.relative_to(project_root))
+            if rel not in files:
+                _rm(md)
+    return removed
 
 
 # ---------------------------------------------------------------------------
@@ -2228,6 +2417,9 @@ def main():
         else:
             full_path.write_text(content)
             print(f"  Generated {rel_path} ({content.count(chr(10)) + 1} lines)")
+
+    for rel_path in cleanup_stale_rule_files(project_root, files):
+        print(f"  Removed stale {rel_path}")
 
     print(f"\nDone: {len(files)} files generated in {project_root}")
 
