@@ -8,7 +8,7 @@ A clear picture of the product in the domain's own vocabulary: a rich prose desc
 
 ```json
 "product_model": {
-  "summary": "A DETAILED description — 3 to 6 sentences — of what this REPOSITORY is from a product/capability perspective. It is not always an end-user app: for a library/SDK describe the capability it gives consumers and the problem it solves for them; for a service/API what it does for clients; for an app what the user gets. Cover the core value loop, the key inputs it turns into that value, and the main supporting concerns (monetization, auth) in one clause. Domain/capability language, not code. This is the headline a newcomer reads to understand what the repo stands for.",
+  "summary": "A DETAILED description — 3 to 6 sentences — of what this REPOSITORY is from a product/capability perspective. It is not always an end-user app: for a library/SDK describe the capability it gives consumers and the problem it solves for them; for a service/API what it does for clients; for an app what the user gets. Cover the core value loop, the key inputs it turns into that value, and the main supporting concerns (monetization, auth) in one clause. Domain/capability language. This is the headline a newcomer reads to understand what the repo stands for.",
   "core_workflow": [
     {
       "title": "Short step name (3-6 words)",
@@ -46,7 +46,7 @@ Combine observed laws to surface emergent invariants that no one file declares b
 
 **Derivation discipline (your anti-hallucination guardrail):** every `derived_invariants[*]` MUST carry `derived_from` — the list of observed-law `id`s (from the input `domain_invariants`) it combines. **Cite the premises, not the conclusion.** A derived law that can't point back to ≥2 observed-law anchors is speculation — drop it. This is the reasoning-mode analogue of the Domain agent's cite-or-omit rule. `confidence` is `"inferred"` by default; only `"stated"` when the derivation is mechanically airtight.
 
-**State the derived `invariant` in product / behavioural language**, not code mechanics — the same altitude rule the Domain agent follows. Say what must hold for the product (or its consumer/client) to behave correctly; keep function names, enum/constant names, and class internals out of the sentence. A reviewer should grasp the law without reading the source.
+**State the derived `invariant` as a product rule** — what the product (or its consumer/client) guarantees, in the domain's own words — the same guidance the Domain agent follows. The enforcing code lives in the premises and evidence; a reviewer should grasp the law from the sentence alone.
 
 **Set `domain_role`** on each derived law to `"core"`, `"supporting"`, or `"platform"` — inherit it from the anchors' roles (each observed law in `domain_invariants` carries `domain_role`). If the anchors mix roles, use the role of the law's primary subject; prefer `"core"` whenever a core anchor is load-bearing in the derivation. This keeps the rendered output leading with core laws. Lead with core derived laws; in default depth ration supporting/platform derived laws the same way the Domain agent does (comprehensive depth lifts all caps).
 

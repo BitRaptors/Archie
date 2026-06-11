@@ -30,23 +30,28 @@ def test_domain_agent_prompt_exists_and_is_grounded():
     assert "schema" in body.lower()
 
 
-def test_domain_agent_covers_libraries_and_behavioural_altitude():
+def test_domain_agent_covers_libraries_and_product_rule_framing():
     """Product section must work for libraries/services (not just apps) and state
-    laws as product BEHAVIOUR, not engineering mechanics."""
+    laws positively as PRODUCT RULES (what the product guarantees), in product
+    language — not framed by negation against engineering."""
     body = _read("step-3-wave1/domain-agent.md")
     assert "library" in body.lower() or "SDK" in body
     assert "service" in body.lower()
     assert "consumer" in body.lower()  # library consumers / call path
-    assert "PRODUCT BEHAVIOUR" in body or "behavioural language" in body
-    assert "code mechanics" in body.lower()
-    assert "function/method names" in body or "no function" in body.lower()
+    # positive product-rule framing
+    assert "PRODUCT RULE" in body or "product rule" in body
+    assert "product owner" in body.lower()
+    assert "guarantees" in body.lower() or "product concept" in body
+    # the framing is POSITIVE — no "not engineering" style wording in the prompt
+    assert "engineering" not in body.lower()
 
 
-def test_product_agent_covers_repo_types_and_altitude():
+def test_product_agent_covers_repo_types_and_product_framing():
     body = _read("step-5d-product.md")
     assert "library" in body.lower() and "service" in body.lower()
     assert "consumer call path" in body or "request lifecycle" in body
-    assert "behavioural language" in body or "product / behavioural" in body
+    assert "product rule" in body.lower() or "guarantees" in body.lower()
+    assert "engineering" not in body.lower()
 
 
 def test_domain_agent_steers_distribution_core_first():
