@@ -533,7 +533,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           </div>
 
           {/* Design */}
-          {(keyDecisions.length > 0 || tradeOffs.length > 0 || productModel || hasProductLaws || unenforcedInvariants.length > 0) && (
+          {(keyDecisions.length > 0 || tradeOffs.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Design</p>
               {keyDecisions.length > 0 && (
@@ -552,12 +552,19 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                   label="Trade-offs"
                 />
               )}
+            </div>
+          )}
+
+          {/* Product */}
+          {(productModel || hasProductLaws || unenforcedInvariants.length > 0) && (
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Product</p>
               {productModel && (
                 <NavButton
                   active={activeSection === 'product-model'}
                   onClick={() => scrollToSection('product-model')}
                   icon={BookOpen}
-                  label="Product Model"
+                  label="Product Overview"
                 />
               )}
               {hasProductLaws && (

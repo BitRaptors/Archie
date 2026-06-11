@@ -2596,68 +2596,58 @@ export function IntegrationsSection({
 
 export function ProductModelSection({ productModel }: { productModel: any }) {
   const summary: string = productModel?.summary || ''
-  const entities: any[] = Array.isArray(productModel?.entities) ? productModel.entities : []
-  const workflow: string[] = Array.isArray(productModel?.core_workflow) ? productModel.core_workflow : []
+  const rawWorkflow: any[] = Array.isArray(productModel?.core_workflow) ? productModel.core_workflow : []
+
+  // Normalise each step: objects keep their title+description; plain strings
+  // become { title: '', description: string } so the render path is uniform.
+  const workflow = rawWorkflow.map((step, i) => {
+    if (step && typeof step === 'object') {
+      return { title: String(step.title || ''), description: String(step.description || '') }
+    }
+    return { title: `Step ${i + 1}`, description: String(step ?? '') }
+  })
 
   return (
     <section className="space-y-4">
       <SectionHeader
-        title="Product Model"
+        title="Product Overview"
         icon={BookOpen}
-        hint="The domain map — key entities, their lifecycles, and the core workflow that ties them together."
+        hint="What the product does and the core workflow that ties it together."
       />
       <div className={cn('p-8 rounded-3xl border space-y-8', theme.surface.panel)}>
         {summary && (
-          <Prose value={summary} className="text-sm text-ink/70 leading-relaxed italic border-l-2 border-teal/20 pl-6" />
+          <p className="text-base text-ink/80 leading-relaxed">
+            {summary}
+          </p>
         )}
 
         {workflow.length > 0 && (
           <div className="space-y-3">
             <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Core Workflow</div>
-            <div className="flex flex-wrap items-center gap-2">
+            <ol className="space-y-3">
               {workflow.map((step, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <div className="px-3 py-1.5 rounded-xl bg-teal/10 border border-teal/20 text-xs font-bold text-teal">
-                    {step}
-                  </div>
-                  {i < workflow.length - 1 && (
-                    <ChevronRight className="w-3.5 h-3.5 text-ink/25 shrink-0" />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {entities.length > 0 && (
-          <div className="space-y-3">
-            <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Entities</div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {entities.map((e: any, i: number) => (
-                <div
+                <li
                   key={i}
-                  className="p-4 rounded-2xl bg-white/50 border border-papaya-400/50 space-y-2 transition-all hover:border-teal/20 hover:shadow-sm"
+                  className="flex gap-4 p-4 rounded-2xl border border-papaya-400/40 bg-white/50 hover:border-teal/20 hover:shadow-sm transition-all"
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-teal/10">
-                      <Database className="w-3.5 h-3.5 text-teal" />
-                    </div>
-                    <h3 className="font-bold text-sm text-ink">{e.name}</h3>
-                    {e.role && (
-                      <Badge variant="outline" className="ml-auto text-[9px] uppercase tracking-widest font-bold text-teal border-teal/20 bg-teal/5">
-                        {e.role}
-                      </Badge>
+                  <div className="shrink-0 w-7 h-7 rounded-full bg-teal/10 border border-teal/20 flex items-center justify-center text-[11px] font-black text-teal tabular-nums">
+                    {i + 1}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    {step.title && (
+                      <div className="font-bold text-sm text-ink leading-snug">
+                        <AutoCode text={step.title} />
+                      </div>
+                    )}
+                    {step.description && (
+                      <div className="text-sm text-ink/60 leading-relaxed">
+                        <AutoCode text={step.description} />
+                      </div>
                     )}
                   </div>
-                  {e.lifecycle && (
-                    <div className="text-xs text-ink/60 leading-relaxed pl-1">
-                      <span className="text-[9px] font-black uppercase tracking-[0.15em] text-ink/30 mr-1.5">Lifecycle:</span>
-                      <AutoCode text={e.lifecycle} />
-                    </div>
-                  )}
-                </div>
+                </li>
               ))}
-            </div>
+            </ol>
           </div>
         )}
       </div>

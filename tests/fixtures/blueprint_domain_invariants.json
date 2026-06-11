@@ -57,7 +57,11 @@
       {"name": "AccountBalance", "lifecycle": "created on account open; recomputed per debit", "role": "spend gate"},
       {"name": "ChargeRecord", "lifecycle": "draft -> issued (immutable)", "role": "billing artifact"}
     ],
-    "core_workflow": ["event ingested", "metered", "deducted from balance", "charge record issued"]
+    "core_workflow": [
+      {"title": "Ingest event", "description": "An append-only usage event is recorded for the account."},
+      {"title": "Meter usage", "description": "The event is metered and deducted from the account balance."},
+      {"title": "Issue charge", "description": "An immutable charge record is materialized for billing."}
+    ]
   },
   "derived_invariants": [
     {

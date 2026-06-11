@@ -52,9 +52,27 @@ def test_gap_law_never_appears_in_grounded_tier():
 def test_product_model_file_rendered():
     files, _ = _render()
     body = files[".claude/rules/product-model.md"]
-    assert "## Product Model" in body
-    assert "Core workflow:" in body
-    assert "AccountBalance" in body
+    assert "## Product Overview" in body
+    assert "### Core workflow" in body
+    # workflow rendered as titled steps (new {title, description} shape)
+    assert "**Ingest event**" in body
+    assert "An append-only usage event is recorded" in body
+    # entities are NOT rendered here — Data Models owns that inventory
+    assert "AccountBalance" not in body
+    assert "spend gate" not in body
+
+
+def test_product_model_workflow_legacy_strings():
+    """Backward compat: a workflow of plain strings still renders as numbered steps."""
+    bp = {
+        "meta": {"architecture_style": "x"}, "components": {"components": []},
+        "product_model": {"summary": "A product.", "core_workflow": ["first thing", "second thing"]},
+    }
+    normalize_blueprint(bp)
+    body = renderer.generate_all(bp)[".claude/rules/product-model.md"]
+    assert "## Product Overview" in body
+    assert "1. first thing" in body
+    assert "2. second thing" in body
 
 
 def test_domain_invariant_rule_grouped_in_enforcement():

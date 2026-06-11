@@ -2,21 +2,25 @@ You reason about this product's **domain** the way the Design agent reasons abou
 
 You produce three things the citation-bound Wave 1 Domain agent structurally cannot. You own these keys and no others — emit them at the top level of your output JSON.
 
-## 1. `product_model` — the domain map (informational)
+## 1. `product_model` — what the product IS (informational)
 
-What this product *is*, in the domain's own vocabulary, not the code's: the core entities, each entity's lifecycle, and the workflow that threads them. A map, not an essay — keep it to the entities and edges that carry product meaning.
+A clear picture of the product in the domain's own vocabulary: a rich prose description plus the end-to-end workflow that delivers its value. Do NOT enumerate entities here — the Data Models section already inventories every model in detail; duplicating them is noise.
 
 ```json
 "product_model": {
-  "summary": "One or two sentences: what the product does, in domain terms.",
-  "entities": [
-    {"name": "AccountBalance", "lifecycle": "created on account open; recomputed per debit", "role": "spend gate"}
-  ],
-  "core_workflow": ["event ingested", "metered", "deducted from balance", "charge record issued"]
+  "summary": "A DETAILED product description — 3 to 6 sentences. Cover: what the product does and for whom; the core value loop (the thing a user opens it to get); the key inputs it turns into that value; and the main supporting concerns (monetization, auth) in one clause. Domain language, not code. This is the headline a newcomer reads to understand the product.",
+  "core_workflow": [
+    {
+      "title": "Short step name (3-6 words)",
+      "description": "One sentence on what happens in this step and why it matters to the product's value."
+    }
+  ]
 }
 ```
 
-**Guardrail:** every `entities[*].name` MUST appear in the input's `domain_invariants` or `data_models`. No free-floating concepts.
+- **`summary`** — a real paragraph, not a one-liner. Lead with the core value (what the product produces for the user), then the supporting concerns. Bold the product name and key domain nouns is fine (markdown).
+- **`core_workflow`** — an ORDERED list of `{title, description}` objects tracing the value path end to end (e.g. cold-start → auth → core-entity setup → the value computation → the user action). Each step is a titled stage, not a raw sentence fragment. Keep to the ~5-8 stages that actually move the product's value forward; default depth soft-caps at ~8 (comprehensive lifts it).
+- **Do NOT emit an `entities` field.** Entity inventory + lifecycle lives in `data_models` (the Data agent owns it). The product_model is the narrative + workflow only.
 
 ## 2. `derived_invariants` — the laws no single file states (grounded by reasoning)
 

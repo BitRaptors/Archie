@@ -2171,32 +2171,40 @@ def _render_grounded_by_role(domain: list, derived: list) -> list[str]:
 
 
 def _build_product_model_rule(bp: dict):
-    """`.claude/rules/product-model.md` — the domain map (informational only)."""
+    """`.claude/rules/product-model.md` — the product narrative + value workflow.
+
+    Entities are intentionally NOT rendered here — `data-models.md` inventories
+    them in full; duplicating is noise. Workflow steps accept both the new
+    `{title, description}` shape and the legacy plain-string shape."""
     pm = bp.get("product_model")
     if not isinstance(pm, dict):
         return None
     summary = (pm.get("summary") or "").strip()
-    entities = [e for e in (pm.get("entities") or []) if isinstance(e, dict)]
-    workflow = [str(s) for s in (pm.get("core_workflow") or []) if s]
-    if not (summary or entities or workflow):
+    workflow = [s for s in (pm.get("core_workflow") or []) if s]
+    if not (summary or workflow):
         return None
 
-    lines = ["## Product Model", ""]
+    lines = ["## Product Overview", ""]
     if summary:
         lines += [summary, ""]
     if workflow:
-        lines += ["**Core workflow:** " + " → ".join(workflow), ""]
-    if entities:
-        lines += ["**Entities:**", ""]
-        for e in entities:
-            bits = " — ".join(b for b in (e.get("role"), e.get("lifecycle")) if b)
-            lines.append(f"- **{e.get('name', '')}**" + (f" — {bits}" if bits else ""))
+        lines += ["### Core workflow", ""]
+        for i, step in enumerate(workflow, 1):
+            if isinstance(step, dict):
+                title = (step.get("title") or "").strip()
+                desc = (step.get("description") or "").strip()
+                if title and desc:
+                    lines.append(f"{i}. **{title}** — {desc}")
+                else:
+                    lines.append(f"{i}. {title or desc}")
+            else:
+                lines.append(f"{i}. {str(step).strip()}")
         lines.append("")
 
     return {
         "topic": "product-model",
         "body": "\n".join(lines).rstrip(),
-        "description": "The product's domain map — entities, lifecycle, core workflow",
+        "description": "The product overview — what it does and the workflow that delivers its value",
         "always_apply": True,
         "globs": [],
     }

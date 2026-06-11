@@ -73,4 +73,7 @@ def test_finalize_merges_and_renders_product_sections(tmp_path):
     assert "Record total equals sum of line items." not in grounded
 
     model = (tmp_path / ".claude" / "rules" / "product-model.md").read_text()
-    assert "AccountBalance" in model
+    assert "## Product Overview" in model
+    assert "Illustrative metered-billing service" in model  # summary
+    assert "1. event" in model  # workflow rendered as numbered steps
+    assert "AccountBalance" not in model  # entities NOT duplicated here (Data Models owns them)
