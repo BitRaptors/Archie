@@ -2136,6 +2136,8 @@ def _render_grounded_invariant_lines(inv: dict) -> list[str]:
     meta = " · ".join(p for p in (inv.get("entity"), inv.get("category")) if p)
     if meta:
         lines.append(f"  - _{meta}_")
+    if (inv.get("mechanism") or "").strip():
+        lines.append(f"  - *How it's enforced:* {inv['mechanism'].strip()}")
     if inv.get("failure_mode"):
         lines.append(f"  - *If violated:* {inv['failure_mode']}")
     enforced = inv.get("enforced_at") or []
@@ -2152,6 +2154,8 @@ def _render_derived_invariant_lines(d: dict) -> list[str]:
     df = d.get("derived_from") or []
     if df:
         lines.append("  - *Derived from:* " + ", ".join(f"`{x}`" for x in df))
+    if (d.get("mechanism") or "").strip():
+        lines.append(f"  - *How it's enforced:* {d['mechanism'].strip()}")
     if d.get("failure_mode"):
         lines.append(f"  - *If violated:* {d['failure_mode']}")
     return lines

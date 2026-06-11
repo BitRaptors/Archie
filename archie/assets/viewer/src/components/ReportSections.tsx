@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
 // @ts-ignore
 import { Progress } from './ui/progress'
-import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, AlertCircle, BookOpen, GitMerge } from 'lucide-react'
 // @ts-ignore
@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 
 import type { Finding } from '@/lib/findings'
 import { isSemanticDupFinding, normalizePitfall, severityColor } from '@/lib/findings'
-import { AutoCode, PathChip, Prose, codeInlineClassName } from '@/lib/autocode'
+import { AutoCode, PathChip, Prose, codeInlineClassName, codeInlineSubtleClassName } from '@/lib/autocode'
 import { LocalEditContext } from '@/components/local/context/LocalEditContext'
 import FixThisButton from '@/components/FixThisButton'
 
@@ -2594,6 +2594,33 @@ export function IntegrationsSection({
 // Informational — no epistemic tier labeling needed.
 // ---------------------------------------------------------------------------
 
+/**
+ * Render inline markdown: **bold** and `code` spans only.
+ * No external dependency — splits on those two patterns, returns an array
+ * of ReactNodes suitable for embedding in a <p> or similar.
+ */
+function renderInlineMd(text: string): ReactNode[] {
+  // Split on **...**  or  `...`  (non-greedy inside each delimiter pair).
+  const INLINE_MD_RE = /(\*\*(.+?)\*\*|`([^`]+)`)/g
+  const parts: React.ReactNode[] = []
+  let last = 0
+  let key = 0
+  for (const m of text.matchAll(INLINE_MD_RE)) {
+    if (m.index! > last) {
+      parts.push(text.slice(last, m.index!))
+    }
+    if (m[0].startsWith('**')) {
+      parts.push(<strong key={key++} className="font-bold text-ink">{m[2]}</strong>)
+    } else {
+      // backtick code
+      parts.push(<code key={key++} className={codeInlineSubtleClassName}>{m[3]}</code>)
+    }
+    last = m.index! + m[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
 export function ProductModelSection({ productModel }: { productModel: any }) {
   const summary: string = productModel?.summary || ''
   const rawWorkflow: any[] = Array.isArray(productModel?.core_workflow) ? productModel.core_workflow : []
@@ -2617,7 +2644,7 @@ export function ProductModelSection({ productModel }: { productModel: any }) {
       <div className={cn('p-8 rounded-3xl border space-y-8', theme.surface.panel)}>
         {summary && (
           <p className="text-base text-ink/80 leading-relaxed">
-            {summary}
+            {renderInlineMd(summary)}
           </p>
         )}
 
@@ -2641,7 +2668,7 @@ export function ProductModelSection({ productModel }: { productModel: any }) {
                     )}
                     {step.description && (
                       <div className="text-sm text-ink/60 leading-relaxed">
-                        <AutoCode text={step.description} />
+                        {renderInlineMd(step.description)}
                       </div>
                     )}
                   </div>
@@ -2699,6 +2726,7 @@ function normalizeDomainRole(raw: unknown): DomainRole {
 function ObservedLawCard({ inv }: { inv: any }) {
   const enforced: string[] = Array.isArray(inv.enforced_at) ? inv.enforced_at : []
   const evidence: string[] = Array.isArray(inv.evidence) ? inv.evidence : []
+  const mechanism: string = typeof inv.mechanism === 'string' ? inv.mechanism.trim() : ''
   return (
     <div
       className={cn(
@@ -2727,6 +2755,13 @@ function ObservedLawCard({ inv }: { inv: any }) {
       <p className="text-sm font-semibold text-ink leading-relaxed mb-4">
         <AutoCode text={inv.invariant || ''} />
       </p>
+
+      {mechanism && (
+        <div className="mb-3 flex items-baseline gap-2">
+          <span className="text-[10px] font-black uppercase tracking-[0.18em] text-ink/30 shrink-0">How it's enforced:</span>
+          <span className="text-xs text-ink/50 leading-relaxed"><AutoCode text={mechanism} /></span>
+        </div>
+      )}
 
       {inv.failure_mode && (
         <div className="mb-4 p-3 rounded-xl border border-brandy/15 bg-brandy/5">
@@ -2765,6 +2800,7 @@ function ObservedLawCard({ inv }: { inv: any }) {
 
 function DerivedLawCard({ inv, domainById }: { inv: any; domainById: Record<string, string> }) {
   const premises: string[] = Array.isArray(inv.derived_from) ? inv.derived_from : []
+  const mechanism: string = typeof inv.mechanism === 'string' ? inv.mechanism.trim() : ''
   return (
     <div
       className={cn(
@@ -2788,6 +2824,13 @@ function DerivedLawCard({ inv, domainById }: { inv: any; domainById: Record<stri
       <p className="text-sm font-semibold text-ink leading-relaxed mb-4">
         <AutoCode text={inv.invariant || ''} />
       </p>
+
+      {mechanism && (
+        <div className="mb-3 flex items-baseline gap-2">
+          <span className="text-[10px] font-black uppercase tracking-[0.18em] text-ink/30 shrink-0">How it's enforced:</span>
+          <span className="text-xs text-ink/50 leading-relaxed"><AutoCode text={mechanism} /></span>
+        </div>
+      )}
 
       {inv.failure_mode && (
         <div className="mb-4 p-3 rounded-xl border border-brandy/15 bg-brandy/5">

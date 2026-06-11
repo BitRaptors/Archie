@@ -44,6 +44,9 @@ def test_domain_agent_covers_libraries_and_product_rule_framing():
     assert "guarantees" in body.lower() or "product concept" in body
     # the framing is POSITIVE — no "not engineering" style wording in the prompt
     assert "engineering" not in body.lower()
+    # the mechanism field gives code detail its own home (structural fix, not prose)
+    assert "mechanism" in body.lower()
+    assert "product concepts only" in body.lower() or "product concept" in body.lower()
 
 
 def test_product_agent_covers_repo_types_and_product_framing():

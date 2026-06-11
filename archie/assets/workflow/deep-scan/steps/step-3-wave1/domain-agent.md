@@ -19,10 +19,11 @@
 >
 > Why this matters: **laws cluster where guard code is dense, and monetization/auth code is the most densely guarded — so a naive sweep over-produces paywall laws and starves the core.** You must counteract that bias deliberately: extract the **core first and hardest**, and ration the supporting/platform laws (see Depth). Tag every law with `domain_role` so the skew is visible and the output can lead with the core.
 >
-> **Write each law as a PRODUCT RULE — what the product always guarantees for its user or consumer, in the domain's own words.** A product owner should recognise the statement. Name product concepts (a location's kind, an account balance, an invoice, the recommendation shown) and describe the behaviour someone can rely on. The code that backs the law — the enforcing method, the constants it maps, the `file:line` — is the *proof*, so it lives in `enforced_at` and `evidence`.
-> - ✅ A product rule: *"A location is always treated as exactly one kind — the user's live GPS position, a saved city, or a timed-out fallback — and the screen the app opens to follows from that kind; it never mistakes one kind for another."* (the method that derives the kind + `file:line` go in `enforced_at`/`evidence`.)
+> **Write each law as a PRODUCT RULE — what the product always guarantees for its user or consumer, in the domain's own words.** A product owner should recognise the statement. Name product concepts (a location's kind, an account balance, an invoice, the recommendation shown) and describe the behaviour someone can rely on. **The code that backs the law has its own home: the `mechanism` field (the prose how) and `enforced_at` (the `file:line`).** Split every law into the two: the `invariant` is the product guarantee; the `mechanism` is how the code delivers it.
+> - ✅ `invariant`: *"A location is always treated as exactly one kind — the user's live GPS position, a saved city, or a timed-out fallback — and the screen the app opens to follows from that kind; it never mistakes one kind for another."*
+>   `mechanism`: *"The kind is re-derived from the location id on every selection and never stored, mapping the GPS-position / timed-out / modified ids to their kinds."*
 >
-> Across every category, say *what the product guarantees* — about balances, totals, at-most-once effects, who can see what. If the only way you can phrase a law is by naming a private function or constant, name the **product concept** it stands for and raise the statement to that level.
+> Across every category, say *what the product guarantees* — about balances, totals, at-most-once effects, who can see what — and let the `mechanism` field carry the code. If you're about to name a private function or constant in `invariant`, that token belongs in `mechanism`; replace it with the **product concept** it stands for.
 >
 > **Where laws live — read these, in order:**
 > - `Validate()` methods, guard clauses, precondition checks (`if x < 0 { return err }`, `require(...)`, `assert ...`)
@@ -60,7 +61,8 @@
 >   "entity": "AccountBalance",
 >   "category": "value-bound",
 >   "domain_role": "core",
->   "invariant": "An account's spendable balance never goes negative — debits are checked against the remaining balance and rejected past zero.",
+>   "invariant": "An account's spendable balance never goes negative — a customer can never spend value they haven't funded.",
+>   "mechanism": "Every debit is checked against the remaining balance and rejected past zero before the write commits.",
 >   "enforced_at": ["app/wallet/balance_repo.ext:214", "app/wallet/engine/"],
 >   "evidence": ["code-comment:app/wallet/balance.ext:43", "guard:app/wallet/balance_repo.ext:214"],
 >   "failure_mode": "A customer spends value they never funded; the ledger and the charged total diverge and can't be reconciled.",
@@ -74,7 +76,8 @@
 > - **entity** — the core entity the law governs, in the codebase's own vocabulary.
 > - **category** — exactly one taxonomy slug from the checklist above.
 > - **domain_role** — REQUIRED. Exactly one of `"core"` (delivers the product's primary value), `"supporting"` (gates/monetizes/authenticates/configures the core — subscription, auth, settings), or `"platform"` (build/network/storage plumbing). This is what lets the output lead with core laws and ration supporting ones.
-> - **invariant** — one sentence stating what the product guarantees for its user or consumer, in the domain's own words (a product owner should recognise it). The enforcing method, constants, and `file:line` belong in `enforced_at`/`evidence`. Per the product-rule guidance above, a reviewer must understand it without reading the source.
+> - **invariant** — one sentence stating what the product guarantees for its user or consumer, in the domain's own words (a product owner should recognise it). This sentence names **product concepts only** — no function/method names, no constants, no `weatherHourly[selectedHourIdx]`-style code. The code that enforces it goes in `mechanism`; the `file:line` goes in `enforced_at`. A reviewer must understand it without reading the source.
+> - **mechanism** — REQUIRED. One phrase describing *how* the code enforces the law: name the function, the constants it maps, the derivation (`getLocationType()` maps the id to a kind; `canAddChildren()` checks `< MAX_BABY_COUNT`). **This is the home for the code detail — it is what keeps `invariant` product-clean.** If you catch yourself putting a function or constant name in `invariant`, move it here.
 > - **enforced_at** — array of `file:line` (or directory) sites that enforce it. REQUIRED and non-empty — this is the citation that makes the law falsifiable.
 > - **evidence** — array of typed citations: `guard:<file:line>`, `code-comment:<file:line>`, `test:<file:line>`, `fsm-edge:<file:line>`. At least one.
 > - **failure_mode** — what breaks in production if the law is violated (the cost), in one sentence.

@@ -36,6 +36,7 @@ Combine observed laws to surface emergent invariants that no one file declares b
   {
     "id": "der-001",
     "invariant": "A credit cannot be retroactively reduced below the amount already spent against it.",
+    "mechanism": "Balance is recomputed from the append-only ledger, so a reduction below spent value would produce a negative historical balance the ledger cannot represent.",
     "derived_from": ["inv-balance-001", "inv-ingest-001"],
     "domain_role": "core",
     "failure_mode": "Forces a negative historical balance; recompute silently corrupts the ledger vs the balance snapshot.",
@@ -46,7 +47,7 @@ Combine observed laws to surface emergent invariants that no one file declares b
 
 **Derivation discipline (your anti-hallucination guardrail):** every `derived_invariants[*]` MUST carry `derived_from` — the list of observed-law `id`s (from the input `domain_invariants`) it combines. **Cite the premises, not the conclusion.** A derived law that can't point back to ≥2 observed-law anchors is speculation — drop it. This is the reasoning-mode analogue of the Domain agent's cite-or-omit rule. `confidence` is `"inferred"` by default; only `"stated"` when the derivation is mechanically airtight.
 
-**State the derived `invariant` as a product rule** — what the product (or its consumer/client) guarantees, in the domain's own words — the same guidance the Domain agent follows. The enforcing code lives in the premises and evidence; a reviewer should grasp the law from the sentence alone.
+**State the derived `invariant` as a product rule** — what the product (or its consumer/client) guarantees, in the domain's own words — the same guidance the Domain agent follows. Put the code-level *how* in a `mechanism` field (same split as the Domain agent: `invariant` = product guarantee, `mechanism` = how the code delivers it); keep function and constant names out of `invariant`. A reviewer should grasp the law from the `invariant` sentence alone.
 
 **Set `domain_role`** on each derived law to `"core"`, `"supporting"`, or `"platform"` — inherit it from the anchors' roles (each observed law in `domain_invariants` carries `domain_role`). If the anchors mix roles, use the role of the law's primary subject; prefer `"core"` whenever a core anchor is load-bearing in the derivation. This keeps the rendered output leading with core laws. Lead with core derived laws; in default depth ration supporting/platform derived laws the same way the Domain agent does (comprehensive depth lifts all caps).
 

@@ -32,6 +32,9 @@ def test_product_laws_file_has_both_tiers():
     assert "## ⚠️ Unverified" in body
     # grounded enforced citation
     assert "app/wallet/balance_repo.ext:214" in body
+    # mechanism rendered as a secondary "how it's enforced" line, distinct from the law
+    assert "How it's enforced:" in body
+    assert "rejected past zero before the write commits" in body
     # derived law, anchored
     assert "_(derived)_" in body
     assert "inv-balance-001" in body
