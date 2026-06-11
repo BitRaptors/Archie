@@ -8,7 +8,7 @@ A clear picture of the product in the domain's own vocabulary: a rich prose desc
 
 ```json
 "product_model": {
-  "summary": "A DETAILED product description — 3 to 6 sentences. Cover: what the product does and for whom; the core value loop (the thing a user opens it to get); the key inputs it turns into that value; and the main supporting concerns (monetization, auth) in one clause. Domain language, not code. This is the headline a newcomer reads to understand the product.",
+  "summary": "A DETAILED description — 3 to 6 sentences — of what this REPOSITORY is from a product/capability perspective. It is not always an end-user app: for a library/SDK describe the capability it gives consumers and the problem it solves for them; for a service/API what it does for clients; for an app what the user gets. Cover the core value loop, the key inputs it turns into that value, and the main supporting concerns (monetization, auth) in one clause. Domain/capability language, not code. This is the headline a newcomer reads to understand what the repo stands for.",
   "core_workflow": [
     {
       "title": "Short step name (3-6 words)",
@@ -19,7 +19,7 @@ A clear picture of the product in the domain's own vocabulary: a rich prose desc
 ```
 
 - **`summary`** — a real paragraph, not a one-liner. Lead with the core value (what the product produces for the user), then the supporting concerns. Bold the product name and key domain nouns is fine (markdown).
-- **`core_workflow`** — an ORDERED list tracing the value path end to end (cold-start → auth → core-entity setup → the value computation → the user action). Keep to the ~5-8 stages that actually move the product's value forward; default depth soft-caps at ~8 (comprehensive lifts it).
+- **`core_workflow`** — an ORDERED list tracing the value path end to end, framed for what the repo IS: an app's **user journey**, a library's **consumer call path** (construct → configure → call → handle result), or a service's **request lifecycle**. Each stage is product/usage behaviour, not an internal code step. Keep to the ~5-8 stages that actually move the value forward; default depth soft-caps at ~8 (comprehensive lifts it).
 
 > **⚠️ STRICT — every `core_workflow` item is an OBJECT `{title, description}`, NEVER a bare string.** A plain string renders as an untitled "Step N" and defeats the whole point. Derive `title` as a 3–6 word stage name; put the full sentence in `description`.
 > - ❌ WRONG: `"core_workflow": ["On app start, initialize subscription, then settings before fetching data."]`
@@ -45,6 +45,8 @@ Combine observed laws to surface emergent invariants that no one file declares b
 ```
 
 **Derivation discipline (your anti-hallucination guardrail):** every `derived_invariants[*]` MUST carry `derived_from` — the list of observed-law `id`s (from the input `domain_invariants`) it combines. **Cite the premises, not the conclusion.** A derived law that can't point back to ≥2 observed-law anchors is speculation — drop it. This is the reasoning-mode analogue of the Domain agent's cite-or-omit rule. `confidence` is `"inferred"` by default; only `"stated"` when the derivation is mechanically airtight.
+
+**State the derived `invariant` in product / behavioural language**, not code mechanics — the same altitude rule the Domain agent follows. Say what must hold for the product (or its consumer/client) to behave correctly; keep function names, enum/constant names, and class internals out of the sentence. A reviewer should grasp the law without reading the source.
 
 **Set `domain_role`** on each derived law to `"core"`, `"supporting"`, or `"platform"` — inherit it from the anchors' roles (each observed law in `domain_invariants` carries `domain_role`). If the anchors mix roles, use the role of the law's primary subject; prefer `"core"` whenever a core anchor is load-bearing in the derivation. This keeps the rendered output leading with core laws. Lead with core derived laws; in default depth ration supporting/platform derived laws the same way the Domain agent does (comprehensive depth lifts all caps).
 

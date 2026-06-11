@@ -30,6 +30,25 @@ def test_domain_agent_prompt_exists_and_is_grounded():
     assert "schema" in body.lower()
 
 
+def test_domain_agent_covers_libraries_and_behavioural_altitude():
+    """Product section must work for libraries/services (not just apps) and state
+    laws as product BEHAVIOUR, not engineering mechanics."""
+    body = _read("step-3-wave1/domain-agent.md")
+    assert "library" in body.lower() or "SDK" in body
+    assert "service" in body.lower()
+    assert "consumer" in body.lower()  # library consumers / call path
+    assert "PRODUCT BEHAVIOUR" in body or "behavioural language" in body
+    assert "code mechanics" in body.lower()
+    assert "function/method names" in body or "no function" in body.lower()
+
+
+def test_product_agent_covers_repo_types_and_altitude():
+    body = _read("step-5d-product.md")
+    assert "library" in body.lower() and "service" in body.lower()
+    assert "consumer call path" in body or "request lifecycle" in body
+    assert "behavioural language" in body or "product / behavioural" in body
+
+
 def test_domain_agent_steers_distribution_core_first():
     """The Domain agent must counteract the guard-density skew: anchor to the core,
     tag domain_role, cap supporting subsystems in default depth, and lift caps in

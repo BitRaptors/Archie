@@ -9,9 +9,21 @@
 >
 > **Self-discover the entities.** You run in parallel with the other Wave 1 agents and cannot read their output. Identify this product's core entities yourself from the scan's file_tree and skeletons — look in domain/model/entity directories, service packages, and schema declarations. Some overlap with the Data agent's inventory is expected and fine.
 >
-> **Anchor to the core FIRST — this is the most important instruction.** Before extracting anything, decide what this product's **primary value workflow** is: the thing a user opens the app to do (e.g. a weather app's forecast→recommendation flow, an editor's document model, a commerce app's cart→order flow). That is the **core**. Everything that *gates, monetizes, authenticates, or configures* access to the core — subscriptions/paywalls, auth/login, settings, telemetry — is **supporting**. Build/network/storage plumbing is **platform**. Cues: the app's name and primary screen, the most-depended-on domain entities, the package that isn't `auth`/`billing`/`subscription`/`settings`/`infra`.
+> **First, decide what this repository IS — it is not always an end-user app.** Archie runs on apps, libraries/SDKs, services/APIs, and CLIs/tools. Frame the "product" accordingly:
+> - **End-user app** → the value is a user journey; the core workflow is what a user opens it to do.
+> - **Library / SDK** → the value is the capability it exposes to *consumers*; the core workflow is the consumer's primary call path (construct → configure → call → handle result), and the core laws are the **behavioral contracts a caller can rely on** (ordering, idempotency, what a return/err guarantees, thread-safety promises).
+> - **Service / API** → the value is what it does for *clients*; the core workflow is the request lifecycle; the core laws are the guarantees the service makes per request.
+> - **CLI / tool** → the value is the command outcome; the core workflow is the invocation→effect path.
+>
+> **Anchor to the core FIRST — this is the most important instruction.** Decide the **primary value workflow** for whichever kind above this repo is — the path that delivers what the repo exists to provide. That is the **core**. Everything that *gates, monetizes, authenticates, or configures* access to the core — subscriptions/paywalls, auth/login, settings, telemetry — is **supporting**. Build/network/storage/serialization plumbing is **platform**. Cues: the repo's name + README, its public entrypoints/exported API, the most-depended-on domain types, the package that isn't `auth`/`billing`/`subscription`/`settings`/`infra`.
 >
 > Why this matters: **laws cluster where guard code is dense, and monetization/auth code is the most densely guarded — so a naive sweep over-produces paywall laws and starves the core.** You must counteract that bias deliberately: extract the **core first and hardest**, and ration the supporting/platform laws (see Depth). Tag every law with `domain_role` so the skew is visible and the output can lead with the core.
+>
+> **STATE EACH LAW AS PRODUCT BEHAVIOUR, NOT CODE MECHANICS — this is what separates a product law from an engineering note.** The `invariant` sentence must read like a rule about what the product / its user / its consumer can rely on, understandable WITHOUT reading the source. Method and function names, enum/constant names, class internals, and the step-by-step "X is re-derived by calling Y() which maps A→B" mechanism belong in `enforced_at` and `evidence` — NOT in the `invariant` statement. Cite the mechanism; don't narrate it as the law.
+> - ❌ ENGINEERING (too low — describes the code): *"A location's type is re-derived from the ID when selectLocation is called; getLocationType() maps CURRENT_POSITION_HOME_ID → POSITION, TIMED_OUT_ID → TIMED_OUT, modifiedLocationId → MODIFIED, everything else → OTHER."*
+> - ✅ BEHAVIOURAL (right — describes the product): *"A location is always treated as exactly one kind — the user's live GPS position, a saved city, or a timed-out fallback — and the screen the app opens to follows from that kind; it never mistakes one kind for another."* (the `getLocationType`/enum mapping + `file:line` go in `enforced_at`/`evidence`.)
+>
+> Same for the other categories: say *what must hold for the product to behave correctly* (balances, totals, idempotent effects, who-can-see-what), not *which function enforces it*. If you can't state a law without naming a private function or constant, you're describing the implementation, not the product — raise the altitude.
 >
 > **Where laws live — read these, in order:**
 > - `Validate()` methods, guard clauses, precondition checks (`if x < 0 { return err }`, `require(...)`, `assert ...`)
@@ -63,7 +75,7 @@
 > - **entity** — the core entity the law governs, in the codebase's own vocabulary.
 > - **category** — exactly one taxonomy slug from the checklist above.
 > - **domain_role** — REQUIRED. Exactly one of `"core"` (delivers the product's primary value), `"supporting"` (gates/monetizes/authenticates/configures the core — subscription, auth, settings), or `"platform"` (build/network/storage plumbing). This is what lets the output lead with core laws and ration supporting ones.
-> - **invariant** — one sentence stating what must always hold (not how the code is shaped).
+> - **invariant** — one sentence stating what must always hold for the product to behave correctly, in **product / behavioural language**. NOT code mechanics: no function/method names, enum/constant names, or class internals in this sentence — those live in `enforced_at`/`evidence`. Per the behavioural-altitude rule above, a reviewer must understand it without reading the source.
 > - **enforced_at** — array of `file:line` (or directory) sites that enforce it. REQUIRED and non-empty — this is the citation that makes the law falsifiable.
 > - **evidence** — array of typed citations: `guard:<file:line>`, `code-comment:<file:line>`, `test:<file:line>`, `fsm-edge:<file:line>`. At least one.
 > - **failure_mode** — what breaks in production if the law is violated (the cost), in one sentence.
