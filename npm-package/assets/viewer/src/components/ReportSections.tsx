@@ -2600,11 +2600,11 @@ export function ProductModelSection({ productModel }: { productModel: any }) {
 
   // Normalise each step: objects keep their title+description; plain strings
   // become { title: '', description: string } so the render path is uniform.
-  const workflow = rawWorkflow.map((step, i) => {
+  const workflow = rawWorkflow.map((step) => {
     if (step && typeof step === 'object') {
       return { title: String(step.title || ''), description: String(step.description || '') }
     }
-    return { title: `Step ${i + 1}`, description: String(step ?? '') }
+    return { title: '', description: String(step ?? '') }
   })
 
   return (

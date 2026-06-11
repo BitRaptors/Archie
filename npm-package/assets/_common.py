@@ -471,6 +471,14 @@ def normalize_blueprint(bp: dict) -> dict:
         if not isinstance(val, list):
             bp[key] = []
 
+    # product_model.entities is deliberately dropped — the Data Models section
+    # is the canonical, detailed entity inventory; duplicating it under the
+    # product overview is noise. The Product agent is told not to emit it, but
+    # strip it deterministically so a non-compliant emission never renders.
+    pm = bp.get("product_model")
+    if isinstance(pm, dict):
+        pm.pop("entities", None)
+
     bp.setdefault("architecture_diagram", "")
     return bp
 

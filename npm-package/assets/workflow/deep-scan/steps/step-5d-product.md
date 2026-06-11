@@ -19,8 +19,13 @@ A clear picture of the product in the domain's own vocabulary: a rich prose desc
 ```
 
 - **`summary`** — a real paragraph, not a one-liner. Lead with the core value (what the product produces for the user), then the supporting concerns. Bold the product name and key domain nouns is fine (markdown).
-- **`core_workflow`** — an ORDERED list of `{title, description}` objects tracing the value path end to end (e.g. cold-start → auth → core-entity setup → the value computation → the user action). Each step is a titled stage, not a raw sentence fragment. Keep to the ~5-8 stages that actually move the product's value forward; default depth soft-caps at ~8 (comprehensive lifts it).
-- **Do NOT emit an `entities` field.** Entity inventory + lifecycle lives in `data_models` (the Data agent owns it). The product_model is the narrative + workflow only.
+- **`core_workflow`** — an ORDERED list tracing the value path end to end (cold-start → auth → core-entity setup → the value computation → the user action). Keep to the ~5-8 stages that actually move the product's value forward; default depth soft-caps at ~8 (comprehensive lifts it).
+
+> **⚠️ STRICT — every `core_workflow` item is an OBJECT `{title, description}`, NEVER a bare string.** A plain string renders as an untitled "Step N" and defeats the whole point. Derive `title` as a 3–6 word stage name; put the full sentence in `description`.
+> - ❌ WRONG: `"core_workflow": ["On app start, initialize subscription, then settings before fetching data."]`
+> - ✅ RIGHT: `"core_workflow": [{"title": "Cold start", "description": "On app start, initialize subscription and localisation, then settings, before fetching location data."}]`
+
+- **Do NOT emit an `entities` field.** Entity inventory + lifecycle lives in `data_models` (the Data agent owns it). The product_model is the narrative + workflow only. (Any `entities` you emit is stripped downstream — don't waste tokens on it.)
 
 ## 2. `derived_invariants` — the laws no single file states (grounded by reasoning)
 

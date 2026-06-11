@@ -52,6 +52,21 @@ def test_normalize_coerces_wrong_types():
     assert bp["unenforced_invariants"] == []
 
 
+def test_normalize_strips_product_model_entities():
+    """product_model.entities is dropped deterministically — Data Models is the
+    canonical entity inventory; the agent is told not to emit entities, but a
+    non-compliant emission must never survive into the rendered output."""
+    bp = {"product_model": {
+        "summary": "A product.",
+        "entities": [{"name": "Foo"}, {"name": "Bar"}],
+        "core_workflow": [{"title": "Step", "description": "does a thing"}],
+    }}
+    normalize_blueprint(bp)
+    assert "entities" not in bp["product_model"]
+    assert bp["product_model"]["summary"] == "A product."  # rest preserved
+    assert bp["product_model"]["core_workflow"]  # workflow preserved
+
+
 def test_normalize_preserves_populated_sections():
     """Populated sections survive normalize untouched (no silent drop)."""
     bp = _load_fixture()
@@ -60,7 +75,8 @@ def test_normalize_preserves_populated_sections():
     assert bp["domain_invariants"][0]["id"] == "inv-balance-001"
     assert bp["domain_invariants"][0]["confidence"] == "stated"
     assert bp["product_model"]["summary"].startswith("Illustrative")
-    assert len(bp["product_model"]["entities"]) == 2
+    assert "entities" not in bp["product_model"]  # stripped by normalize
+    assert len(bp["product_model"]["core_workflow"]) == 3  # workflow preserved
     assert bp["derived_invariants"][0]["derived_from"] == ["inv-balance-001", "inv-ingest-001"]
     assert bp["unenforced_invariants"][0]["searched"]  # proof-of-absence retained
     assert bp["unenforced_invariants"][0]["found_enforcement"] == "none"
