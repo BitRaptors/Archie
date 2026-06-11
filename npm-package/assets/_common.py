@@ -450,7 +450,7 @@ def normalize_blueprint(bp: dict) -> dict:
     # Sections that must be dicts
     for key in ("meta", "architecture_rules", "decisions",
                 "communication", "quick_reference", "technology", "frontend",
-                "deployment"):
+                "deployment", "product_model"):
         val = bp.get(key)
         if not isinstance(val, dict):
             bp[key] = {} if val is None else {}
@@ -465,10 +465,19 @@ def normalize_blueprint(bp: dict) -> dict:
         bp["components"]["components"] = []
 
     # Sections that must be lists
-    for key in ("pitfalls", "implementation_guidelines", "development_rules"):
+    for key in ("pitfalls", "implementation_guidelines", "development_rules",
+                "domain_invariants", "derived_invariants", "unenforced_invariants"):
         val = bp.get(key)
         if not isinstance(val, list):
             bp[key] = []
+
+    # product_model.entities is deliberately dropped — the Data Models section
+    # is the canonical, detailed entity inventory; duplicating it under the
+    # product overview is noise. The Product agent is told not to emit it, but
+    # strip it deterministically so a non-compliant emission never renders.
+    pm = bp.get("product_model")
+    if isinstance(pm, dict):
+        pm.pop("entities", None)
 
     bp.setdefault("architecture_diagram", "")
     return bp

@@ -20,6 +20,7 @@ KINDS: tuple[str, ...] = (
     "naming_convention",
     "infrastructure",
     "data_contract",
+    "domain_invariant",
     "coding_practice",
 )
 
@@ -33,6 +34,7 @@ KIND_DESCRIPTIONS: dict[str, str] = {
     "naming_convention": "Specifies a file or identifier naming pattern; typically expressible as a basename regex.",
     "infrastructure": "Build, CI, deploy, secrets, dependency-registry, signing conventions; lives in `azure-pipelines.yml`, `.github/`, `Dockerfile`, `package.json`, `pyproject.toml`, etc.",
     "data_contract": "Structural rule about a data model — FK/unique/NOT-NULL invariant, repository-only-read discipline, idempotency requirement, or migration procedure; derived from `data_models[*]` / `persistence_stores[*]`.",
+    "domain_invariant": "A product correctness law enforced by code, not the schema (e.g. balance never negative, issued-record immutability, idempotent ingestion). Grounded ones cite the enforcing code; derived ones combine ≥2 grounded laws. Violating one breaks the product's behavior, not just its style; derived from `domain_invariants[*]` / `derived_invariants[*]`.",
     "coding_practice": "General project-specific guidance the agent should remember at edit time; catch-all when no narrower kind fits.",
 }
 
@@ -58,6 +60,8 @@ _ID_PREFIX_TO_KIND: dict[str, str] = {
     "impact": "decision",
     "arch": "decision",
     "dep": "decision",
+    "inv": "domain_invariant",   # observed product law (domain-agent)
+    "der": "domain_invariant",   # derived product law (product-agent)
 }
 
 # severity_class → kind fallback.

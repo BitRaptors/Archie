@@ -29,6 +29,8 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 >
 > Produce 30-60 architectural rules. Each rule captures an enforcement intent a coding agent must respect when planning or making changes. Coverage MUST span every blueprint section that carries enforcement signal — not just decisions and pitfalls. See "Coverage" below.
 >
+> **Quality over quantity — lead with the product laws.** The `domain_invariant` rules (from `domain_invariants[*]` / `derived_invariants[*]`) are the highest-signal rules: they guard what the product *does*. Ensure every core entity that has an observed law gets a `domain_invariant` rule before you spend the budget padding cosmetic sections. Naming/file-placement rules are real but low-signal — a handful of representative ones beats one per file; do not inflate the count with near-duplicate housekeeping rules.
+>
 > **In comprehensive depth (`DEPTH=comprehensive`):** no upper bound — produce every rule that meets the quality bar and carries genuine enforcement signal. Keep ALL required fields (`severity_class`/`why`/`example`); comprehensiveness must never lower per-rule quality.
 >
 > **Primary enforcement is AI-powered:** the AI reviewer reads each rule's `why` and `example` on every plan approval and pre-commit, and evaluates whether changes violate the rule's *intent*. The hook also surfaces these inline at edit time when the rule applies, so the agent sees the canonical reasoning + example without any extra lookup.
@@ -90,6 +92,7 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > - `infrastructure` — derived from `blueprint.infrastructure_rules` or directly from CI/build/deploy/secrets files (`azure-pipelines.yml`, `.github/`, `Dockerfile`, `package.json`, `pyproject.toml`, entitlements, lock files). Onboarding/pipeline knowledge an engineer needs once, not when writing features. Pair with `severity_class: "pattern_divergence"`.
 > - `coding_practice` — derived from `blueprint.development_rules`: general project-specific guidance the agent should remember at edit time. Catch-all of last resort — prefer one of the narrower kinds above when possible. Pair with `severity_class: "pattern_divergence"`.
 > - `data_contract` — derived from `blueprint.data_models[*].invariants` or `blueprint.data_models[*].lifecycle`: a structural rule about a data model (FK / unique / NOT-NULL invariant, repository-only-read, idempotency requirement, migration procedure). Pair with `severity_class: "decision_violation"` when the invariant is FK/unique/NOT-NULL — those are schema-enforced contracts; pair with `pattern_divergence` for repository discipline and lifecycle reminders. The hook fires when editing files inside the model's `location` or its `lifecycle.related_business_logic`.
+> - `domain_invariant` — derived from `blueprint.domain_invariants[*]` (observed, cited product laws) and `blueprint.derived_invariants[*]` (reasoned laws). A **product correctness law** the database cannot enforce: a balance that must never go negative, an issued record that must never mutate, ingestion that must be idempotent, every query scoped to a tenant. This is the **highest-value kind** — it guards what the product *does*, not how its code is shaped, and an agent breaks it precisely because no single file states it. Use the id prefix `inv-` for observed laws and `der-` for derived laws. Follow the dedicated severity + dedup policy in "Product-law rules" below.
 >
 > `kind` and `severity_class` are not redundant: `kind` is *what the rule is about* (UI grouping), `severity_class` is *how the hook responds* (enforcement behavior).
 >
@@ -311,8 +314,21 @@ Spawn a **{{ANALYSIS_MODEL}} subagent** with this prompt. {{>dispatch_single}}
 > | `data_models[*].invariants` (FK / unique / NOT-NULL / soft-delete / audit) | `data_contract` | `decision_violation` (schema-enforced contract) |
 > | `data_models[*].lifecycle.how_to_*` (modify/read discipline) | `data_contract` | `pattern_divergence` |
 > | `persistence_stores[*]` (e.g. "all reads via cache before primary", "queue-only writes") | `data_contract` | `pattern_divergence` |
+> | `domain_invariants[*]` (observed product law, cited) | `domain_invariant` | `decision_violation` (see Product-law policy) |
+> | `derived_invariants[*]` (reasoned product law) | `domain_invariant` | `tradeoff_undermined` (see Product-law policy) |
 >
 > Do NOT skip a section because "those aren't 'real' rules" — if it's in the blueprint, the agent should know about it, and the only way the agent learns about it is for you to emit it into proposed_rules.json so the user adopts it. Aim for ≥1 emitted rule per non-empty section.
+>
+> **Do NOT emit rules from `product_model` (it is the domain map — orientation, not a constraint) or `unenforced_invariants` (the ungrounded gap list — advisory, too speculative to enforce). Those two sections are informational only; the renderer surfaces them and the hook never fires on them.**
+>
+> ### Product-law rules (`domain_invariant`) — severity + dedup policy
+>
+> Product laws are the highest-signal rules, but a wrong block costs more trust than ten good warns earn. Apply this policy exactly:
+>
+> - **Observed law** (`domain_invariants[*]`, `confidence: "stated"`, cites enforcing code) → `severity_class: "decision_violation"` (the hook **blocks**). These are grounded; blocking is justified.
+> - **Derived / inferred law** (`derived_invariants[*]`, or any `confidence: "inferred"`) → `severity_class: "tradeoff_undermined"` (the hook **warns**). The agent may have a reason; never hard-block on a reasoned-but-unenforced law. Promote a derived law to `decision_violation` ONLY when it carries ≥3 `derived_from` anchors AND its conclusion is mechanically tight.
+> - **Dedup — `domain_invariant` is the canonical carrier.** A single law (e.g. "balance ≥ 0") can surface as a `domain_invariants` entry, a promoted `key_decision`, and a `pitfall`. Emit it as exactly ONE `domain_invariant` rule, keyed on `entity + category`. Fold the motivating decision into `forced_by`/`enables` and the violation path into `why` — do NOT also emit a separate `decision`/`pitfall` rule for the same law.
+> - **Carry the grounding through.** For observed laws, put the `failure_mode` in `why`, and derive `triggers.path_glob` from `enforced_at` so the hook fires on the right files — but **`enforced_at` entries are `file:line` (or directory) citations, NOT globs**: strip the `:line` suffix and broaden to the enclosing directory so the glob matches edits anywhere the law is enforced. Example: `enforced_at: ["app/wallet/balance_repo.ext:214", "app/wallet/engine/"]` → `triggers.path_glob: ["app/wallet/**"]`. Never copy a `file:line` string into `path_glob` verbatim — it will match nothing. For derived laws, list the `derived_from` ids in `why` so the agent sees the premises.
 >
 > **Deep architectural rules** — invariants an AI coding agent might accidentally violate. These are the most valuable. Derive them from decision chains, trade-offs, pitfalls, and pattern descriptions. Examples: "ViewModel must never reference View/Context", "Repository must use IO dispatcher", "Fragments must use DI delegation not direct construction".
 >

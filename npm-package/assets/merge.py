@@ -238,6 +238,25 @@ if __name__ == "__main__":
                     seen[name] = c
                     deduped.append(c)
             comps["components"] = deduped
+        # Deduplicate id-keyed list sections by `id` (keep the latest/patch
+        # version). deep_merge dedups dicts by `name`; sections whose entries
+        # carry `id` but no `name` (domain_invariants, derived_invariants,
+        # unenforced_invariants) would otherwise append a stale duplicate when an
+        # incremental scan re-emits a changed law. The patch entry wins.
+        for section in ("domain_invariants", "derived_invariants", "unenforced_invariants"):
+            items = merged.get(section)
+            if isinstance(items, list):
+                by_id: dict[str, dict] = {}
+                order: list = []
+                for it in items:
+                    if isinstance(it, dict) and it.get("id"):
+                        if it["id"] not in by_id:
+                            order.append(it["id"])
+                        by_id[it["id"]] = it  # later (patch) wins
+                    else:
+                        order.append(id(it))
+                        by_id[id(it)] = it
+                merged[section] = [by_id[k] for k in order]
         bp_raw.write_text(json.dumps(merged, indent=2, ensure_ascii=False))
         # Also update blueprint.json
         bp = root / ".archie" / "blueprint.json"

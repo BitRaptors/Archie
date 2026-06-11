@@ -11,7 +11,7 @@ def test_expected_kinds_present():
     expected = {
         "decision", "pitfall", "tradeoff", "layering",
         "semantic_pattern", "file_placement", "naming_convention",
-        "infrastructure", "data_contract", "coding_practice",
+        "infrastructure", "data_contract", "domain_invariant", "coding_practice",
     }
     assert set(KINDS) == expected
 
@@ -66,6 +66,30 @@ def test_classify_id_prefix_pattern():
 
 def test_classify_id_prefix_extend_is_semantic_pattern():
     assert classify_kind({"id": "extend-005"}) == "semantic_pattern"
+
+
+def test_classify_id_prefix_inv_is_domain_invariant():
+    """Observed product laws (domain-agent) carry the `inv-` id prefix.
+
+    Like every other prefix in the map (`dec`, `layer`, ...), the fallback fires
+    for simple ids (`inv-001`); multi-segment ids (`inv-balance-001`) rely on the
+    explicit `kind` field, which step-6 always emits (covered separately)."""
+    assert classify_kind({"id": "inv-001"}) == "domain_invariant"
+
+
+def test_classify_id_prefix_der_is_domain_invariant():
+    """Derived product laws (product-agent) carry the `der-` id prefix."""
+    assert classify_kind({"id": "der-001"}) == "domain_invariant"
+
+
+def test_domain_invariant_is_valid_kind():
+    assert is_valid_kind("domain_invariant") is True
+
+
+def test_explicit_domain_invariant_kind_preserved():
+    """A rule already tagged domain_invariant keeps it even with a block severity."""
+    rule = {"id": "inv-x-001", "kind": "domain_invariant", "severity_class": "decision_violation"}
+    assert classify_kind(rule) == "domain_invariant"
 
 
 def test_classify_severity_class_decision_violation():

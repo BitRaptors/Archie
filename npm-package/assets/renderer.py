@@ -1517,6 +1517,44 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
             lines.append(f"**CI/CD:** {', '.join(cleaned)}")
         lines.append("")
 
+    # Product Laws — concise summary; the full set (grounded + unverified) lives
+    # in .claude/rules/product-laws.md, the domain map in product-model.md.
+    domain_inv = [x for x in (bp.get("domain_invariants") or []) if isinstance(x, dict)]
+    derived_inv = [x for x in (bp.get("derived_invariants") or []) if isinstance(x, dict)]
+    unenforced_inv = [x for x in (bp.get("unenforced_invariants") or []) if isinstance(x, dict)]
+    if domain_inv or derived_inv or unenforced_inv:
+        lines.append("## Product Laws")
+        lines.append("")
+        grounded = [inv for inv in (domain_inv + derived_inv)
+                    if (inv.get("invariant") or "").strip()]
+        # Lead the (capped) summary with core laws so a densely-guarded support
+        # subsystem can't crowd the core out of the first 6 shown.
+        _role_rank = {"core": 0, "supporting": 1, "platform": 2}
+        grounded.sort(key=lambda i: _role_rank.get(
+            (i.get("domain_role") or "supporting").strip().lower(), 1))
+        if grounded:
+            lines.append(
+                "**Enforced (grounded)** — correctness laws; full list in "
+                "[`.claude/rules/product-laws.md`](.claude/rules/product-laws.md):"
+            )
+            shown = _cap(grounded, 6)
+            for inv in shown:
+                lines.append(f"- {inv.get('invariant', '')}")
+            extra = len(grounded) - len(shown)
+            if extra > 0:
+                lines.append(
+                    f"- _… {extra} more in "
+                    f"[`.claude/rules/product-laws.md`](.claude/rules/product-laws.md)_"
+                )
+            lines.append("")
+        if unenforced_inv:
+            lines.append(
+                f"**⚠️ Unverified** — {len(unenforced_inv)} implied-but-unenforced "
+                "law(s) worth knowing (may not be true); see "
+                "[`.claude/rules/product-laws.md`](.claude/rules/product-laws.md)."
+            )
+            lines.append("")
+
     # Data Models — concise summary; full lifecycle lives in
     # .claude/rules/data-models.md (rendered by _build_data_models_rule).
     # Section is elided entirely on blueprints with no data surface.
@@ -2090,6 +2128,190 @@ def build_enforcement_directory(rules: list[dict]) -> dict[str, str]:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
+def _render_grounded_invariant_lines(inv: dict) -> list[str]:
+    """One observed (Wave 1) product law as markdown bullet + sub-bullets."""
+    if not isinstance(inv, dict) or not (inv.get("invariant") or "").strip():
+        return []
+    lines = [f"- **{inv.get('invariant', '')}**"]
+    meta = " · ".join(p for p in (inv.get("entity"), inv.get("category")) if p)
+    if meta:
+        lines.append(f"  - _{meta}_")
+    if (inv.get("mechanism") or "").strip():
+        lines.append(f"  - *How it's enforced:* {inv['mechanism'].strip()}")
+    if inv.get("failure_mode"):
+        lines.append(f"  - *If violated:* {inv['failure_mode']}")
+    enforced = inv.get("enforced_at") or []
+    if enforced:
+        lines.append("  - *Enforced at:* " + ", ".join(f"`{e}`" for e in enforced))
+    return lines
+
+
+def _render_derived_invariant_lines(d: dict) -> list[str]:
+    """One derived (Wave 2) product law — anchored to its premises."""
+    if not isinstance(d, dict) or not (d.get("invariant") or "").strip():
+        return []
+    lines = [f"- **{d.get('invariant', '')}** _(derived)_"]
+    df = d.get("derived_from") or []
+    if df:
+        lines.append("  - *Derived from:* " + ", ".join(f"`{x}`" for x in df))
+    if (d.get("mechanism") or "").strip():
+        lines.append(f"  - *How it's enforced:* {d['mechanism'].strip()}")
+    if d.get("failure_mode"):
+        lines.append(f"  - *If violated:* {d['failure_mode']}")
+    return lines
+
+
+def _render_unenforced_lines(g: dict) -> list[str]:
+    """One ungrounded gap entry — must surface its `searched` proof-of-work."""
+    if not isinstance(g, dict) or not (g.get("expected_law") or "").strip():
+        return []
+    lines = [f"- **{g.get('expected_law', '')}**"]
+    meta = " · ".join(p for p in (g.get("entity"), g.get("category")) if p)
+    if meta:
+        lines.append(f"  - _{meta}_")
+    if g.get("why_expected"):
+        lines.append(f"  - *Why expected:* {g['why_expected']}")
+    if g.get("risk"):
+        lines.append(f"  - *Risk if real:* {g['risk']}")
+    searched = g.get("searched") or []
+    if searched:
+        lines.append("  - *Searched (no enforcement found):* "
+                     + ", ".join(f"`{s}`" for s in searched))
+    return lines
+
+
+_DOMAIN_ROLE_ORDER = (
+    ("core", "Core product laws"),
+    ("supporting", "Supporting features (auth, subscription, settings)"),
+    ("platform", "Platform"),
+)
+
+
+def _render_grounded_by_role(domain: list, derived: list) -> list[str]:
+    """Render observed + derived laws grouped by domain_role (core first).
+
+    Falls back to a flat list when no law carries domain_role (blueprints that
+    predate the field, or fixtures), so old output renders unchanged."""
+    items = [("d", x) for x in domain] + [("r", x) for x in derived]
+
+    def _render_one(kind, item):
+        return (_render_grounded_invariant_lines(item) if kind == "d"
+                else _render_derived_invariant_lines(item))
+
+    has_role = any((it.get("domain_role") or "").strip() for _, it in items)
+    if not has_role:
+        out: list[str] = []
+        for kind, item in items:
+            out += _render_one(kind, item)
+        return out
+
+    by_role: dict[str, list] = {}
+    for kind, item in items:
+        role = (item.get("domain_role") or "supporting").strip().lower()
+        if role not in ("core", "supporting", "platform"):
+            role = "supporting"
+        by_role.setdefault(role, []).append((kind, item))
+
+    out = []
+    for role, heading in _DOMAIN_ROLE_ORDER:
+        bucket = by_role.get(role) or []
+        rendered: list[str] = []
+        for kind, item in bucket:
+            rendered += _render_one(kind, item)
+        if rendered:
+            out.append(f"### {heading}")
+            out.append("")
+            out += rendered
+            out.append("")
+    return out
+
+
+def _build_product_model_rule(bp: dict):
+    """`.claude/rules/product-model.md` — the product narrative + value workflow.
+
+    Entities are intentionally NOT rendered here — `data-models.md` inventories
+    them in full; duplicating is noise. Workflow steps accept both the new
+    `{title, description}` shape and the legacy plain-string shape."""
+    pm = bp.get("product_model")
+    if not isinstance(pm, dict):
+        return None
+    summary = (pm.get("summary") or "").strip()
+    workflow = [s for s in (pm.get("core_workflow") or []) if s]
+    if not (summary or workflow):
+        return None
+
+    lines = ["## Product Overview", ""]
+    if summary:
+        lines += [summary, ""]
+    if workflow:
+        lines += ["### Core workflow", ""]
+        for i, step in enumerate(workflow, 1):
+            if isinstance(step, dict):
+                title = (step.get("title") or "").strip()
+                desc = (step.get("description") or "").strip()
+                if title and desc:
+                    lines.append(f"{i}. **{title}** — {desc}")
+                else:
+                    lines.append(f"{i}. {title or desc}")
+            else:
+                lines.append(f"{i}. {str(step).strip()}")
+        lines.append("")
+
+    return {
+        "topic": "product-model",
+        "body": "\n".join(lines).rstrip(),
+        "description": "The product overview — what it does and the workflow that delivers its value",
+        "always_apply": True,
+        "globs": [],
+    }
+
+
+def _build_product_laws_rule(bp: dict):
+    """`.claude/rules/product-laws.md` — BOTH epistemic tiers in one file with an
+    unmissable boundary: enforced (grounded) laws vs implied-but-unenforced
+    (unverified). The grounded/ungrounded distinction is drawn identically here,
+    in the CLI viewer, and in the web report."""
+    domain = [x for x in (bp.get("domain_invariants") or []) if isinstance(x, dict)]
+    derived = [x for x in (bp.get("derived_invariants") or []) if isinstance(x, dict)]
+    unenforced = [x for x in (bp.get("unenforced_invariants") or []) if isinstance(x, dict)]
+    if not (domain or derived or unenforced):
+        return None
+
+    lines: list[str] = []
+    if domain or derived:
+        lines += [
+            "## Product Laws — enforced (grounded)",
+            "",
+            "_Correctness laws this product enforces in code. Violating one breaks the "
+            "product's behavior, not just its style. Grouped by role — the core laws are "
+            "what the product fundamentally does; supporting laws gate/monetize/secure it._",
+            "",
+        ]
+        lines += _render_grounded_by_role(domain, derived)
+        lines.append("")
+
+    if unenforced:
+        lines += [
+            "## ⚠️ Unverified — implied but NOT enforced by any code we found (may not be true)",
+            "",
+            "_These laws are inferred from the domain, not observed in code. They may be "
+            "false — but if real and unenforced, each is a latent bug. Each lists where we "
+            "looked (`searched`) so you can confirm in seconds. Not enforced by any hook._",
+            "",
+        ]
+        for g in unenforced:
+            lines += _render_unenforced_lines(g)
+        lines.append("")
+
+    return {
+        "topic": "product-laws",
+        "body": "\n".join(lines).rstrip(),
+        "description": "Product correctness laws — enforced (grounded) and implied-but-unenforced (unverified)",
+        "always_apply": True,
+        "globs": [],
+    }
+
+
 def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
     """Generate all output files from a blueprint dict.
 
@@ -2113,6 +2335,8 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
         _build_dev_rules_rule,
         _build_infrastructure_rule,
         _build_data_models_rule,
+        _build_product_model_rule,
+        _build_product_laws_rule,
     ]
 
     for builder in builders:

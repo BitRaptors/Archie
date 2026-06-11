@@ -1,4 +1,4 @@
-### Data agent (only if `has_persistence_signal == true`)
+### Data agent (always runs)
 
 > **CRITICAL INSTRUCTIONS:**
 > You are analyzing a codebase to inventory its data models, persistence stores, and the lifecycle of each model (how to add a new one, how to modify, how to read, what the backup posture is, what tests exist, which business objects consume it).

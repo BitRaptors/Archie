@@ -6,9 +6,9 @@ import { Card, CardHeader, CardTitle, CardContent } from './ui/card'
 import { Badge } from './ui/badge'
 // @ts-ignore
 import { Progress } from './ui/progress'
-import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react'
+import { ChevronRight, FileText, Database, Activity, Shield, Zap, Server, HelpCircle, AlertTriangle, Rocket, Info, Terminal, Layers, Search, BarChart3, ChevronDown, CheckCircle2, AlertCircle, BookOpen, GitMerge } from 'lucide-react'
 // @ts-ignore
 import ReactMarkdown from 'react-markdown'
 // @ts-ignore
@@ -16,7 +16,7 @@ import remarkGfm from 'remark-gfm'
 
 import type { Finding } from '@/lib/findings'
 import { isSemanticDupFinding, normalizePitfall, severityColor } from '@/lib/findings'
-import { AutoCode, PathChip, Prose, codeInlineClassName } from '@/lib/autocode'
+import { AutoCode, PathChip, Prose, codeInlineClassName, codeInlineSubtleClassName } from '@/lib/autocode'
 import { LocalEditContext } from '@/components/local/context/LocalEditContext'
 import FixThisButton from '@/components/FixThisButton'
 
@@ -2584,6 +2584,530 @@ export function IntegrationsSection({
             )}
           </div>
         ))}
+      </div>
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Product Model — the domain map: summary, entities, core workflow.
+// Informational — no epistemic tier labeling needed.
+// ---------------------------------------------------------------------------
+
+/**
+ * Render inline markdown: **bold** and `code` spans only.
+ * No external dependency — splits on those two patterns, returns an array
+ * of ReactNodes suitable for embedding in a <p> or similar.
+ */
+function renderInlineMd(text: string): ReactNode[] {
+  // Split on **...**  or  `...`  (non-greedy inside each delimiter pair).
+  const INLINE_MD_RE = /(\*\*(.+?)\*\*|`([^`]+)`)/g
+  const parts: React.ReactNode[] = []
+  let last = 0
+  let key = 0
+  for (const m of text.matchAll(INLINE_MD_RE)) {
+    if (m.index! > last) {
+      parts.push(text.slice(last, m.index!))
+    }
+    if (m[0].startsWith('**')) {
+      parts.push(<strong key={key++} className="font-bold text-ink">{m[2]}</strong>)
+    } else {
+      // backtick code
+      parts.push(<code key={key++} className={codeInlineSubtleClassName}>{m[3]}</code>)
+    }
+    last = m.index! + m[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
+export function ProductModelSection({ productModel }: { productModel: any }) {
+  const summary: string = productModel?.summary || ''
+  const rawWorkflow: any[] = Array.isArray(productModel?.core_workflow) ? productModel.core_workflow : []
+
+  // Normalise each step: objects keep their title+description; plain strings
+  // become { title: '', description: string } so the render path is uniform.
+  const workflow = rawWorkflow.map((step) => {
+    if (step && typeof step === 'object') {
+      return { title: String(step.title || ''), description: String(step.description || '') }
+    }
+    return { title: '', description: String(step ?? '') }
+  })
+
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Product Overview"
+        icon={BookOpen}
+        hint="What the product does and the core workflow that ties it together."
+      />
+      <div className={cn('p-8 rounded-3xl border space-y-8', theme.surface.panel)}>
+        {summary && (() => {
+          const paragraphs = summary.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+          return (
+            <div className="max-w-2xl space-y-3">
+              {paragraphs.map((para, idx) =>
+                idx === 0 ? (
+                  <p key={idx} className="text-lg font-semibold text-ink/90 leading-relaxed">
+                    {renderInlineMd(para)}
+                  </p>
+                ) : (
+                  <p key={idx} className="text-base text-ink/65 leading-relaxed">
+                    {renderInlineMd(para)}
+                  </p>
+                )
+              )}
+            </div>
+          )
+        })()}
+
+        {workflow.length > 0 && (
+          <div className="space-y-3">
+            <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Core Workflow</div>
+            <ol className="space-y-3">
+              {workflow.map((step, i) => (
+                <li
+                  key={i}
+                  className="flex gap-4 p-4 rounded-2xl border border-papaya-400/40 bg-white/50 hover:border-teal/20 hover:shadow-sm transition-all"
+                >
+                  <div className="shrink-0 w-7 h-7 rounded-full bg-teal/10 border border-teal/20 flex items-center justify-center text-[11px] font-black text-teal tabular-nums">
+                    {i + 1}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    {step.title && (
+                      <div className="font-bold text-sm text-ink leading-snug">
+                        <AutoCode text={step.title} />
+                      </div>
+                    )}
+                    {step.description && (
+                      <div className="text-sm text-ink/60 leading-relaxed">
+                        {renderInlineMd(step.description)}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Confidence badge used in ProductLawsSection
+// ---------------------------------------------------------------------------
+
+function ConfidenceBadge({ confidence }: { confidence?: string }) {
+  if (!confidence) return null
+  const isStated = confidence === 'stated'
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'text-[9px] font-black uppercase tracking-widest',
+        isStated
+          ? 'text-teal border-teal/30 bg-teal/5'
+          : 'text-ink/40 border-ink/10 bg-white',
+      )}
+    >
+      {confidence}
+    </Badge>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Product Laws — GROUNDED tier: domain_invariants + derived_invariants.
+// These are authoritative. Derived ones show their premises (derived_from).
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Helpers for ProductLawsSection — card renderers extracted so the grouped
+// and flat code paths share identical markup.
+// ---------------------------------------------------------------------------
+
+const VALID_DOMAIN_ROLES = ['core', 'supporting', 'platform'] as const
+type DomainRole = typeof VALID_DOMAIN_ROLES[number]
+
+function normalizeDomainRole(raw: unknown): DomainRole {
+  if (raw === 'core' || raw === 'platform') return raw
+  // missing / unknown → supporting (fallback bucket)
+  return 'supporting'
+}
+
+function ObservedLawCard({ inv }: { inv: any }) {
+  const enforced: string[] = Array.isArray(inv.enforced_at) ? inv.enforced_at : []
+  const evidence: string[] = Array.isArray(inv.evidence) ? inv.evidence : []
+  const mechanism: string = typeof inv.mechanism === 'string' ? inv.mechanism.trim() : ''
+  return (
+    <div
+      className={cn(
+        'p-6 rounded-2xl border transition-all hover:shadow-lg',
+        theme.surface.panel,
+      )}
+    >
+      <div className="flex items-start gap-3 mb-3 flex-wrap">
+        <div className="shrink-0 h-7 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest self-start bg-teal/10 border-teal/20 text-teal">
+          <CheckCircle2 className="w-3 h-3" />
+          {inv.category || 'invariant'}
+        </div>
+        {inv.entity && (
+          <Badge variant="outline" className="text-[10px] font-bold uppercase border-papaya-400 text-ink/50 self-start">
+            {inv.entity}
+          </Badge>
+        )}
+        <div className="ml-auto self-start">
+          <ConfidenceBadge confidence={inv.confidence} />
+        </div>
+        {inv.id && (
+          <span className="text-[10px] font-mono text-ink/30 self-start">{inv.id}</span>
+        )}
+      </div>
+
+      <p className="text-sm font-semibold text-ink leading-relaxed mb-4">
+        <AutoCode text={inv.invariant || ''} />
+      </p>
+
+      {mechanism && (
+        <div className="mb-3 flex items-baseline gap-2">
+          <span className="text-[10px] font-black uppercase tracking-[0.18em] text-ink/30 shrink-0">How it's enforced:</span>
+          <span className="text-xs text-ink/50 leading-relaxed"><AutoCode text={mechanism} /></span>
+        </div>
+      )}
+
+      {inv.failure_mode && (
+        <div className="mb-4 p-3 rounded-xl border border-brandy/15 bg-brandy/5">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brandy/70 mb-1">Failure mode</div>
+          <p className="text-xs text-ink/70 leading-relaxed"><AutoCode text={inv.failure_mode} /></p>
+        </div>
+      )}
+
+      {enforced.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">Enforced at</div>
+          <div className="flex flex-wrap gap-1.5">
+            {enforced.map((loc, j) => (
+              <PathChip key={j} path={loc} className="text-[10px]" />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {evidence.length > 0 && (
+        <div className="mt-3 space-y-1">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">Evidence</div>
+          <ul className="space-y-1">
+            {evidence.map((e, j) => (
+              <li key={j} className="text-xs text-ink/60 leading-relaxed flex gap-2">
+                <span className="mt-1.5 w-1 h-1 rounded-full bg-teal shrink-0" />
+                <AutoCode text={e} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DerivedLawCard({ inv, domainById }: { inv: any; domainById: Record<string, string> }) {
+  const premises: string[] = Array.isArray(inv.derived_from) ? inv.derived_from : []
+  const mechanism: string = typeof inv.mechanism === 'string' ? inv.mechanism.trim() : ''
+  return (
+    <div
+      className={cn(
+        'p-6 rounded-2xl border transition-all hover:shadow-lg',
+        theme.surface.panel,
+      )}
+    >
+      <div className="flex items-start gap-3 mb-3 flex-wrap">
+        <div className="shrink-0 h-7 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest self-start bg-tangerine/10 border-tangerine/20 text-tangerine-800">
+          <GitMerge className="w-3 h-3" />
+          derived
+        </div>
+        <div className="ml-auto self-start">
+          <ConfidenceBadge confidence={inv.confidence} />
+        </div>
+        {inv.id && (
+          <span className="text-[10px] font-mono text-ink/30 self-start">{inv.id}</span>
+        )}
+      </div>
+
+      <p className="text-sm font-semibold text-ink leading-relaxed mb-4">
+        <AutoCode text={inv.invariant || ''} />
+      </p>
+
+      {mechanism && (
+        <div className="mb-3 flex items-baseline gap-2">
+          <span className="text-[10px] font-black uppercase tracking-[0.18em] text-ink/30 shrink-0">How it's enforced:</span>
+          <span className="text-xs text-ink/50 leading-relaxed"><AutoCode text={mechanism} /></span>
+        </div>
+      )}
+
+      {inv.failure_mode && (
+        <div className="mb-4 p-3 rounded-xl border border-brandy/15 bg-brandy/5">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brandy/70 mb-1">Failure mode</div>
+          <p className="text-xs text-ink/70 leading-relaxed"><AutoCode text={inv.failure_mode} /></p>
+        </div>
+      )}
+
+      {premises.length > 0 && (
+        <div className="pt-3 border-t border-papaya-400/20 space-y-2">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30">Derived from</div>
+          <div className="space-y-1.5">
+            {premises.map((pid, j) => {
+              const text = domainById[pid]
+              return (
+                <div key={j} className="flex items-start gap-2 text-xs">
+                  <code className="text-[10px] font-mono text-tangerine-800 bg-tangerine/5 border border-tangerine/20 px-1.5 py-0.5 rounded-md shrink-0">
+                    {pid}
+                  </code>
+                  {text && (
+                    <span className="text-ink/60 leading-relaxed"><AutoCode text={text} /></span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Role-group config — order matters (core → supporting → platform).
+const ROLE_GROUPS: Array<{ role: DomainRole; label: string }> = [
+  { role: 'core',       label: 'Core product laws' },
+  { role: 'supporting', label: 'Supporting features (auth, subscription, settings)' },
+  { role: 'platform',   label: 'Platform' },
+]
+
+export function ProductLawsSection({
+  domainInvariants,
+  derivedInvariants,
+}: {
+  domainInvariants: any[]
+  derivedInvariants: any[]
+}) {
+  // Build a lookup map id → invariant text for derived_from resolution
+  const domainById: Record<string, string> = {}
+  for (const inv of domainInvariants) {
+    if (inv?.id) domainById[inv.id] = inv.invariant || inv.id
+  }
+
+  // Flat-fallback detection: if NO entry in either array has a recognised
+  // domain_role, render the original flat layout unchanged.
+  const allLaws = [...domainInvariants, ...derivedInvariants]
+  const useGrouped = allLaws.some(
+    (inv) => inv && VALID_DOMAIN_ROLES.includes(inv.domain_role as DomainRole),
+  )
+
+  const hasObserved = domainInvariants.length > 0
+  const hasDerived = derivedInvariants.length > 0
+
+  return (
+    <section className="space-y-4">
+      <SectionHeader
+        title="Product Laws"
+        icon={Shield}
+        hint="Grounded product invariants observed and reasoned from the codebase. These are authoritative — each is anchored to code evidence."
+      />
+
+      {useGrouped ? (
+        // ── GROUPED LAYOUT ─────────────────────────────────────────────────
+        // Split observed + derived laws into role buckets, then render each
+        // non-empty bucket under its own subheading in canonical order.
+        ROLE_GROUPS.map(({ role, label }) => {
+          const observed = domainInvariants.filter(
+            (inv) => normalizeDomainRole(inv?.domain_role) === role,
+          )
+          const derived = derivedInvariants.filter(
+            (inv) => normalizeDomainRole(inv?.domain_role) === role,
+          )
+          if (observed.length === 0 && derived.length === 0) return null
+          return (
+            <div key={role} className="space-y-3">
+              {/* Role-group subheading */}
+              <div className="flex items-center gap-2">
+                <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">{label}</div>
+                <Badge className="text-[9px] font-black uppercase tracking-widest bg-teal/10 border border-teal/20 text-teal">
+                  Grounded
+                </Badge>
+              </div>
+
+              {observed.length > 0 && (
+                <div className="space-y-3">
+                  <div className="text-[10px] font-semibold text-ink/20 uppercase tracking-[0.15em] pl-1">Observed</div>
+                  <div className="grid gap-4">
+                    {observed.map((inv: any, i: number) => (
+                      <ObservedLawCard key={i} inv={inv} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {derived.length > 0 && (
+                <div className="space-y-3">
+                  <div className="text-[10px] font-semibold text-ink/20 uppercase tracking-[0.15em] pl-1">Derived</div>
+                  <div className="grid gap-4">
+                    {derived.map((inv: any, i: number) => (
+                      <DerivedLawCard key={i} inv={inv} domainById={domainById} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })
+      ) : (
+        // ── FLAT LAYOUT (original) ──────────────────────────────────────────
+        // Rendered when no law carries a domain_role — preserves existing
+        // behaviour for blueprints scanned before the field was introduced.
+        <>
+          {hasObserved && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Observed Laws</div>
+                <Badge className="text-[9px] font-black uppercase tracking-widest bg-teal/10 border border-teal/20 text-teal">
+                  Grounded
+                </Badge>
+              </div>
+              <div className="grid gap-4">
+                {domainInvariants.map((inv: any, i: number) => (
+                  <ObservedLawCard key={i} inv={inv} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {hasDerived && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="text-[10px] font-black text-ink/30 uppercase tracking-[0.2em]">Derived Laws</div>
+                <Badge className="text-[9px] font-black uppercase tracking-widest bg-tangerine/10 border border-tangerine/20 text-tangerine-800">
+                  Inferred from premises
+                </Badge>
+              </div>
+              <div className="grid gap-4">
+                {derivedInvariants.map((inv: any, i: number) => (
+                  <DerivedLawCard key={i} inv={inv} domainById={domainById} />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Unverified Invariants — UNGROUNDED gap list. Visually distinct from the
+// grounded tier: amber/warning surface + a prominent "Unverified" badge.
+// Shows searched[] so a reader can falsify "nothing enforces it."
+// ---------------------------------------------------------------------------
+
+export function UnverifiedInvariantsSection({ unenforcedInvariants }: { unenforcedInvariants: any[] }) {
+  return (
+    <section className="space-y-4">
+      {/* Warning header — makes the epistemic tier unmissable */}
+      <SectionHeader
+        title="Unverified Gaps"
+        icon={AlertTriangle}
+        hint="Inferred enforcement gaps — laws the analysis expected to find but did not locate. These are speculative and may not be true. Each entry lists what was searched so you can falsify the claim."
+      />
+
+      {/* One-line banner reinforcing the epistemic status */}
+      <div className="flex items-center gap-3 p-4 rounded-2xl border border-amber-300/60 bg-amber-50/60">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <p className="text-xs text-amber-900 leading-relaxed">
+          <strong>These are inferred and may not be true.</strong> Each item is a law the analysis expected to find enforced but could not locate. Verify with the listed search targets before acting.
+        </p>
+      </div>
+
+      <div className="grid gap-4">
+        {unenforcedInvariants.map((inv: any, i: number) => {
+          const searched: string[] = Array.isArray(inv.searched) ? inv.searched : []
+          return (
+            <div
+              key={i}
+              className="p-6 rounded-2xl border border-amber-200/60 bg-amber-50/40 transition-all hover:shadow-lg hover:border-amber-300/80"
+            >
+              {/* Unverified badge + category/entity metadata */}
+              <div className="flex items-start gap-2 mb-3 flex-wrap">
+                <div className="shrink-0 h-7 px-3 rounded-full inline-flex items-center gap-1.5 border text-[10px] font-black uppercase tracking-widest self-start bg-amber-100 border-amber-300/60 text-amber-800">
+                  <AlertTriangle className="w-3 h-3" />
+                  Unverified
+                </div>
+                {inv.category && (
+                  <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-widest border-amber-300/40 text-amber-700 bg-amber-50/80 self-start">
+                    {inv.category}
+                  </Badge>
+                )}
+                {inv.entity && (
+                  <Badge variant="outline" className="text-[10px] font-bold uppercase border-papaya-400 text-ink/50 self-start">
+                    {inv.entity}
+                  </Badge>
+                )}
+                {inv.confidence && (
+                  <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest text-ink/40 border-ink/10 bg-white self-start ml-auto">
+                    {inv.confidence}
+                  </Badge>
+                )}
+                {inv.id && (
+                  <span className="text-[10px] font-mono text-ink/30 self-start">{inv.id}</span>
+                )}
+              </div>
+
+              {/* The expected law */}
+              <p className="text-sm font-semibold text-ink leading-relaxed mb-3">
+                <AutoCode text={inv.expected_law || ''} />
+              </p>
+
+              {/* Why it was expected */}
+              {inv.why_expected && (
+                <div className="mb-4 p-3 rounded-xl border border-amber-200/60 bg-white/50">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700/70 mb-1">Why expected</div>
+                  <p className="text-xs text-ink/70 leading-relaxed"><AutoCode text={inv.why_expected} /></p>
+                </div>
+              )}
+
+              {/* Risk of the gap */}
+              {inv.risk && (
+                <div className="mb-4 p-3 rounded-xl border border-brandy/15 bg-brandy/5">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brandy/70 mb-1">Risk</div>
+                  <p className="text-xs text-ink/70 leading-relaxed"><AutoCode text={inv.risk} /></p>
+                </div>
+              )}
+
+              {/* Searched targets — key for falsifiability */}
+              {searched.length > 0 && (
+                <div className="pt-3 border-t border-amber-200/40 space-y-1.5">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700/60">
+                    Searched (nothing found)
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {searched.map((loc, j) => (
+                      <PathChip
+                        key={j}
+                        path={loc}
+                        className="text-[10px] border-amber-300/40 bg-amber-50/60 text-amber-800"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {inv.found_enforcement && inv.found_enforcement !== 'none' && (
+                <div className="mt-3 pt-3 border-t border-amber-200/40">
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-ink/30 mb-1">Found enforcement</div>
+                  <p className="text-xs text-ink/60 italic"><AutoCode text={inv.found_enforcement} /></p>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </section>
   )
