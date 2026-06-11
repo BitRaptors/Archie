@@ -2642,11 +2642,24 @@ export function ProductModelSection({ productModel }: { productModel: any }) {
         hint="What the product does and the core workflow that ties it together."
       />
       <div className={cn('p-8 rounded-3xl border space-y-8', theme.surface.panel)}>
-        {summary && (
-          <p className="text-base text-ink/80 leading-relaxed">
-            {renderInlineMd(summary)}
-          </p>
-        )}
+        {summary && (() => {
+          const paragraphs = summary.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+          return (
+            <div className="max-w-2xl space-y-3">
+              {paragraphs.map((para, idx) =>
+                idx === 0 ? (
+                  <p key={idx} className="text-lg font-semibold text-ink/90 leading-relaxed">
+                    {renderInlineMd(para)}
+                  </p>
+                ) : (
+                  <p key={idx} className="text-base text-ink/65 leading-relaxed">
+                    {renderInlineMd(para)}
+                  </p>
+                )
+              )}
+            </div>
+          )
+        })()}
 
         {workflow.length > 0 && (
           <div className="space-y-3">

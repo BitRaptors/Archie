@@ -18,7 +18,7 @@ A clear picture of the product in the domain's own vocabulary: a rich prose desc
 }
 ```
 
-- **`summary`** — a real paragraph, not a one-liner. Lead with the core value (what the product produces for the user), then the supporting concerns. Bold the product name and key domain nouns is fine (markdown).
+- **`summary`** — written as **2–4 SHORT paragraphs separated by blank lines (`\n\n`), not one dense block.** Suggested shape: (1) a one-sentence lead — what the repo is and the value it delivers; (2) the core value loop — the inputs it turns into that value; (3) how it's built/served + the main supporting concerns (monetization, auth) in a sentence or two. Bold the product name and key domain nouns with markdown (`**like this**`). Keep sentences tight — a reader should be able to skim it.
 - **`core_workflow`** — an ORDERED list tracing the value path end to end, framed for what the repo IS: an app's **user journey**, a library's **consumer call path** (construct → configure → call → handle result), or a service's **request lifecycle**. Each stage is product/usage behaviour, not an internal code step. Keep to the ~5-8 stages that actually move the value forward; default depth soft-caps at ~8 (comprehensive lifts it).
 
 > **⚠️ STRICT — every `core_workflow` item is an OBJECT `{title, description}`, NEVER a bare string.** A plain string renders as an untitled "Step N" and defeats the whole point. Derive `title` as a 3–6 word stage name; put the full sentence in `description`.
