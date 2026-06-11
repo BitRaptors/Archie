@@ -1309,18 +1309,39 @@ def _est_tokens(text: str) -> int:
     return max(1, len(text) // _CHARS_PER_TOKEN)
 
 
-def _chunk_topic_file(rule: dict, level: int = 2) -> dict:
-    """Return {relative_path: content} for one oversized topic rule:
-    `<topic>.md` index + `<topic>/<section-slug>.md` chunks."""
-    topic = rule["topic"]
-    preamble, sections = _split_h2_sections(rule["body"], level)
-    # A split below H2 leaves the wrapping heading dangling at the end of
-    # the preamble — drop trailing heading-only lines.
-    pre_lines = preamble.splitlines()
-    while pre_lines and (not pre_lines[-1].strip() or pre_lines[-1].startswith("#")):
-        pre_lines.pop()
-    preamble = "\n".join(pre_lines).strip()
+# An oversized section chunk recurses one heading level deeper (topic →
+# section → entry), so e.g. an 85 KB Models section becomes per-model files
+# behind a sub-index. Depth is capped: entries below H4 don't split further.
+_MAX_CHUNK_DEPTH = 2
 
+
+def _strip_dangling_headings(preamble: str) -> str:
+    """A split below the top level leaves the wrapping heading dangling at
+    the end of the preamble — drop trailing heading-only/blank lines."""
+    lines = preamble.splitlines()
+    while lines and (not lines[-1].strip() or lines[-1].startswith("#")):
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def _chunk_level(rule: dict, title: str, index_title: str, body: str,
+                 rel_dir: str, intro: str, level: int, depth: int) -> dict:
+    """Chunk `body` at `level` headings into files under `rel_dir`/ and
+    return {rel_path: content} including `rel_dir`.md as the routing index.
+
+    Recurses one level deeper for sections that are still oversized and have
+    enough subsections, turning the section file into a sub-index.
+    """
+    preamble = ""
+    sections: list[tuple[str, str]] = []
+    for lv in (level, level + 1):
+        preamble, sections = _split_h2_sections(body, lv)
+        if len(sections) >= 2:
+            level = lv
+            break
+    preamble = _strip_dangling_headings(preamble)
+
+    dirname = rel_dir.rsplit("/", 1)[-1]
     out: dict[str, str] = {}
     rows: list[str] = []
     seen: dict[str, int] = {}
@@ -1331,20 +1352,32 @@ def _chunk_topic_file(rule: dict, level: int = 2) -> dict:
             slug = f"{slug}-{seen[slug]}"
         else:
             seen[slug] = 1
-        chunk_body = f"# {topic.replace('-', ' ').title()}: {heading}\n\n{text}\n"
-        out[f"{topic}/{slug}.md"] = _render_claude({**rule, "body": chunk_body})
+        chunk_title = f"{title}: {heading}"
+        chunk_body = f"# {chunk_title}\n\n{text}\n"
+        rel_path = f"{rel_dir}/{slug}.md"
+        rendered = _render_claude({**rule, "body": chunk_body})
+        _, subsections = _split_h2_sections(text, level + 1)
+        if (depth < _MAX_CHUNK_DEPTH
+                and len(rendered.encode("utf-8")) > _CHUNK_THRESHOLD_BYTES
+                and len(subsections) >= 2):
+            out.update(_chunk_level(
+                rule, chunk_title, chunk_title, text, f"{rel_dir}/{slug}",
+                f"This section is chunked. Load only the entry file(s) under "
+                f"`{slug}/` relevant to your task — this index is the routing table.",
+                level + 1, depth + 1,
+            ))
+        else:
+            out[rel_path] = rendered
         summary = _section_summary(text)
         rows.append(
-            f"| {_escape_table_cell(heading)} | [`{topic}/{slug}.md`]({topic}/{slug}.md) "
+            f"| {_escape_table_cell(heading)} | [`{dirname}/{slug}.md`]({dirname}/{slug}.md) "
             f"| ~{_est_tokens(chunk_body)} | {_escape_table_cell(summary)} |"
         )
 
     index_lines = [
-        f"# {rule.get('description') or topic}",
+        f"# {index_title}",
         "",
-        f"This topic is chunked. Load only the section file(s) under "
-        f"`.claude/rules/{topic}/` relevant to your task — this index is the "
-        f"routing table.",
+        intro,
         "",
         "| Section | File | ~Tokens | Contains |",
         "|---------|------|---------|----------|",
@@ -1352,10 +1385,29 @@ def _chunk_topic_file(rule: dict, level: int = 2) -> dict:
     ]
     if preamble:
         index_lines += ["", preamble]
-    out[f"{topic}.md"] = _render_claude(
+    out[f"{rel_dir}.md"] = _render_claude(
         {**rule, "body": "\n".join(index_lines).rstrip() + "\n"}
     )
     return out
+
+
+def _chunk_topic_file(rule: dict, level: int = 2) -> dict:
+    """Return {relative_path: content} for one oversized topic rule:
+    `<topic>.md` index + `<topic>/<section-slug>.md` chunks (recursing into
+    `<topic>/<section>/<entry>.md` when a section is itself oversized)."""
+    topic = rule["topic"]
+    return _chunk_level(
+        rule,
+        topic.replace("-", " ").title(),
+        rule.get("description") or topic,
+        rule["body"],
+        topic,
+        f"This topic is chunked. Load only the section file(s) under "
+        f"`.claude/rules/{topic}/` relevant to your task — this index is the "
+        f"routing table.",
+        level,
+        1,
+    )
 
 
 def _render_topic_files(rule: dict) -> dict:
@@ -2347,6 +2399,10 @@ def cleanup_stale_rule_files(project_root: Path, files: dict) -> list[str]:
             rel = str(md.relative_to(project_root))
             if rel not in files:
                 _rm(md)
+        # Prune empty dirs bottom-up (nested entry dirs first, then the topic dir).
+        for sub in sorted((d for d in chunk_dir.rglob("*") if d.is_dir()), reverse=True):
+            if not any(sub.iterdir()):
+                sub.rmdir()
         if not any(chunk_dir.iterdir()):
             chunk_dir.rmdir()
     # Stale enforcement by-topic files (topic disappeared from rules.json).

@@ -53,11 +53,26 @@ def test_large_topic_chunks_into_index_plus_sections() -> None:
 
     chunks = [p for p in files if p.startswith(".claude/rules/patterns/")]
     assert ".claude/rules/patterns/communication-patterns.md" in chunks
-    # Index must reference every chunk it emitted.
+    # Every chunk must be reachable from its parent index (top index for
+    # section files, the section sub-index for recursed entry files).
     for p in chunks:
-        assert p.removeprefix(".claude/rules/") in index
+        parent_index = files[str(Path(p).parent) + ".md"]
+        assert f"/{Path(p).name})" in parent_index
     # Index is small relative to the would-be monolith.
     assert len(index.encode()) < renderer._CHUNK_THRESHOLD_BYTES
+
+
+def test_oversized_section_recurses_into_entry_chunks() -> None:
+    files = renderer.generate_all(_patterns_blueprint(30))
+    sub_index = files[".claude/rules/patterns/communication-patterns.md"]
+    assert "This section is chunked" in sub_index
+    entries = [p for p in files
+               if p.startswith(".claude/rules/patterns/communication-patterns/")]
+    assert len(entries) == 30
+    entry = files[".claude/rules/patterns/communication-patterns/pattern-0.md"]
+    assert entry.startswith("# Patterns: Communication Patterns: Pattern 0")
+    # Recursion is depth-capped: entry files never spawn their own dirs.
+    assert not any(p.count("/") > 4 for p in entries)
 
 
 def test_chunk_carries_topic_and_section_heading() -> None:

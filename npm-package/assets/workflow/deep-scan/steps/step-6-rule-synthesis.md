@@ -372,6 +372,13 @@ python3 .archie/extract_output.py rules .archie/tmp/archie_rules_$PROJECT_NAME.j
 
 **IMPORTANT: Do NOT try to extract or parse JSON yourself. Do NOT copy the agent's transcript. Always use the pre-installed scripts on the file the agent already wrote.**
 
+On a rerun (rules.json already had rules), the extractor routes brand-new rule
+ids to `.archie/proposed_rules.json` instead of activating them — the user
+adopts or rejects them in the viewer's Rules card before hooks enforce them.
+If the extractor printed a `NEW rule(s) -> proposed_rules.json` line, tell the
+user in your final summary how many rules await review and that they can adopt
+them in the Archie viewer's Rules card.
+
 Build the Phase 2 trigger index so the pre-validate hook can narrow candidates fast on every edit:
 
 ```bash
