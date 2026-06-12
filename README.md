@@ -72,9 +72,6 @@ Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --increme
               14 warnings (sync I/O in async paths, monolith routers, compat-hook CRUD leak, …)
               — each verified against its triggering call site before it ships
 
-  Top risks:  IPC security hole · API key exposure · stale WebSocket state ·
-              circular deps & layer violations · duplicate startup handler
-
   Archie is now active. Rules will be enforced on every code change.
   Run /archie-deep-scan --incremental after code changes to refresh the analysis.
 ```

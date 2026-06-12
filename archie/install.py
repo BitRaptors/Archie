@@ -97,15 +97,25 @@ def _clean_legacy_layout(project_root: Path) -> None:
     except OSError:
         pass
 
-    # Retired pipeline scripts — remove on upgrade so stale copies don't linger
-    # in .archie/. (The npm installer wipes all .py files before copying; this
-    # pip path copies over without sweeping, so retired names need an explicit
-    # delete.)
-    for retired in ("drift.py",):
+    # Retired pipeline scripts AND drift-step data artifacts — remove on upgrade
+    # so stale copies don't linger in .archie/ and stale reports can't be
+    # mistaken for (or shipped as) current output. The npm installer wipes all
+    # .py files before copying, but data artifacts survive both install paths
+    # without this explicit sweep. This is the canonical retirement point: it
+    # is $PROJECT_ROOT-anchored, covered by the install allowlist, and runs for
+    # every workspace — the deep-scan workflow deliberately does NOT rm these.
+    for retired in (
+        "drift.py",               # mechanical drift scanner (step retired in 2.10)
+        "drift_report.json",      # mechanical + deep drift findings
+        "drift_diff.json",        # drift.py's snapshot diff
+        "scan_report.md",         # LLM-written scan report (Step 9 Phase 4)
+        "semantic_duplications.json",  # Agent C duplications; nothing emits it anymore
+    ):
         try:
             (project_root / ".archie" / retired).unlink()
         except OSError:
             pass
+    shutil.rmtree(project_root / ".archie" / "drift_history", ignore_errors=True)
 
     current_command_names = {c.name for c in COMMANDS}
 

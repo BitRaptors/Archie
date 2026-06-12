@@ -57,15 +57,6 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
-def _read_text(path: Path) -> str | None:
-    if not path.exists():
-        return None
-    try:
-        return path.read_text()
-    except OSError:
-        return None
-
-
 TOP_N_HIGH_CC = 20
 TOP_N_DUPLICATES = 10
 
@@ -195,9 +186,11 @@ def build_bundle(project_root: Path) -> dict:
     # .archie/semantic_duplications.json was Agent C's output from the retired
     # scan flow; the deep-scan drift agent (the other historical source, via
     # drift_report.json) was removed along with the drift step, and no current
-    # pipeline emits semantic duplications. Projects that still carry the
-    # legacy file keep their count on the share cover; everyone else falls back
-    # to health.json's mechanical line-clone metric.
+    # pipeline emits semantic duplications. The installer's legacy sweep
+    # (install.py::_clean_legacy_layout) deletes the file on upgrade, so this
+    # read only fires for shares made before the next `npx @bitraptors/archie`
+    # run; after that the share cover falls back to health.json's mechanical
+    # line-clone metric. Kept so pre-upgrade shares don't lose data mid-flight.
     #
     # Distinct from health.json's textual duplicates (line-identical copy-
     # paste): this field describes near-twin functions / reimplementations.

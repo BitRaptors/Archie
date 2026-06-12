@@ -358,7 +358,7 @@ Project-specific bulks (e.g. a 20k-key product catalog, a giant CLDR dump) are a
 
 Each command is a thin shim (`.claude/commands/archie-*.md` for Claude, `.agents/skills/archie-*/SKILL.md` for Codex) that points at the command's rendered workflow under `.archie/workflow/<cli>/<command>/SKILL.md`. `/archie-deep-scan`'s `SKILL.md` is an orchestrator/router with self-contained per-step files (`steps/`, `fragments/`, `templates/`); the other commands have a single `SKILL.md`. The step split keeps each step independently readable and lets the pipeline survive `/compact` and resume via `--continue` / `--from N`. The orchestrator pattern:
 
-1. Calling standalone Python scripts for deterministic steps (`scanner.py`, `measure_health.py`, `detect_cycles.py`, `finalize.py`, `extract_output.py`, `drift.py`, `intent_layer.py`, `telemetry.py`).
+1. Calling standalone Python scripts for deterministic steps (`scanner.py`, `measure_health.py`, `detect_cycles.py`, `finalize.py`, `extract_output.py`, `intent_layer.py`, `telemetry.py`).
 2. Spawning subagents via the Agent tool for AI steps (3–4 parallel Sonnets in Wave 1, one Opus in Wave 2, one Sonnet for rule synthesis, N Sonnets for Intent Layer if opted in).
 3. Using `AskUserQuestion` for all single-choice prompts (scope picker, parallel/sequential, Intent Layer opt-in) — no free-text answers to parse.
 
@@ -687,7 +687,7 @@ Zero-dependency Python scripts in `archie/standalone/`. These are exported to ta
 | `migrate_blueprint_rules.py` | Migrates legacy blueprint-derived rule sections (pre-3.0) into `proposed_rules.json` |
 | `arch_review.py` | Architectural review checklist for plans and diffs |
 | `refresh.py` | File change detection (hash comparison) |
-| `extract_output.py` | Subcommands: `rules`, `deep-drift`, `recent-files`, `save-duplications` |
+| `extract_output.py` | Subcommands: `rules`, `save-duplications` |
 | `telemetry.py` | Per-run step-level wall-clock timing → `.archie/telemetry/<command>_<ts>.json`. Subcommands: `mark`, `finish`, `extra`, `read`, `write`, `clear`, `steps-count` |
 | `telemetry_sync.py` | Anonymous opt-in usage telemetry — records events to `~/.archie/analytics/runs.jsonl` and pushes to the Supabase `telemetry-ingest` function. Subcommands incl. `record-event`, `record-install`, `post-run`, `status`, `purge` |
 | `update_check.py` | Anonymous opt-in npm-registry update check (cached, snooze ladder 24h→48h→7d). Prints `UPGRADE_AVAILABLE` / `JUST_UPGRADED` markers for slash-command preambles |
@@ -900,7 +900,7 @@ Slash commands at `.claude/commands/` — 4 shim files written by `ClaudeConnect
 
 All choice prompts in scan/deep-scan use the `{{>ask_user}}` partial, which renders to `AskUserQuestion` for Claude (monorepo scope picker, parallel/sequential, Intent Layer opt-in) — no free-text answers to parse. The scope (Step C) and Intent Layer (Step E) prompts are **mandatory decision gates**: the workflow instructs the agent to ask them even under a "no clarifying questions" harness mode, since they change which trees get scanned and what files get written.
 
-The rendered deep-scan tree (`.archie/workflow/claude/deep-scan/`) is the pipeline itself: `SKILL.md` is the orchestrator/router; `steps/` holds one file per pipeline step (Step 3 fans out into `step-3-wave1/` with a prompt file per Wave 1 agent); `fragments/` holds the cross-step telemetry and `/compact`-resume contracts; `templates/` holds the scan-report template. The dispatch partials render to Agent tool calls — Wave-1 fans out by emitting all Agent tool calls in a single message.
+The rendered deep-scan tree (`.archie/workflow/claude/deep-scan/`) is the pipeline itself: `SKILL.md` is the orchestrator/router; `steps/` holds one file per pipeline step (Step 3 fans out into `step-3-wave1/` with a prompt file per Wave 1 agent); `fragments/` holds the cross-step telemetry and `/compact`-resume contracts. The dispatch partials render to Agent tool calls — Wave-1 fans out by emitting all Agent tool calls in a single message.
 
 `ClaudeConnector.finalize` writes hook event registrations + the `permissions.allow` array into `.claude/settings.local.json` so `python3 .archie/*.py`, `Agent(*)`, `Read(.archie/**)`, `Write(**/CLAUDE.md)` and the rest of the workflow runs prompt-free.
 

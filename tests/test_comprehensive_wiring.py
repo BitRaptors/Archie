@@ -56,6 +56,18 @@ def test_incremental_recency_sweep_is_wired():
     assert "These files changed" in risk  # the body names the preamble marker it keys on
 
 
+def test_incremental_changed_files_survive_resume():
+    """changed_files lives only in conversation memory (deliberately not
+    persisted) — so both the Wave 2 dispatch and the Resume Prelude must tell
+    the orchestrator to regenerate it via detect-changes after /compact,
+    --continue, or --from. Without this, the recency sweep silently no-ops on
+    every resumed incremental run."""
+    wave2 = _read(STEPS / "step-5-wave2-reasoning.md")
+    assert "detect-changes" in wave2 and "no longer in context" in wave2
+    prelude = _read(WF / "fragments" / "resume-prelude.md")
+    assert "detect-changes" in prelude and "SCAN_MODE=incremental" in prelude
+
+
 CONTRACT = "COMPREHENSIVE MODE — be exhaustive"
 
 
@@ -87,7 +99,9 @@ def test_npm_package_workflow_in_sync():
     """Spot-check: the npm-package mirror of the wired steps matches canonical."""
     for rel in ("steps/step-1-scanner.md", "steps/step-6-rule-synthesis.md",
                 "steps/step-5-wave2-reasoning.md", "steps/step-5b-risk.md",
-                "steps/step-9-finalize.md", "steps/step-3-wave1/orchestration.md"):
+                "steps/step-8-cleanup.md", "steps/step-9-finalize.md",
+                "steps/step-3-wave1/orchestration.md",
+                "fragments/resume-prelude.md"):
         canon = _read(WF / rel)
         mirror = _read(Path("npm-package/assets/workflow/deep-scan") / rel)
         assert canon == mirror, f"out of sync: {rel}"

@@ -940,6 +940,19 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None, label:
         except Exception:
             print(json.dumps({"mode": "full", "reason": "git diff failed"}))
             return
+        # Honor .archieignore/.gitignore. git diff lists tracked files even
+        # when they're .archieignore'd (git doesn't know that file), so
+        # vendored/generated paths would otherwise count toward the
+        # incremental threshold AND get read by the Risk agent's recency
+        # sweep. Best-effort: a broken ignore file must not kill detection.
+        try:
+            matcher = IgnoreMatcher(root)
+            changed = [
+                f for f in changed
+                if not matcher.is_ignored(f.replace(os.sep, "/"))
+            ]
+        except Exception:
+            pass
         # Count total files
         scan = _load_json(root / ".archie" / "scan.json")
         total = len(scan.get("file_tree", []))

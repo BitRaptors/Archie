@@ -7,8 +7,8 @@
 # were yours. Re-running the installer recreates them.
 #
 # The architecture snapshot you MAY want to commit lives alongside these and is
-# deliberately NOT ignored: blueprint.json, rules.json, scan_report.md,
-# findings.json, health.json, c4.json, etc.
+# deliberately NOT ignored: blueprint.json, rules.json, findings.json,
+# health.json, c4.json, etc.
 
 _install_pkg/
 viewer/
