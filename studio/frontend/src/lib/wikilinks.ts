@@ -3,7 +3,8 @@ export interface PrdFileRef {
   path: string
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/\.md$/, '')
+// Spaces and hyphens are equivalent so [[Login Flow]] finds login-flow.md.
+const norm = (s: string) => s.toLowerCase().replace(/\.md$/, '').replace(/[\s-]+/g, '-')
 
 // Obsidian-style resolution: bare names match by basename (case-insensitive,
 // .md optional); names containing '/' match as a path suffix on segment

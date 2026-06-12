@@ -21,6 +21,10 @@ describe('resolveWikilink', () => {
     expect(resolveWikilink('old/login-flow', files)).toBe('archive/old/login-flow.md')
   })
 
+  it('treats spaces and hyphens as equivalent', () => {
+    expect(resolveWikilink('Login Flow', files)).toBe('features/login-flow.md')
+  })
+
   it('returns null when unresolved', () => {
     expect(resolveWikilink('missing-doc', files)).toBeNull()
   })
