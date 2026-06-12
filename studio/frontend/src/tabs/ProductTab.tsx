@@ -6,6 +6,29 @@ import { BookOpen, ChevronDown, ChevronRight, FileText, FolderPlus, RefreshCw } 
 import { parseFrontmatter } from '../lib/frontmatter'
 import { transformWikilinks, type PrdFileRef } from '../lib/wikilinks'
 import FolderBrowser from '../components/FolderBrowser'
+import { MermaidDiagram } from '@/components/MermaidDiagram'
+
+interface HastNode {
+  type: string
+  value?: string
+  tagName?: string
+  properties?: { className?: unknown }
+  children?: HastNode[]
+}
+
+function hastText(node: HastNode | undefined): string {
+  if (!node) return ''
+  if (node.type === 'text') return node.value ?? ''
+  return (node.children ?? []).map(hastText).join('')
+}
+
+function mermaidChart(preNode: HastNode | undefined): string | null {
+  const code = preNode?.children?.[0]
+  if (code?.type !== 'element' || code.tagName !== 'code') return null
+  const cls = code.properties?.className
+  if (!Array.isArray(cls) || !cls.includes('language-mermaid')) return null
+  return hastText(code)
+}
 
 interface TreeNode {
   type: 'dir' | 'file'
@@ -296,6 +319,13 @@ export default function ProductTab() {
                     : defaultUrlTransform(url)
                 }
                 components={{
+                  // Fenced ```mermaid blocks render as diagrams (the viewer's
+                  // component), not as highlighted code.
+                  pre: ({ node, children, ...props }) => {
+                    const chart = mermaidChart(node as HastNode | undefined)
+                    if (chart !== null) return <MermaidDiagram chart={chart} />
+                    return <pre {...props}>{children}</pre>
+                  },
                   a: ({ node: _node, href, children, ...props }) => {
                     if (href?.startsWith('wikilink:')) {
                       const raw = href.slice('wikilink:'.length)
