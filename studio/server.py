@@ -216,24 +216,42 @@ def compute_prd_sources(root: Path, explicit: list[Path]) -> list[dict]:
             continue
         kept.append(path)
         sources.append({"root": str(path), "label": _label_for(root, path), "kind": kind})
-    return sources
+
+    # Each detected folder gets a companion "docs" section for its OTHER
+    # markdown (added after dedupe — it shares the detected source's path).
+    # May be empty; the frontend hides empty docs sections.
+    result = []
+    for s in sources:
+        result.append(s)
+        if s["kind"] == "detected":
+            result.append(dict(s, kind="docs"))
+    return result
 
 
-def _source_tree(source: dict) -> list[dict]:
-    """Explicit/convention sources show every .md recursively; detected sources
-    only the PRD-named files directly in the dir (nested hits are own sources)."""
-    path = Path(source["root"])
-    if source["kind"] != "detected":
-        return build_prd_tree(path)
+def _flat_md_files(path: Path, *, prd_named: bool) -> list[dict]:
     try:
         files = sorted(
             (c for c in path.iterdir()
-             if c.is_file() and not c.is_symlink() and _is_prd_filename(c.name)),
+             if c.is_file() and not c.is_symlink()
+             and c.name.lower().endswith(".md")
+             and _is_prd_filename(c.name) == prd_named),
             key=lambda p: p.name.lower(),
         )
     except OSError:
         return []
     return [{"type": "file", "name": f.name, "path": f.name} for f in files]
+
+
+def _source_tree(source: dict) -> list[dict]:
+    """Explicit/convention sources show every .md recursively. Detected sources
+    show only the PRD-named files directly in the dir (nested hits are own
+    sources); their "docs" companion shows the dir's other markdown."""
+    path = Path(source["root"])
+    if source["kind"] == "detected":
+        return _flat_md_files(path, prd_named=True)
+    if source["kind"] == "docs":
+        return _flat_md_files(path, prd_named=False)
+    return build_prd_tree(path)
 
 
 class _FsError(Exception):
@@ -442,7 +460,8 @@ def initial_prd_state(root: Path, prd_arg: str | None) -> "tuple[Path | None, li
     promote them to explicit all-markdown mode.
     """
     sources = compute_prd_sources(root, _explicit_sources_for(root, prd_arg))
-    labels = [s["label"] for s in sources]
+    # companion "docs" sections share their detected sibling's label — skip them
+    labels = [s["label"] for s in sources if s["kind"] != "docs"]
     prd_root = None
     if prd_arg and (root / prd_arg).is_dir():
         prd_root = (root / prd_arg).resolve()

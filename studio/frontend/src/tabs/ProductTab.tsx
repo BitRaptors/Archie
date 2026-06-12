@@ -40,7 +40,9 @@ interface TreeNode {
 interface PrdSource {
   root: string
   label: string
-  kind: 'explicit' | 'convention' | 'detected'
+  // 'docs' = companion section: the other (non-PRD) markdown living in a
+  // detected folder. Rendered collapsed by default, hidden when empty.
+  kind: 'explicit' | 'convention' | 'detected' | 'docs'
   tree: TreeNode[]
 }
 
@@ -116,6 +118,36 @@ function TreeEntry({ node, selected, onSelect }: {
         {node.name.replace(/\.md$/, '')}
       </button>
     </li>
+  )
+}
+
+function SourceSection({ source, nodes, selected, onSelect }: {
+  source: PrdSource
+  nodes: TreeNode[]
+  selected: string | null
+  onSelect: (path: string) => void
+}) {
+  const isDocs = source.kind === 'docs'
+  const [open, setOpen] = useState(!isDocs)
+  return (
+    <div className="mb-3">
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-label={isDocs ? `${source.label} other docs` : source.label}
+        title={`${source.root} (${source.kind})`}
+        className="mb-1 flex w-full items-center gap-1 truncate px-2 font-mono text-xs text-muted-foreground hover:text-foreground"
+      >
+        {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
+        <span className="truncate">{source.label}</span>
+        {isDocs && (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] normal-case">
+            other docs
+          </span>
+        )}
+      </button>
+      {open && <TreeView nodes={nodes} selected={selected} onSelect={onSelect} />}
+    </div>
   )
 }
 
@@ -267,17 +299,17 @@ export default function ProductTab() {
             </button>
           </div>
         ) : sources ? (
-          sources.map((s, i) => (
-            <div key={s.root} className="mb-3">
-              <p
-                title={`${s.root} (${s.kind})`}
-                className="mb-1 truncate px-2 font-mono text-xs text-muted-foreground"
-              >
-                {s.label}
-              </p>
-              <TreeView nodes={virtualTrees[i]} selected={selected} onSelect={loadFile} />
-            </div>
-          ))
+          sources.map((s, i) =>
+            s.kind === 'docs' && s.tree.length === 0 ? null : (
+              <SourceSection
+                key={`${s.root}:${s.kind}`}
+                source={s}
+                nodes={virtualTrees[i]}
+                selected={selected}
+                onSelect={loadFile}
+              />
+            )
+          )
         ) : (
           <p className="px-2 text-sm text-muted-foreground">Loading…</p>
         )}

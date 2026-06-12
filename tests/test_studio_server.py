@@ -261,12 +261,22 @@ def test_prd_tree_detects_prd_named_files(kavosz_like: Path):
     app, port = _start(kavosz_like, None)
     try:
         body = _get_json(port, "/api/prd/tree")
-        assert len(body["sources"]) == 1
-        src = body["sources"][0]
-        assert src["kind"] == "detected"
-        assert src["label"] == "@docs"
-        names = [n["name"] for n in src["tree"]]
-        assert names == ["plan-audit.prd.md", "prd.md"]  # architecture.md excluded
+        assert len(body["sources"]) == 2
+        prd_src, docs_src = body["sources"]
+        assert prd_src["kind"] == "detected"
+        assert prd_src["label"] == "@docs"
+        assert [n["name"] for n in prd_src["tree"]] == ["plan-audit.prd.md", "prd.md"]
+        # companion section: the same folder's OTHER markdown, separated
+        assert docs_src["kind"] == "docs"
+        assert docs_src["label"] == "@docs"
+        assert [n["name"] for n in docs_src["tree"]] == ["architecture.md"]
+        # files from the companion section are fetchable too
+        content = _get_json(
+            port,
+            "/api/prd/file?root=" + urllib.parse.quote(docs_src["root"])
+            + "&path=architecture.md",
+        )
+        assert content["content"] == "# Not a PRD"
     finally:
         app.shutdown()
 
@@ -279,8 +289,9 @@ def test_prd_tree_combines_convention_and_detected(project: Path):
     try:
         body = _get_json(port, "/api/prd/tree")
         assert [(s["kind"], s["label"]) for s in body["sources"]] == [
-            ("convention", "docs/prd"), ("detected", "@docs"),
+            ("convention", "docs/prd"), ("detected", "@docs"), ("docs", "@docs"),
         ]
+        assert body["sources"][2]["tree"] == []  # no other markdown in @docs here
     finally:
         app.shutdown()
 
