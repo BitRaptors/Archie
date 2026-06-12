@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -49,6 +49,7 @@ function TreeEntry({ node, selected, onSelect }: {
       <li>
         <button
           onClick={() => setOpen(!open)}
+          aria-expanded={open}
           className="flex w-full items-center gap-1 rounded px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-muted"
         >
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -66,6 +67,7 @@ function TreeEntry({ node, selected, onSelect }: {
     <li>
       <button
         onClick={() => onSelect(node.path)}
+        aria-current={selected === node.path ? 'true' : undefined}
         className={`flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm ${
           selected === node.path ? 'bg-teal/10 text-teal' : 'hover:bg-muted'
         }`}
@@ -82,36 +84,56 @@ export default function ProductTab() {
   const [selected, setSelected] = useState<string | null>(null)
   const [content, setContent] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [treeError, setTreeError] = useState<string | null>(null)
+  // Monotonic request id: only the latest loadFile call may commit state, so a
+  // slow response for file A can't overwrite file B's content.
+  const reqSeq = useRef(0)
+
+  const loadTree = useCallback(() => {
+    setTreeError(null)
+    fetch('/api/prd/tree')
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.json()).error ?? `HTTP ${r.status}`)
+        return r.json()
+      })
+      .then(setTree)
+      .catch(() => setTreeError('Could not load the PRD file tree.'))
+  }, [])
 
   useEffect(() => {
-    fetch('/api/prd/tree')
-      .then((r) => r.json())
-      .then(setTree)
-      .catch(() => setError('Could not load the PRD file tree.'))
-  }, [])
+    loadTree()
+  }, [loadTree])
 
   const files = useMemo(() => (tree ? flattenFiles(tree.tree) : []), [tree])
 
   const loadFile = useCallback((path: string) => {
+    const seq = ++reqSeq.current
     setSelected(path)
+    setContent('')
     setError(null)
     fetch(`/api/prd/file?path=${encodeURIComponent(path)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error((await r.json()).error ?? `HTTP ${r.status}`)
         return r.json()
       })
-      .then((d) => setContent(d.content))
-      .catch((e) => setError(String(e.message ?? e)))
+      .then((d) => {
+        if (seq === reqSeq.current) setContent(d.content)
+      })
+      .catch((e) => {
+        if (seq === reqSeq.current) setError(String(e.message ?? e))
+      })
   }, [])
 
-  // Edits made in Obsidian show up when you tab back to the browser.
+  // Edits made in Obsidian show up when you tab back to the browser — refresh
+  // both the tree (new files) and the open document (changed content).
   useEffect(() => {
     const onFocus = () => {
+      loadTree()
       if (selected) loadFile(selected)
     }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [selected, loadFile])
+  }, [selected, loadFile, loadTree])
 
   if (tree && tree.prd_root === null) {
     return (
@@ -135,7 +157,14 @@ export default function ProductTab() {
         <h2 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Product knowledge
         </h2>
-        {tree ? (
+        {treeError ? (
+          <div className="space-y-2 px-2 text-sm">
+            <p className="text-muted-foreground">{treeError}</p>
+            <button onClick={loadTree} className="flex items-center gap-1 text-teal">
+              <RefreshCw size={14} /> Retry
+            </button>
+          </div>
+        ) : tree ? (
           <TreeView nodes={tree.tree} selected={selected} onSelect={loadFile} />
         ) : (
           <p className="px-2 text-sm text-muted-foreground">Loading…</p>
@@ -180,7 +209,13 @@ export default function ProductTab() {
                 components={{
                   a: ({ node: _node, href, children, ...props }) => {
                     if (href?.startsWith('wikilink:')) {
-                      const target = decodeURIComponent(href.slice('wikilink:'.length))
+                      const raw = href.slice('wikilink:'.length)
+                      let target = raw
+                      try {
+                        target = decodeURIComponent(raw)
+                      } catch {
+                        // Hand-authored malformed escape (e.g. %zz): keep the raw slice.
+                      }
                       return (
                         <a
                           {...props}
