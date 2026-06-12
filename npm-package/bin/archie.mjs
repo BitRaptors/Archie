@@ -428,6 +428,12 @@ try {
   hasPython = true;
 } catch { /* noop */ }
 
+// The Python connector loop writes the actual deliverable (slash commands +
+// rendered workflow). If it is skipped or fails, the install is NOT usable —
+// track that and fail loudly at the end instead of printing "Installed!".
+let shimsInstalled = false;
+let shimFailureReason = "";
+
 if (hasPython) {
   const targetValue = await chooseTargets();
   const env = {
@@ -443,12 +449,14 @@ if (hasPython) {
     env,
     stdio: "inherit",
   });
-  if (result.status !== 0) {
-    console.log(`  ${DIM}⚠ Python install loop exited with status ${result.status}${RESET}`);
+  if (result.status === 0) {
+    shimsInstalled = true;
+  } else {
+    shimFailureReason = `the Python install step exited with status ${result.status} (see error above). ` +
+      "Check `python3 --version` — Archie requires Python 3.9+.";
   }
 } else {
-  console.log("");
-  console.log("  ⚠ python3 not found — Claude/Codex shims not written. Install Python 3.9+ and re-run.");
+  shimFailureReason = "python3 was not found on PATH. Install Python 3.9+ and re-run `npx @bitraptors/archie`.";
 }
 
 const viewerSrc = join(ASSETS, "viewer");
@@ -498,6 +506,19 @@ function writeArchieVersionMarker() {
 }
 
 writeArchieVersionMarker();
+
+if (!shimsInstalled) {
+  console.error("");
+  console.error(`${BOLD}\x1b[31m  Install INCOMPLETE — no Claude/Codex commands were written.\x1b[0m`);
+  console.error("");
+  console.error(`  Reason: ${shimFailureReason}`);
+  console.error("");
+  console.error("  Support scripts were copied to .archie/, but /archie-deep-scan and the");
+  console.error("  other slash commands will NOT appear in your coding agent until this is");
+  console.error("  fixed and the installer is re-run.");
+  console.error("");
+  process.exit(1);
+}
 
 console.log("");
 console.log(`${BOLD}  Installed!${RESET}`);
