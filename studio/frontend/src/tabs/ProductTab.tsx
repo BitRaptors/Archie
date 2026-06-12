@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { BookOpen, ChevronDown, ChevronRight, FileText, RefreshCw } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, FileText, FolderPlus, RefreshCw } from 'lucide-react'
 import { parseFrontmatter } from '../lib/frontmatter'
 import { transformWikilinks, type PrdFileRef } from '../lib/wikilinks'
+import FolderBrowser from '../components/FolderBrowser'
 
 interface TreeNode {
   type: 'dir' | 'file'
@@ -13,9 +14,25 @@ interface TreeNode {
   children?: TreeNode[]
 }
 
-interface PrdTreeResponse {
-  prd_root: string | null
+interface PrdSource {
+  root: string
+  label: string
+  kind: 'explicit' | 'convention' | 'detected'
   tree: TreeNode[]
+}
+
+interface PrdTreeResponse {
+  sources: PrdSource[]
+}
+
+// Selection and wikilink targets use "virtual" paths — `${sourceIndex}/${rel}` —
+// so files from multiple PRD sources can't collide on equal relative paths.
+function withVirtualPaths(nodes: TreeNode[], prefix: string): TreeNode[] {
+  return nodes.map((n) => ({
+    ...n,
+    path: `${prefix}/${n.path}`,
+    children: n.children ? withVirtualPaths(n.children, prefix) : undefined,
+  }))
 }
 
 function flattenFiles(nodes: TreeNode[]): PrdFileRef[] {
@@ -80,11 +97,12 @@ function TreeEntry({ node, selected, onSelect }: {
 }
 
 export default function ProductTab() {
-  const [tree, setTree] = useState<PrdTreeResponse | null>(null)
+  const [sources, setSources] = useState<PrdSource[] | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [content, setContent] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
+  const [addingFolder, setAddingFolder] = useState(false)
   // Monotonic request id: only the latest loadFile call may commit state, so a
   // slow response for file A can't overwrite file B's content.
   const reqSeq = useRef(0)
@@ -96,7 +114,7 @@ export default function ProductTab() {
         if (!r.ok) throw new Error((await r.json()).error ?? `HTTP ${r.status}`)
         return r.json()
       })
-      .then(setTree)
+      .then((d: PrdTreeResponse) => setSources(d.sources))
       .catch(() => setTreeError('Could not load the PRD file tree.'))
   }, [])
 
@@ -104,14 +122,23 @@ export default function ProductTab() {
     loadTree()
   }, [loadTree])
 
-  const files = useMemo(() => (tree ? flattenFiles(tree.tree) : []), [tree])
+  // Each source's tree re-keyed with virtual paths (`${index}/${rel}`).
+  const virtualTrees = useMemo(
+    () => (sources ?? []).map((s, i) => withVirtualPaths(s.tree, String(i))),
+    [sources]
+  )
+  const files = useMemo(() => virtualTrees.flatMap((t) => flattenFiles(t)), [virtualTrees])
 
-  const loadFile = useCallback((path: string) => {
+  const loadFile = useCallback((virtualPath: string) => {
+    const slash = virtualPath.indexOf('/')
+    const source = sources?.[Number(virtualPath.slice(0, slash))]
+    const rel = virtualPath.slice(slash + 1)
+    if (!source) return
     const seq = ++reqSeq.current
-    setSelected(path)
+    setSelected(virtualPath)
     setContent('')
     setError(null)
-    fetch(`/api/prd/file?path=${encodeURIComponent(path)}`)
+    fetch(`/api/prd/file?root=${encodeURIComponent(source.root)}&path=${encodeURIComponent(rel)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error((await r.json()).error ?? `HTTP ${r.status}`)
         return r.json()
@@ -122,6 +149,18 @@ export default function ProductTab() {
       .catch((e) => {
         if (seq === reqSeq.current) setError(String(e.message ?? e))
       })
+  }, [sources])
+
+  const addSource = useCallback(async (path: string) => {
+    const r = await fetch('/api/prd/source', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    })
+    if (!r.ok) throw new Error((await r.json()).error ?? `HTTP ${r.status}`)
+    const d: PrdTreeResponse = await r.json()
+    setSources(d.sources)
+    setAddingFolder(false)
   }, [])
 
   // Edits made in Obsidian show up when you tab back to the browser — refresh
@@ -135,15 +174,35 @@ export default function ProductTab() {
     return () => window.removeEventListener('focus', onFocus)
   }, [selected, loadFile, loadTree])
 
-  if (tree && tree.prd_root === null) {
+  const folderBrowserModal = addingFolder && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <FolderBrowser
+        title="Add a PRD folder"
+        subtitle="Pick any folder containing PRD markdown files (inside or outside the project)."
+        chooseLabel="Use this folder"
+        onChoose={addSource}
+        onCancel={() => setAddingFolder(false)}
+      />
+    </div>
+  )
+
+  if (sources && sources.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
         <BookOpen size={40} className="text-muted-foreground" />
-        <h2 className="text-lg font-semibold">No PRD folder found</h2>
+        <h2 className="text-lg font-semibold">No PRD documents found</h2>
         <p className="max-w-md text-sm text-muted-foreground">
-          Put your PRD markdown files in <code>docs/prd/</code> (or <code>prd/</code>)
-          inside the project, or launch with <code>--prd path/to/folder</code>.
+          Studio looks for <code>docs/prd/</code>, <code>prd/</code>, and any folder
+          with PRD-named markdown files (like <code>spec.prd.md</code>). None matched
+          in this project.
         </p>
+        <button
+          onClick={() => setAddingFolder(true)}
+          className="mt-2 flex items-center gap-2 rounded-md bg-teal px-4 py-2 text-sm font-medium text-white hover:bg-teal-600"
+        >
+          <FolderPlus size={15} /> Choose PRD folder
+        </button>
+        {folderBrowserModal}
       </div>
     )
   }
@@ -153,10 +212,21 @@ export default function ProductTab() {
 
   return (
     <div className="flex h-full">
+      {folderBrowserModal}
       <aside className="w-64 shrink-0 overflow-auto border-r border-border bg-card p-3">
-        <h2 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Product knowledge
-        </h2>
+        <div className="mb-2 flex items-center justify-between px-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Product knowledge
+          </h2>
+          <button
+            onClick={() => setAddingFolder(true)}
+            title="Add PRD folder"
+            aria-label="Add PRD folder"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <FolderPlus size={14} />
+          </button>
+        </div>
         {treeError ? (
           <div className="space-y-2 px-2 text-sm">
             <p className="text-muted-foreground">{treeError}</p>
@@ -164,8 +234,18 @@ export default function ProductTab() {
               <RefreshCw size={14} /> Retry
             </button>
           </div>
-        ) : tree ? (
-          <TreeView nodes={tree.tree} selected={selected} onSelect={loadFile} />
+        ) : sources ? (
+          sources.map((s, i) => (
+            <div key={s.root} className="mb-3">
+              <p
+                title={`${s.root} (${s.kind})`}
+                className="mb-1 truncate px-2 font-mono text-xs text-muted-foreground"
+              >
+                {s.label}
+              </p>
+              <TreeView nodes={virtualTrees[i]} selected={selected} onSelect={loadFile} />
+            </div>
+          ))
         ) : (
           <p className="px-2 text-sm text-muted-foreground">Loading…</p>
         )}

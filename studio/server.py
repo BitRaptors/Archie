@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import http.server
 import json
+import os
+import re
 import sys
 import webbrowser
 from pathlib import Path
@@ -80,6 +82,160 @@ def read_prd_file(prd_root: Path, rel: str) -> str | None:
         return None  # permission denied / vanished between check and read
 
 
+# --- PRD source discovery -----------------------------------------------------
+
+_PRD_SCAN_MAX_DEPTH = 4
+_PRD_SCAN_MAX_DIRS = 3000
+
+
+def _is_prd_filename(name: str) -> bool:
+    """True for markdown files whose name contains 'prd' as a token (prd.md,
+    PRD-login.md, plan-audit.prd.md) — not as a substring (comprd.md)."""
+    if not name.lower().endswith(".md"):
+        return False
+    return "prd" in re.split(r"[^a-z0-9]+", name.lower()[:-3])
+
+
+def detect_prd_dirs(root: Path) -> list[Path]:
+    """Dirs under root that directly contain PRD-named .md files.
+
+    Bounded walk (depth + visited-dir caps, hidden dirs and the viewer's skip
+    set excluded) so monorepos stay fast even when called per request.
+    """
+    found = []
+    budget = [_PRD_SCAN_MAX_DIRS]
+
+    def walk(d: Path, depth: int) -> None:
+        if depth > _PRD_SCAN_MAX_DEPTH or budget[0] <= 0:
+            return
+        budget[0] -= 1
+        try:
+            children = list(d.iterdir())
+        except OSError:
+            return
+        hit = False
+        for child in children:
+            if child.name.startswith(".") or child.is_symlink():
+                continue
+            try:
+                if child.is_dir():
+                    if child.name not in viewer._SKIP_DIRS:
+                        walk(child, depth + 1)
+                elif not hit and child.is_file() and _is_prd_filename(child.name):
+                    hit = True
+            except OSError:
+                continue
+        if hit:
+            found.append(d)
+
+    walk(root, 0)
+    return sorted(found)
+
+
+def _studio_config_path() -> Path:
+    env = os.environ.get("ARCHIE_STUDIO_CONFIG")
+    return Path(env) if env else Path.home() / ".archie" / "studio.json"
+
+
+def _load_explicit_sources(root: Path) -> list[Path]:
+    """User-picked PRD folders saved for this project (central config, so the
+    target repo is never written to)."""
+    try:
+        config = json.loads(_studio_config_path().read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    saved = config.get("projects", {}).get(str(root), {}).get("prd_sources", [])
+    out = []
+    for raw in saved if isinstance(saved, list) else []:
+        p = Path(raw)
+        if not p.is_absolute():
+            p = root / p
+        if p.is_dir():
+            out.append(p.resolve())
+    return out
+
+
+def _save_explicit_source(root: Path, source: Path) -> None:
+    path = _studio_config_path()
+    try:
+        config = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    sources = (config.setdefault("projects", {})
+               .setdefault(str(root), {})
+               .setdefault("prd_sources", []))
+    if str(source) not in sources:
+        sources.append(str(source))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(config, indent=2))
+    os.replace(tmp, path)
+
+
+def _explicit_sources_for(root: Path, prd_arg: str | None) -> list[Path]:
+    explicit = []
+    if prd_arg:
+        p = (root / prd_arg).resolve()
+        if p.is_dir():
+            explicit.append(p)
+    for p in _load_explicit_sources(root):
+        if p not in explicit:
+            explicit.append(p)
+    return explicit
+
+
+def _label_for(root: Path, source: Path) -> str:
+    try:
+        rel = source.relative_to(root)
+        return str(rel) if str(rel) != "." else source.name
+    except ValueError:
+        return str(source)  # outside the project (e.g. an Obsidian vault)
+
+
+def compute_prd_sources(root: Path, explicit: list[Path]) -> list[dict]:
+    """Ordered, deduped PRD sources: explicit picks, convention folders, detected.
+
+    A source nested inside (or equal to) an earlier one is dropped — its files
+    are already covered by the earlier source's recursive tree.
+    """
+    ordered = []
+    for p in explicit:
+        if p.is_dir():
+            ordered.append((p.resolve(), "explicit"))
+    for rel in PRD_DEFAULT_CANDIDATES:
+        cand = root / rel
+        if cand.is_dir():
+            ordered.append((cand.resolve(), "convention"))
+    for d in detect_prd_dirs(root):
+        ordered.append((d.resolve(), "detected"))
+
+    sources = []
+    kept = []
+    for path, kind in ordered:
+        if any(path == k or k in path.parents for k in kept):
+            continue
+        kept.append(path)
+        sources.append({"root": str(path), "label": _label_for(root, path), "kind": kind})
+    return sources
+
+
+def _source_tree(source: dict) -> list[dict]:
+    """Explicit/convention sources show every .md recursively; detected sources
+    only the PRD-named files directly in the dir (nested hits are own sources)."""
+    path = Path(source["root"])
+    if source["kind"] != "detected":
+        return build_prd_tree(path)
+    try:
+        files = sorted(
+            (c for c in path.iterdir()
+             if c.is_file() and not c.is_symlink() and _is_prd_filename(c.name)),
+            key=lambda p: p.name.lower(),
+        )
+    except OSError:
+        return []
+    return [{"type": "file", "name": f.name, "path": f.name} for f in files]
+
+
 class _FsError(Exception):
     def __init__(self, message: str, status_code: int = 400):
         super().__init__(message)
@@ -134,12 +290,16 @@ def _set_project(server: http.server.ThreadingHTTPServer, root: Path) -> None:
     ThreadingHTTPServer instantiates RequestHandlerClass per request, so
     replacing the class takes effect on the next request — no restart needed.
     """
-    prd_root = resolve_prd_root(root, server.studio_prd_arg)
+    root = root.resolve()
+    explicit = _explicit_sources_for(root, server.studio_prd_arg)
+    prd_root = explicit[0] if explicit else resolve_prd_root(root, None)
     server.studio_state = {"root": root, "prd_root": prd_root}
-    server.RequestHandlerClass = _make_studio_handler(root, prd_root, server.studio_dist_dir)
+    server.studio_explicit_prd = explicit
+    server.studio_prd_roots = None  # known-source cache, rebuilt on next tree call
+    server.RequestHandlerClass = _make_studio_handler(root, server.studio_dist_dir)
 
 
-def _make_studio_handler(root: Path | None, prd_root: Path | None, dist_dir: Path | None):
+def _make_studio_handler(root: Path | None, dist_dir: Path | None):
     # Base needs a Path even in picker mode (no project yet); a nonexistent
     # placeholder is safe because do_GET/do_POST below intercept every /api/*
     # before the viewer handlers can touch it.
@@ -162,27 +322,38 @@ def _make_studio_handler(root: Path | None, prd_root: Path | None, dist_dir: Pat
                 self._send_error(404, "No project selected")
                 return
             if parsed.path == "/api/prd/tree":
-                if prd_root is None:
-                    self._serve_json({"prd_root": None, "tree": []})
-                else:
-                    self._serve_json({"prd_root": str(prd_root),
-                                      "tree": build_prd_tree(prd_root)})
+                self._serve_json(self._prd_sources_payload())
                 return
             if parsed.path == "/api/prd/file":
-                if prd_root is None:
-                    self._send_error(404, "No PRD folder configured")
+                qs = parse_qs(parsed.query)
+                root_param = (qs.get("root") or [""])[0]
+                rel = (qs.get("path") or [""])[0]
+                if not root_param or not rel:
+                    self._send_error(400, "Missing ?root= or ?path= query parameter")
                     return
-                rel = (parse_qs(parsed.query).get("path") or [""])[0]
-                if not rel:
-                    self._send_error(400, "Missing ?path= query parameter")
+                known = self.server.studio_prd_roots
+                if known is None or root_param not in known:
+                    # cache may be cold on a fresh server — recompute before rejecting
+                    known = {s["root"] for s in self._compute_sources()}
+                    self.server.studio_prd_roots = known
+                if root_param not in known:
+                    self._send_error(404, "Unknown PRD source: " + root_param)
                     return
-                content = read_prd_file(prd_root, rel)
+                content = read_prd_file(Path(root_param), rel)
                 if content is None:
                     self._send_error(404, "PRD file not found: " + rel)
                     return
                 self._serve_json({"path": rel, "content": content})
                 return
             super().do_GET()
+
+        def _compute_sources(self) -> list[dict]:
+            return compute_prd_sources(root, self.server.studio_explicit_prd)
+
+        def _prd_sources_payload(self) -> dict:
+            sources = self._compute_sources()
+            self.server.studio_prd_roots = {s["root"] for s in sources}
+            return {"sources": [dict(s, tree=_source_tree(s)) for s in sources]}
 
         def do_POST(self):
             parsed = urlparse(self.path)
@@ -211,6 +382,30 @@ def _make_studio_handler(root: Path | None, prd_root: Path | None, dist_dir: Pat
             if root is None:
                 self._send_error(404, "No project selected")
                 return
+            if parsed.path == "/api/prd/source":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(length))
+                except (ValueError, json.JSONDecodeError):
+                    self._send_error(400, "Invalid JSON body")
+                    return
+                raw = body.get("path") if isinstance(body, dict) else None
+                if not isinstance(raw, str) or not raw.strip():
+                    self._send_error(400, "path must be a non-empty string")
+                    return
+                try:
+                    source = Path(raw).expanduser().resolve()
+                except (ValueError, OSError):
+                    self._send_error(400, "Invalid path")
+                    return
+                if not source.is_dir():
+                    self._send_error(404, f"Not a directory: {source}")
+                    return
+                if source not in self.server.studio_explicit_prd:
+                    self.server.studio_explicit_prd.append(source)
+                _save_explicit_source(root, source)
+                self._serve_json(self._prd_sources_payload())
+                return
             super().do_POST()
 
     return StudioHandler
@@ -221,11 +416,21 @@ def build_studio_app(root: Path | None, prd_root: Path | None, *, port: int = 0,
                      prd_arg: str | None = None) -> http.server.ThreadingHTTPServer:
     if dist_dir is not None and not (dist_dir / "index.html").exists():
         dist_dir = None  # API-only; main() owns the user-facing preflight
-    handler = _make_studio_handler(root, prd_root, dist_dir)
+    root = root.resolve() if root is not None else None
+    explicit = []
+    if root is not None:
+        if prd_root is not None:
+            explicit.append(prd_root.resolve())
+        for p in _load_explicit_sources(root):
+            if p not in explicit:
+                explicit.append(p)
+    handler = _make_studio_handler(root, dist_dir)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
     server.studio_state = {"root": root, "prd_root": prd_root}
     server.studio_dist_dir = dist_dir
     server.studio_prd_arg = prd_arg
+    server.studio_explicit_prd = explicit
+    server.studio_prd_roots = None
     return server
 
 
@@ -245,16 +450,19 @@ def main(argv: list[str] | None = None) -> int:
 
     root = None
     prd_root = None
+    prd_labels = []
     if args.project_root is not None:
         root = Path(args.project_root).resolve()
         if not root.is_dir():
             print(f"Error: not a directory: {root}", file=sys.stderr)
             return 1
-        prd_root = resolve_prd_root(root, args.prd)
-        if prd_root is None:
-            where = args.prd or " or ".join(PRD_DEFAULT_CANDIDATES)
-            print(f"Note: no PRD folder found ({where}). The Product tab will "
-                  "show an empty state.", file=sys.stderr)
+        sources = compute_prd_sources(root, _explicit_sources_for(root, args.prd))
+        prd_labels = [s["label"] for s in sources]
+        prd_root = Path(sources[0]["root"]) if sources else None
+        if not sources:
+            print("Note: no PRD documents found (docs/prd/, prd/, or folders "
+                  "with *prd*.md files). Add a folder from the Product tab.",
+                  file=sys.stderr)
 
     if not (DIST_DIR / "index.html").exists():
         print("Error: studio/frontend/dist/ not found. "
@@ -276,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Project: (none — pick a folder in the browser)")
     else:
         print(f"Project: {root}")
-        print(f"PRD folder: {prd_root if prd_root else '(none found)'}")
+        print(f"PRD sources: {', '.join(prd_labels) if prd_labels else '(none found)'}")
     url = f"http://localhost:{port}/"
     print(f"Listening on {url}")
     if not args.no_open:

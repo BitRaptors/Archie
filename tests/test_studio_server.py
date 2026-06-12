@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -153,6 +154,56 @@ def test_read_prd_file_returns_none_on_unreadable(project: Path):
         os.chmod(locked, 0o644)
 
 
+# --- PRD source detection ----------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _studio_config(tmp_path: Path, monkeypatch):
+    """Isolate the central studio config (~/.archie/studio.json) per test."""
+    monkeypatch.setenv("ARCHIE_STUDIO_CONFIG", str(tmp_path / "studio-config.json"))
+
+
+@pytest.fixture
+def kavosz_like(tmp_path: Path) -> Path:
+    """Project whose PRDs live in @docs/*.prd.md instead of docs/prd/."""
+    root = tmp_path / "kavosz"
+    docs = root / "@docs"
+    docs.mkdir(parents=True)
+    (docs / "prd.md").write_text("# Main PRD")
+    (docs / "plan-audit.prd.md").write_text("# Audit PRD")
+    (docs / "architecture.md").write_text("# Not a PRD")
+    (docs / "notes.txt").write_text("not markdown")
+    nm = root / "node_modules" / "pkg"
+    nm.mkdir(parents=True)
+    (nm / "fake.prd.md").write_text("must be skipped")
+    (root / ".archie").mkdir()
+    (root / ".archie" / "blueprint.json").write_text("{}")
+    return root
+
+
+def test_is_prd_filename():
+    from server import _is_prd_filename
+    assert _is_prd_filename("prd.md")
+    assert _is_prd_filename("PRD-login.md")
+    assert _is_prd_filename("plan-audit.prd.md")
+    assert not _is_prd_filename("comprd.md")  # 'prd' must be a token, not a substring
+    assert not _is_prd_filename("prd.txt")
+    assert not _is_prd_filename("architecture.md")
+
+
+def test_detect_prd_dirs_finds_unconventional_folders(kavosz_like: Path):
+    from server import detect_prd_dirs
+    assert detect_prd_dirs(kavosz_like.resolve()) == [(kavosz_like / "@docs").resolve()]
+
+
+def test_compute_prd_sources_orders_and_dedupes(project: Path):
+    from server import compute_prd_sources
+    root = project.resolve()
+    # docs/prd is both the explicit pick and the convention folder: one source
+    sources = compute_prd_sources(root, [root / "docs" / "prd"])
+    assert [s["kind"] for s in sources] == ["explicit"]
+    assert sources[0]["label"] == "docs/prd"
+
+
 # --- HTTP app ---------------------------------------------------------------
 
 def _start(project: Path, prd_root, dist_dir=None):
@@ -174,17 +225,51 @@ def test_prd_tree_endpoint(project: Path):
     app, port = _start(project, prd_root)
     try:
         body = _get_json(port, "/api/prd/tree")
-        assert body["prd_root"] == str(prd_root)
-        assert [n["name"] for n in body["tree"]] == ["features", "overview.md"]
+        assert len(body["sources"]) == 1
+        src = body["sources"][0]
+        assert src["root"] == str(prd_root)
+        assert src["label"] == "docs/prd"
+        assert [n["name"] for n in src["tree"]] == ["features", "overview.md"]
     finally:
         app.shutdown()
 
 
-def test_prd_tree_endpoint_no_prd_folder(project: Path):
+def test_prd_tree_endpoint_no_prd_anywhere(tmp_path: Path):
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    (bare / "README.md").write_text("# Readme")  # md, but not PRD-named
+    app, port = _start(bare, None)
+    try:
+        body = _get_json(port, "/api/prd/tree")
+        assert body == {"sources": []}
+    finally:
+        app.shutdown()
+
+
+def test_prd_tree_detects_prd_named_files(kavosz_like: Path):
+    app, port = _start(kavosz_like, None)
+    try:
+        body = _get_json(port, "/api/prd/tree")
+        assert len(body["sources"]) == 1
+        src = body["sources"][0]
+        assert src["kind"] == "detected"
+        assert src["label"] == "@docs"
+        names = [n["name"] for n in src["tree"]]
+        assert names == ["plan-audit.prd.md", "prd.md"]  # architecture.md excluded
+    finally:
+        app.shutdown()
+
+
+def test_prd_tree_combines_convention_and_detected(project: Path):
+    extra = project / "@docs"
+    extra.mkdir()
+    (extra / "billing.prd.md").write_text("# Billing PRD")
     app, port = _start(project, None)
     try:
         body = _get_json(port, "/api/prd/tree")
-        assert body == {"prd_root": None, "tree": []}
+        assert [(s["kind"], s["label"]) for s in body["sources"]] == [
+            ("convention", "docs/prd"), ("detected", "@docs"),
+        ]
     finally:
         app.shutdown()
 
@@ -193,7 +278,11 @@ def test_prd_file_endpoint(project: Path):
     prd_root = (project / "docs" / "prd").resolve()
     app, port = _start(project, prd_root)
     try:
-        body = _get_json(port, "/api/prd/file?path=features%2Flogin-flow.md")
+        body = _get_json(
+            port,
+            "/api/prd/file?root=" + urllib.parse.quote(str(prd_root))
+            + "&path=features%2Flogin-flow.md",
+        )
         assert body["content"] == "# Login Flow"
     finally:
         app.shutdown()
@@ -203,17 +292,49 @@ def test_prd_file_endpoint_404s(project: Path):
     prd_root = (project / "docs" / "prd").resolve()
     (project / "secret.md").write_text("secret")
     app, port = _start(project, prd_root)
+    root_q = urllib.parse.quote(str(prd_root))
     try:
-        for bad in ("/api/prd/file?path=missing.md",
-                    "/api/prd/file?path=..%2F..%2Fsecret.md"):
+        for bad, code in (
+            (f"/api/prd/file?root={root_q}&path=missing.md", 404),
+            (f"/api/prd/file?root={root_q}&path=..%2F..%2Fsecret.md", 404),
+            # root must be one of the registered sources, not an arbitrary dir
+            (f"/api/prd/file?root={urllib.parse.quote(str(project))}&path=secret.md", 404),
+            (f"/api/prd/file?root={root_q}", 400),
+            ("/api/prd/file?path=missing.md", 400),
+        ):
             with pytest.raises(urllib.error.HTTPError) as exc:
                 urllib.request.urlopen(f"http://127.0.0.1:{port}{bad}", timeout=2)
-            assert exc.value.code == 404
-        with pytest.raises(urllib.error.HTTPError) as exc:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/prd/file", timeout=2)
-        assert exc.value.code == 400
+            assert exc.value.code == code
     finally:
         app.shutdown()
+
+
+def test_add_prd_source_and_persistence(project: Path, tmp_path: Path):
+    # sibling of the project root, so it exercises the outside-root abs label
+    vault = tmp_path.parent / f"{tmp_path.name}-vault"
+    vault.mkdir()
+    (vault / "roadmap.md").write_text("# Roadmap")  # explicit sources show ALL .md
+    app, port = _start(project, None)
+    try:
+        body = _post_json(port, "/api/prd/source", {"path": str(vault)})
+        kinds = [(s["kind"], s["label"]) for s in body["sources"]]
+        assert kinds[0] == ("explicit", str(vault.resolve()))  # outside root: abs label
+        assert ("convention", "docs/prd") in kinds
+        assert [n["name"] for n in body["sources"][0]["tree"]] == ["roadmap.md"]
+        # persisted centrally and reloaded by a fresh server
+        config = json.loads(Path(os.environ["ARCHIE_STUDIO_CONFIG"]).read_text())
+        assert str(vault.resolve()) in config["projects"][str(project.resolve())]["prd_sources"]
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            _post_json(port, "/api/prd/source", {"path": str(vault / "nope")})
+        assert exc.value.code == 404
+    finally:
+        app.shutdown()
+    app2, port2 = _start(project, None)
+    try:
+        body = _get_json(port2, "/api/prd/tree")
+        assert [s["kind"] for s in body["sources"]][0] == "explicit"
+    finally:
+        app2.shutdown()
 
 
 def test_inherited_viewer_endpoints_still_work(project: Path):
@@ -262,7 +383,7 @@ def test_select_project_at_runtime(project: Path):
         assert body["name"] == project.name
         assert body["prd_root"] == str((project / "docs" / "prd").resolve())
         tree = _get_json(port, "/api/prd/tree")
-        assert [n["name"] for n in tree["tree"]] == ["features", "overview.md"]
+        assert [n["name"] for n in tree["sources"][0]["tree"]] == ["features", "overview.md"]
         bundle = _get_json(port, "/api/bundle")
         assert bundle["bundle"]["blueprint"]["meta"]["scan_count"] == 1
     finally:

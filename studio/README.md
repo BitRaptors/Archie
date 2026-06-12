@@ -15,9 +15,15 @@ later. (Manual equivalent: `cd studio/frontend && npm install && npm run build`,
 then `python3 studio/server.py [...]`.)
 
 Opens http://localhost:5848/. The Architecture tab needs the target project to
-have a `.archie/` (run `/archie-deep-scan` there). The Product tab reads
-markdown from `docs/prd/` or `prd/` in the target project (or `--prd <path>`,
-which also applies to projects chosen via the picker).
+have a `.archie/` (run `/archie-deep-scan` there).
+
+The Product tab combines PRD documents from multiple sources, in order:
+explicit folders (the `--prd <path>` flag, plus any folders added via the
+"Add PRD folder" button — persisted per project in `~/.archie/studio.json`),
+the convention folders `docs/prd/` and `prd/` (all markdown shown), and
+auto-detected folders anywhere in the project that contain PRD-named files
+like `prd.md` or `plan-audit.prd.md` (only those files shown). Detection is
+a bounded walk (depth 4) that skips node_modules-style directories.
 
 ## Develop
 
