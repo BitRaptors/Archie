@@ -90,3 +90,91 @@ def test_read_prd_file_rejects_non_markdown(project: Path):
     from server import read_prd_file
     prd_root = (project / "docs" / "prd").resolve()
     assert read_prd_file(prd_root, "features/notes.txt") is None
+
+
+# --- HTTP app ---------------------------------------------------------------
+
+def _start(project: Path, prd_root, dist_dir=None):
+    from server import build_studio_app
+    port = _free_port()
+    app = build_studio_app(project, prd_root, port=port, dist_dir=dist_dir)
+    threading.Thread(target=app.serve_forever, daemon=True).start()
+    time.sleep(0.05)
+    return app, port
+
+
+def _get_json(port: int, path: str):
+    resp = urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=2)
+    return json.loads(resp.read())
+
+
+def test_prd_tree_endpoint(project: Path):
+    prd_root = (project / "docs" / "prd").resolve()
+    app, port = _start(project, prd_root)
+    try:
+        body = _get_json(port, "/api/prd/tree")
+        assert body["prd_root"] == str(prd_root)
+        assert [n["name"] for n in body["tree"]] == ["features", "overview.md"]
+    finally:
+        app.shutdown()
+
+
+def test_prd_tree_endpoint_no_prd_folder(project: Path):
+    app, port = _start(project, None)
+    try:
+        body = _get_json(port, "/api/prd/tree")
+        assert body == {"prd_root": None, "tree": []}
+    finally:
+        app.shutdown()
+
+
+def test_prd_file_endpoint(project: Path):
+    prd_root = (project / "docs" / "prd").resolve()
+    app, port = _start(project, prd_root)
+    try:
+        body = _get_json(port, "/api/prd/file?path=features%2Flogin-flow.md")
+        assert body["content"] == "# Login Flow"
+    finally:
+        app.shutdown()
+
+
+def test_prd_file_endpoint_404s(project: Path):
+    prd_root = (project / "docs" / "prd").resolve()
+    (project / "secret.md").write_text("secret")
+    app, port = _start(project, prd_root)
+    try:
+        for bad in ("/api/prd/file?path=missing.md",
+                    "/api/prd/file?path=..%2F..%2Fsecret.md"):
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}{bad}", timeout=2)
+            assert exc.value.code == 404
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/prd/file", timeout=2)
+        assert exc.value.code == 400
+    finally:
+        app.shutdown()
+
+
+def test_inherited_viewer_endpoints_still_work(project: Path):
+    """The studio handler must keep every viewer endpoint intact."""
+    prd_root = (project / "docs" / "prd").resolve()
+    app, port = _start(project, prd_root)
+    try:
+        bundle = _get_json(port, "/api/bundle")
+        assert bundle["bundle"]["blueprint"]["components"]["components"][0]["name"] == "x"
+        gen = _get_json(port, "/api/generated-files")
+        assert isinstance(gen, dict)
+    finally:
+        app.shutdown()
+
+
+def test_studio_serves_own_dist_with_spa_fallback(project: Path, tmp_path: Path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>studio</html>")
+    app, port = _start(project, None, dist_dir=dist)
+    try:
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/product", timeout=2)
+        assert b"<html>studio</html>" in resp.read()
+    finally:
+        app.shutdown()

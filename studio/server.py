@@ -69,3 +69,43 @@ def read_prd_file(prd_root: Path, rel: str) -> str | None:
     if target.suffix.lower() != ".md" or not target.is_file():
         return None
     return target.read_text(errors="replace")
+
+
+def _make_studio_handler(root: Path, prd_root: Path | None, dist_dir: Path | None):
+    Base = viewer._make_handler(root, dist_dir)
+
+    class StudioHandler(Base):
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path == "/api/prd/tree":
+                if prd_root is None:
+                    self._serve_json({"prd_root": None, "tree": []})
+                else:
+                    self._serve_json({"prd_root": str(prd_root),
+                                      "tree": build_prd_tree(prd_root)})
+                return
+            if parsed.path == "/api/prd/file":
+                if prd_root is None:
+                    self._send_error(404, "No PRD folder configured")
+                    return
+                rel = (parse_qs(parsed.query).get("path") or [""])[0]
+                if not rel:
+                    self._send_error(400, "Missing ?path= query parameter")
+                    return
+                content = read_prd_file(prd_root, rel)
+                if content is None:
+                    self._send_error(404, "PRD file not found: " + rel)
+                    return
+                self._serve_json({"path": rel, "content": content})
+                return
+            super().do_GET()
+
+    return StudioHandler
+
+
+def build_studio_app(root: Path, prd_root: Path | None, *, port: int = 0,
+                     dist_dir: Path | None = None) -> http.server.ThreadingHTTPServer:
+    if dist_dir is not None and not (dist_dir / "index.html").exists():
+        dist_dir = None  # API-only; main() owns the user-facing preflight
+    handler = _make_studio_handler(root, prd_root, dist_dir)
+    return http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
