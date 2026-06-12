@@ -11,6 +11,18 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: { '@': viewerSrc },
+    // REQUIRED for mounting viewer components (e.g. LocalPage in the
+    // Architecture tab): viewer sources live outside this project root, so
+    // Rollup resolves their bare imports ('lucide-react', 'mermaid', ...) by
+    // walking up from npm-package/assets/viewer/src — where no node_modules
+    // exists — and the build fails with "failed to resolve import". dedupe
+    // pins these packages to studio's own node_modules (mirrors the "*" paths
+    // fallback in tsconfig.json, which solves the same problem for tsc).
+    dedupe: [
+      'react', 'react-dom', 'react-router-dom', 'lucide-react', 'mermaid',
+      'react-markdown', 'remark-gfm', 'rehype-highlight', 'highlight.js',
+      'clsx', 'tailwind-merge', 'class-variance-authority',
+    ],
   },
   server: {
     // 5848 is server.py's DEFAULT_PORT. If the server port-falls-back (5848
