@@ -229,6 +229,104 @@ def test_inherited_viewer_endpoints_still_work(project: Path):
         app.shutdown()
 
 
+def _post_json(port: int, path: str, payload: dict):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=2)
+    return json.loads(resp.read())
+
+
+def test_picker_mode_reports_no_project(project: Path):
+    app, port = _start(None, None)
+    try:
+        body = _get_json(port, "/api/project")
+        assert body == {"root": None, "prd_root": None, "name": None}
+        for blocked in ("/api/bundle", "/api/prd/tree"):
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}{blocked}", timeout=2)
+            assert exc.value.code == 404
+    finally:
+        app.shutdown()
+
+
+def test_select_project_at_runtime(project: Path):
+    """POST /api/project switches the live handler to the chosen project."""
+    app, port = _start(None, None)
+    try:
+        body = _post_json(port, "/api/project", {"path": str(project)})
+        assert body["root"] == str(project.resolve())
+        assert body["name"] == project.name
+        assert body["prd_root"] == str((project / "docs" / "prd").resolve())
+        tree = _get_json(port, "/api/prd/tree")
+        assert [n["name"] for n in tree["tree"]] == ["features", "overview.md"]
+        bundle = _get_json(port, "/api/bundle")
+        assert bundle["bundle"]["blueprint"]["meta"]["scan_count"] == 1
+    finally:
+        app.shutdown()
+
+
+def test_select_project_rejects_bad_paths(project: Path):
+    app, port = _start(None, None)
+    try:
+        for payload, code in (({}, 400), ({"path": ""}, 400),
+                              ({"path": str(project / "nope")}, 404),
+                              ({"path": str(project / "docs" / "prd" / "overview.md")}, 404)):
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                _post_json(port, "/api/project", payload)
+            assert exc.value.code == code
+        # picker mode never delegates unknown POSTs to the rules endpoint
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            _post_json(port, "/api/rules", {"action": "adopt", "rule_id": "x"})
+        assert exc.value.code == 404
+    finally:
+        app.shutdown()
+
+
+def test_select_project_honors_cli_prd_flag(project: Path):
+    from server import build_studio_app
+    port = _free_port()
+    app = build_studio_app(None, None, port=port, prd_arg="docs/prd/features")
+    threading.Thread(target=app.serve_forever, daemon=True).start()
+    try:
+        time.sleep(0.05)
+        body = _post_json(port, "/api/project", {"path": str(project)})
+        assert body["prd_root"] == str((project / "docs" / "prd" / "features").resolve())
+    finally:
+        app.shutdown()
+
+
+def test_fs_list_endpoint(project: Path):
+    app, port = _start(None, None)
+    try:
+        body = _get_json(port, f"/api/fs/list?path={project}")
+        assert body["path"] == str(project.resolve())
+        assert body["parent"] == str(project.resolve().parent)
+        names = {d["name"] for d in body["dirs"]}
+        assert "docs" in names and ".archie" not in names  # hidden skipped
+        listing = _get_json(port, f"/api/fs/list?path={project.parent}")
+        me = next(d for d in listing["dirs"] if d["path"] == str(project.resolve()))
+        assert me["has_archie"] is True and me["has_prd"] is True
+    finally:
+        app.shutdown()
+
+
+def test_fs_list_rejects_bad_paths(project: Path):
+    app, port = _start(None, None)
+    try:
+        for q, code in ((f"path={project}/nope", 404),
+                        (f"path={project}/docs/prd/overview.md", 404),
+                        ("path=a%00b", 400)):
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/fs/list?{q}", timeout=2)
+            assert exc.value.code == code
+    finally:
+        app.shutdown()
+
+
 def test_studio_serves_own_dist_with_spa_fallback(project: Path, tmp_path: Path):
     dist = tmp_path / "dist"
     dist.mkdir()

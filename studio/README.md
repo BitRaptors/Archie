@@ -6,12 +6,18 @@ placeholder. Not shipped via npm; nothing here is referenced by
 
 ## Run
 
-    cd studio/frontend && npm install && npm run build   # once, and after frontend changes
-    python3 studio/server.py /path/to/project [--prd docs/prd] [--port 5848] [--no-open]
+    studio/run.sh [/path/to/project] [--prd docs/prd] [--port 5848] [--no-open]
+
+The launcher installs frontend dependencies on first run and rebuilds the SPA
+when sources changed, then starts the server. Omit the project path to get a
+folder picker in the browser; use the rail's folder button to switch projects
+later. (Manual equivalent: `cd studio/frontend && npm install && npm run build`,
+then `python3 studio/server.py [...]`.)
 
 Opens http://localhost:5848/. The Architecture tab needs the target project to
 have a `.archie/` (run `/archie-deep-scan` there). The Product tab reads
-markdown from `docs/prd/` or `prd/` in the target project (or `--prd <path>`).
+markdown from `docs/prd/` or `prd/` in the target project (or `--prd <path>`,
+which also applies to projects chosen via the picker).
 
 ## Develop
 
