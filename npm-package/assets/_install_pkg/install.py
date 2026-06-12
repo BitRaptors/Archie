@@ -14,6 +14,16 @@ import shutil
 import sys
 from pathlib import Path
 
+# Gate BEFORE the package imports below: on an unsupported interpreter they
+# die with an opaque traceback; this turns that into an actionable message.
+if sys.version_info < (3, 9):
+    sys.stderr.write(
+        "Archie requires Python 3.9+ (found %s.%s). Install a newer Python and "
+        "re-run `npx @bitraptors/archie`.\n"
+        % (sys.version_info.major, sys.version_info.minor)
+    )
+    sys.exit(3)
+
 from .connectors import ALL_CONNECTORS
 from .connectors.base import Connector
 from .manifest_data import COMMANDS, CONFIG_PATCHES, HOOKS
