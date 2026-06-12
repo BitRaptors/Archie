@@ -16,6 +16,11 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
+    // The "*" wildcard fallback + typeRoots exist because viewer sources live
+    // outside this package root: TS would walk up from npm-package/assets/viewer/
+    // and find nothing (or a stale viewer/node_modules). The fallback pins bare
+    // specifiers to studio's node_modules (@types first so React types resolve).
+    // Remove both if viewer sources are ever vendored into src/.
     "paths": {
       "@/*": ["../../npm-package/assets/viewer/src/*"],
       "*": ["./node_modules/@types/*", "./node_modules/*"]

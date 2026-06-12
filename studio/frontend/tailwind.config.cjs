@@ -10,7 +10,14 @@ function loadViewerPreset() {
     try {
       return origResolve.call(this, request, ...rest)
     } catch (err) {
-      return require.resolve(request, { paths: [__dirname] })
+      if (err.code !== 'MODULE_NOT_FOUND') throw err
+      try {
+        return require.resolve(request, { paths: [__dirname] })
+      } catch {
+        // Re-throw the ORIGINAL error: it carries the viewer-relative lookup
+        // paths that explain the problem.
+        throw err
+      }
     }
   }
   try {

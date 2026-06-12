@@ -13,6 +13,9 @@ export default defineConfig({
     alias: { '@': viewerSrc },
   },
   server: {
+    // 5848 is server.py's DEFAULT_PORT. If the server port-falls-back (5848
+    // busy), this dev proxy breaks -- free the port and restart the server
+    // with --port 5848.
     proxy: { '/api': 'http://127.0.0.1:5848' },
   },
 })
