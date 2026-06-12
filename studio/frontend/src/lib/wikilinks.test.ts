@@ -24,6 +24,14 @@ describe('resolveWikilink', () => {
   it('returns null when unresolved', () => {
     expect(resolveWikilink('missing-doc', files)).toBeNull()
   })
+
+  it('respects segment boundaries in path-style targets', () => {
+    const tricky = [
+      { name: 'login-flow.md', path: 'harold/login-flow.md' },
+      { name: 'login-flow.md', path: 'archive/old/login-flow.md' },
+    ]
+    expect(resolveWikilink('old/login-flow', tricky)).toBe('archive/old/login-flow.md')
+  })
 })
 
 describe('transformWikilinks', () => {

@@ -6,13 +6,16 @@ export interface PrdFileRef {
 const norm = (s: string) => s.toLowerCase().replace(/\.md$/, '')
 
 // Obsidian-style resolution: bare names match by basename (case-insensitive,
-// .md optional); names containing '/' match as a path suffix. On collisions
-// the shortest path wins (Obsidian's "shortest path when unique" flavor).
+// .md optional); names containing '/' match as a path suffix on segment
+// boundaries. On collisions the shortest path wins (Obsidian's "shortest
+// path when unique" flavor).
 export function resolveWikilink(target: string, files: PrdFileRef[]): string | null {
   const wanted = norm(target.trim())
-  const matches = files.filter((f) =>
-    wanted.includes('/') ? norm(f.path).endsWith(wanted) : norm(f.name) === wanted
-  )
+  const matches = files.filter((f) => {
+    if (!wanted.includes('/')) return norm(f.name) === wanted
+    const path = norm(f.path)
+    return path === wanted || path.endsWith('/' + wanted)
+  })
   if (matches.length === 0) return null
   return [...matches].sort((a, b) => a.path.length - b.path.length)[0].path
 }
