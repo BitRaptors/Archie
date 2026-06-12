@@ -50,4 +50,10 @@ describe('transformWikilinks', () => {
   it('marks unresolved links', () => {
     expect(transformWikilinks('[[Missing]]', files)).toBe('[Missing](unresolved:)')
   })
+
+  it('rewrites multiple wikilinks in one string', () => {
+    expect(transformWikilinks('[[overview]] and [[Missing]]', files)).toBe(
+      '[overview](wikilink:overview.md) and [Missing](unresolved:)'
+    )
+  })
 })

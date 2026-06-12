@@ -11,7 +11,7 @@ export function parseFrontmatter(md: string): Frontmatter {
   const data: Record<string, string> = {}
   for (const line of match[1].split(/\r?\n/)) {
     const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line)
-    if (m) data[m[1]] = m[2].replace(/^['"]|['"]$/g, '')
+    if (m) data[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, '')
   }
   return { data, content: md.slice(match[0].length) }
 }

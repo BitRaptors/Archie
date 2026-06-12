@@ -15,6 +15,11 @@ describe('parseFrontmatter', () => {
     expect(content).toBe('# Just a doc')
   })
 
+  it('trims trailing whitespace from values', () => {
+    const { data } = parseFrontmatter('---\nstatus: draft \n---\nx')
+    expect(data.status).toBe('draft')
+  })
+
   it('strips surrounding quotes from values', () => {
     const { data } = parseFrontmatter('---\ntitle: "Login Flow"\n---\nx')
     expect(data.title).toBe('Login Flow')

@@ -17,7 +17,7 @@ export function resolveWikilink(target: string, files: PrdFileRef[]): string | n
     return path === wanted || path.endsWith('/' + wanted)
   })
   if (matches.length === 0) return null
-  return [...matches].sort((a, b) => a.path.length - b.path.length)[0].path
+  return matches.sort((a, b) => a.path.length - b.path.length)[0].path
 }
 
 // Rewrite [[Target]] / [[Target|Label]] into standard markdown links carrying
