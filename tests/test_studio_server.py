@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sys
 import threading
@@ -90,6 +91,59 @@ def test_read_prd_file_rejects_non_markdown(project: Path):
     from server import read_prd_file
     prd_root = (project / "docs" / "prd").resolve()
     assert read_prd_file(prd_root, "features/notes.txt") is None
+
+
+def _symlinks_supported(base: Path) -> bool:
+    probe = base / "_symlink_probe"
+    try:
+        probe.symlink_to(base)
+    except (OSError, NotImplementedError):
+        return False
+    probe.unlink()
+    return True
+
+
+def test_build_prd_tree_skips_symlinks(project: Path):
+    from server import build_prd_tree
+    if not _symlinks_supported(project):
+        pytest.skip("symlinks not supported on this platform")
+    prd_root = (project / "docs" / "prd").resolve()
+    # Symlink cycle: dir symlink pointing back at the PRD root (would ELOOP).
+    (prd_root / "loop").symlink_to(prd_root)
+    # Symlinked .md: would list in the tree but 404 on fetch (resolves outside).
+    outside = project / "outside.md"
+    outside.write_text("# Outside")
+    (prd_root / "linked.md").symlink_to(outside)
+    tree = build_prd_tree(prd_root)
+    assert [n["name"] for n in tree] == ["features", "overview.md"]
+
+
+def test_read_prd_file_accepts_unresolved_prd_root(project: Path):
+    """The containment guard must not fail when callers pass an unresolved
+    path (e.g. through a symlink like /tmp on macOS)."""
+    from server import read_prd_file
+    if not _symlinks_supported(project):
+        pytest.skip("symlinks not supported on this platform")
+    link = project / "prdlink"
+    link.symlink_to(project / "docs" / "prd")
+    content = read_prd_file(link, "overview.md")
+    assert content is not None and "# Overview" in content
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="permission checks unavailable or bypassed as root",
+)
+def test_read_prd_file_returns_none_on_unreadable(project: Path):
+    from server import read_prd_file
+    prd_root = (project / "docs" / "prd").resolve()
+    locked = prd_root / "locked.md"
+    locked.write_text("# Locked")
+    os.chmod(locked, 0)
+    try:
+        assert read_prd_file(prd_root, "locked.md") is None
+    finally:
+        os.chmod(locked, 0o644)
 
 
 # --- HTTP app ---------------------------------------------------------------

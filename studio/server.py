@@ -36,12 +36,14 @@ def resolve_prd_root(root: Path, prd_arg: str | None) -> Path | None:
     return None
 
 
-def build_prd_tree(prd_root: Path) -> list:
-    def walk(d: Path) -> list:
+def build_prd_tree(prd_root: Path) -> list[dict]:
+    def walk(d: Path) -> list[dict]:
         entries = []
         for child in sorted(d.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
             if child.name.startswith("."):
                 continue  # .obsidian, .trash, etc.
+            if child.is_symlink():
+                continue  # cycles would ELOOP; linked .md would 404 on fetch
             if child.is_dir():
                 children = walk(child)
                 if children:
@@ -61,6 +63,7 @@ def build_prd_tree(prd_root: Path) -> list:
 
 def read_prd_file(prd_root: Path, rel: str) -> str | None:
     """Content of a .md file under prd_root, or None (missing/outside/non-md)."""
+    prd_root = prd_root.resolve()  # guard fails spuriously on unresolved paths
     target = (prd_root / rel).resolve()
     try:
         target.relative_to(prd_root)
@@ -68,7 +71,10 @@ def read_prd_file(prd_root: Path, rel: str) -> str | None:
         return None  # traversal outside the PRD root
     if target.suffix.lower() != ".md" or not target.is_file():
         return None
-    return target.read_text(errors="replace")
+    try:
+        return target.read_text(errors="replace")
+    except OSError:
+        return None  # permission denied / vanished between check and read
 
 
 def _make_studio_handler(root: Path, prd_root: Path | None, dist_dir: Path | None):
@@ -111,28 +117,28 @@ def build_studio_app(root: Path, prd_root: Path | None, *, port: int = 0,
     return http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
 
 
-def main(argv: list | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Archie Studio local app.")
     parser.add_argument("project_root", help="Path to the project to open")
     parser.add_argument("--prd", default=None,
                         help="PRD folder relative to the project root "
                              "(default: docs/prd, then prd)")
     parser.add_argument("--port", type=int, default=None,
-                        help="Port (default {}, falls back to free)".format(DEFAULT_PORT))
+                        help=f"Port (default {DEFAULT_PORT}, falls back to free)")
     parser.add_argument("--no-open", action="store_true",
                         help="Do not auto-open the browser")
     args = parser.parse_args(argv)
 
     root = Path(args.project_root).resolve()
     if not root.is_dir():
-        print("Error: not a directory: {}".format(root), file=sys.stderr)
+        print(f"Error: not a directory: {root}", file=sys.stderr)
         return 1
 
     prd_root = resolve_prd_root(root, args.prd)
     if prd_root is None:
         where = args.prd or " or ".join(PRD_DEFAULT_CANDIDATES)
-        print("Note: no PRD folder found ({}). The Product tab will "
-              "show an empty state.".format(where), file=sys.stderr)
+        print(f"Note: no PRD folder found ({where}). The Product tab will "
+              "show an empty state.", file=sys.stderr)
 
     if not (DIST_DIR / "index.html").exists():
         print("Error: studio/frontend/dist/ not found. "
@@ -149,10 +155,10 @@ def main(argv: list | None = None) -> int:
 
     server = build_studio_app(root, prd_root, port=port, dist_dir=DIST_DIR)
     print("Starting Archie Studio…")
-    print("Project: {}".format(root))
-    print("PRD folder: {}".format(prd_root if prd_root else "(none found)"))
-    url = "http://localhost:{}/".format(port)
-    print("Listening on {}".format(url))
+    print(f"Project: {root}")
+    print(f"PRD folder: {prd_root if prd_root else '(none found)'}")
+    url = f"http://localhost:{port}/"
+    print(f"Listening on {url}")
     if not args.no_open:
         try:
             webbrowser.open(url)
