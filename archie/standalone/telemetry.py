@@ -293,7 +293,7 @@ _STEP_LABELS = {
     "rule_synthesis": "Rule synthesis",
     "intent_layer": "Intent Layer",
     "cleanup": "Cleanup",
-    "drift": "Drift & assessment",
+    "finalize": "Finalize",
 }
 # Parallel sub-agent friendly labels (Wave 1 fact agents + Wave 2 reasoning agents).
 _AGENT_LABELS = {

@@ -595,7 +595,7 @@ def cmd_deep_scan_state(root: Path, action: str, step: int | None = None, label:
         _STEP_NAMES = {
             1: "scan", 2: "read", 3: "wave1", 4: "merge",
             5: "wave2_synthesis", 6: "rule_synthesis",
-            7: "intent_layer", 8: "cleanup", 9: "drift",
+            7: "intent_layer", 8: "cleanup", 9: "finalize",
         }
         step_name = _STEP_NAMES.get(step)
         if step_name:
@@ -2304,26 +2304,6 @@ def cmd_inspect(root: Path, filename: str, query: str | None = None, as_list: bo
     print(json.dumps(data, indent=2))
 
 
-def cmd_filter_ignored(root: Path):
-    """Read newline-separated repo-relative paths on stdin; print those NOT
-    ignored by .gitignore/.archieignore. Used by step-9 drift so its git-log
-    file list honors the ignore system (git does not know .archieignore).
-
-    ``IgnoreMatcher.is_ignored`` applies full gitignore semantics, including
-    ancestor-directory matches (``vendor/`` hides ``vendor/b.py``)."""
-    matcher = IgnoreMatcher(root)
-
-    def _is_path_ignored(rel: str) -> bool:
-        return matcher.is_ignored(rel.replace(os.sep, "/"))
-
-    for line in sys.stdin:
-        rel = line.strip()
-        if not rel:
-            continue
-        if not _is_path_ignored(rel):
-            print(rel)
-
-
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -2456,8 +2436,6 @@ if __name__ == "__main__":
         cmd_inject_scoped(root)
     elif subcmd == "extract-guardrails":
         cmd_extract_guardrails(root)
-    elif subcmd == "filter-ignored":
-        cmd_filter_ignored(Path(sys.argv[2]).resolve())
     elif subcmd == "inspect":
         if len(sys.argv) < 4:
             print("Usage: inspect /path/to/repo <filename> [--query .key.path] [--list]", file=sys.stderr)

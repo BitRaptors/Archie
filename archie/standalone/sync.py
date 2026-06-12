@@ -333,7 +333,7 @@ def cmd_record(root: Path, input_file: str | None, agent: str, since: str | None
         "claims": out_claims,
     }
 
-    # 5. Write the versioned change file + latest.json (mirror drift._save_snapshot).
+    # 5. Write the versioned change file + latest.json (timestamped snapshot history).
     changes_dir = _changes_dir(root)
     changes_dir.mkdir(parents=True, exist_ok=True)
     record["version"] = _next_version(changes_dir)

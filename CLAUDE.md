@@ -87,7 +87,9 @@ See `archie/benchmark/README.md`.
 5. **Render** — Deterministic JSON→Markdown (CLAUDE.md, AGENTS.md, rule files)
 6. **Validate** — Cross-reference output against actual codebase
 7. **Intent Layer** — AI-generated per-folder CLAUDE.md via bottom-up DAG
-8. **Scan report** — Phase 4 of Step 9 writes `.archie/scan_report.md` with ranked findings (so `/archie-share` and future trend runs pick it up)
+8. **Finalize** — Health metrics (`health.json` + history), incremental baseline marker, telemetry flush, closing summary
+
+Findings live in `.archie/findings.json` (compounding store: stable ids, verifier + hysteresis in Step 5); `/archie-share` ships them from there. In incremental mode the Risk agent additionally sweeps the changed files against documented invariants and per-folder CLAUDE.md patterns (the recency sweep).
 
 ## Key Data Model
 

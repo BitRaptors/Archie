@@ -43,7 +43,7 @@ _STANDALONE_SCRIPTS = [
     # Analysis pipeline (referenced by SKILL bodies via `python3 .archie/<name>`)
     "scanner.py", "renderer.py", "validate.py", "intent_layer.py",
     "finalize.py", "merge.py", "measure_health.py", "detect_cycles.py",
-    "drift.py", "extract_output.py", "arch_review.py", "align_check.py",
+    "extract_output.py", "arch_review.py", "align_check.py",
     "check_rules.py", "code_shape.py", "rule_index.py", "lint_gate.py",
     "agent_cli.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py",
     "rule_kinds.py", "backfill_kinds.py",
@@ -86,6 +86,16 @@ def _clean_legacy_layout(project_root: Path) -> None:
         stale_shared.unlink()
     except OSError:
         pass
+
+    # Retired pipeline scripts — remove on upgrade so stale copies don't linger
+    # in .archie/. (The npm installer wipes all .py files before copying; this
+    # pip path copies over without sweeping, so retired names need an explicit
+    # delete.)
+    for retired in ("drift.py",):
+        try:
+            (project_root / ".archie" / retired).unlink()
+        except OSError:
+            pass
 
     current_command_names = {c.name for c in COMMANDS}
 

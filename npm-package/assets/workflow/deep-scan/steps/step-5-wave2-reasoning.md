@@ -71,6 +71,8 @@ Spawn the **Product** sub-agent only when `DOMAIN_LAW_COUNT` is greater than 0. 
 - **If SCAN_MODE = "incremental":**
   > INCREMENTAL UPDATE. The architecture was previously analyzed — `$PROJECT_ROOT/.archie/blueprint.json` is the current full architecture and `$PROJECT_ROOT/.archie/blueprint_raw.json` carries the structural changes from Step 4. These files changed: [list `changed_files`]. Update ONLY the sections you own that are affected by these changes, and return ONLY what changed — unchanged sections are preserved by the patch merge. Use the 4-field contract (`problem_statement`, `evidence`, `root_cause`, `fix_direction`) when writing finding or pitfall entries.
 
+  The `changed_files` list MUST be expanded verbatim into the preamble (one path per line) — the Risk agent's recency sweep reads every file on it against the documented invariants and per-folder CLAUDE.md patterns (see its prompt body). An empty or summarized list silently disables that sweep.
+
 **Output contract — append to each prompt, substituting that sub-agent's output path from the table as the "file path named above":**
 
 ```

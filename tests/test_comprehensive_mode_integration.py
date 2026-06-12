@@ -77,25 +77,30 @@ def test_depth_persists_and_round_trips(tmp_path):
     assert state["run_context"]["scan_mode"] == "incremental"
 
 
-def test_filter_ignored_honors_nested_and_glob(tmp_path):
+def test_ignore_matcher_honors_nested_and_glob(tmp_path):
+    """Ancestor-dir and glob semantics for full-path callers of is_ignored
+    (e.g. a git-log file list, where the file may no longer exist on disk)."""
+    import sys
+    sys.path.insert(0, "archie/standalone")
+    from _common import IgnoreMatcher
     (tmp_path / ".archieignore").write_text("vendor/\n**/generated/\n")
-    cmd = [sys.executable, INTENT, "filter-ignored", str(tmp_path)]
-    stdin = "src/a.py\nvendor/deep/b.py\npkg/generated/x.py\nsrc/c.py\n"
-    out = subprocess.run(cmd, input=stdin, capture_output=True, text=True, check=True)
-    assert [l for l in out.stdout.splitlines() if l.strip()] == ["src/a.py", "src/c.py"]
+    m = IgnoreMatcher(tmp_path)
+    assert not m.is_ignored("src/a.py")
+    assert m.is_ignored("vendor/deep/b.py")
+    assert m.is_ignored("pkg/generated/x.py")
+    assert not m.is_ignored("src/c.py")
 
 
 def test_report_caps_gate_on_depth(tmp_path):
-    """measure_health & drift lift their report list-caps when run_context.depth
+    """measure_health lifts its report list-caps when run_context.depth
     is comprehensive (read from deep_scan_state.json, no flag needed)."""
     import sys, json
     sys.path.insert(0, "archie/standalone")
     from importlib import import_module
     (tmp_path / ".archie").mkdir()
     state = tmp_path / ".archie" / "deep_scan_state.json"
-    for mod_name in ("measure_health", "drift"):
-        m = import_module(mod_name)
-        state.write_text(json.dumps({"run_context": {"depth": "comprehensive"}}))
-        assert m._is_comprehensive(str(tmp_path)) is True
-        state.write_text(json.dumps({"run_context": {"depth": "default"}}))
-        assert m._is_comprehensive(str(tmp_path)) is False
+    m = import_module("measure_health")
+    state.write_text(json.dumps({"run_context": {"depth": "comprehensive"}}))
+    assert m._is_comprehensive(str(tmp_path)) is True
+    state.write_text(json.dumps({"run_context": {"depth": "default"}}))
+    assert m._is_comprehensive(str(tmp_path)) is False

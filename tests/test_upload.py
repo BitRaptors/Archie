@@ -63,15 +63,16 @@ def test_build_bundle_includes_all(mock_archie_dir):
     archie.joinpath("proposed_rules.json").write_text(json.dumps({
         "rules": [{"id": "p1", "description": "Use barrel exports", "confidence": 0.7}]
     }))
-    archie.joinpath("scan_report.md").write_text("# Scan\n\n## Findings\n- thing one")
+    # scan_report.md is retired (drift step removed) — a stale file on disk
+    # must NOT be bundled: stale prose would ship to the share viewer.
+    archie.joinpath("scan_report.md").write_text("# Scan\n\n## Findings\n- stale thing")
     bundle = build_bundle(mock_archie_dir)
     assert "blueprint" in bundle
     assert "health" in bundle
     assert "scan_meta" in bundle
     assert "rules_adopted" in bundle
     assert "rules_proposed" in bundle
-    assert "scan_report" in bundle
-    assert "## Findings" in bundle["scan_report"]
+    assert "scan_report" not in bundle
     assert bundle["blueprint"]["meta"]["repository"] == "test/repo"
     assert len(bundle["rules_adopted"]["rules"]) == 1
     assert len(bundle["rules_proposed"]["rules"]) == 1

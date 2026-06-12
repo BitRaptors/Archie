@@ -28,7 +28,7 @@ Comprehensive technical documentation covering system architecture, analysis pip
 20. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
 21. [Data Flow](#data-flow)
 22. [Compound Learning](#compound-learning)
-23. [Drift Detection](#drift-detection)
+23. [Drift Coverage](#drift-coverage-no-dedicated-drift-step)
 24. [Cycle Detection](#cycle-detection)
 25. [Telemetry](#telemetry)
 26. [No Inline Python Constraint](#no-inline-python-constraint)
@@ -126,7 +126,6 @@ archie/
     renderer.py                 # Generate AGENTS.md (canonical) + CLAUDE.md pointer + .claude/rules/ topic files
     intent_layer.py             # Per-folder CLAUDE.md via DAG scheduling + AI enrichment + inspect/scan-config/deep-scan-state/save-run-context
     viewer.py                   # Local viewer — serves the React dist/ + /api/* JSON endpoints (stdlib http.server)
-    drift.py                    # Mechanical drift detection
     validate.py                 # Cross-reference blueprint against actual codebase
     check_rules.py              # Check files against rules (CI path)
     measure_health.py           # Erosion, gini, verbosity, top-20%, waste scores + history append + --compare-history
@@ -142,7 +141,7 @@ archie/
     migrate_blueprint_rules.py  # Migrate legacy blueprint rule sections into proposed_rules.json
     arch_review.py              # Architectural review checklist for plans and diffs
     refresh.py                  # File change detection (hash comparison)
-    extract_output.py           # rules / deep-drift / recent-files / save-duplications subcommands
+    extract_output.py           # rules / save-duplications subcommands
     telemetry.py                # Per-run step-level wall-clock timing + steps-count action
     telemetry_sync.py           # Anonymous opt-in telemetry — record events, push to Supabase
     update_check.py             # Anonymous opt-in npm-registry update check + snooze ladder
@@ -228,7 +227,7 @@ Claude Code slash commands (archie-deep-scan, archie-share, archie-viewer)
   v
 Standalone scripts (archie/standalone/*.py)            <-- primary runtime path
   |   scanner, measure_health, detect_cycles,
-  |   finalize, merge, intent_layer, drift,
+  |   finalize, merge, intent_layer,
   |   extract_output, telemetry, upload, ...
   v
 File system + Claude Code subagent spawning (Agent tool) + Anthropic API
@@ -243,7 +242,7 @@ A parallel Python-package path exists (`archie/cli/ + engine/ + coordinator/`) f
 - **Hooks** — real-time Claude Code integration. Registered in `.claude/settings.local.json` at install time.
 - **Renderer** — deterministic file generation. Input: `blueprint.json`. Output: CLAUDE.md, AGENTS.md, per-folder context, rule files.
 - **Rules** — extraction and severity management. Input: blueprint + AI proposals + platform rules. Output: `rules.json`.
-- **Share** — `upload.py` builds a bundle (blueprint + findings + scan_report + health + rules) and POSTs it to the Supabase edge function; the React viewer renders it from a token URL.
+- **Share** — `upload.py` builds a bundle (blueprint + findings + health + rules) and POSTs it to the Supabase edge function; the React viewer renders it from a token URL.
 
 ---
 
@@ -376,9 +375,8 @@ Kept for CI/tests and standalone Python usage. Groups files into token-budgeted 
 **Workflow structure.** `/archie-deep-scan` is a modular workflow tree, not a monolithic command file. The command shim is a thin router; the real pipeline is the rendered `deep-scan/` tree under `.archie/workflow/<cli>/` — authored once as a template under `archie/assets/workflow/deep-scan/`:
 
 - `SKILL.md` — the orchestrator: flag parsing (`--incremental` / `--continue` / `--from N` / `--reconfigure`), the resume preamble, and a step-routing table.
-- `steps/step-1-scanner.md` … `step-10-telemetry.md` — one self-contained file per step (Step 3 expands into `step-3-wave1/` with one prompt file per Wave 1 agent + shared grounding rules).
+- `steps/step-1-scanner.md` … `step-9-finalize.md` — one self-contained file per step (Step 3 expands into `step-3-wave1/` with one prompt file per Wave 1 agent + shared grounding rules).
 - `fragments/` — cross-step contracts: `telemetry-conventions.md`, `compact-resume-contract.md`, `resume-prelude.md`.
-- `templates/scan-report.md` — the scan-report template Step 9 fills in.
 - Phase 0 scope resolution is loaded from the shared `_shared/scope_resolution.md` fragment.
 
 The router Reads only the files for the steps it actually runs, so a `--from 7` resume never loads Steps 1–6, and `.archie/deep_scan_state.json` rehydrates shell variables after a `/compact`.
@@ -407,10 +405,8 @@ Step 7  Intent Layer (opt-in) — per-folder CLAUDE.md via DAG scheduling
               If INTENT_LAYER=no from Step E, this step is skipped and
               telemetry records "skipped": true
 Step 8        Cleanup
-Step 9        Drift Detection & Architectural Assessment
-              Mechanical drift (drift.py) + Deep AI drift (single Sonnet)
-              Writes scan_report.md to scan_history/
-Step 10       Telemetry write
+Step 9        Finalize — health metrics (measure_health.py + history),
+              incremental baseline marker, telemetry write, closing summary
 ```
 
 ### Incremental mode (`--incremental`)
@@ -560,7 +556,7 @@ All hooks fail open: missing rules/config/marker files → hooks exit 0 silently
 
 Every analysis subagent spawned during a scan receives a mandatory instruction (the connector-rendered `{{>output_contract}}` partial) to write its complete output directly to `.archie/tmp/archie_*.json` — Claude renders this as a `Write` tool call, Codex renders it as `apply_patch` against the workspace path. Both land covered by `Write(.archie/**)` (Claude's permission allowlist) and Codex's default `workspace-write` sandbox. The orchestrator never copies subagent transcripts. This avoids Claude Code's sensitive-file guardrail on `~/.claude/projects/.../subagents/*.jsonl` (which used to fire a permission prompt on every batch), keeps subagent output out of the orchestrator's context (less compaction pressure), and isolates failures (missing confirmation line or missing file → clear signal, no silent fallback to transcript scraping). Artifacts are workspace-relative under `.archie/tmp/`, gitignored at install time via a self-ignoring `.archie/tmp/.gitignore` so they never get committed.
 
-The contract is enforced in 6 spawn sites across the slash commands: Wave 1 structural agents (3–4 Sonnets), Wave 2 reasoning agent (full + incremental paths), rule-proposer agent, deep-drift reviewer, and Intent Layer enrichment subagents.
+The contract is enforced in 5 spawn sites across the slash commands: Wave 1 structural agents (3–4 Sonnets), Wave 2 reasoning agents (full + incremental paths), rule-proposer agent, and Intent Layer enrichment subagents.
 
 ---
 
@@ -676,7 +672,6 @@ Zero-dependency Python scripts in `archie/standalone/`. These are exported to ta
 | `renderer.py` | Blueprint JSON → AGENTS.md (canonical) + CLAUDE.md pointer + `.claude/rules/` topic files + `enforcement/` directory |
 | `intent_layer.py` | Per-folder CLAUDE.md via DAG scheduling + AI enrichment. Subcommands: `prepare`, `next-ready`, `suggest-batches`, `prompt`, `save-enrichment`, `merge`, `inspect [--query] [--list]`, `scan-config`, `deep-scan-state` (incl. `save-run-context` for shell-friendly run-context writes) |
 | `viewer.py` | Local viewer — stdlib `http.server` serving the React `dist/` + `/api/bundle` (reuses `upload.py::build_bundle`), `/api/generated-files`, `/api/folder-claude-mds`, `/api/intent-layer-status`, `/api/ignored-rules`, `POST /api/rules` (5 atomic rule actions); auto-reloads when its own source changes |
-| `drift.py` | Mechanical drift detection |
 | `validate.py` | Cross-reference blueprint against actual codebase |
 | `check_rules.py` | Check files against rules (CI path) |
 | `measure_health.py` | Erosion, gini, verbosity, top-20%, waste scores + `--append-history` + `--compare-history` (trend deltas) |
@@ -976,8 +971,7 @@ Local project                    Supabase (upload function)              Supabas
   |     - health.json (stripped)           |                                   |
   |     - scan_meta, rules_adopted         |                                   |
   |     - rules_proposed                   |                                   |
-  |     - scan_report.md                   |                                   |
-  |     - semantic_duplications            |                                   |
+  |     - semantic_duplications (legacy)   |                                   |
   |                                        v                                   |
   |<---------------------------- {"token": "…"}                                |
   |                                                                            |
@@ -1064,8 +1058,7 @@ Shared across all three modes:
   "scan_meta": {...},                    # frameworks, subproject count, frontend_ratio
   "rules_adopted": {...},
   "rules_proposed": {...},
-  "scan_report": "...",
-  "semantic_duplications": [...],        # structured, from semantic_duplications.json
+  "semantic_duplications": [...],        # legacy, from semantic_duplications.json when present
   "findings": [...]                      # from findings.json (shared store)
 }
 ```
@@ -1213,10 +1206,10 @@ Step 6  Rule synthesis — single Sonnet
 Step 7  Intent Layer — per-folder CLAUDE.md (OPT-IN, Step E decides)
         If INTENT_LAYER=no: skip, telemetry records "skipped": true
 Step 8  Cleanup .archie/tmp/archie_*
-Step 9  Drift Detection & Architectural Assessment
-        drift.py (mechanical) + single Sonnet (deep AI drift)
-        Writes final scan_report.md + scan_history/scan_NNN_*.md
-Step 10 Telemetry write to .archie/telemetry/deep-scan_<ts>.json
+Step 9  Finalize
+        measure_health.py -> health.json + health_history.json
+        complete-step + save-baseline (incremental change detection)
+        Telemetry write to .archie/telemetry/deep-scan_<ts>.json
 ```
 
 ### Incremental deep scan (`--incremental`)
@@ -1247,33 +1240,20 @@ Every run feeds the next. Both commands read and write the same `findings.json` 
 
 ---
 
-## Drift Detection
+## Drift Coverage (no dedicated drift step)
 
-Deep scans include two-phase drift detection:
+The standalone drift step was retired: its findings duplicated the Wave 2 Risk pipeline without the verifier/hysteresis guarantees, and its run time scaled with recent churn. The problem classes it covered now live in verified channels:
 
-### Phase 1: Mechanical drift (`drift.py`)
-
-Deterministic analysis:
-- Pattern outliers (files that don't match established patterns)
-- File size and complexity violations
-- Dependency-direction breaches
-- Structural anomalies
-
-### Phase 2: Deep AI drift
-
-An agent reads blueprint + drift report + CLAUDE.md files + `findings.json` to identify drift categories:
-
-| Category | What it detects |
+| Class | Where it's caught now |
 |----------|----------------|
-| `decision_violation` | Code that contradicts a recorded architectural decision |
-| `pattern_erosion` | Gradual drift away from established patterns |
-| `trade_off_undermined` | Changes that undermine accepted trade-offs |
-| `pitfall_triggered` | Known pitfalls that have materialised in code |
-| `responsibility_leak` | Logic placed in the wrong component/layer |
-| `abstraction_bypass` | Direct access that skips established abstractions |
-| `semantic_duplication` | Reimplementation of existing functionality |
+| `decision_violation` | Risk agent's invariant walk (Step 5b) + `pre-validate.sh` blocks at edit time |
+| `pattern_erosion` | Incremental recency sweep (Risk agent reads changed files against per-folder CLAUDE.md) |
+| `trade_off_undermined` | Risk agent reads `trade_offs.violation_signals`; hooks warn via `tradeoff_undermined` |
+| `pitfall_triggered` | Risk agent pitfall pass + hooks block via `pitfall_triggered` |
+| `responsibility_leak` / `abstraction_bypass` | Risk agent's whole-system pass (cross-component coupling, decision-chain constraints) |
+| schema drift | Risk agent's data-shaped pitfall classes (`data_models` + `persistence_stores`) |
 
-Violations are grounded with `violation_signals` from the blueprint's trade-off and decision chain data.
+Everything user-facing flows through `findings.json` — `triggering_call_site` required, backward-verified, hysteresis-stabilised.
 
 ---
 
@@ -1308,7 +1288,7 @@ Every `/archie-deep-scan` run writes a per-step wall-clock timing file:
     {"name": "rule_synthesis",  "seconds": 316,   "model": "sonnet"},
     {"name": "intent_layer",    "seconds": 19676, "model": "sonnet", "skipped": false},
     {"name": "cleanup",         "seconds": 22},
-    {"name": "drift",           "seconds": 340}
+    {"name": "finalize",        "seconds": 18}
   ]
 }
 ```
@@ -1346,8 +1326,6 @@ Scan templates include a "CRITICAL CONSTRAINT: Never write inline Python" block 
 | `intent_layer.py scan-config <dir> read\|write\|validate` | Monorepo scope config management |
 | `intent_layer.py deep-scan-state <dir> init\|read\|complete-step N\|detect-changes\|save-baseline\|save-context\|save-run-context` | Deep-scan resume state; `save-run-context` takes flags + newline-separated workspaces via stdin (replaces heredoc-JSON-with-inline-python that used to round-trip workspaces through `python3 -c`) |
 | `extract_output.py rules <in> <out>` | Parse rule synthesis output |
-| `extract_output.py deep-drift <in> <out>` | Merge drift findings into report |
-| `extract_output.py recent-files <scan.json>` | Print source file paths |
 | `extract_output.py save-duplications <agent_c_file> <project_root>` | Deterministic semantic_duplications.json writer |
 | `telemetry.py <project_root> --command <name> --timing-file <file>` | Write per-run telemetry |
 | `telemetry.py steps-count <project_root>` | Count completed step marks (replaces inline python `len(json.load(...).get('steps'))` in deep-scan Resume Prelude) |

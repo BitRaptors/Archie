@@ -53,7 +53,7 @@ def test_build_summary_structure_and_total():
         {"name": "scan", "seconds": 7},
         {"name": "wave2_synthesis", "seconds": 61,
          "agents": [{"name": "design", "seconds": 30}, {"name": "risk", "seconds": 163}]},
-        {"name": "drift", "seconds": 570},
+        {"name": "finalize", "seconds": 570},
     ]
     out = telemetry.build_summary(steps)
     assert [s["step"] for s in out["steps"]] == [1, 2, 3]          # numbered in order

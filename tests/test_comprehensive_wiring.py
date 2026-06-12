@@ -34,9 +34,26 @@ def test_step6_passes_comprehensive_to_renderer():
     assert DEPTH_REDERIVE in t
 
 
-def test_step9_rederives_depth_from_disk():
-    t = _read(STEPS / "step-9-drift.md")
-    assert DEPTH_REDERIVE in t and "SINCE_ARGS" in t
+def test_step9_finalize_carries_salvaged_bookkeeping():
+    """The finalize step owns the calls salvaged from the retired drift step:
+    health measurement, run completion, and the incremental baseline marker."""
+    t = _read(STEPS / "step-9-finalize.md")
+    assert "measure_health.py" in t and "--append-history" in t
+    assert "complete-step 9" in t
+    assert "save-baseline" in t
+    assert "telemetry.py finish" in t and "telemetry.py write" in t
+
+
+def test_incremental_recency_sweep_is_wired():
+    """The Risk agent's recency sweep only works if the orchestration expands
+    changed_files verbatim into the incremental preamble AND the Risk prompt
+    body tells the agent to read that list. Both sides, or it's dead wiring."""
+    wave2 = _read(STEPS / "step-5-wave2-reasoning.md")
+    assert "These files changed" in wave2
+    assert "expanded verbatim" in wave2 and "recency sweep" in wave2
+    risk = _read(STEPS / "step-5b-risk.md")
+    assert "Recency sweep" in risk
+    assert "These files changed" in risk  # the body names the preamble marker it keys on
 
 
 CONTRACT = "COMPREHENSIVE MODE — be exhaustive"
@@ -69,7 +86,8 @@ def test_wave1_dispatch_injects_contract():
 def test_npm_package_workflow_in_sync():
     """Spot-check: the npm-package mirror of the wired steps matches canonical."""
     for rel in ("steps/step-1-scanner.md", "steps/step-6-rule-synthesis.md",
-                "steps/step-5-wave2-reasoning.md", "steps/step-3-wave1/orchestration.md"):
+                "steps/step-5-wave2-reasoning.md", "steps/step-5b-risk.md",
+                "steps/step-9-finalize.md", "steps/step-3-wave1/orchestration.md"):
         canon = _read(WF / rel)
         mirror = _read(Path("npm-package/assets/workflow/deep-scan") / rel)
         assert canon == mirror, f"out of sync: {rel}"

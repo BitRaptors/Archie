@@ -67,15 +67,13 @@ Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --increme
 
   Health:     Erosion 0.95 (front) / 0.69 (back) · Gini 0.92 / 0.76 · LoC 76,903 / 45,261
 
-  Drift:      14 errors (raw ipcRenderer exposure, API key in logs, duplicate startup
+  Findings:   14 errors (raw ipcRenderer exposure, API key in logs, duplicate startup
               handlers, stale WebSocket closures, DI-layer imports from utils, …)
               14 warnings (sync I/O in async paths, monolith routers, compat-hook CRUD leak, …)
+              — each verified against its triggering call site before it ships
 
   Top risks:  IPC security hole · API key exposure · stale WebSocket state ·
               circular deps & layer violations · duplicate startup handler
-
-  Semantic duplication: 3 groups (placeholder_resolver clone, dual WebSocketMappingService,
-                                  sidebar state in two contexts)
 
   Archie is now active. Rules will be enforced on every code change.
   Run /archie-deep-scan --incremental after code changes to refresh the analysis.
