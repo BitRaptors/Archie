@@ -109,3 +109,62 @@ def build_studio_app(root: Path, prd_root: Path | None, *, port: int = 0,
         dist_dir = None  # API-only; main() owns the user-facing preflight
     handler = _make_studio_handler(root, prd_root, dist_dir)
     return http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+
+
+def main(argv: list | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Archie Studio local app.")
+    parser.add_argument("project_root", help="Path to the project to open")
+    parser.add_argument("--prd", default=None,
+                        help="PRD folder relative to the project root "
+                             "(default: docs/prd, then prd)")
+    parser.add_argument("--port", type=int, default=None,
+                        help="Port (default {}, falls back to free)".format(DEFAULT_PORT))
+    parser.add_argument("--no-open", action="store_true",
+                        help="Do not auto-open the browser")
+    args = parser.parse_args(argv)
+
+    root = Path(args.project_root).resolve()
+    if not root.is_dir():
+        print("Error: not a directory: {}".format(root), file=sys.stderr)
+        return 1
+
+    prd_root = resolve_prd_root(root, args.prd)
+    if prd_root is None:
+        where = args.prd or " or ".join(PRD_DEFAULT_CANDIDATES)
+        print("Note: no PRD folder found ({}). The Product tab will "
+              "show an empty state.".format(where), file=sys.stderr)
+
+    if not (DIST_DIR / "index.html").exists():
+        print("Error: studio/frontend/dist/ not found. "
+              "Build it first: cd studio/frontend && npm install && npm run build",
+              file=sys.stderr)
+        return 1
+
+    if args.port is not None:
+        port = args.port
+    elif viewer._port_available(DEFAULT_PORT):
+        port = DEFAULT_PORT
+    else:
+        port = viewer._free_port()
+
+    server = build_studio_app(root, prd_root, port=port, dist_dir=DIST_DIR)
+    print("Starting Archie Studio…")
+    print("Project: {}".format(root))
+    print("PRD folder: {}".format(prd_root if prd_root else "(none found)"))
+    url = "http://localhost:{}/".format(port)
+    print("Listening on {}".format(url))
+    if not args.no_open:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+    print("Press Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.shutdown()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
