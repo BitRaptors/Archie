@@ -195,6 +195,17 @@ def test_detect_prd_dirs_finds_unconventional_folders(kavosz_like: Path):
     assert detect_prd_dirs(kavosz_like.resolve()) == [(kavosz_like / "@docs").resolve()]
 
 
+def test_initial_prd_state_never_promotes_detected_sources(kavosz_like: Path):
+    """Regression: main() once fed the first computed (detected) source back in
+    as the explicit seed, promoting it to all-markdown mode."""
+    from server import initial_prd_state
+    prd_root, labels = initial_prd_state(kavosz_like.resolve(), None)
+    assert prd_root is None  # detected @docs must NOT become the explicit seed
+    assert labels == ["@docs"]
+    prd_root, labels = initial_prd_state(kavosz_like.resolve(), "@docs")
+    assert prd_root == (kavosz_like / "@docs").resolve()  # real flag: explicit
+
+
 def test_compute_prd_sources_orders_and_dedupes(project: Path):
     from server import compute_prd_sources
     root = project.resolve()

@@ -114,8 +114,17 @@ export default function ProductTab() {
         if (!r.ok) throw new Error((await r.json()).error ?? `HTTP ${r.status}`)
         return r.json()
       })
-      .then((d: PrdTreeResponse) => setSources(d.sources))
-      .catch(() => setTreeError('Could not load the PRD file tree.'))
+      .then((d: PrdTreeResponse) => {
+        // An old server process answers with the pre-sources shape; surface
+        // that as an error instead of spinning on "Loading..." forever.
+        if (!Array.isArray(d.sources)) throw new Error('unexpected response shape')
+        setSources(d.sources)
+      })
+      .catch(() =>
+        setTreeError(
+          'Could not load the PRD file tree. If Studio was just updated, restart the server.'
+        )
+      )
   }, [])
 
   useEffect(() => {

@@ -434,6 +434,21 @@ def build_studio_app(root: Path | None, prd_root: Path | None, *, port: int = 0,
     return server
 
 
+def initial_prd_state(root: Path, prd_arg: str | None) -> "tuple[Path | None, list[str]]":
+    """(explicit prd_root for the server seed, labels for the startup message).
+
+    Only an actual --prd flag becomes the explicit seed; computed (detected /
+    convention) sources must NOT be fed back in, or build_studio_app would
+    promote them to explicit all-markdown mode.
+    """
+    sources = compute_prd_sources(root, _explicit_sources_for(root, prd_arg))
+    labels = [s["label"] for s in sources]
+    prd_root = None
+    if prd_arg and (root / prd_arg).is_dir():
+        prd_root = (root / prd_arg).resolve()
+    return prd_root, labels
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Archie Studio local app.")
     parser.add_argument("project_root", nargs="?", default=None,
@@ -446,6 +461,8 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"Port (default {DEFAULT_PORT}, falls back to free)")
     parser.add_argument("--no-open", action="store_true",
                         help="Do not auto-open the browser")
+    parser.add_argument("--no-reload", action="store_true",
+                        help="Disable the auto-reload watcher (default: on)")
     args = parser.parse_args(argv)
 
     root = None
@@ -456,10 +473,8 @@ def main(argv: list[str] | None = None) -> int:
         if not root.is_dir():
             print(f"Error: not a directory: {root}", file=sys.stderr)
             return 1
-        sources = compute_prd_sources(root, _explicit_sources_for(root, args.prd))
-        prd_labels = [s["label"] for s in sources]
-        prd_root = Path(sources[0]["root"]) if sources else None
-        if not sources:
+        prd_root, prd_labels = initial_prd_state(root, args.prd)
+        if not prd_labels:
             print("Note: no PRD documents found (docs/prd/, prd/, or folders "
                   "with *prd*.md files). Add a folder from the Product tab.",
                   file=sys.stderr)
@@ -487,6 +502,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"PRD sources: {', '.join(prd_labels) if prd_labels else '(none found)'}")
     url = f"http://localhost:{port}/"
     print(f"Listening on {url}")
+    if not args.no_reload:
+        # Same trap viewer.py guards against: a long-running server keeps old
+        # code in memory after a git pull, and the rebuilt frontend then talks
+        # to stale endpoints. Re-exec on any .py change in studio/.
+        viewer._start_reload_watcher(Path(__file__).resolve().parent)
+        print("Auto-reload: on (--no-reload to disable)")
     if not args.no_open:
         try:
             webbrowser.open(url)
