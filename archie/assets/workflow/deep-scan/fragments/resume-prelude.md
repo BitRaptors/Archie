@@ -69,4 +69,9 @@ fi
 - The consistency check is defensive. Under normal compact-and-resume flow, telemetry step count ≥ last_completed always holds because each step marks its start *before* calling `complete-step N`. A warning here signals something outside the happy path (manual state edit, aborted step, corrupted file).
 - `WORKSPACES` is rehydrated as a newline-separated string, matching what Step C's scope picker originally produced. Downstream iteration patterns (`while IFS= read`; `printf '%s\n' "$WORKSPACES" | ...`) work identically.
 - If `--from N` is supplied, the orchestrator sets `FROM_STEP=N` before this block runs.
+- **Incremental runs:** `changed_files`/`affected_folders` are intentionally NOT persisted (they can be large and go stale). When `SCAN_MODE=incremental`, regenerate them on resume — the baseline marker only moves at Step 9's `save-baseline`, so this reproduces the Preamble's exact output. Steps 3, 5 (the Risk agent's recency sweep depends on it), and 7 all consume this list:
+
+  ```bash
+  python3 .archie/intent_layer.py deep-scan-state "$PWD" detect-changes
+  ```
 

@@ -63,18 +63,57 @@ def test_build_bundle_includes_all(mock_archie_dir):
     archie.joinpath("proposed_rules.json").write_text(json.dumps({
         "rules": [{"id": "p1", "description": "Use barrel exports", "confidence": 0.7}]
     }))
-    archie.joinpath("scan_report.md").write_text("# Scan\n\n## Findings\n- thing one")
+    # scan_report.md is retired (drift step removed) — a stale file on disk
+    # must NOT be bundled: stale prose would ship to the share viewer.
+    archie.joinpath("scan_report.md").write_text("# Scan\n\n## Findings\n- stale thing")
     bundle = build_bundle(mock_archie_dir)
     assert "blueprint" in bundle
     assert "health" in bundle
     assert "scan_meta" in bundle
     assert "rules_adopted" in bundle
     assert "rules_proposed" in bundle
-    assert "scan_report" in bundle
-    assert "## Findings" in bundle["scan_report"]
+    assert "scan_report" not in bundle
     assert bundle["blueprint"]["meta"]["repository"] == "test/repo"
     assert len(bundle["rules_adopted"]["rules"]) == 1
     assert len(bundle["rules_proposed"]["rules"]) == 1
+
+
+def test_build_bundle_semantic_duplications_from_legacy_file(mock_archie_dir):
+    """The legacy semantic_duplications.json (Agent C output) still ships when
+    present — pre-upgrade shares keep their count until the installer sweeps
+    the file."""
+    archie = mock_archie_dir / ".archie"
+    archie.joinpath("semantic_duplications.json").write_text(json.dumps({
+        "duplications": [{"canonical": "loadUser", "twins": ["fetchUser"]}],
+        "scanned_at": "2026-01-01T00:00:00Z",
+    }))
+    bundle = build_bundle(mock_archie_dir)
+    assert bundle["semantic_duplications"] == [
+        {"canonical": "loadUser", "twins": ["fetchUser"]}
+    ]
+
+
+def test_build_bundle_semantic_duplications_structured_zero(mock_archie_dir):
+    """An explicit empty duplications list must still set the field — without
+    it the share viewer falls through to its prose heuristic, which can show a
+    phantom non-zero count."""
+    archie = mock_archie_dir / ".archie"
+    archie.joinpath("semantic_duplications.json").write_text(
+        json.dumps({"duplications": []})
+    )
+    bundle = build_bundle(mock_archie_dir)
+    assert bundle["semantic_duplications"] == []
+
+
+def test_build_bundle_ignores_stale_drift_report(mock_archie_dir):
+    """drift_report.json is a retired artifact: its deep_findings used to be a
+    semantic_duplications source and must no longer feed the bundle."""
+    archie = mock_archie_dir / ".archie"
+    archie.joinpath("drift_report.json").write_text(json.dumps({
+        "deep_findings": [{"type": "semantic_duplication", "file": "a.py"}]
+    }))
+    bundle = build_bundle(mock_archie_dir)
+    assert "semantic_duplications" not in bundle
 
 
 def test_build_bundle_blueprint_only(tmp_path):

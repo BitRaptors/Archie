@@ -9,7 +9,7 @@ TELEMETRY_STEP7_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 **If START_STEP > 7, skip this step.**
 
-**If `INTENT_LAYER=no` (user opted out in Step E), skip this entire step.** Print a one-line note to the user: *"Intent Layer skipped (no per-folder CLAUDE.md generated). Root CLAUDE.md + rule files still written. You can run `{{COMMAND_PREFIX}}archie-intent-layer` later if you change your mind."* Then proceed to Step 8. The `intent_layer` telemetry step will record zero elapsed time (its `started_at == completed_at`) and carry `"skipped": true` (see Step 10).
+**If `INTENT_LAYER=no` (user opted out in Step E), skip this entire step.** Print a one-line note to the user: *"Intent Layer skipped (no per-folder CLAUDE.md generated). Root CLAUDE.md + rule files still written. You can run `{{COMMAND_PREFIX}}archie-intent-layer` later if you change your mind."* Then proceed to Step 8. The `intent_layer` telemetry step will record zero elapsed time (its `started_at == completed_at`) and carry `"skipped": true` (see Step 9).
 
 **If `INTENT_LAYER=yes`, execute this step fully. Do NOT ask the user whether to run, skip, or reduce scope. Do NOT offer alternatives. Run all batches as instructed below.**
 
@@ -65,7 +65,7 @@ Then execute Phases 1–4 from that file, using `PROJECT_ROOT` in place of `$PWD
 
 ### ✓ Compact Checkpoint C — after Intent Layer
 
-Only meaningful when `INTENT_LAYER=yes`. Step 7 has just pushed dozens-to-hundreds of {{ANALYSIS_MODEL}} subagent transcripts into conversation context; those are now fully persisted to `.archie/enrichments/*.json` and merged into per-folder `CLAUDE.md` files. Compacting here gives Step 9 (Drift Assessment) a fresh context, which matters because drift assessment reads blueprint + drift_report + CLAUDE.md files and benefits from focused attention.
+Only meaningful when `INTENT_LAYER=yes`. Step 7 has just pushed dozens-to-hundreds of {{ANALYSIS_MODEL}} subagent transcripts into conversation context; those are now fully persisted to `.archie/enrichments/*.json` and merged into per-folder `CLAUDE.md` files. Compacting here gives the remaining bookkeeping steps (Cleanup, Finalize) a fresh context, so the run finishes reliably even after a very large Intent Layer pass.
 
 If `INTENT_LAYER=no` (opted out in Step E), skip this checkpoint — Checkpoint A already covered it.
 

@@ -240,7 +240,7 @@ class IgnoreMatcher:
         Gitignore semantics: a path is also ignored when any ANCESTOR directory
         matches a dir pattern (``vendor/`` ignores ``vendor/b.py``). os.walk
         callers get this for free via directory pruning; full-path callers
-        (e.g. drift's git-log list, where the file may no longer exist on disk)
+        (e.g. a git-log file list, where the file may no longer exist on disk)
         rely on this ancestor walk.
         """
         rel_path = rel_path.replace(os.sep, "/")

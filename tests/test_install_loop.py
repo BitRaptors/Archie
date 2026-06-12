@@ -64,15 +64,35 @@ def test_install_removes_legacy_layout(tmp_path: Path) -> None:
     legacy_shared.mkdir(parents=True)
     (legacy_shared / "scope_resolution.md").write_text("OLD")
 
+    # Retired drift-step files from a pre-2.10 install (script + data
+    # artifacts) — the install sweep is the canonical retirement point.
+    legacy_archie = tmp_path / ".archie"
+    legacy_archie.mkdir(parents=True, exist_ok=True)
+    for retired in (
+        "drift.py", "drift_report.json", "drift_diff.json",
+        "scan_report.md", "semantic_duplications.json",
+    ):
+        (legacy_archie / retired).write_text("OLD")
+    legacy_history = legacy_archie / "drift_history"
+    legacy_history.mkdir()
+    (legacy_history / "drift_20260101T000000.json").write_text("OLD")
+
     install(tmp_path, ["claude"])
 
     assert not (tmp_path / ".claude" / "skills" / "archie-deep-scan").exists()
     assert not (tmp_path / ".archie" / "prompts").exists()
     assert not (legacy_shared / "scope_resolution.md").exists()
-    # ...and the current layout is in place.
+    for retired in (
+        "drift.py", "drift_report.json", "drift_diff.json",
+        "scan_report.md", "semantic_duplications.json",
+    ):
+        assert not (legacy_archie / retired).exists(), retired
+    assert not legacy_history.exists()
+    # ...and the current layout is in place (the sweep must not eat live files).
     assert (
         tmp_path / ".archie" / "workflow" / "claude" / "deep-scan" / "SKILL.md"
     ).exists()
+    assert (tmp_path / ".archie" / "extract_output.py").exists()
 
 
 def test_install_sweeps_stale_command_shims_from_prior_version(tmp_path: Path) -> None:

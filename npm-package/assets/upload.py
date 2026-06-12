@@ -3,7 +3,7 @@
 
 Run: python3 upload.py /path/to/project
 Reads from .archie/: blueprint.json (required), health.json, scan.json, rules.json,
-                     proposed_rules.json, scan_report.md (all optional).
+                     proposed_rules.json, findings.json (all optional).
 Prints: shareable URL on success, warning on failure.
 
 Zero dependencies beyond Python 3.9+ stdlib.
@@ -54,15 +54,6 @@ def _read_json(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
-        return None
-
-
-def _read_text(path: Path) -> str | None:
-    if not path.exists():
-        return None
-    try:
-        return path.read_text()
-    except OSError:
         return None
 
 
@@ -174,15 +165,11 @@ def build_bundle(project_root: Path) -> dict:
     if proposed:
         bundle["rules_proposed"] = proposed
 
-    scan_report = _read_text(archie_dir / "scan_report.md")
-    if scan_report:
-        bundle["scan_report"] = scan_report
-
     # Structured findings from the shared accumulating store. Gives the share
     # viewer the 4-field shape (problem_statement/evidence/root_cause/
-    # fix_direction) — far richer than the title/description regex-scraped
-    # from scan_report.md. Old bundles without this still fall back to the
-    # markdown-parsed findings.
+    # fix_direction). The legacy scan_report.md bundle field was retired with
+    # the deep-scan drift step — the viewer treats it as optional and old
+    # bundles that still carry it keep rendering.
     findings_store = _read_json(archie_dir / "findings.json")
     if isinstance(findings_store, dict) and isinstance(findings_store.get("findings"), list):
         bundle["findings"] = findings_store["findings"]
@@ -195,56 +182,24 @@ def build_bundle(project_root: Path) -> dict:
     if isinstance(c4, dict):
         bundle["c4"] = c4
 
-    # Structured semantic duplications. Two upstream sources, merged here so
-    # the share viewer always sees a single authoritative count regardless of
-    # which scan path produced them:
-    #
-    #   1. .archie/semantic_duplications.json — Agent C's output. Present
-    #      when scan_report.md exists (written by deep-scan Phase 4).
-    #   2. .archie/drift_report.json deep_findings tagged
-    #      "semantic_duplication" — /archie-deep-scan's deep-drift agent.
-    #      This was getting silently dropped: the file existed, the findings
-    #      were tagged, but upload.py never looked at them. Visible symptom
-    #      was "0 semantic reimplementations" on the share cover for projects
-    #      whose dups came from deep-drift only.
+    # Structured semantic duplications — legacy source only.
+    # .archie/semantic_duplications.json was Agent C's output from the retired
+    # scan flow; the deep-scan drift agent (the other historical source, via
+    # drift_report.json) was removed along with the drift step, and no current
+    # pipeline emits semantic duplications. The installer's legacy sweep
+    # (install.py::_clean_legacy_layout) deletes the file on upgrade, so this
+    # read only fires for shares made before the next `npx @bitraptors/archie`
+    # run; after that the share cover falls back to health.json's mechanical
+    # line-clone metric. Kept so pre-upgrade shares don't lose data mid-flight.
     #
     # Distinct from health.json's textual duplicates (line-identical copy-
-    # paste). Both sources describe near-twin functions / reimplementations.
-    duplications: list = []
-    saw_any_source = False
+    # paste): this field describes near-twin functions / reimplementations.
     sem = _read_json(archie_dir / "semantic_duplications.json")
     if sem and isinstance(sem.get("duplications"), list):
-        saw_any_source = True
-        duplications.extend(sem["duplications"])
-
-    drift = _read_json(archie_dir / "drift_report.json")
-    if isinstance(drift, dict):
-        deep_findings = drift.get("deep_findings") or []
-        if isinstance(deep_findings, list):
-            saw_any_source = True
-            for f in deep_findings:
-                if not isinstance(f, dict):
-                    continue
-                # The deep-drift agent tags entries via a `type` field
-                # ("semantic_duplication", "missing_pattern", etc.). Some
-                # older / hand-rolled outputs use a `tags` array instead;
-                # accept both shapes so the count is robust to schema drift.
-                ftype = f.get("type")
-                tags = f.get("tags") or []
-                is_sem = (
-                    (isinstance(ftype, str) and "semantic_duplication" in ftype)
-                    or (isinstance(tags, list)
-                        and any(isinstance(t, str) and "semantic_duplication" in t for t in tags))
-                )
-                if is_sem:
-                    duplications.append(f)
-    # Set the field whenever either source provided ANY signal — including
-    # the explicit "structured zero" case (empty list with both sources
-    # checked). Without saw_any_source, an empty result here would drop the
-    # field entirely and let the share viewer fall through to its prose
-    # heuristic, which can return non-zero from unrelated scan_report text.
-    if saw_any_source:
-        bundle["semantic_duplications"] = duplications
+        # Including the explicit "structured zero" (empty list): without it the
+        # share viewer falls through to its prose heuristic, which can return
+        # non-zero from unrelated report text.
+        bundle["semantic_duplications"] = sem["duplications"]
 
     return bundle
 
