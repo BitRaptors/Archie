@@ -18,6 +18,7 @@ export default defineConfig({
     // exists — and the build fails with "failed to resolve import". dedupe
     // pins these packages to studio's own node_modules (mirrors the "*" paths
     // fallback in tsconfig.json, which solves the same problem for tsc).
+    // Keep in sync with npm-package/assets/viewer/package.json dependencies.
     dedupe: [
       'react', 'react-dom', 'react-router-dom', 'lucide-react', 'mermaid',
       'react-markdown', 'remark-gfm', 'rehype-highlight', 'highlight.js',
