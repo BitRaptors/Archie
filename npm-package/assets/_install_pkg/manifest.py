@@ -5,6 +5,11 @@ appropriate per-CLI artifact (slash command / skill, hook config,
 config patch). See docs/plans/2026-05-18-multi-agent-connector-architecture.md
 for the full design.
 """
+# Required on Python 3.9 (the macOS-bundled python3): without lazy annotation
+# evaluation, `str | None` class-body annotations raise TypeError at import
+# time and the whole install loop dies before writing any CLI shim.
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal, Optional
 
