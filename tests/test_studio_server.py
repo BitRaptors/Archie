@@ -93,6 +93,13 @@ def test_read_prd_file_rejects_non_markdown(project: Path):
     assert read_prd_file(prd_root, "features/notes.txt") is None
 
 
+def test_read_prd_file_handles_null_byte(project: Path):
+    """Embedded null bytes make Path.resolve() raise ValueError; must 404, not crash."""
+    from server import read_prd_file
+    prd_root = (project / "docs" / "prd").resolve()
+    assert read_prd_file(prd_root, "a\x00.md") is None
+
+
 def _symlinks_supported(base: Path) -> bool:
     probe = base / "_symlink_probe"
     try:

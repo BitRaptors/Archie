@@ -64,11 +64,13 @@ def build_prd_tree(prd_root: Path) -> list[dict]:
 def read_prd_file(prd_root: Path, rel: str) -> str | None:
     """Content of a .md file under prd_root, or None (missing/outside/non-md)."""
     prd_root = prd_root.resolve()  # guard fails spuriously on unresolved paths
-    target = (prd_root / rel).resolve()
     try:
+        # resolve() inside the guard: pathological names (embedded null bytes)
+        # raise ValueError there too, not just in relative_to.
+        target = (prd_root / rel).resolve()
         target.relative_to(prd_root)
     except ValueError:
-        return None  # traversal outside the PRD root
+        return None  # traversal outside the PRD root, or unresolvable name
     if target.suffix.lower() != ".md" or not target.is_file():
         return None
     try:
