@@ -103,3 +103,25 @@ def test_render_index_lists_blocked_separately(tmp_path: Path):
     assert "ISS-005" in out
 
 
+def test_cmd_init_creates_structure(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    issues = tmp_path / ".archie" / "issues"
+    for sub in studio.STATUSES + ["epics", "evidence"]:
+        assert (issues / sub).is_dir(), f"missing {sub}"
+    assert (issues / "_TEMPLATE.md").exists()
+    assert (issues / "WORKFLOW.md").exists()
+    assert (issues / "INDEX.md").exists()
+    assert "ISS-NNN" in (issues / "_TEMPLATE.md").read_text()
+    assert "Required Workflow" in (issues / "WORKFLOW.md").read_text()
+
+
+def test_cmd_init_idempotent_keeps_tickets(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    issues = tmp_path / ".archie" / "issues"
+    (issues / "planned" / "ISS-001-x.md").write_text(
+        "---\nid: ISS-001\ntitle: keep\nstatus: planned\n---\n"
+    )
+    studio.cmd_init(tmp_path)  # re-run
+    assert (issues / "planned" / "ISS-001-x.md").exists(), "init destroyed a ticket"
+
+

@@ -140,6 +140,122 @@ def render_index(tickets: list[dict]) -> str:
     return "\n".join(lines)
 
 
+TEMPLATE = """---
+id: ISS-NNN
+title: Short imperative title
+status: planned
+labels: []
+branch: feature/ISS-NNN-slug
+assignee: csaba
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+type: feature
+epic:
+---
+
+## Context
+Why this work is needed.
+
+## Plan
+- [ ] Step one (verifiable)
+
+## Implementation Notes
+
+## Iteration Log
+- iter 01 (YYYY-MM-DD HH:MM): what / result / next
+
+## Last Test Run
+```
+command:
+result:
+summary:
+ran:
+```
+
+## Evidence
+
+## Blocker
+
+## Review Notes
+
+## Testing
+"""
+
+WORKFLOW_DOC = """# Development Studio Workflow
+
+This project uses Archie's development studio. All issue tracking lives under
+`.archie/issues/`. The INDEX.md is generated — never hand-edit it.
+
+## Required Workflow
+
+When asked for any code change, follow these steps in order. Do not skip steps.
+
+1. **Discovery** — read `.archie/issues/INDEX.md`. If a ticket is `blocked`, surface
+   it and stop. Check `in-progress/` for overlapping work. Confirm work type
+   (feature/bugfix/refactor/chore).
+2. **Ticket creation (on `main`)** — `python3 .archie/studio.py new . --title "..."
+   --type <type> --label <label>`. Fill Context. Commit `docs(issues): add ISS-NNN
+   <title>` and push.
+3. **Branch & Plan** — branch `<type>/ISS-NNN-<slug>`. Read `.archie/blueprint.json`
+   for the relevant decisions, domain_invariants, pitfalls, components. Write the Plan
+   as a checkbox list, annotating which rule/invariant each step preserves.
+   `python3 .archie/studio.py move . ISS-NNN in-progress`. Commit `docs(issues): plan
+   ISS-NNN`. **Wait for approval.**
+4. **Implementation (autonomous loop)** — implement step by step. Archie's
+   `pre-validate.sh` hook enforces `rules.json` on every edit; on a block, fix using
+   the rule's WHY + EXAMPLE. After each checkbox: append Iteration Log, update Last
+   Test Run, mark `[x]`, commit `feat(ISS-NNN): <step>`. Capture evidence into
+   `evidence/ISS-NNN/`.
+5. **Review** — separate review agent on the diff; findings → Review Notes;
+   `move . ISS-NNN in-review`.
+6. **Verify** — every acceptance criterion one by one; test touched domain invariants
+   concretely. Optionally run `validate.py` + `drift.py`.
+7. **Close out** — `move . ISS-NNN done`, write the PR description, commit
+   `docs(issues): close ISS-NNN`, open the PR.
+
+## Autonomous Execution
+
+Once a plan is approved, run the loop without pausing between
+implement/test/fix/review until ready to close. Stop and ask only when: the plan needs
+a material change; a destructive/hard-to-reverse action is required; or after 2
+consecutive failed fix attempts on the same root cause → set `status: blocked`, write
+the Blocker section, and stop.
+
+## Ralph Loop Entry
+
+When invoked without a specific task: read INDEX.md; if anything is `blocked`, stop and
+surface it; else continue the topmost `in-progress` ticket from its first unchecked
+`[ ]`; else promote the topmost `planned` ticket; else report idle. Every ticket is
+self-contained — never rely on conversation memory.
+
+## Hard Rules
+
+- Never start coding without a ticket. Never skip reading INDEX.md first.
+- One ticket = one branch = one logical change.
+- Always update the index via `studio.py move` / `studio.py index` — never hand-edit it.
+- Commit after every checked Plan step.
+- If `.archie/blueprint.json` is missing, run `/archie-deep-scan` first — the loop
+  works without it but with no architectural enforcement or guidance.
+"""
+
+
+def write_index(root: Path) -> None:
+    issues = issues_dir(root)
+    (issues / "INDEX.md").write_text(render_index(iter_tickets(issues)), encoding="utf-8")
+
+
+def cmd_init(root: Path) -> None:
+    issues = issues_dir(root)
+    for sub in STATUSES + ["epics", "evidence"]:
+        (issues / sub).mkdir(parents=True, exist_ok=True)
+    tmpl = issues / "_TEMPLATE.md"
+    if not tmpl.exists():
+        tmpl.write_text(TEMPLATE, encoding="utf-8")
+    (issues / "WORKFLOW.md").write_text(WORKFLOW_DOC, encoding="utf-8")
+    write_index(root)
+    print(f"studio: initialized {issues}", file=sys.stderr)
+
+
 
 if __name__ == "__main__":
     print("studio.py: not yet wired", file=sys.stderr)
