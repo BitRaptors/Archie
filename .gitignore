@@ -67,7 +67,6 @@ htmlcov/
 .claude/*
 !.claude/skills/
 !.claude/hooks/
-!.claude/commands/
 
 # Worktrees
 .worktrees/
