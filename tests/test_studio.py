@@ -39,3 +39,45 @@ def test_statuses_constant():
     ]
 
 
+def _write_ticket(issues: Path, status: str, tid: str, **extra):
+    folder = issues / status
+    folder.mkdir(parents=True, exist_ok=True)
+    fm_extra = "".join(f"{k}: {v}\n" for k, v in extra.items())
+    (folder / f"{tid}-slug.md").write_text(
+        f"---\nid: {tid}\ntitle: t\nstatus: {status}\n{fm_extra}---\n## Context\n"
+    )
+
+
+def test_iter_tickets_collects_across_status_folders(tmp_path: Path):
+    issues = tmp_path / ".archie" / "issues"
+    _write_ticket(issues, "planned", "ISS-001")
+    _write_ticket(issues, "done", "ISS-002")
+    tickets = studio.iter_tickets(issues)
+    ids = sorted(t["id"] for t in tickets)
+    assert ids == ["ISS-001", "ISS-002"]
+
+
+def test_iter_tickets_skips_corrupt_file(tmp_path: Path, capsys):
+    issues = tmp_path / ".archie" / "issues"
+    (issues / "planned").mkdir(parents=True)
+    (issues / "planned" / "ISS-001-ok.md").write_text(
+        "---\nid: ISS-001\nstatus: planned\n---\n"
+    )
+    (issues / "planned" / "garbage.md").write_text("no frontmatter\n")
+    tickets = studio.iter_tickets(issues)
+    assert [t["id"] for t in tickets] == ["ISS-001"]
+    assert "skip" in capsys.readouterr().err.lower()
+
+
+def test_next_id_finds_max_across_folders(tmp_path: Path):
+    issues = tmp_path / ".archie" / "issues"
+    _write_ticket(issues, "planned", "ISS-003")
+    _write_ticket(issues, "done", "ISS-011")
+    _write_ticket(issues, "in-progress", "ISS-007")
+    assert studio.next_id(studio.iter_tickets(issues), "ISS") == "ISS-012"
+
+
+def test_next_id_first_when_empty():
+    assert studio.next_id([], "ISS") == "ISS-001"
+
+
