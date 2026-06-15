@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
 
 STATUSES = ["planned", "in-progress", "in-review", "done", "blocked"]
 
@@ -284,7 +285,6 @@ def cmd_init(root: Path) -> None:
     print(f"studio: initialized {issues}", file=sys.stderr)
 
 
-
 def _slugify(title: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
     return "-".join(s.split("-")[:6]) or "ticket"
@@ -318,7 +318,6 @@ def cmd_new(root: Path, *, title: str, type_: str, labels: list[str], today: str
     write_index(root)
     print(f"studio: created {tid}", file=sys.stderr)
     return tid
-
 
 
 def _find_ticket_path(issues: Path, tid: str) -> Path | None:
@@ -375,7 +374,68 @@ def cmd_next(root: Path) -> dict:
     return result
 
 
+def _flag(argv: list[str], name: str, default=None):
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1]
+    return default
+
+
+def _flags_all(argv: list[str], name: str) -> list[str]:
+    out = []
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            out.append(argv[i + 1])
+    return out
+
+
+def _today() -> str:
+    from datetime import date
+    return date.today().isoformat()
+
+
+def _usage() -> None:
+    print(
+        "Usage:\n"
+        "  studio.py init  <repo>\n"
+        "  studio.py new   <repo> --title \"...\" --type <type> [--label L ...]\n"
+        "  studio.py move  <repo> ISS-NNN <status>\n"
+        "  studio.py index <repo>\n"
+        "  studio.py next  <repo>",
+        file=sys.stderr,
+    )
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        _usage()
+        return 1
+    sub = argv[0]
+    root = Path(argv[1]).resolve()
+    rest = argv[2:]
+    if sub == "init":
+        cmd_init(root)
+    elif sub == "new":
+        title = _flag(rest, "--title")
+        if not title:
+            print("studio: --title required", file=sys.stderr)
+            return 2
+        cmd_new(root, title=title, type_=_flag(rest, "--type", "feature"),
+                labels=_flags_all(rest, "--label"), today=_today())
+    elif sub == "move":
+        if len(rest) < 2:
+            print("studio: move needs ISS-NNN <status>", file=sys.stderr)
+            return 2
+        cmd_move(root, rest[0], rest[1])
+    elif sub == "index":
+        write_index(root)
+    elif sub == "next":
+        cmd_next(root)
+    else:
+        _usage()
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    print("studio.py: not yet wired", file=sys.stderr)
-    sys.exit(1)
+    sys.exit(main(sys.argv[1:]))

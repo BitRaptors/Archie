@@ -1,6 +1,8 @@
 """Tests for the development studio engine (archie/standalone/studio.py)."""
 from __future__ import annotations
 
+import subprocess
+import sys as _sys
 from pathlib import Path
 
 import pytest
@@ -222,3 +224,24 @@ def test_cmd_next_idle_when_empty(tmp_path: Path):
     assert result["action"] == "idle"
 
 
+def test_cli_init_then_new_then_index(tmp_path: Path):
+    script = Path("archie/standalone/studio.py").resolve()
+    subprocess.run([_sys.executable, str(script), "init", str(tmp_path)], check=True)
+    subprocess.run(
+        [_sys.executable, str(script), "new", str(tmp_path),
+         "--title", "CLI ticket", "--type", "feature", "--label", "backend"],
+        check=True,
+    )
+    out = subprocess.run(
+        [_sys.executable, str(script), "next", str(tmp_path)],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert '"action": "promote"' in out
+    assert "ISS-001" in out
+
+
+def test_cli_usage_on_no_args():
+    script = Path("archie/standalone/studio.py").resolve()
+    r = subprocess.run([_sys.executable, str(script)], capture_output=True, text=True)
+    assert r.returncode != 0
+    assert "Usage" in r.stderr
