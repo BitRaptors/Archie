@@ -244,6 +244,32 @@ def write_index(root: Path) -> None:
     (issues / "INDEX.md").write_text(render_index(iter_tickets(issues)), encoding="utf-8")
 
 
+STUDIO_START = "<!-- ARCHIE:STUDIO:START -->"
+STUDIO_END = "<!-- ARCHIE:STUDIO:END -->"
+STUDIO_BLOCK = f"""{STUDIO_START}
+## Development Studio
+This project uses Archie's development studio for issue tracking and the agentic
+development loop. **Before any code change, read `.archie/issues/WORKFLOW.md`** — it
+defines the required workflow, ticket lifecycle, and autonomous execution rules.
+{STUDIO_END}"""
+
+
+def patch_agents_md(root: Path) -> None:
+    path = root / "AGENTS.md"
+    if not path.exists():
+        path.write_text(STUDIO_BLOCK + "\n", encoding="utf-8")
+        return
+    content = path.read_text(encoding="utf-8")
+    if STUDIO_START in content and STUDIO_END in content:
+        pre = content.split(STUDIO_START)[0]
+        post = content.split(STUDIO_END, 1)[1]
+        content = pre + STUDIO_BLOCK + post
+    else:
+        sep = "" if content.endswith("\n") else "\n"
+        content = content + sep + "\n" + STUDIO_BLOCK + "\n"
+    path.write_text(content, encoding="utf-8")
+
+
 def cmd_init(root: Path) -> None:
     issues = issues_dir(root)
     for sub in STATUSES + ["epics", "evidence"]:
@@ -253,6 +279,7 @@ def cmd_init(root: Path) -> None:
         tmpl.write_text(TEMPLATE, encoding="utf-8")
     (issues / "WORKFLOW.md").write_text(WORKFLOW_DOC, encoding="utf-8")
     write_index(root)
+    patch_agents_md(root)
     print(f"studio: initialized {issues}", file=sys.stderr)
 
 

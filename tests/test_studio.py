@@ -125,3 +125,25 @@ def test_cmd_init_idempotent_keeps_tickets(tmp_path: Path):
     assert (issues / "planned" / "ISS-001-x.md").exists(), "init destroyed a ticket"
 
 
+def test_patch_agents_md_creates_when_absent(tmp_path: Path):
+    studio.patch_agents_md(tmp_path)
+    content = (tmp_path / "AGENTS.md").read_text()
+    assert "ARCHIE:STUDIO:START" in content
+    assert ".archie/issues/WORKFLOW.md" in content
+
+
+def test_patch_agents_md_appends_to_existing(tmp_path: Path):
+    (tmp_path / "AGENTS.md").write_text("# Existing\nkeep me\n")
+    studio.patch_agents_md(tmp_path)
+    content = (tmp_path / "AGENTS.md").read_text()
+    assert "keep me" in content
+    assert "ARCHIE:STUDIO:START" in content
+
+
+def test_patch_agents_md_idempotent_replaces_block(tmp_path: Path):
+    studio.patch_agents_md(tmp_path)
+    studio.patch_agents_md(tmp_path)  # twice
+    content = (tmp_path / "AGENTS.md").read_text()
+    assert content.count("ARCHIE:STUDIO:START") == 1, "block was duplicated"
+
+
