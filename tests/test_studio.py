@@ -189,3 +189,36 @@ def test_cmd_move_rejects_unknown_status(tmp_path: Path):
         studio.cmd_move(tmp_path, tid, "frozen")
 
 
+def test_cmd_next_surfaces_blocked(tmp_path: Path, capsys):
+    studio.cmd_init(tmp_path)
+    tid = studio.cmd_new(tmp_path, title="b", type_="feature", labels=[], today="2026-06-15")
+    studio.cmd_move(tmp_path, tid, "blocked")
+    result = studio.cmd_next(tmp_path)
+    assert result["action"] == "blocked"
+    assert result["id"] == tid
+
+
+def test_cmd_next_prefers_in_progress(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    a = studio.cmd_new(tmp_path, title="a", type_="feature", labels=[], today="2026-06-15")
+    studio.cmd_new(tmp_path, title="b", type_="feature", labels=[], today="2026-06-15")
+    studio.cmd_move(tmp_path, a, "in-progress")
+    result = studio.cmd_next(tmp_path)
+    assert result["action"] == "continue"
+    assert result["id"] == a
+
+
+def test_cmd_next_promotes_planned(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    a = studio.cmd_new(tmp_path, title="a", type_="feature", labels=[], today="2026-06-15")
+    result = studio.cmd_next(tmp_path)
+    assert result["action"] == "promote"
+    assert result["id"] == a
+
+
+def test_cmd_next_idle_when_empty(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    result = studio.cmd_next(tmp_path)
+    assert result["action"] == "idle"
+
+

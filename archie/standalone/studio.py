@@ -15,6 +15,7 @@ Zero dependencies beyond Python 3.9+ stdlib.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 
@@ -346,6 +347,32 @@ def cmd_move(root: Path, tid: str, status: str) -> None:
         src.unlink()
     write_index(root)
     print(f"studio: moved {tid} -> {status}", file=sys.stderr)
+
+
+def cmd_next(root: Path) -> dict:
+    """Return the next action per Ralph priority. Prints JSON to stdout."""
+    tickets = iter_tickets(issues_dir(root))
+    by = {s: [t for t in tickets if t.get("status") == s] for s in STATUSES}
+
+    def pick(lst):
+        return sorted(lst, key=lambda t: str(t.get("id")))[0]
+
+    if by["blocked"]:
+        t = pick(by["blocked"])
+        result = {"action": "blocked", "id": t["id"], "title": t.get("title")}
+    elif by["in-progress"]:
+        t = pick(by["in-progress"])
+        result = {"action": "continue", "id": t["id"], "title": t.get("title"),
+                  "path": str(t["_path"])}
+    elif by["planned"]:
+        t = pick(by["planned"])
+        result = {"action": "promote", "id": t["id"], "title": t.get("title"),
+                  "path": str(t["_path"])}
+    else:
+        result = {"action": "idle"}
+    json.dump(result, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return result
 
 
 
