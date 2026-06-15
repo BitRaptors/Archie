@@ -147,3 +147,25 @@ def test_patch_agents_md_idempotent_replaces_block(tmp_path: Path):
     assert content.count("ARCHIE:STUDIO:START") == 1, "block was duplicated"
 
 
+def test_cmd_new_creates_ticket_and_refreshes_index(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    tid = studio.cmd_new(tmp_path, title="Add upload resize", type_="feature",
+                         labels=["backend"], today="2026-06-15")
+    assert tid == "ISS-001"
+    issues = tmp_path / ".archie" / "issues"
+    files = list((issues / "planned").glob("ISS-001-*.md"))
+    assert len(files) == 1
+    body = files[0].read_text()
+    assert "id: ISS-001" in body
+    assert "title: Add upload resize" in body
+    assert "labels: [backend]" in body
+    assert "ISS-001" in (issues / "INDEX.md").read_text()
+
+
+def test_cmd_new_increments_id(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    studio.cmd_new(tmp_path, title="one", type_="feature", labels=[], today="2026-06-15")
+    second = studio.cmd_new(tmp_path, title="two", type_="bugfix", labels=[], today="2026-06-15")
+    assert second == "ISS-002"
+
+

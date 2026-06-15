@@ -284,6 +284,42 @@ def cmd_init(root: Path) -> None:
 
 
 
+def _slugify(title: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    return "-".join(s.split("-")[:6]) or "ticket"
+
+
+def cmd_new(root: Path, *, title: str, type_: str, labels: list[str], today: str) -> str:
+    issues = issues_dir(root)
+    if not issues.exists():
+        cmd_init(root)
+    tid = next_id(iter_tickets(issues), "ISS")
+    slug = _slugify(title)
+    labels_yaml = "[" + ", ".join(labels) + "]"
+    body = (
+        f"---\n"
+        f"id: {tid}\n"
+        f"title: {title}\n"
+        f"status: planned\n"
+        f"labels: {labels_yaml}\n"
+        f"branch: {type_}/{tid}-{slug}\n"
+        f"assignee: csaba\n"
+        f"created: {today}\n"
+        f"updated: {today}\n"
+        f"type: {type_}\n"
+        f"epic:\n"
+        f"---\n\n"
+        f"## Context\n\n## Plan\n- [ ] \n\n## Implementation Notes\n\n"
+        f"## Iteration Log\n\n## Last Test Run\n\n## Evidence\n\n"
+        f"## Blocker\n\n## Review Notes\n\n## Testing\n"
+    )
+    (issues / "planned" / f"{tid}-{slug}.md").write_text(body, encoding="utf-8")
+    write_index(root)
+    print(f"studio: created {tid}", file=sys.stderr)
+    return tid
+
+
+
 if __name__ == "__main__":
     print("studio.py: not yet wired", file=sys.stderr)
     sys.exit(1)
