@@ -81,3 +81,25 @@ def test_next_id_first_when_empty():
     assert studio.next_id([], "ISS") == "ISS-001"
 
 
+def test_render_index_contains_next_ids_and_tables(tmp_path: Path):
+    issues = tmp_path / ".archie" / "issues"
+    _write_ticket(issues, "planned", "ISS-001", type="feature", labels="[backend]")
+    _write_ticket(issues, "in-progress", "ISS-002", type="bugfix", labels="[frontend]")
+    _write_ticket(issues, "done", "ISS-003", type="chore", labels="[infra]")
+    tickets = studio.iter_tickets(issues)
+    out = studio.render_index(tickets)
+    assert "Next issue: ISS-004" in out
+    assert "Next epic: EPIC-001" in out
+    assert "ISS-001" in out and "ISS-002" in out  # active table
+    assert "ISS-003" in out  # done table
+    assert "## Active" in out and "## Done" in out
+
+
+def test_render_index_lists_blocked_separately(tmp_path: Path):
+    issues = tmp_path / ".archie" / "issues"
+    _write_ticket(issues, "blocked", "ISS-005")
+    out = studio.render_index(studio.iter_tickets(issues))
+    assert "## Blocked" in out
+    assert "ISS-005" in out
+
+
