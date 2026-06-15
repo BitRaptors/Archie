@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from archie.standalone import studio
 
 
@@ -167,5 +169,23 @@ def test_cmd_new_increments_id(tmp_path: Path):
     studio.cmd_new(tmp_path, title="one", type_="feature", labels=[], today="2026-06-15")
     second = studio.cmd_new(tmp_path, title="two", type_="bugfix", labels=[], today="2026-06-15")
     assert second == "ISS-002"
+
+
+def test_cmd_move_relocates_and_refreshes_index(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    tid = studio.cmd_new(tmp_path, title="one", type_="feature", labels=[], today="2026-06-15")
+    studio.cmd_move(tmp_path, tid, "in-progress")
+    issues = tmp_path / ".archie" / "issues"
+    assert not list((issues / "planned").glob(f"{tid}-*.md"))
+    moved = list((issues / "in-progress").glob(f"{tid}-*.md"))
+    assert len(moved) == 1
+    assert "status: in-progress" in moved[0].read_text()
+
+
+def test_cmd_move_rejects_unknown_status(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    tid = studio.cmd_new(tmp_path, title="one", type_="feature", labels=[], today="2026-06-15")
+    with pytest.raises(SystemExit):
+        studio.cmd_move(tmp_path, tid, "frozen")
 
 

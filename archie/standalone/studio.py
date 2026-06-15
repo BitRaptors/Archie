@@ -320,6 +320,35 @@ def cmd_new(root: Path, *, title: str, type_: str, labels: list[str], today: str
 
 
 
+def _find_ticket_path(issues: Path, tid: str) -> Path | None:
+    for t in iter_tickets(issues):
+        if t.get("id") == tid:
+            return t["_path"]
+    return None
+
+
+def cmd_move(root: Path, tid: str, status: str) -> None:
+    if status not in STATUSES:
+        print(f"studio: unknown status '{status}' (allowed: {', '.join(STATUSES)})",
+              file=sys.stderr)
+        sys.exit(2)
+    issues = issues_dir(root)
+    src = _find_ticket_path(issues, tid)
+    if src is None:
+        print(f"studio: ticket {tid} not found", file=sys.stderr)
+        sys.exit(2)
+    text = src.read_text(encoding="utf-8")
+    text = re.sub(r"(?m)^status:.*$", f"status: {status}", text, count=1)
+    dest = issues / status / src.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(text, encoding="utf-8")
+    if dest != src:
+        src.unlink()
+    write_index(root)
+    print(f"studio: moved {tid} -> {status}", file=sys.stderr)
+
+
+
 if __name__ == "__main__":
     print("studio.py: not yet wired", file=sys.stderr)
     sys.exit(1)
