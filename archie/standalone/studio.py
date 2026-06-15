@@ -104,7 +104,7 @@ def _row(t: dict, cols: list[str]) -> str:
 def render_index(tickets: list[dict]) -> str:
     by = {s: [t for t in tickets if t.get("status") == s] for s in STATUSES}
     next_iss = next_id(tickets, "ISS")
-    next_epic = next_id(tickets, "EPIC")  # epics live in epics/, counted separately in Task later; ISS list won't match EPIC pattern
+    next_epic = next_id(tickets, "EPIC")  # no ISS id matches the EPIC pattern, so this yields EPIC-001 until epics exist
     lines: list[str] = []
     lines.append("# Issue Index")
     lines.append("")
@@ -327,6 +327,35 @@ def _find_ticket_path(issues: Path, tid: str) -> Path | None:
     return None
 
 
+def _set_frontmatter_status(text: str, status: str) -> str:
+    """Set ``status:`` within the leading ``--- ... ---`` frontmatter only.
+
+    If the frontmatter has a ``status:`` line, rewrite it; otherwise insert one.
+    The document body is never touched.
+    """
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        # No frontmatter block — prepend one rather than mutate the body.
+        fm = ["---", f"status: {status}", "---", ""]
+        return "\n".join(fm + lines)
+    # Find the closing fence of the frontmatter block.
+    close = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            close = i
+            break
+    if close is None:
+        fm = ["---", f"status: {status}", "---", ""]
+        return "\n".join(fm + lines)
+    for i in range(1, close):
+        if re.match(r"^status:", lines[i]):
+            lines[i] = f"status: {status}"
+            return "\n".join(lines)
+    # No status line in frontmatter — insert one just after the opening fence.
+    lines.insert(1, f"status: {status}")
+    return "\n".join(lines)
+
+
 def cmd_move(root: Path, tid: str, status: str) -> None:
     if status not in STATUSES:
         print(f"studio: unknown status '{status}' (allowed: {', '.join(STATUSES)})",
@@ -338,9 +367,12 @@ def cmd_move(root: Path, tid: str, status: str) -> None:
         print(f"studio: ticket {tid} not found", file=sys.stderr)
         sys.exit(2)
     text = src.read_text(encoding="utf-8")
-    text = re.sub(r"(?m)^status:.*$", f"status: {status}", text, count=1)
+    text = _set_frontmatter_status(text, status)
     dest = issues / status / src.name
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() and dest != src:
+        print(f"studio: destination {dest} already exists", file=sys.stderr)
+        sys.exit(2)
     dest.write_text(text, encoding="utf-8")
     if dest != src:
         src.unlink()

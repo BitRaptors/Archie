@@ -191,6 +191,30 @@ def test_cmd_move_rejects_unknown_status(tmp_path: Path):
         studio.cmd_move(tmp_path, tid, "frozen")
 
 
+def test_cmd_move_only_rewrites_frontmatter_status(tmp_path: Path):
+    studio.cmd_init(tmp_path)
+    issues = tmp_path / ".archie" / "issues"
+    src = issues / "planned" / "ISS-001-thing.md"
+    src.write_text(
+        "---\n"
+        "id: ISS-001\n"
+        "status: planned\n"
+        "title: thing\n"
+        "---\n"
+        "\n"
+        "## Last Test Run\n"
+        "status: old-in-body\n",
+        encoding="utf-8",
+    )
+    studio.cmd_move(tmp_path, "ISS-001", "in-review")
+    moved = issues / "in-review" / "ISS-001-thing.md"
+    text = moved.read_text(encoding="utf-8")
+    assert "status: in-review" in text
+    assert "status: planned" not in text
+    # Body line must be untouched.
+    assert "status: old-in-body" in text
+
+
 def test_cmd_next_surfaces_blocked(tmp_path: Path, capsys):
     studio.cmd_init(tmp_path)
     tid = studio.cmd_new(tmp_path, title="b", type_="feature", labels=[], today="2026-06-15")
