@@ -78,3 +78,7 @@ docs/superpowers/
 
 # Internal benchmark scratch configs/logs/results
 .archie-bench/
+
+# Archie Studio (internal experiment)
+studio/frontend/dist/
+.gstack/

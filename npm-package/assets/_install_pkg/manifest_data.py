@@ -55,6 +55,21 @@ COMMANDS = [
         "Reconcile the code delta into the Living Blueprint + intent layer (keeps the snapshot current).",
         "sync/SKILL.md",
     ),
+    CommandDef(
+        "archie-start-development-studio",
+        "Set up Archie's development studio (issue tracking + agentic dev loop) in this project.",
+        "start-development-studio/SKILL.md",
+    ),
+    CommandDef(
+        "archie-issue",
+        "Create a new development-studio ticket under .archie/issues/.",
+        "issue/SKILL.md",
+    ),
+    CommandDef(
+        "archie-work",
+        "Run the Archie development loop on the next ticket (Ralph priority).",
+        "work/SKILL.md",
+    ),
 ]
 
 
