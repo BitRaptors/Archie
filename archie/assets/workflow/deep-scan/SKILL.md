@@ -1,6 +1,6 @@
 ---
 name: archie-deep-scan
-description: Comprehensive architecture baseline scan (15-20 min). Two-wave AI analysis producing blueprint.json, per-folder CLAUDE.md, AI-synthesized rules, health metrics, and drift detection. Use for first-time baselines or major refactors.
+description: Comprehensive architecture baseline scan. Two-wave AI analysis producing blueprint.json, per-folder CLAUDE.md, AI-synthesized rules, and health metrics. Use for first-time baselines or major refactors.
 ---
 
 # Archie Deep Scan — Comprehensive Architecture Baseline
@@ -55,18 +55,19 @@ Check the user's message (ARGUMENTS) for flags:
 >
 > **Treat every item-count anywhere in this workflow — `N-M`, "up to N", "top N", "the N most", "soft floor of N", "a handful", "the most important" — as a FLOOR with no ceiling.** Produce every item that genuinely meets its quality bar; never trim to a number, never stop at a "natural" count. The quality bar is unchanged: do NOT pad, invent, or weaken per-item rigor to inflate counts.
 >
-> Only two limits survive comprehensive mode: **(1)** the architecture diagram stays **8-12 nodes** (readability), and **(2)** the scripts' mechanical safety/context budgets (per-file read size, per-batch token budget, recursion). Everything else — rules, findings, pitfalls, decisions, trade-offs, components, guidelines, examples, drift findings, naming examples, per-field prose length — is uncapped.
+> Only two limits survive comprehensive mode: **(1)** the architecture diagram stays **8-12 nodes** (readability), and **(2)** the scripts' mechanical safety/context budgets (per-file read size, per-batch token budget, recursion). Everything else — rules, findings, pitfalls, decisions, trade-offs, components, guidelines, examples, naming examples, per-field prose length — is uncapped.
 >
 > Whenever a step dispatches a sub-agent in comprehensive depth, prepend the contract line shown at that dispatch site so the sub-agent inherits this rule.
 
 **If `--from N` is present** (e.g., `{{COMMAND_PREFIX}}archie-deep-scan --from 5`):
-1. Set `START_STEP = N` (the number after --from) and `RESUME_ACTION=resume` (so the Resume Prelude rehydrates shell variables from `deep_scan_state.run_context`).
-2. Validate prerequisites exist:
+1. If N is not between 1 and 9, tell the user the valid range is 1-9 (the pipeline has 9 steps; older versions had a step 10, which no longer exists) and stop.
+2. Set `START_STEP = N` (the number after --from) and `RESUME_ACTION=resume` (so the Resume Prelude rehydrates shell variables from `deep_scan_state.run_context`).
+3. Validate prerequisites exist:
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" check-prereqs N
 ```
-3. If check fails, tell the user which files are missing and which earlier step to run.
-4. If check passes, proceed. Do NOT call `deep-scan-state init` — it would wipe the state the Resume Prelude needs to read.
+4. If check fails, tell the user which files are missing and which earlier step to run.
+5. If check passes, proceed. Do NOT call `deep-scan-state init` — it would wipe the state the Resume Prelude needs to read.
 
 **If `--continue` is present:**
 1. Read state (no prompt — `--continue` is an explicit opt-in):
@@ -129,7 +130,7 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
    | 6 | AI rule synthesis |
    | 7 | Intent Layer |
    | 8 | Cleanup |
-   | 9 | Drift detection |
+   | 9 | Finalize (health + telemetry) |
 
    Ask the user how to proceed — {{>ask_user}}:
    - **question:** (build dynamically) `"A previous deep-scan stopped after Step {LAST} ({step_name})."` — and if `ENRICH_DONE > 0`, append `" The Intent Layer got {ENRICH_DONE} folders in before stopping."` — then `"What do you want to do?"`
@@ -158,7 +159,7 @@ STATUS=$(python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" deep_scan_state
 **For every step below:**
 - If the step number < START_STEP, skip it entirely.
 - If SCAN_MODE is not set, it defaults to "full" (all existing behavior unchanged).
-- **Do NOT ask the user any questions during Steps 1–10. Do NOT offer to skip, reduce scope, or present alternatives for any step. Execute every step fully as documented.** This rule applies ONLY to Steps 1–10. It does NOT apply to Phase 0 / Activation: the scope prompt (Step C) and Intent Layer prompt (Step E) in `scope_resolution.md` are mandatory decision gates and MUST still be asked — see below.
+- **Do NOT ask the user any questions during Steps 1–9. Do NOT offer to skip, reduce scope, or present alternatives for any step. Execute every step fully as documented.** This rule applies ONLY to Steps 1–9. It does NOT apply to Phase 0 / Activation: the scope prompt (Step C) and Intent Layer prompt (Step E) in `scope_resolution.md` are mandatory decision gates and MUST still be asked — see below.
 
 
 ## Activation — read these before running any step
@@ -191,7 +192,6 @@ If `START_STEP > N` (the Preamble decided to skip earlier steps), do not Read or
 | 6 | AI rule synthesis | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-6-rule-synthesis.md` |
 | 7 | Intent Layer — per-folder CLAUDE.md | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-7-intent-layer.md` |
 | 8 | Cleanup | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-8-cleanup.md` |
-| 9 | Drift detection & architectural assessment | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-9-drift.md` |
-| 10 | Final telemetry flush | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-10-telemetry.md` |
+| 9 | Finalize — health metrics, baseline, telemetry flush | `{{WORKFLOW_ROOT}}/deep-scan/steps/step-9-finalize.md` |
 
 Step 3's `orchestration.md` in turn references four sub-agent prompt files plus a shared `grounding-rules.md` (all under `{{WORKFLOW_ROOT}}/deep-scan/steps/step-3-wave1/`) — read those as the orchestration instructs.

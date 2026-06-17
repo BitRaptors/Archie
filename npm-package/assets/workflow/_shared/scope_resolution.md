@@ -120,7 +120,7 @@ Map the answer: Yes → `INTENT_LAYER=yes`, No → `INTENT_LAYER=no`. Expose `IN
 
 ### Step F: Persist run context
 
-Write every shell variable that Steps 1–10 depend on into `.archie/deep_scan_state.json` so `/compact` + `--continue` can rehydrate them from disk without relying on orchestrator memory:
+Write every shell variable that Steps 1–9 depend on into `.archie/deep_scan_state.json` so `/compact` + `--continue` can rehydrate them from disk without relying on orchestrator memory:
 
 ```bash
 echo "$WORKSPACES" | python3 .archie/intent_layer.py deep-scan-state "$PWD" save-run-context \

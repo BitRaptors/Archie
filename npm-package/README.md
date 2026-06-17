@@ -25,7 +25,7 @@ Then open your project in Claude Code and run:
 - Installs 4 real-time enforcement hooks (file validation, commit review, plan review, architecture nudge)
 - Proposes enforceable rules with confidence scores and deep rationale
 - Tracks health metrics over time (erosion, complexity distribution, duplication)
-- Detects architectural drift and dependency cycles
+- Surfaces verified architectural findings and dependency cycles
 - Ships 40+ platform-specific rules (Android, Swift, TypeScript, Python)
 
 ## What it generates

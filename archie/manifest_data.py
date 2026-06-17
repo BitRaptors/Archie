@@ -126,17 +126,18 @@ COMMAND_RULES = [
         claude_glob="Bash(python3 -c *)",
         justification="Inline Python — Archie workflow uses for JSON inspection",
     ),
-    # Codex spawning Codex for the headless finding-verifier in Step 9 drift.
-    # verify_findings.py shells out to `codex exec --sandbox read-only …`
-    # (see archie/standalone/agent_cli.py::_run_codex). Without this rule the
-    # parent Codex session would prompt mid-Step-9 on every verified finding.
+    # Codex spawning Codex for the headless finding-verifier (deep-scan Step 5,
+    # after finalize writes findings.json). verify_findings.py shells out to
+    # `codex exec --sandbox read-only …` (see agent_cli.py::_run_codex).
+    # Without this rule the parent Codex session would prompt mid-Step-5 on
+    # every verified finding.
     CommandRule(
         name="codex-exec",
         codex_pattern=("codex", "exec"),
         claude_glob="Bash(codex exec *)",
         justification=(
             "verify_findings.py spawns `codex exec` for per-finding model "
-            "calls during Step 9 drift verification"
+            "calls during Step 5 finding verification"
         ),
     ),
     # Filesystem prep / inspection

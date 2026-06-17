@@ -339,11 +339,11 @@ class TestScannerIgnoreIntegration:
         assert not any("tmp_output" in p for p in paths)
 
 
-def test_filter_ignored_command(tmp_path):
-    import subprocess, sys
+def test_is_ignored_full_paths_against_archieignore(tmp_path):
+    """Full-path is_ignored calls honor .archieignore dir patterns even when
+    the files don't exist on disk (the git-log-list caller shape)."""
     (tmp_path / ".archieignore").write_text("vendor/\n")
-    cmd = [sys.executable, "archie/standalone/intent_layer.py", "filter-ignored", str(tmp_path)]
-    out = subprocess.run(cmd, input="src/a.py\nvendor/b.py\nsrc/c.py\n",
-                         capture_output=True, text=True, check=True)
-    lines = [l for l in out.stdout.splitlines() if l.strip()]
-    assert lines == ["src/a.py", "src/c.py"]
+    m = IgnoreMatcher(tmp_path)
+    assert not m.is_ignored("src/a.py")
+    assert m.is_ignored("vendor/b.py")
+    assert not m.is_ignored("src/c.py")

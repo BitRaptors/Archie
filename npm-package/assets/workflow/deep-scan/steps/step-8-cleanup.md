@@ -12,6 +12,8 @@ TELEMETRY_STEP8_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 rm -f .archie/tmp/archie_sub*_$PROJECT_NAME.json .archie/tmp/archie_rules_$PROJECT_NAME.json .archie/tmp/archie_intent_prompt_${PROJECT_NAME}_*.txt .archie/tmp/archie_enrichment_${PROJECT_NAME}_*.json
 ```
 
+(Artifacts from the retired drift step — `drift_report.json`, `scan_report.md`, `drift_history/` — are swept by the installer's legacy cleanup at upgrade time, not here: that path is allowlisted, `$PROJECT_ROOT`-anchored, and runs for every workspace.)
+
 ```bash
 python3 .archie/intent_layer.py deep-scan-state "$PROJECT_ROOT" complete-step 8
 ```
