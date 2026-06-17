@@ -2,7 +2,7 @@
 """Archie development studio — deterministic issue-tracking engine.
 
 Subcommands (Python never runs git — it only writes files):
-  python3 studio.py init  /path/to/repo
+  python3 studio.py init  /path/to/repo [--prefix ISS] [--lang English]
   python3 studio.py new   /path/to/repo --title "..." --type feature --label backend
   python3 studio.py move  /path/to/repo ISS-NNN <status>
   python3 studio.py index /path/to/repo
@@ -21,6 +21,69 @@ import sys
 from pathlib import Path
 
 STATUSES = ["planned", "in-progress", "in-review", "done", "blocked"]
+
+# Per-project studio settings live in .archie/studio.json. Both keys are
+# optional; callers fall back to these defaults when the file or key is absent.
+STUDIO_CONFIG_NAME = "studio.json"
+DEFAULT_PREFIX = "ISS"
+DEFAULT_DOC_LANGUAGE = "English"
+
+
+def _studio_config_path(root: Path) -> Path:
+    return root / ".archie" / STUDIO_CONFIG_NAME
+
+
+def load_studio_config(root: Path) -> dict:
+    """Read .archie/studio.json. Missing/corrupt → empty dict (callers default)."""
+    path = _studio_config_path(root)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        print(f"studio: ignoring unreadable {path}", file=sys.stderr)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def sanitize_prefix(raw: str | None) -> str:
+    """Normalize a ticket prefix to 2–6 uppercase alphanumerics.
+
+    Strips non-alphanumerics, uppercases, truncates to 6. Anything shorter than
+    2 chars after cleaning falls back to DEFAULT_PREFIX (with a warning).
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", raw or "").upper()[:6]
+    if len(cleaned) < 2:
+        if raw:
+            print(f"studio: invalid prefix {raw!r}; using {DEFAULT_PREFIX}", file=sys.stderr)
+        return DEFAULT_PREFIX
+    return cleaned
+
+
+def get_prefix(root: Path) -> str:
+    raw = load_studio_config(root).get("prefix")
+    return sanitize_prefix(raw) if raw else DEFAULT_PREFIX
+
+
+def get_doc_language(root: Path) -> str:
+    lang = str(load_studio_config(root).get("doc_language") or "").strip()
+    return lang or DEFAULT_DOC_LANGUAGE
+
+
+def save_studio_config(root: Path, *, prefix: str | None = None,
+                       doc_language: str | None = None) -> dict:
+    """Merge the given settings into .archie/studio.json, preserving others."""
+    cfg = load_studio_config(root)
+    if prefix is not None:
+        cfg["prefix"] = sanitize_prefix(prefix)
+    if doc_language is not None:
+        cfg["doc_language"] = doc_language.strip() or DEFAULT_DOC_LANGUAGE
+    cfg.setdefault("prefix", DEFAULT_PREFIX)
+    cfg.setdefault("doc_language", DEFAULT_DOC_LANGUAGE)
+    path = _studio_config_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    return cfg
 
 
 def parse_frontmatter(text: str) -> dict | None:
@@ -101,10 +164,10 @@ def _row(t: dict, cols: list[str]) -> str:
     return "| " + " | ".join(cell(c) for c in cols) + " |"
 
 
-def render_index(tickets: list[dict]) -> str:
+def render_index(tickets: list[dict], prefix: str = DEFAULT_PREFIX) -> str:
     by = {s: [t for t in tickets if t.get("status") == s] for s in STATUSES}
-    next_iss = next_id(tickets, "ISS")
-    next_epic = next_id(tickets, "EPIC")  # no ISS id matches the EPIC pattern, so this yields EPIC-001 until epics exist
+    next_iss = next_id(tickets, prefix)
+    next_epic = next_id(tickets, "EPIC")  # no issue id matches the EPIC pattern, so this yields EPIC-001 until epics exist
     lines: list[str] = []
     lines.append("# Issue Index")
     lines.append("")
@@ -243,46 +306,60 @@ self-contained — never rely on conversation memory.
 
 def write_index(root: Path) -> None:
     issues = issues_dir(root)
-    (issues / "INDEX.md").write_text(render_index(iter_tickets(issues)), encoding="utf-8")
+    (issues / "INDEX.md").write_text(
+        render_index(iter_tickets(issues), get_prefix(root)), encoding="utf-8")
 
 
 STUDIO_START = "<!-- ARCHIE:STUDIO:START -->"
 STUDIO_END = "<!-- ARCHIE:STUDIO:END -->"
-STUDIO_BLOCK = f"""{STUDIO_START}
+
+
+def studio_block(prefix: str = DEFAULT_PREFIX,
+                 doc_language: str = DEFAULT_DOC_LANGUAGE) -> str:
+    return f"""{STUDIO_START}
 ## Development Studio
 This project uses Archie's development studio for issue tracking and the agentic
 development loop. **Before any code change, read `.archie/issues/WORKFLOW.md`** — it
 defines the required workflow, ticket lifecycle, and autonomous execution rules.
+
+- **Ticket prefix:** `{prefix}` (tickets are `{prefix}-NNN`).
+- **Documentation language:** write all ticket content — Context, Plan, Iteration
+  Log, Review Notes, and PR descriptions — in **{doc_language}**. Code, identifiers,
+  commit message prefixes, and CLI commands stay as-is.
 {STUDIO_END}"""
 
 
 def patch_agents_md(root: Path) -> None:
     path = root / "AGENTS.md"
+    block = studio_block(get_prefix(root), get_doc_language(root))
     if not path.exists():
-        path.write_text(STUDIO_BLOCK + "\n", encoding="utf-8")
+        path.write_text(block + "\n", encoding="utf-8")
         return
     content = path.read_text(encoding="utf-8")
     if STUDIO_START in content and STUDIO_END in content:
         pre = content.split(STUDIO_START)[0]
         post = content.split(STUDIO_END, 1)[1]
-        content = pre + STUDIO_BLOCK + post
+        content = pre + block + post
     else:
         sep = "" if content.endswith("\n") else "\n"
-        content = content + sep + "\n" + STUDIO_BLOCK + "\n"
+        content = content + sep + "\n" + block + "\n"
     path.write_text(content, encoding="utf-8")
 
 
-def cmd_init(root: Path) -> None:
+def cmd_init(root: Path, *, prefix: str | None = None,
+             doc_language: str | None = None) -> None:
     issues = issues_dir(root)
     for sub in STATUSES + ["epics", "evidence"]:
         (issues / sub).mkdir(parents=True, exist_ok=True)
+    cfg = save_studio_config(root, prefix=prefix, doc_language=doc_language)
     tmpl = issues / "_TEMPLATE.md"
     if not tmpl.exists():
         tmpl.write_text(TEMPLATE, encoding="utf-8")
     (issues / "WORKFLOW.md").write_text(WORKFLOW_DOC, encoding="utf-8")
     write_index(root)
     patch_agents_md(root)
-    print(f"studio: initialized {issues}", file=sys.stderr)
+    print(f"studio: initialized {issues} (prefix={cfg['prefix']}, "
+          f"docs={cfg['doc_language']})", file=sys.stderr)
 
 
 def _slugify(title: str) -> str:
@@ -294,7 +371,7 @@ def cmd_new(root: Path, *, title: str, type_: str, labels: list[str], today: str
     issues = issues_dir(root)
     if not issues.exists():
         cmd_init(root)
-    tid = next_id(iter_tickets(issues), "ISS")
+    tid = next_id(iter_tickets(issues), get_prefix(root))
     slug = _slugify(title)
     labels_yaml = "[" + ", ".join(labels) + "]"
     body = (
@@ -429,7 +506,7 @@ def _today() -> str:
 def _usage() -> None:
     print(
         "Usage:\n"
-        "  studio.py init  <repo>\n"
+        "  studio.py init  <repo> [--prefix ISS] [--lang English]\n"
         "  studio.py new   <repo> --title \"...\" --type <type> [--label L ...]\n"
         "  studio.py move  <repo> ISS-NNN <status>\n"
         "  studio.py index <repo>\n"
@@ -446,7 +523,8 @@ def main(argv: list[str]) -> int:
     root = Path(argv[1]).resolve()
     rest = argv[2:]
     if sub == "init":
-        cmd_init(root)
+        cmd_init(root, prefix=_flag(rest, "--prefix"),
+                 doc_language=_flag(rest, "--lang"))
     elif sub == "new":
         title = _flag(rest, "--title")
         if not title:

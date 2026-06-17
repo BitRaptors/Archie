@@ -269,3 +269,47 @@ def test_cli_usage_on_no_args():
     r = subprocess.run([_sys.executable, str(script)], capture_output=True, text=True)
     assert r.returncode != 0
     assert "Usage" in r.stderr
+
+
+# --- per-project config: ticket prefix + documentation language --------------
+
+def test_sanitize_prefix_normalizes_and_falls_back():
+    assert studio.sanitize_prefix("kav") == "KAV"
+    assert studio.sanitize_prefix("ka-vosz!") == "KAVOSZ"   # stripped + truncated to 6
+    assert studio.sanitize_prefix("toolongprefix") == "TOOLON"
+    assert studio.sanitize_prefix("x") == studio.DEFAULT_PREFIX  # <2 chars → default
+    assert studio.sanitize_prefix(None) == studio.DEFAULT_PREFIX
+
+
+def test_get_prefix_and_language_default_without_config(tmp_path: Path):
+    assert studio.get_prefix(tmp_path) == "ISS"
+    assert studio.get_doc_language(tmp_path) == "English"
+
+
+def test_cmd_init_persists_prefix_and_language(tmp_path: Path):
+    studio.cmd_init(tmp_path, prefix="kav", doc_language="Hungarian")
+    assert studio.get_prefix(tmp_path) == "KAV"
+    assert studio.get_doc_language(tmp_path) == "Hungarian"
+    block = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "`KAV`" in block
+    assert "Hungarian" in block
+
+
+def test_cmd_new_uses_configured_prefix(tmp_path: Path):
+    studio.cmd_init(tmp_path, prefix="SUB")
+    tid = studio.cmd_new(tmp_path, title="Add thing", type_="feature",
+                         labels=[], today="2026-06-17")
+    assert tid == "SUB-001"
+    index = (tmp_path / ".archie" / "issues" / "INDEX.md").read_text(encoding="utf-8")
+    assert "Next issue: SUB-002" in index
+
+
+def test_existing_tickets_keep_old_ids_after_prefix_change(tmp_path: Path):
+    issues = tmp_path / ".archie" / "issues" / "planned"
+    issues.mkdir(parents=True)
+    (issues / "ISS-005-old.md").write_text(
+        "---\nid: ISS-005\ntitle: Old\nstatus: planned\n---\n", encoding="utf-8")
+    studio.cmd_init(tmp_path, prefix="NEW")
+    index = (tmp_path / ".archie" / "issues" / "INDEX.md").read_text(encoding="utf-8")
+    assert "ISS-005" in index            # legacy ticket still listed
+    assert "Next issue: NEW-001" in index  # new numbering starts on the new prefix
