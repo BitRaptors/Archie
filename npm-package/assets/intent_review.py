@@ -51,8 +51,14 @@ INVARIANT_SECTIONS = [
     # (top_key, sub_key_or_None, id_field, title_field)
     ("domain_invariants", None, "id", "invariant"),
     ("derived_invariants", None, "id", "invariant"),
+    ("pitfalls", None, "id", "problem_statement"),
 ]
-# decisions.key_decisions has no id -> title-hash keyed.
+# `unenforced_invariants` are DELIBERATELY not diffed: they are documented GAPS
+# (advisory, ungrounded), not standing law, so removing one is not a "weakening".
+# (Design open question — see docs/archie-intent-review-design.md §13.)
+
+# decisions.* sub-sections have no id -> title-hash keyed (Layer 1).
+DECISION_SECTIONS = ["key_decisions", "trade_offs", "out_of_scope"]
 DECISION_TITLE_FIELD = "title"
 
 # Data sections we diff for Layer-2 behavior-violates-rule (keyed by name).
@@ -60,6 +66,9 @@ DATA_SECTIONS = [
     ("data_models", "name"),
     ("persistence_stores", "name"),
 ]
+
+# Rule sources diffed for contradiction / rule-removal (both keyed by id).
+RULE_FILES = [".archie/rules.json", ".archie/platform_rules.json"]
 
 RELEVANCE_SEND_ALL_THRESHOLD = 25   # if retained rules are few, skip the keyword filter
 KEYWORD_JOIN_THRESHOLD = 1          # >=1 shared keyword token to attach ledger confidence
@@ -148,7 +157,10 @@ def _hash_title(title: str) -> str:
 
 
 def item_key(item: dict, id_field: str, title_field: str) -> str:
-    """Stable key for an item: its id if present, else a hash of its title."""
+    """Stable key for an item: its id if present, else a hash of its title, else a
+    hash of the whole item — so title-less items (e.g. some trade_offs) do NOT all
+    collide on the empty-string key.
+    """
     if id_field and isinstance(item, dict):
         val = item.get(id_field)
         if val:
@@ -156,7 +168,13 @@ def item_key(item: dict, id_field: str, title_field: str) -> str:
     title = ""
     if isinstance(item, dict):
         title = str(item.get(title_field, "") or "")
-    return _hash_title(title)
+    if title.strip():
+        return _hash_title(title)
+    try:
+        blob = json.dumps(item, sort_keys=True, ensure_ascii=False)
+        return "item_" + hashlib.md5(blob.encode("utf-8")).hexdigest()[:8]
+    except (TypeError, ValueError):
+        return _hash_title(title)
 
 
 def _changed_fields(base_item: dict, branch_item: dict) -> list:
@@ -261,16 +279,17 @@ def build_changed_items(base_bp, branch_bp, base_rules, branch_rules, ledger_cla
                 d["base_item"], d["branch_item"], d["fields_changed"],
                 _keywords_of(ref_item), _enforced_files(ref_item))
 
-    # Layer 1 — decisions.key_decisions (title-hash keyed, silent weakening)
-    dec_diffs = keyed_diff(_get_section(base_bp, "decisions", "key_decisions"),
-                           _get_section(branch_bp, "decisions", "key_decisions"),
-                           None, DECISION_TITLE_FIELD)
-    for d in dec_diffs:
-        ref_item = d["branch_item"] or d["base_item"] or {}
-        add("blueprint", "decisions.key_decisions", d["status"], 1,
-            _title_of(ref_item, DECISION_TITLE_FIELD),
-            d["base_item"], d["branch_item"], d["fields_changed"],
-            _keywords_of(ref_item), [])
+    # Layer 1 — decisions.{key_decisions,trade_offs,out_of_scope} (title-hash keyed)
+    for sub in DECISION_SECTIONS:
+        dec_diffs = keyed_diff(_get_section(base_bp, "decisions", sub),
+                               _get_section(branch_bp, "decisions", sub),
+                               None, DECISION_TITLE_FIELD)
+        for d in dec_diffs:
+            ref_item = d["branch_item"] or d["base_item"] or {}
+            add("blueprint", f"decisions.{sub}", d["status"], 1,
+                _title_of(ref_item, DECISION_TITLE_FIELD),
+                d["base_item"], d["branch_item"], d["fields_changed"],
+                _keywords_of(ref_item), [])
 
     # Layer 1 — rules (contradiction candidates): ADD/UPDATE only
     rule_diffs = keyed_diff(base_rules, branch_rules, "id", "description")
@@ -293,8 +312,9 @@ def build_changed_items(base_bp, branch_bp, base_rules, branch_rules, ledger_cla
                            _get_section(branch_bp, top_key, None),
                            name_field, name_field)
         for d in diffs:
-            if d["status"] == "ADD" and not d["fields_changed"]:
-                pass  # pure additions of data models rarely violate a rule on their own
+            # Surface every data-section change (incl. pure ADDs). The script owns
+            # WHAT changed; the model decides whether a new/changed model violates a
+            # retained rule (it's told not to flag benign additions).
             ref_item = d["branch_item"] or d["base_item"] or {}
             add("blueprint", top_key, d["status"], 2,
                 _title_of(ref_item, name_field),
@@ -674,6 +694,10 @@ def render_comment(findings: list, had_diff: bool):
 
 
 def _gh_request(method: str, url: str, token: str, body: dict = None):
+    """One GitHub REST call. urllib raises HTTPError on >=400, so non-2xx is NOT a
+    silent success. Returns (data, link_header). Raises on transport/HTTP errors —
+    callers that must never block use safe_post_comment().
+    """
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers={
         "Authorization": f"Bearer {token}",
@@ -684,22 +708,37 @@ def _gh_request(method: str, url: str, token: str, body: dict = None):
     })
     with urllib.request.urlopen(req, timeout=30) as resp:
         raw = resp.read().decode("utf-8")
-        return json.loads(raw) if raw.strip() else {}
+        link = resp.headers.get("Link", "") if resp.headers else ""
+    return (json.loads(raw) if raw.strip() else {}), link
+
+
+def _next_link(link_header: str):
+    """Parse a GitHub `Link` header for the rel="next" URL, or None."""
+    for part in (link_header or "").split(","):
+        segs = part.split(";")
+        if len(segs) >= 2 and 'rel="next"' in segs[1]:
+            return segs[0].strip().strip("<>")
+    return None
+
+
+def _find_existing_comment_id(owner, repo, pr_number, token):
+    """Find the Archie comment by marker, following pagination (PRs with >100
+    comments won't cause a duplicate POST).
+    """
+    url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100"
+    while url:
+        comments, link = _gh_request("GET", url, token)
+        for c in comments if isinstance(comments, list) else []:
+            if COMMENT_MARKER in (c.get("body") or ""):
+                return c.get("id")
+        url = _next_link(link)
+    return None
 
 
 def post_or_update_comment(owner, repo, pr_number, body, token):
-    """Upsert the single Archie comment (find by marker -> PATCH, else POST)."""
-    list_url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100"
-    existing_id = None
-    try:
-        comments = _gh_request("GET", list_url, token)
-        for c in comments if isinstance(comments, list) else []:
-            if COMMENT_MARKER in (c.get("body") or ""):
-                existing_id = c.get("id")
-                break
-    except urllib.error.HTTPError as e:  # pragma: no cover - network
-        print(f"[intent-review] could not list comments: HTTP {e.code}", file=sys.stderr)
-
+    """Upsert the single Archie comment (find by marker -> PATCH, else POST). May raise
+    (HTTPError/URLError); callers in CI must use safe_post_comment()."""
+    existing_id = _find_existing_comment_id(owner, repo, pr_number, token)
     if existing_id:
         url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/comments/{existing_id}"
         _gh_request("PATCH", url, token, {"body": body})
@@ -708,6 +747,18 @@ def post_or_update_comment(owner, repo, pr_number, body, token):
         url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/{pr_number}/comments"
         _gh_request("POST", url, token, {"body": body})
         print("[intent-review] posted new comment")
+
+
+def safe_post_comment(owner, repo, pr_number, body, token):
+    """Post but NEVER raise — the Action must always exit 0 (design §9). Catches every
+    network/HTTP error (URLError covers HTTPError; OSError covers socket failures)."""
+    if not token:
+        print("[intent-review] no GITHUB_TOKEN — skipping comment post.", file=sys.stderr)
+        return
+    try:
+        post_or_update_comment(owner, repo, pr_number, body, token)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        print(f"[intent-review] could not post comment: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -761,11 +812,10 @@ def main(argv=None) -> int:
     b_exists, branch_bp, b_err = load_branch_file(repo_root, ".archie/blueprint.json")
     if b_exists and branch_bp is None:
         # branch blueprint is malformed — surface, don't crash.
-        if token:
-            post_or_update_comment(owner, repo, pr_number,
-                                   f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
-                                   f"Could not parse `.archie/blueprint.json` on this branch "
-                                   f"({b_err}). Manual review needed.", token)
+        safe_post_comment(owner, repo, pr_number,
+                          f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
+                          f"Could not parse `.archie/blueprint.json` on this branch "
+                          f"({b_err}). Manual review needed.", token)
         return 0
     if not b_exists:
         print("[intent-review] no .archie/blueprint.json on branch — nothing to review.", file=sys.stderr)
@@ -774,10 +824,13 @@ def main(argv=None) -> int:
     _, base_bp, _ = fetch_base_file(repo_root, base_ref_full, ".archie/blueprint.json")
     base_bp = base_bp if isinstance(base_bp, dict) else {}
 
-    _, base_rules_raw, _ = fetch_base_file(repo_root, base_ref_full, ".archie/rules.json")
-    _, branch_rules_raw, _ = load_branch_file(repo_root, ".archie/rules.json")
-    base_rules = normalize_rules(base_rules_raw)
-    branch_rules = normalize_rules(branch_rules_raw)
+    # Diff BOTH rule sources (rules.json + platform_rules.json), unioned.
+    base_rules, branch_rules = [], []
+    for rel in RULE_FILES:
+        _, base_raw, _ = fetch_base_file(repo_root, base_ref_full, rel)
+        _, branch_raw, _ = load_branch_file(repo_root, rel)
+        base_rules.extend(normalize_rules(base_raw))
+        branch_rules.extend(normalize_rules(branch_raw))
 
     claims = glob_ledger(repo_root, base_ref_full)
 
@@ -805,10 +858,7 @@ def main(argv=None) -> int:
     if not token:
         print("[intent-review] no GITHUB_TOKEN — printing body:\n" + body)
         return 0
-    try:
-        post_or_update_comment(owner, repo, pr_number, body, token)
-    except urllib.error.HTTPError as e:  # pragma: no cover - network
-        print(f"[intent-review] could not post comment: HTTP {e.code}", file=sys.stderr)
+    safe_post_comment(owner, repo, pr_number, body, token)
     return 0
 
 

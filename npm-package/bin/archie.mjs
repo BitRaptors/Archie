@@ -375,11 +375,23 @@ for (const dataFile of ["platform_rules.json", "platform_pitfalls.json"]) {
   }
 }
 
+// One-time CI setup helper — runnable as `bash .archie/setup-archie-intent-review.sh`.
+for (const helper of ["setup-archie-intent-review.sh"]) {
+  const src = join(ASSETS, helper);
+  const dest = join(archieDir, helper);
+  if (existsSync(src)) {
+    writeFileSync(dest, readFileSync(src, "utf8"));
+    chmodSync(dest, 0o755);
+    console.log(`  ${GREEN}✓${RESET} .archie/${helper}`);
+  }
+}
+
 // The canonical workflow templates (assets/workflow/) are NOT copied raw —
 // the Python install loop renders them per-CLI into .archie/workflow/<cli>/.
 const ASSET_SUBDIR_MAP = [
   ["hook_scripts", "hooks"],
   ["_install_pkg", "_install_pkg"],
+  ["workflows", "workflows"],   // CI workflow YAMLs (e.g. archie-intent-review.yml)
 ];
 for (const [srcName, destName] of ASSET_SUBDIR_MAP) {
   const src = join(ASSETS, srcName);

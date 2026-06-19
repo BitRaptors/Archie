@@ -20,6 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Fetch base ref
+        continue-on-error: true
         run: git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
 
       - name: Run Archie Intent Review
