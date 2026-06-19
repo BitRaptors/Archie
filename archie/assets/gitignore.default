@@ -24,9 +24,12 @@ tmp/
 # them. EXCEPTION: the small hook-runtime set below is committed so the
 # enforcement hooks keep working even without a local Archie install. Their file
 # reads are routed through one validated sink (_common.safe_read_text), so a
-# security scanner has nothing to flag.
+# security scanner has nothing to flag. intent_review.py is committed for the same
+# reason — the Intent Review GitHub Action runs `python3 .archie/intent_review.py`
+# in CI, where no Archie install exists to regenerate it.
 *.py
 !_common.py
 !lint_gate.py
 !align_check.py
 !arch_review.py
+!intent_review.py
