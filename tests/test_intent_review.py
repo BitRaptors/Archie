@@ -113,6 +113,15 @@ def test_fetch_base_file_present_and_absent(tmp_path):
     assert exists is False and data is None and err is None
 
 
+def test_fetch_base_file_unresolvable_ref_is_error_not_absent(tmp_path):
+    # A bad SHA must NOT be mistaken for "file absent" (the silent-degradation trap).
+    root = _init_repo(tmp_path)
+    _write(root, ".archie/blueprint.json", {"domain_invariants": []})
+    _commit(root, "base")
+    exists, data, err = ir.fetch_base_file(root, "deadbeefdeadbeef", ".archie/blueprint.json")
+    assert exists is False and data is None and err  # error surfaced, not (False,None,None)
+
+
 def test_fetch_base_file_malformed(tmp_path):
     root = _init_repo(tmp_path)
     _write(root, ".archie/blueprint.json", "{not valid json")
@@ -176,13 +185,14 @@ def test_glob_ledger_excludes_records_on_base(tmp_path):
 # ---------------------------------------------------------------------------
 def test_parse_event_context_ok(tmp_path):
     event = tmp_path / "event.json"
-    event.write_text(json.dumps({"pull_request": {"number": 42, "base": {"ref": "main"}}}))
+    event.write_text(json.dumps({"pull_request": {"number": 42,
+                                "base": {"ref": "main", "sha": "abc123"}}}))
     ctx = ir.parse_event_context({
         "GITHUB_REPOSITORY": "octo/repo",
         "GITHUB_BASE_REF": "main",
         "GITHUB_EVENT_PATH": str(event),
     })
-    assert ctx == ("octo", "repo", 42, "main")
+    assert ctx == ("octo", "repo", 42, "main", "abc123")  # base_sha extracted
 
 
 def test_parse_event_context_pulls_base_from_payload(tmp_path):
@@ -193,7 +203,7 @@ def test_parse_event_context_pulls_base_from_payload(tmp_path):
         "GITHUB_BASE_REF": "",
         "GITHUB_EVENT_PATH": str(event),
     })
-    assert ctx == ("octo", "repo", 7, "develop")
+    assert ctx == ("octo", "repo", 7, "develop", "")  # no sha in payload -> ""
 
 
 def test_parse_event_context_rejects_non_pr(tmp_path):
@@ -480,6 +490,14 @@ def test_data_model_pure_add_is_surfaced():
     assert dm and dm[0]["diff_op"] == "ADD" and dm[0]["layer"] == 2
 
 
+def test_component_remove_is_diffed_layer2():
+    # a component REMOVE is caught (keyed by name, Layer 2) — coverage gap fix
+    base_bp = {"components": [{"name": "PaymentGateway", "responsibility": "money"}]}
+    items = ir.build_changed_items(base_bp, {"components": []}, [], [], [])
+    c = [i for i in items if i["section"] == "components"]
+    assert c and c[0]["diff_op"] == "REMOVE" and c[0]["layer"] == 2
+
+
 def test_rule_remove_is_layer1_branch_none():
     items = ir.build_changed_items({}, {}, [{"id": "R1", "description": "x"}], [], [])
     r = [i for i in items if i["source"] == "rules"][0]
@@ -573,6 +591,7 @@ def test_main_flags_removed_invariant_via_origin(tmp_path, monkeypatch):
          "keywords": ["tenant"], "enforced_at": ["db/p.py:1"]}]})
     _write(up, ".archie/rules.json", {"rules": []})
     _commit(up, "base")
+    base_sha = _git(up, "rev-parse", "HEAD")
 
     # working clone gets origin/main
     work = tmp_path / "work"
@@ -586,8 +605,10 @@ def test_main_flags_removed_invariant_via_origin(tmp_path, monkeypatch):
          "evidence_files": ["db/p.py"], "confidence": "low", "reconstructed": True}]})
     _commit(work, "remove invariant")
 
+    # Drive the diff off the base SHA (the robust path), not origin/<base>.
     event = work / "event.json"
-    event.write_text(json.dumps({"pull_request": {"number": 5, "base": {"ref": "main"}}}))
+    event.write_text(json.dumps({"pull_request": {"number": 5,
+                                "base": {"ref": "main", "sha": base_sha}}}))
 
     captured = {}
     monkeypatch.setattr(ir, "call_anthropic", lambda s, u, k, **kw: [

@@ -466,3 +466,34 @@ These are explicit code edits in M1a, not afterthoughts — without them the `.y
 - **Post-merge fold automation** — unneeded; the fold already happened on the branch, so git's "merge = acceptance" handles baseline evolution automatically.
 
 Canonical deliverable paths (for the implementer): `archie/standalone/intent_review.py`, `archie/assets/workflows/archie-intent-review.yml`, `archie/assets/setup-archie-intent-review.sh`, `tests/test_intent_review.py`; edits to `archie/install.py`, `npm-package/assets/_install_pkg/install.py`, `npm-package/bin/archie.mjs`, `scripts/verify_sync.py`; byte-copies under `npm-package/assets/` (`intent_review.py`, `workflows/archie-intent-review.yml`, `setup-archie-intent-review.sh`).
+
+---
+
+## 10. Amendments from the "right-thing" validation review (2026-06-19)
+
+Three findings from a post-implementation validation review (does it deliver the
+intended value, not just pass tests) were folded in:
+
+1. **Base-ref resolution — switched from `origin/<base>` to `pull_request.base.sha`.**
+   The original `git fetch origin <base>` + `continue-on-error: true` could fail
+   silently, leaving `origin/<base>` unresolvable, which degraded the diff to "everything
+   is new" and posted a confident-but-wrong review — the exact corruption the tool exists
+   to catch. Now the script diffs against `github.event.pull_request.base.sha`, which is
+   always present in the merge-ref history with `fetch-depth: 0`. The `Fetch base ref` step
+   was removed. **`fetch_base_file` now distinguishes "file genuinely absent at a valid
+   ref" (legitimate all-ADD) from "ref unresolvable" (a hard error) — the latter posts a
+   loud "review skipped" note instead of a wrong all-new result.**
+
+2. **Diff coverage — `components[]` added (keyed, Layer 2).** A component REMOVE /
+   responsibility change is now caught with the same structured, low-noise keyed diff as
+   `data_models`. **Deliberately still out of POC scope (documented, not silent):** the
+   purely descriptive snapshots — `communication[]`, `architecture_diagram`,
+   `technology[]`, `quick_reference[]`, `implementation_guidelines[]`, `data_overview` —
+   because they reflect current code (not prescriptive law), a textual diff of them is the
+   design's lower-precision path, and behavior-level violations still surface via
+   descriptive ledger claims. Textual fallback for those is a future enhancement.
+
+3. **M6 dogfood remains the user's step.** It requires the interactive `/archie-deep-scan`
+   + `/archie-sync` AI workflows and a real PR, so it is exercised by the user in a real
+   repository. The deterministic pipeline is validated offline (the Acme smoke + a
+   `main()` integration test driving a real `origin` clone via the base SHA).

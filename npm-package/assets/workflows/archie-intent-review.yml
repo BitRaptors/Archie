@@ -19,10 +19,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Fetch base ref
-        continue-on-error: true
-        run: git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-
+      # No `git fetch` needed: with fetch-depth:0 the PR base SHA
+      # (github.event.pull_request.base.sha) is already in history, and the script
+      # diffs against it directly — so there is no origin/<base> resolution to fail.
       - name: Run Archie Intent Review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

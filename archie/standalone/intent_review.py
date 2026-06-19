@@ -61,8 +61,16 @@ INVARIANT_SECTIONS = [
 DECISION_SECTIONS = ["key_decisions", "trade_offs", "out_of_scope"]
 DECISION_TITLE_FIELD = "title"
 
-# Data sections we diff for Layer-2 behavior-violates-rule (keyed by name).
+# Structured Layer-2 sections (keyed by name) we diff for behavior-violates-rule.
+# `components` is included so a component REMOVE / responsibility change is caught
+# cleanly (keyed, not noisy textual). NOT covered (deliberate POC scope): the purely
+# descriptive snapshots — communication[], architecture_diagram, technology[],
+# quick_reference[], implementation_guidelines[], data_overview. Those reflect current
+# code (not prescriptive law) and a textual diff of them is the design's lower-precision
+# path; behavior-level violations still surface via DESCRIPTIVE LEDGER CLAIMS. Textual
+# fallback for those sections is a documented future enhancement.
 DATA_SECTIONS = [
+    ("components", "name"),
     ("data_models", "name"),
     ("persistence_stores", "name"),
 ]
@@ -102,18 +110,22 @@ def _parse_json(text: str):
 def fetch_base_file(repo_root: Path, base_ref: str, rel_path: str):
     """Read `rel_path` from the base ref via `git show`.
 
-    Returns (exists: bool, data: dict|list|None, error: str|None).
-    A file absent on the base ref -> (False, None, None): treat everything as ADD.
-    A malformed JSON on the base ref -> (True, None, "<err>").
+    Returns (exists: bool, data: dict|list|None, error: str|None) and CRITICALLY
+    distinguishes two non-zero outcomes:
+      - the file is genuinely ABSENT at a VALID ref (e.g. the first PR to add .archie/)
+        -> (False, None, None): a legitimate all-ADD case.
+      - the REF ITSELF is unresolvable (bad SHA / unknown revision) -> (False, None, err):
+        the DANGEROUS case — the caller must NOT silently degrade to an empty baseline,
+        or it would post a confident but wrong "everything is new" review.
+    Malformed JSON at a valid ref -> (True, None, "<err>").
     """
     code, out, err = run_git(repo_root, "show", f"{base_ref}:{rel_path}")
     if code != 0:
         low = (err or "").lower()
-        if "does not exist" in low or "exists on disk, but not" in low \
-                or "invalid object" in low or "unknown revision" in low \
-                or "path" in low and "does not exist" in low or "fatal" in low:
-            # absent on base ref
+        # File absent at a VALID ref — git says the path doesn't exist *in* the ref.
+        if "does not exist in" in low or "exists on disk, but not in" in low:
             return False, None, None
+        # Ref unresolvable or any other git failure — surface it, do not pretend absent.
         return False, None, err.strip() or "git show failed"
     data, perr = _parse_json(out)
     return True, data, perr
@@ -765,7 +777,12 @@ def safe_post_comment(owner, repo, pr_number, body, token):
 # event context
 # ---------------------------------------------------------------------------
 def parse_event_context(env: dict):
-    """Return (owner, repo, pr_number, base_ref) or None if not a usable PR event."""
+    """Return (owner, repo, pr_number, base_ref, base_sha) or None.
+
+    `base_sha` (pull_request.base.sha) is the robust base to diff against: with
+    `actions/checkout` `fetch-depth: 0` it is always present in the merge-ref history,
+    so no `git fetch` is needed and there is no `origin/<base>` resolution to fail.
+    """
     repo_full = env.get("GITHUB_REPOSITORY", "")
     base_ref = env.get("GITHUB_BASE_REF", "")
     event_path = env.get("GITHUB_EVENT_PATH", "")
@@ -773,18 +790,21 @@ def parse_event_context(env: dict):
         return None
     owner, repo = repo_full.split("/", 1)
     pr_number = None
+    base_sha = ""
     if event_path and Path(event_path).exists():
         try:
             event = json.loads(Path(event_path).read_text())
             pr = event.get("pull_request")
             if isinstance(pr, dict):
                 pr_number = pr.get("number")
-                base_ref = base_ref or (pr.get("base") or {}).get("ref", "")
+                base = pr.get("base") or {}
+                base_ref = base_ref or base.get("ref", "")
+                base_sha = base.get("sha", "") or ""
         except (OSError, json.JSONDecodeError):
             return None
     if pr_number is None or not base_ref:
         return None
-    return owner, repo, pr_number, base_ref
+    return owner, repo, pr_number, base_ref, base_sha
 
 
 # ---------------------------------------------------------------------------
@@ -804,9 +824,11 @@ def main(argv=None) -> int:
     if ctx is None:
         print("[intent-review] not a usable pull_request event — skipping.", file=sys.stderr)
         return 0
-    owner, repo, pr_number, base_ref = ctx
+    owner, repo, pr_number, base_ref, base_sha = ctx
     token = env.get("GITHUB_TOKEN", "").strip()
-    base_ref_full = f"origin/{base_ref}"
+    # Prefer the base SHA (always in merge-ref history with fetch-depth:0); fall back to
+    # origin/<base> only if the payload lacked a sha. No `git fetch` is required.
+    base_ref_full = base_sha or f"origin/{base_ref}"
 
     # 2. Load branch + base versions of the source of truth.
     b_exists, branch_bp, b_err = load_branch_file(repo_root, ".archie/blueprint.json")
@@ -821,7 +843,18 @@ def main(argv=None) -> int:
         print("[intent-review] no .archie/blueprint.json on branch — nothing to review.", file=sys.stderr)
         return 0
 
-    _, base_bp, _ = fetch_base_file(repo_root, base_ref_full, ".archie/blueprint.json")
+    base_exists, base_bp, base_err = fetch_base_file(repo_root, base_ref_full, ".archie/blueprint.json")
+    if base_err:
+        # The base REF could not be resolved (not "file absent"). Do NOT silently degrade
+        # to an empty baseline and post a confident-but-wrong "everything is new" review.
+        print(f"[intent-review] base ref {base_ref_full} unresolvable: {base_err}", file=sys.stderr)
+        safe_post_comment(owner, repo, pr_number,
+                          f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
+                          f"Could not resolve the PR base (`{base_ref_full}`) to diff against "
+                          f"(`{base_err}`). **Review skipped** to avoid a misleading "
+                          f"\"everything is new\" result — re-run once the base ref is available.",
+                          token)
+        return 0
     base_bp = base_bp if isinstance(base_bp, dict) else {}
 
     # Diff BOTH rule sources (rules.json + platform_rules.json), unioned.
