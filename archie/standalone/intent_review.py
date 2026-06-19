@@ -1,0 +1,816 @@
+#!/usr/bin/env python3
+"""Archie Intent Review — PR-time semantic review of the architectural source of truth.
+
+Runs inside a GitHub Action on `pull_request`. It does NOT re-derive what changed —
+the change is already folded into `.archie/blueprint.json` + `rules.json` on the branch
+by `/archie-sync`. This script:
+
+  1. Diffs the branch's blueprint/rules against the PR base ref (DETERMINISTIC — the
+     script owns `diff_op`/ids/layer; the model never re-derives them).
+  2. Globs the sync ledger (`.archie/changes/change_*.json`) for corroborating intent.
+  3. Makes ONE Claude (Haiku) call to JUDGE the diff against the *retained* rules:
+     is a change a silent weakening, a contradiction, or behavior that violates a rule?
+  4. Posts ONE upserted FYI comment. It surfaces; the human decides. It NEVER blocks
+     (always exits 0) and honors because-or-suppress (no cited rationale -> dropped).
+
+Zero dependencies beyond the Python 3.9+ stdlib. Designed to run as
+`python3 .archie/intent_review.py` with env: ANTHROPIC_API_KEY, GITHUB_TOKEN,
+GITHUB_REPOSITORY, GITHUB_BASE_REF, GITHUB_EVENT_PATH.
+
+Pure functions (diff/glob/parse/render) are importable and network-free so the test
+suite can exercise them without hitting any API.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# constants
+# ---------------------------------------------------------------------------
+MODEL = "claude-haiku-4-5"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
+MAX_TOKENS = 4096
+COMMENT_MARKER = "<!-- archie-intent-review -->"
+GITHUB_API = "https://api.github.com"
+
+ADVISORY_KINDS = {"decision", "pitfall", "rule", "guideline"}
+DESCRIPTIVE_KINDS = {"behavior", "structure", "dataflow", "data", "tech", "reference"}
+
+# Blueprint sections we diff for Layer-1 silent-weakening, with their identity field.
+# (field is None -> key on a hash of the title field instead.)
+INVARIANT_SECTIONS = [
+    # (top_key, sub_key_or_None, id_field, title_field)
+    ("domain_invariants", None, "id", "invariant"),
+    ("derived_invariants", None, "id", "invariant"),
+]
+# decisions.key_decisions has no id -> title-hash keyed.
+DECISION_TITLE_FIELD = "title"
+
+# Data sections we diff for Layer-2 behavior-violates-rule (keyed by name).
+DATA_SECTIONS = [
+    ("data_models", "name"),
+    ("persistence_stores", "name"),
+]
+
+RELEVANCE_SEND_ALL_THRESHOLD = 25   # if retained rules are few, skip the keyword filter
+KEYWORD_JOIN_THRESHOLD = 1          # >=1 shared keyword token to attach ledger confidence
+
+
+# ---------------------------------------------------------------------------
+# git / file loading
+# ---------------------------------------------------------------------------
+def run_git(repo_root: Path, *args: str, timeout: int = 15):
+    """Run git; return (returncode, stdout, stderr). Never raises."""
+    try:
+        p = subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        return p.returncode, p.stdout, p.stderr
+    except Exception as e:  # pragma: no cover - defensive
+        return 1, "", str(e)
+
+
+def _parse_json(text: str):
+    """Parse JSON text; return (data, error). Empty/whitespace -> ({}, None)."""
+    if text is None or not text.strip():
+        return {}, None
+    try:
+        return json.loads(text), None
+    except json.JSONDecodeError as e:
+        return None, f"JSON parse error: {e}"
+
+
+def fetch_base_file(repo_root: Path, base_ref: str, rel_path: str):
+    """Read `rel_path` from the base ref via `git show`.
+
+    Returns (exists: bool, data: dict|list|None, error: str|None).
+    A file absent on the base ref -> (False, None, None): treat everything as ADD.
+    A malformed JSON on the base ref -> (True, None, "<err>").
+    """
+    code, out, err = run_git(repo_root, "show", f"{base_ref}:{rel_path}")
+    if code != 0:
+        low = (err or "").lower()
+        if "does not exist" in low or "exists on disk, but not" in low \
+                or "invalid object" in low or "unknown revision" in low \
+                or "path" in low and "does not exist" in low or "fatal" in low:
+            # absent on base ref
+            return False, None, None
+        return False, None, err.strip() or "git show failed"
+    data, perr = _parse_json(out)
+    return True, data, perr
+
+
+def load_branch_file(repo_root: Path, rel_path: str):
+    """Read `rel_path` from the working tree (already checked out).
+
+    Returns (exists, data, error) mirroring fetch_base_file.
+    """
+    p = repo_root / rel_path
+    if not p.exists():
+        return False, None, None
+    try:
+        data, perr = _parse_json(p.read_text())
+        return True, data, perr
+    except OSError as e:  # pragma: no cover - defensive
+        return True, None, str(e)
+
+
+# ---------------------------------------------------------------------------
+# rules normalization
+# ---------------------------------------------------------------------------
+def normalize_rules(data) -> list:
+    """rules.json may be {'rules': [...]}, a flat list, or absent. Always -> list."""
+    if data is None:
+        return []
+    if isinstance(data, dict):
+        rules = data.get("rules")
+        return rules if isinstance(rules, list) else []
+    if isinstance(data, list):
+        return data
+    return []
+
+
+# ---------------------------------------------------------------------------
+# keyed semantic diff
+# ---------------------------------------------------------------------------
+def _hash_title(title: str) -> str:
+    return "title_" + hashlib.md5((title or "").strip().encode("utf-8")).hexdigest()[:8]
+
+
+def item_key(item: dict, id_field: str, title_field: str) -> str:
+    """Stable key for an item: its id if present, else a hash of its title."""
+    if id_field and isinstance(item, dict):
+        val = item.get(id_field)
+        if val:
+            return str(val)
+    title = ""
+    if isinstance(item, dict):
+        title = str(item.get(title_field, "") or "")
+    return _hash_title(title)
+
+
+def _changed_fields(base_item: dict, branch_item: dict) -> list:
+    keys = set()
+    if isinstance(base_item, dict):
+        keys |= set(base_item.keys())
+    if isinstance(branch_item, dict):
+        keys |= set(branch_item.keys())
+    changed = []
+    for k in sorted(keys):
+        if (base_item or {}).get(k) != (branch_item or {}).get(k):
+            changed.append(k)
+    return changed
+
+
+def keyed_diff(base_list, branch_list, id_field, title_field):
+    """Return [{status, key, base_item, branch_item, fields_changed}].
+
+    status in REMOVE | UPDATE | ADD. Reordered-but-identical lists -> no diffs.
+    """
+    base_list = base_list if isinstance(base_list, list) else []
+    branch_list = branch_list if isinstance(branch_list, list) else []
+    base_by = {}
+    for it in base_list:
+        if isinstance(it, dict):
+            base_by[item_key(it, id_field, title_field)] = it
+    branch_by = {}
+    for it in branch_list:
+        if isinstance(it, dict):
+            branch_by[item_key(it, id_field, title_field)] = it
+
+    out = []
+    for key in base_by:
+        if key not in branch_by:
+            out.append({"status": "REMOVE", "key": key,
+                        "base_item": base_by[key], "branch_item": None,
+                        "fields_changed": []})
+        else:
+            fc = _changed_fields(base_by[key], branch_by[key])
+            if fc:
+                out.append({"status": "UPDATE", "key": key,
+                            "base_item": base_by[key], "branch_item": branch_by[key],
+                            "fields_changed": fc})
+    for key in branch_by:
+        if key not in base_by:
+            out.append({"status": "ADD", "key": key,
+                        "base_item": None, "branch_item": branch_by[key],
+                        "fields_changed": []})
+    return out
+
+
+def _get_section(bp, top_key, sub_key):
+    if not isinstance(bp, dict):
+        return []
+    node = bp.get(top_key)
+    if sub_key:
+        node = node.get(sub_key) if isinstance(node, dict) else None
+    return node if isinstance(node, list) else []
+
+
+def _title_of(item, title_field) -> str:
+    if isinstance(item, dict):
+        return str(item.get(title_field) or item.get("title") or item.get("name")
+                   or item.get("invariant") or item.get("id") or "(unnamed)")
+    return "(unnamed)"
+
+
+# ---------------------------------------------------------------------------
+# build the list of CHANGED ITEMS the model will judge
+# ---------------------------------------------------------------------------
+def build_changed_items(base_bp, branch_bp, base_rules, branch_rules, ledger_claims):
+    """Deterministically assemble every reviewable change with a stable `ref`.
+
+    Each item: {ref, source, section, diff_op, layer, title, base_item, branch_item,
+                fields_changed, keywords, enforced_at_files}.
+    The model references `ref`; the script owns diff_op/layer/section/title.
+    """
+    items = []
+    n = [0]
+
+    def add(source, section, diff_op, layer, title, base_item, branch_item,
+            fields_changed, keywords, enforced_at_files):
+        ref = f"c{n[0]}"
+        n[0] += 1
+        items.append({
+            "ref": ref, "source": source, "section": section,
+            "diff_op": diff_op, "layer": layer, "title": title,
+            "base_item": base_item, "branch_item": branch_item,
+            "fields_changed": fields_changed, "keywords": keywords,
+            "enforced_at_files": enforced_at_files,
+        })
+
+    # Layer 1 — invariant sections (silent weakening)
+    for top_key, sub_key, id_field, title_field in INVARIANT_SECTIONS:
+        diffs = keyed_diff(_get_section(base_bp, top_key, sub_key),
+                           _get_section(branch_bp, top_key, sub_key),
+                           id_field, title_field)
+        for d in diffs:
+            ref_item = d["branch_item"] or d["base_item"] or {}
+            add("blueprint", top_key, d["status"], 1,
+                _title_of(ref_item, title_field),
+                d["base_item"], d["branch_item"], d["fields_changed"],
+                _keywords_of(ref_item), _enforced_files(ref_item))
+
+    # Layer 1 — decisions.key_decisions (title-hash keyed, silent weakening)
+    dec_diffs = keyed_diff(_get_section(base_bp, "decisions", "key_decisions"),
+                           _get_section(branch_bp, "decisions", "key_decisions"),
+                           None, DECISION_TITLE_FIELD)
+    for d in dec_diffs:
+        ref_item = d["branch_item"] or d["base_item"] or {}
+        add("blueprint", "decisions.key_decisions", d["status"], 1,
+            _title_of(ref_item, DECISION_TITLE_FIELD),
+            d["base_item"], d["branch_item"], d["fields_changed"],
+            _keywords_of(ref_item), [])
+
+    # Layer 1 — rules (contradiction candidates): ADD/UPDATE only
+    rule_diffs = keyed_diff(base_rules, branch_rules, "id", "description")
+    for d in rule_diffs:
+        if d["status"] == "REMOVE":
+            # a removed rule is a weakening of the ruleset
+            ref_item = d["base_item"] or {}
+            add("rules", "rules", "REMOVE", 1,
+                _rule_title(ref_item), d["base_item"], None, [],
+                _keywords_of(ref_item), [])
+        else:
+            ref_item = d["branch_item"] or {}
+            add("rules", "rules", d["status"], 1,
+                _rule_title(ref_item), d["base_item"], d["branch_item"],
+                d["fields_changed"], _keywords_of(ref_item), [])
+
+    # Layer 2 — data sections (behavior-violates-rule)
+    for top_key, name_field in DATA_SECTIONS:
+        diffs = keyed_diff(_get_section(base_bp, top_key, None),
+                           _get_section(branch_bp, top_key, None),
+                           name_field, name_field)
+        for d in diffs:
+            if d["status"] == "ADD" and not d["fields_changed"]:
+                pass  # pure additions of data models rarely violate a rule on their own
+            ref_item = d["branch_item"] or d["base_item"] or {}
+            add("blueprint", top_key, d["status"], 2,
+                _title_of(ref_item, name_field),
+                d["base_item"], d["branch_item"], d["fields_changed"],
+                _keywords_of(ref_item), [])
+
+    # Layer 2 — descriptive ledger claims (behavior-violates-rule)
+    for claim in ledger_claims:
+        if not isinstance(claim, dict):
+            continue
+        if claim.get("kind") in DESCRIPTIVE_KINDS:
+            stmt = str(claim.get("statement", "")).strip()
+            if not stmt:
+                continue
+            add("ledger", f"claim:{claim.get('kind')}", "DECLARED", 2,
+                stmt[:80], None, claim, [],
+                _keywords_from_text(stmt), list(claim.get("evidence_files") or []))
+
+    return items
+
+
+def _keywords_of(item) -> list:
+    if not isinstance(item, dict):
+        return []
+    kw = item.get("keywords")
+    if isinstance(kw, list):
+        return [str(k).lower() for k in kw]
+    return _keywords_from_text(" ".join(
+        str(item.get(f, "")) for f in ("invariant", "title", "description", "name")))
+
+
+def _keywords_from_text(text: str) -> list:
+    toks = [t.strip(".,:;()[]'\"").lower() for t in (text or "").split()]
+    return [t for t in toks if len(t) >= 4]
+
+
+def _enforced_files(item) -> list:
+    """File paths referenced by an invariant's enforced_at / evidence."""
+    if not isinstance(item, dict):
+        return []
+    files = []
+    for field in ("enforced_at", "evidence"):
+        vals = item.get(field)
+        if isinstance(vals, list):
+            for v in vals:
+                files.append(str(v).split(":")[0].strip())
+    return [f for f in files if f]
+
+
+def _rule_title(rule) -> str:
+    if not isinstance(rule, dict):
+        return "(rule)"
+    return str(rule.get("id") or rule.get("topic") or rule.get("description", "")[:60] or "(rule)")
+
+
+# ---------------------------------------------------------------------------
+# ledger
+# ---------------------------------------------------------------------------
+def glob_ledger(repo_root: Path, base_ref: str) -> list:
+    """Union of all claims from `.archie/changes/change_*.json` new on the branch.
+
+    `latest.json` is overwritten on every record, so it is NOT a complete source — we
+    glob the versioned files. Records already present on the base ref are skipped.
+    Malformed records are skipped, not fatal. Claims deduped by id (or statement).
+    """
+    changes_dir = repo_root / ".archie" / "changes"
+    if not changes_dir.is_dir():
+        return []
+
+    # which change files already exist on the base ref (so they aren't "new")
+    base_files = set()
+    code, out, _ = run_git(repo_root, "ls-tree", "-r", "--name-only", base_ref, ".archie/changes")
+    if code == 0:
+        base_files = {line.strip() for line in out.splitlines() if line.strip()}
+
+    claims = []
+    seen = set()
+    for fp in sorted(changes_dir.glob("change_*.json")):
+        rel = f".archie/changes/{fp.name}"
+        if rel in base_files:
+            continue  # already on base — not part of this PR's intent
+        try:
+            record = json.loads(fp.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        for claim in (record.get("claims") or []):
+            if not isinstance(claim, dict):
+                continue
+            key = claim.get("id") or claim.get("statement")
+            if key in seen:
+                continue
+            seen.add(key)
+            claims.append(claim)
+    return claims
+
+
+def ledger_join(changed_item: dict, claims: list):
+    """Conservative join: attach a claim's confidence to an invariant change only when
+    file paths overlap AND keyword overlap clears the threshold. No match -> None
+    (the finding still surfaces, just without the confidence sharpener — never guess).
+    """
+    item_files = set(changed_item.get("enforced_at_files") or [])
+    item_kw = set(changed_item.get("keywords") or [])
+    best = None
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        claim_files = set(str(f) for f in (claim.get("evidence_files") or []))
+        file_overlap = bool(item_files & claim_files) or _path_overlap(item_files, claim_files)
+        claim_kw = set(_keywords_from_text(str(claim.get("statement", ""))))
+        kw_overlap = len(item_kw & claim_kw)
+        if file_overlap and kw_overlap >= KEYWORD_JOIN_THRESHOLD:
+            cand = {
+                "confidence": claim.get("confidence"),
+                "reconstructed": bool(claim.get("reconstructed", False)),
+                "statement": claim.get("statement"),
+            }
+            if best is None or kw_overlap > best.get("_kw", 0):
+                cand["_kw"] = kw_overlap
+                best = cand
+    if best:
+        best.pop("_kw", None)
+    return best
+
+
+def _path_overlap(a: set, b: set) -> bool:
+    for x in a:
+        for y in b:
+            if x and y and (x == y or x.endswith("/" + y) or y.endswith("/" + x)
+                            or x in y or y in x):
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# retained rules (context for the model)
+# ---------------------------------------------------------------------------
+def retained_rules(base_rules: list, changed_items: list) -> list:
+    """Base-ref rules NOT themselves changed, optionally relevance-filtered."""
+    changed_rule_keys = {
+        it["title"] for it in changed_items if it.get("source") == "rules"
+    }
+    retained = [r for r in base_rules if isinstance(r, dict)
+                and _rule_title(r) not in changed_rule_keys]
+    if len(retained) <= RELEVANCE_SEND_ALL_THRESHOLD:
+        return retained
+    # relevance filter: keep rules sharing a keyword with any changed item
+    changed_kw = set()
+    for it in changed_items:
+        changed_kw |= set(it.get("keywords") or [])
+        changed_kw |= set(_keywords_from_text(it.get("title", "")))
+    filtered = []
+    for r in retained:
+        rkw = set(_keywords_of(r)) | set(_keywords_from_text(str(r.get("description", ""))))
+        if rkw & changed_kw:
+            filtered.append(r)
+    return filtered or retained[:RELEVANCE_SEND_ALL_THRESHOLD]
+
+
+# ---------------------------------------------------------------------------
+# model call
+# ---------------------------------------------------------------------------
+EMIT_FINDINGS_TOOL = {
+    "name": "emit_findings",
+    "description": (
+        "Emit structured review findings about a PR's change to the architectural "
+        "source of truth. For each CHANGED ITEM you judge to be a real concern, emit a "
+        "finding. The diff op and which item changed are GIVEN to you (cite item_ref). "
+        "Your job is ONLY to judge the TYPE and write a verifiable, cited BECAUSE drawn "
+        "from the item's own text and the retained rules. BECAUSE-OR-SUPPRESS: if you "
+        "cannot ground a finding in the provided texts, omit it entirely."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "item_ref": {"type": "string",
+                                     "description": "ref of the CHANGED ITEM this is about (e.g. c0). Findings referencing no listed item are discarded."},
+                        "type": {"type": "string",
+                                 "enum": ["silent_weakening", "contradiction", "behavior_violates_rule"]},
+                        "rule_name": {"type": "string", "description": "the invariant/rule this concerns"},
+                        "what_changed": {"type": "string"},
+                        "because": {"type": "string",
+                                    "description": "verifiable cited rationale from the texts; empty => dropped"},
+                    },
+                    "required": ["item_ref", "type", "rule_name", "what_changed", "because"],
+                },
+            },
+        },
+        "required": ["findings"],
+    },
+}
+
+
+def build_prompt(changed_items: list, retained: list, claims: list) -> tuple:
+    """Return (system, user) prompt strings. Pure; token-bounded payload."""
+    system = (
+        "You are an architecture reviewer for a pull request. The change has already been "
+        "folded into the project's blueprint and rules; you are given a DETERMINISTIC diff "
+        "of the source of truth (you do NOT decide what changed). Judge each CHANGED ITEM:\n"
+        "- silent_weakening: a REMOVE/UPDATE that retires or softens an invariant or key decision.\n"
+        "- contradiction: an ADD/UPDATE to the rules that conflicts with a RETAINED rule.\n"
+        "- behavior_violates_rule: a described behavior/data change that breaks a RETAINED rule.\n"
+        "Only emit a finding when it is real and you can cite WHY from the provided texts "
+        "(because-or-suppress). Do not flag benign additions. Call emit_findings exactly once."
+    )
+
+    def trim(item, n=600):
+        s = json.dumps(item, ensure_ascii=False)
+        return s if len(s) <= n else s[:n] + "...(truncated)"
+
+    lines = ["CHANGED ITEMS (cite item_ref):"]
+    for it in changed_items:
+        lines.append(
+            f"- ref={it['ref']} layer={it['layer']} op={it['diff_op']} "
+            f"section={it['section']} title={it['title']!r}"
+        )
+        if it.get("base_item") is not None:
+            lines.append(f"    base: {trim(it['base_item'])}")
+        if it.get("branch_item") is not None:
+            lines.append(f"    branch: {trim(it['branch_item'])}")
+        if it.get("fields_changed"):
+            lines.append(f"    fields_changed: {it['fields_changed']}")
+    lines.append("")
+    lines.append("RETAINED RULES (must still hold):")
+    for r in retained:
+        lines.append(f"- {trim(r, 400)}")
+    if claims:
+        lines.append("")
+        lines.append("DECLARED INTENT (sync ledger claims, context only):")
+        for c in claims:
+            lines.append(f"- kind={c.get('kind')} conf={c.get('confidence')} "
+                         f"stmt={str(c.get('statement',''))[:160]!r}")
+    return system, "\n".join(lines)
+
+
+def call_anthropic(system: str, user: str, api_key: str, max_retries: int = 3) -> list:
+    """POST one Messages request forcing the emit_findings tool. Return the raw
+    findings list from the model (judgment only). Raises RuntimeError on hard failure.
+    """
+    body = json.dumps({
+        "model": MODEL,
+        "max_tokens": MAX_TOKENS,
+        "system": system,
+        "tools": [EMIT_FINDINGS_TOOL],
+        "tool_choice": {"type": "tool", "name": "emit_findings"},
+        "messages": [{"role": "user", "content": user}],
+    }).encode("utf-8")
+
+    last_err = None
+    for attempt in range(max_retries):
+        req = urllib.request.Request(ANTHROPIC_URL, data=body, method="POST", headers={
+            "x-api-key": api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            return _extract_findings(payload)
+        except urllib.error.HTTPError as e:
+            last_err = f"HTTP {e.code}"
+            if e.code in (429, 500, 502, 503, 529) and attempt < max_retries - 1:
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+                delay = float(retry_after) if retry_after and retry_after.isdigit() \
+                    else min(2 ** attempt, 30)
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"Anthropic API error: {last_err}: {e.read().decode('utf-8', 'replace')[:300]}")
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_err = str(e)
+            if attempt < max_retries - 1:
+                time.sleep(min(2 ** attempt, 30))
+                continue
+            raise RuntimeError(f"Anthropic API unreachable: {last_err}")
+    raise RuntimeError(f"Anthropic API failed: {last_err}")
+
+
+def _extract_findings(api_response: dict) -> list:
+    """Pull the emit_findings tool_use input out of a Messages response."""
+    for block in (api_response.get("content") or []):
+        if block.get("type") == "tool_use" and block.get("name") == "emit_findings":
+            inp = block.get("input") or {}
+            findings = inp.get("findings")
+            return findings if isinstance(findings, list) else []
+    return []
+
+
+# ---------------------------------------------------------------------------
+# finalize: overwrite deterministic fields, because-or-suppress, ledger join
+# ---------------------------------------------------------------------------
+def finalize_findings(model_findings: list, changed_items: list, claims: list) -> list:
+    """Bind each model finding to its real changed item, overwrite the deterministic
+    fields from the script's own diff, drop unciteable/unmatched findings, and attach a
+    ledger-confidence sharpener where the conservative join succeeds.
+    """
+    by_ref = {it["ref"]: it for it in changed_items}
+    out = []
+    for f in model_findings:
+        if not isinstance(f, dict):
+            continue
+        item = by_ref.get(f.get("item_ref"))
+        if item is None:
+            continue  # references no real diff item -> drop
+        because = str(f.get("because", "")).strip()
+        if not because:
+            continue  # because-or-suppress
+        finding = {
+            # deterministic, script-owned (overwrite the model's echo):
+            "diff_op": item["diff_op"],
+            "layer": item["layer"],
+            "section": item["section"],
+            "rule_name": item["title"],
+            # model judgment:
+            "type": f.get("type", "behavior_violates_rule"),
+            "what_changed": str(f.get("what_changed", "")).strip(),
+            "because": because,
+            "confidence": None,
+        }
+        join = ledger_join(item, claims)
+        if join:
+            finding["confidence"] = join.get("confidence")
+            finding["reconstructed"] = join.get("reconstructed")
+        out.append(finding)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# render + post comment
+# ---------------------------------------------------------------------------
+_FLAG_HEADERS = {
+    "silent_weakening": "⚠️ Silent weakening / removal",
+    "contradiction": "⚠️ Contradiction with a retained rule",
+    "behavior_violates_rule": "⚠️ Behavior may violate a rule",
+}
+_FLAG_ORDER = ["silent_weakening", "contradiction", "behavior_violates_rule"]
+
+
+def render_comment(findings: list, had_diff: bool):
+    """Return the markdown comment body, or None to post nothing."""
+    if not had_diff:
+        return None
+    if not findings:
+        return (f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
+                "No findings — the blueprint changes in this PR are consistent with the "
+                "retained rules.\n\n*Archie surfaces; it doesn't block.*")
+
+    lines = [COMMENT_MARKER, "## 📐 Archie Intent Review", ""]
+    n = len(findings)
+    lines.append(f"This PR changes the architectural source of truth. **{n} finding"
+                 f"{'s' if n != 1 else ''}** for a human to weigh:")
+    for flag in _FLAG_ORDER:
+        group = [f for f in findings if f.get("type") == flag]
+        if not group:
+            continue
+        lines.append("")
+        lines.append(f"### {_FLAG_HEADERS[flag]}")
+        for f in group:
+            conf = ""
+            if f.get("confidence"):
+                rec = " · reconstructed guess" if f.get("reconstructed") else ""
+                conf = f" _(ledger confidence: {f['confidence']}{rec})_"
+            lines.append(
+                f"- **{f['rule_name']}** ({f['diff_op']}, Layer {f['layer']}){conf}  \n"
+                f"  {f['what_changed']}  \n"
+                f"  _Because:_ {f['because']}"
+            )
+    lines.append("")
+    lines.append("*Archie surfaces; it doesn't block. Whether a change means \"fix the "
+                 "code\" or \"evolve the rule\" is your call — merge accepts the blueprint "
+                 "changes above as the new baseline.*")
+    return "\n".join(lines)
+
+
+def _gh_request(method: str, url: str, token: str, body: dict = None):
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+        "User-Agent": "archie-intent-review",
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = resp.read().decode("utf-8")
+        return json.loads(raw) if raw.strip() else {}
+
+
+def post_or_update_comment(owner, repo, pr_number, body, token):
+    """Upsert the single Archie comment (find by marker -> PATCH, else POST)."""
+    list_url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100"
+    existing_id = None
+    try:
+        comments = _gh_request("GET", list_url, token)
+        for c in comments if isinstance(comments, list) else []:
+            if COMMENT_MARKER in (c.get("body") or ""):
+                existing_id = c.get("id")
+                break
+    except urllib.error.HTTPError as e:  # pragma: no cover - network
+        print(f"[intent-review] could not list comments: HTTP {e.code}", file=sys.stderr)
+
+    if existing_id:
+        url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/comments/{existing_id}"
+        _gh_request("PATCH", url, token, {"body": body})
+        print(f"[intent-review] updated comment {existing_id}")
+    else:
+        url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/{pr_number}/comments"
+        _gh_request("POST", url, token, {"body": body})
+        print("[intent-review] posted new comment")
+
+
+# ---------------------------------------------------------------------------
+# event context
+# ---------------------------------------------------------------------------
+def parse_event_context(env: dict):
+    """Return (owner, repo, pr_number, base_ref) or None if not a usable PR event."""
+    repo_full = env.get("GITHUB_REPOSITORY", "")
+    base_ref = env.get("GITHUB_BASE_REF", "")
+    event_path = env.get("GITHUB_EVENT_PATH", "")
+    if "/" not in repo_full:
+        return None
+    owner, repo = repo_full.split("/", 1)
+    pr_number = None
+    if event_path and Path(event_path).exists():
+        try:
+            event = json.loads(Path(event_path).read_text())
+            pr = event.get("pull_request")
+            if isinstance(pr, dict):
+                pr_number = pr.get("number")
+                base_ref = base_ref or (pr.get("base") or {}).get("ref", "")
+        except (OSError, json.JSONDecodeError):
+            return None
+    if pr_number is None or not base_ref:
+        return None
+    return owner, repo, pr_number, base_ref
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+def main(argv=None) -> int:
+    repo_root = Path(os.environ.get("GITHUB_WORKSPACE") or ".").resolve()
+    env = os.environ
+
+    # 1. Fork-PR / no-secret guard FIRST — before any GitHub write.
+    api_key = env.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        print("[intent-review] ANTHROPIC_API_KEY not set (fork PR?) — skipping.", file=sys.stderr)
+        return 0
+
+    ctx = parse_event_context(env)
+    if ctx is None:
+        print("[intent-review] not a usable pull_request event — skipping.", file=sys.stderr)
+        return 0
+    owner, repo, pr_number, base_ref = ctx
+    token = env.get("GITHUB_TOKEN", "").strip()
+    base_ref_full = f"origin/{base_ref}"
+
+    # 2. Load branch + base versions of the source of truth.
+    b_exists, branch_bp, b_err = load_branch_file(repo_root, ".archie/blueprint.json")
+    if b_exists and branch_bp is None:
+        # branch blueprint is malformed — surface, don't crash.
+        if token:
+            post_or_update_comment(owner, repo, pr_number,
+                                   f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
+                                   f"Could not parse `.archie/blueprint.json` on this branch "
+                                   f"({b_err}). Manual review needed.", token)
+        return 0
+    if not b_exists:
+        print("[intent-review] no .archie/blueprint.json on branch — nothing to review.", file=sys.stderr)
+        return 0
+
+    _, base_bp, _ = fetch_base_file(repo_root, base_ref_full, ".archie/blueprint.json")
+    base_bp = base_bp if isinstance(base_bp, dict) else {}
+
+    _, base_rules_raw, _ = fetch_base_file(repo_root, base_ref_full, ".archie/rules.json")
+    _, branch_rules_raw, _ = load_branch_file(repo_root, ".archie/rules.json")
+    base_rules = normalize_rules(base_rules_raw)
+    branch_rules = normalize_rules(branch_rules_raw)
+
+    claims = glob_ledger(repo_root, base_ref_full)
+
+    # 3. Deterministic diff -> changed items.
+    changed_items = build_changed_items(base_bp, branch_bp, base_rules, branch_rules, claims)
+    had_diff = bool(changed_items)
+    if not had_diff:
+        print("[intent-review] no source-of-truth changes detected — posting nothing.", file=sys.stderr)
+        return 0
+
+    # 4. Judge with one model call.
+    retained = retained_rules(base_rules, changed_items)
+    system, user = build_prompt(changed_items, retained, claims)
+    try:
+        model_findings = call_anthropic(system, user, api_key)
+    except RuntimeError as e:
+        print(f"[intent-review] model call failed: {e}", file=sys.stderr)
+        return 0  # never block
+    findings = finalize_findings(model_findings, changed_items, claims)
+
+    # 5. Render + upsert.
+    body = render_comment(findings, had_diff)
+    if body is None:
+        return 0
+    if not token:
+        print("[intent-review] no GITHUB_TOKEN — printing body:\n" + body)
+        return 0
+    try:
+        post_or_update_comment(owner, repo, pr_number, body, token)
+    except urllib.error.HTTPError as e:  # pragma: no cover - network
+        print(f"[intent-review] could not post comment: HTTP {e.code}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

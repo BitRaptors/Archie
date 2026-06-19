@@ -78,3 +78,5 @@ docs/superpowers/
 
 # Internal benchmark scratch configs/logs/results
 .archie-bench/
+
+.venv-test/
