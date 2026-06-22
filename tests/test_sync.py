@@ -406,6 +406,20 @@ def test_fold_apply_reports_deliberate_invariant_change(tmp_path, capsys):
     assert rc == 0 and out["contract_changed"] is True
 
 
+def test_contract_fingerprint_covers_prescriptive_blueprint_sections(tmp_path):
+    # The law-in-the-blueprint (development_rules / infrastructure_rules / architecture_rules)
+    # is part of the contract fingerprint, not just the invariants + rule files.
+    root = tmp_path
+    (root / ".archie").mkdir()
+    fp = sync._contract_fingerprint
+    assert fp(root, {"development_rules": [{"rule": "A"}]}) != fp(root, {"development_rules": [{"rule": "B"}]})
+    assert fp(root, {"infrastructure_rules": [{"rule": "A"}]}) != fp(root, {"infrastructure_rules": [{"rule": "B"}]})
+    assert fp(root, {"architecture_rules": {"naming_conventions": ["A"]}}) != \
+           fp(root, {"architecture_rules": {"naming_conventions": ["B"]}})
+    # a pure mirror section is NOT part of the contract fingerprint
+    assert fp(root, {"components": {"components": [1]}}) == fp(root, {"components": {"components": [2]}})
+
+
 def test_fold_apply_renders_and_marks_folded(tmp_path, capsys):
     root, archie = _setup_foldable(tmp_path, capsys, [
         _claim(kind="behavior", statement="X now does Y", evidence=["app/Main.kt"], confidence="high"),

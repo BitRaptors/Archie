@@ -417,9 +417,10 @@ def cmd_list(root: Path, as_json: bool) -> int:
 # these are the deterministic bookends: scope resolution + apply/re-render/validate)
 # ---------------------------------------------------------------------------
 
-# claim kind -> the descriptive blueprint section(s) the agent reconciles.
-# Descriptive kinds (the default) keep the snapshot current; advisory kinds are
-# optional. `rule` is the only kind that edits rules.json instead of blueprint.json.
+# claim kind -> the blueprint section(s) for that kind. Only DESCRIPTIVE kinds fold
+# (the mirror); ADVISORY kinds (decision/pitfall/rule/guideline) are always `staged`
+# (never folded). The advisory entries below document where a DELIBERATE amendment would
+# land — NOT where a code-fold writes (a code-fold writes the mirror only).
 _KIND_TARGET = {
     # descriptive — the snapshot of what the code IS
     "behavior":  {"sections": ["components", "communication"]},
@@ -436,10 +437,14 @@ _KIND_TARGET = {
 }
 
 # Snapshot-vs-contract guardrail (Phase 1): the "contract" (the law) a code-fold must
-# never move. The invariant sections + the rule files. (decisions/pitfalls carry mixed
-# descriptive prose, so they're governed by the advisory->staged gate in _classify, not
-# this byte-level fingerprint.)
-_CONTRACT_SECTIONS = ("domain_invariants", "derived_invariants", "unenforced_invariants")
+# never move. The invariant sections + the prescriptive rule sections + the rule files.
+# (decisions/pitfalls carry mixed descriptive prose, so they're governed by the
+# advisory->staged gate in _classify, not this byte-level fingerprint — which would be
+# noisy on them. The sections below are pure law that NO descriptive kind targets.)
+_CONTRACT_SECTIONS = (
+    "domain_invariants", "derived_invariants", "unenforced_invariants",
+    "development_rules", "infrastructure_rules", "architecture_rules",
+)
 _CONTRACT_FILES = ("rules.json", "platform_rules.json")
 
 

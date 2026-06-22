@@ -49,8 +49,10 @@ echo '<your JSON array>' | python3 .archie/sync.py record .
 (Add `--agent claude` under Claude Code, or `--agent codex` under Codex, to tag the
 record's provenance.)
 
-A statement is **eligible** to fold only if `confidence: medium|high`, `reconstructed:
-false`, and grounded in a file inside the diff; else it's `staged` (provisional).
+A statement is **eligible** to fold only if it is a DESCRIPTIVE kind (the mirror) AND
+`confidence: medium|high`, `reconstructed: false`, and grounded in a file inside the diff.
+ADVISORY kinds (`decision`/`pitfall`/`rule`/`guideline`) are ALWAYS `staged` — the contract
+(the law) changes only deliberately, never via a code-fold. Everything else is `staged`.
 
 ## Phase 2 — reconcile eligible statements into the snapshot
 
