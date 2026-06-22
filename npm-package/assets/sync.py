@@ -27,6 +27,7 @@ Output to stdout: a one-line JSON summary (detect-changes style).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -236,7 +237,16 @@ def _evidence_in_diff(evidence_files: list[str], changed_files: list[str], affec
 
 
 def _classify(claim: dict, changed_files: list[str], affected: list[str]) -> str:
-    """eligible = confident + non-reconstructed + evidenced inside the diff; else staged."""
+    """eligible = confident + non-reconstructed + evidenced inside the diff; else staged.
+
+    Snapshot-vs-contract (Phase 1): ADVISORY kinds (decision/pitfall/rule/guideline) are
+    the *contract* (the law). A code-fold must never silently move the law, or a real
+    deviation would be hidden from the PR review — so advisory claims are ALWAYS `staged`
+    (recorded + surfaced as proposed amendments), never `eligible`/folded. Only the
+    descriptive *mirror* (what the code is now) folds automatically.
+    """
+    if claim.get("kind") in _ADVISORY_KINDS:
+        return "staged"
     if claim["reconstructed"]:
         return "staged"
     if claim["confidence"] not in ("medium", "high"):
@@ -425,6 +435,30 @@ _KIND_TARGET = {
     "rule":      {"sections": [], "edit_file": ".archie/rules.json"},
 }
 
+# Snapshot-vs-contract guardrail (Phase 1): the "contract" (the law) a code-fold must
+# never move. The invariant sections + the rule files. (decisions/pitfalls carry mixed
+# descriptive prose, so they're governed by the advisory->staged gate in _classify, not
+# this byte-level fingerprint.)
+_CONTRACT_SECTIONS = ("domain_invariants", "derived_invariants", "unenforced_invariants")
+_CONTRACT_FILES = ("rules.json", "platform_rules.json")
+
+
+def _contract_fingerprint(root: Path, bp: dict) -> str:
+    """Stable hash of the contract (invariant sections + rule files); used to refuse a
+    fold-apply that moved the law."""
+    h = hashlib.sha256()
+    h.update(json.dumps({k: bp.get(k) for k in _CONTRACT_SECTIONS},
+                        sort_keys=True, ensure_ascii=False).encode("utf-8"))
+    for fname in _CONTRACT_FILES:
+        p = root / ".archie" / fname
+        h.update(b"\x00")
+        if p.exists():
+            try:
+                h.update(p.read_bytes())
+            except OSError:
+                pass
+    return h.hexdigest()
+
 
 def _newest_change(root: Path) -> Path | None:
     changes_dir = _changes_dir(root)
@@ -492,6 +526,15 @@ def cmd_fold_context(root: Path, change_file: str | None) -> int:
         print(json.dumps({"ok": False, "error": "no change record found"}))
         return 1
     eligible = [c for c in data.get("claims", []) if c.get("status") == "eligible"]
+    # Advisory claims are the CONTRACT (the law) — a code-fold never writes them. They
+    # surface as PROPOSED amendments for a separate, deliberate decision (not folded).
+    staged_amendments = [
+        {"claim_id": c.get("id"), "kind": c.get("kind") or c.get("section"),
+         "statement": c.get("statement") or c.get("title"),
+         "evidence_files": c.get("evidence_files", [])}
+        for c in data.get("claims", [])
+        if (c.get("kind") or c.get("section")) in _ADVISORY_KINDS
+    ]
     archie = root / ".archie"
     bp_path = archie / "blueprint.json"
     bp = {}
@@ -529,9 +572,12 @@ def cmd_fold_context(root: Path, change_file: str | None) -> int:
         if cf.exists():
             intent_files.append(str(cf.relative_to(root)))
 
-    # Persist a guardrail snapshot so fold-apply can refuse a render that dropped
-    # a whole top-level section.
-    data["fold_guardrail"] = {"blueprint_top_level_keys": sorted(bp.keys())}
+    # Persist a guardrail snapshot so fold-apply can refuse a render that dropped a whole
+    # top-level section OR moved the contract (the law) during a descriptive fold.
+    data["fold_guardrail"] = {
+        "blueprint_top_level_keys": sorted(bp.keys()),
+        "contract_fingerprint": _contract_fingerprint(root, bp),
+    }
     _persist_change(root, path, data)
 
     print(json.dumps({
@@ -539,19 +585,20 @@ def cmd_fold_context(root: Path, change_file: str | None) -> int:
         "change_file": str(path.relative_to(root)) if path.is_relative_to(root) else str(path),
         "eligible_count": len(eligible),
         "targets": targets,
+        "staged_amendments": staged_amendments,
         "intent_files": intent_files,
         "instructions": (
             "RECONCILE each statement into the snapshot — do not just append. For each "
-            "target: read ONLY the named blueprint_sections (the descriptive snapshot of "
+            "target: read ONLY the named blueprint_sections (the descriptive MIRROR of "
             "what the code IS) and the evidence files, then pick ONE op: NO-OP (already "
             "accurately described — common), UPDATE (described but now wrong — correct in "
-            "place), ADD (new), REMOVE (code dropped it). Descriptive kinds "
-            "(behavior/structure/dataflow/data/tech/reference) are the point; advisory "
-            "kinds (decision/pitfall/rule) only when genuinely warranted. Edit "
-            "blueprint.json (source of truth); rule -> rules.json; pitfall -> also "
-            "findings.json. Then reconcile the DESCRIPTIVE section of each touched "
-            "per-folder CLAUDE.md in `intent_files` (direct edit — these are the folder "
-            "snapshots). Finally run: sync.py fold-apply ."
+            "place), ADD (new), REMOVE (code dropped it). Edit ONLY descriptive mirror "
+            "sections of blueprint.json. DO NOT edit the CONTRACT — rules.json, "
+            "domain_invariants, derived_invariants, decisions, or pitfalls. Advisory "
+            "claims are listed under `staged_amendments` as PROPOSED contract changes; "
+            "they must NOT be folded — changing the law is a separate, deliberate step. "
+            "Then reconcile the DESCRIPTIVE section of each touched per-folder CLAUDE.md "
+            "in `intent_files` (direct edit). Finally run: sync.py fold-apply ."
         ),
     }, indent=2))
     return 0
@@ -580,6 +627,16 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
     missing = [k for k in snapshot if k not in bp]
     if missing:
         print(json.dumps({"ok": False, "error": f"guardrail tripped — blueprint top-level sections dropped: {missing}"}))
+        return 1
+
+    # Contract guardrail (Phase 1): a code-fold must not move the law. Checked BEFORE the
+    # render/normalize so normalization can neither mask nor falsely trip it.
+    expected_fp = (data.get("fold_guardrail") or {}).get("contract_fingerprint")
+    if expected_fp is not None and _contract_fingerprint(root, bp) != expected_fp:
+        print(json.dumps({"ok": False, "error": (
+            "guardrail tripped — a code-fold changed the contract (rules.json / "
+            "invariants). The contract (the law) changes only by a deliberate amendment, "
+            "never a sync fold. Revert the contract edits, then re-run fold-apply.")}))
         return 1
 
     sys.path.insert(0, str(_SCRIPT_DIR))

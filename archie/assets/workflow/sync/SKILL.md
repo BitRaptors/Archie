@@ -77,13 +77,19 @@ For each statement, read the target section of the CURRENT snapshot and pick ONE
 - **ADD** — not represented → add it to the right section.
 - **REMOVE** — the section describes behavior the code no longer has → remove/correct it.
 
-Where edits land (descriptive = the headline):
+Where edits land — **the descriptive MIRROR only** (what the code is now):
 - `behavior`/`structure` → `.archie/blueprint.json` `components[]` (responsibilities) / `communication`
 - `dataflow` → `communication`, `architecture_diagram`
 - `data` → `data_models` / `persistence_stores` / `data_overview`
 - `tech` → `technology` · `reference` → `quick_reference`
-- advisory: `decision` → `decisions` · `pitfall` → `pitfalls` + a verifier entry in
-  `.archie/findings.json` · `rule` → `.archie/rules.json`
+
+**Do NOT touch the CONTRACT (the law).** Advisory claims (`decision`/`pitfall`/`rule`/
+`guideline`) are recorded `staged` and surface under `staged_amendments` in `fold-context` —
+they are PROPOSED changes for a separate, deliberate decision, NOT something a code-fold
+applies. A fold must never edit `.archie/rules.json`, `domain_invariants`,
+`derived_invariants`, `decisions`, or `pitfalls`; **`fold-apply` refuses a render that moved
+them.** (Why: the PR Intent Review catches code-vs-law drift — if a fold silently moved the
+law to match the code, the deviation would be hidden.)
 
 Then **reconcile the intent layer**: for each touched folder in `intent_files`, update the
 **descriptive (AI-authored) section** of that folder's CLAUDE.md to match the code now —
