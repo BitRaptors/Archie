@@ -366,24 +366,24 @@ def test_advisory_kinds_always_staged(tmp_path, capsys):
     assert by["desc one"] == "eligible"
 
 
-def test_fold_apply_contract_guardrail_aborts_on_rules_edit(tmp_path, capsys):
-    # A fold that moves the LAW (rules.json) is refused — the deviation must reach the PR.
+def test_fold_apply_reports_deliberate_rule_change(tmp_path, capsys):
+    # A deliberate rule change during a fold is ALLOWED (rules legitimately change) but
+    # SURFACED via contract_changed, so the law never moves silently.
     root, archie = _setup_foldable(tmp_path, capsys, [
         _claim(kind="behavior", statement="desc", evidence=["app/Main.kt"], confidence="high"),
     ])
     (archie / "rules.json").write_text(json.dumps({"rules": [{"id": "r1", "description": "old"}]}))
     sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
-    # Illegal: a code-fold rewrote the contract.
+    # The dev deliberately moved a rule (extensive work) alongside the fold.
     (archie / "rules.json").write_text(json.dumps({"rules": [{"id": "r1", "description": "CHANGED"}]}))
     rc = sync.main(["sync.py", "fold-apply", str(root)])
     out = json.loads(capsys.readouterr().out)
-    assert rc == 1 and out["ok"] is False
-    assert "contract" in out["error"].lower()
-    rec = json.loads((archie / "changes" / "latest.json").read_text())
-    assert rec.get("folded") in (False, None)
+    assert rc == 0 and out["ok"] is True          # NOT blocked
+    assert out["contract_changed"] is True         # but surfaced
+    assert "note" in out
 
 
-def test_fold_apply_contract_guardrail_aborts_on_invariant_edit(tmp_path, capsys):
+def test_fold_apply_reports_deliberate_invariant_change(tmp_path, capsys):
     root = _init_repo(tmp_path)
     archie = root / ".archie"
     archie.mkdir()
@@ -397,13 +397,13 @@ def test_fold_apply_contract_guardrail_aborts_on_invariant_edit(tmp_path, capsys
         _claim(kind="behavior", statement="d", evidence=["app/Main.kt"], confidence="high")]), capsys)
     capsys.readouterr()
     sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
-    # Illegal: weaken an invariant during the fold.
+    # Deliberately weaken an invariant during the fold — allowed, but flagged.
     bp2 = json.loads((archie / "blueprint.json").read_text())
     bp2["domain_invariants"][0]["invariant"] = "WEAKENED"
     (archie / "blueprint.json").write_text(json.dumps(bp2))
     rc = sync.main(["sync.py", "fold-apply", str(root)])
     out = json.loads(capsys.readouterr().out)
-    assert rc == 1 and "contract" in out["error"].lower()
+    assert rc == 0 and out["contract_changed"] is True
 
 
 def test_fold_apply_renders_and_marks_folded(tmp_path, capsys):

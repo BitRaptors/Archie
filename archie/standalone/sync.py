@@ -629,15 +629,15 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
         print(json.dumps({"ok": False, "error": f"guardrail tripped — blueprint top-level sections dropped: {missing}"}))
         return 1
 
-    # Contract guardrail (Phase 1): a code-fold must not move the law. Checked BEFORE the
-    # render/normalize so normalization can neither mask nor falsely trip it.
+    # Contract awareness (Phase 1): a code-fold reconciles the descriptive MIRROR; the
+    # contract (rules.json / invariants) changes only DELIBERATELY. We do NOT block a
+    # deliberate rule change — rules legitimately change during real work — but we surface
+    # it so the law never moves SILENTLY. Computed BEFORE normalize so normalization can't
+    # mask or falsely flag it. (advisory->staged already stops AUTOMATIC contract moves.)
     expected_fp = (data.get("fold_guardrail") or {}).get("contract_fingerprint")
-    if expected_fp is not None and _contract_fingerprint(root, bp) != expected_fp:
-        print(json.dumps({"ok": False, "error": (
-            "guardrail tripped — a code-fold changed the contract (rules.json / "
-            "invariants). The contract (the law) changes only by a deliberate amendment, "
-            "never a sync fold. Revert the contract edits, then re-run fold-apply.")}))
-        return 1
+    contract_changed = bool(
+        expected_fp is not None and _contract_fingerprint(root, bp) != expected_fp
+    )
 
     sys.path.insert(0, str(_SCRIPT_DIR))
     try:
@@ -692,6 +692,10 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
         "ok": True,
         "folded": folded,
         "rendered_count": len(rendered),
+        "contract_changed": contract_changed,
+        **({"note": "This fold ALSO changed the contract (rules.json / invariants) — a "
+                    "DELIBERATE amendment, not an automatic mirror update. It will be "
+                    "reviewed on the PR."} if contract_changed else {}),
     }))
     return 0
 

@@ -83,13 +83,14 @@ Where edits land — **the descriptive MIRROR only** (what the code is now):
 - `data` → `data_models` / `persistence_stores` / `data_overview`
 - `tech` → `technology` · `reference` → `quick_reference`
 
-**Do NOT touch the CONTRACT (the law).** Advisory claims (`decision`/`pitfall`/`rule`/
+**Don't AUTO-change the CONTRACT (the law).** Advisory claims (`decision`/`pitfall`/`rule`/
 `guideline`) are recorded `staged` and surface under `staged_amendments` in `fold-context` —
-they are PROPOSED changes for a separate, deliberate decision, NOT something a code-fold
-applies. A fold must never edit `.archie/rules.json`, `domain_invariants`,
-`derived_invariants`, `decisions`, or `pitfalls`; **`fold-apply` refuses a render that moved
-them.** (Why: the PR Intent Review catches code-vs-law drift — if a fold silently moved the
-law to match the code, the deviation would be hidden.)
+proposed changes for a separate, deliberate decision, NOT something the code-fold applies.
+The fold reconciles the descriptive **mirror only**. If the law genuinely changes during the
+work, change it **deliberately** (edit `rules.json` / `domain_invariants` on purpose) —
+`fold-apply` allows it but reports `contract_changed` so the law never moves *silently*.
+(Why: the PR Intent Review catches code-vs-law drift; the law must move deliberately and
+visibly, never as a silent side effect of reconciling code.)
 
 Then **reconcile the intent layer**: for each touched folder in `intent_files`, update the
 **descriptive (AI-authored) section** of that folder's CLAUDE.md to match the code now —
