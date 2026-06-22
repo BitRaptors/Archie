@@ -35,45 +35,52 @@ Today `/archie-sync`'s fold can write the contract: `_SECTION_MAP` ([sync.py:412
 
 ---
 
-## 3. Phase 2 — the deliberate amendment path
+## 3. Phase 2 — Accept *is* the amendment (no manual rule-editing)
 
-When a contract *is* obsolete and should move, there must be an explicit, opt-in way to move it — and it must land in the PR diff so it's reviewable.
+There is **no separate "edit the rules" task**. At the PR the human has exactly two moves:
 
-**Change A — an amend mode.** Either (pick one during planning):
-- (a) **Hand-edit** `rules.json`/invariants in the PR (zero new tooling; the dev just edits the law deliberately), or
-- (b) **`/archie-sync --amend` / `/archie-amend`** — an explicit step where the agent reconciles `staged` contract claims *into* `rules.json`/invariants, marked `folded_as: amendment`.
+- **Fix** — change the code to comply. The mirror returns to the old behavior; the contract is never touched. ("The rule still holds.")
+- **Accept (merge)** — the change becomes the new baseline, and the contract moves to match it. ("The rule is obsolete; this is the new law.")
 
-**Change B — completeness help (optional, high-value):** when amending one rule, surface the **interlocked** rules (those sharing keywords/`forced_by`/`enables` — e.g. `inv-002` → `der-001`/`der-005`/`tra-001`) so the dev amends them together and doesn't ship a half-amendment.
+The contract move on Accept is **auto-drafted by the system, not hand-written.** The review already knows which rules the change hits (it computed the diff) and which **interlocked** rules must move with them (shared keywords / `forced_by` / `enables` — e.g. `inv-002` → `der-001`/`der-005`/`tra-001`). It drafts that *consistent* amendment; merging applies it. This is the **"auto-drafted amendment"** from the original brainstorm — Archie writes the rule change; the human just takes it or rejects it.
 
-**Acceptance:** amending the contract requires a deliberate action; the change appears in the PR's `rules.json`/invariant diff; nothing about a *code* change alone can produce it.
+**The merge-vs-fix choice is the intent signal** — no commit prose, no manual editing.
+
+**Mechanism (pick during planning):**
+- (a) **In-PR suggestion** — the review posts the drafted contract change as a suggested commit; "Accept" applies it (one action), then merge accepts a consistent branch. Cleanest fit with "merge = acceptance" (the branch already holds the amended contract).
+- (b) **On-merge reconcile** — a post-merge step applies the drafted amendment to the contract on `main`.
+
+**Acceptance:** the human never hand-edits `rules.json`; **Accept** yields a *consistent* contract change (all interlocked rules moved together); **Fix** leaves the contract untouched. If the auto-draft is incomplete (misses an interlocked rule), Phase 3's consistency check flags it *before* Accept.
 
 ---
 
-## 4. Phase 3 — the review labels amendment vs. violation
+## 4. Phase 3 — the review presents Fix-or-Accept (and drafts the amendment)
 
-The review already diffs `rules.json` and treats changed rules as *changed items* and unchanged ones as *retained* context ([intent_review.py](archie/standalone/intent_review.py) `build_changed_items` / `retained_rules`). So Cases B/C below already largely fall out — Phase 3 is mostly **labeling + visibility**.
+The review already diffs `rules.json` and separates *changed* rules from *retained* context ([intent_review.py](archie/standalone/intent_review.py) `build_changed_items` / `retained_rules`), so most of this falls out.
 
-**Change A — classify each finding** by whether the rule it concerns was **changed in this PR** (contract moved → *amendment*) or **retained** (contract unchanged → *violation*).
+**Change A — draft the consistent amendment.** For each drift, compute the contract change Accept would apply: the affected rules **plus their interlocked rules** (shared keywords / `forced_by` / `enables`), with the new values — so Accept has something concrete to take.
 
-**Change B — render three buckets** instead of one undiscriminated list:
-- **✅ Intended amendments (N)** — contract rules this PR deliberately changed. *"Merge accepts these as the new baseline — confirm."* (Visibility for "merge = acceptance.")
-- **⚠️ Violations (M)** — the mirror changed but the unchanged contract forbids it.
-- **⚠️ Inconsistent amendments** — a changed contract rule contradicts a *retained* one ("you raised `inv-002` to 12 but `der-001` still says 7 — finish the amendment").
+**Change B — present each finding as the two moves:**
+- **⚠️ Drift — Fix or Accept.** *"The code now does 12; the contract says 7. **Fix** the code, or **Accept** to move `inv-002`/`der-001`/`der-005`→12 and retire `tra-001` (drafted below) as the new baseline."*
+- **⚠️ Inconsistent amendment.** If a contract change already on the branch moved one rule but left an interlocked one, flag it *before* Accept ("also update `der-001`").
 
-**Acceptance** — the three cases from the discussion produce the three buckets:
-- **A** code only, contract unchanged → *Violation*.
-- **B** contract amended completely → *Intended amendment*, no violation.
-- **C** contract amended partially → *Inconsistent amendment*.
+**Acceptance** — the discussion cases:
+- code only, no amendment applied → **Fix-or-Accept drift** (replaces "violation"); the draft is shown.
+- drafted amendment applied consistently → **clean Accept**, no inconsistency flag.
+- amendment applied partially → **inconsistent amendment** flag.
 
 ---
 
 ## 5. Worked example (cap 7 → 12)
 
-| What the dev does | Mirror | Contract | Review says |
+The dev changes code (cap→12) and runs sync. The mirror says "now 12"; the contract still says 7. The review flags the drift and **drafts** the consistent contract amendment. The dev then has exactly two moves:
+
+| Human move | Mirror | Contract | Result |
 |---|---|---|---|
-| change code, run sync | "now 12" | unchanged (7) | **Violation** — `inv-002`/`der-001`/`der-005`/`tra-001` |
-| change code + amend `inv-002`,`der-001`,`der-005`, retire `tra-001` | "now 12" | all → 12 | **Intended amendment (4 rules)** — confirm & merge |
-| change code + amend only `inv-002` | "now 12" | `inv-002`→12, rest 7 | **Inconsistent amendment** — also update `der-001`/`der-005`/`tra-001` |
+| **Fix** — revert the cap to 7 | back to 7 | unchanged | drift gone, no finding |
+| **Accept** — take the drafted amendment + merge | 12 | system moves `inv-002`/`der-001`/`der-005`→12, retires `tra-001` | consistent new baseline |
+
+No manual rule-editing in either path. Safety net: if the auto-draft moved `inv-002` but missed `der-001`, the review flags an **inconsistent amendment** *before* Accept — a half-amendment can't merge.
 
 ---
 
@@ -91,9 +98,9 @@ The review already diffs `rules.json` and treats changed rules as *changed items
 | Dev forgets to amend interlocked rules | Phase 2 Change B completeness help + Phase 3 "inconsistent amendment" bucket catch it. |
 
 ## 8. Open questions
-1. Phase 2 path: hand-edit vs. an `--amend` command — which ergonomics? (Recommend starting with hand-edit + Phase 3 visibility; add `--amend` if friction warrants.)
+1. Phase 2 mechanism for the auto-draft: **in-PR drafted suggestion** (Accept applies it pre-merge) vs. **on-merge reconcile**. Recommend the in-PR suggestion — it keeps "merge = acceptance" literal (the branch already holds the amended contract) and needs no post-merge automation. Who computes the consistent draft: the review model, or a deterministic interlock walk from `forced_by`/`enables`? (Likely model-proposed, deterministically scoped.)
 2. Are `decisions` one layer or split (prose = mirror, forced_by/enables = contract)? Likely split — confirm against the schema.
 3. Does `renderer.generate_all` cleanly separate mirror-docs from contract-docs today, or does Change B need a renderer split?
 
 ## 9. Sequencing
-**Phase 1 first** (contract-readonly fold) — it alone makes the drift reliable and fixes the rendered-doc inconsistency you found. **Phase 3** (labeling) is small and high-visibility — do it next. **Phase 2** (amend ergonomics) last, only if hand-editing proves too rough. Each phase ships independently and is testable on its own.
+**Phase 1 first** (contract-readonly fold) — it alone makes the drift reliable and fixes the rendered-doc inconsistency you found. **Phase 3** (Fix-or-Accept presentation + the drafted amendment) is the high-value UX step — do it next. **Phase 2** (actually *applying* the draft: in-PR suggestion or on-merge reconcile) last. Each phase ships independently and is testable on its own. Note: with this framing Phase 3 *drafts* the amendment and Phase 2 *applies* it — the human only ever Fixes or Accepts.
