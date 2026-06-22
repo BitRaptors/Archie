@@ -492,12 +492,15 @@ def retained_rules(base_rules: list, changed_items: list) -> list:
 EMIT_FINDINGS_TOOL = {
     "name": "emit_findings",
     "description": (
-        "Emit structured review findings about a PR's change to the architectural "
-        "source of truth. For each CHANGED ITEM you judge to be a real concern, emit a "
-        "finding. The diff op and which item changed are GIVEN to you (cite item_ref). "
-        "Your job is ONLY to judge the TYPE and write a verifiable, cited BECAUSE drawn "
-        "from the item's own text and the retained rules. BECAUSE-OR-SUPPRESS: if you "
-        "cannot ground a finding in the provided texts, omit it entirely."
+        "Emit CONSOLIDATED review findings about a PR's change to the architectural "
+        "source of truth. Emit ONE finding per DISTINCT change — NOT one per rule, and "
+        "NOT one per code symbol. If the SAME underlying change appears across multiple "
+        "functions/files/items, report it ONCE and list every item_ref it spans. In each "
+        "finding, list ALL rules/invariants it collides with in `colliding_rules`, and "
+        "write ONE consolidated, verifiable BECAUSE covering them. The diff op and which "
+        "items changed are GIVEN (cite item_refs); you judge the TYPE and the BECAUSE. "
+        "BECAUSE-OR-SUPPRESS: if you cannot ground it in the provided texts, omit it. "
+        "Prefer FEW, well-consolidated findings over many repetitive ones."
     ),
     "input_schema": {
         "type": "object",
@@ -507,16 +510,18 @@ EMIT_FINDINGS_TOOL = {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "item_ref": {"type": "string",
-                                     "description": "ref of the CHANGED ITEM this is about (e.g. c0). Findings referencing no listed item are discarded."},
+                        "item_refs": {"type": "array", "items": {"type": "string"},
+                                      "description": "ALL changed-item refs this one change spans (e.g. ['c0','c1']). A finding resolving to no listed item is discarded."},
                         "type": {"type": "string",
                                  "enum": ["silent_weakening", "contradiction", "behavior_violates_rule"]},
-                        "rule_name": {"type": "string", "description": "the invariant/rule this concerns"},
-                        "what_changed": {"type": "string"},
+                        "change_summary": {"type": "string",
+                                           "description": "short, specific title of the change, e.g. 'Backend billable-step cap raised 7 -> 12'"},
+                        "colliding_rules": {"type": "array", "items": {"type": "string"},
+                                            "description": "every retained rule/invariant id or name this change collides with"},
                         "because": {"type": "string",
-                                    "description": "verifiable cited rationale from the texts; empty => dropped"},
+                                    "description": "one consolidated, cited rationale covering the colliding rules; empty => dropped"},
                     },
-                    "required": ["item_ref", "type", "rule_name", "what_changed", "because"],
+                    "required": ["item_refs", "type", "change_summary", "colliding_rules", "because"],
                 },
             },
         },
@@ -530,12 +535,16 @@ def build_prompt(changed_items: list, retained: list, claims: list) -> tuple:
     system = (
         "You are an architecture reviewer for a pull request. The change has already been "
         "folded into the project's blueprint and rules; you are given a DETERMINISTIC diff "
-        "of the source of truth (you do NOT decide what changed). Judge each CHANGED ITEM:\n"
+        "of the source of truth (you do NOT decide what changed). Report CONSOLIDATED findings:\n"
+        "- ONE finding per DISTINCT change. If a change spans multiple functions/files "
+        "(several changed items), report it ONCE, list every item_ref, and list ALL the "
+        "rules it collides with in colliding_rules. NEVER emit a separate finding per rule "
+        "or per code symbol — that is noise.\n"
         "- silent_weakening: a REMOVE/UPDATE that retires or softens an invariant or key decision.\n"
-        "- contradiction: an ADD/UPDATE to the rules that conflicts with a RETAINED rule.\n"
-        "- behavior_violates_rule: a described behavior/data change that breaks a RETAINED rule.\n"
-        "Only emit a finding when it is real and you can cite WHY from the provided texts "
-        "(because-or-suppress). Do not flag benign additions. Call emit_findings exactly once."
+        "- contradiction: an ADD/UPDATE that conflicts with a RETAINED rule.\n"
+        "- behavior_violates_rule: a described behavior/data change that breaks RETAINED rule(s).\n"
+        "Only emit real, cited findings (because-or-suppress); do not flag benign additions. "
+        "Prefer FEW, well-consolidated findings. Call emit_findings exactly once."
     )
 
     def trim(item, n=600):
@@ -623,39 +632,88 @@ def _extract_findings(api_response: dict) -> list:
 # finalize: overwrite deterministic fields, because-or-suppress, ledger join
 # ---------------------------------------------------------------------------
 def finalize_findings(model_findings: list, changed_items: list, claims: list) -> list:
-    """Bind each model finding to its real changed item, overwrite the deterministic
-    fields from the script's own diff, drop unciteable/unmatched findings, and attach a
-    ledger-confidence sharpener where the conservative join succeeds.
+    """Bind each model finding to the real changed item(s) it spans, derive the
+    deterministic fields from the script's own diff, drop unciteable/unmatched findings,
+    attach a ledger-confidence sharpener, and merge any findings the model left split.
+
+    A finding is ONE distinct change spanning >=1 changed item, with the full list of
+    rules it collides with — so a cap-raise touching two functions and four rules is one
+    finding, not eight.
     """
     by_ref = {it["ref"]: it for it in changed_items}
     out = []
     for f in model_findings:
         if not isinstance(f, dict):
             continue
-        item = by_ref.get(f.get("item_ref"))
-        if item is None:
-            continue  # references no real diff item -> drop
+        # accept the consolidated shape (item_refs[]) and the legacy single item_ref.
+        refs = f.get("item_refs")
+        if not refs and f.get("item_ref"):
+            refs = [f["item_ref"]]
+        items = [by_ref[r] for r in (refs or []) if r in by_ref]
+        if not items:
+            continue  # resolves to no real diff item -> drop
         because = str(f.get("because", "")).strip()
         if not because:
             continue  # because-or-suppress
+
+        rules = f.get("colliding_rules")
+        if not rules and f.get("rule_name"):
+            rules = [f["rule_name"]]
+        rules = _dedup_preserve([str(r).strip() for r in (rules or []) if str(r).strip()])
+        summary = (str(f.get("change_summary", "")).strip()
+                   or str(f.get("what_changed", "")).strip()
+                   or items[0]["title"])
+
+        ops = sorted({it["diff_op"] for it in items})
+        layers = sorted({it["layer"] for it in items})
         finding = {
-            # deterministic, script-owned (overwrite the model's echo):
-            "diff_op": item["diff_op"],
-            "layer": item["layer"],
-            "section": item["section"],
-            "rule_name": item["title"],
+            # deterministic, script-owned:
+            "diff_op": ops[0] if len(ops) == 1 else "/".join(ops),
+            "layer": layers[0],
+            "sections": sorted({it["section"] for it in items}),
+            "site_count": len(items),
             # model judgment:
             "type": f.get("type", "behavior_violates_rule"),
-            "what_changed": str(f.get("what_changed", "")).strip(),
+            "change_summary": summary,
+            "colliding_rules": rules,
             "because": because,
             "confidence": None,
         }
-        join = ledger_join(item, claims)
-        if join:
-            finding["confidence"] = join.get("confidence")
-            finding["reconstructed"] = join.get("reconstructed")
+        for it in items:  # first conservative ledger-join wins
+            join = ledger_join(it, claims)
+            if join:
+                finding["confidence"] = join.get("confidence")
+                finding["reconstructed"] = join.get("reconstructed")
+                break
         out.append(finding)
-    return out
+    return _dedupe_findings(out)
+
+
+def _dedup_preserve(seq):
+    seen = set()
+    return [x for x in seq if not (x in seen or seen.add(x))]
+
+
+def _dedupe_findings(findings: list) -> list:
+    """Backstop: merge findings the model left split — same type colliding with the SAME
+    set of rules is the same logical change. Combines site counts + keeps a confidence."""
+    merged = {}
+    order = []
+    for f in findings:
+        if f["colliding_rules"]:
+            key = (f["type"], frozenset(r.lower() for r in f["colliding_rules"]))
+        else:
+            key = (f["type"], f["change_summary"].lower())
+        if key in merged:
+            m = merged[key]
+            m["site_count"] += f["site_count"]
+            if f.get("confidence") and not m.get("confidence"):
+                m["confidence"] = f.get("confidence")
+                m["reconstructed"] = f.get("reconstructed")
+        else:
+            merged[key] = dict(f)
+            order.append(key)
+    return [merged[k] for k in order]
 
 
 # ---------------------------------------------------------------------------
@@ -693,9 +751,12 @@ def render_comment(findings: list, had_diff: bool):
             if f.get("confidence"):
                 rec = " · reconstructed guess" if f.get("reconstructed") else ""
                 conf = f" _(ledger confidence: {f['confidence']}{rec})_"
+            sites = f" · {f['site_count']} sites" if f.get("site_count", 1) > 1 else ""
+            collides = ""
+            if f.get("colliding_rules"):
+                collides = "  \n  Collides with: **" + ", ".join(f["colliding_rules"]) + "**"
             lines.append(
-                f"- **{f['rule_name']}** ({f['diff_op']}, Layer {f['layer']}){conf}  \n"
-                f"  {f['what_changed']}  \n"
+                f"- **{f['change_summary']}** ({f['diff_op']}, Layer {f['layer']}{sites}){conf}{collides}  \n"
                 f"  _Because:_ {f['because']}"
             )
     lines.append("")

@@ -286,31 +286,56 @@ def _items():
 
 def test_finalize_overwrites_and_suppresses():
     model = [
-        # valid finding, but model lies about diff_op -> script overwrites
-        {"item_ref": "c0", "type": "silent_weakening", "rule_name": "wrong",
-         "what_changed": "removed", "because": "rule text says X", "diff_op": "ADD"},
+        # valid finding (consolidated shape); model lies about op -> script ignores it
+        {"item_refs": ["c0"], "type": "silent_weakening", "change_summary": "removed scoping",
+         "colliding_rules": ["der-006"], "because": "rule text says X", "diff_op": "ADD"},
         # because blank -> dropped
-        {"item_ref": "c1", "type": "contradiction", "rule_name": "R2",
-         "what_changed": "", "because": "   "},
-        # ref doesn't exist -> dropped
-        {"item_ref": "zzz", "type": "contradiction", "rule_name": "ghost",
-         "what_changed": "x", "because": "y"},
+        {"item_refs": ["c1"], "type": "contradiction", "change_summary": "R2",
+         "colliding_rules": ["x"], "because": "   "},
+        # refs don't exist -> dropped
+        {"item_refs": ["zzz"], "type": "contradiction", "change_summary": "ghost",
+         "colliding_rules": ["y"], "because": "z"},
     ]
     out = ir.finalize_findings(model, _items(), [])
     assert len(out) == 1
     f = out[0]
-    assert f["diff_op"] == "REMOVE"          # overwritten from the item, not the model's "ADD"
-    assert f["rule_name"] == "Tenant isolation"  # script-owned title, not model's "wrong"
-    assert f["layer"] == 1
+    assert f["diff_op"] == "REMOVE"            # from c0, not the model's "ADD"
+    assert f["change_summary"] == "removed scoping"
+    assert f["colliding_rules"] == ["der-006"]
+    assert f["layer"] == 1 and f["site_count"] == 1
     assert f["because"] == "rule text says X"
+
+
+def test_finalize_consolidates_one_change_across_items_and_rules():
+    # one change spanning BOTH items, colliding with FOUR rules -> ONE finding
+    model = [{"item_refs": ["c0", "c1"], "type": "behavior_violates_rule",
+              "change_summary": "cap raised 7->12",
+              "colliding_rules": ["inv-002", "der-001", "der-005", "tra-001"],
+              "because": "raising the cap unbinds the 7-step constraint"}]
+    out = ir.finalize_findings(model, _items(), [])
+    assert len(out) == 1
+    assert out[0]["site_count"] == 2
+    assert out[0]["colliding_rules"] == ["inv-002", "der-001", "der-005", "tra-001"]
+
+
+def test_dedupe_merges_split_findings_with_same_rule_set():
+    # model split the same change into 2 findings hitting the same rule set -> merged
+    model = [
+        {"item_refs": ["c0"], "type": "behavior_violates_rule", "change_summary": "fn A caps at 12",
+         "colliding_rules": ["inv-002", "der-001"], "because": "A violates the cap"},
+        {"item_refs": ["c1"], "type": "behavior_violates_rule", "change_summary": "fn B caps at 12",
+         "colliding_rules": ["der-001", "inv-002"], "because": "B violates the cap"},
+    ]
+    out = ir.finalize_findings(model, _items(), [])
+    assert len(out) == 1 and out[0]["site_count"] == 2
 
 
 def test_finalize_attaches_ledger_confidence():
     items = _items()
     claims = [{"statement": "tenant scoping dropped", "evidence_files": ["db/p.py"],
                "confidence": "low", "reconstructed": True}]
-    model = [{"item_ref": "c0", "type": "silent_weakening", "rule_name": "x",
-              "what_changed": "removed", "because": "cited"}]
+    model = [{"item_refs": ["c0"], "type": "silent_weakening", "change_summary": "removed",
+              "colliding_rules": ["der-006"], "because": "cited"}]
     out = ir.finalize_findings(model, items, claims)
     assert out[0]["confidence"] == "low" and out[0]["reconstructed"] is True
 
@@ -330,19 +355,21 @@ def test_render_comment_no_findings_is_consistent_message():
 
 def test_render_comment_groups_and_cites():
     findings = [
-        {"type": "silent_weakening", "diff_op": "REMOVE", "layer": 1,
-         "rule_name": "Tenant isolation", "what_changed": "removed scoping",
+        {"type": "silent_weakening", "diff_op": "REMOVE", "layer": 1, "site_count": 1,
+         "change_summary": "Tenant isolation dropped", "colliding_rules": ["der-002"],
          "because": "invariant text required tenant_id", "confidence": "low",
          "reconstructed": True},
-        {"type": "behavior_violates_rule", "diff_op": "DECLARED", "layer": 2,
-         "rule_name": "Centralized payments", "what_changed": "calls stripe directly",
-         "because": "R2 forbids direct stripe", "confidence": None},
+        {"type": "behavior_violates_rule", "diff_op": "DECLARED", "layer": 2, "site_count": 2,
+         "change_summary": "cap raised 7->12", "colliding_rules": ["inv-002", "der-001"],
+         "because": "R2 forbids it", "confidence": None},
     ]
     body = ir.render_comment(findings, had_diff=True)
     assert ir.COMMENT_MARKER in body
     assert "Silent weakening" in body and "Behavior may violate" in body
     assert "Because:" in body
     assert "ledger confidence: low" in body
+    assert "Collides with: **inv-002, der-001**" in body   # rules listed in ONE finding
+    assert "2 sites" in body                                 # consolidated across sites
     assert "reconstructed guess" in body
     assert "doesn't block" in body
 
@@ -569,10 +596,10 @@ def test_call_anthropic_raises_on_non_retryable(monkeypatch):
 # ---------------------------------------------------------------------------
 def test_render_comment_preserves_flag_order():
     findings = [
-        {"type": "behavior_violates_rule", "diff_op": "DECLARED", "layer": 2,
-         "rule_name": "B", "what_changed": "", "because": "b"},
-        {"type": "silent_weakening", "diff_op": "REMOVE", "layer": 1,
-         "rule_name": "A", "what_changed": "", "because": "a"},
+        {"type": "behavior_violates_rule", "diff_op": "DECLARED", "layer": 2, "site_count": 1,
+         "change_summary": "B", "colliding_rules": [], "because": "b"},
+        {"type": "silent_weakening", "diff_op": "REMOVE", "layer": 1, "site_count": 1,
+         "change_summary": "A", "colliding_rules": [], "because": "a"},
     ]
     body = ir.render_comment(findings, had_diff=True)
     assert body.index("Silent weakening") < body.index("Behavior may violate")
@@ -612,8 +639,8 @@ def test_main_flags_removed_invariant_via_origin(tmp_path, monkeypatch):
 
     captured = {}
     monkeypatch.setattr(ir, "call_anthropic", lambda s, u, k, **kw: [
-        {"item_ref": "c0", "type": "silent_weakening", "rule_name": "x",
-         "what_changed": "removed tenant scoping", "because": "base invariant required tenant_id scoping"}])
+        {"item_refs": ["c0"], "type": "silent_weakening", "change_summary": "tenant scoping removed",
+         "colliding_rules": ["der-002"], "because": "base invariant required tenant_id scoping"}])
     monkeypatch.setattr(ir, "safe_post_comment",
                         lambda o, r, n, body, t: captured.update(body=body))
     for k, v in {"GITHUB_WORKSPACE": str(work), "ANTHROPIC_API_KEY": "sk-x",
