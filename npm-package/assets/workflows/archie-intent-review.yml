@@ -1,0 +1,29 @@
+name: Archie Intent Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  intent-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      # No `git fetch` needed: with fetch-depth:0 the PR base SHA
+      # (github.event.pull_request.base.sha) is already in history, and the script
+      # diffs against it directly — so there is no origin/<base> resolution to fail.
+      - name: Run Archie Intent Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .archie/intent_review.py

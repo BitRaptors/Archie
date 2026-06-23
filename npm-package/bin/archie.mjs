@@ -356,7 +356,7 @@ if (cleanedCount > 0) {
   console.log(`  ${DIM}cleaned ${cleanedCount} previous Archie files${RESET}`);
 }
 
-for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "c4.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "agent_cli.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py", "rule_kinds.py", "backfill_kinds.py", "config.py", "telemetry_sync.py", "update_check.py", "analytics.py", "sync.py"]) {
+for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "c4.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "agent_cli.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py", "rule_kinds.py", "backfill_kinds.py", "config.py", "telemetry_sync.py", "update_check.py", "analytics.py", "sync.py", "intent_review.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -375,11 +375,23 @@ for (const dataFile of ["platform_rules.json", "platform_pitfalls.json"]) {
   }
 }
 
+// One-time CI setup helper — runnable as `bash .archie/setup-archie-intent-review.sh`.
+for (const helper of ["setup-archie-intent-review.sh"]) {
+  const src = join(ASSETS, helper);
+  const dest = join(archieDir, helper);
+  if (existsSync(src)) {
+    writeFileSync(dest, readFileSync(src, "utf8"));
+    chmodSync(dest, 0o755);
+    console.log(`  ${GREEN}✓${RESET} .archie/${helper}`);
+  }
+}
+
 // The canonical workflow templates (assets/workflow/) are NOT copied raw —
 // the Python install loop renders them per-CLI into .archie/workflow/<cli>/.
 const ASSET_SUBDIR_MAP = [
   ["hook_scripts", "hooks"],
   ["_install_pkg", "_install_pkg"],
+  ["workflows", "workflows"],   // CI workflow YAMLs (e.g. archie-intent-review.yml)
 ];
 for (const [srcName, destName] of ASSET_SUBDIR_MAP) {
   const src = join(ASSETS, srcName);

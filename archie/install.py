@@ -61,6 +61,7 @@ _STANDALONE_SCRIPTS = [
     "analytics.py", "config.py",
     "update_check.py", "upload.py", "share_setup.py", "refresh.py",
     "viewer.py", "install_hooks.py", "_common.py", "sync.py",
+    "intent_review.py",
 ]
 
 

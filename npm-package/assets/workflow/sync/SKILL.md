@@ -49,8 +49,10 @@ echo '<your JSON array>' | python3 .archie/sync.py record .
 (Add `--agent claude` under Claude Code, or `--agent codex` under Codex, to tag the
 record's provenance.)
 
-A statement is **eligible** to fold only if `confidence: medium|high`, `reconstructed:
-false`, and grounded in a file inside the diff; else it's `staged` (provisional).
+A statement is **eligible** to fold only if it is a DESCRIPTIVE kind (the mirror) AND
+`confidence: medium|high`, `reconstructed: false`, and grounded in a file inside the diff.
+ADVISORY kinds (`decision`/`pitfall`/`rule`/`guideline`) are ALWAYS `staged` — the contract
+(the law) changes only deliberately, never via a code-fold. Everything else is `staged`.
 
 ## Phase 2 — reconcile eligible statements into the snapshot
 
@@ -77,13 +79,20 @@ For each statement, read the target section of the CURRENT snapshot and pick ONE
 - **ADD** — not represented → add it to the right section.
 - **REMOVE** — the section describes behavior the code no longer has → remove/correct it.
 
-Where edits land (descriptive = the headline):
+Where edits land — **the descriptive MIRROR only** (what the code is now):
 - `behavior`/`structure` → `.archie/blueprint.json` `components[]` (responsibilities) / `communication`
 - `dataflow` → `communication`, `architecture_diagram`
 - `data` → `data_models` / `persistence_stores` / `data_overview`
 - `tech` → `technology` · `reference` → `quick_reference`
-- advisory: `decision` → `decisions` · `pitfall` → `pitfalls` + a verifier entry in
-  `.archie/findings.json` · `rule` → `.archie/rules.json`
+
+**Don't AUTO-change the CONTRACT (the law).** Advisory claims (`decision`/`pitfall`/`rule`/
+`guideline`) are recorded `staged` and surface under `staged_amendments` in `fold-context` —
+proposed changes for a separate, deliberate decision, NOT something the code-fold applies.
+The fold reconciles the descriptive **mirror only**. If the law genuinely changes during the
+work, change it **deliberately** (edit `rules.json` / `domain_invariants` on purpose) —
+`fold-apply` allows it but reports `contract_changed` so the law never moves *silently*.
+(Why: the PR Intent Review catches code-vs-law drift; the law must move deliberately and
+visibly, never as a silent side effect of reconciling code.)
 
 Then **reconcile the intent layer**: for each touched folder in `intent_files`, update the
 **descriptive (AI-authored) section** of that folder's CLAUDE.md to match the code now —

@@ -203,6 +203,49 @@ def check_archie_asset_mirrors(errors: list[str]) -> None:
                     f"OUT OF SYNC: archie/assets/workflow/{rel} != npm-package/assets/workflow/{rel}"
                 )
 
+    # CI workflow files (PLURAL `workflows/`, distinct from the singular skill tree):
+    # archie/assets/workflows/ is canonical; npm-package/assets/workflows/ is the mirror.
+    # Globs ALL files so the .yml content is byte-checked (the main loop only does .py/.json).
+    backend_workflows = ARCHIE_ASSETS / "workflows"
+    asset_workflows = ASSETS / "workflows"
+    if backend_workflows.is_dir() and not asset_workflows.is_dir():
+        errors.append("npm-package/assets/workflows/ missing")
+    elif backend_workflows.is_dir() and asset_workflows.is_dir():
+        backend_files = sorted(
+            p.relative_to(backend_workflows).as_posix()
+            for p in backend_workflows.rglob("*")
+            if p.is_file() and p.name != ".DS_Store"
+        )
+        asset_files = sorted(
+            p.relative_to(asset_workflows).as_posix()
+            for p in asset_workflows.rglob("*")
+            if p.is_file() and p.name != ".DS_Store"
+        )
+        only_backend = set(backend_files) - set(asset_files)
+        only_asset = set(asset_files) - set(backend_files)
+        if only_backend:
+            errors.append(
+                "npm-package/assets/workflows/ missing files: " + ",".join(sorted(only_backend))
+            )
+        if only_asset:
+            errors.append(
+                "npm-package/assets/workflows/ has stale files: " + ",".join(sorted(only_asset))
+            )
+        for rel in sorted(set(backend_files) & set(asset_files)):
+            if (backend_workflows / rel).read_bytes() != (asset_workflows / rel).read_bytes():
+                errors.append(
+                    f"OUT OF SYNC: archie/assets/workflows/{rel} != npm-package/assets/workflows/{rel}"
+                )
+
+    # Standalone setup helper (.sh is not covered by any glob above).
+    for name in ("setup-archie-intent-review.sh",):
+        backend = ARCHIE_ASSETS / name
+        asset = ASSETS / name
+        if backend.exists() and not asset.exists():
+            errors.append(f"npm-package/assets/{name} missing")
+        elif backend.exists() and asset.exists() and backend.read_bytes() != asset.read_bytes():
+            errors.append(f"OUT OF SYNC: archie/assets/{name} != npm-package/assets/{name}")
+
 
 def check_install_pkg_mirror(errors: list[str]) -> None:
     """Verify npm-package/assets/_install_pkg mirrors the canonical installer code."""

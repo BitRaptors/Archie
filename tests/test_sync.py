@@ -293,19 +293,20 @@ def test_fold_context_resolves_scope(tmp_path, capsys):
     rc = sync.main(["sync.py", "fold-context", str(root)])
     out = json.loads(capsys.readouterr().out)
     assert rc == 0 and out["ok"]
-    assert out["eligible_count"] == 2
+    # advisory 'rule' is now staged (contract), so only the descriptive claim folds
+    assert out["eligible_count"] == 1
     by = {t["kind"]: t for t in out["targets"]}
-    # descriptive kind is the default: behavior -> components/communication, not rules
+    assert "rule" not in by                       # advisory is NOT a fold target
     assert by["behavior"]["edit_file"].endswith("blueprint.json")
     assert by["behavior"]["blueprint_sections"] == ["components", "communication"]
     assert by["behavior"]["advisory"] is False
-    # advisory rule routes to rules.json
-    assert by["rule"]["edit_file"].endswith("rules.json")
-    assert by["rule"]["advisory"] is True
+    # the rule surfaces as a PROPOSED amendment, not folded
+    assert "rule" in {a["kind"] for a in out["staged_amendments"]}
     assert "app/CLAUDE.md" in out["intent_files"]
-    # guardrail snapshot persisted into the change record
+    # guardrail snapshot persisted into the change record (keys + contract fingerprint)
     rec = json.loads((archie / "changes" / "latest.json").read_text())
     assert "blueprint_top_level_keys" in rec["fold_guardrail"]
+    assert "contract_fingerprint" in rec["fold_guardrail"]
 
 
 def test_fold_context_intent_files_are_leaf_scoped(tmp_path, capsys):
@@ -336,27 +337,97 @@ def test_fold_context_intent_files_are_leaf_scoped(tmp_path, capsys):
     assert "a/CLAUDE.md" not in out["intent_files"]     # NOT the ancestor
 
 
-def test_fold_context_pitfall_also_updates_findings(tmp_path, capsys):
+def test_fold_context_advisory_is_staged_not_folded(tmp_path, capsys):
+    # Advisory kinds (pitfall/rule/decision/guideline) are the CONTRACT — never a fold
+    # target. They surface as proposed amendments; the law changes only deliberately.
     root, archie = _setup_foldable(tmp_path, capsys, [
         _claim(kind="pitfall", statement="P", evidence=["app/Main.kt"], confidence="high"),
     ])
     rc = sync.main(["sync.py", "fold-context", str(root)])
     out = json.loads(capsys.readouterr().out)
-    t = out["targets"][0]
-    assert t["kind"] == "pitfall"
-    assert t["blueprint_sections"] == ["pitfalls"]
-    assert t["also_update"].endswith("findings.json")
-    assert t["advisory"] is True
+    assert rc == 0 and out["ok"]
+    assert out["eligible_count"] == 0
+    assert out["targets"] == []
+    assert [a["kind"] for a in out["staged_amendments"]] == ["pitfall"]
+
+
+def test_advisory_kinds_always_staged(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    _stage_change(root, "app/Main.kt")
+    claims = [_claim(kind=k, statement=f"adv {k}", evidence=["app/Main.kt"], confidence="high")
+              for k in ("decision", "pitfall", "rule", "guideline")]
+    claims.append(_claim(kind="behavior", statement="desc one", evidence=["app/Main.kt"], confidence="high"))
+    res = _record(root, _write_payload(tmp_path, claims), capsys)
+    assert res["eligible"] == 1 and res["staged"] == 4  # only the descriptive folds
+    rec = json.loads((root / ".archie" / "changes" / "latest.json").read_text())
+    by = {c["statement"]: c["status"] for c in rec["claims"]}
+    for k in ("decision", "pitfall", "rule", "guideline"):
+        assert by[f"adv {k}"] == "staged"
+    assert by["desc one"] == "eligible"
+
+
+def test_fold_apply_reports_deliberate_rule_change(tmp_path, capsys):
+    # A deliberate rule change during a fold is ALLOWED (rules legitimately change) but
+    # SURFACED via contract_changed, so the law never moves silently.
+    root, archie = _setup_foldable(tmp_path, capsys, [
+        _claim(kind="behavior", statement="desc", evidence=["app/Main.kt"], confidence="high"),
+    ])
+    (archie / "rules.json").write_text(json.dumps({"rules": [{"id": "r1", "description": "old"}]}))
+    sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
+    # The dev deliberately moved a rule (extensive work) alongside the fold.
+    (archie / "rules.json").write_text(json.dumps({"rules": [{"id": "r1", "description": "CHANGED"}]}))
+    rc = sync.main(["sync.py", "fold-apply", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["ok"] is True          # NOT blocked
+    assert out["contract_changed"] is True         # but surfaced
+    assert "note" in out
+
+
+def test_fold_apply_reports_deliberate_invariant_change(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    archie = root / ".archie"
+    archie.mkdir()
+    bp = _minimal_blueprint()
+    bp["domain_invariants"] = [{"id": "inv-1", "invariant": "must hold"}]
+    (archie / "blueprint.json").write_text(json.dumps(bp))
+    (root / "app").mkdir()
+    (root / "app" / "CLAUDE.md").write_text("# app\n")
+    _stage_change(root, "app/Main.kt")
+    _record(root, _write_payload(tmp_path, [
+        _claim(kind="behavior", statement="d", evidence=["app/Main.kt"], confidence="high")]), capsys)
+    capsys.readouterr()
+    sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
+    # Deliberately weaken an invariant during the fold — allowed, but flagged.
+    bp2 = json.loads((archie / "blueprint.json").read_text())
+    bp2["domain_invariants"][0]["invariant"] = "WEAKENED"
+    (archie / "blueprint.json").write_text(json.dumps(bp2))
+    rc = sync.main(["sync.py", "fold-apply", str(root)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["contract_changed"] is True
+
+
+def test_contract_fingerprint_covers_prescriptive_blueprint_sections(tmp_path):
+    # The law-in-the-blueprint (development_rules / infrastructure_rules / architecture_rules)
+    # is part of the contract fingerprint, not just the invariants + rule files.
+    root = tmp_path
+    (root / ".archie").mkdir()
+    fp = sync._contract_fingerprint
+    assert fp(root, {"development_rules": [{"rule": "A"}]}) != fp(root, {"development_rules": [{"rule": "B"}]})
+    assert fp(root, {"infrastructure_rules": [{"rule": "A"}]}) != fp(root, {"infrastructure_rules": [{"rule": "B"}]})
+    assert fp(root, {"architecture_rules": {"naming_conventions": ["A"]}}) != \
+           fp(root, {"architecture_rules": {"naming_conventions": ["B"]}})
+    # a pure mirror section is NOT part of the contract fingerprint
+    assert fp(root, {"components": {"components": [1]}}) == fp(root, {"components": {"components": [2]}})
 
 
 def test_fold_apply_renders_and_marks_folded(tmp_path, capsys):
     root, archie = _setup_foldable(tmp_path, capsys, [
-        _claim(kind="pitfall", statement="P", evidence=["app/Main.kt"], confidence="high"),
+        _claim(kind="behavior", statement="X now does Y", evidence=["app/Main.kt"], confidence="high"),
     ])
     sync.main(["sync.py", "fold-context", str(root)]); capsys.readouterr()
-    # Simulate the AI fold: add a pitfall to the blueprint (source of truth).
+    # Simulate the AI fold: update a descriptive MIRROR section (not the contract).
     bp = json.loads((archie / "blueprint.json").read_text())
-    bp["pitfalls"].append({"id": "pf_new", "problem_statement": "P", "evidence": []})
+    bp["components"]["components"].append({"name": "X", "responsibilities": ["does Y"]})
     (archie / "blueprint.json").write_text(json.dumps(bp))
 
     rc = sync.main(["sync.py", "fold-apply", str(root)])
