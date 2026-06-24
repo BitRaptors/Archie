@@ -15,10 +15,10 @@ Usage:
   python3 sync.py record       /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]
   python3 sync.py list         /path/to/repo [--json]
   python3 sync.py plan-capture /path/to/repo   (stdin: hook envelope with tool_input.plan)
-  python3 sync.py plan-list    /path/to/repo [--json]
+  python3 sync.py plan-list    /path/to/repo
   python3 sync.py plan-consume /path/to/repo
   python3 sync.py churn-bump   /path/to/repo   (stdin: hook envelope with edit tool-call)
-  python3 sync.py churn-status /path/to/repo [--json]
+  python3 sync.py churn-status /path/to/repo
   python3 sync.py churn-reset  /path/to/repo
 
 Payload (JSON, from --input or stdin) — a list of claims, or {"claims": [...]}:
@@ -793,10 +793,10 @@ def _usage() -> None:
     print("  python3 sync.py fold-context /path/to/repo [--change <file>]   (Phase 2: scope for the agent)", file=sys.stderr)
     print("  python3 sync.py fold-apply   /path/to/repo [--change <file>]   (Phase 2: re-render + propagate + mark folded)", file=sys.stderr)
     print("  python3 sync.py plan-capture /path/to/repo                     (stdin: hook envelope with tool_input.plan)", file=sys.stderr)
-    print("  python3 sync.py plan-list    /path/to/repo [--json]", file=sys.stderr)
+    print("  python3 sync.py plan-list    /path/to/repo", file=sys.stderr)
     print("  python3 sync.py plan-consume /path/to/repo", file=sys.stderr)
     print("  python3 sync.py churn-bump   /path/to/repo                     (stdin: hook envelope with edit tool-call)", file=sys.stderr)
-    print("  python3 sync.py churn-status /path/to/repo [--json]", file=sys.stderr)
+    print("  python3 sync.py churn-status /path/to/repo", file=sys.stderr)
     print("  python3 sync.py churn-reset  /path/to/repo", file=sys.stderr)
 
 
