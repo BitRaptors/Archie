@@ -79,3 +79,12 @@ def test_stop_silent_when_nothing_pending(tmp_path):
     root = _project(tmp_path)
     result = _run_stop(root)
     assert result.returncode == 0 and result.stderr.strip() == ""
+
+
+def test_skill_references_durable_signals():
+    skill = (_REPO / "archie" / "assets" / "workflow" / "sync" / "SKILL.md").read_text()
+    # Phase 1 must read the captured plans and churn, and consume them on success.
+    assert "plan-list" in skill
+    assert "churn-status" in skill
+    assert "plan-consume" in skill
+    assert "churn-reset" in skill

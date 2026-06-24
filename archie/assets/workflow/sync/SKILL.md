@@ -24,6 +24,25 @@ Produce *statements about what the code now is* (not a changelog of your edits):
   statements from the change itself. Structural facts are fine; mark inferred intent
   `confidence: "low"`, `reconstructed: true`. Don't invent beyond the diff.
 
+### Step 1b — Pull durable signals (plans + churn)
+
+Two background signals were captured for you since the last sync; use them to make the
+record richer and to scope what to review:
+
+```bash
+python3 .archie/sync.py plan-list .      # captured ExitPlanMode plans (durable intent)
+python3 .archie/sync.py churn-status .   # files/lines changed since last sync
+```
+
+- **Read each plan** in the returned `plans[]` paths (`.archie/tmp/plans/plan_*.md`). A plan
+  states *intent and decisions* the diff can't show. Use it to:
+  - **seed advisory claims** — a stated decision/pitfall/rule becomes a `decision`/`pitfall`/
+    `rule` claim (these always stage as proposed amendments — the "rule worth jotting down").
+  - **ground descriptive claims** even if context was compacted — but treat plan intent as a
+    *candidate to verify against the actual code*, not ground truth (a plan is intent-before,
+    the code is fact-after). If the code diverged from the plan, record what shipped.
+- Use the churn file list to scope which areas to review.
+
 ### Step 2 — Record
 
 Pipe a JSON array of statements. **Descriptive kinds are the default** — what the code
@@ -124,6 +143,14 @@ Re-renders root `CLAUDE.md` / `AGENTS.md` / rule docs from your edited blueprint
 that no top-level section was dropped (aborts the render otherwise), and marks the record
 folded. It does **not** mass-rewrite per-folder CLAUDE.md — those you reconciled directly
 in Step 4.
+
+After applying (or after recording when nothing was eligible), retire the signals you used so
+they don't double-count next time:
+
+```bash
+python3 .archie/sync.py plan-consume .   # moves captured plans to consumed/
+python3 .archie/sync.py churn-reset .    # zero the churn counter
+```
 
 ### Step 6 — Report what changed ARCHITECTURALLY (not a file list)
 
