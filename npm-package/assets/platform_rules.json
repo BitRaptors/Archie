@@ -8,7 +8,7 @@
       "severity": "error",
       "category": "erosion",
       "topic": "complexity",
-      "description": "God-function: CC>15. Complexity concentrating here — SlopCodeBench shows this is the #1 agent failure mode. Split before it grows further."
+      "description": "God-function: cyclomatic complexity > 15. Complexity is concentrating here — split it into smaller functions before it grows further."
     },
     {
       "id": "erosion-growing-complexity",
@@ -58,7 +58,7 @@
       "severity": "error",
       "category": "decay",
       "topic": "quality",
-      "description": "Empty catch/except block — error silently swallowed. SlopCodeBench shows error handling degrades first while core functionality stays."
+      "description": "Empty catch/except block — the error is silently swallowed. Handle it or log it; don't drop it."
     },
     {
       "id": "decay-disabled-test",
