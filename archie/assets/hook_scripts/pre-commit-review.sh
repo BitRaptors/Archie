@@ -11,6 +11,12 @@ try: print(json.load(sys.stdin).get('tool_input',{}).get('command',''))
 except: print('')
 " 2>/dev/null || echo "")
 case "$COMMAND" in *git\ commit*|*git\ -C*commit*) ;; *) exit 0 ;; esac
+# Advisory only: remind about unrecorded work, never block the commit.
+if [ -f "$PROJECT_ROOT/.archie/blueprint.json" ]; then
+    CHURN=$(python3 "$PROJECT_ROOT/.archie/sync.py" churn-status "$PROJECT_ROOT" 2>/dev/null || echo '{}')
+    echo "$CHURN" | grep -q '"crossed": true' && \
+        printf 'Archie: substantial unrecorded work — consider /archie-sync after this commit.\n' >&2
+fi
 ALIGN="$PROJECT_ROOT/.archie/align_check.py"
 if [ -f "$ALIGN" ]; then
     python3 "$ALIGN" commit "$PROJECT_ROOT"
