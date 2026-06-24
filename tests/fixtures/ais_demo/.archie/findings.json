@@ -1,0 +1,1 @@
+{"findings": [{"id": "f1", "severity": "warning", "triggering_call_site": "src/utils/helpers.py:8", "message": "Generic helper name; unclear intent."}]}
