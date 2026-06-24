@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Architecture Integrity Score (AIS) — the scoring engine.
+"""Structural Integrity Score — the scoring engine.
+
+(The result field is still named ``ais`` for back-compat with the share bundle,
+score.json, and the viewer; the user-facing name is "Structural Integrity".)
 
 The composite blends four headline axes — Reconciliation (R), Product-Law
 Coverage (C), Findings Burndown (B), Freshness (F) — as a weighted arithmetic
@@ -9,7 +12,7 @@ headline down natively, with no hand-tuned floor/drag constant:
 
     body    = 0.45*R + 0.30*C + 0.20*B + 0.05*F
     ceiling = 100 * exp((45*ln(R/100) + 30*ln(C/100)) / 75)
-    AIS     = min(body, ceiling)
+    score   = min(body, ceiling)
 
 Determinism: pure arithmetic, no wall-clock, no randomness; explicit rounding at
 the headline boundary. Zero dependencies beyond the Python 3.9+ stdlib.
@@ -37,7 +40,7 @@ CEILING_EXP_COVERAGE = 30
 CEILING_EXP_DENOM = CEILING_EXP_RECONCILIATION + CEILING_EXP_COVERAGE  # 75
 
 # Clamp each health to >= this before ln() for numerical stability (a fully
-# unreconciled repo -> AIS ~ 0, correctly).
+# unreconciled repo -> score ~ 0, correctly).
 HEALTH_FLOOR = 0.02
 
 
@@ -55,9 +58,10 @@ def grade(ais: float) -> str:
 
 
 def composite(reconciliation, coverage, burndown, freshness, coverage_measured=True):
-    """Blend the four headline axes (each 0-100) into the AIS headline.
+    """Blend the four headline axes (each 0-100) into the Structural Integrity headline.
 
-    Returns {ais, grade, body, ceiling}. When ``coverage_measured`` is False
+    Returns {ais, grade, body, ceiling} (the ``ais`` key name is retained for
+    back-compat — see the module docstring). When ``coverage_measured`` is False
     (laws were sought but none found in a domain-bearing repo, or there are no
     laws to find), Coverage drops out of the ceiling, which is then computed
     over Reconciliation alone — never read as a free 100.

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Archie integrity — compute and render the Architecture Integrity Score (AIS).
+"""Archie integrity — compute and render the Structural Integrity Score.
 
 Reads a repo's `.archie/` artifacts, derives the four headline axes, computes the
-AIS, and prints a WORKLIST-FIRST report: the open divergences (named, located,
+score, and prints a WORKLIST-FIRST report: the open divergences (named, located,
 fixable) are the body; the number is only the roll-up.
+
+"Structural" is literal: this only counts divergences a rule can verify from the
+code itself (layering, dependency direction, placement, naming, DI wiring) plus
+whether identified product laws have an enforcement mechanism. Behavioral /
+product-law *correctness* is not judged here — that is Archie's review layer.
 
     python3 score.py /path/to/repo            # human report
     python3 score.py /path/to/repo --json     # machine-readable
@@ -73,16 +78,35 @@ def _accepted_rule_ids(archie: Path) -> set:
 
 
 def _count_loc(repo: Path) -> int:
+    """LOC for size-normalization. Honors .archieignore/.gitignore via
+    IgnoreMatcher so the denominator shares the worklist's read-boundary
+    (check_rules.py uses the same matcher). This is only the fallback — the
+    primary source is health.total_loc, itself derived from ignore-aware
+    skeletons. Degrades to a plain walk if _common is unavailable."""
+    try:
+        from _common import IgnoreMatcher
+        matcher = IgnoreMatcher(repo)
+    except Exception:
+        matcher = None
     total = 0
     for dp, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.startswith(".")]
+        rel_dir = os.path.relpath(dp, repo)
+        rel_dir = "" if rel_dir == "." else rel_dir
+        dirs[:] = [
+            d for d in dirs
+            if d not in _SKIP_DIRS and not d.startswith(".")
+            and not (matcher and matcher.should_skip_dir(d, rel_dir))
+        ]
         for f in files:
-            if os.path.splitext(f)[1].lower() in _SRC_EXT:
-                try:
-                    with open(os.path.join(dp, f), encoding="utf-8", errors="ignore") as fh:
-                        total += sum(1 for _ in fh)
-                except Exception:
-                    pass
+            if os.path.splitext(f)[1].lower() not in _SRC_EXT:
+                continue
+            if matcher and matcher.should_skip_file(f, rel_dir):
+                continue
+            try:
+                with open(os.path.join(dp, f), encoding="utf-8", errors="ignore") as fh:
+                    total += sum(1 for _ in fh)
+            except Exception:
+                pass
     return total
 
 
@@ -155,6 +179,29 @@ def _changed_files(repo: Path, base: str) -> list:
         return []
 
 
+def _title_detail(rule, violation=None):
+    """A short title + a detailed description for a divergence, from its rule.
+
+    title  — a concise label (the rule's first clause, or an explicit `title`).
+    detail — the reasoning (the rule's `why`, else the rest of its description).
+    """
+    desc = (rule.get("description") or "").strip()
+    why = (rule.get("why") or "").strip()
+    title = (rule.get("title") or "").strip()
+    if not desc and violation:
+        desc = (violation.get("rule_description") or violation.get("message") or "").strip()
+    if title:
+        detail = why or desc
+    elif desc:
+        first, _, rest = desc.partition(". ")
+        title = first.strip().rstrip(".")[:90]
+        detail = (rest.strip() + ((" " + why) if why else "")).strip() or why or desc
+    else:
+        title = (rule.get("id") or "rule").strip()
+        detail = why
+    return title, detail
+
+
 def compute_integrity(repo, diff_base=None) -> dict:
     repo = Path(repo).resolve()
     archie = repo / ".archie"
@@ -191,21 +238,34 @@ def compute_integrity(repo, diff_base=None) -> dict:
 
     comp = scoring.composite(reconciliation, coverage, burndown, freshness, coverage_measured)
 
-    # Worklist: enrich each open violation with its rule's kind/why.
-    worklist = []
+    # Worklist: GROUP open violations by (file, rule) — one entry per file+rule,
+    # carrying all the affected lines + a short title and a detailed description.
+    # (The score uses the raw per-violation count; this grouping is for display.)
+    groups: dict = {}
     for v in open_violations:
-        rule = rules_idx.get(v.get("rule_id"), {})
-        worklist.append({
-            "file": v.get("file", "?"),
-            "line": v.get("line", 0),
-            "rule_id": v.get("rule_id", "?"),
-            "severity": v.get("severity", "info"),
-            "kind": rule.get("kind") or rule.get("severity_class") or "rule",
-            # Prefer the rule's plain-English description over the raw regex match.
-            "message": rule.get("description") or v.get("rule_description") or v.get("message", ""),
-        })
-    worklist.sort(key=lambda w: (scoring.VIOLATION_SEVERITY_WEIGHT.get(w["severity"], 0) * -1,
-                                 w["file"], w["line"]))
+        key = (v.get("file", "?"), v.get("rule_id", "?"))
+        g = groups.get(key)
+        if g is None:
+            rule = rules_idx.get(v.get("rule_id"), {})
+            title, detail = _title_detail(rule, v)
+            g = groups[key] = {
+                "file": v.get("file", "?"),
+                "rule_id": v.get("rule_id", "?"),
+                "severity": v.get("severity", "info"),
+                "kind": rule.get("kind") or rule.get("severity_class") or "rule",
+                "title": title,
+                "detail": detail,
+                "lines": [],
+            }
+        line = v.get("line")
+        if isinstance(line, int) and line not in g["lines"]:
+            g["lines"].append(line)
+    worklist = []
+    for g in groups.values():
+        g["lines"].sort()
+        g["count"] = len(g["lines"]) or 1
+        worklist.append(g)
+    worklist.sort(key=lambda w: (-scoring.VIOLATION_SEVERITY_WEIGHT.get(w["severity"], 0), w["file"]))
 
     domain = scoring._law_list(blueprint, "domain_invariants")
     derived = scoring._law_list(blueprint, "derived_invariants")
@@ -214,7 +274,7 @@ def compute_integrity(repo, diff_base=None) -> dict:
     enforced_laws = sum(1 for law in (domain + derived) if scoring._is_enforced(law))
 
     # Measurable only if there is a contract to measure against. A bare repo
-    # (no rules, no laws) is unmeasurable -> AIS "n/a", never a free 100.
+    # (no rules, no laws) is unmeasurable -> score "n/a", never a free 100.
     measurable = has_baseline and (bool(rules_idx) or total_laws > 0)
     result = {
         "has_baseline": has_baseline,
@@ -225,7 +285,7 @@ def compute_integrity(repo, diff_base=None) -> dict:
         "axes": {"reconciliation": reconciliation, "coverage": coverage,
                  "burndown": burndown, "freshness": freshness},
         "coverage_measured": coverage_measured,
-        "open_divergences": len(worklist),
+        "open_divergences": len(open_violations),
         "worklist": worklist,
         "protected_laws": {"enforced": enforced_laws, "total": total_laws,
                            "unguarded": _unguarded_laws(blueprint)},
@@ -299,18 +359,31 @@ def write_baseline(repo, result) -> dict:
 def explain(r: dict) -> dict:
     """Human-readable context so users understand the number, not just see it.
 
-    Returns {what, why, action, legend, state}. ``state`` is a machine flag
-    (no_contract | capped | reconciled | drift) the surfaces can branch on.
+    Returns {what, limits, why, action, legend, state}. ``state`` is a machine
+    flag (no_contract | capped | reconciled | drift) the surfaces can branch on.
+    ``limits`` is the explicit "what this is NOT" — kept distinct so every surface
+    can show the boundary, not just the score.
     """
-    what = ("Architecture Integrity measures how well the code upholds its documented "
-            "contract — the decisions and product laws Archie recorded — not a quality "
-            "grade. The worklist is the point; the number is only its roll-up.")
-    action = ("Each open divergence is code that broke a documented rule. Resolve it two "
-              "ways — fix the code, or accept it with /archie-sync (which evolves the "
-              "contract). Only unresolved (open) divergences lower the score or block a PR.")
+    what = ("Structural Integrity measures how well the code upholds the "
+            "structurally checkable parts of its documented contract — the "
+            "architectural decisions and rules whose conformance a checker can "
+            "verify from the code itself (layering, dependency direction, file "
+            "placement, naming, DI wiring), plus whether the identified product "
+            "laws have an enforcement mechanism in place. The worklist is the "
+            "point; the number is only its roll-up.")
+    limits = ("It is NOT a code-quality grade, and it does NOT judge behavioral or "
+              "product-law correctness — e.g. 'read the active language fresh, never "
+              "cached', 'every authed call goes through tokenCheck', balance bounds. "
+              "Those need semantic judgment and are enforced by Archie's review layer "
+              "(intent review, align-check, edit-time hooks), not counted here. Generic "
+              "complexity is shown as hygiene for context only and never moves the number.")
+    action = ("Each open divergence is code that broke a documented, checkable rule. "
+              "Resolve it two ways — fix the code, or accept it with /archie-sync (which "
+              "evolves the contract). Only unresolved (open) divergences lower the score "
+              "or block a PR.")
     legend = [
-        "open divergence — code breaks a documented decision/law, unreconciled (fix or accept)",
-        "protected laws N/M — product laws with active enforcement / total identified",
+        "open divergence — code breaks a documented, structurally-checkable decision/rule, unreconciled (fix or accept)",
+        "protected laws N/M — product laws with an active enforcement mechanism / total identified",
         "hygiene — generic complexity signals, informational only (never affects the score)",
     ]
     pl = r.get("protected_laws", {"enforced": 0, "total": 0})
@@ -332,13 +405,34 @@ def explain(r: dict) -> dict:
         state = "drift"
         why = (f"{r['open_divergences']} open divergence(s) against the contract — "
                "the worklist shows each one to fix or accept.")
-    return {"what": what, "why": why, "action": action, "legend": legend, "state": state}
+    return {"what": what, "limits": limits, "why": why, "action": action,
+            "legend": legend, "state": state}
+
+
+def _loc(w: dict) -> str:
+    """'File.kt (lines 12, 45, 89)' — or 'File.kt:12' for a single line."""
+    lines = w.get("lines") or ([w["line"]] if w.get("line") else [])
+    f = w.get("file", "?")
+    if not lines:
+        return f
+    if len(lines) == 1:
+        return f"{f}:{lines[0]}"
+    return f"{f} (lines {', '.join(str(x) for x in lines)})"
+
+
+def _count_suffix(w: dict) -> str:
+    c = w.get("count", 1)
+    return f" ×{c}" if isinstance(c, int) and c > 1 else ""
 
 
 def _context_block(r: dict) -> list:
     """The 'What this means' footer shared by the terminal views."""
     ex = explain(r)
-    return ["", "What this means", f"  {ex['what']}", f"  {ex['why']}", f"  {ex['action']}"]
+    return ["", "What this means",
+            f"  {ex['what']}",
+            f"  Not covered: {ex['limits']}",
+            f"  {ex['why']}",
+            f"  {ex['action']}"]
 
 
 def render_pr(r: dict) -> str:
@@ -348,28 +442,34 @@ def render_pr(r: dict) -> str:
     md = []
     if d:
         status = "BLOCK ❌" if d["blocked"] else "PASS ✅"
-        md += [f"## 📐 Architecture Integrity — {status}", "",
+        md += [f"## 📐 Structural Integrity — {status}", "",
                f"**Diff vs `{d['base']}`** · {d['changed_files']} files changed · "
                f"**{len(d['grounded'])} grounded divergence(s) in the diff**", "",
-               "> Checks whether this change upholds the repo's documented contract "
-               "(decisions + product laws) — not code style. Only *open grounded "
-               "divergences in your diff* can block; the integrity number never blocks."]
+               "> Checks whether this change upholds the repo's documented architectural "
+               "decisions and rules — the structurally checkable ones, not code style or "
+               "behavioral correctness. Only *open grounded divergences in your diff* can "
+               "block; the score itself never blocks."]
         if d["grounded"]:
             md += ["", "**Fix or accept (via `/archie-sync`) to merge:**"]
-            md += [f"- ❌ `{w['file']}:{w['line']}` — {w['message']} _[{w['kind']}]_"
-                   for w in d["grounded"]]
-        md += ["", f"_Context: AIS **{r['ais']} ({r['grade']})**, "
+            for w in d["grounded"]:
+                md += [f"- ❌ **{w['title']}**{_count_suffix(w)} — `{_loc(w)}` _[{w['kind']}]_"]
+                if w.get("detail"):
+                    md += [f"  {w['detail']}"]
+        md += ["", f"_Context: Structural Integrity **{r['ais']} ({r['grade']})**, "
                f"{r['open_divergences']} divergence(s) total in the repo (pre-existing "
                "ones elsewhere don't block this PR)._"]
     else:
-        md += [f"## 📐 Architecture Integrity — AIS {r['ais']} ({r['grade']})", "",
+        md += [f"## 📐 Structural Integrity — {r['ais']} ({r['grade']})", "",
                f"> {ex['what']}", "",
                f"**{r['open_divergences']} open divergence(s)** · "
                f"**Protected laws {r['protected_laws']['enforced']}/{r['protected_laws']['total']}**"]
-        md += [f"- ❌ `{w['file']}:{w['line']}` — {w['message']} _[{w['kind']}]_"
-               for w in r["worklist"][:10]]
+        for w in r["worklist"][:10]:
+            md += [f"- ❌ **{w['title']}**{_count_suffix(w)} — `{_loc(w)}` _[{w['kind']}]_"]
+            if w.get("detail"):
+                md += [f"  {w['detail']}"]
     md += ["", "<details><summary>How to read this</summary>", ""]
     md += [f"- {item}" for item in ex["legend"]]
+    md += ["", f"**What this is not:** {ex['limits']}"]
     md += ["", f"_{ex['action']}_", "</details>"]
     return "\n".join(md)
 
@@ -385,10 +485,10 @@ def render_gate(r: dict) -> str:
         if d["grounded"]:
             lines.append(f"  {len(d['grounded'])} grounded divergence(s) — fix or accept to merge:")
             for w in d["grounded"]:
-                lines.append(f"    ✗ {w['file']}:{w['line']}  {w['message'][:46]} [{w['kind']}]")
+                lines.append(f"    ✗ {w['title']}{_count_suffix(w)}  ·  {_loc(w)}  [{w['kind']}]")
         if d["advisory"]:
             lines.append(f"  {len(d['advisory'])} advisory (warn, non-blocking)")
-    lines.append(f"  context: AIS {r['ais']} ({r['grade']}) · "
+    lines.append(f"  context: Structural Integrity {r['ais']} ({r['grade']}) · "
                  f"{r['open_divergences']} divergence(s) total in repo")
     lines += _context_block(r)
     return "\n".join(lines)
@@ -401,10 +501,10 @@ def render(r: dict) -> str:
     cov = (f"{r['protected_laws']['enforced']}/{r['protected_laws']['total']}"
            if r["coverage_measured"] else "n/a")
     if r.get("measurable", True) and r["ais"] is not None:
-        lines.append(f"Architecture Integrity   AIS {r['ais']} ({r['grade']})"
+        lines.append(f"Structural Integrity   {r['ais']} ({r['grade']})"
                      f"   body {r['body']} · ceiling {r['ceiling']}")
     else:
-        lines.append("Architecture Integrity   AIS n/a — no contract to measure "
+        lines.append("Structural Integrity   n/a — no contract to measure "
                      "against (run /archie-deep-scan first)")
     if not r["has_baseline"]:
         lines.append("  (!) no .archie/ baseline found")
@@ -416,8 +516,9 @@ def render(r: dict) -> str:
     else:
         lines.append(f"{n} open divergence{'s' if n != 1 else ''} — fix or accept to clear")
         for w in r["worklist"]:
-            loc = f"{w['file']}:{w['line']}"
-            lines.append(f"  ✗ {loc:<32} {w['message'][:48]:<48} [{w['kind']}]")
+            lines.append(f"  ✗ {w['title']}{_count_suffix(w)}  ·  {_loc(w)}  [{w['kind']}]")
+            if w.get("detail"):
+                lines.append(f"      {w['detail']}")
 
     pl = r["protected_laws"]
     if r["coverage_measured"]:

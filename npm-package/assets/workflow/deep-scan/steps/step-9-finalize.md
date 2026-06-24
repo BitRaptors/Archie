@@ -20,9 +20,9 @@ Save health scores to history for trending:
 python3 .archie/measure_health.py "$PROJECT_ROOT" --append-history --scan-type deep
 ```
 
-### Phase 1b: Architecture Integrity baseline
+### Phase 1b: Structural Integrity baseline
 
-Runs LAST among the measurements, after `rules.json` (Step 6), the blueprint (Step 5), `findings.json`, and `health.json` all exist — it composes them into the headline. Computes the Architecture Integrity Score, persists the committed baseline (`.archie/score.json` + `score_history.json`), and prints the worklist-first report with its plain-language context.
+Runs LAST among the measurements, after `rules.json` (Step 6), the blueprint (Step 5), `findings.json`, and `health.json` all exist — it composes them into the headline. Computes the Structural Integrity Score, persists the committed baseline (`.archie/score.json` + `score_history.json`), and prints the worklist-first report with its plain-language context.
 
 ```bash
 python3 .archie/score.py "$PROJECT_ROOT" --write
@@ -81,6 +81,6 @@ python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" score.json --query .ais
 python3 .archie/intent_layer.py inspect "$PROJECT_ROOT" score.json --query .open_divergences
 ```
 
-Cover: components discovered, enforcement rules generated, per-folder CLAUDE.md files created (the `enrich_state.json` query above — do not rely on remembering Step 7, a compact may have intervened), findings tracked in `.archie/findings.json`, one health line (erosion score from `health.json`), and **one Architecture Integrity line**: the AIS + grade and the open-divergence count from `score.json`. If there are open divergences, say so in one phrase — they're listed in the worklist to fix or accept; the score is a roll-up, the worklist is the point. Point the user at `{{COMMAND_PREFIX}}archie-viewer` for the full picture and `{{COMMAND_PREFIX}}archie-share` to publish it. If a count is unavailable (file missing, query returns nothing), omit that line rather than guessing.
+Cover: components discovered, enforcement rules generated, per-folder CLAUDE.md files created (the `enrich_state.json` query above — do not rely on remembering Step 7, a compact may have intervened), findings tracked in `.archie/findings.json`, one health line (erosion score from `health.json`), and **one Structural Integrity line**: the score + grade and the open-divergence count from `score.json`. If there are open divergences, say so in one phrase — they're listed in the worklist to fix or accept; the score is a roll-up, the worklist is the point. Point the user at `{{COMMAND_PREFIX}}archie-viewer` for the full picture and `{{COMMAND_PREFIX}}archie-share` to publish it. If a count is unavailable (file missing, query returns nothing), omit that line rather than guessing.
 
 End with: **"Archie is now active. Architecture rules will be enforced on every code change. Run `{{COMMAND_PREFIX}}archie-deep-scan --incremental` after code changes to update the architecture analysis."**

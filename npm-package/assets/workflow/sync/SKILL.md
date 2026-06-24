@@ -49,8 +49,8 @@ echo '<your JSON array>' | python3 .archie/sync.py record .
 (Add `--agent claude` under Claude Code, or `--agent codex` under Codex, to tag the
 record's provenance.)
 
-After recording, show the **integrity standing** so the user sees whether this session
-drifted from the contract:
+After recording, show the **Structural Integrity standing** so the user sees whether this
+session drifted from the contract:
 
 ```bash
 python3 .archie/score.py .
