@@ -551,3 +551,38 @@ def test_plan_list_and_consume(tmp_path, capsys, monkeypatch):
     assert len(consumed["consumed"]) == 1
     assert _run(["sync.py", "plan-list", str(root)], capsys)["plans"] == []
     assert list((root / ".archie" / "tmp" / "plans" / "consumed").glob("plan_*.md"))
+
+
+# ---------------------------------------------------------------------------
+# churn-bump / churn-status / churn-reset subcommands
+# ---------------------------------------------------------------------------
+
+def test_churn_bump_accumulates_both_clis(tmp_path, capsys, monkeypatch):
+    root = _init_repo(tmp_path)
+    # Claude-shaped Write envelope
+    _run(["sync.py", "churn-bump", str(root)], capsys,
+         stdin=_envelope("Write", {"file_path": "a.ts", "content": "x\ny\n"}), monkeypatch=monkeypatch)
+    # Codex-shaped apply_patch envelope (path/new_string)
+    res = _run(["sync.py", "churn-bump", str(root)], capsys,
+               stdin=_envelope("apply_patch", {"path": "b.ts", "new_string": "z\n"}), monkeypatch=monkeypatch)
+    assert res["files"] == 2 and res["edits"] == 2 and res["lines"] == 3
+
+
+def test_churn_bump_ignores_non_edit_tools(tmp_path, capsys, monkeypatch):
+    root = _init_repo(tmp_path)
+    res = _run(["sync.py", "churn-bump", str(root)], capsys,
+               stdin=_envelope("Bash", {"command": "ls"}), monkeypatch=monkeypatch)
+    assert res.get("skipped") == "Bash"
+    assert not (root / ".archie" / "tmp" / "churn.json").exists()
+
+
+def test_churn_threshold_and_reset(tmp_path, capsys, monkeypatch):
+    root = _init_repo(tmp_path)
+    (root / ".archie").mkdir(exist_ok=True)
+    (root / ".archie" / "config.json").write_text(json.dumps({"churn_threshold_files": 1}))
+    _run(["sync.py", "churn-bump", str(root)], capsys,
+         stdin=_envelope("Write", {"file_path": "a.ts", "content": "x\n"}), monkeypatch=monkeypatch)
+    status = _run(["sync.py", "churn-status", str(root)], capsys)
+    assert status["crossed"] is True and status["threshold_files"] == 1
+    _run(["sync.py", "churn-reset", str(root)], capsys)
+    assert _run(["sync.py", "churn-status", str(root)], capsys)["files"] == 0

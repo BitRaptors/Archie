@@ -47,6 +47,52 @@ _VALID_CONFIDENCE = {"low", "medium", "high"}
 _CHANGES_DIR = "changes"
 _PLANS_DIR = "tmp/plans"           # under .archie/ — durable captured plans
 _EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "apply_patch"}
+_CHURN_FILE = "tmp/churn.json"     # under .archie/
+_DEFAULT_CHURN_FILES = 8
+_DEFAULT_CHURN_LINES = 150
+
+
+def _churn_path(root: Path) -> Path:
+    return _archie_dir(root) / _CHURN_FILE
+
+
+def _load_churn(root: Path) -> dict:
+    p = _churn_path(root)
+    if p.is_file():
+        try:
+            d = json.loads(p.read_text())
+            if isinstance(d, dict):
+                d.setdefault("files", [])
+                d.setdefault("edits", 0)
+                d.setdefault("lines", 0)
+                return d
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"files": [], "edits": 0, "lines": 0}
+
+
+def _churn_thresholds(root: Path) -> tuple:
+    files_t, lines_t = _DEFAULT_CHURN_FILES, _DEFAULT_CHURN_LINES
+    cfg = _archie_dir(root) / "config.json"
+    if cfg.is_file():
+        try:
+            c = json.loads(cfg.read_text())
+            if isinstance(c, dict):
+                files_t = int(c.get("churn_threshold_files", files_t))
+                lines_t = int(c.get("churn_threshold_lines", lines_t))
+        except (json.JSONDecodeError, OSError, ValueError, TypeError):
+            pass
+    return files_t, lines_t
+
+
+def _churn_summary(root: Path, st: dict) -> dict:
+    files_t, lines_t = _churn_thresholds(root)
+    nfiles = len(st["files"])
+    return {
+        "files": nfiles, "edits": st["edits"], "lines": st["lines"],
+        "threshold_files": files_t, "threshold_lines": lines_t,
+        "crossed": nfiles >= files_t or st["lines"] >= lines_t,
+    }
 
 
 def _archie_dir(root: Path) -> Path:
@@ -795,6 +841,46 @@ def cmd_plan_consume(root: Path) -> int:
     return 0
 
 
+def cmd_churn_bump(root: Path) -> int:
+    env = _read_envelope()
+    tool = env.get("tool_name", "")
+    if tool not in _EDIT_TOOLS:
+        print(json.dumps({"ok": True, "skipped": tool}))
+        return 0
+    ti = env.get("tool_input", {}) or {}
+    fp = (ti.get("file_path") or ti.get("path") or "").strip()
+    content = ti.get("content") or ti.get("new_string") or ""
+    if not content and isinstance(ti.get("edits"), list):
+        content = "\n".join(
+            str(e.get("new_string", "")) for e in ti["edits"] if isinstance(e, dict)
+        )
+    content = str(content)
+    st = _load_churn(root)
+    if fp and fp not in st["files"]:
+        st["files"].append(fp)
+    st["edits"] += 1
+    st["lines"] += content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+    p = _churn_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(st))
+    print(json.dumps({"ok": True, **_churn_summary(root, st)}))
+    return 0
+
+
+def cmd_churn_status(root: Path) -> int:
+    print(json.dumps({"ok": True, **_churn_summary(root, _load_churn(root))}))
+    return 0
+
+
+def cmd_churn_reset(root: Path) -> int:
+    try:
+        _churn_path(root).unlink()
+    except FileNotFoundError:
+        pass
+    print(json.dumps({"ok": True, "reset": True}))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         _usage()
@@ -836,6 +922,15 @@ def main(argv: list[str]) -> int:
 
     if cmd == "plan-consume":
         return cmd_plan_consume(root)
+
+    if cmd == "churn-bump":
+        return cmd_churn_bump(root)
+
+    if cmd == "churn-status":
+        return cmd_churn_status(root)
+
+    if cmd == "churn-reset":
+        return cmd_churn_reset(root)
 
     _usage()
     return 1
