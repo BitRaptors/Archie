@@ -79,6 +79,16 @@ def calibrate(rule: dict, cases: list) -> dict:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def write_calibration(repo, results: dict):
+    """Persist .archie/rule_calibration.json = {rule_id: metrics} so the gate can
+    read which rules are precise enough to block."""
+    archie = Path(repo) / ".archie"
+    archie.mkdir(parents=True, exist_ok=True)
+    path = archie / "rule_calibration.json"
+    path.write_text(json.dumps(results, indent=2) + "\n")
+    return path
+
+
 def demo():
     """A plausible 'no raw SQL in handlers' rule whose regex is too greedy: it
     matches the forbidden call even inside comments and strings."""

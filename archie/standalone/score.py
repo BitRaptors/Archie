@@ -126,10 +126,20 @@ def filter_to_changed(worklist, changed_files) -> list:
     return [w for w in worklist if w.get("file") in cf]
 
 
-def gate_verdict(diff_worklist) -> dict:
-    """Block only on grounded divergences in the diff; warn on the rest."""
-    grounded = [w for w in diff_worklist if is_grounded(w.get("severity"))]
-    advisory = [w for w in diff_worklist if not is_grounded(w.get("severity"))]
+def gate_verdict(diff_worklist, calibration=None) -> dict:
+    """Block only on grounded divergences whose rule is precise enough to block.
+
+    When calibration data is present (.archie/rule_calibration.json), a grounded
+    violation whose rule is NOT `block_eligible` (the smoke-alarm test found it
+    too jumpy) is demoted to advisory — it warns, never blocks. Without
+    calibration data, all grounded violations block (legacy behavior).
+    """
+    grounded, advisory = [], []
+    for w in diff_worklist:
+        blocks = is_grounded(w.get("severity"))
+        if blocks and calibration is not None:
+            blocks = bool(calibration.get(w.get("rule_id"), {}).get("block_eligible", False))
+        (grounded if blocks else advisory).append(w)
     return {"blocked": len(grounded) > 0, "grounded": grounded, "advisory": advisory}
 
 
@@ -155,6 +165,9 @@ def compute_integrity(repo, diff_base=None) -> dict:
     health = _read_json(archie / "health.json") or {}
     accepted = _accepted_rule_ids(archie)
     rules_idx = _rules_index(archie)
+    calibration = _read_json(archie / "rule_calibration.json")
+    if not isinstance(calibration, dict):
+        calibration = None
 
     # Reconciliation: open (unreconciled) violations from check_rules.
     cr = _run_check_rules(repo)
@@ -224,7 +237,7 @@ def compute_integrity(repo, diff_base=None) -> dict:
     if diff_base:
         changed = _changed_files(repo, diff_base)
         diff_wl = filter_to_changed(worklist, changed)
-        verdict = gate_verdict(diff_wl)
+        verdict = gate_verdict(diff_wl, calibration=calibration)
         result["diff"] = {
             "base": diff_base,
             "changed_files": len(changed),

@@ -254,3 +254,21 @@ def test_write_baseline_persists_score_json_and_history(tmp_path):
     assert "explanation" in sj           # the context travels with the baseline
     hist = _json.loads((dst / ".archie" / "score_history.json").read_text())
     assert isinstance(hist, list) and hist and hist[-1]["ais"] == r["ais"]
+
+
+# ── calibration-gated blocking (only proven-precise rules may block) ──────────
+def test_gate_demotes_a_grounded_violation_whose_rule_failed_calibration():
+    wl = [{"file": "a.py", "line": 1, "severity": "error", "rule_id": "jumpy"}]
+    # no calibration data -> legacy behavior: a grounded violation blocks
+    assert gate_verdict(wl)["blocked"] is True
+    # calibration says the rule is too jumpy -> demote to advisory, do NOT block
+    cal = {"jumpy": {"block_eligible": False}}
+    v = gate_verdict(wl, calibration=cal)
+    assert v["blocked"] is False
+    assert len(v["advisory"]) == 1
+
+
+def test_gate_blocks_a_grounded_violation_whose_rule_passed_calibration():
+    wl = [{"file": "a.py", "line": 1, "severity": "error", "rule_id": "precise"}]
+    cal = {"precise": {"block_eligible": True}}
+    assert gate_verdict(wl, calibration=cal)["blocked"] is True
