@@ -7,6 +7,7 @@ versioning, and malformed-input rejection.
 """
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -504,3 +505,49 @@ def test_fold_apply_guardrail_aborts_on_dropped_section(tmp_path, capsys):
     assert "guardrail" in out["error"]
     rec = json.loads((archie / "changes" / "latest.json").read_text())
     assert rec.get("folded") in (False, None)  # not marked folded
+
+
+# ---------------------------------------------------------------------------
+# plan-capture / plan-list / plan-consume subcommands
+# ---------------------------------------------------------------------------
+
+def _envelope(tool_name: str, tool_input: dict) -> str:
+    return json.dumps({"tool_name": tool_name, "tool_input": tool_input})
+
+
+def _run(argv, capsys, stdin: str = "", monkeypatch=None):
+    if stdin and monkeypatch is not None:
+        monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    rc = sync.main(argv)
+    out = capsys.readouterr().out.strip()
+    return {"rc": rc, **(json.loads(out) if out else {})}
+
+
+def test_plan_capture_writes_file(tmp_path, capsys, monkeypatch):
+    root = _init_repo(tmp_path)
+    env = _envelope("ExitPlanMode", {"plan": "Filter background refresh errors."})
+    res = _run(["sync.py", "plan-capture", str(root)], capsys, stdin=env, monkeypatch=monkeypatch)
+    assert res["rc"] == 0 and res["captured"] is True
+    plans = list((root / ".archie" / "tmp" / "plans").glob("plan_*.md"))
+    assert len(plans) == 1
+    assert "Filter background refresh errors." in plans[0].read_text()
+
+
+def test_plan_capture_no_plan_is_noop(tmp_path, capsys, monkeypatch):
+    root = _init_repo(tmp_path)
+    env = _envelope("ExitPlanMode", {})
+    res = _run(["sync.py", "plan-capture", str(root)], capsys, stdin=env, monkeypatch=monkeypatch)
+    assert res["rc"] == 0 and res["captured"] is False
+    assert not (root / ".archie" / "tmp" / "plans").exists()
+
+
+def test_plan_list_and_consume(tmp_path, capsys, monkeypatch):
+    root = _init_repo(tmp_path)
+    env = _envelope("ExitPlanMode", {"plan": "Decision: cache tokens in memory only."})
+    _run(["sync.py", "plan-capture", str(root)], capsys, stdin=env, monkeypatch=monkeypatch)
+    listed = _run(["sync.py", "plan-list", str(root)], capsys)
+    assert len(listed["plans"]) == 1
+    consumed = _run(["sync.py", "plan-consume", str(root)], capsys)
+    assert len(consumed["consumed"]) == 1
+    assert _run(["sync.py", "plan-list", str(root)], capsys)["plans"] == []
+    assert list((root / ".archie" / "tmp" / "plans" / "consumed").glob("plan_*.md"))

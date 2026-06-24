@@ -45,6 +45,31 @@ _ADVISORY_KINDS = {"decision", "pitfall", "rule", "guideline"}
 _VALID_KINDS = _DESCRIPTIVE_KINDS | _ADVISORY_KINDS
 _VALID_CONFIDENCE = {"low", "medium", "high"}
 _CHANGES_DIR = "changes"
+_PLANS_DIR = "tmp/plans"           # under .archie/ — durable captured plans
+_EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "apply_patch"}
+
+
+def _archie_dir(root: Path) -> Path:
+    return root / ".archie"
+
+
+def _read_envelope() -> dict:
+    """Read a hook tool-call envelope from stdin; tolerate empty/garbage."""
+    raw = sys.stdin.read().strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _safe_branch(root: Path) -> str:
+    try:
+        return _git(root, "rev-parse", "--abbrev-ref", "HEAD") or "unknown"
+    except Exception:
+        return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -724,6 +749,52 @@ def _opt(rest: list[str], name: str) -> str | None:
     return None
 
 
+def cmd_plan_capture(root: Path) -> int:
+    """Persist the ExitPlanMode plan text as durable intent for /archie-sync.
+
+    Works identically on Claude and Codex — both put plan text in tool_input.plan.
+    """
+    env = _read_envelope()
+    ti = env.get("tool_input", {})
+    plan = str(ti.get("plan", "") or "").strip() if isinstance(ti, dict) else ""
+    if not plan:
+        print(json.dumps({"ok": True, "captured": False}))
+        return 0
+    plans_dir = _archie_dir(root) / _PLANS_DIR
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    path = plans_dir / f"plan_{ts}.md"
+    i = 2
+    while path.exists():
+        path = plans_dir / f"plan_{ts}_{i}.md"
+        i += 1
+    header = f"<!-- captured {ts} UTC | branch {_safe_branch(root)} -->\n\n"
+    path.write_text(header + plan + "\n")
+    print(json.dumps({"ok": True, "captured": True, "path": str(path.relative_to(root))}))
+    return 0
+
+
+def cmd_plan_list(root: Path) -> int:
+    plans_dir = _archie_dir(root) / _PLANS_DIR
+    files = (sorted(str(p.relative_to(root)) for p in plans_dir.glob("plan_*.md"))
+             if plans_dir.is_dir() else [])
+    print(json.dumps({"ok": True, "plans": files}))
+    return 0
+
+
+def cmd_plan_consume(root: Path) -> int:
+    plans_dir = _archie_dir(root) / _PLANS_DIR
+    moved = []
+    if plans_dir.is_dir():
+        consumed = plans_dir / "consumed"
+        consumed.mkdir(parents=True, exist_ok=True)
+        for p in sorted(plans_dir.glob("plan_*.md")):
+            p.replace(consumed / p.name)
+            moved.append(p.name)
+    print(json.dumps({"ok": True, "consumed": moved}))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         _usage()
@@ -756,6 +827,15 @@ def main(argv: list[str]) -> int:
 
     if cmd == "fold-apply":
         return cmd_fold_apply(root, _opt(rest, "--change"))
+
+    if cmd == "plan-capture":
+        return cmd_plan_capture(root)
+
+    if cmd == "plan-list":
+        return cmd_plan_list(root)
+
+    if cmd == "plan-consume":
+        return cmd_plan_consume(root)
 
     _usage()
     return 1
