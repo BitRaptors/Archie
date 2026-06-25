@@ -344,11 +344,11 @@ def test_finalize_attaches_ledger_confidence():
 # render_comment
 # ---------------------------------------------------------------------------
 def test_render_comment_no_diff_returns_none():
-    assert ir.render_comment([], had_diff=False) is None
+    assert ir.render_comment([], False, (True, [])) is None
 
 
 def test_render_comment_no_findings_is_consistent_message():
-    body = ir.render_comment([], had_diff=True)
+    body = ir.render_comment([], True, (True, []))
     assert ir.COMMENT_MARKER in body
     assert "consistent" in body.lower()
 
@@ -363,7 +363,7 @@ def test_render_comment_groups_and_cites():
          "change_summary": "cap raised 7->12", "colliding_rules": ["inv-002", "der-001"],
          "because": "R2 forbids it", "confidence": None},
     ]
-    body = ir.render_comment(findings, had_diff=True)
+    body = ir.render_comment(findings, True, (True, []))
     assert ir.COMMENT_MARKER in body
     assert "Silent weakening" in body and "Behavior may violate" in body
     assert "Because:" in body
@@ -601,7 +601,7 @@ def test_render_comment_preserves_flag_order():
         {"type": "silent_weakening", "diff_op": "REMOVE", "layer": 1, "site_count": 1,
          "change_summary": "A", "colliding_rules": [], "because": "a"},
     ]
-    body = ir.render_comment(findings, had_diff=True)
+    body = ir.render_comment(findings, True, (True, []))
     assert body.index("Silent weakening") < body.index("Behavior may violate")
 
 
@@ -657,3 +657,52 @@ def test_main_flags_removed_invariant_via_origin(tmp_path, monkeypatch):
 def test_main_skips_without_secret(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert ir.main() == 0  # fork PR / no secret -> never block
+
+
+# ---------------------------------------------------------------------------
+# sync advisory — "was an /archie-sync made for this PR?"
+# ---------------------------------------------------------------------------
+def _commit(root: Path, msg: str) -> str:
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", msg)
+    return _git(root, "rev-parse", "HEAD")
+
+
+def test_sync_advisory_synced_then_drift(tmp_path):
+    import sync  # noqa: E402  (same _STANDALONE path)
+    root = _init_repo(tmp_path)
+    (root / "src").mkdir()
+    (root / "src" / "A.kt").write_text("fun a()=1\n")
+    base = _commit(root, "base")
+    (root / "src" / "A.kt").write_text("fun a()=2\n")
+    (root / "src" / "B.kt").write_text("fun b()=3\n")
+    _commit(root, "work")
+
+    # Stamp covering the current code, then the advisory sees a fully-synced PR.
+    sync.cmd_sync_stamp(root)
+    _commit(root, "stamp")
+    present, unsynced = ir.sync_advisory(root, base)
+    assert present and unsynced == []
+
+    # Drift ONE file without re-stamping — only that file is flagged (content-based).
+    (root / "src" / "A.kt").write_text("fun a()=99\n")
+    _commit(root, "drift")
+    present, unsynced = ir.sync_advisory(root, base)
+    assert present and unsynced == ["src/A.kt"]
+
+    # No marker at all -> every changed source file is flagged, present=False.
+    (root / ".archie" / "sync_state.json").unlink()
+    present, unsynced = ir.sync_advisory(root, base)
+    assert not present and set(unsynced) == {"src/A.kt", "src/B.kt"}
+
+
+def test_sync_section_and_render():
+    assert ir._sync_section((True, [])) == ""               # nothing to flag
+    s = ir._sync_section((True, ["src/A.kt"]))
+    assert "out of sync" in s and "src/A.kt" in s and "does not block" in s
+    assert "No `/archie-sync` recorded" in ir._sync_section((False, ["x.kt"]))
+    # render posts a body for a sync-only advisory (no blueprint diff)...
+    body = ir.render_comment([], False, (True, ["src/A.kt"]))
+    assert body is not None and "out of sync" in body
+    # ...and nothing when there's neither an intent review nor an advisory.
+    assert ir.render_comment([], False, (True, [])) is None

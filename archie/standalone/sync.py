@@ -798,6 +798,7 @@ def _usage() -> None:
     print("  python3 sync.py churn-bump   /path/to/repo                     (stdin: hook envelope with edit tool-call)", file=sys.stderr)
     print("  python3 sync.py churn-status /path/to/repo", file=sys.stderr)
     print("  python3 sync.py churn-reset  /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py sync-stamp   /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
 
 
 def _opt(rest: list[str], name: str) -> str | None:
@@ -893,6 +894,33 @@ def cmd_churn_reset(root: Path) -> int:
     return 0
 
 
+def cmd_sync_stamp(root: Path) -> int:
+    """Record the code state this sync reconciled into committed
+    `.archie/sync_state.json`, so a later PR can tell whether the branch's code
+    moved on without a re-sync. Content-hashed (not commit-pinned), so it survives
+    rebases/squashes and works whether the synced changes were committed or not."""
+    import datetime
+    script_dir = Path(__file__).resolve().parent
+    sys.path.insert(0, str(script_dir))
+    try:
+        from _common import source_fingerprint  # noqa: E402
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"cannot load _common: {e}"}))
+        return 0
+    files = source_fingerprint(root)
+    state = {
+        "version": 1,
+        "synced_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "head": _git(root, "rev-parse", "HEAD") or None,
+        "files": files,
+    }
+    archie = root / ".archie"
+    archie.mkdir(parents=True, exist_ok=True)
+    (archie / "sync_state.json").write_text(json.dumps(state, indent=2) + "\n")
+    print(json.dumps({"ok": True, "stamped": len(files)}))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         _usage()
@@ -943,6 +971,9 @@ def main(argv: list[str]) -> int:
 
     if cmd == "churn-reset":
         return cmd_churn_reset(root)
+
+    if cmd == "sync-stamp":
+        return cmd_sync_stamp(root)
 
     _usage()
     return 1

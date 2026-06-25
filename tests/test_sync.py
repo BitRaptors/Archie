@@ -352,6 +352,25 @@ def test_fold_context_advisory_is_staged_not_folded(tmp_path, capsys):
     assert [a["kind"] for a in out["staged_amendments"]] == ["pitfall"]
 
 
+def test_sync_stamp_records_source_fingerprint(tmp_path, capsys):
+    root = _init_repo(tmp_path)
+    (root / "src").mkdir()
+    (root / "src" / "A.kt").write_text("fun a() = 1\n")
+    (root / "notes.txt").write_text("not source\n")  # excluded — not a code ext
+    res = _run(["sync.py", "sync-stamp", str(root)], capsys)
+    assert res["rc"] == 0 and res["ok"] is True
+    state = json.loads((root / ".archie" / "sync_state.json").read_text())
+    assert state["version"] == 1
+    assert "src/A.kt" in state["files"]
+    assert "notes.txt" not in state["files"]
+    # editing a source file changes its recorded hash on the next stamp
+    h1 = state["files"]["src/A.kt"]
+    (root / "src" / "A.kt").write_text("fun a() = 2\n")
+    _run(["sync.py", "sync-stamp", str(root)], capsys)
+    state2 = json.loads((root / ".archie" / "sync_state.json").read_text())
+    assert state2["files"]["src/A.kt"] != h1
+
+
 def test_advisory_kinds_always_staged(tmp_path, capsys):
     root = _init_repo(tmp_path)
     _stage_change(root, "app/Main.kt")

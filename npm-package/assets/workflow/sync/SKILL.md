@@ -150,7 +150,13 @@ they don't double-count next time:
 ```bash
 python3 .archie/sync.py plan-consume .   # moves captured plans to consumed/
 python3 .archie/sync.py churn-reset .    # zero the churn counter
+python3 .archie/sync.py sync-stamp .     # record the synced code state (commit .archie/sync_state.json)
 ```
+
+`sync-stamp` writes `.archie/sync_state.json` — a content fingerprint of the source you
+just reconciled. **Commit it alongside the blueprint/intent edits.** The PR intent review
+reads it to tell whether a branch's code later moved on without a re-sync, and surfaces a
+(non-blocking) "run /archie-sync" advisory if so.
 
 ### Step 6 — Report what changed ARCHITECTURALLY (not a file list)
 

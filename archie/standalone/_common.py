@@ -537,3 +537,41 @@ def _cc_regex(lines: list[str]) -> int:
         cleaned = re.sub(r"'(?:[^'\\]|\\.)*'", "''", cleaned)
         cc += len(DECISION_RE.findall(cleaned))
     return cc
+
+
+def file_sha1(path) -> str | None:
+    """sha1 hex of a file's bytes, or None if unreadable. The one hashing
+    definition shared by `sync.py sync-stamp` (recording the synced code state)
+    and the PR sync-drift check, so the two always agree on a file's identity."""
+    import hashlib
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()
+    except Exception:
+        return None
+
+
+def source_fingerprint(root) -> dict:
+    """Map each source file (posix-relative path) -> sha1 of its bytes, honoring
+    .archieignore/.gitignore + SKIP_DIRS (which already excludes .archie/.git/…).
+    One definition of "the source state," shared so a stamp and a later drift
+    check are comparable."""
+    import os
+    root = Path(root)
+    matcher = IgnoreMatcher(root)
+    out: dict = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        rel_dir = "" if rel_dir == "." else rel_dir
+        dirnames[:] = [d for d in dirnames
+                       if d not in SKIP_DIRS and not matcher.should_skip_dir(d, rel_dir)]
+        for fn in filenames:
+            if os.path.splitext(fn)[1].lower() not in SOURCE_EXTENSIONS:
+                continue
+            if matcher.should_skip_file(fn, rel_dir):
+                continue
+            ap = Path(dirpath) / fn
+            h = file_sha1(ap)
+            if h is None:
+                continue
+            out[os.path.relpath(str(ap), str(root)).replace(os.sep, "/")] = h
+    return out
