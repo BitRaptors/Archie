@@ -275,6 +275,41 @@ def check_install_pkg_mirror(errors: list[str]) -> None:
             errors.append(f"OUT OF SYNC: {src.relative_to(ROOT)} != npm-package/assets/_install_pkg/{rel}")
 
 
+def check_hook_scripts_mirror(errors: list[str]) -> None:
+    """Verify archie/assets/hook_scripts/ is byte-mirrored into
+    npm-package/assets/hook_scripts/ — the source the npx installer copies from.
+    Without this check a new hook script added to the canonical tree silently fails
+    to ship via npm (which is exactly how churn-track.sh was missed). The installer
+    copies the WHOLE subtree (cpDirSync), so check every file + subdir, not just
+    top-level *.sh — matching the workflows/ sibling check."""
+    backend = ARCHIE_ASSETS / "hook_scripts"
+    mirror = ASSETS / "hook_scripts"
+    if not backend.is_dir():
+        return
+    if not mirror.is_dir():
+        errors.append("npm-package/assets/hook_scripts/ missing")
+        return
+
+    # Ignore OS/editor cruft that the installer never ships, so a stray .DS_Store
+    # (common on macOS) doesn't false-positive the sync check.
+    def _shipped(p) -> bool:
+        return (p.is_file() and p.name != ".DS_Store"
+                and "__pycache__" not in p.parts and p.suffix not in (".pyc", ".tmp"))
+
+    backend_files = {p.relative_to(backend).as_posix() for p in backend.rglob("*") if _shipped(p)}
+    mirror_files = {p.relative_to(mirror).as_posix() for p in mirror.rglob("*") if _shipped(p)}
+    for rel in sorted(backend_files - mirror_files):
+        errors.append(f"npm-package/assets/hook_scripts/ missing: {rel}")
+    for rel in sorted(mirror_files - backend_files):
+        errors.append(f"npm-package/assets/hook_scripts/ has stale file: {rel}")
+    for rel in sorted(backend_files & mirror_files):
+        if (backend / rel).read_bytes() != (mirror / rel).read_bytes():
+            errors.append(
+                f"OUT OF SYNC: archie/assets/hook_scripts/{rel} != "
+                f"npm-package/assets/hook_scripts/{rel}"
+            )
+
+
 def main():
     errors = []
 
@@ -318,6 +353,7 @@ def main():
     check_viewer_source_mirror(errors)
     check_archie_asset_mirrors(errors)
     check_install_pkg_mirror(errors)
+    check_hook_scripts_mirror(errors)
 
     # Report
     if errors:

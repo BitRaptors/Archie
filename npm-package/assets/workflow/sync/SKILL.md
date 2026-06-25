@@ -24,6 +24,25 @@ Produce *statements about what the code now is* (not a changelog of your edits):
   statements from the change itself. Structural facts are fine; mark inferred intent
   `confidence: "low"`, `reconstructed: true`. Don't invent beyond the diff.
 
+### Step 1b — Pull durable signals (plans + churn)
+
+Two background signals were captured for you since the last sync; use them to make the
+record richer and to scope what to review:
+
+```bash
+python3 .archie/sync.py plan-list .      # captured ExitPlanMode plans (durable intent)
+python3 .archie/sync.py churn-status .   # files/lines changed since last sync
+```
+
+- **Read each plan** in the returned `plans[]` paths (`.archie/tmp/plans/plan_*.md`). A plan
+  states *intent and decisions* the diff can't show. Use it to:
+  - **seed advisory claims** — a stated decision/pitfall/rule becomes a `decision`/`pitfall`/
+    `rule` claim (these always stage as proposed amendments — the "rule worth jotting down").
+  - **ground descriptive claims** even if context was compacted — but treat plan intent as a
+    *candidate to verify against the actual code*, not ground truth (a plan is intent-before,
+    the code is fact-after). If the code diverged from the plan, record what shipped.
+- Use the churn file list to scope which areas to review.
+
 ### Step 2 — Record
 
 Pipe a JSON array of statements. **Descriptive kinds are the default** — what the code
@@ -48,6 +67,20 @@ echo '<your JSON array>' | python3 .archie/sync.py record .
 
 (Add `--agent claude` under Claude Code, or `--agent codex` under Codex, to tag the
 record's provenance.)
+
+After recording, show the **Structural Integrity standing** so the user sees whether this
+session drifted from the contract:
+
+```bash
+python3 .archie/score.py .
+```
+
+This re-measures the working tree against the contract and prints the worklist with its
+plain-language context (it does NOT rewrite the baseline — that happens at deep-scan or
+fold, so `Freshness` keeps measuring drift since the last baseline). A NEW open divergence
+is a rule this session broke: the user fixes it, or accepts it by recording the break as a
+`decision`/`rule` claim above (which stages a contract amendment). The score never blocks —
+it is a roll-up; the worklist of open divergences is the point.
 
 A statement is **eligible** to fold only if it is a DESCRIPTIVE kind (the mirror) AND
 `confidence: medium|high`, `reconstructed: false`, and grounded in a file inside the diff.
@@ -110,6 +143,20 @@ Re-renders root `CLAUDE.md` / `AGENTS.md` / rule docs from your edited blueprint
 that no top-level section was dropped (aborts the render otherwise), and marks the record
 folded. It does **not** mass-rewrite per-folder CLAUDE.md — those you reconciled directly
 in Step 4.
+
+After applying (or after recording when nothing was eligible), retire the signals you used so
+they don't double-count next time:
+
+```bash
+python3 .archie/sync.py plan-consume .   # moves captured plans to consumed/
+python3 .archie/sync.py churn-reset .    # zero the churn counter
+python3 .archie/sync.py sync-stamp .     # record the synced code state (commit .archie/sync_state.json)
+```
+
+`sync-stamp` writes `.archie/sync_state.json` — a content fingerprint of the source you
+just reconciled. **Commit it alongside the blueprint/intent edits.** The PR intent review
+reads it to tell whether a branch's code later moved on without a re-sync, and surfaces a
+(non-blocking) "run /archie-sync" advisory if so.
 
 ### Step 6 — Report what changed ARCHITECTURALLY (not a file list)
 

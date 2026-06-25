@@ -23,3 +23,32 @@ def test_verify_sync_passes():
         cwd=ROOT,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _load_verify_sync():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "verify_sync", ROOT / "scripts" / "verify_sync.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_hook_scripts_mirror_covers_subtree_and_ignores_cruft(tmp_path, monkeypatch):
+    """check_hook_scripts_mirror must (a) recurse into subdirs — the npx installer
+    ships the whole subtree — and (b) ignore OS cruft like .DS_Store."""
+    vs = _load_verify_sync()
+    backend = tmp_path / "be" / "hook_scripts"
+    mirror = tmp_path / "mi" / "hook_scripts"
+    (backend / "sub").mkdir(parents=True)
+    mirror.mkdir(parents=True)
+    (backend / "a.sh").write_text("x")
+    (mirror / "a.sh").write_text("x")
+    (backend / "sub" / "nested.sh").write_text("n")   # nested, backend-only
+    (backend / ".DS_Store").write_text("junk")         # cruft — must be ignored
+    monkeypatch.setattr(vs, "ARCHIE_ASSETS", tmp_path / "be")
+    monkeypatch.setattr(vs, "ASSETS", tmp_path / "mi")
+    errors = []
+    vs.check_hook_scripts_mirror(errors)
+    assert any("sub/nested.sh" in e for e in errors)   # rglob covers subdirs
+    assert not any(".DS_Store" in e for e in errors)   # cruft ignored

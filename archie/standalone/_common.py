@@ -537,3 +537,61 @@ def _cc_regex(lines: list[str]) -> int:
         cleaned = re.sub(r"'(?:[^'\\]|\\.)*'", "''", cleaned)
         cc += len(DECISION_RE.findall(cleaned))
     return cc
+
+
+def file_sha1(path) -> str | None:
+    """sha1 hex of a file's bytes, or None if unreadable. The one hashing
+    definition shared by `sync.py sync-stamp` (recording the synced code state)
+    and the PR sync-drift check, so the two always agree on a file's identity."""
+    import hashlib
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()
+    except Exception:
+        return None
+
+
+def is_source_path(root, rel_path, matcher=None) -> bool:
+    """True iff `source_fingerprint(root)` would include `rel_path` — the SAME
+    SOURCE_EXTENSIONS + SKIP_DIRS + ignore predicate, evaluated for ONE posix path.
+    Lets a caller classify a diff in O(diff) instead of walking the whole tree,
+    while staying byte-for-byte consistent with the stamp. Pass a prebuilt
+    `matcher` to reuse it across many paths."""
+    import os
+    if os.path.splitext(rel_path)[1].lower() not in SOURCE_EXTENSIONS:
+        return False
+    if matcher is None:
+        matcher = IgnoreMatcher(Path(root))
+    parts = rel_path.split("/")
+    parent = ""
+    for seg in parts[:-1]:
+        if seg in SKIP_DIRS or matcher.should_skip_dir(seg, parent):
+            return False
+        parent = f"{parent}/{seg}" if parent else seg
+    return not matcher.should_skip_file(parts[-1], parent)
+
+
+def source_fingerprint(root) -> dict:
+    """Map each source file (posix-relative path) -> sha1 of its bytes, honoring
+    .archieignore/.gitignore + SKIP_DIRS (which already excludes .archie/.git/…).
+    One definition of "the source state," shared so a stamp and a later drift
+    check are comparable (see is_source_path for the per-path form)."""
+    import os
+    root = Path(root)
+    matcher = IgnoreMatcher(root)
+    out: dict = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        rel_dir = "" if rel_dir == "." else rel_dir
+        dirnames[:] = [d for d in dirnames
+                       if d not in SKIP_DIRS and not matcher.should_skip_dir(d, rel_dir)]
+        for fn in filenames:
+            if os.path.splitext(fn)[1].lower() not in SOURCE_EXTENSIONS:
+                continue
+            if matcher.should_skip_file(fn, rel_dir):
+                continue
+            ap = Path(dirpath) / fn
+            h = file_sha1(ap)
+            if h is None:
+                continue
+            out[os.path.relpath(str(ap), str(root)).replace(os.sep, "/")] = h
+    return out

@@ -90,6 +90,12 @@ HOOKS = [
         blocking=False,
     ),
     HookDef(
+        "post-tool-use",
+        "Edit|Write|MultiEdit",
+        ".archie/hooks/churn-track.sh",
+        blocking=False,
+    ),
+    HookDef(
         "user-prompt-submit",
         None,
         ".archie/hooks/pre-turn.sh",

@@ -1,0 +1,12 @@
+{
+  "domain_invariants": [
+    {"id": "order-total-non-negative", "enforced_at": "src/services/order.py:14"},
+    {"id": "issued-order-immutable", "enforced_at": "src/services/order.py:22"}
+  ],
+  "derived_invariants": [
+    {"id": "refund-not-exceed-paid", "enforced_at": "src/services/refund.py:9"}
+  ],
+  "unenforced_invariants": [
+    {"id": "tenant-scoped-queries"}
+  ]
+}

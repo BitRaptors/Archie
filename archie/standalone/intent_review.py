@@ -32,6 +32,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import IgnoreMatcher, file_sha1, is_source_path  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # constants
 # ---------------------------------------------------------------------------
@@ -727,42 +730,118 @@ _FLAG_HEADERS = {
 _FLAG_ORDER = ["silent_weakening", "contradiction", "behavior_violates_rule"]
 
 
-def render_comment(findings: list, had_diff: bool):
-    """Return the markdown comment body, or None to post nothing."""
-    if not had_diff:
+def sync_advisory(repo_root: Path, base_ref_full: str):
+    """(state_present, unsynced) — source files changed in this PR whose CURRENT
+    content differs from the last recorded /archie-sync. Content-based, so it is
+    immune to commit timing / rebases / squashes. No `.archie/sync_state.json` ->
+    every changed source file counts as unsynced. Never raises; on any git failure
+    it returns no flags (silence beats a false alarm).
+
+    Selection uses `is_source_path` — the per-path form of the stamp's predicate —
+    so the check and the stamp cannot drift (ignored/SKIP_DIRS source files are
+    excluded from both), and it stays O(diff): only the changed paths are classified
+    and hashed, never the whole tree. A path that no longer exists hashes to None and
+    is skipped, so deletions aren't reported as phantom edits. The diff uses -z so
+    non-ASCII paths aren't quoted/dropped. Never raises (the whole body is guarded);
+    on any git/IO failure it returns no flags — silence beats a false alarm."""
+    try:
+        code, out, _ = run_git(repo_root, "diff", "--name-only", "-z", f"{base_ref_full}...HEAD")
+        if code != 0:
+            return (True, [])
+        changed = [p for p in out.split("\x00") if p]
+        matcher = IgnoreMatcher(repo_root)
+        changed_src = [f for f in changed if is_source_path(repo_root, f, matcher)]
+        if not changed_src:
+            return (True, [])
+        state_path = repo_root / ".archie" / "sync_state.json"
+        state, _ = _parse_json(state_path.read_text()) if state_path.exists() else (None, None)
+        present = isinstance(state, dict) and isinstance(state.get("files"), dict)
+        synced = state["files"] if present else {}
+        unsynced = []
+        for f in changed_src:
+            cur = file_sha1(repo_root / f)
+            if cur is None:
+                continue  # deleted/unreadable — not an unsynced edit
+            if cur != synced.get(f):
+                unsynced.append(f)
+        return (present, unsynced)
+    except Exception as e:
+        print(f"[intent-review] sync advisory skipped ({e})", file=sys.stderr)
+        return (True, [])
+
+
+def _sync_section(sync_adv) -> str:
+    """Render the 'please run /archie-sync' advisory, or '' when nothing to flag."""
+    present, unsynced = sync_adv
+    if not unsynced:
+        return ""
+    n = len(unsynced)
+    title = ("### 🔄 Living Blueprint may be out of sync" if present
+             else "### 🔄 No `/archie-sync` recorded for this branch")
+    lead = (f"{n} source file{'s' if n != 1 else ''} changed since the last "
+            f"`/archie-sync`" + ("" if present else " (none was recorded)") +
+            " — run `/archie-sync` so the blueprint + intent layer reflect this code.")
+    listed = "\n".join(f"- `{f}`" for f in unsynced[:10])
+    more = f"\n- …and {n - 10} more" if n > 10 else ""
+    return f"{title}\n\n{lead}\n\n{listed}{more}\n\n_Advisory — does not block merge._"
+
+
+def render_comment(findings: list, had_diff: bool, sync_adv, model_failed: bool = False):
+    """Markdown body combining the intent review (when the blueprint changed) and
+    the sync advisory (when code changed without a re-sync). None -> post nothing.
+
+    When `had_diff` is True the review section ALWAYS renders — as findings, a
+    clean-consistent note, or (if `model_failed`) an explicit "could not run"
+    notice. It is never silently dropped, so a model failure can't masquerade as a
+    clean review, and a later run can't quietly erase a prior review's context."""
+    sync_section = _sync_section(sync_adv)
+    if not had_diff and not sync_section:
         return None
-    if not findings:
-        return (f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
-                "No findings — the blueprint changes in this PR are consistent with the "
-                "retained rules.\n\n*Archie surfaces; it doesn't block.*")
 
     lines = [COMMENT_MARKER, "## 📐 Archie Intent Review", ""]
-    n = len(findings)
-    lines.append(f"This PR changes the architectural source of truth. **{n} finding"
-                 f"{'s' if n != 1 else ''}** for a human to weigh:")
-    for flag in _FLAG_ORDER:
-        group = [f for f in findings if f.get("type") == flag]
-        if not group:
-            continue
+    if had_diff:
+        if model_failed:
+            lines.append("⚠️ **Intent review could not run** — the model call failed. The "
+                         "blueprint changed in this PR but was **not** judged; re-run the "
+                         "check or review the source-of-truth changes manually.")
+        elif not findings:
+            lines.append("No findings — the blueprint changes in this PR are consistent "
+                         "with the retained rules.")
+        else:
+            n = len(findings)
+            lines.append(f"This PR changes the architectural source of truth. **{n} finding"
+                         f"{'s' if n != 1 else ''}** for a human to weigh:")
+            for flag in _FLAG_ORDER:
+                group = [f for f in findings if f.get("type") == flag]
+                if not group:
+                    continue
+                lines.append("")
+                lines.append(f"### {_FLAG_HEADERS[flag]}")
+                for f in group:
+                    conf = ""
+                    if f.get("confidence"):
+                        rec = " · reconstructed guess" if f.get("reconstructed") else ""
+                        conf = f" _(ledger confidence: {f['confidence']}{rec})_"
+                    sites = f" · {f['site_count']} sites" if f.get("site_count", 1) > 1 else ""
+                    collides = ""
+                    if f.get("colliding_rules"):
+                        collides = "  \n  Collides with: **" + ", ".join(f["colliding_rules"]) + "**"
+                    lines.append(
+                        f"- **{f['change_summary']}** ({f['diff_op']}, Layer {f['layer']}{sites}){conf}{collides}  \n"
+                        f"  _Because:_ {f['because']}"
+                    )
+
+    if sync_section:
         lines.append("")
-        lines.append(f"### {_FLAG_HEADERS[flag]}")
-        for f in group:
-            conf = ""
-            if f.get("confidence"):
-                rec = " · reconstructed guess" if f.get("reconstructed") else ""
-                conf = f" _(ledger confidence: {f['confidence']}{rec})_"
-            sites = f" · {f['site_count']} sites" if f.get("site_count", 1) > 1 else ""
-            collides = ""
-            if f.get("colliding_rules"):
-                collides = "  \n  Collides with: **" + ", ".join(f["colliding_rules"]) + "**"
-            lines.append(
-                f"- **{f['change_summary']}** ({f['diff_op']}, Layer {f['layer']}{sites}){conf}{collides}  \n"
-                f"  _Because:_ {f['because']}"
-            )
+        lines.append(sync_section)
+
     lines.append("")
-    lines.append("*Archie surfaces; it doesn't block. Whether a change means \"fix the "
-                 "code\" or \"evolve the rule\" is your call — merge accepts the blueprint "
-                 "changes above as the new baseline.*")
+    if had_diff and not model_failed and findings:
+        lines.append("*Archie surfaces; it doesn't block. Whether a change means \"fix the "
+                     "code\" or \"evolve the rule\" is your call — merge accepts the blueprint "
+                     "changes above as the new baseline.*")
+    else:
+        lines.append("*Archie surfaces; it doesn't block.*")
     return "\n".join(lines)
 
 
@@ -891,17 +970,33 @@ def main(argv=None) -> int:
     # origin/<base> only if the payload lacked a sha. No `git fetch` is required.
     base_ref_full = base_sha or f"origin/{base_ref}"
 
+    # Sync advisory — computed FIRST and independently of the blueprint, so it still
+    # surfaces when the branch blueprint is absent or malformed (exactly when a "you
+    # never synced" nudge matters most). It needs no blueprint; on git failure it
+    # returns nothing.
+    sync_adv = sync_advisory(repo_root, base_ref_full)
+
     # 2. Load branch + base versions of the source of truth.
     b_exists, branch_bp, b_err = load_branch_file(repo_root, ".archie/blueprint.json")
     if b_exists and branch_bp is None:
-        # branch blueprint is malformed — surface, don't crash.
-        safe_post_comment(owner, repo, pr_number,
-                          f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
-                          f"Could not parse `.archie/blueprint.json` on this branch "
-                          f"({b_err}). Manual review needed.", token)
+        # branch blueprint is malformed — surface (with the sync advisory), don't crash.
+        body = (f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
+                f"Could not parse `.archie/blueprint.json` on this branch ({b_err}). "
+                f"Manual review needed.")
+        sec = _sync_section(sync_adv)
+        if sec:
+            body += "\n\n" + sec
+        safe_post_comment(owner, repo, pr_number, body, token)
         return 0
     if not b_exists:
-        print("[intent-review] no .archie/blueprint.json on branch — nothing to review.", file=sys.stderr)
+        # No blueprint to review — but still nudge if source drifted without a sync.
+        body = render_comment([], False, sync_adv)
+        if body is None:
+            print("[intent-review] no .archie/blueprint.json on branch — nothing to review.", file=sys.stderr)
+        elif token:
+            safe_post_comment(owner, repo, pr_number, body, token)
+        else:
+            print("[intent-review] no GITHUB_TOKEN — printing body:\n" + body)
         return 0
 
     base_exists, base_bp, base_err = fetch_base_file(repo_root, base_ref_full, ".archie/blueprint.json")
@@ -931,23 +1026,27 @@ def main(argv=None) -> int:
     # 3. Deterministic diff -> changed items.
     changed_items = build_changed_items(base_bp, branch_bp, base_rules, branch_rules, claims)
     had_diff = bool(changed_items)
-    if not had_diff:
-        print("[intent-review] no source-of-truth changes detected — posting nothing.", file=sys.stderr)
-        return 0
 
-    # 4. Judge with one model call.
-    retained = retained_rules(base_rules, changed_items)
-    system, user = build_prompt(changed_items, retained, claims)
-    try:
-        model_findings = call_anthropic(system, user, api_key)
-    except RuntimeError as e:
-        print(f"[intent-review] model call failed: {e}", file=sys.stderr)
-        return 0  # never block
-    findings = finalize_findings(model_findings, changed_items, claims)
+    # 4. Judge with one model call — only when the source of truth actually moved.
+    findings, model_failed = [], False
+    if had_diff:
+        retained = retained_rules(base_rules, changed_items)
+        system, user = build_prompt(changed_items, retained, claims)
+        try:
+            model_findings = call_anthropic(system, user, api_key)
+            findings = finalize_findings(model_findings, changed_items, claims)
+        except RuntimeError as e:
+            # Never block — but render an explicit "could not run" notice (the
+            # blueprint DID change) instead of a silent clean-looking review.
+            print(f"[intent-review] model call failed: {e}", file=sys.stderr)
+            model_failed = True
+    else:
+        print("[intent-review] no source-of-truth changes detected.", file=sys.stderr)
 
-    # 5. Render + upsert.
-    body = render_comment(findings, had_diff)
+    # 5. Render + upsert — posts if EITHER the review or the sync advisory has content.
+    body = render_comment(findings, had_diff, sync_adv, model_failed)
     if body is None:
+        print("[intent-review] nothing to surface — posting nothing.", file=sys.stderr)
         return 0
     if not token:
         print("[intent-review] no GITHUB_TOKEN — printing body:\n" + body)

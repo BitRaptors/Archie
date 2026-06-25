@@ -344,11 +344,11 @@ def test_finalize_attaches_ledger_confidence():
 # render_comment
 # ---------------------------------------------------------------------------
 def test_render_comment_no_diff_returns_none():
-    assert ir.render_comment([], had_diff=False) is None
+    assert ir.render_comment([], False, (True, [])) is None
 
 
 def test_render_comment_no_findings_is_consistent_message():
-    body = ir.render_comment([], had_diff=True)
+    body = ir.render_comment([], True, (True, []))
     assert ir.COMMENT_MARKER in body
     assert "consistent" in body.lower()
 
@@ -363,7 +363,7 @@ def test_render_comment_groups_and_cites():
          "change_summary": "cap raised 7->12", "colliding_rules": ["inv-002", "der-001"],
          "because": "R2 forbids it", "confidence": None},
     ]
-    body = ir.render_comment(findings, had_diff=True)
+    body = ir.render_comment(findings, True, (True, []))
     assert ir.COMMENT_MARKER in body
     assert "Silent weakening" in body and "Behavior may violate" in body
     assert "Because:" in body
@@ -601,7 +601,7 @@ def test_render_comment_preserves_flag_order():
         {"type": "silent_weakening", "diff_op": "REMOVE", "layer": 1, "site_count": 1,
          "change_summary": "A", "colliding_rules": [], "because": "a"},
     ]
-    body = ir.render_comment(findings, had_diff=True)
+    body = ir.render_comment(findings, True, (True, []))
     assert body.index("Silent weakening") < body.index("Behavior may violate")
 
 
@@ -657,3 +657,157 @@ def test_main_flags_removed_invariant_via_origin(tmp_path, monkeypatch):
 def test_main_skips_without_secret(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert ir.main() == 0  # fork PR / no secret -> never block
+
+
+# ---------------------------------------------------------------------------
+# sync advisory — "was an /archie-sync made for this PR?"
+# ---------------------------------------------------------------------------
+def _commit_sha(root: Path, msg: str) -> str:
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", msg)
+    return _git(root, "rev-parse", "HEAD")
+
+
+def test_sync_advisory_synced_then_drift(tmp_path):
+    import sync  # noqa: E402  (same _STANDALONE path)
+    root = _init_repo(tmp_path)
+    (root / "src").mkdir()
+    (root / "src" / "A.kt").write_text("fun a()=1\n")
+    base = _commit_sha(root, "base")
+    (root / "src" / "A.kt").write_text("fun a()=2\n")
+    (root / "src" / "B.kt").write_text("fun b()=3\n")
+    _commit_sha(root, "work")
+
+    # Stamp covering the current code, then the advisory sees a fully-synced PR.
+    sync.cmd_sync_stamp(root)
+    _commit_sha(root, "stamp")
+    present, unsynced = ir.sync_advisory(root, base)
+    assert present and unsynced == []
+
+    # Drift ONE file without re-stamping — only that file is flagged (content-based).
+    (root / "src" / "A.kt").write_text("fun a()=99\n")
+    _commit_sha(root, "drift")
+    present, unsynced = ir.sync_advisory(root, base)
+    assert present and unsynced == ["src/A.kt"]
+
+    # No marker at all -> every changed source file is flagged, present=False.
+    (root / ".archie" / "sync_state.json").unlink()
+    present, unsynced = ir.sync_advisory(root, base)
+    assert not present and set(unsynced) == {"src/A.kt", "src/B.kt"}
+
+
+def test_sync_advisory_excludes_ignored_and_skipdir(tmp_path):
+    """Regression: the check must use the SAME file universe as the stamp. A
+    tracked source file under a SKIP_DIRS dir (vendor/) or a gitignored dir is
+    excluded from the stamp, so it must NOT be flagged unsynced after a sync —
+    otherwise it would fire on every PR forever, unfixable."""
+    import sync  # noqa: E402
+    root = _init_repo(tmp_path)
+    for d in ("src", "vendor", "generated"):
+        (root / d).mkdir()
+    (root / ".gitignore").write_text("generated/\n")
+    (root / "src" / "A.kt").write_text("fun a()=1\n")
+    (root / "vendor" / "lib.go").write_text("package v\n")     # under SKIP_DIRS
+    (root / "generated" / "Gen.kt").write_text("val g=1\n")    # under a gitignored dir
+    _git(root, "add", "-f", "generated/Gen.kt")
+    base = _commit_sha(root, "base")
+    (root / "src" / "A.kt").write_text("fun a()=2\n")
+    (root / "vendor" / "lib.go").write_text("package v2\n")
+    (root / "generated" / "Gen.kt").write_text("val g=2\n")
+    _commit_sha(root, "work")
+    sync.cmd_sync_stamp(root)
+    present, unsynced = ir.sync_advisory(root, base)
+    assert unsynced == []  # vendor/ + generated/ excluded both sides; src/A.kt is covered
+
+
+def test_sync_advisory_skips_deletions(tmp_path):
+    """Regression: a deleted source file must NOT be reported as a 'changed,
+    please re-sync' phantom pointing at a path that no longer exists."""
+    import sync  # noqa: E402
+    root = _init_repo(tmp_path)
+    (root / "src").mkdir()
+    (root / "src" / "A.kt").write_text("fun a()=1\n")
+    (root / "src" / "B.kt").write_text("fun b()=1\n")
+    base = _commit_sha(root, "base")
+    sync.cmd_sync_stamp(root)
+    _commit_sha(root, "stamp")
+    (root / "src" / "B.kt").unlink()
+    _commit_sha(root, "delete B")
+    present, unsynced = ir.sync_advisory(root, base)
+    assert "src/B.kt" not in unsynced
+
+
+def test_sync_section_and_render():
+    assert ir._sync_section((True, [])) == ""               # nothing to flag
+    s = ir._sync_section((True, ["src/A.kt"]))
+    assert "out of sync" in s and "src/A.kt" in s and "does not block" in s
+    assert "No `/archie-sync` recorded" in ir._sync_section((False, ["x.kt"]))
+    # render posts a body for a sync-only advisory (no blueprint diff)...
+    body = ir.render_comment([], False, (True, ["src/A.kt"]))
+    assert body is not None and "out of sync" in body
+    # ...and nothing when there's neither an intent review nor an advisory.
+    assert ir.render_comment([], False, (True, [])) is None
+
+
+def test_render_comment_model_failed_is_explicit():
+    """Regression (#6): a model failure on a real blueprint diff must NOT
+    masquerade as a clean review — it renders an explicit 'could not run' notice."""
+    body = ir.render_comment([], True, (True, []), model_failed=True)
+    assert body is not None
+    assert "could not run" in body.lower() and "manually" in body.lower()
+
+
+def test_sync_advisory_handles_non_ascii_paths(tmp_path):
+    """Regression: a drifted source file with a non-ASCII name must still be flagged.
+    Git quotes such paths by default (core.quotePath); the -z diff recovers the raw
+    path so it isn't silently dropped."""
+    import sync  # noqa: E402
+    root = _init_repo(tmp_path)
+    _git(root, "config", "core.quotePath", "true")
+    (root / "src").mkdir()
+    (root / "src" / "café.kt").write_text("fun c()=1\n")
+    base = _commit_sha(root, "base")
+    sync.cmd_sync_stamp(root)
+    _commit_sha(root, "stamp")
+    (root / "src" / "café.kt").write_text("fun c()=99\n")
+    _commit_sha(root, "drift")
+    present, unsynced = ir.sync_advisory(root, base)
+    # normalization-robust: exactly one flagged, a .kt under src/ (the café file)
+    assert len(unsynced) == 1
+    assert unsynced[0].startswith("src/") and unsynced[0].endswith(".kt")
+
+
+def test_main_posts_sync_advisory_without_blueprint(tmp_path, monkeypatch):
+    """Regression (#7): the advisory must surface even when the branch has NO
+    blueprint — the old code returned before computing it."""
+    import sync  # noqa: E402
+    up = tmp_path / "up"
+    up.mkdir()
+    _init_repo(up)
+    (up / "src").mkdir()
+    (up / "src" / "A.kt").write_text("fun a()=1\n")
+    sync.cmd_sync_stamp(up)                 # stamp records A.kt's base hash (no blueprint)
+    _commit(up, "base")
+    base_sha = _git(up, "rev-parse", "HEAD")
+
+    work = tmp_path / "work"
+    subprocess.run(["git", "clone", "-q", str(up), str(work)], check=True)
+    _git(work, "config", "user.email", "t@t.com")
+    _git(work, "config", "user.name", "T")
+    _git(work, "checkout", "-q", "-b", "feature")
+    (work / "src" / "A.kt").write_text("fun a()=2\n")   # drift, still no blueprint anywhere
+    _commit(work, "drift")
+
+    event = work / "event.json"
+    event.write_text(json.dumps({"pull_request": {"number": 7,
+                                "base": {"ref": "main", "sha": base_sha}}}))
+    captured = {}
+    monkeypatch.setattr(ir, "safe_post_comment",
+                        lambda o, r, n, body, t: captured.update(body=body))
+    for k, v in {"GITHUB_WORKSPACE": str(work), "ANTHROPIC_API_KEY": "sk-x",
+                 "GITHUB_REPOSITORY": "o/r", "GITHUB_BASE_REF": "main",
+                 "GITHUB_EVENT_PATH": str(event), "GITHUB_TOKEN": "tok"}.items():
+        monkeypatch.setenv(k, v)
+
+    assert ir.main() == 0
+    assert "out of sync" in captured.get("body", "")

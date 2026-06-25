@@ -1,0 +1,12 @@
+[
+  {
+    "id": "no-raw-sql-in-handlers",
+    "check": "forbidden_content",
+    "severity_class": "decision_violation",
+    "kind": "decision",
+    "applies_to": "src/handlers",
+    "forbidden_patterns": ["\\.execute\\(\\s*[\"'`].*(SELECT|INSERT|UPDATE|DELETE)"],
+    "description": "Handlers must call the repository layer, not raw SQL.",
+    "why": "The repository layer centralizes query auditing and tenant scoping; raw SQL in a handler bypasses both."
+  }
+]

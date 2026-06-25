@@ -12,8 +12,14 @@ deterministic glue: it reads the diff, validates + classifies the claims, and re
 them. No model calls, zero dependencies beyond Python 3.9+ stdlib.
 
 Usage:
-  python3 sync.py record /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]
-  python3 sync.py list   /path/to/repo [--json]
+  python3 sync.py record       /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]
+  python3 sync.py list         /path/to/repo [--json]
+  python3 sync.py plan-capture /path/to/repo   (stdin: hook envelope with tool_input.plan)
+  python3 sync.py plan-list    /path/to/repo
+  python3 sync.py plan-consume /path/to/repo
+  python3 sync.py churn-bump   /path/to/repo   (stdin: hook envelope with edit tool-call)
+  python3 sync.py churn-status /path/to/repo
+  python3 sync.py churn-reset  /path/to/repo
 
 Payload (JSON, from --input or stdin) — a list of claims, or {"claims": [...]}:
   { "type": "decision|rule|pitfall|guideline",
@@ -45,6 +51,77 @@ _ADVISORY_KINDS = {"decision", "pitfall", "rule", "guideline"}
 _VALID_KINDS = _DESCRIPTIVE_KINDS | _ADVISORY_KINDS
 _VALID_CONFIDENCE = {"low", "medium", "high"}
 _CHANGES_DIR = "changes"
+_PLANS_DIR = "tmp/plans"           # under .archie/ — durable captured plans
+_EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "apply_patch"}
+_CHURN_FILE = "tmp/churn.json"     # under .archie/
+_DEFAULT_CHURN_FILES = 8
+_DEFAULT_CHURN_LINES = 150
+
+
+def _churn_path(root: Path) -> Path:
+    return _archie_dir(root) / _CHURN_FILE
+
+
+def _load_churn(root: Path) -> dict:
+    p = _churn_path(root)
+    if p.is_file():
+        try:
+            d = json.loads(p.read_text())
+            if isinstance(d, dict):
+                d.setdefault("files", [])
+                d.setdefault("edits", 0)
+                d.setdefault("lines", 0)
+                return d
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"files": [], "edits": 0, "lines": 0}
+
+
+def _churn_thresholds(root: Path) -> tuple:
+    files_t, lines_t = _DEFAULT_CHURN_FILES, _DEFAULT_CHURN_LINES
+    cfg = _archie_dir(root) / "config.json"
+    if cfg.is_file():
+        try:
+            c = json.loads(cfg.read_text())
+            if isinstance(c, dict):
+                files_t = int(c.get("churn_threshold_files", files_t))
+                lines_t = int(c.get("churn_threshold_lines", lines_t))
+        except (json.JSONDecodeError, OSError, ValueError, TypeError):
+            pass
+    return files_t, lines_t
+
+
+def _churn_summary(root: Path, st: dict) -> dict:
+    files_t, lines_t = _churn_thresholds(root)
+    nfiles = len(st["files"])
+    return {
+        "files": nfiles, "edits": st["edits"], "lines": st["lines"],
+        "threshold_files": files_t, "threshold_lines": lines_t,
+        "crossed": nfiles >= files_t or st["lines"] >= lines_t,
+    }
+
+
+def _archie_dir(root: Path) -> Path:
+    return root / ".archie"
+
+
+def _read_envelope() -> dict:
+    """Read a hook tool-call envelope from stdin; tolerate empty/garbage."""
+    raw = sys.stdin.read().strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _safe_branch(root: Path) -> str:
+    try:
+        return _git(root, "rev-parse", "--abbrev-ref", "HEAD") or "unknown"
+    except Exception:
+        return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -715,6 +792,13 @@ def _usage() -> None:
     print("  python3 sync.py list         /path/to/repo [--json]", file=sys.stderr)
     print("  python3 sync.py fold-context /path/to/repo [--change <file>]   (Phase 2: scope for the agent)", file=sys.stderr)
     print("  python3 sync.py fold-apply   /path/to/repo [--change <file>]   (Phase 2: re-render + propagate + mark folded)", file=sys.stderr)
+    print("  python3 sync.py plan-capture /path/to/repo                     (stdin: hook envelope with tool_input.plan)", file=sys.stderr)
+    print("  python3 sync.py plan-list    /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py plan-consume /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py churn-bump   /path/to/repo                     (stdin: hook envelope with edit tool-call)", file=sys.stderr)
+    print("  python3 sync.py churn-status /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py churn-reset  /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py sync-stamp   /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
 
 
 def _opt(rest: list[str], name: str) -> str | None:
@@ -722,6 +806,134 @@ def _opt(rest: list[str], name: str) -> str | None:
         if a == name and i + 1 < len(rest):
             return rest[i + 1]
     return None
+
+
+def cmd_plan_capture(root: Path) -> int:
+    """Persist the ExitPlanMode plan text as durable intent for /archie-sync.
+
+    Works identically on Claude and Codex — both put plan text in tool_input.plan.
+    """
+    env = _read_envelope()
+    ti = env.get("tool_input", {})
+    plan = str(ti.get("plan", "") or "").strip() if isinstance(ti, dict) else ""
+    if not plan:
+        print(json.dumps({"ok": True, "captured": False}))
+        return 0
+    plans_dir = _archie_dir(root) / _PLANS_DIR
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    path = plans_dir / f"plan_{ts}.md"
+    i = 2
+    while path.exists():
+        path = plans_dir / f"plan_{ts}_{i}.md"
+        i += 1
+    header = f"<!-- captured {ts} UTC | branch {_safe_branch(root)} -->\n\n"
+    path.write_text(header + plan + "\n")
+    print(json.dumps({"ok": True, "captured": True, "path": str(path.relative_to(root))}))
+    return 0
+
+
+def cmd_plan_list(root: Path) -> int:
+    plans_dir = _archie_dir(root) / _PLANS_DIR
+    files = (sorted(str(p.relative_to(root)) for p in plans_dir.glob("plan_*.md"))
+             if plans_dir.is_dir() else [])
+    print(json.dumps({"ok": True, "plans": files}))
+    return 0
+
+
+def cmd_plan_consume(root: Path) -> int:
+    plans_dir = _archie_dir(root) / _PLANS_DIR
+    moved = []
+    if plans_dir.is_dir():
+        consumed = plans_dir / "consumed"
+        consumed.mkdir(parents=True, exist_ok=True)
+        for p in sorted(plans_dir.glob("plan_*.md")):
+            p.replace(consumed / p.name)
+            moved.append(p.name)
+    print(json.dumps({"ok": True, "consumed": moved}))
+    return 0
+
+
+def cmd_churn_bump(root: Path) -> int:
+    env = _read_envelope()
+    tool = env.get("tool_name", "")
+    if tool not in _EDIT_TOOLS:
+        print(json.dumps({"ok": True, "skipped": tool}))
+        return 0
+    ti = env.get("tool_input", {}) or {}
+    fp = (ti.get("file_path") or ti.get("path") or "").strip()
+    content = ti.get("content") or ti.get("new_string") or ""
+    if not content and isinstance(ti.get("edits"), list):
+        content = "\n".join(
+            str(e.get("new_string", "")) for e in ti["edits"] if isinstance(e, dict)
+        )
+    content = str(content)
+    st = _load_churn(root)
+    if fp and fp not in st["files"]:
+        st["files"].append(fp)
+    st["edits"] += 1
+    st["lines"] += content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+    p = _churn_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(st))
+    print(json.dumps({"ok": True, **_churn_summary(root, st)}))
+    return 0
+
+
+def cmd_churn_status(root: Path) -> int:
+    print(json.dumps({"ok": True, **_churn_summary(root, _load_churn(root))}))
+    return 0
+
+
+def cmd_churn_reset(root: Path) -> int:
+    try:
+        _churn_path(root).unlink()
+    except FileNotFoundError:
+        pass
+    print(json.dumps({"ok": True, "reset": True}))
+    return 0
+
+
+def cmd_sync_stamp(root: Path) -> int:
+    """Record the code state this sync reconciled into committed
+    `.archie/sync_state.json`, so a later PR can tell whether the branch's code
+    moved on without a re-sync. Content-hashed (not commit-pinned), so it survives
+    rebases/squashes and works whether the synced changes were committed or not."""
+    import datetime
+    import os
+    script_dir = Path(__file__).resolve().parent
+    sys.path.insert(0, str(script_dir))
+    try:
+        from _common import source_fingerprint  # noqa: E402
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"cannot load _common: {e}"}))
+        return 1  # signal failure — a silently-skipped stamp must not look like success
+    try:
+        files = source_fingerprint(root)
+        state = {
+            "version": 1,
+            "synced_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "head": _git(root, "rev-parse", "HEAD") or None,  # forensic only; the check is content-based
+            "files": files,
+        }
+        archie = root / ".archie"
+        archie.mkdir(parents=True, exist_ok=True)
+        # Atomic write: a crash mid-write must not leave a malformed COMMITTED marker.
+        # sort_keys so an unchanged tree serializes identically (no os.walk-order churn).
+        target = archie / "sync_state.json"
+        tmp = archie / "sync_state.json.tmp"
+        try:
+            tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+            os.replace(str(tmp), str(target))
+        finally:
+            if tmp.exists():
+                tmp.unlink()  # don't leave a .tmp orphan if os.replace failed
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"stamp failed: {e}"}))
+        return 1
+    warn = " (no source files fingerprinted — check .archieignore/SKIP_DIRS)" if not files else ""
+    print(json.dumps({"ok": True, "stamped": len(files), "warning": warn.strip() or None}))
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -756,6 +968,27 @@ def main(argv: list[str]) -> int:
 
     if cmd == "fold-apply":
         return cmd_fold_apply(root, _opt(rest, "--change"))
+
+    if cmd == "plan-capture":
+        return cmd_plan_capture(root)
+
+    if cmd == "plan-list":
+        return cmd_plan_list(root)
+
+    if cmd == "plan-consume":
+        return cmd_plan_consume(root)
+
+    if cmd == "churn-bump":
+        return cmd_churn_bump(root)
+
+    if cmd == "churn-status":
+        return cmd_churn_status(root)
+
+    if cmd == "churn-reset":
+        return cmd_churn_reset(root)
+
+    if cmd == "sync-stamp":
+        return cmd_sync_stamp(root)
 
     _usage()
     return 1
