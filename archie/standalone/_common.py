@@ -550,11 +550,31 @@ def file_sha1(path) -> str | None:
         return None
 
 
+def is_source_path(root, rel_path, matcher=None) -> bool:
+    """True iff `source_fingerprint(root)` would include `rel_path` — the SAME
+    SOURCE_EXTENSIONS + SKIP_DIRS + ignore predicate, evaluated for ONE posix path.
+    Lets a caller classify a diff in O(diff) instead of walking the whole tree,
+    while staying byte-for-byte consistent with the stamp. Pass a prebuilt
+    `matcher` to reuse it across many paths."""
+    import os
+    if os.path.splitext(rel_path)[1].lower() not in SOURCE_EXTENSIONS:
+        return False
+    if matcher is None:
+        matcher = IgnoreMatcher(Path(root))
+    parts = rel_path.split("/")
+    parent = ""
+    for seg in parts[:-1]:
+        if seg in SKIP_DIRS or matcher.should_skip_dir(seg, parent):
+            return False
+        parent = f"{parent}/{seg}" if parent else seg
+    return not matcher.should_skip_file(parts[-1], parent)
+
+
 def source_fingerprint(root) -> dict:
     """Map each source file (posix-relative path) -> sha1 of its bytes, honoring
     .archieignore/.gitignore + SKIP_DIRS (which already excludes .archie/.git/…).
     One definition of "the source state," shared so a stamp and a later drift
-    check are comparable."""
+    check are comparable (see is_source_path for the per-path form)."""
     import os
     root = Path(root)
     matcher = IgnoreMatcher(root)

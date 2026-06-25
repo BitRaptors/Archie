@@ -922,8 +922,12 @@ def cmd_sync_stamp(root: Path) -> int:
         # sort_keys so an unchanged tree serializes identically (no os.walk-order churn).
         target = archie / "sync_state.json"
         tmp = archie / "sync_state.json.tmp"
-        tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
-        os.replace(str(tmp), str(target))
+        try:
+            tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+            os.replace(str(tmp), str(target))
+        finally:
+            if tmp.exists():
+                tmp.unlink()  # don't leave a .tmp orphan if os.replace failed
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"stamp failed: {e}"}))
         return 1

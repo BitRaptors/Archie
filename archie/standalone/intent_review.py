@@ -33,7 +33,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import source_fingerprint  # noqa: E402
+from _common import IgnoreMatcher, file_sha1, is_source_path  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # constants
@@ -737,27 +737,37 @@ def sync_advisory(repo_root: Path, base_ref_full: str):
     every changed source file counts as unsynced. Never raises; on any git failure
     it returns no flags (silence beats a false alarm).
 
-    The candidate set is the SAME `source_fingerprint` universe the stamp records,
-    so the two cannot drift: a changed path is only considered if it is a tracked,
-    non-ignored, non-SKIP_DIRS source file that still exists on disk. That single
-    intersection also drops deletions (gone from the universe) for free. The diff
-    uses -z so non-ASCII paths aren't quoted/dropped."""
-    code, out, _ = run_git(repo_root, "diff", "--name-only", "-z", f"{base_ref_full}...HEAD")
-    if code != 0:
+    Selection uses `is_source_path` — the per-path form of the stamp's predicate —
+    so the check and the stamp cannot drift (ignored/SKIP_DIRS source files are
+    excluded from both), and it stays O(diff): only the changed paths are classified
+    and hashed, never the whole tree. A path that no longer exists hashes to None and
+    is skipped, so deletions aren't reported as phantom edits. The diff uses -z so
+    non-ASCII paths aren't quoted/dropped. Never raises (the whole body is guarded);
+    on any git/IO failure it returns no flags — silence beats a false alarm."""
+    try:
+        code, out, _ = run_git(repo_root, "diff", "--name-only", "-z", f"{base_ref_full}...HEAD")
+        if code != 0:
+            return (True, [])
+        changed = [p for p in out.split("\x00") if p]
+        matcher = IgnoreMatcher(repo_root)
+        changed_src = [f for f in changed if is_source_path(repo_root, f, matcher)]
+        if not changed_src:
+            return (True, [])
+        state_path = repo_root / ".archie" / "sync_state.json"
+        state, _ = _parse_json(state_path.read_text()) if state_path.exists() else (None, None)
+        present = isinstance(state, dict) and isinstance(state.get("files"), dict)
+        synced = state["files"] if present else {}
+        unsynced = []
+        for f in changed_src:
+            cur = file_sha1(repo_root / f)
+            if cur is None:
+                continue  # deleted/unreadable — not an unsynced edit
+            if cur != synced.get(f):
+                unsynced.append(f)
+        return (present, unsynced)
+    except Exception as e:
+        print(f"[intent-review] sync advisory skipped ({e})", file=sys.stderr)
         return (True, [])
-    changed = [p for p in out.split("\x00") if p]
-    # current = the stamp's exact file universe (rel posix path -> sha1). Membership
-    # here is the SAME predicate cmd_sync_stamp used, so no extension/ignore drift.
-    current = source_fingerprint(repo_root)
-    changed_src = [f for f in changed if f in current]
-    if not changed_src:
-        return (True, [])
-    state_path = repo_root / ".archie" / "sync_state.json"
-    state, _ = _parse_json(state_path.read_text()) if state_path.exists() else (None, None)
-    present = isinstance(state, dict) and isinstance(state.get("files"), dict)
-    synced = state["files"] if present else {}
-    unsynced = [f for f in changed_src if current[f] != synced.get(f)]
-    return (present, unsynced)
 
 
 def _sync_section(sync_adv) -> str:

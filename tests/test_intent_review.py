@@ -755,3 +755,59 @@ def test_render_comment_model_failed_is_explicit():
     body = ir.render_comment([], True, (True, []), model_failed=True)
     assert body is not None
     assert "could not run" in body.lower() and "manually" in body.lower()
+
+
+def test_sync_advisory_handles_non_ascii_paths(tmp_path):
+    """Regression: a drifted source file with a non-ASCII name must still be flagged.
+    Git quotes such paths by default (core.quotePath); the -z diff recovers the raw
+    path so it isn't silently dropped."""
+    import sync  # noqa: E402
+    root = _init_repo(tmp_path)
+    _git(root, "config", "core.quotePath", "true")
+    (root / "src").mkdir()
+    (root / "src" / "café.kt").write_text("fun c()=1\n")
+    base = _commit_sha(root, "base")
+    sync.cmd_sync_stamp(root)
+    _commit_sha(root, "stamp")
+    (root / "src" / "café.kt").write_text("fun c()=99\n")
+    _commit_sha(root, "drift")
+    present, unsynced = ir.sync_advisory(root, base)
+    # normalization-robust: exactly one flagged, a .kt under src/ (the café file)
+    assert len(unsynced) == 1
+    assert unsynced[0].startswith("src/") and unsynced[0].endswith(".kt")
+
+
+def test_main_posts_sync_advisory_without_blueprint(tmp_path, monkeypatch):
+    """Regression (#7): the advisory must surface even when the branch has NO
+    blueprint — the old code returned before computing it."""
+    import sync  # noqa: E402
+    up = tmp_path / "up"
+    up.mkdir()
+    _init_repo(up)
+    (up / "src").mkdir()
+    (up / "src" / "A.kt").write_text("fun a()=1\n")
+    sync.cmd_sync_stamp(up)                 # stamp records A.kt's base hash (no blueprint)
+    _commit(up, "base")
+    base_sha = _git(up, "rev-parse", "HEAD")
+
+    work = tmp_path / "work"
+    subprocess.run(["git", "clone", "-q", str(up), str(work)], check=True)
+    _git(work, "config", "user.email", "t@t.com")
+    _git(work, "config", "user.name", "T")
+    _git(work, "checkout", "-q", "-b", "feature")
+    (work / "src" / "A.kt").write_text("fun a()=2\n")   # drift, still no blueprint anywhere
+    _commit(work, "drift")
+
+    event = work / "event.json"
+    event.write_text(json.dumps({"pull_request": {"number": 7,
+                                "base": {"ref": "main", "sha": base_sha}}}))
+    captured = {}
+    monkeypatch.setattr(ir, "safe_post_comment",
+                        lambda o, r, n, body, t: captured.update(body=body))
+    for k, v in {"GITHUB_WORKSPACE": str(work), "ANTHROPIC_API_KEY": "sk-x",
+                 "GITHUB_REPOSITORY": "o/r", "GITHUB_BASE_REF": "main",
+                 "GITHUB_EVENT_PATH": str(event), "GITHUB_TOKEN": "tok"}.items():
+        monkeypatch.setenv(k, v)
+
+    assert ir.main() == 0
+    assert "out of sync" in captured.get("body", "")

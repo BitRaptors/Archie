@@ -289,8 +289,15 @@ def check_hook_scripts_mirror(errors: list[str]) -> None:
     if not mirror.is_dir():
         errors.append("npm-package/assets/hook_scripts/ missing")
         return
-    backend_files = {p.relative_to(backend).as_posix() for p in backend.rglob("*") if p.is_file()}
-    mirror_files = {p.relative_to(mirror).as_posix() for p in mirror.rglob("*") if p.is_file()}
+
+    # Ignore OS/editor cruft that the installer never ships, so a stray .DS_Store
+    # (common on macOS) doesn't false-positive the sync check.
+    def _shipped(p) -> bool:
+        return (p.is_file() and p.name != ".DS_Store"
+                and "__pycache__" not in p.parts and p.suffix not in (".pyc", ".tmp"))
+
+    backend_files = {p.relative_to(backend).as_posix() for p in backend.rglob("*") if _shipped(p)}
+    mirror_files = {p.relative_to(mirror).as_posix() for p in mirror.rglob("*") if _shipped(p)}
     for rel in sorted(backend_files - mirror_files):
         errors.append(f"npm-package/assets/hook_scripts/ missing: {rel}")
     for rel in sorted(mirror_files - backend_files):
