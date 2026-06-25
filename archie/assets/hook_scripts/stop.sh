@@ -4,12 +4,25 @@
 # Light cleanup, then nudges the agent to run /archie-sync when there is
 # unrecorded work — blocking signal is exit code 2 on BOTH Claude and Codex.
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+INPUT=$(cat 2>/dev/null || true)   # Stop event envelope (may be empty on some CLIs)
 TURN_HASH=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
 # Avoid leaking per-turn rule injection state if a session ends without the
 # next UserPromptSubmit event clearing it.
 rm -f "/tmp/.archie_turn_$TURN_HASH"
 
 [ ! -f "$PROJECT_ROOT/.archie/blueprint.json" ] && exit 0
+
+# Loop guard: if the agent is ALREADY continuing because of our previous Stop
+# nudge (stop_hook_active is true), do not nudge again — let it stop. Without
+# this, the exit-2 nudge re-fires on every stop attempt until a sync resets
+# churn, which would defeat the "Decline if nothing is worth recording"
+# affordance and risk an indefinite stop loop.
+STOP_ACTIVE=$(printf '%s' "$INPUT" | python3 -c "
+import sys, json
+try: print('1' if json.load(sys.stdin).get('stop_hook_active') else '')
+except Exception: print('')
+" 2>/dev/null || echo "")
+[ -n "$STOP_ACTIVE" ] && exit 0
 
 CHURN=$(python3 "$PROJECT_ROOT/.archie/sync.py" churn-status "$PROJECT_ROOT" 2>/dev/null || echo '{}')
 PLANS=$(python3 "$PROJECT_ROOT/.archie/sync.py" plan-list "$PROJECT_ROOT" 2>/dev/null || echo '{}')

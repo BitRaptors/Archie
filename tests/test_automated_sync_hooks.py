@@ -59,9 +59,9 @@ def test_churn_track_registered_for_both_clis():
     assert _MATCHER_NAME_CODEX["Edit|Write|MultiEdit"] == "^apply_patch$"
 
 
-def _run_stop(root: Path):
+def _run_stop(root: Path, stdin: str = ""):
     return subprocess.run(["bash", str(_HOOKS / "stop.sh")],
-                          input="", text=True, capture_output=True, cwd=str(root))
+                          input=stdin, text=True, capture_output=True, cwd=str(root))
 
 
 def test_stop_nudges_when_churn_crossed(tmp_path):
@@ -79,6 +79,21 @@ def test_stop_silent_when_nothing_pending(tmp_path):
     root = _project(tmp_path)
     result = _run_stop(root)
     assert result.returncode == 0 and result.stderr.strip() == ""
+
+
+def test_stop_loop_guard_when_already_continuing(tmp_path):
+    """Even with churn crossed, a Stop event carrying stop_hook_active=true must
+    NOT re-nudge. Without this guard the exit-2 nudge re-fires on every stop
+    attempt until a sync resets churn — an indefinite loop that also defeats the
+    'Decline if nothing is worth recording' affordance."""
+    root = _project(tmp_path)
+    (root / ".archie" / "config.json").write_text(json.dumps({"churn_threshold_files": 1}))
+    tmp = root / ".archie" / "tmp"
+    tmp.mkdir(parents=True, exist_ok=True)
+    (tmp / "churn.json").write_text(json.dumps({"files": ["a.ts"], "edits": 1, "lines": 5}))
+    result = _run_stop(root, stdin=json.dumps({"stop_hook_active": True}))
+    assert result.returncode == 0
+    assert "/archie-sync" not in result.stderr
 
 
 def test_skill_references_durable_signals():

@@ -275,6 +275,32 @@ def check_install_pkg_mirror(errors: list[str]) -> None:
             errors.append(f"OUT OF SYNC: {src.relative_to(ROOT)} != npm-package/assets/_install_pkg/{rel}")
 
 
+def check_hook_scripts_mirror(errors: list[str]) -> None:
+    """Verify archie/assets/hook_scripts/*.sh are byte-mirrored into
+    npm-package/assets/hook_scripts/ — the source the npx installer copies from.
+    Without this check a new hook script added to the canonical tree silently
+    fails to ship via npm (which is exactly how churn-track.sh was missed)."""
+    backend = ARCHIE_ASSETS / "hook_scripts"
+    mirror = ASSETS / "hook_scripts"
+    if not backend.is_dir():
+        return
+    if not mirror.is_dir():
+        errors.append("npm-package/assets/hook_scripts/ missing")
+        return
+    backend_sh = {p.name for p in backend.glob("*.sh")}
+    mirror_sh = {p.name for p in mirror.glob("*.sh")}
+    for name in sorted(backend_sh - mirror_sh):
+        errors.append(f"npm-package/assets/hook_scripts/ missing: {name}")
+    for name in sorted(mirror_sh - backend_sh):
+        errors.append(f"npm-package/assets/hook_scripts/ has stale file: {name}")
+    for name in sorted(backend_sh & mirror_sh):
+        if (backend / name).read_bytes() != (mirror / name).read_bytes():
+            errors.append(
+                f"OUT OF SYNC: archie/assets/hook_scripts/{name} != "
+                f"npm-package/assets/hook_scripts/{name}"
+            )
+
+
 def main():
     errors = []
 
@@ -318,6 +344,7 @@ def main():
     check_viewer_source_mirror(errors)
     check_archie_asset_mirrors(errors)
     check_install_pkg_mirror(errors)
+    check_hook_scripts_mirror(errors)
 
     # Report
     if errors:
