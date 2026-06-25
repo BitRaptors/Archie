@@ -662,7 +662,7 @@ def test_main_skips_without_secret(monkeypatch):
 # ---------------------------------------------------------------------------
 # sync advisory — "was an /archie-sync made for this PR?"
 # ---------------------------------------------------------------------------
-def _commit(root: Path, msg: str) -> str:
+def _commit_sha(root: Path, msg: str) -> str:
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "-m", msg)
     return _git(root, "rev-parse", "HEAD")
@@ -673,20 +673,20 @@ def test_sync_advisory_synced_then_drift(tmp_path):
     root = _init_repo(tmp_path)
     (root / "src").mkdir()
     (root / "src" / "A.kt").write_text("fun a()=1\n")
-    base = _commit(root, "base")
+    base = _commit_sha(root, "base")
     (root / "src" / "A.kt").write_text("fun a()=2\n")
     (root / "src" / "B.kt").write_text("fun b()=3\n")
-    _commit(root, "work")
+    _commit_sha(root, "work")
 
     # Stamp covering the current code, then the advisory sees a fully-synced PR.
     sync.cmd_sync_stamp(root)
-    _commit(root, "stamp")
+    _commit_sha(root, "stamp")
     present, unsynced = ir.sync_advisory(root, base)
     assert present and unsynced == []
 
     # Drift ONE file without re-stamping — only that file is flagged (content-based).
     (root / "src" / "A.kt").write_text("fun a()=99\n")
-    _commit(root, "drift")
+    _commit_sha(root, "drift")
     present, unsynced = ir.sync_advisory(root, base)
     assert present and unsynced == ["src/A.kt"]
 
@@ -694,6 +694,47 @@ def test_sync_advisory_synced_then_drift(tmp_path):
     (root / ".archie" / "sync_state.json").unlink()
     present, unsynced = ir.sync_advisory(root, base)
     assert not present and set(unsynced) == {"src/A.kt", "src/B.kt"}
+
+
+def test_sync_advisory_excludes_ignored_and_skipdir(tmp_path):
+    """Regression: the check must use the SAME file universe as the stamp. A
+    tracked source file under a SKIP_DIRS dir (vendor/) or a gitignored dir is
+    excluded from the stamp, so it must NOT be flagged unsynced after a sync —
+    otherwise it would fire on every PR forever, unfixable."""
+    import sync  # noqa: E402
+    root = _init_repo(tmp_path)
+    for d in ("src", "vendor", "generated"):
+        (root / d).mkdir()
+    (root / ".gitignore").write_text("generated/\n")
+    (root / "src" / "A.kt").write_text("fun a()=1\n")
+    (root / "vendor" / "lib.go").write_text("package v\n")     # under SKIP_DIRS
+    (root / "generated" / "Gen.kt").write_text("val g=1\n")    # under a gitignored dir
+    _git(root, "add", "-f", "generated/Gen.kt")
+    base = _commit_sha(root, "base")
+    (root / "src" / "A.kt").write_text("fun a()=2\n")
+    (root / "vendor" / "lib.go").write_text("package v2\n")
+    (root / "generated" / "Gen.kt").write_text("val g=2\n")
+    _commit_sha(root, "work")
+    sync.cmd_sync_stamp(root)
+    present, unsynced = ir.sync_advisory(root, base)
+    assert unsynced == []  # vendor/ + generated/ excluded both sides; src/A.kt is covered
+
+
+def test_sync_advisory_skips_deletions(tmp_path):
+    """Regression: a deleted source file must NOT be reported as a 'changed,
+    please re-sync' phantom pointing at a path that no longer exists."""
+    import sync  # noqa: E402
+    root = _init_repo(tmp_path)
+    (root / "src").mkdir()
+    (root / "src" / "A.kt").write_text("fun a()=1\n")
+    (root / "src" / "B.kt").write_text("fun b()=1\n")
+    base = _commit_sha(root, "base")
+    sync.cmd_sync_stamp(root)
+    _commit_sha(root, "stamp")
+    (root / "src" / "B.kt").unlink()
+    _commit_sha(root, "delete B")
+    present, unsynced = ir.sync_advisory(root, base)
+    assert "src/B.kt" not in unsynced
 
 
 def test_sync_section_and_render():
@@ -706,3 +747,11 @@ def test_sync_section_and_render():
     assert body is not None and "out of sync" in body
     # ...and nothing when there's neither an intent review nor an advisory.
     assert ir.render_comment([], False, (True, [])) is None
+
+
+def test_render_comment_model_failed_is_explicit():
+    """Regression (#6): a model failure on a real blueprint diff must NOT
+    masquerade as a clean review — it renders an explicit 'could not run' notice."""
+    body = ir.render_comment([], True, (True, []), model_failed=True)
+    assert body is not None
+    assert "could not run" in body.lower() and "manually" in body.lower()

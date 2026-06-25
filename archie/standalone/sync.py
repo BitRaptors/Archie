@@ -900,24 +900,35 @@ def cmd_sync_stamp(root: Path) -> int:
     moved on without a re-sync. Content-hashed (not commit-pinned), so it survives
     rebases/squashes and works whether the synced changes were committed or not."""
     import datetime
+    import os
     script_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(script_dir))
     try:
         from _common import source_fingerprint  # noqa: E402
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"cannot load _common: {e}"}))
-        return 0
-    files = source_fingerprint(root)
-    state = {
-        "version": 1,
-        "synced_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "head": _git(root, "rev-parse", "HEAD") or None,
-        "files": files,
-    }
-    archie = root / ".archie"
-    archie.mkdir(parents=True, exist_ok=True)
-    (archie / "sync_state.json").write_text(json.dumps(state, indent=2) + "\n")
-    print(json.dumps({"ok": True, "stamped": len(files)}))
+        return 1  # signal failure — a silently-skipped stamp must not look like success
+    try:
+        files = source_fingerprint(root)
+        state = {
+            "version": 1,
+            "synced_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "head": _git(root, "rev-parse", "HEAD") or None,  # forensic only; the check is content-based
+            "files": files,
+        }
+        archie = root / ".archie"
+        archie.mkdir(parents=True, exist_ok=True)
+        # Atomic write: a crash mid-write must not leave a malformed COMMITTED marker.
+        # sort_keys so an unchanged tree serializes identically (no os.walk-order churn).
+        target = archie / "sync_state.json"
+        tmp = archie / "sync_state.json.tmp"
+        tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+        os.replace(str(tmp), str(target))
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"stamp failed: {e}"}))
+        return 1
+    warn = " (no source files fingerprinted — check .archieignore/SKIP_DIRS)" if not files else ""
+    print(json.dumps({"ok": True, "stamped": len(files), "warning": warn.strip() or None}))
     return 0
 
 

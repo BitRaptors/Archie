@@ -276,10 +276,12 @@ def check_install_pkg_mirror(errors: list[str]) -> None:
 
 
 def check_hook_scripts_mirror(errors: list[str]) -> None:
-    """Verify archie/assets/hook_scripts/*.sh are byte-mirrored into
+    """Verify archie/assets/hook_scripts/ is byte-mirrored into
     npm-package/assets/hook_scripts/ — the source the npx installer copies from.
-    Without this check a new hook script added to the canonical tree silently
-    fails to ship via npm (which is exactly how churn-track.sh was missed)."""
+    Without this check a new hook script added to the canonical tree silently fails
+    to ship via npm (which is exactly how churn-track.sh was missed). The installer
+    copies the WHOLE subtree (cpDirSync), so check every file + subdir, not just
+    top-level *.sh — matching the workflows/ sibling check."""
     backend = ARCHIE_ASSETS / "hook_scripts"
     mirror = ASSETS / "hook_scripts"
     if not backend.is_dir():
@@ -287,17 +289,17 @@ def check_hook_scripts_mirror(errors: list[str]) -> None:
     if not mirror.is_dir():
         errors.append("npm-package/assets/hook_scripts/ missing")
         return
-    backend_sh = {p.name for p in backend.glob("*.sh")}
-    mirror_sh = {p.name for p in mirror.glob("*.sh")}
-    for name in sorted(backend_sh - mirror_sh):
-        errors.append(f"npm-package/assets/hook_scripts/ missing: {name}")
-    for name in sorted(mirror_sh - backend_sh):
-        errors.append(f"npm-package/assets/hook_scripts/ has stale file: {name}")
-    for name in sorted(backend_sh & mirror_sh):
-        if (backend / name).read_bytes() != (mirror / name).read_bytes():
+    backend_files = {p.relative_to(backend).as_posix() for p in backend.rglob("*") if p.is_file()}
+    mirror_files = {p.relative_to(mirror).as_posix() for p in mirror.rglob("*") if p.is_file()}
+    for rel in sorted(backend_files - mirror_files):
+        errors.append(f"npm-package/assets/hook_scripts/ missing: {rel}")
+    for rel in sorted(mirror_files - backend_files):
+        errors.append(f"npm-package/assets/hook_scripts/ has stale file: {rel}")
+    for rel in sorted(backend_files & mirror_files):
+        if (backend / rel).read_bytes() != (mirror / rel).read_bytes():
             errors.append(
-                f"OUT OF SYNC: archie/assets/hook_scripts/{name} != "
-                f"npm-package/assets/hook_scripts/{name}"
+                f"OUT OF SYNC: archie/assets/hook_scripts/{rel} != "
+                f"npm-package/assets/hook_scripts/{rel}"
             )
 
 

@@ -33,7 +33,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import SOURCE_EXTENSIONS, file_sha1  # noqa: E402
+from _common import source_fingerprint  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # constants
@@ -735,24 +735,28 @@ def sync_advisory(repo_root: Path, base_ref_full: str):
     content differs from the last recorded /archie-sync. Content-based, so it is
     immune to commit timing / rebases / squashes. No `.archie/sync_state.json` ->
     every changed source file counts as unsynced. Never raises; on any git failure
-    it returns no flags (silence beats a false alarm)."""
-    code, out, _ = run_git(repo_root, "diff", "--name-only", f"{base_ref_full}...HEAD")
+    it returns no flags (silence beats a false alarm).
+
+    The candidate set is the SAME `source_fingerprint` universe the stamp records,
+    so the two cannot drift: a changed path is only considered if it is a tracked,
+    non-ignored, non-SKIP_DIRS source file that still exists on disk. That single
+    intersection also drops deletions (gone from the universe) for free. The diff
+    uses -z so non-ASCII paths aren't quoted/dropped."""
+    code, out, _ = run_git(repo_root, "diff", "--name-only", "-z", f"{base_ref_full}...HEAD")
     if code != 0:
         return (True, [])
-    changed_src = [ln.strip() for ln in out.splitlines()
-                   if ln.strip() and Path(ln.strip()).suffix.lower() in SOURCE_EXTENSIONS]
+    changed = [p for p in out.split("\x00") if p]
+    # current = the stamp's exact file universe (rel posix path -> sha1). Membership
+    # here is the SAME predicate cmd_sync_stamp used, so no extension/ignore drift.
+    current = source_fingerprint(repo_root)
+    changed_src = [f for f in changed if f in current]
     if not changed_src:
         return (True, [])
     state_path = repo_root / ".archie" / "sync_state.json"
     state, _ = _parse_json(state_path.read_text()) if state_path.exists() else (None, None)
     present = isinstance(state, dict) and isinstance(state.get("files"), dict)
     synced = state["files"] if present else {}
-    unsynced = []
-    for f in changed_src:
-        p = repo_root / f
-        cur = file_sha1(p) if p.exists() else None
-        if cur != synced.get(f):
-            unsynced.append(f)
+    unsynced = [f for f in changed_src if current[f] != synced.get(f)]
     return (present, unsynced)
 
 
@@ -772,16 +776,25 @@ def _sync_section(sync_adv) -> str:
     return f"{title}\n\n{lead}\n\n{listed}{more}\n\n_Advisory — does not block merge._"
 
 
-def render_comment(findings: list, show_intent: bool, sync_adv):
+def render_comment(findings: list, had_diff: bool, sync_adv, model_failed: bool = False):
     """Markdown body combining the intent review (when the blueprint changed) and
-    the sync advisory (when code changed without a re-sync). None -> post nothing."""
+    the sync advisory (when code changed without a re-sync). None -> post nothing.
+
+    When `had_diff` is True the review section ALWAYS renders — as findings, a
+    clean-consistent note, or (if `model_failed`) an explicit "could not run"
+    notice. It is never silently dropped, so a model failure can't masquerade as a
+    clean review, and a later run can't quietly erase a prior review's context."""
     sync_section = _sync_section(sync_adv)
-    if not show_intent and not sync_section:
+    if not had_diff and not sync_section:
         return None
 
     lines = [COMMENT_MARKER, "## 📐 Archie Intent Review", ""]
-    if show_intent:
-        if not findings:
+    if had_diff:
+        if model_failed:
+            lines.append("⚠️ **Intent review could not run** — the model call failed. The "
+                         "blueprint changed in this PR but was **not** judged; re-run the "
+                         "check or review the source-of-truth changes manually.")
+        elif not findings:
             lines.append("No findings — the blueprint changes in this PR are consistent "
                          "with the retained rules.")
         else:
@@ -813,7 +826,7 @@ def render_comment(findings: list, show_intent: bool, sync_adv):
         lines.append(sync_section)
 
     lines.append("")
-    if show_intent:
+    if had_diff and not model_failed and findings:
         lines.append("*Archie surfaces; it doesn't block. Whether a change means \"fix the "
                      "code\" or \"evolve the rule\" is your call — merge accepts the blueprint "
                      "changes above as the new baseline.*")
@@ -947,17 +960,33 @@ def main(argv=None) -> int:
     # origin/<base> only if the payload lacked a sha. No `git fetch` is required.
     base_ref_full = base_sha or f"origin/{base_ref}"
 
+    # Sync advisory — computed FIRST and independently of the blueprint, so it still
+    # surfaces when the branch blueprint is absent or malformed (exactly when a "you
+    # never synced" nudge matters most). It needs no blueprint; on git failure it
+    # returns nothing.
+    sync_adv = sync_advisory(repo_root, base_ref_full)
+
     # 2. Load branch + base versions of the source of truth.
     b_exists, branch_bp, b_err = load_branch_file(repo_root, ".archie/blueprint.json")
     if b_exists and branch_bp is None:
-        # branch blueprint is malformed — surface, don't crash.
-        safe_post_comment(owner, repo, pr_number,
-                          f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
-                          f"Could not parse `.archie/blueprint.json` on this branch "
-                          f"({b_err}). Manual review needed.", token)
+        # branch blueprint is malformed — surface (with the sync advisory), don't crash.
+        body = (f"{COMMENT_MARKER}\n## 📐 Archie Intent Review\n\n"
+                f"Could not parse `.archie/blueprint.json` on this branch ({b_err}). "
+                f"Manual review needed.")
+        sec = _sync_section(sync_adv)
+        if sec:
+            body += "\n\n" + sec
+        safe_post_comment(owner, repo, pr_number, body, token)
         return 0
     if not b_exists:
-        print("[intent-review] no .archie/blueprint.json on branch — nothing to review.", file=sys.stderr)
+        # No blueprint to review — but still nudge if source drifted without a sync.
+        body = render_comment([], False, sync_adv)
+        if body is None:
+            print("[intent-review] no .archie/blueprint.json on branch — nothing to review.", file=sys.stderr)
+        elif token:
+            safe_post_comment(owner, repo, pr_number, body, token)
+        else:
+            print("[intent-review] no GITHUB_TOKEN — printing body:\n" + body)
         return 0
 
     base_exists, base_bp, base_err = fetch_base_file(repo_root, base_ref_full, ".archie/blueprint.json")
@@ -984,32 +1013,28 @@ def main(argv=None) -> int:
 
     claims = glob_ledger(repo_root, base_ref_full)
 
-    # Sync advisory — computed INDEPENDENTLY of the blueprint diff. It fires when
-    # code changed without a re-sync (or none was ever recorded), which is exactly
-    # the case the blueprint-diff path below would otherwise skip silently.
-    sync_adv = sync_advisory(repo_root, base_ref_full)
-
     # 3. Deterministic diff -> changed items.
     changed_items = build_changed_items(base_bp, branch_bp, base_rules, branch_rules, claims)
     had_diff = bool(changed_items)
 
     # 4. Judge with one model call — only when the source of truth actually moved.
-    findings, show_intent = [], False
+    findings, model_failed = [], False
     if had_diff:
         retained = retained_rules(base_rules, changed_items)
         system, user = build_prompt(changed_items, retained, claims)
         try:
             model_findings = call_anthropic(system, user, api_key)
             findings = finalize_findings(model_findings, changed_items, claims)
-            show_intent = True
         except RuntimeError as e:
-            # Never block — but still fall through to post the sync advisory if any.
+            # Never block — but render an explicit "could not run" notice (the
+            # blueprint DID change) instead of a silent clean-looking review.
             print(f"[intent-review] model call failed: {e}", file=sys.stderr)
+            model_failed = True
     else:
         print("[intent-review] no source-of-truth changes detected.", file=sys.stderr)
 
     # 5. Render + upsert — posts if EITHER the review or the sync advisory has content.
-    body = render_comment(findings, show_intent, sync_adv)
+    body = render_comment(findings, had_diff, sync_adv, model_failed)
     if body is None:
         print("[intent-review] nothing to surface — posting nothing.", file=sys.stderr)
         return 0
