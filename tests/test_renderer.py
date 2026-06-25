@@ -28,7 +28,7 @@ def test_render_outputs_creates_agents_md_canonical(tmp_path: Path) -> None:
 
     AGENTS.md is the vendor-neutral standard read by Cursor, Codex, Aider,
     Continue, Cline, Cody, and Claude Code itself, so it carries the rich
-    body. CLAUDE.md is a static pointer (covered separately).
+    body. CLAUDE.md carries a short pointer section (covered separately).
     """
     render_outputs(MINIMAL_BLUEPRINT, tmp_path)
     agents_md = tmp_path / "AGENTS.md"
@@ -38,10 +38,12 @@ def test_render_outputs_creates_agents_md_canonical(tmp_path: Path) -> None:
 
 
 def test_render_outputs_creates_claude_md_pointer(tmp_path: Path) -> None:
-    """CLAUDE.md is a static pointer to AGENTS.md, not a duplicate body.
+    """CLAUDE.md carries a pointer section to AGENTS.md, not a duplicate body.
 
     Claude Code auto-loads CLAUDE.md; the pointer tells the session where
-    the canonical context lives without paying duplicate tokens.
+    the canonical context lives without paying duplicate tokens. On a fresh
+    project the section is wrapped in Archie's merge markers so later renders
+    refresh only that block.
     """
     render_outputs(MINIMAL_BLUEPRINT, tmp_path)
     claude_md = tmp_path / "CLAUDE.md"
@@ -49,6 +51,32 @@ def test_render_outputs_creates_claude_md_pointer(tmp_path: Path) -> None:
     content = claude_md.read_text()
     assert "AGENTS.md" in content, "pointer must reference AGENTS.md"
     assert "test-repo" not in content, "pointer must not duplicate canonical body"
+    assert "<!-- archie:generated:start -->" in content, "pointer must be merge-wrapped"
+
+
+def test_render_outputs_preserves_hand_authored_claude_md(tmp_path: Path) -> None:
+    """A project's existing root CLAUDE.md must survive a render.
+
+    Regression: CLAUDE.md used to be a full-overwrite pointer, which wiped
+    hand-written root guidance on every render. It is now mergeable — Archie
+    appends its pointer section inside markers and preserves everything else.
+    """
+    sentinel = "# My Project\n\n## House rules\n\nNever force-push to main.\n"
+    (tmp_path / "CLAUDE.md").write_text(sentinel)
+
+    render_outputs(MINIMAL_BLUEPRINT, tmp_path)
+
+    content = (tmp_path / "CLAUDE.md").read_text()
+    assert "Never force-push to main." in content, "hand-authored body was overwritten"
+    assert "AGENTS.md" in content, "pointer section must still be present"
+    # Pointer section is appended below the user's content, inside markers.
+    assert content.index("Never force-push") < content.index("<!-- archie:generated:start -->")
+
+    # Idempotent: a second render refreshes only the block, no duplication.
+    render_outputs(MINIMAL_BLUEPRINT, tmp_path)
+    content2 = (tmp_path / "CLAUDE.md").read_text()
+    assert content2.count("Never force-push to main.") == 1
+    assert content2.count("<!-- archie:generated:start -->") == 1
 
 
 def test_render_outputs_creates_rules(tmp_path: Path) -> None:

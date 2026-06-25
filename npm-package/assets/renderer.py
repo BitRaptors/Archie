@@ -58,12 +58,15 @@ def _cap(seq, n):
 # user doesn't edit them.
 #
 # AGENTS.md is canonical (vendor-neutral standard read by Cursor, Codex,
-# Aider, Continue, Cline, Cody, and Claude Code itself). CLAUDE.md is a
-# thin pointer to AGENTS.md — full-overwrite, never mergeable, so it can
-# never drift from the source of truth. Per-folder context still uses
+# Aider, Continue, Cline, Cody, and Claude Code itself). The root CLAUDE.md
+# is a thin pointer section that redirects there. BOTH are mergeable: Archie
+# owns only the block between its markers and preserves any hand-authored
+# content outside it, so a project's pre-existing root CLAUDE.md/AGENTS.md is
+# never clobbered (CLAUDE.md used to be a full-overwrite pointer, which wiped
+# hand-written root guidance on every render). Per-folder context still uses
 # CLAUDE.md (intent_layer.py) since nested context is dominantly a Claude
 # Code idiom and other tools rarely act on it.
-MERGEABLE_FILES = frozenset({"AGENTS.md"})
+MERGEABLE_FILES = frozenset({"AGENTS.md", "CLAUDE.md"})
 
 
 def _wrap_with_markers(content: str) -> str:
@@ -1793,9 +1796,10 @@ def _generate_agent_body(bp: dict, *, h1: str) -> str:
 #   - serve_command   → renders CLAUDE.md content for the viewer tab
 #   - external tests / tooling
 #
-# CLAUDE.md on disk is NOT this body — it's a static pointer (see
-# _CLAUDE_POINTER below). The viewer still calls generate_claude_md() to
-# preview the rich markdown; that's a display concern, not a write target.
+# CLAUDE.md on disk is NOT this body — it's a short pointer section (see
+# _CLAUDE_POINTER below) merged into the root CLAUDE.md. The viewer still
+# calls generate_claude_md() to preview the rich markdown; that's a display
+# concern, not a write target.
 # ---------------------------------------------------------------------------
 
 def generate_agents_md(bp: dict) -> str:
@@ -1814,24 +1818,23 @@ def generate_claude_md(bp: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# CLAUDE.md (on-disk pointer)
+# CLAUDE.md (on-disk pointer section)
 #
 # AGENTS.md is the vendor-neutral standard read by Cursor, Codex, Aider,
 # Continue, Cline, Cody, and Claude Code itself. It carries the canonical
-# blueprint-derived guidance. CLAUDE.md on disk redirects there so any
-# Claude Code session that auto-loads CLAUDE.md is told where the truth
-# lives in one short line — no duplication, no drift.
+# blueprint-derived guidance. The root CLAUDE.md redirects there so any
+# Claude Code session that auto-loads CLAUDE.md is told where the truth lives.
+#
+# This is the *generated section* that render_mergeable() drops between
+# Archie's markers in the root CLAUDE.md. It carries NO top-level H1 because
+# it is appended after whatever hand-authored body the project already has —
+# a second `# ...` H1 would be wrong. render_mergeable() preserves that body
+# and refreshes only this marked block.
 # ---------------------------------------------------------------------------
 
-_CLAUDE_POINTER = """# CLAUDE.md
+_CLAUDE_POINTER = """## Archie Architecture Context
 
-This project's canonical agent context lives in **[AGENTS.md](./AGENTS.md)**.
-
-`AGENTS.md` is the vendor-neutral standard (Cursor, Codex, Aider, Continue,
-Cline, Cody — and Claude Code itself read it). Treat it as the source of
-truth for architecture, patterns, commands, and enforcement rules.
-Per-folder context still lives in nested `CLAUDE.md` files (Archie's
-intent layer) and applies to any agent regardless of vendor.
+Archie-generated, vendor-neutral architecture guidance lives in **[AGENTS.md](./AGENTS.md)** — full architecture, components, data models, product laws, and enforcement rules. Per-folder `CLAUDE.md` files (Archie's intent layer) carry folder-local context. The project operating rules above remain authoritative for process and safety.
 """
 
 
@@ -2346,9 +2349,9 @@ def generate_all(bp: dict, enforcement_rules: list[dict] | None = None) -> dict:
 
     # AGENTS.md is the canonical, blueprint-derived doc (vendor-neutral
     # standard read by Cursor, Codex, Aider, Continue, Cline, Cody, and
-    # Claude Code). CLAUDE.md is a static pointer (full-overwrite, not
-    # mergeable) so any Claude Code session is told where the truth lives
-    # without paying duplicate tokens.
+    # Claude Code). CLAUDE.md carries a short pointer section to it. Both are
+    # mergeable (see MERGEABLE_FILES) — render_mergeable preserves any
+    # hand-authored content outside Archie's markers.
     files = {
         "AGENTS.md": generate_agents_md(bp),
         "CLAUDE.md": _CLAUDE_POINTER,
