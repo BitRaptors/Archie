@@ -71,27 +71,27 @@ def _read_json(path: Path, default):
 
 
 def read_link_file(repo: Path) -> dict | None:
-    path = repo / LINK_FILENAME
+    path = Path(repo) / LINK_FILENAME
     if not path.exists():
         return None
     return _read_json(path, None)
 
 
 def write_link_file(repo: Path, data: dict) -> None:
-    _atomic_write(repo / LINK_FILENAME, data)
+    _atomic_write(Path(repo) / LINK_FILENAME, data)
 
 
 def read_exposure(store: Path) -> dict:
-    return _read_json(store / "exposure.json", DEFAULT_EXPOSURE)
+    return _read_json(Path(store) / "exposure.json", DEFAULT_EXPOSURE)
 
 
 def write_exposure(store: Path, data: dict) -> None:
-    _atomic_write(store / "exposure.json", data)
+    _atomic_write(Path(store) / "exposure.json", data)
 
 
 def read_placements(store: Path) -> list:
-    return _read_json(store / "placements.json", [])
+    return _read_json(Path(store) / "placements.json", [])
 
 
 def write_placements(store: Path, items: list) -> None:
-    _atomic_write(store / "placements.json", items)
+    _atomic_write(Path(store) / "placements.json", items)
