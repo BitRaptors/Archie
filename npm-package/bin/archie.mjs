@@ -124,10 +124,12 @@ Installs Archie tooling into the project at <path> (default: current directory).
   --target=<spec>            Skip the interactive prompt and install for the given targets.
                              Values: auto | all | claude | codex | comma-separated subset
                              Default (interactive default + non-TTY fallback): all
-  --detached                 Store generated artifacts in an external folder
-                             (~/.archie) and surface them via symlinks, keeping
-                             the working tree clean. Only .archie-link.json is
-                             committed. Default: repo mode (artifacts in-tree).
+  --detached                 Skip the prompt and enable detached mode: store
+                             generated artifacts in an external folder (~/.archie)
+                             and surface them via symlinks, keeping the working
+                             tree clean (only .archie-link.json is committed).
+                             Experimental. Without this flag an interactive
+                             install asks (default: No / repo mode).
   --commands-dir <dir>       Legacy Claude-only override. Multi-CLI installs ignore it.
   -h, --help                 Show this help.`;
 
@@ -282,6 +284,62 @@ async function chooseTargets() {
     return "auto";
   }
   return chosen.join(",");
+}
+
+// Single y/N confirm on raw-mode stdin. Default = No (anything but y/Y).
+async function confirmPrompt(label) {
+  stdout.write(`  ${BOLD}${label}${RESET} ${DIM}[y/N]${RESET} `);
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding("utf8");
+  return new Promise((res) => {
+    const onData = (chunk) => {
+      const c = chunk.toString("utf8")[0];
+      const finish = (val) => {
+        stdin.setRawMode(false);
+        stdin.pause();
+        stdin.removeListener("data", onData);
+        stdout.write(`${val ? "yes" : "no"}\n`);
+        res(val);
+      };
+      if (c === "\x03") { // Ctrl+C
+        stdin.setRawMode(false);
+        stdin.pause();
+        stdout.write("\n");
+        process.exit(130);
+      } else if (c === "y" || c === "Y") {
+        finish(true);
+      } else {
+        finish(false); // n / Enter / anything else → default No
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+// Decide whether to enable detached storage mode. Default OFF.
+async function chooseDetached() {
+  if (detachedMode) return true;                         // explicit --detached
+  if (!stdin.isTTY || !stdout.isTTY) return false;       // non-TTY → default off
+
+  console.log("");
+  console.log(`  ${BOLD}Artifact storage${RESET}  ${DIM}(experimental)${RESET}`);
+  console.log(`  ${DIM}Default: Archie writes its generated files into your repo${RESET}`);
+  console.log(`  ${DIM}(CLAUDE.md blocks, .claude/rules/, per-folder CLAUDE.md, .archie/).${RESET}`);
+  console.log("");
+  console.log(`  ${BOLD}Detached mode${RESET} keeps them OUT of the working tree instead:`);
+  console.log(`    ${GREEN}•${RESET} artifacts live in an external store (${CYAN}~/.archie${RESET}) and are`);
+  console.log(`      symlinked back in — your tree & diffs stay clean (only`);
+  console.log(`      ${CYAN}.archie-link.json${RESET} is committed).`);
+  console.log(`    ${GREEN}•${RESET} the viewer gains an ${BOLD}Exposure${RESET} tab to toggle, per file,`);
+  console.log(`      what the agent can see (per-folder context + blueprint docs).`);
+  console.log(`    ${GREEN}•${RESET} fully reversible — ${DIM}python3 .archie/linker.py detach .${RESET}`);
+  console.log(`      copies everything back as real files.`);
+  console.log("");
+  console.log(`  ${DIM}Not sure? Choose No. You can enable it later by re-running with${RESET}`);
+  console.log(`  ${DIM}--detached, or ${RESET}${DIM}python3 .archie/linker.py attach .${RESET} ${DIM}on this install.${RESET}`);
+  console.log("");
+  return await confirmPrompt("Enable detached mode?");
 }
 
 const projectRoot = resolve(projectRootArg);
@@ -456,6 +514,7 @@ let shimFailureReason = "";
 
 if (hasPython) {
   const targetValue = await chooseTargets();
+  detachedMode = await chooseDetached();
   const env = {
     ...process.env,
     ARCHIE_ASSETS_ROOT: ASSETS,
