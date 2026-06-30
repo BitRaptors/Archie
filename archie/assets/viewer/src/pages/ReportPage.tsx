@@ -21,7 +21,7 @@ import { countSemanticDuplications, extractFindings, normalizeStructuredFinding,
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
-export type LocalTab = 'report' | 'files'
+export type LocalTab = 'report' | 'files' | 'exposure'
 
 interface LocalSubNavItem {
   id: string
@@ -441,6 +441,7 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                 {[
                   { id: 'report' as LocalTab, label: 'Blueprint', icon: Layout },
                   { id: 'files' as LocalTab, label: 'Files', icon: FileText },
+                  { id: 'exposure' as LocalTab, label: 'Exposure', icon: Shield },
                 ].map((tab) => {
                   const isActive = localView.tab === tab.id
                   const Icon = tab.icon

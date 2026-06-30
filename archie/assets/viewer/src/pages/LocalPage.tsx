@@ -7,8 +7,9 @@ import Toast from '@/components/local/Toast'
 
 const GeneratedFilesBrowser = lazy(() => import('@/components/local/GeneratedFilesBrowser'))
 const FolderClaudeMdsBrowser = lazy(() => import('@/components/local/FolderClaudeMdsBrowser'))
+const ExposurePanel = lazy(() => import('@/components/local/ExposurePanel'))
 
-type Tab = 'report' | 'files'
+type Tab = 'report' | 'files' | 'exposure'
 type FilesView = 'folders' | 'generated'
 
 export default function LocalPage() {
@@ -140,41 +141,50 @@ export default function LocalPage() {
       </Suspense>
     )
 
-  const localViewProp =
-    tab === 'report'
-      ? {
-          tab,
-          setTab,
-          title: 'Blueprint',
-        }
-      : {
-          tab,
-          setTab,
-          title: 'Files',
-          subNav: [
-            {
-              id: 'folders',
-              label: 'Folder Context',
-              icon: Database,
-              active: filesView === 'folders',
-              onClick: () => setFilesView('folders'),
-            },
-            {
-              id: 'generated',
-              label: 'Generated Files',
-              icon: FileText,
-              active: filesView === 'generated',
-              onClick: () => setFilesView('generated'),
-            },
-          ],
-        }
+  const exposureContent = (
+    <Suspense fallback={<div className="p-12 text-ink/60">Loading…</div>}>
+      <ExposurePanel />
+    </Suspense>
+  )
+
+  let localViewProp
+  if (tab === 'report') {
+    localViewProp = { tab, setTab, title: 'Blueprint' }
+  } else if (tab === 'exposure') {
+    localViewProp = { tab, setTab, title: 'Exposure' }
+  } else {
+    localViewProp = {
+      tab,
+      setTab,
+      title: 'Files',
+      subNav: [
+        {
+          id: 'folders',
+          label: 'Folder Context',
+          icon: Database,
+          active: filesView === 'folders',
+          onClick: () => setFilesView('folders'),
+        },
+        {
+          id: 'generated',
+          label: 'Generated Files',
+          icon: FileText,
+          active: filesView === 'generated',
+          onClick: () => setFilesView('generated'),
+        },
+      ],
+    }
+  }
+
+  const mainContent =
+    tab === 'files' ? filesContent : tab === 'exposure' ? exposureContent : null
 
   return (
     <LocalEditContext.Provider value={ctx}>
       <ReportPage
         bundle={bundle}
         localView={localViewProp}
-        mainContent={tab === 'files' ? filesContent : null}
+        mainContent={mainContent}
       />
       <Toast message={toast} onDismiss={() => setToast(null)} />
     </LocalEditContext.Provider>

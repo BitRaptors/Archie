@@ -182,3 +182,19 @@ def test_attach_round_trips_existing_artifacts(repo):
     assert link_store.read_link_file(repo)["mode"] == "detached"
     assert (repo / ".archie" / "blueprint.json").read_text() == '{"k":2}'
     assert (repo / "pkg" / "CLAUDE.md").read_text() == "# pkg\n"
+
+
+def test_bind_absorbs_existing_archie_tooling(repo):
+    # Simulate the npm installer: scripts already copied into .archie/ before bind.
+    (repo / ".archie").mkdir()
+    (repo / ".archie" / "linker.py").write_text("# tooling")
+    (repo / ".archie" / "platform_rules.json").write_text("{}")
+
+    linker.bind(repo)
+
+    # The tooling survives and is reachable through the symlink.
+    assert (repo / ".archie" / "linker.py").read_text() == "# tooling"
+    assert (repo / ".archie" / "platform_rules.json").read_text() == "{}"
+    pid = link_store.read_link_file(repo)["project_id"]
+    store = link_store.project_store(pid)
+    assert (store / "artifacts" / ".archie" / "linker.py").read_text() == "# tooling"
