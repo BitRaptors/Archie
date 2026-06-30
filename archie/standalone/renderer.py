@@ -2493,15 +2493,21 @@ def main():
         print(f"  Removed stale {rel_path}")
 
     # Detached mode: gate the blueprint markdown per file by externalizing each
-    # .claude/rules/*.md into the store and linking it back. No-op in repo mode.
+    # .claude/rules/*.md into the store and linking it back, then pruning any
+    # docs this render no longer produces (so stale docs can't resurrect via
+    # reconcile/detach). No-op in repo mode.
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import linker as _linker
         moved = _linker.externalize_tree(project_root, ".claude/rules")
+        keep = [r for r in files if r.replace("\\", "/").startswith(".claude/rules/")]
+        pruned = _linker.prune_blueprint(project_root, keep)
         if moved:
             print(f"  Detached: externalized {len(moved)} rule file(s) to the store")
-    except Exception:
-        pass
+        if pruned:
+            print(f"  Detached: pruned {len(pruned)} stale rule file(s) from the store")
+    except Exception as e:
+        print(f"  Detached: externalize/prune skipped ({e})", file=sys.stderr)
 
     print(f"\nDone: {len(files)} files generated in {project_root}")
 

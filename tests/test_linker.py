@@ -54,11 +54,93 @@ def test_bind_only_infra_placement_initially(repo):
     assert placements[0]["category"] == "infrastructure"
 
 
-def test_bind_preserves_handwritten_claude_md_and_adds_pointer(repo):
+def test_bind_does_not_touch_claude_md(repo):
+    before = (repo / "CLAUDE.md").read_text()
     linker.bind(repo)
-    text = (repo / "CLAUDE.md").read_text()
-    assert "Hand-written guidance." in text
-    assert "archie:detached" in text
+    after = (repo / "CLAUDE.md").read_text()
+    assert after == before  # no inert @import pointer appended
+    assert "Hand-written guidance." in after
+
+
+def test_rebind_preserves_placements(repo):
+    linker.bind(repo)
+    (repo / ".claude" / "rules").mkdir(parents=True)
+    (repo / ".claude" / "rules" / "tech.md").write_text("# tech\n")
+    linker.externalize_tree(repo, ".claude/rules")
+    (repo / "src").mkdir()
+    (repo / "src" / "CLAUDE.md").write_text("# src\n")
+    linker.externalize_folder_file(repo, "src/CLAUDE.md")
+
+    before = {p["path"] for p in link_store.read_placements(_store(repo))}
+    assert {".archie", ".claude/rules/tech.md", "src/CLAUDE.md"} <= before
+
+    # Re-bind (what `npx --detached` does on reinstall) must NOT orphan links.
+    linker.bind(repo)
+    after = {p["path"] for p in link_store.read_placements(_store(repo))}
+    assert before == after
+    # and the links are still managed/toggleable
+    st = linker.status(repo)
+    assert any(p["path"] == "src/CLAUDE.md" for p in st["placements"])
+
+
+def test_prune_blueprint_removes_stale_keeps_produced(repo):
+    linker.bind(repo)
+    rules = repo / ".claude" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "keep.md").write_text("# keep\n")
+    (rules / "stale.md").write_text("# stale\n")
+    linker.externalize_tree(repo, ".claude/rules")
+    store = _store(repo)
+
+    # A later render produces only keep.md; cleanup removed the stale tree link.
+    (rules / "stale.md").unlink()
+    removed = linker.prune_blueprint(repo, [".claude/rules/keep.md"])
+    assert removed == [".claude/rules/stale.md"]
+
+    # stale gone from store + placements; a reconcile cannot resurrect it
+    assert not (store / "artifacts" / ".claude" / "rules" / "stale.md").exists()
+    paths = {p["path"] for p in link_store.read_placements(store)}
+    assert ".claude/rules/stale.md" not in paths
+    assert ".claude/rules/keep.md" in paths
+    linker.reconcile(repo)
+    assert not (repo / ".claude" / "rules" / "stale.md").exists()
+
+
+def test_prune_keeps_hidden_file_still_in_render_set(repo):
+    linker.bind(repo)
+    rules = repo / ".claude" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "tech.md").write_text("# tech\n")
+    linker.externalize_tree(repo, ".claude/rules")
+    store = _store(repo)
+
+    # User hides it (tree link gone) but the renderer STILL produces it.
+    exp = link_store.read_exposure(store)
+    exp["overrides"][".claude/rules/tech.md"] = False
+    link_store.write_exposure(store, exp)
+    linker.reconcile(repo)
+    assert not (repo / ".claude" / "rules" / "tech.md").exists()
+
+    # prune with it still in the render set must NOT remove it.
+    linker.prune_blueprint(repo, [".claude/rules/tech.md"])
+    assert (store / "artifacts" / ".claude" / "rules" / "tech.md").exists()
+    paths = {p["path"] for p in link_store.read_placements(store)}
+    assert ".claude/rules/tech.md" in paths
+
+
+def test_reconcile_tolerates_old_shape_placement(repo):
+    linker.bind(repo)
+    store = _store(repo)
+    (store / "artifacts" / ".claude" / "rules" / "legacy.md").write_text("# legacy\n")
+    # Simulate a placement written by an older build (no "target" field).
+    placements = link_store.read_placements(store)
+    placements.append({"path": ".claude/rules/legacy.md", "kind": "file",
+                       "strategy": "symlink", "category": "blueprint"})
+    link_store.write_placements(store, placements)
+    # Must not raise KeyError on the missing "target".
+    result = linker.reconcile(repo)
+    assert ".claude/rules/legacy.md" in result["exposed"]
+    assert (repo / ".claude" / "rules" / "legacy.md").read_text() == "# legacy\n"
 
 
 def test_bind_adds_gitignore_entries(repo):

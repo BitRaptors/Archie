@@ -38,7 +38,10 @@ INFRASTRUCTURE_PATHS = {INFRA_LINK}
 # Directory swept for per-file blueprint markdown.
 RULES_DIR = ".claude/rules"
 
-IMPORT_LINE = "@.claude/rules/  <!-- archie:detached -->"
+# Legacy marker — older builds appended an "@import" pointer line to CLAUDE.md.
+# It was inert (rules reach the agent via the rendered root file + hooks, not an
+# import), so bind no longer writes it; detach still strips it for old repos.
+_LEGACY_POINTER_MARKER = "archie:detached"
 
 GITIGNORE_BEGIN = "# >>> archie detached (managed) >>>"
 GITIGNORE_END = "# <<< archie detached (managed) <<<"
@@ -98,15 +101,6 @@ def _ensure_gitignore(repo: Path) -> None:
     path.write_text(existing + sep + block)
 
 
-def _ensure_import_pointer(repo: Path) -> None:
-    path = repo / "CLAUDE.md"
-    existing = path.read_text() if path.exists() else ""
-    if "archie:detached" in existing:
-        return
-    sep = "" if existing.endswith("\n") or existing == "" else "\n"
-    path.write_text(existing + sep + IMPORT_LINE + "\n")
-
-
 def _absorb_existing_dir(link_path: Path, target: Path) -> None:
     """Move a real directory's contents into the store target before linking.
 
@@ -140,6 +134,16 @@ def _file_kind() -> str:
     return "file" if link_strategy.strategy_for("file") == "symlink" else "file_copy"
 
 
+def _target_of(placement: dict) -> str:
+    """Store-relative target, tolerant of old-shape placements without it."""
+    t = placement.get("target")
+    if t:
+        return t
+    if placement["path"] in INFRASTRUCTURE_PATHS:
+        return INFRA_TARGET
+    return _file_target_and_category(placement["path"])[0]
+
+
 # --------------------------------------------------------------------------- #
 # commands
 # --------------------------------------------------------------------------- #
@@ -161,16 +165,22 @@ def bind(repo: Path, project_id: str | None = None) -> dict:
     infra_link = repo / INFRA_LINK
     _absorb_existing_dir(infra_link, infra_target)
     strat = link_strategy.create_link(infra_target, infra_link, "dir")
-    link_store.write_placements(store, [{
+
+    # PRESERVE existing per-file placements across re-bind (npx --detached runs
+    # bind on every install). Only refresh the single infra entry — wiping the
+    # registry would orphan every per-file link.
+    placements = [p for p in link_store.read_placements(store)
+                  if p.get("path") != INFRA_LINK]
+    placements.insert(0, {
         "path": INFRA_LINK, "kind": "dir", "strategy": strat,
         "target": INFRA_TARGET, "category": "infrastructure",
-    }])
+    })
+    link_store.write_placements(store, placements)
 
     # Seed exposure defaults if absent.
     link_store.write_exposure(store, link_store.read_exposure(store))
 
     _ensure_gitignore(repo)
-    _ensure_import_pointer(repo)
 
     # Externalize any blueprint markdown that already exists (per-file). Fresh
     # installs have none yet — the renderer externalizes after each render.
@@ -233,6 +243,37 @@ def externalize_tree(repo: Path, base_rel: str) -> list:
     return done
 
 
+def prune_blueprint(repo: Path, keep_rel_paths) -> list:
+    """Drop blueprint markdown the renderer no longer produces.
+
+    `keep_rel_paths` is the renderer's authoritative current set of
+    `.claude/rules/*` files. Anything in the blueprint group that isn't in it is
+    STALE (the renderer dropped it) and is removed from the tree, the store, AND
+    the placements registry. A merely *hidden* file is still in keep_rel_paths
+    (the renderer produced it; the user only toggled its visibility), so it is
+    preserved. No-op in repo mode.
+    """
+    repo = Path(repo).resolve()
+    store = _store_for(repo)
+    if store is None:
+        return []
+    keep = {p.replace("\\", "/") for p in keep_rel_paths}
+    placements = link_store.read_placements(store)
+    removed, kept = [], []
+    for p in placements:
+        if p.get("category") == "blueprint" and p["path"] not in keep:
+            link_strategy.remove_managed(repo / p["path"], store, p.get("strategy", "symlink"))
+            target = store / _target_of(p)
+            if target.exists() and not target.is_dir():
+                target.unlink()
+            removed.append(p["path"])
+        else:
+            kept.append(p)
+    if removed:
+        link_store.write_placements(store, kept)
+    return removed
+
+
 def reconcile(repo: Path) -> dict:
     repo = Path(repo).resolve()
     store = _store_for(repo)
@@ -245,7 +286,7 @@ def reconcile(repo: Path) -> dict:
     for p in placements:
         rel = p["path"]
         link_path = repo / rel
-        target = store / p["target"]
+        target = store / _target_of(p)
         if is_exposed(exposure, p):
             if not link_path.exists():
                 kind = "dir" if p["kind"] == "dir" else _file_kind()
@@ -297,7 +338,7 @@ def detach(repo: Path) -> None:
     for p in link_store.read_placements(store):
         rel = p["path"]
         link_path = repo / rel
-        target = store / p["target"]
+        target = store / _target_of(p)
         link_strategy.remove_managed(link_path, store, p["strategy"])
         if link_path.exists():
             continue
@@ -313,9 +354,9 @@ def detach(repo: Path) -> None:
     if gi.exists():
         gi.write_text(_strip_block(gi.read_text()))
     claude = repo / "CLAUDE.md"
-    if claude.exists():
+    if claude.exists() and _LEGACY_POINTER_MARKER in claude.read_text():
         kept = [ln for ln in claude.read_text().splitlines()
-                if "archie:detached" not in ln]
+                if _LEGACY_POINTER_MARKER not in ln]
         claude.write_text("\n".join(kept).rstrip("\n") + "\n")
 
 
