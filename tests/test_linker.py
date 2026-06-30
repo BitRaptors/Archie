@@ -1,4 +1,5 @@
 import importlib.util
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -190,6 +191,36 @@ def test_externalize_blueprint_rules_per_file(repo):
     assert all(c == "blueprint" for c in cats.values())
     # reachable through the per-file link
     assert (repo / ".claude" / "rules" / "technology.md").read_text() == "# tech\n"
+
+
+def test_externalize_skips_git_tracked_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARCHIE_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "CLAUDE.md").write_text("# root\n")
+
+    def git(*a):
+        subprocess.run(["git", "-C", str(repo), *a], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    git("init")
+    git("config", "user.email", "t@t.t")
+    git("config", "user.name", "t")
+    (repo / "pkg").mkdir()
+    (repo / "pkg" / "CLAUDE.md").write_text("# hand-written, committed\n")
+    git("add", "-A")
+    git("commit", "-m", "init")
+
+    linker.bind(repo)
+    # The committed per-folder file must NOT be externalized into a symlink.
+    assert linker.externalize_folder_file(repo, "pkg/CLAUDE.md") is None
+    assert not (repo / "pkg" / "CLAUDE.md").is_symlink()
+    assert (repo / "pkg" / "CLAUDE.md").read_text() == "# hand-written, committed\n"
+    # untracked generated file still externalizes
+    (repo / "gen").mkdir()
+    (repo / "gen" / "CLAUDE.md").write_text("# generated\n")
+    assert linker.externalize_folder_file(repo, "gen/CLAUDE.md") is not None
+    assert (repo / "gen" / "CLAUDE.md").is_symlink()
 
 
 def test_externalize_noop_when_not_detached(tmp_path, monkeypatch):

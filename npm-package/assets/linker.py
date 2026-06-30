@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -123,6 +124,18 @@ def _absorb_existing_dir(link_path: Path, target: Path) -> None:
     shutil.rmtree(link_path)
 
 
+def _is_git_tracked(repo: Path, rel_path: str) -> bool:
+    """True if rel_path is committed/staged in git. Such files are the user's —
+    we never silently relocate them into the store. Non-git repos -> False."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "--error-unmatch", rel_path],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _store_for(repo: Path) -> Path | None:
     info = link_store.read_link_file(repo)
     if not info or info.get("mode") != "detached" or not info.get("project_id"):
@@ -204,6 +217,11 @@ def externalize_file(repo: Path, rel_path: str) -> str | None:
     if link_strategy.is_managed(link_path, store):
         return None
 
+    # Never relocate a file the user committed to git — leave it as a real,
+    # tracked file (no surprise file->symlink swap, no silently-moved content).
+    if _is_git_tracked(repo, rel_path):
+        return None
+
     if link_path.exists() and not link_path.is_symlink():
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(link_path.read_text())
@@ -262,8 +280,9 @@ def prune_blueprint(repo: Path, keep_rel_paths) -> list:
     removed, kept = [], []
     for p in placements:
         if p.get("category") == "blueprint" and p["path"] not in keep:
-            link_strategy.remove_managed(repo / p["path"], store, p.get("strategy", "symlink"))
             target = store / _target_of(p)
+            link_strategy.remove_managed(repo / p["path"], store,
+                                         p.get("strategy", "symlink"), target)
             if target.exists() and not target.is_dir():
                 target.unlink()
             removed.append(p["path"])
@@ -293,7 +312,7 @@ def reconcile(repo: Path) -> dict:
                 link_strategy.create_link(target, link_path, kind)
             exposed.append(rel)
         else:
-            link_strategy.remove_managed(link_path, store, p["strategy"])
+            link_strategy.remove_managed(link_path, store, p["strategy"], target)
             hidden.append(rel)
     return {"exposed": exposed, "hidden": hidden}
 
@@ -339,7 +358,7 @@ def detach(repo: Path) -> None:
         rel = p["path"]
         link_path = repo / rel
         target = store / _target_of(p)
-        link_strategy.remove_managed(link_path, store, p["strategy"])
+        link_strategy.remove_managed(link_path, store, p["strategy"], target)
         if link_path.exists():
             continue
         link_path.parent.mkdir(parents=True, exist_ok=True)

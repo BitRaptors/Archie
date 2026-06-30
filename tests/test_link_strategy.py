@@ -48,6 +48,40 @@ def test_remove_managed_refuses_real_file(tmp_path):
     assert real.read_text() == "DO NOT DELETE"
 
 
+def test_remove_managed_copy_removes_unmodified(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    target = store / "a.md"
+    target.write_text("canonical")
+    copy = tmp_path / "repo" / "a.md"
+    copy.parent.mkdir(parents=True)
+    copy.write_text("canonical")  # byte-identical to the store source
+    assert ls.remove_managed(copy, store, "copy", target) is True
+    assert not copy.exists()
+
+
+def test_remove_managed_copy_preserves_user_edit(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    target = store / "a.md"
+    target.write_text("canonical")
+    edited = tmp_path / "repo" / "a.md"
+    edited.parent.mkdir(parents=True)
+    edited.write_text("USER EDITED THIS")  # diverged from the store source
+    assert ls.remove_managed(edited, store, "copy", target) is False
+    assert edited.read_text() == "USER EDITED THIS"
+
+
+def test_remove_managed_copy_refuses_without_target(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    f = tmp_path / "repo" / "a.md"
+    f.parent.mkdir(parents=True)
+    f.write_text("whatever")
+    assert ls.remove_managed(f, store, "copy", None) is False
+    assert f.exists()
+
+
 def test_remove_managed_removes_real_symlink(tmp_path):
     store = tmp_path / "store" / "artifacts"
     store.mkdir(parents=True)

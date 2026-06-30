@@ -71,8 +71,16 @@ def is_managed(link_path: Path, store: Path) -> bool:
         return False
 
 
-def remove_managed(link_path: Path, store: Path, strategy: str) -> bool:
-    """Remove link_path only if it is safe to. Returns True if removed."""
+def remove_managed(link_path: Path, store: Path, strategy: str,
+                   target: Path | None = None) -> bool:
+    """Remove link_path only if it is provably ours. Returns True if removed.
+
+    symlink/junction: the link must resolve inside the store.
+    copy: the in-tree file must still byte-match the store source (`target`).
+      A user edit or a foreign file with the same path no longer matches, so it
+      is preserved — upholding "never delete a file we did not place" even for
+      the Windows copy fallback where there is no link to verify.
+    """
     if strategy in {"symlink", "junction"}:
         if not is_managed(link_path, store):
             return False
@@ -82,11 +90,15 @@ def remove_managed(link_path: Path, store: Path, strategy: str) -> bool:
         except OSError:
             return False
     if strategy == "copy":
-        # A copy is a real file; only ever remove a regular file, never a tree.
-        if link_path.is_file() and not link_path.is_dir():
-            try:
-                link_path.unlink()
-                return True
-            except OSError:
-                return False
+        if not (link_path.is_file() and not link_path.is_dir()):
+            return False
+        if target is None or not Path(target).exists():
+            return False  # cannot prove ownership → refuse
+        try:
+            if link_path.read_bytes() != Path(target).read_bytes():
+                return False  # modified or foreign — preserve it
+            link_path.unlink()
+            return True
+        except OSError:
+            return False
     return False
