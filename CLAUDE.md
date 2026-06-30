@@ -16,6 +16,27 @@ Archie — AI-powered architecture analysis and enforcement for coding agents. A
 - `landing/` — Landing page
 - `v1/` — Archived V1 web app (FastAPI backend + Next.js frontend, obsolete)
 
+## Storage Modes
+
+Archie supports two artifact-storage modes (opt-in, default `repo`):
+
+- **`repo`** (default) — generated artifacts (CLAUDE.md blocks, `.claude/rules/`,
+  `.archie/`, per-folder CLAUDE.md) live in the working tree as today.
+- **`detached`** — artifacts live in an external store
+  (`$ARCHIE_HOME/projects/<id>/`, default `~/.archie`, `%LOCALAPPDATA%\archie` on
+  Windows) and are surfaced into the tree via symlinks (NTFS junctions / copy
+  fallback on Windows). The only committed file is `.archie-link.json`
+  (`project_id` + `mode`); everything generated is gitignored. The viewer's
+  **Exposure** tab toggles what the coding agent can see/enforce (categories
+  `rules` and `folder_context`; `.archie/` is always-exposed infrastructure).
+
+  Manage with `archie/standalone/linker.py`
+  (`bind|reconcile|externalize|status|attach|detach`). Enable at install with
+  `npx @bitraptors/archie <path> --detached`. Three standalone modules:
+  `link_store.py` (store location + manifests), `link_strategy.py` (OS
+  presentation primitive + safety invariant), `linker.py` (orchestration + CLI).
+  Design: `docs/archie-detached-artifacts-design.md`.
+
 ## Commands
 
 ### Standalone Scripts

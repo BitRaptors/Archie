@@ -1,6 +1,6 @@
 # Detached Artifacts — Design Spec
 
-**Status:** approved (brainstorm → delivery)
+**Status:** shipped (POC) — implementation on branch `feature/detached-artifacts`
 **Date:** 2026-06-30
 **Branch:** `feature/detached-artifacts`
 

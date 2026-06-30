@@ -100,17 +100,25 @@ def _file_kind() -> str:
     return "file" if link_strategy.strategy_for("file") == "symlink" else "file_copy"
 
 
+# `.archie/` is infrastructure (tooling, hooks, raw JSON the agent never reads
+# directly). It is ALWAYS exposed — hiding it would break enforcement/tooling
+# and gates nothing the agent actually consumes.
+INFRASTRUCTURE_PATHS = {".archie"}
+
+
 def _category_of(rel_path: str) -> str:
+    if rel_path in INFRASTRUCTURE_PATHS:
+        return "infrastructure"
     if rel_path == ".claude/rules":
         return "rules"
-    if rel_path == ".archie":
-        return "blueprint"
     if rel_path.endswith("CLAUDE.md"):
         return "folder_context"
-    return "blueprint"
+    return "rules"
 
 
 def is_exposed(exposure: dict, rel_path: str) -> bool:
+    if rel_path in INFRASTRUCTURE_PATHS:
+        return True
     overrides = exposure.get("overrides", {})
     if rel_path in overrides:
         return bool(overrides[rel_path])

@@ -4,11 +4,9 @@ import { fetchExposure, postExposure, type ExposureData } from '@/lib/api'
 const CATEGORY_LABELS: Record<string, string> = {
   rules: 'Rules',
   folder_context: 'Per-folder context',
-  blueprint: 'Blueprint',
-  findings: 'Findings',
 }
 
-const CATEGORY_ORDER = ['rules', 'folder_context', 'blueprint', 'findings']
+const CATEGORY_ORDER = ['rules', 'folder_context']
 
 export default function ExposurePanel() {
   const [data, setData] = useState<ExposureData | null>(null)

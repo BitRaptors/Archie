@@ -17,11 +17,12 @@ LINK_FILENAME = ".archie-link.json"
 
 DEFAULT_EXPOSURE = {
     "schema_version": 1,
+    # Only agent-readable artifacts are gateable. `.archie/` raw data is
+    # infrastructure (tooling + hooks + JSON the agent never reads directly)
+    # and is always exposed — see linker.INFRASTRUCTURE_PATHS.
     "categories": {
         "rules": True,
         "folder_context": True,
-        "blueprint": True,
-        "findings": True,
     },
     "overrides": {},
 }
