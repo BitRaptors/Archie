@@ -66,6 +66,49 @@ def _collect_folder_claude_mds(root: Path) -> dict[str, str]:
     return result
 
 
+def _collect_exposure_data(root: Path) -> dict:
+    """Exposure control-plane state for the viewer. Repo mode -> empty/inert."""
+    import linker
+    import link_store
+    st = linker.status(root)
+    out = {"mode": st["mode"], "categories": {}, "overrides": {}, "placements": []}
+    if st["mode"] != "detached" or not st.get("store"):
+        return out
+    store = Path(st["store"])
+    exposure = link_store.read_exposure(store)
+    out["categories"] = exposure.get("categories", {})
+    out["overrides"] = exposure.get("overrides", {})
+    for p in st["placements"]:
+        out["placements"].append({
+            "path": p["path"], "kind": p["kind"], "exposed": p["exposed"],
+            "category": linker._category_of(p["path"]),
+        })
+    return out
+
+
+def _apply_exposure_action(root: Path, body: dict) -> dict:
+    """Toggle a category or per-path override, then reconcile the working tree."""
+    import linker
+    import link_store
+    st = linker.status(root)
+    if st["mode"] != "detached" or not st.get("store"):
+        return {"mode": st["mode"], "categories": {}, "overrides": {}, "placements": []}
+    store = Path(st["store"])
+    exposure = link_store.read_exposure(store)
+    target = body.get("target")
+    key = body.get("key")
+    value = bool(body.get("value"))
+    if target == "category" and key in exposure.get("categories", {}):
+        exposure["categories"][key] = value
+    elif target == "path" and isinstance(key, str):
+        exposure.setdefault("overrides", {})[key] = value
+    else:
+        raise ValueError("invalid exposure target/key")
+    link_store.write_exposure(store, exposure)
+    linker.reconcile(root)
+    return _collect_exposure_data(root)
+
+
 def _intent_layer_status(root: Path) -> dict:
     folders = _collect_folder_claude_mds(root)
     count = len(folders)
@@ -227,6 +270,9 @@ def _make_handler(root: Path, dist_dir: Path | None):
             if parsed.path == "/api/ignored-rules":
                 self._serve_json(_read_rules_file(root / ".archie" / "ignored_rules.json"))
                 return
+            if parsed.path == "/api/exposure":
+                self._serve_json(_collect_exposure_data(root))
+                return
             # Unknown /api/* paths must 404 — never fall through to the SPA so
             # client fetches see a real error instead of HTML masquerading as JSON.
             if parsed.path.startswith("/api/"):
@@ -242,7 +288,7 @@ def _make_handler(root: Path, dist_dir: Path | None):
 
         def do_POST(self):
             parsed = urlparse(self.path)
-            if parsed.path != "/api/rules":
+            if parsed.path not in ("/api/rules", "/api/exposure"):
                 self._send_error(404, "Not found")
                 return
             try:
@@ -251,6 +297,14 @@ def _make_handler(root: Path, dist_dir: Path | None):
                 body = json.loads(raw)
             except (ValueError, json.JSONDecodeError):
                 self._send_error(400, "Invalid JSON body")
+                return
+            if parsed.path == "/api/exposure":
+                try:
+                    self._serve_json(_apply_exposure_action(root, body))
+                except ValueError as e:
+                    self._send_error(400, str(e))
+                except Exception as e:
+                    self._send_error(500, f"Exposure update failed: {e}")
                 return
             action = body.get("action")
             rule_id = body.get("rule_id")
