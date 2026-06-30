@@ -17,12 +17,14 @@ LINK_FILENAME = ".archie-link.json"
 
 DEFAULT_EXPOSURE = {
     "schema_version": 1,
-    # Only agent-readable artifacts are gateable. `.archie/` raw data is
-    # infrastructure (tooling + hooks + JSON the agent never reads directly)
-    # and is always exposed — see linker.INFRASTRUCTURE_PATHS.
+    # Per-file visibility gating for the generated MARKDOWN the agent reads.
+    # `.archie/` raw data is infrastructure (tooling + hooks + JSON the agent
+    # never reads directly) and is always exposed — see
+    # linker.INFRASTRUCTURE_PATHS. This has nothing to do with rules.json
+    # enforcement curation (a separate viewer feature).
     "categories": {
-        "rules": True,
-        "folder_context": True,
+        "intent_layer": True,   # per-folder CLAUDE.md
+        "blueprint": True,      # .claude/rules/**/*.md
     },
     "overrides": {},
 }

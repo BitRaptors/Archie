@@ -2,8 +2,21 @@
 """Archie linker — orchestrates detached-mode presentation of artifacts.
 
 Composes link_store (location/manifests) + link_strategy (OS presentation).
-Commands: bind, reconcile, externalize, attach, detach, status.
+Commands: bind, reconcile, externalize, status, attach, detach.
 Zero dependencies beyond Python 3.9+ stdlib.
+
+Model
+-----
+- `.archie/` is a single ALWAYS-ON directory symlink: infrastructure (tooling,
+  hooks, raw JSON the agent never reads directly). Write-through; never gated.
+- The generated MARKDOWN the agent actually reads is gated PER FILE:
+    * intent-layer per-folder `CLAUDE.md`        -> category "intent_layer"
+    * blueprint docs `.claude/rules/**/*.md`     -> category "blueprint"
+  Each markdown file is an individually toggleable per-file link. Turning one
+  off removes only that file from the working tree (the agent can't read it);
+  the content stays in the external store.
+
+This feature exists ONLY in detached mode. In repo mode every function no-ops.
 """
 from __future__ import annotations
 
@@ -17,11 +30,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import link_store  # noqa: E402
 import link_strategy  # noqa: E402
 
-# (repo-relative link path, store-relative target) for the always-on dir links.
-DIR_ARTIFACTS = [
-    (".archie", "artifacts/.archie"),
-    (".claude/rules", "artifacts/.claude/rules"),
-]
+# The one always-on infrastructure directory link.
+INFRA_LINK = ".archie"
+INFRA_TARGET = "artifacts/.archie"
+INFRASTRUCTURE_PATHS = {INFRA_LINK}
+
+# Directory swept for per-file blueprint markdown.
+RULES_DIR = ".claude/rules"
 
 IMPORT_LINE = "@.claude/rules/  <!-- archie:detached -->"
 
@@ -33,6 +48,35 @@ GITIGNORE_ENTRIES = [
     "**/CLAUDE.md",
     "!/CLAUDE.md",
 ]
+
+
+# --------------------------------------------------------------------------- #
+# classification
+# --------------------------------------------------------------------------- #
+def _file_target_and_category(rel_path: str):
+    """(store-relative target, category) for a per-file artifact."""
+    rel = rel_path.replace("\\", "/")
+    if rel.startswith(RULES_DIR + "/"):
+        return ("artifacts/" + rel, "blueprint")
+    # per-folder CLAUDE.md (anything else externalized is intent-layer context)
+    return ("tree/" + rel, "intent_layer")
+
+
+def _category_of(rel_path: str) -> str:
+    if rel_path in INFRASTRUCTURE_PATHS:
+        return "infrastructure"
+    return _file_target_and_category(rel_path)[1]
+
+
+def is_exposed(exposure: dict, placement: dict) -> bool:
+    """Infrastructure is always exposed; markdown follows override > category."""
+    if placement.get("category") == "infrastructure" or placement["path"] in INFRASTRUCTURE_PATHS:
+        return True
+    overrides = exposure.get("overrides", {})
+    if placement["path"] in overrides:
+        return bool(overrides[placement["path"]])
+    cat = placement.get("category") or _category_of(placement["path"])
+    return bool(exposure.get("categories", {}).get(cat, True))
 
 
 # --------------------------------------------------------------------------- #
@@ -79,7 +123,7 @@ def _absorb_existing_dir(link_path: Path, target: Path) -> None:
         dest = target / child.name
         if dest.exists():
             if dest.is_dir() and child.is_dir():
-                continue  # keep store version of pre-existing subdirs
+                continue
             dest.unlink() if dest.is_file() else shutil.rmtree(dest)
         shutil.move(str(child), str(dest))
     shutil.rmtree(link_path)
@@ -92,38 +136,8 @@ def _store_for(repo: Path) -> Path | None:
     return link_store.project_store(info["project_id"])
 
 
-def _dir_target(store: Path, rel: str) -> Path:
-    return store / dict(DIR_ARTIFACTS).get(rel, "artifacts/" + rel)
-
-
 def _file_kind() -> str:
     return "file" if link_strategy.strategy_for("file") == "symlink" else "file_copy"
-
-
-# `.archie/` is infrastructure (tooling, hooks, raw JSON the agent never reads
-# directly). It is ALWAYS exposed — hiding it would break enforcement/tooling
-# and gates nothing the agent actually consumes.
-INFRASTRUCTURE_PATHS = {".archie"}
-
-
-def _category_of(rel_path: str) -> str:
-    if rel_path in INFRASTRUCTURE_PATHS:
-        return "infrastructure"
-    if rel_path == ".claude/rules":
-        return "rules"
-    if rel_path.endswith("CLAUDE.md"):
-        return "folder_context"
-    return "rules"
-
-
-def is_exposed(exposure: dict, rel_path: str) -> bool:
-    if rel_path in INFRASTRUCTURE_PATHS:
-        return True
-    overrides = exposure.get("overrides", {})
-    if rel_path in overrides:
-        return bool(overrides[rel_path])
-    cat = _category_of(rel_path)
-    return bool(exposure.get("categories", {}).get(cat, True))
 
 
 # --------------------------------------------------------------------------- #
@@ -142,35 +156,41 @@ def bind(repo: Path, project_id: str | None = None) -> dict:
     info = {"schema_version": 1, "project_id": project_id, "mode": "detached"}
     link_store.write_link_file(repo, info)
 
-    placements = []
-    for link_rel, target_rel in DIR_ARTIFACTS:
-        target = store / target_rel
-        link_path = repo / link_rel
-        # Preserve any real-directory contents (e.g. npm-copied tooling) by
-        # relocating them into the store before the dir becomes a symlink.
-        _absorb_existing_dir(link_path, target)
-        strategy = link_strategy.create_link(target, link_path, "dir")
-        placements.append({"path": link_rel, "kind": "dir", "strategy": strategy})
-    link_store.write_placements(store, placements)
+    # The single infrastructure directory link.
+    infra_target = store / INFRA_TARGET
+    infra_link = repo / INFRA_LINK
+    _absorb_existing_dir(infra_link, infra_target)
+    strat = link_strategy.create_link(infra_target, infra_link, "dir")
+    link_store.write_placements(store, [{
+        "path": INFRA_LINK, "kind": "dir", "strategy": strat,
+        "target": INFRA_TARGET, "category": "infrastructure",
+    }])
 
     # Seed exposure defaults if absent.
     link_store.write_exposure(store, link_store.read_exposure(store))
 
     _ensure_gitignore(repo)
     _ensure_import_pointer(repo)
+
+    # Externalize any blueprint markdown that already exists (per-file). Fresh
+    # installs have none yet — the renderer externalizes after each render.
+    externalize_tree(repo, RULES_DIR)
     return info
 
 
-def externalize_folder_file(repo: Path, rel_path: str) -> str | None:
+def externalize_file(repo: Path, rel_path: str) -> str | None:
+    """Relocate a freshly-written generated markdown file into the store and
+    replace it with a per-file managed link. No-op in repo mode."""
     repo = Path(repo).resolve()
     store = _store_for(repo)
     if store is None:
         return None
 
+    rel_path = rel_path.replace("\\", "/")
     link_path = repo / rel_path
-    target = store / "tree" / rel_path
+    target_rel, category = _file_target_and_category(rel_path)
+    target = store / target_rel
 
-    # Already externalized (managed link present) -> no-op.
     if link_strategy.is_managed(link_path, store):
         return None
 
@@ -181,13 +201,36 @@ def externalize_folder_file(repo: Path, rel_path: str) -> str | None:
     elif not target.exists():
         return None  # nothing to externalize
 
-    strategy = link_strategy.create_link(target, link_path, _file_kind())
+    strat = link_strategy.create_link(target, link_path, _file_kind())
 
     placements = link_store.read_placements(store)
     if not any(p["path"] == rel_path for p in placements):
-        placements.append({"path": rel_path, "kind": "file", "strategy": strategy})
+        placements.append({"path": rel_path, "kind": "file", "strategy": strat,
+                           "target": target_rel, "category": category})
         link_store.write_placements(store, placements)
-    return strategy
+    return strat
+
+
+# Backward-compatible name used by intent_layer.py.
+externalize_folder_file = externalize_file
+
+
+def externalize_tree(repo: Path, base_rel: str) -> list:
+    """Externalize every real markdown file under repo/base_rel, per file."""
+    repo = Path(repo).resolve()
+    store = _store_for(repo)
+    if store is None:
+        return []
+    base = repo / base_rel
+    if not base.is_dir() or base.is_symlink():
+        return []
+    done = []
+    for f in sorted(base.rglob("*")):
+        if f.is_file() and not f.is_symlink():
+            rel = f.relative_to(repo).as_posix()
+            if externalize_file(repo, rel):
+                done.append(rel)
+    return done
 
 
 def reconcile(repo: Path) -> dict:
@@ -202,8 +245,8 @@ def reconcile(repo: Path) -> dict:
     for p in placements:
         rel = p["path"]
         link_path = repo / rel
-        target = (store / "tree" / rel) if p["kind"] == "file" else _dir_target(store, rel)
-        if is_exposed(exposure, rel):
+        target = store / p["target"]
+        if is_exposed(exposure, p):
             if not link_path.exists():
                 kind = "dir" if p["kind"] == "dir" else _file_kind()
                 link_strategy.create_link(target, link_path, kind)
@@ -226,7 +269,7 @@ def status(repo: Path) -> dict:
     out["store"] = str(store)
     exposure = link_store.read_exposure(store)
     for p in link_store.read_placements(store):
-        out["placements"].append({**p, "exposed": is_exposed(exposure, p["path"])})
+        out["placements"].append({**p, "exposed": is_exposed(exposure, p)})
     return out
 
 
@@ -254,7 +297,7 @@ def detach(repo: Path) -> None:
     for p in link_store.read_placements(store):
         rel = p["path"]
         link_path = repo / rel
-        target = (store / "tree" / rel) if p["kind"] == "file" else _dir_target(store, rel)
+        target = store / p["target"]
         link_strategy.remove_managed(link_path, store, p["strategy"])
         if link_path.exists():
             continue
@@ -282,32 +325,24 @@ def attach(repo: Path, project_id: str | None = None) -> dict:
     store = link_store.project_store(project_id)
     _ensure_store_skeleton(store)
 
-    # Move existing in-tree artifacts into the store before binding.
-    for link_rel, target_rel in DIR_ARTIFACTS:
-        src = repo / link_rel
-        dst = store / target_rel
-        if src.exists() and not src.is_symlink():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.move(str(src), str(dst))
+    # Move the existing .archie/ dir into the store before binding.
+    src = repo / INFRA_LINK
+    if src.exists() and not src.is_symlink():
+        dst = store / INFRA_TARGET
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.move(str(src), str(dst))
 
-    folder_files = []
+    # bind re-symlinks .archie and externalizes .claude/rules markdown per-file.
+    info = bind(repo, project_id=project_id)
+
+    # Sweep per-folder CLAUDE.md (intent-layer) into the store, per file.
     for claude_md in repo.rglob("CLAUDE.md"):
         rel = claude_md.relative_to(repo).as_posix()
-        if rel == "CLAUDE.md" or ".archie" in rel:
+        if rel == "CLAUDE.md" or rel.startswith(".archie") or claude_md.is_symlink():
             continue
-        dst = store / "tree" / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(claude_md), str(dst))
-        folder_files.append(rel)
+        externalize_file(repo, rel)
 
-    info = bind(repo, project_id=project_id)
-    for rel in folder_files:
-        strategy = link_strategy.create_link(store / "tree" / rel, repo / rel, _file_kind())
-        placements = link_store.read_placements(store)
-        if not any(p["path"] == rel for p in placements):
-            placements.append({"path": rel, "kind": "file", "strategy": strategy})
-            link_store.write_placements(store, placements)
     reconcile(repo)
     return info
 
@@ -315,8 +350,8 @@ def attach(repo: Path, project_id: str | None = None) -> dict:
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if len(argv) < 2:
-        print("Usage: linker.py <bind|reconcile|externalize|status|attach|detach> "
-              "<repo> [rel_path]", file=sys.stderr)
+        print("Usage: linker.py <bind|reconcile|externalize|externalize-tree|"
+              "status|attach|detach> <repo> [rel_path]", file=sys.stderr)
         return 1
     cmd, repo = argv[0], Path(argv[1])
     if cmd == "bind":
@@ -324,7 +359,9 @@ def main(argv=None) -> int:
     elif cmd == "reconcile":
         print(json.dumps(reconcile(repo), indent=2))
     elif cmd == "externalize":
-        print(json.dumps({"strategy": externalize_folder_file(repo, argv[2])}))
+        print(json.dumps({"strategy": externalize_file(repo, argv[2])}))
+    elif cmd == "externalize-tree":
+        print(json.dumps({"externalized": externalize_tree(repo, argv[2])}))
     elif cmd == "status":
         print(json.dumps(status(repo), indent=2))
     elif cmd == "attach":

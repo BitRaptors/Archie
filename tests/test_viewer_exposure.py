@@ -29,12 +29,24 @@ def _detached_repo(tmp_path, monkeypatch):
     return repo
 
 
-def test_collect_exposure_detached(tmp_path, monkeypatch):
+def test_collect_exposure_detached_excludes_infrastructure(tmp_path, monkeypatch):
     repo = _detached_repo(tmp_path, monkeypatch)
+    # add a blueprint doc + an intent-layer file
+    (repo / ".claude" / "rules").mkdir(parents=True)
+    (repo / ".claude" / "rules" / "tech.md").write_text("# tech\n")
+    linker.externalize_tree(repo, ".claude/rules")
+    (repo / "src").mkdir()
+    (repo / "src" / "CLAUDE.md").write_text("# src\n")
+    linker.externalize_folder_file(repo, "src/CLAUDE.md")
+
     data = viewer._collect_exposure_data(repo)
     assert data["mode"] == "detached"
-    assert data["categories"]["rules"] is True
-    assert any(p["path"] == ".claude/rules" for p in data["placements"])
+    assert data["categories"]["intent_layer"] is True
+    assert data["categories"]["blueprint"] is True
+    paths = {p["path"]: p["category"] for p in data["placements"]}
+    assert paths[".claude/rules/tech.md"] == "blueprint"
+    assert paths["src/CLAUDE.md"] == "intent_layer"
+    assert ".archie" not in paths  # infrastructure never listed
 
 
 def test_collect_exposure_repo_mode(tmp_path):
@@ -45,16 +57,19 @@ def test_collect_exposure_repo_mode(tmp_path):
     assert data["placements"] == []
 
 
-def test_apply_exposure_toggles_category(tmp_path, monkeypatch):
+def test_apply_exposure_hides_single_blueprint_file(tmp_path, monkeypatch):
     repo = _detached_repo(tmp_path, monkeypatch)
+    (repo / ".claude" / "rules").mkdir(parents=True)
+    (repo / ".claude" / "rules" / "tech.md").write_text("# tech\n")
+    linker.externalize_tree(repo, ".claude/rules")
+
     out = viewer._apply_exposure_action(
-        repo, {"target": "category", "key": "rules", "value": False})
-    assert out["categories"]["rules"] is False
-    pid = link_store.read_link_file(repo)["project_id"]
-    store = link_store.project_store(pid)
-    assert link_store.read_exposure(store)["categories"]["rules"] is False
-    # reconcile removed the rules link from the tree
-    assert not (repo / ".claude" / "rules").exists()
+        repo, {"target": "path", "key": ".claude/rules/tech.md", "value": False})
+    assert out["overrides"][".claude/rules/tech.md"] is False
+    # reconcile removed just that file from the tree; store keeps it
+    assert not (repo / ".claude" / "rules" / "tech.md").exists()
+    store = link_store.project_store(link_store.read_link_file(repo)["project_id"])
+    assert (store / "artifacts" / ".claude" / "rules" / "tech.md").exists()
 
 
 def test_apply_exposure_rejects_bad_target(tmp_path, monkeypatch):

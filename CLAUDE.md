@@ -27,8 +27,11 @@ Archie supports two artifact-storage modes (opt-in, default `repo`):
   Windows) and are surfaced into the tree via symlinks (NTFS junctions / copy
   fallback on Windows). The only committed file is `.archie-link.json`
   (`project_id` + `mode`); everything generated is gitignored. The viewer's
-  **Exposure** tab toggles what the coding agent can see/enforce (categories
-  `rules` and `folder_context`; `.archie/` is always-exposed infrastructure).
+  **Exposure** tab (detached mode only) toggles, **per markdown file**, what the
+  coding agent can see: `intent_layer` (per-folder `CLAUDE.md`) and `blueprint`
+  (`.claude/rules/*.md`). `.archie/` is always-exposed infrastructure (tooling,
+  hooks, raw JSON the agent never reads). This is visibility only — it does not
+  touch `rules.json` enforcement (a separate viewer feature).
 
   Manage with `archie/standalone/linker.py`
   (`bind|reconcile|externalize|status|attach|detach`). Enable at install with

@@ -27,25 +27,31 @@ def repo(tmp_path, monkeypatch):
     return r
 
 
+def _store(repo):
+    return link_store.project_store(link_store.read_link_file(repo)["project_id"])
+
+
 # --- bind -----------------------------------------------------------------
 def test_bind_creates_link_file_and_store(repo):
     info = linker.bind(repo)
     assert info["mode"] == "detached"
-    pid = info["project_id"]
-    link = link_store.read_link_file(repo)
-    assert link["project_id"] == pid
-    store = link_store.project_store(pid)
+    store = _store(repo)
     assert (store / "artifacts" / ".archie").is_dir()
     assert (store / "artifacts" / ".claude" / "rules").is_dir()
 
 
-def test_bind_lays_directory_links(repo):
+def test_bind_lays_archie_infra_symlink_writethrough(repo):
     linker.bind(repo)
     assert (repo / ".archie").is_symlink() or (repo / ".archie").exists()
     (repo / ".archie" / "probe.json").write_text("{}")
-    pid = link_store.read_link_file(repo)["project_id"]
-    store = link_store.project_store(pid)
-    assert (store / "artifacts" / ".archie" / "probe.json").read_text() == "{}"
+    assert (_store(repo) / "artifacts" / ".archie" / "probe.json").read_text() == "{}"
+
+
+def test_bind_only_infra_placement_initially(repo):
+    linker.bind(repo)
+    placements = link_store.read_placements(_store(repo))
+    assert [p["path"] for p in placements] == [".archie"]
+    assert placements[0]["category"] == "infrastructure"
 
 
 def test_bind_preserves_handwritten_claude_md_and_adds_pointer(repo):
@@ -63,32 +69,45 @@ def test_bind_adds_gitignore_entries(repo):
     assert "node_modules/" in gi
 
 
-def test_bind_records_placements(repo):
+def test_bind_absorbs_existing_archie_tooling(repo):
+    (repo / ".archie").mkdir()
+    (repo / ".archie" / "linker.py").write_text("# tooling")
+    (repo / ".archie" / "platform_rules.json").write_text("{}")
     linker.bind(repo)
-    pid = link_store.read_link_file(repo)["project_id"]
-    placements = link_store.read_placements(link_store.project_store(pid))
-    paths = {p["path"] for p in placements}
-    assert ".archie" in paths
-    assert ".claude/rules" in paths
+    assert (repo / ".archie" / "linker.py").read_text() == "# tooling"
+    assert (_store(repo) / "artifacts" / ".archie" / "linker.py").read_text() == "# tooling"
 
 
-# --- externalize ----------------------------------------------------------
-def test_externalize_moves_file_to_store_and_links(repo):
+# --- externalize: intent-layer per-folder CLAUDE.md -----------------------
+def test_externalize_intent_layer_file(repo):
     linker.bind(repo)
-    folder = repo / "src" / "a"
-    folder.mkdir(parents=True)
-    (folder / "CLAUDE.md").write_text("# a\nfolder context\n")
-
-    strategy = linker.externalize_folder_file(repo, "src/a/CLAUDE.md")
-    assert strategy in {"symlink", "copy"}
-
-    pid = link_store.read_link_file(repo)["project_id"]
-    store = link_store.project_store(pid)
+    (repo / "src" / "a").mkdir(parents=True)
+    (repo / "src" / "a" / "CLAUDE.md").write_text("# a\nfolder context\n")
+    strat = linker.externalize_folder_file(repo, "src/a/CLAUDE.md")
+    assert strat in {"symlink", "copy"}
+    store = _store(repo)
     assert (store / "tree" / "src" / "a" / "CLAUDE.md").read_text() == "# a\nfolder context\n"
     assert (repo / "src" / "a" / "CLAUDE.md").read_text() == "# a\nfolder context\n"
+    p = [p for p in link_store.read_placements(store) if p["path"] == "src/a/CLAUDE.md"][0]
+    assert p["kind"] == "file" and p["category"] == "intent_layer"
 
-    placements = link_store.read_placements(store)
-    assert any(p["path"] == "src/a/CLAUDE.md" and p["kind"] == "file" for p in placements)
+
+# --- externalize: blueprint .claude/rules/*.md (per file) -----------------
+def test_externalize_blueprint_rules_per_file(repo):
+    linker.bind(repo)
+    rules = repo / ".claude" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "technology.md").write_text("# tech\n")
+    (rules / "data-models.md").write_text("# data\n")
+    done = linker.externalize_tree(repo, ".claude/rules")
+    assert set(done) == {".claude/rules/technology.md", ".claude/rules/data-models.md"}
+    store = _store(repo)
+    assert (store / "artifacts" / ".claude" / "rules" / "technology.md").exists()
+    cats = {p["path"]: p["category"] for p in link_store.read_placements(store)
+            if p["path"].startswith(".claude/rules/")}
+    assert all(c == "blueprint" for c in cats.values())
+    # reachable through the per-file link
+    assert (repo / ".claude" / "rules" / "technology.md").read_text() == "# tech\n"
 
 
 def test_externalize_noop_when_not_detached(tmp_path, monkeypatch):
@@ -99,52 +118,74 @@ def test_externalize_noop_when_not_detached(tmp_path, monkeypatch):
     assert linker.externalize_folder_file(plain, "src/CLAUDE.md") is None
 
 
-# --- reconcile ------------------------------------------------------------
-def test_reconcile_hides_and_restores_folder_context(repo):
+# --- reconcile: per-file gating both groups -------------------------------
+def test_reconcile_hides_and_restores_intent_layer(repo):
     linker.bind(repo)
     (repo / "src" / "a").mkdir(parents=True)
     (repo / "src" / "a" / "CLAUDE.md").write_text("# a\n")
     linker.externalize_folder_file(repo, "src/a/CLAUDE.md")
-
-    pid = link_store.read_link_file(repo)["project_id"]
-    store = link_store.project_store(pid)
+    store = _store(repo)
 
     exp = link_store.read_exposure(store)
-    exp["categories"]["folder_context"] = False
+    exp["categories"]["intent_layer"] = False
     link_store.write_exposure(store, exp)
     result = linker.reconcile(repo)
     assert not (repo / "src" / "a" / "CLAUDE.md").exists()
     assert (store / "tree" / "src" / "a" / "CLAUDE.md").exists()
     assert "src/a/CLAUDE.md" in result["hidden"]
 
-    exp["categories"]["folder_context"] = True
+    exp["categories"]["intent_layer"] = True
     link_store.write_exposure(store, exp)
     linker.reconcile(repo)
     assert (repo / "src" / "a" / "CLAUDE.md").read_text() == "# a\n"
 
 
-def test_reconcile_per_path_override_beats_category(repo):
+def test_reconcile_hides_blueprint_doc_per_file(repo):
     linker.bind(repo)
-    (repo / "src" / "a").mkdir(parents=True)
-    (repo / "src" / "a" / "CLAUDE.md").write_text("# a\n")
-    linker.externalize_folder_file(repo, "src/a/CLAUDE.md")
-    pid = link_store.read_link_file(repo)["project_id"]
-    store = link_store.project_store(pid)
+    rules = repo / ".claude" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "technology.md").write_text("# tech\n")
+    (rules / "data-models.md").write_text("# data\n")
+    linker.externalize_tree(repo, ".claude/rules")
+    store = _store(repo)
 
+    # Hide a single blueprint file via per-path override; the other stays.
     exp = link_store.read_exposure(store)
-    exp["categories"]["folder_context"] = True
-    exp["overrides"]["src/a/CLAUDE.md"] = False
+    exp["overrides"][".claude/rules/technology.md"] = False
     link_store.write_exposure(store, exp)
     linker.reconcile(repo)
-    assert not (repo / "src" / "a" / "CLAUDE.md").exists()
+    assert not (repo / ".claude" / "rules" / "technology.md").exists()
+    assert (repo / ".claude" / "rules" / "data-models.md").exists()
+    # store keeps both
+    assert (store / "artifacts" / ".claude" / "rules" / "technology.md").exists()
 
 
-# --- status / detach ------------------------------------------------------
+def test_infrastructure_always_exposed(repo):
+    linker.bind(repo)
+    store = _store(repo)
+    exp = link_store.read_exposure(store)
+    # even a malicious override can't hide .archie
+    exp["overrides"][".archie"] = False
+    link_store.write_exposure(store, exp)
+    linker.reconcile(repo)
+    assert (repo / ".archie").exists()
+
+
+# --- status / detach / attach ---------------------------------------------
+def test_status_reports_placements_with_category(repo):
+    linker.bind(repo)
+    st = linker.status(repo)
+    assert st["mode"] == "detached"
+    infra = [p for p in st["placements"] if p["path"] == ".archie"][0]
+    assert infra["category"] == "infrastructure" and infra["exposed"] is True
+
+
 def test_detach_restores_real_files_and_clean_repo(repo):
     linker.bind(repo)
     (repo / ".archie" / "blueprint.json").write_text('{"x":1}')
     (repo / ".claude" / "rules").mkdir(parents=True, exist_ok=True)
     (repo / ".claude" / "rules" / "r.md").write_text("rule")
+    linker.externalize_tree(repo, ".claude/rules")
     (repo / "src" / "a").mkdir(parents=True)
     (repo / "src" / "a" / "CLAUDE.md").write_text("# a\n")
     linker.externalize_folder_file(repo, "src/a/CLAUDE.md")
@@ -155,25 +196,18 @@ def test_detach_restores_real_files_and_clean_repo(repo):
     assert not (repo / ".archie").is_symlink()
     assert (repo / ".archie" / "blueprint.json").read_text() == '{"x":1}'
     assert (repo / ".claude" / "rules" / "r.md").read_text() == "rule"
+    assert not (repo / ".claude" / "rules" / "r.md").is_symlink()
     assert (repo / "src" / "a" / "CLAUDE.md").read_text() == "# a\n"
     gi = (repo / ".gitignore").read_text()
     assert linker.GITIGNORE_BEGIN not in gi
     assert "archie:detached" not in (repo / "CLAUDE.md").read_text()
 
 
-def test_status_reports_placements(repo):
-    linker.bind(repo)
-    st = linker.status(repo)
-    assert st["mode"] == "detached"
-    assert any(p["path"] == ".archie" for p in st["placements"])
-
-
 def test_attach_round_trips_existing_artifacts(repo):
-    # Start in repo mode with real artifacts, then attach.
     (repo / ".archie").mkdir()
     (repo / ".archie" / "blueprint.json").write_text('{"k":2}')
     (repo / ".claude" / "rules").mkdir(parents=True)
-    (repo / ".claude" / "rules" / "r.md").write_text("body")
+    (repo / ".claude" / "rules" / "tech.md").write_text("body")
     (repo / "pkg").mkdir()
     (repo / "pkg" / "CLAUDE.md").write_text("# pkg\n")
 
@@ -181,20 +215,7 @@ def test_attach_round_trips_existing_artifacts(repo):
 
     assert link_store.read_link_file(repo)["mode"] == "detached"
     assert (repo / ".archie" / "blueprint.json").read_text() == '{"k":2}'
+    assert (repo / ".claude" / "rules" / "tech.md").read_text() == "body"
     assert (repo / "pkg" / "CLAUDE.md").read_text() == "# pkg\n"
-
-
-def test_bind_absorbs_existing_archie_tooling(repo):
-    # Simulate the npm installer: scripts already copied into .archie/ before bind.
-    (repo / ".archie").mkdir()
-    (repo / ".archie" / "linker.py").write_text("# tooling")
-    (repo / ".archie" / "platform_rules.json").write_text("{}")
-
-    linker.bind(repo)
-
-    # The tooling survives and is reachable through the symlink.
-    assert (repo / ".archie" / "linker.py").read_text() == "# tooling"
-    assert (repo / ".archie" / "platform_rules.json").read_text() == "{}"
-    pid = link_store.read_link_file(repo)["project_id"]
-    store = link_store.project_store(pid)
-    assert (store / "artifacts" / ".archie" / "linker.py").read_text() == "# tooling"
+    cats = {p["category"] for p in link_store.read_placements(_store(repo))}
+    assert {"infrastructure", "blueprint", "intent_layer"} <= cats

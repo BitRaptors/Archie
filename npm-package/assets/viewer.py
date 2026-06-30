@@ -67,7 +67,12 @@ def _collect_folder_claude_mds(root: Path) -> dict[str, str]:
 
 
 def _collect_exposure_data(root: Path) -> dict:
-    """Exposure control-plane state for the viewer. Repo mode -> empty/inert."""
+    """Per-file visibility state for the viewer. Repo mode -> empty/inert.
+
+    Lists only the gateable generated MARKDOWN (intent-layer per-folder CLAUDE.md
+    and blueprint .claude/rules/*.md), grouped by category. Infrastructure
+    (.archie) is excluded — it is never gated.
+    """
     import linker
     import link_store
     st = linker.status(root)
@@ -79,9 +84,12 @@ def _collect_exposure_data(root: Path) -> dict:
     out["categories"] = exposure.get("categories", {})
     out["overrides"] = exposure.get("overrides", {})
     for p in st["placements"]:
+        category = p.get("category") or linker._category_of(p["path"])
+        if category == "infrastructure":
+            continue
         out["placements"].append({
             "path": p["path"], "kind": p["kind"], "exposed": p["exposed"],
-            "category": linker._category_of(p["path"]),
+            "category": category,
         })
     return out
 

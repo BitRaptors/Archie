@@ -30,17 +30,18 @@ def test_read_link_file_absent(tmp_path):
 
 def test_exposure_defaults_when_absent(tmp_path):
     exp = link_store.read_exposure(tmp_path)
-    assert exp["categories"]["rules"] is True
+    assert exp["categories"]["intent_layer"] is True
+    assert exp["categories"]["blueprint"] is True
     assert exp["overrides"] == {}
-    exp["categories"]["rules"] = False
-    assert link_store.read_exposure(tmp_path)["categories"]["rules"] is True
+    exp["categories"]["intent_layer"] = False
+    assert link_store.read_exposure(tmp_path)["categories"]["intent_layer"] is True
 
 
 def test_exposure_round_trip(tmp_path):
     exp = link_store.read_exposure(tmp_path)
-    exp["categories"]["folder_context"] = False
+    exp["categories"]["intent_layer"] = False
     link_store.write_exposure(tmp_path, exp)
-    assert link_store.read_exposure(tmp_path)["categories"]["folder_context"] is False
+    assert link_store.read_exposure(tmp_path)["categories"]["intent_layer"] is False
 
 
 def test_placements_round_trip(tmp_path):

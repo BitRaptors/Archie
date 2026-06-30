@@ -59,6 +59,15 @@ export default function LocalPage() {
   }
 
   const [needsScan, setNeedsScan] = useState(false)
+  // Detached mode exposes a file-visibility tab; in repo mode it doesn't exist.
+  const [detached, setDetached] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/exposure', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setDetached(j?.mode === 'detached'))
+      .catch(() => setDetached(false))
+  }, [])
 
   useEffect(() => {
     fetch('/api/bundle', { cache: 'no-store' })
@@ -147,16 +156,20 @@ export default function LocalPage() {
     </Suspense>
   )
 
+  // If we somehow land on the exposure tab in repo mode (hidden tab), fall back.
+  const effectiveTab: Tab = tab === 'exposure' && !detached ? 'report' : tab
+
   let localViewProp
-  if (tab === 'report') {
-    localViewProp = { tab, setTab, title: 'Blueprint' }
-  } else if (tab === 'exposure') {
-    localViewProp = { tab, setTab, title: 'Exposure' }
+  if (effectiveTab === 'report') {
+    localViewProp = { tab: effectiveTab, setTab, title: 'Blueprint', showExposure: detached }
+  } else if (effectiveTab === 'exposure') {
+    localViewProp = { tab: effectiveTab, setTab, title: 'Exposure', showExposure: detached }
   } else {
     localViewProp = {
-      tab,
+      tab: effectiveTab,
       setTab,
       title: 'Files',
+      showExposure: detached,
       subNav: [
         {
           id: 'folders',
@@ -177,7 +190,11 @@ export default function LocalPage() {
   }
 
   const mainContent =
-    tab === 'files' ? filesContent : tab === 'exposure' ? exposureContent : null
+    effectiveTab === 'files'
+      ? filesContent
+      : effectiveTab === 'exposure'
+        ? exposureContent
+        : null
 
   return (
     <LocalEditContext.Provider value={ctx}>

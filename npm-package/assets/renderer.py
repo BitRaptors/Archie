@@ -2492,6 +2492,17 @@ def main():
     for rel_path in cleanup_stale_rule_files(project_root, files):
         print(f"  Removed stale {rel_path}")
 
+    # Detached mode: gate the blueprint markdown per file by externalizing each
+    # .claude/rules/*.md into the store and linking it back. No-op in repo mode.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import linker as _linker
+        moved = _linker.externalize_tree(project_root, ".claude/rules")
+        if moved:
+            print(f"  Detached: externalized {len(moved)} rule file(s) to the store")
+    except Exception:
+        pass
+
     print(f"\nDone: {len(files)} files generated in {project_root}")
 
 
