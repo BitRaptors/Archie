@@ -26,3 +26,35 @@ def test_clamp_confidence_caps_but_never_raises():
 
 def test_has_evidence_fields_false_when_missing_falsification():
     assert es.has_evidence_fields({"id": "x", "anchor": {}, "evidence": []}) is False
+
+
+def test_extract_json_obj_ignores_surrounding_prose():
+    # Stray balanced-brace pair in prose ("{ x }") is invalid JSON — scanning
+    # continues and finds the next valid object.
+    raw = 'note { x } then {"findings":[]} end'
+    assert es.extract_json_obj(raw) == {"findings": []}
+    assert es.extract_json_obj('no json here') == {}
+    assert es.extract_json_obj('{"findings":[]} end') == {"findings": []}
+    assert es.extract_json_obj('preamble {"findings":[]}') == {"findings": []}
+
+
+def test_extract_json_obj_valid_payload():
+    import json
+    payload = {"findings": [{"id": "f1", "confidence": 0.9}]}
+    assert es.extract_json_obj(json.dumps(payload)) == payload
+
+
+def test_coerce_confidence_float():
+    assert es.coerce_confidence(0.8) == 0.8
+
+
+def test_coerce_confidence_null():
+    assert es.coerce_confidence(None) == 0.0
+
+
+def test_coerce_confidence_string():
+    assert es.coerce_confidence("high") == 0.0
+
+
+def test_coerce_confidence_string_numeric():
+    assert es.coerce_confidence("0.7") == 0.7

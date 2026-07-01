@@ -18,6 +18,8 @@ def test_aggregate_counts_completeness_and_breaks():
     ]
     v = rc.aggregate_verdict(spec, confirmed)
     assert v["intent_completeness"] == "2/3" and v["breaks"] == 2 and v["conflicts"] == 0
+    # 2 breaks, 0 conflicts, 0 drift → gate_signal = 1.0 - min(1.0, 0.5) = 0.5
+    assert v["gate_signal"] == 0.5
 
 
 def test_aggregate_dedups_unmet_by_criterion():
@@ -29,3 +31,26 @@ def test_aggregate_dedups_unmet_by_criterion():
     ]
     v = rc.aggregate_verdict(spec, confirmed)
     assert v["intent_completeness"] == "2/3"
+
+
+def test_aggregate_counts_drift():
+    spec = it.normalize("", source="linear", ticket_ids=["A-1"])
+    spec["acceptance_criteria"] = [{"id": "ac1"}, {"id": "ac2"}, {"id": "ac3"}]
+    confirmed = [
+        {"kind": "intent_drift"},
+        {"kind": "intent_drift"},
+        {"kind": "intent_drift"},
+    ]
+    v = rc.aggregate_verdict(spec, confirmed)
+    assert v["drift"] == 3
+    assert v["gate_signal"] < 1.0
+    # 0 breaks, 0 conflicts, 3 drift → gate_signal = 1.0 - min(1.0, 0.3) = 0.7
+    assert v["gate_signal"] == 0.7
+
+
+def test_aggregate_none_criteria_no_crash():
+    spec = it.normalize("", source="linear", ticket_ids=["A-1"])
+    spec["acceptance_criteria"] = None
+    v = rc.aggregate_verdict(spec, [])
+    assert v["intent_completeness"] == "0/0"
+    assert v["breaks"] == 0

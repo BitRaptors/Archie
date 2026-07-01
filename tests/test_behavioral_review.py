@@ -43,3 +43,25 @@ def test_review_mocked(monkeypatch):
 
 def test_parse_findings_drops_missing_falsification():
     assert br.parse_findings('{"findings":[{"problem_statement":"x","file":"a.py","line":1}]}') == []
+
+
+def test_parse_findings_null_confidence():
+    raw = json.dumps({"findings": [{
+        "problem_statement": "crash", "file": "x.py", "line": 3,
+        "assumptions": [], "evidence": ["x.py:3"],
+        "falsification": "handled above", "confidence": None,
+        "kind": "behavioral_break"}]})
+    out = br.parse_findings(raw)
+    assert len(out) == 1
+    assert out[0]["confidence"] == 0.0
+
+
+def test_parse_findings_string_confidence():
+    raw = json.dumps({"findings": [{
+        "problem_statement": "race", "file": "y.py", "line": 7,
+        "assumptions": [], "evidence": ["y.py:7"],
+        "falsification": "mutex applied", "confidence": "high",
+        "kind": "behavioral_break"}]})
+    out = br.parse_findings(raw)
+    assert len(out) == 1
+    assert out[0]["confidence"] == 0.0

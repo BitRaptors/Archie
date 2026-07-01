@@ -22,3 +22,20 @@ def test_edge_a_clamps_to_intent_ceiling():
         "confidence": 0.9}]})
     out = rc.parse_edge_a(raw, spec)
     assert out[0]["kind"] == "intent_unmet" and out[0]["confidence"] == 0.5
+
+
+def test_parse_edge_a_null_confidence():
+    spec = it.normalize("", source="linear", ticket_ids=["A-1"])  # ceiling 1.0
+    raw = json.dumps({"findings": [{"criterion_id": "ac1", "verdict": "unmet",
+        "file": "x.py", "line": 1, "evidence": ["missing"], "falsification": "tested elsewhere",
+        "confidence": None}]})
+    out = rc.parse_edge_a(raw, spec)
+    assert len(out) == 1
+    assert out[0]["confidence"] == 0.0
+
+
+def test_edge_a_prompt_none_criteria_no_crash():
+    spec = it.normalize("", source="linear", ticket_ids=["A-1"])
+    spec["acceptance_criteria"] = None
+    p = rc.build_edge_a_prompt(spec, "diff")
+    assert "DIFF" in p  # just verify it doesn't crash

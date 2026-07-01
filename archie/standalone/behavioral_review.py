@@ -7,14 +7,13 @@ Import convention: bare-name imports via sys.path so this works on Python 3.9
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from agent_cli import run_verifier        # noqa: E402
 from reachability import consumers         # noqa: E402, F401 (used by callers)
-from evidence_schema import make_finding   # noqa: E402
+from evidence_schema import make_finding, extract_json_obj, coerce_confidence   # noqa: E402
 
 _SYSTEM = (
     "You are a behavioral code reviewer. Report only issues INTRODUCED or worsened "
@@ -34,11 +33,7 @@ def build_prompt(diff_text: str, consumer_map: dict) -> str:
 
 
 def parse_findings(raw: str) -> list[dict]:
-    try:
-        start, end = raw.find("{"), raw.rfind("}")
-        data = json.loads(raw[start:end + 1]) if start >= 0 else {}
-    except Exception:
-        return []
+    data = extract_json_obj(raw)
     out = []
     for i, f in enumerate(data.get("findings", [])):
         if not f.get("falsification"):
@@ -52,7 +47,7 @@ def parse_findings(raw: str) -> list[dict]:
             assumptions=f.get("assumptions", []),
             evidence=f.get("evidence", []),
             falsification=f["falsification"],
-            confidence=float(f.get("confidence", 0.0)),
+            confidence=coerce_confidence(f.get("confidence")),
             source="behavioral",
             severity_class="pitfall_triggered",
         ))
