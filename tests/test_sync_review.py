@@ -111,3 +111,37 @@ def test_sync_review_resolves_before_edge_a(tmp_path, monkeypatch):
     assert len(captured["spec"].get("acceptance_criteria", [])) > 0, (
         f"edge-A spec had no criteria: {captured['spec']}"
     )
+
+def test_resolved_spec_persisted(tmp_path, monkeypatch):
+    """After a run where resolve() populates acceptance_criteria, the resolved
+    spec is persisted so load_branch_record returns criteria (no repeat LLM)."""
+    archie_dir = tmp_path / ".archie"
+    archie_dir.mkdir()
+    spec = it.normalize("Add rate limiting", source="prompt", ticket_ids=[])
+    it.save_branch_record(archie_dir, "feature/rate-limit", spec)
+
+    resolve_payload = json.dumps({
+        "goals": ["rate limit the API"],
+        "acceptance_criteria": [{"id": "ac1", "text": "returns 429 after limit"}],
+    })
+
+    def fake_run(prompt, path, model):
+        if "Extract the concrete" in prompt:
+            return resolve_payload
+        return json.dumps({"findings": []})
+
+    monkeypatch.setattr(sr, "review_edge_a", lambda *a, **k: [])
+    monkeypatch.setattr(sr, "behavioral_review_run", lambda *a, **k: [])
+    monkeypatch.setattr(sr, "review_edge_c", lambda *a, **k: [])
+
+    out = sr.run_sync_review(
+        str(tmp_path), "feature/rate-limit", BP, {},
+        "diff text", ["a.py"], {"a.py": {1}}, {},
+        run=fake_run,
+    )
+    assert out["skipped"] is False
+
+    # The persisted record now carries the resolved criteria.
+    persisted = it.load_branch_record(archie_dir, "feature/rate-limit")
+    assert persisted is not None
+    assert len(persisted.get("acceptance_criteria", [])) > 0

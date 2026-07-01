@@ -370,13 +370,28 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
                 # Route Risk findings through the cold-read gate so the
                 # per-kind confidence floors + falsification/evidence-schema
                 # enforcement actually run before anything lands in the store.
-                res = gate_and_merge(archie_dir, new_findings, floors=DEFAULT_COLD_FLOORS)
-                total = res["merged"]
-                print(
-                    f"  Findings store: {total} entries after deep-scan upgrade "
-                    f"({res['suppressed']} suppressed by gate)",
-                    file=sys.stderr,
-                )
+                try:
+                    res = gate_and_merge(archie_dir, new_findings, floors=DEFAULT_COLD_FLOORS)
+                    total = res["merged"]
+                    print(
+                        f"  Findings store: {total} entries after deep-scan upgrade "
+                        f"({res['suppressed']} suppressed by gate)",
+                        file=sys.stderr,
+                    )
+                except Exception as e:
+                    # Defense in depth: a gate failure must never abort finalize.
+                    # Fall back to the prior direct merge of the raw findings.
+                    print(
+                        f"  Warning: gate_and_merge failed ({e}); "
+                        f"falling back to direct merge",
+                        file=sys.stderr,
+                    )
+                    total = _merge_findings_into_store(archie_dir, new_findings)
+                    print(
+                        f"  Findings store: {total} entries after deep-scan upgrade "
+                        f"(gate bypassed)",
+                        file=sys.stderr,
+                    )
             payloads.append(parsed)
 
         if payloads:

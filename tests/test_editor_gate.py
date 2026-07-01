@@ -58,3 +58,14 @@ def test_anchor_none_line_file_changed_keeps():
     f = _f("f1", "y.py", None, 0.9)
     out = eg.gate([f], [], changed_lines={"y.py": {1, 2, 3}}, floors=FLOORS)
     assert len(out["confirmed"]) == 1, f"Expected confirmed, got suppressed={out['suppressed']}"
+
+
+def test_gate_coerces_nonnumeric_confidence():
+    """A raw finding with non-numeric confidence ("high" or None) must not crash
+    the gate — it is coerced to 0.0 and dropped below floor, never raised."""
+    high = _f("f1", "a.py", 1, 0.9); high["confidence"] = "high"
+    nul = _f("f2", "a.py", 1, 0.9); nul["confidence"] = None
+    out = eg.gate([high, nul], [], changed_lines=None, floors=FLOORS)
+    assert out["confirmed"] == []
+    reasons = {s["reason"] for s in out["suppressed"]}
+    assert reasons == {"below_floor"}

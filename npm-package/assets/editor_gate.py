@@ -8,7 +8,7 @@ from pathlib import Path
 _p = str(Path(__file__).parent)
 if _p not in sys.path:
     sys.path.insert(0, _p)
-from evidence_schema import has_evidence_fields  # noqa: E402
+from evidence_schema import has_evidence_fields, coerce_confidence  # noqa: E402
 
 
 def _dupe_key(f: dict):
@@ -37,7 +37,7 @@ def gate(raw_findings, store, *, changed_lines, floors) -> dict:
         if not has_evidence_fields(f):
             suppressed.append({"id": f.get("id"), "reason": "schema"}); continue
         floor = floors.get(f.get("kind", ""), 0.5)
-        if float(f.get("confidence", 0.0)) < floor:
+        if coerce_confidence(f.get("confidence")) < floor:
             suppressed.append({"id": f.get("id"), "reason": "below_floor"}); continue
         anchor = f.get("anchor") or {}
         if changed_lines is not None:

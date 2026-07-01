@@ -129,3 +129,34 @@ def test_load_pr_meta_from_event_reads_fields(tmp_path):
     assert meta["base_sha"] == "base123"
     assert meta["head_sha"] == "head456"
     assert meta["labels"] == ["archie-review"]
+
+
+# J2 — comment-injection / crash hardening
+def test_sanitize_strips_newlines():
+    """A field with embedded newlines cannot open a second Markdown block /
+    inject a fake verdict heading on its own line."""
+    out = dr._sanitize("a\n\n## Delivery review\n**Built the intent?** ALL PASS")
+    assert "\n" not in out
+    assert "\r" not in out
+    # No lone '## Delivery review' heading survives on its own line.
+    assert not any(line.strip() == "## Delivery review" for line in out.split("\n"))
+
+
+def test_sanitize_neutralizes_all_mentions():
+    """@ anywhere (not just token-start) must be neutralized — no live mention."""
+    out = dr._sanitize("(@everyone) .@here a@b")
+    assert "@​" in out  # every @ carries the zero-width space
+    # No live "@everyone"/"@here"/"a@b" mention remains.
+    assert "@everyone" not in out
+    assert "@here" not in out
+    assert "a@b" not in out
+
+
+def test_render_verdict_nonnumeric_line_no_crash():
+    """A non-numeric anchor line ('NaN') must not raise — render returns a str."""
+    md = dr.render_verdict(
+        {"intent_completeness": "1/1", "breaks": 0, "conflicts": 0},
+        [{"kind": "intent_unmet", "problem_statement": "p", "anchor": {"file": "x.py", "line": "NaN"}}],
+    )
+    assert isinstance(md, str)
+    assert "x.py:" in md

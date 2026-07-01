@@ -37,3 +37,13 @@ def test_finalize_routes_risk_through_gate(tmp_path):
     assert "risk_good" in ids
     assert "risk_bad" not in ids
     assert out["merged"] == 1 and out["suppressed"] == 1
+
+
+def test_finalize_gate_survives_bad_confidence(tmp_path):
+    """A raw finding carrying a non-numeric confidence ("high") must not raise
+    through gate_and_merge — it is coerced (dropped below floor), returns a dict."""
+    ad = tmp_path / ".archie"; ad.mkdir()
+    bad = _f("risk_str", 0.9); bad["confidence"] = "high"
+    out = fz.gate_and_merge(ad, [bad], floors=fz.DEFAULT_COLD_FLOORS)
+    assert isinstance(out, dict)
+    assert "merged" in out and "suppressed" in out

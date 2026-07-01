@@ -19,7 +19,7 @@ if _p not in sys.path:
 from _common import SOURCE_EXTENSIONS                      # noqa: E402
 from agent_cli import run_verifier                         # noqa: E402
 from selector import select_specialists                    # noqa: E402
-from intent import load_branch_record, normalize           # noqa: E402
+from intent import load_branch_record, normalize, save_branch_record  # noqa: E402
 from reconcile import review_edge_a, review_edge_c, aggregate_verdict   # noqa: E402
 from behavioral_review import review as behavioral_review_run   # noqa: E402
 from editor_gate import gate                               # noqa: E402
@@ -81,6 +81,13 @@ def run_sync_review(
         try:
             from intent import resolve
             spec = resolve(spec, run=run)
+            # Persist the resolved spec so the LLM call isn't repeated every
+            # sync — only when resolve actually populated acceptance_criteria.
+            if spec.get("acceptance_criteria"):
+                try:
+                    save_branch_record(archie_dir, branch, spec)
+                except Exception:
+                    pass
         except Exception:
             pass
 

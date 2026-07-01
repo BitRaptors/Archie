@@ -32,18 +32,17 @@ def _sanitize(text: object) -> str:
     - Coerces to str.
     - HTML-escapes <, >, & so injected HTML comment markers (<!--/-->) become
       harmless entities (&lt;!-- / --&gt;) and raw HTML tags are neutralized.
-    - Neutralizes leading @ on any whitespace-separated token to prevent live
-      GitHub @mention notifications.
+    - Collapses newlines/carriage returns to spaces so a field cannot inject a
+      second Markdown block / fake verdict heading on its own line.
+    - Neutralizes @ ANYWHERE (not just token-start) to prevent live GitHub
+      @mention notifications (e.g. "(@everyone)", ".@here").
     """
     s = html.escape(str(text) if text is not None else "")
-    # Neutralize @ mentions: replace bare @ at word boundaries.
-    tokens = s.split(" ")
-    sanitized_tokens = []
-    for tok in tokens:
-        if tok.startswith("@"):
-            tok = "@" + _ZWS + tok[1:]
-        sanitized_tokens.append(tok)
-    return " ".join(sanitized_tokens)
+    # Collapse newlines/CRs to spaces — no field may open a new Markdown line.
+    s = s.replace("\r", " ").replace("\n", " ")
+    # Neutralize EVERY @ so no live mention can survive regardless of position.
+    s = s.replace("@", "@" + _ZWS)
+    return s
 
 
 def should_review(pr_meta: dict, max_files: int) -> tuple[bool, str]:
@@ -91,9 +90,13 @@ def render_verdict(verdict: dict, confirmed: list[dict]) -> str:
             kind = _sanitize(f.get("kind", ""))
             problem = _sanitize(f.get("problem_statement", ""))
             anchor_file = _sanitize(a.get("file", ""))
-            anchor_line = int(a.get("line") or 0) if a.get("line") is not None else ""
+            _line = a.get("line")
+            line_str = (str(int(_line))
+                        if isinstance(_line, (int, float))
+                        or (isinstance(_line, str) and _line.isdigit())
+                        else "")
             lines.append(f"- `{kind}` {problem} "
-                         f"({anchor_file}:{anchor_line})")
+                         f"({anchor_file}:{line_str})")
     return "\n".join(lines)
 
 
@@ -252,21 +255,25 @@ def run_pr_gate(root=".", env=None):
     status["verdict"] = verdict
 
     # 8. Render + publish. Fork PRs (no token) print the verdict instead of posting.
-    body = render_verdict(verdict, confirmed)
-    token = env.get("GITHUB_TOKEN", "").strip()
-    repo_full = env.get("GITHUB_REPOSITORY", "")
-    number = pr_meta.get("number")
-    if token and number and "/" in repo_full:
-        owner, repo = repo_full.split("/", 1)
-        try:
-            from intent_review import post_or_update_comment
-            post_or_update_comment(owner, repo, number, body, token)
-            status["posted"] = True
-        except Exception as e:
-            print(f"[archie] could not post comment ({e})")
-            print(body)
-    else:
-        print("[archie] no GITHUB_TOKEN / PR — printing verdict:\n" + body)
+    # A render/post failure must never abort the review (exit 0 by contract).
+    try:
+        body = render_verdict(verdict, confirmed)
+        token = env.get("GITHUB_TOKEN", "").strip()
+        repo_full = env.get("GITHUB_REPOSITORY", "")
+        number = pr_meta.get("number")
+        if token and number and "/" in repo_full:
+            owner, repo = repo_full.split("/", 1)
+            try:
+                from intent_review import post_or_update_comment
+                post_or_update_comment(owner, repo, number, body, token)
+                status["posted"] = True
+            except Exception as e:
+                print(f"[archie] could not post comment ({e})")
+                print(body)
+        else:
+            print("[archie] no GITHUB_TOKEN / PR — printing verdict:\n" + body)
+    except Exception as e:
+        print(f"[archie] render/publish failed ({e})")
 
     return status
 

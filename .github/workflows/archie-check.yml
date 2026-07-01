@@ -19,16 +19,20 @@ jobs:
           python-version: '3.11'
       - run: pip install -e ".[dev]"
       - run: archie check
-      # Trust model: delivery_review.py is executed from the TRUSTED installed
-      # location (.archie/), not from PR-editable content. The [ -f ] guard
-      # below ensures we only run the pre-installed script, never attacker-
-      # controlled code from the PR branch. On fork PRs secrets are empty and
-      # the review posts no comment — fail-open is the intended behavior.
+      # Trust model: delivery_review.py is executed from the BASE ref copy
+      # (origin/${GITHUB_BASE_REF}), never from PR-head content. A same-repo
+      # branch contributor cannot edit the script that runs with secrets, so
+      # PR-head edits can't achieve arbitrary code execution. `pull_request`
+      # (NOT pull_request_target) + least-priv permissions are kept; on fork
+      # PRs secrets are empty and the review posts no comment (fail-open).
+      # fetch-depth: 0 above guarantees origin/${GITHUB_BASE_REF} is present.
       - run: |
-          if [ -f .archie/delivery_review.py ]; then
-            python3 .archie/delivery_review.py
+          SCRIPT=".archie/delivery_review.py"
+          if git cat-file -e "origin/${GITHUB_BASE_REF}:$SCRIPT" 2>/dev/null; then
+            git show "origin/${GITHUB_BASE_REF}:$SCRIPT" > /tmp/archie_delivery_review.py
+            python3 /tmp/archie_delivery_review.py
           else
-            echo "[archie] .archie/delivery_review.py not installed, skipping."
+            echo "[archie] $SCRIPT not present on base ref, skipping."
           fi
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

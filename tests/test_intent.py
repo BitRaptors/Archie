@@ -93,3 +93,19 @@ def test_resolve_bad_json_noop():
     # goals and acceptance_criteria remain empty (unchanged from normalize)
     assert out["goals"] == []
     assert out["acceptance_criteria"] == []
+
+
+def test_resolve_does_not_alias_input():
+    """The returned spec's carried-over list fields must be copies, not aliases —
+    mutating the returned spec's ticket_ids must not touch the input's."""
+    payload = json.dumps({"goals": ["g"], "acceptance_criteria": [{"id": "ac1", "text": "t"}]})
+    def fake_run(prompt, path, model): return payload
+
+    spec = it.normalize("Add feature", source="prompt", ticket_ids=["ARCH-1"])
+    out = it.resolve(spec, run=fake_run)
+
+    assert out is not spec
+    out["ticket_ids"].append("ARCH-999")
+    assert spec["ticket_ids"] == ["ARCH-1"]  # input untouched
+    out["non_goals"].append("x")
+    assert spec["non_goals"] == []

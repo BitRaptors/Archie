@@ -57,6 +57,11 @@ def resolve(intent_spec, run=None):
     out = run(build_resolve_prompt(raw), Path("."), "claude")
     data = extract_json_obj(out or "")
     spec = dict(intent_spec)
+    # Copy carried-over list fields so callers can't mutate the input via the
+    # returned spec (dict() is a shallow copy — lists would otherwise alias).
+    spec["ticket_ids"] = list(intent_spec.get("ticket_ids") or [])
+    spec["goals"] = list(intent_spec.get("goals") or [])
+    spec["non_goals"] = list(intent_spec.get("non_goals") or [])
     crit = data.get("acceptance_criteria")
     goals = data.get("goals")
     if isinstance(crit, list) and crit:
@@ -213,6 +218,11 @@ def save_branch_record(archie_dir: Path, branch: str, spec: dict) -> None:
 
     p = _record_path(archie_dir, branch)
     p.parent.mkdir(parents=True, exist_ok=True)
+
+    # J5: parent-dir symlink guard — if `.archie/intent` itself is a symlink,
+    # a write through the leaf would still traverse it. Refuse (skip, no crash).
+    if p.parent.is_symlink():
+        return
 
     # C2: symlink-safe write — refuse to follow a pre-existing symlink.
     # Use O_CREAT|O_WRONLY|O_TRUNC|O_NOFOLLOW so the kernel rejects symlinks.
