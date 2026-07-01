@@ -16,7 +16,8 @@ def _hit(changed: list[str], targets: list[str]) -> bool:
         for t in targets:
             if not t:
                 continue
-            if c == t or c.startswith(t.rstrip("/") + "/") or t.rstrip("/") in c:
+            seg = t.rstrip("/")
+            if c == seg or c.startswith(seg + "/") or ("/" + seg + "/") in ("/" + c + "/"):
                 return True
     return False
 

@@ -21,3 +21,9 @@ def test_data_lifecycle_selected_on_store_file():
 
 def test_no_touch_returns_empty():
     assert sel.select_specialists(BP, ["README.md"])["specialists"] == []
+
+def test_short_anchor_does_not_substring_match_unrelated_file():
+    bp = {"domain_invariants": [{"id": "inv-x", "enforced_at": ["db/"]}],
+          "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": []}
+    out = sel.select_specialists(bp, ["services/redis_db_client.py"])
+    assert out["specialists"] == []
