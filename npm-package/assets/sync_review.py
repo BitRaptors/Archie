@@ -1,0 +1,97 @@
+"""Sync-surface delivery review: light, continuous, non-blocking. Runs edge A +
+behavioral on the branch delta, gates, and returns a status-line verdict.
+
+SKIP-GATE: if select_specialists picks no specialists AND no changed file is
+source code, returns {"skipped": True} without any LLM call.
+
+Import convention: bare-name imports via sys.path so this works on Python 3.9
+(archie/__init__.py uses tomllib which is 3.11+).
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import SOURCE_EXTENSIONS                      # noqa: E402
+from agent_cli import run_verifier                         # noqa: E402
+from selector import select_specialists                    # noqa: E402
+from intent import load_branch_record, normalize           # noqa: E402
+from reconcile import review_edge_a, aggregate_verdict     # noqa: E402
+from behavioral_review import review as behavioral_review_run   # noqa: E402
+from editor_gate import gate                               # noqa: E402
+
+
+def _is_source(f: str) -> bool:
+    """Return True if f has a source-code extension."""
+    return any(f.endswith(ext) for ext in SOURCE_EXTENSIONS)
+
+
+def run_sync_review(
+    root,
+    branch,
+    blueprint,
+    import_graph,
+    diff_text,
+    changed_files,
+    changed_lines,
+    floors,
+    *,
+    run=None,
+) -> dict:
+    """Run a light sync delivery review on the branch delta.
+
+    Args:
+        root: Path to the project root (str or Path).
+        branch: Current branch name.
+        blueprint: Blueprint dict (from blueprint.json).
+        import_graph: Import graph dict for blast-radius computation.
+        diff_text: Unified diff text for the branch delta.
+        changed_files: List of changed file paths (relative to root).
+        changed_lines: Dict mapping file paths to sets of changed line numbers.
+        floors: Dict mapping finding kind -> minimum confidence threshold.
+        run: LLM runner (injected for testing; defaults to run_verifier at
+             call time so monkeypatching works).
+
+    Returns:
+        dict with keys:
+        - skipped: True if the skip-gate fired (no source files, no specialists).
+        - confirmed: list of confirmed findings (absent when skipped).
+        - verdict: aggregate_verdict dict (absent when skipped).
+    """
+    if run is None:
+        run = run_verifier   # call-time lookup — monkeypatch takes effect
+
+    # SKIP-GATE: no specialists AND no source code touched → no LLM call
+    sel = select_specialists(blueprint, changed_files)
+    if not sel["specialists"] and not any(_is_source(f) for f in changed_files):
+        return {"skipped": True}
+
+    # Load or synthesize intent spec for this branch
+    archie_dir = Path(root) / ".archie"
+    spec = load_branch_record(archie_dir, branch) or normalize(
+        "", source="inferred", ticket_ids=[]
+    )
+
+    # Run edge A (intent vs diff) and behavioral review; pass run through
+    raw = review_edge_a(root, spec, diff_text, run=run)
+    raw += behavioral_review_run(root, diff_text, import_graph, changed_files, run=run)
+
+    # Load existing findings store for dedup
+    store: list[dict] = []
+    fp = archie_dir / "findings.json"
+    if fp.exists():
+        try:
+            store = json.loads(fp.read_text()).get("findings", [])
+        except Exception:
+            store = []
+
+    # Gate: validate, floor-check, anchor-check, dedup
+    result = gate(raw, store, changed_lines=changed_lines, floors=floors)
+
+    return {
+        "skipped": False,
+        "confirmed": result["confirmed"],
+        "verdict": aggregate_verdict(spec, result["confirmed"]),
+    }
