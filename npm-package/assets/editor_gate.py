@@ -5,7 +5,9 @@ absent from its input — every confirmed item is an input item, unchanged in id
 from __future__ import annotations
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+_p = str(Path(__file__).parent)
+if _p not in sys.path:
+    sys.path.insert(0, _p)
 from evidence_schema import has_evidence_fields  # noqa: E402
 
 

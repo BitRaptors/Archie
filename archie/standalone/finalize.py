@@ -367,8 +367,16 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
             # Extract and merge id-stably before deep-merging the rest.
             new_findings = parsed.pop("findings", None)
             if isinstance(new_findings, list) and new_findings:
-                total = _merge_findings_into_store(archie_dir, new_findings)
-                print(f"  Findings store: {total} entries after deep-scan upgrade", file=sys.stderr)
+                # Route Risk findings through the cold-read gate so the
+                # per-kind confidence floors + falsification/evidence-schema
+                # enforcement actually run before anything lands in the store.
+                res = gate_and_merge(archie_dir, new_findings, floors=DEFAULT_COLD_FLOORS)
+                total = res["merged"]
+                print(
+                    f"  Findings store: {total} entries after deep-scan upgrade "
+                    f"({res['suppressed']} suppressed by gate)",
+                    file=sys.stderr,
+                )
             payloads.append(parsed)
 
         if payloads:
@@ -547,6 +555,22 @@ def normalize_only(root: Path):
 
     comp_count = len(bp.get("components", {}).get("components", []))
     print(f"Normalized blueprint.json ({comp_count} components)", file=sys.stderr)
+
+
+# Per-kind confidence floors for the cold-read gate (deep-scan / finalize path).
+# The Risk step emits evidence-schema findings with a `kind`; the gate keeps a
+# finding only when confidence >= floors.get(kind, <default>). editor_gate.gate's
+# own fallback is 0.5, so any kind not listed here defaults to 0.5. The behavioral
+# and conformance breaks Risk emits sit at 0.6, so the 0.7-confidence sample Risk
+# fixture (kind=behavioral_break) survives (0.7 >= 0.6).
+DEFAULT_COLD_FLOORS = {
+    "behavioral_break": 0.6,
+    "conformance_break": 0.6,
+    "intent_unmet": 0.5,
+    "intent_partial": 0.5,
+    "intent_drift": 0.6,
+    "intent_conflict": 0.6,
+}
 
 
 def gate_and_merge(archie_dir: Path, raw_findings: list, floors: dict) -> dict:

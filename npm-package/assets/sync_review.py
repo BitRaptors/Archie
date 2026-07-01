@@ -13,7 +13,9 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+_p = str(Path(__file__).parent)
+if _p not in sys.path:
+    sys.path.insert(0, _p)
 from _common import SOURCE_EXTENSIONS                      # noqa: E402
 from agent_cli import run_verifier                         # noqa: E402
 from selector import select_specialists                    # noqa: E402

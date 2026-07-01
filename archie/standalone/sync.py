@@ -783,6 +783,125 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# review — run the (previously orphaned) delivery-review pipeline on the branch
+# delta. Non-blocking: ALWAYS returns 0, never raises to the caller.
+# ---------------------------------------------------------------------------
+
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def parse_hunk_added_lines(diff_text: str) -> dict:
+    """Parse a `git diff -U0` (or any unified diff) into added-line numbers.
+
+    Returns dict[str, set[int]] mapping each changed file path to the set of
+    line numbers added on the `+` side. Pure — no I/O — so it's unit-testable
+    without git. Handles multiple hunks/files; tolerates a malformed diff by
+    skipping lines it can't parse.
+
+    We track the current file from the `+++ b/<path>` header and, for each
+    `@@ ... +c,d @@` hunk, walk the body counting only added ('+') lines to
+    assign real line numbers (a `+c,d` hunk header alone gives the start, but
+    context/deletions inside a -U0 diff are absent, so counting `+` lines is
+    exact for -U0 and best-effort otherwise).
+    """
+    result: dict = {}
+    current: str | None = None
+    cur_line = 0
+    in_hunk = False
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            path = line[4:].strip()
+            # Strip a leading "b/" (git prefix); "/dev/null" means a deletion.
+            if path.startswith("b/"):
+                path = path[2:]
+            current = None if path == "/dev/null" else path
+            in_hunk = False
+            continue
+        m = _HUNK_RE.match(line)
+        if m:
+            cur_line = int(m.group(1))
+            in_hunk = True
+            continue
+        if not in_hunk or current is None:
+            continue
+        if line.startswith("+"):
+            result.setdefault(current, set()).add(cur_line)
+            cur_line += 1
+        elif line.startswith("-"):
+            # deletion — does not advance the +side line counter
+            continue
+        elif line.startswith(" "):
+            # context line — advances the +side counter (rare under -U0)
+            cur_line += 1
+        else:
+            # diff metadata (index/--- lines etc.) — leave hunk state as-is
+            continue
+    return result
+
+
+def _parse_changed_lines(root: Path, base: str) -> dict:
+    """Run `git diff -U0 <base> --` and return dict[str, set[int]] of added lines.
+
+    Best-effort: guards the subprocess call and returns {} on any failure.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "diff", "-U0", base, "--"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return {}
+        return parse_hunk_added_lines(result.stdout)
+    except Exception:
+        return {}
+
+
+def cmd_review(root: Path) -> int:
+    """Run the light delivery-review pipeline on the branch delta and print the
+    verdict. Non-blocking: ALWAYS returns 0, never raises to the caller."""
+    # lazy bare imports (match sync.py's own sibling-import style)
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    try:
+        from diff_basis import detect_base, changed_files_result   # noqa
+        from sync_review import run_sync_review                     # noqa
+        from _common import _load_json                              # noqa
+
+        base = detect_base(root)
+        cf = changed_files_result(root, base)
+        changed = cf.get("files", [])
+        # diff text (bounded) for the prompt
+        diff_text = subprocess.run(
+            ["git", "-C", str(root), "diff", base, "--"],
+            capture_output=True, text=True,
+        ).stdout[:200000]
+        # changed_lines: added-line numbers per file (best-effort)
+        changed_lines = _parse_changed_lines(root, base)
+        blueprint = _load_json(root / ".archie" / "blueprint.json") or {}
+        scan = _load_json(root / ".archie" / "scan.json") or {}
+        import_graph = scan.get("import_graph", {}) if isinstance(scan, dict) else {}
+        branch = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True,
+        ).stdout.strip() or "HEAD"
+        floors = {"behavioral_break": 0.6, "intent_unmet": 0.5,
+                  "intent_partial": 0.5, "intent_drift": 0.6}
+        out = run_sync_review(str(root), branch, blueprint, import_graph, diff_text,
+                              changed, changed_lines, floors)
+        if out.get("skipped"):
+            print("[archie] delivery review: skipped (nothing relevant changed).")
+        else:
+            v = out.get("verdict", {})
+            print(f"[archie] delivery review — {v.get('intent_completeness', '?')} criteria · "
+                  f"{v.get('breaks', 0)} break(s) · {v.get('drift', 0)} drift · "
+                  f"{len(out.get('confirmed', []))} finding(s)")
+    except Exception as e:
+        # non-blocking: never fail the caller
+        print(f"[archie] delivery review skipped (error: {e})")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -799,6 +918,7 @@ def _usage() -> None:
     print("  python3 sync.py churn-status /path/to/repo", file=sys.stderr)
     print("  python3 sync.py churn-reset  /path/to/repo", file=sys.stderr)
     print("  python3 sync.py sync-stamp   /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
+    print("  python3 sync.py review       /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
 
 
 def _opt(rest: list[str], name: str) -> str | None:
@@ -989,6 +1109,9 @@ def main(argv: list[str]) -> int:
 
     if cmd == "sync-stamp":
         return cmd_sync_stamp(root)
+
+    if cmd == "review":
+        return cmd_review(root)
 
     _usage()
     return 1

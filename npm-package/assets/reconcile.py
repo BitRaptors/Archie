@@ -6,7 +6,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+_p = str(Path(__file__).parent)
+if _p not in sys.path:
+    sys.path.insert(0, _p)
 from agent_cli import run_verifier            # noqa: E402
 from evidence_schema import make_finding, clamp_confidence, extract_json_obj, coerce_confidence   # noqa: E402
 from intent import ceiling_for                # noqa: E402

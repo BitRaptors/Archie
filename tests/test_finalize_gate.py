@@ -22,3 +22,18 @@ def test_cold_read_strict_floor(tmp_path):
     store = json.loads((ad / "findings.json").read_text())["findings"]
     ids = {f["id"] for f in store}
     assert "f2" in ids and "f1" not in ids and out["suppressed"] == 1
+
+
+def test_finalize_routes_risk_through_gate(tmp_path):
+    """A Risk finding WITH evidence fields at confidence 0.7 survives the gate at
+    DEFAULT_COLD_FLOORS (behavioral_break floor 0.6) and lands in the store; a
+    finding lacking `falsification` (no evidence schema) is dropped."""
+    ad = tmp_path / ".archie"; ad.mkdir()
+    good = _f("risk_good", 0.7)                      # full evidence fields, conf 0.7 >= 0.6
+    bad = dict(_f("risk_bad", 0.9)); bad.pop("falsification")  # no evidence schema -> dropped
+    out = fz.gate_and_merge(ad, [good, bad], floors=fz.DEFAULT_COLD_FLOORS)
+    store = json.loads((ad / "findings.json").read_text())["findings"]
+    ids = {f["id"] for f in store}
+    assert "risk_good" in ids
+    assert "risk_bad" not in ids
+    assert out["merged"] == 1 and out["suppressed"] == 1
