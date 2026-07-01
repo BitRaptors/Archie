@@ -108,7 +108,8 @@ def _load_pr_meta_from_event(event_path):
     gracefully (no PR context -> nothing to review).
     """
     meta = {"author": "", "changed_files": 0, "labels": [], "number": None,
-            "base_ref": "", "base_sha": "", "head_sha": ""}
+            "base_ref": "", "base_sha": "", "head_sha": "", "head_ref": "",
+            "title": "", "body": ""}
     if not event_path or not Path(event_path).exists():
         return meta
     try:
@@ -126,6 +127,9 @@ def _load_pr_meta_from_event(event_path):
         meta["base_ref"] = str(base.get("ref", "") or "")
         meta["base_sha"] = str(base.get("sha", "") or "")
         meta["head_sha"] = str(head.get("sha", "") or "")
+        meta["head_ref"] = str(head.get("ref", "") or "")
+        meta["title"] = str(pr.get("title", "") or "")
+        meta["body"] = str(pr.get("body", "") or "")
         labels = pr.get("labels") or []
         meta["labels"] = [l.get("name") for l in labels
                           if isinstance(l, dict) and l.get("name")]
@@ -194,11 +198,14 @@ def run_pr_gate(root=".", env=None):
     try:
         from intent import (ticket_ids_from, normalize, resolve,
                             load_branch_record)
-        branch = pr_meta.get("base_ref") or ""
-        head = pr_meta.get("head_sha") or ""
-        pr_body = env.get("ARCHIE_PR_BODY", "")
-        tickets = ticket_ids_from(head, pr_body, [])
-        spec = normalize(pr_body, source="pr_body", ticket_ids=tickets)
+        # PR intent comes from the event payload (title + body), not an env var;
+        # the branch record is keyed on the PR HEAD ref, not the base branch.
+        branch = pr_meta.get("head_ref") or ""
+        title = pr_meta.get("title") or ""
+        body = pr_meta.get("body") or env.get("ARCHIE_PR_BODY", "")
+        pr_text = (title + "\n\n" + body).strip()
+        tickets = ticket_ids_from(branch, pr_text, [])
+        spec = normalize(pr_text, source="pr_body", ticket_ids=tickets)
         record = load_branch_record(root / ".archie", branch) if branch else None
         if record:
             spec = record
