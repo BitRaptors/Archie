@@ -117,3 +117,68 @@ def test_merge_new_finding_starts_clean(tmp_path: Path) -> None:
     assert f["confirmed_in_scan"] == 1
     assert "verdict_history" not in f
     assert "demoted_at" not in f
+
+
+# ── D2 new tests ──────────────────────────────────────────────────────────────
+
+def test_merge_store_bare_list_no_crash(tmp_path: Path) -> None:
+    """If findings.json is a bare JSON list (not a dict), _merge_findings_into_store
+    must NOT raise; it treats the content as corrupt and proceeds with an empty store."""
+    archie_dir = tmp_path / ".archie"
+    archie_dir.mkdir()
+    # Write a bare list — valid JSON but wrong shape.
+    (archie_dir / "findings.json").write_text('[{"id": "old", "problem_statement": "stale"}]')
+
+    new = [{"id": "f_fresh", "problem_statement": "new finding"}]
+    # Must not raise AttributeError or any other exception.
+    count = finalize._merge_findings_into_store(archie_dir, new)
+    assert count >= 1
+    # The resulting store must be valid JSON with a dict at the top level.
+    result = json.loads((archie_dir / "findings.json").read_text())
+    assert isinstance(result, dict)
+    assert "findings" in result
+
+
+def test_corrupt_store_preserved_not_wiped(tmp_path: Path) -> None:
+    """When findings.json is truncated/corrupt, a .corrupt sidecar must be created
+    preserving the original bytes. The run must still complete (proceed with empty store).
+    """
+    archie_dir = tmp_path / ".archie"
+    archie_dir.mkdir()
+    corrupt_content = b'{"findings": [{"id": "precious"'  # truncated JSON
+    (archie_dir / "findings.json").write_bytes(corrupt_content)
+
+    new = [{"id": "f_new", "problem_statement": "after corruption"}]
+    # Must not raise.
+    finalize._merge_findings_into_store(archie_dir, new)
+
+    # A .corrupt sidecar must exist containing the original bytes.
+    corrupt_path = archie_dir / "findings.json.corrupt"
+    assert corrupt_path.exists(), "Expected findings.json.corrupt sidecar to be created"
+    assert corrupt_path.read_bytes() == corrupt_content, (
+        "Corrupt sidecar does not contain the original bytes — old data was not preserved"
+    )
+
+    # The main findings.json must be valid JSON and a dict (run completed).
+    result = json.loads((archie_dir / "findings.json").read_text())
+    assert isinstance(result, dict)
+    ids = {f.get("id") for f in result.get("findings", [])}
+    assert "f_new" in ids
+
+
+def test_store_write_is_atomic(tmp_path: Path) -> None:
+    """After a normal merge, findings.json must be valid JSON and no leftover temp
+    files should remain in the .archie directory."""
+    archie_dir = tmp_path / ".archie"
+    archie_dir.mkdir()
+
+    new = [{"id": "f_atom", "problem_statement": "atomic write test"}]
+    finalize._merge_findings_into_store(archie_dir, new)
+
+    # findings.json must be parseable.
+    result = json.loads((archie_dir / "findings.json").read_text())
+    assert isinstance(result, dict)
+
+    # No leftover .tmp files should remain.
+    tmp_files = list(archie_dir.glob("*.tmp"))
+    assert tmp_files == [], f"Leftover temp files found: {tmp_files}"

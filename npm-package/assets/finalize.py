@@ -13,7 +13,10 @@ from __future__ import annotations
 import datetime
 import importlib.util
 import json
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -86,9 +89,30 @@ def _merge_findings_into_store(archie_dir: Path, new_findings: list) -> int:
     """
     store_path = archie_dir / "findings.json"
     if store_path.exists():
+        raw = None
         try:
-            store = json.loads(store_path.read_text())
+            raw = store_path.read_text()
+            store = json.loads(raw)
         except (json.JSONDecodeError, OSError):
+            store = None
+        # Guard against a bare JSON list ([...]) — store must be a dict.
+        if not isinstance(store, dict):
+            # Back up the corrupt/invalid file so old data is not destroyed.
+            corrupt_path = store_path.with_suffix(".json.corrupt")
+            try:
+                if raw is not None:
+                    corrupt_path.write_text(raw)
+                else:
+                    shutil.copyfile(str(store_path), str(corrupt_path))
+            except Exception as _bk_err:
+                print(
+                    f"  Warning: could not back up corrupt findings store: {_bk_err}",
+                    file=sys.stderr,
+                )
+            print(
+                f"  Warning: findings.json was not a valid dict (backed up to {corrupt_path.name}); starting fresh.",
+                file=sys.stderr,
+            )
             store = {}
     else:
         store = {}
@@ -127,7 +151,20 @@ def _merge_findings_into_store(archie_dir: Path, new_findings: list) -> int:
 
     store["findings"] = list(by_id.values())
     store["scanned_at"] = now
-    store_path.write_text(json.dumps(store, indent=2))
+    # Atomic write: write to a temp file in the same directory, then replace.
+    # This prevents a crash mid-write from truncating the findings store.
+    _content = json.dumps(store, indent=2)
+    _tmp_fd, _tmp_path = tempfile.mkstemp(dir=str(archie_dir), suffix=".tmp")
+    try:
+        with os.fdopen(_tmp_fd, "w") as _fh:
+            _fh.write(_content)
+        os.replace(_tmp_path, str(store_path))
+    except Exception:
+        try:
+            os.unlink(_tmp_path)
+        except OSError:
+            pass
+        raise
     return len(store["findings"])
 
 # When running standalone (.archie/), import sibling scripts directly by path
@@ -526,7 +563,12 @@ def gate_and_merge(archie_dir: Path, raw_findings: list, floors: dict) -> dict:
     findings_path = archie_dir / "findings.json"
     if findings_path.exists():
         try:
-            store = json.loads(findings_path.read_text()).get("findings", [])
+            loaded = json.loads(findings_path.read_text())
+            # Guard: if the store is not a dict (e.g. bare list), treat as empty.
+            if isinstance(loaded, dict):
+                store = loaded.get("findings", [])
+            else:
+                store = []
         except Exception:
             store = []
 

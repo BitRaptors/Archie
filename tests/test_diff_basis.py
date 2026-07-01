@@ -14,6 +14,22 @@ class FakeRun:
         r.stdout, r.returncode = out[0], out[1]; r.stderr = ""
         return r
 
+
+class RecordingRun:
+    """Records all argv lists passed to it; always returns success with empty output."""
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, argv, **kw):
+        self.calls.append(list(argv))
+        class R: pass
+        r = R()
+        r.stdout = ""
+        r.returncode = 1
+        r.stderr = ""
+        return r
+
+
 def test_detect_base_prefers_explicit():
     assert db.detect_base(Path("/x"), explicit="develop", run=FakeRun({})) == "develop"
 
@@ -25,8 +41,96 @@ def test_detect_base_falls_back_to_main():
     assert db.detect_base(Path("/x"), run=FakeRun({})) == "main"
 
 def test_changed_files_uses_merge_base():
+    # Note: new implementation passes '--' as end-of-options after the ref.
     run = FakeRun({
+        "git -C /x rev-parse --verify --quiet main": ("main\n", 0),
         "git -C /x merge-base HEAD main": ("abc123\n", 0),
-        "git -C /x diff --name-only abc123": ("a.py\nb.py\n", 0),
+        "git -C /x diff --name-only abc123 --": ("a.py\nb.py\n", 0),
     })
     assert db.changed_files(Path("/x"), "main", run=run) == ["a.py", "b.py"]
+
+
+# ── D1 security tests ─────────────────────────────────────────────────────────
+
+def test_changed_files_rejects_dash_ref():
+    """A ref starting with '-' must be refused — never placed in git argv as a bare ref."""
+    rec = RecordingRun()
+    result = db.changed_files(Path("/x"), "--output=/tmp/x", run=rec)
+    # Must return empty list (invalid ref rejected)
+    assert result == []
+    # The malicious ref must NOT appear in any argv as a bare positional argument
+    for argv in rec.calls:
+        assert "--output=/tmp/x" not in argv, (
+            f"Dashed ref appeared in git argv: {argv}"
+        )
+
+
+def test_changed_files_result_rejects_dash_ref():
+    """changed_files_result must return ok=False, reason='invalid_ref' for dashed refs."""
+    rec = RecordingRun()
+    result = db.changed_files_result(Path("/x"), "--output=/tmp/x", run=rec)
+    assert result["ok"] is False
+    assert result["reason"] == "invalid_ref"
+    assert result["files"] == []
+
+
+def test_detect_base_rejects_dash_explicit():
+    """detect_base with explicit='-foo' must NOT return '-foo'; must fall through to a safe default."""
+    result = db.detect_base(Path("/x"), explicit="-foo", run=FakeRun({}))
+    assert result != "-foo"
+    # Falls through to "main" since all other ladders fail too
+    assert result == "main"
+
+
+def test_changed_files_result_signals_git_error():
+    """When both merge-base and diff fail, changed_files_result returns ok=False, reason='git_error'."""
+    # All git commands return failure (returncode=1, empty stdout)
+    run = FakeRun({})  # empty table → all return ("", 1)
+    result = db.changed_files_result(Path("/x"), "main", run=run)
+    assert result["ok"] is False
+    assert result["reason"] == "git_error"
+    assert result["files"] == []
+
+
+def test_changed_files_result_ok():
+    """Happy-path: changed_files_result returns ok=True, reason='ok', with the file list."""
+    run = FakeRun({
+        "git -C /x rev-parse --verify --quiet main": ("main\n", 0),
+        "git -C /x merge-base HEAD main": ("abc123\n", 0),
+        "git -C /x diff --name-only abc123 --": ("foo.py\nbar.py\n", 0),
+    })
+    result = db.changed_files_result(Path("/x"), "main", run=run)
+    assert result["ok"] is True
+    assert result["reason"] == "ok"
+    assert result["files"] == ["foo.py", "bar.py"]
+
+
+def test_diff_uses_double_dash_separator():
+    """git diff argv must include '--' after the ref to prevent option injection."""
+    captured = []
+
+    def capturing_run(argv, **kw):
+        captured.append(list(argv))
+        class R: pass
+        r = R()
+        # Make rev-parse and merge-base succeed, diff succeed
+        if "rev-parse" in argv:
+            r.stdout = "abc\n"; r.returncode = 0
+        elif "merge-base" in argv:
+            r.stdout = "deadbeef\n"; r.returncode = 0
+        elif "diff" in argv:
+            r.stdout = "f.py\n"; r.returncode = 0
+        else:
+            r.stdout = ""; r.returncode = 1
+        r.stderr = ""
+        return r
+
+    db.changed_files(Path("/x"), "main", run=capturing_run)
+    diff_calls = [a for a in captured if "diff" in a and "--name-only" in a]
+    assert diff_calls, "No diff call found"
+    diff_argv = diff_calls[0]
+    # '--' must appear AFTER the ref, not before
+    assert "--" in diff_argv, f"No '--' in diff argv: {diff_argv}"
+    dash_idx = diff_argv.index("--")
+    # The ref (deadbeef) should appear before '--'
+    assert dash_idx > 0
