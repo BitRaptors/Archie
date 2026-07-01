@@ -54,12 +54,35 @@ def ceiling_for(intent_spec: dict) -> float:
 
 
 # --- Intent ladder resolution + per-branch record ---
-import re
+import hashlib
 import json
+import os
+import re
 from pathlib import Path
 
 _RANK = {"inferred": 0, "commits": 1, "pr_body": 2, "prompt": 2, "linear": 3}
 _TICKET_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
+
+# C1: Denylist of common standards/protocol prefixes that look like ticket IDs
+# but are never real tracker keys. A project-key allowlist (from config) would
+# be the robust long-term fix; this denylist is a heuristic guard.
+_TICKET_DENYLIST: frozenset[str] = frozenset({
+    "CVE", "UTF", "SHA", "SHA1", "SHA256", "MD", "RFC", "ISO",
+    "IPV", "IP", "CP", "UTC", "EC", "AES", "RSA", "SSE", "HTTP", "HTTPS",
+})
+
+
+def _is_valid_ticket(candidate: str) -> bool:
+    """Return True if the ticket candidate is not a known standards prefix.
+
+    Args:
+        candidate: Full ticket string like "ARCH-123" or "CVE-2021-1234"
+
+    Returns:
+        False if the prefix before '-' is in the denylist, True otherwise
+    """
+    prefix = candidate.split("-")[0]
+    return prefix not in _TICKET_DENYLIST
 
 
 def ticket_ids_from(branch: str, pr_body: str, commit_msgs: list[str]) -> list[str]:
@@ -76,7 +99,7 @@ def ticket_ids_from(branch: str, pr_body: str, commit_msgs: list[str]) -> list[s
     text = " ".join([branch or "", pr_body or "", " ".join(commit_msgs or [])])
     seen, out = set(), []
     for m in _TICKET_RE.findall(text):
-        if m not in seen:
+        if m not in seen and _is_valid_ticket(m):
             seen.add(m)
             out.append(m)
     return out
@@ -85,14 +108,20 @@ def ticket_ids_from(branch: str, pr_body: str, commit_msgs: list[str]) -> list[s
 def _record_path(archie_dir: Path, branch: str) -> Path:
     """Compute the path to a branch's intent record file.
 
+    Uses a collision-free encoding: safe ASCII slug + short stable hash of the
+    original branch name so that "a/b" and "a__b" map to different files.
+
     Args:
         archie_dir: Path to .archie directory
         branch: Branch name
 
     Returns:
-        Path to branch intent record (branch name with / → __)
+        Path to branch intent record
     """
-    safe = branch.replace("/", "__")
+    # C4: collision-free encoding — slug + 8-char SHA-1 of original name
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", branch)
+    suffix = hashlib.sha1(branch.encode()).hexdigest()[:8]
+    safe = f"{slug}-{suffix}"
     return archie_dir / "intent" / f"{safe}.json"
 
 
@@ -119,7 +148,8 @@ def save_branch_record(archie_dir: Path, branch: str, spec: dict) -> None:
     """Save a branch's intent record to disk, merging over lower-confidence existing record.
 
     Never downgrades confidence: if a higher-ranked source exists, the new spec is
-    discarded.
+    discarded. For equal-rank sources, fields are merged so no previously captured
+    data (ticket_ids, goals, acceptance_criteria, non_goals) is lost.
 
     Args:
         archie_dir: Path to .archie directory
@@ -127,8 +157,46 @@ def save_branch_record(archie_dir: Path, branch: str, spec: dict) -> None:
         spec: Intent spec dict (from normalize())
     """
     existing = load_branch_record(archie_dir, branch)
-    if existing and _RANK.get(existing.get("source"), 0) > _RANK.get(spec.get("source"), 0):
+    existing_rank = _RANK.get(existing.get("source"), 0) if existing else -1
+    new_rank = _RANK.get(spec.get("source"), 0)
+
+    if existing and existing_rank > new_rank:
+        # C3: keep existing higher-rank record unchanged
         return
+
+    # C3: merge fields rather than blind replace when ranks are equal or new is higher
+    if existing:
+        merged = dict(spec)  # start from incoming (newer source/confidence/raw)
+        # union ticket_ids — preserve all previously seen IDs
+        existing_ids = existing.get("ticket_ids") or []
+        new_ids = merged.get("ticket_ids") or []
+        combined = list(existing_ids)
+        for tid in new_ids:
+            if tid not in combined:
+                combined.append(tid)
+        merged["ticket_ids"] = combined
+        # keep existing non-empty list fields when incoming is empty
+        for field in ("goals", "acceptance_criteria", "non_goals"):
+            if not merged.get(field) and existing.get(field):
+                merged[field] = existing[field]
+        spec = merged
+
     p = _record_path(archie_dir, branch)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(spec, indent=2))
+
+    # C2: symlink-safe write — refuse to follow a pre-existing symlink.
+    # Use O_CREAT|O_WRONLY|O_TRUNC|O_NOFOLLOW so the kernel rejects symlinks.
+    if p.is_symlink():
+        # Unlink the symlink and write a fresh regular file instead.
+        p.unlink()
+
+    data = json.dumps(spec, indent=2).encode()
+    try:
+        fd = os.open(str(p), os.O_CREAT | os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    except OSError:
+        # Another symlink appeared between our check and open — skip, do not follow.
+        return
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
