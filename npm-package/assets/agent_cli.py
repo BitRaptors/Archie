@@ -112,8 +112,8 @@ def _run_codex(prompt: str, project_root: Path, timeout: int = DEFAULT_TIMEOUT) 
     """
     tmp_file: str | None = None
     try:
-        with tempfile.NamedTemporaryFile("r+", encoding="utf-8", delete=False) as fh:
-            tmp_file = fh.name
+        fd, tmp_file = tempfile.mkstemp(suffix=".codex-out.txt")
+        os.close(fd)
         proc = subprocess.run(
             [
                 CODEX_CLI,
@@ -129,15 +129,13 @@ def _run_codex(prompt: str, project_root: Path, timeout: int = DEFAULT_TIMEOUT) 
             cwd=str(project_root),
             timeout=timeout,
         )
+        if proc.returncode != 0:
+            return ""
+        try:
+            return Path(tmp_file).read_text().strip()
+        except OSError:
+            return ""
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        return ""
-    if proc.returncode != 0:
-        return ""
-    if not tmp_file:
-        return ""
-    try:
-        return Path(tmp_file).read_text()
-    except OSError:
         return ""
     finally:
         if tmp_file:

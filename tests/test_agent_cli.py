@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -121,3 +122,52 @@ def test_run_codex_uses_stdin_and_output_file(tmp_path: Path, monkeypatch: pytes
     assert seen["cwd"] == str(tmp_path)
     assert seen["args"][-1] == "-"
     assert "--output-last-message" in seen["args"]
+
+
+def test_codex_cleans_temp_on_nonzero_return(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Temp file must be deleted even when codex exits with a non-zero returncode."""
+    created_tmp: list[str] = []
+    real_mkstemp = tempfile.mkstemp
+
+    def _tracking_mkstemp(**kwargs):
+        fd, name = real_mkstemp(**kwargs)
+        created_tmp.append(name)
+        return fd, name
+
+    # mkstemp is called as tempfile.mkstemp inside agent_cli, so patch the module
+    monkeypatch.setattr(agent_cli.tempfile, "mkstemp", _tracking_mkstemp)
+
+    def _fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="")
+
+    monkeypatch.setattr(agent_cli.subprocess, "run", _fake_run)
+
+    result = agent_cli._run_codex("prompt", tmp_path, 30)
+
+    assert result == ""
+    assert len(created_tmp) == 1, "expected exactly one temp file to be created"
+    assert not Path(created_tmp[0]).exists(), "temp file was NOT cleaned up on non-zero returncode"
+
+
+def test_codex_cleans_temp_on_missing_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Temp file must be deleted when the codex CLI is not found (FileNotFoundError)."""
+    created_tmp: list[str] = []
+    real_mkstemp = tempfile.mkstemp
+
+    def _tracking_mkstemp(**kwargs):
+        fd, name = real_mkstemp(**kwargs)
+        created_tmp.append(name)
+        return fd, name
+
+    monkeypatch.setattr(agent_cli.tempfile, "mkstemp", _tracking_mkstemp)
+
+    def _fake_run(args, **kwargs):
+        raise FileNotFoundError("codex not found")
+
+    monkeypatch.setattr(agent_cli.subprocess, "run", _fake_run)
+
+    result = agent_cli._run_codex("prompt", tmp_path, 30)
+
+    assert result == ""
+    assert len(created_tmp) == 1, "expected exactly one temp file to be created"
+    assert not Path(created_tmp[0]).exists(), "temp file was NOT cleaned up on FileNotFoundError"
