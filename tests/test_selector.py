@@ -27,3 +27,29 @@ def test_short_anchor_does_not_substring_match_unrelated_file():
           "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": []}
     out = sel.select_specialists(bp, ["services/redis_db_client.py"])
     assert out["specialists"] == []
+
+
+def test_hit_does_not_match_interior_segment():
+    """Anchor 'src/api/' must NOT match a file under 'vendor/src/api/'."""
+    bp = {"domain_invariants": [{"id": "inv-api", "enforced_at": ["src/api/"]}],
+          "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": []}
+    out = sel.select_specialists(bp, ["vendor/src/api/x.py"])
+    assert out["specialists"] == [], f"Expected no specialist but got {out['specialists']}"
+
+
+def test_multiple_invariants_all_surface():
+    """When two invariants both match the changed files, both ids appear in the reason."""
+    bp = {
+        "domain_invariants": [
+            {"id": "inv-A", "enforced_at": ["billing/"]},
+            {"id": "inv-B", "enforced_at": ["billing/usage.py"]},
+        ],
+        "decisions": {"key_decisions": []},
+        "persistence_stores": [],
+        "data_models": [],
+    }
+    out = sel.select_specialists(bp, ["billing/usage.py"])
+    assert "invariant-integrity" in out["specialists"]
+    reason_str = out["reason"]["invariant-integrity"]
+    assert "inv-A" in reason_str, f"inv-A missing from reason: {reason_str}"
+    assert "inv-B" in reason_str, f"inv-B missing from reason: {reason_str}"

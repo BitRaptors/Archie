@@ -17,7 +17,7 @@ def _hit(changed: list[str], targets: list[str]) -> bool:
             if not t:
                 continue
             seg = t.rstrip("/")
-            if c == seg or c.startswith(seg + "/") or ("/" + seg + "/") in ("/" + c + "/"):
+            if c == seg or c.startswith(seg + "/"):
                 return True
     return False
 
@@ -25,9 +25,9 @@ def select_specialists(blueprint: dict, changed_files: list[str]) -> dict:
     specialists, reason = [], {}
     for inv in blueprint.get("domain_invariants", []) or []:
         if _hit(changed_files, _anchor_files(inv.get("enforced_at"))):
-            specialists.append("invariant-integrity")
+            if "invariant-integrity" not in specialists:
+                specialists.append("invariant-integrity")
             reason.setdefault("invariant-integrity", []).append(inv.get("id", "?"))
-            break
     decisions = (blueprint.get("decisions") or {}).get("key_decisions", []) or []
     forced = [str(d.get("forced_by", "")) for d in decisions if d.get("forced_by")]
     if _hit(changed_files, forced):

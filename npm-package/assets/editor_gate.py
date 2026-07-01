@@ -10,7 +10,10 @@ from evidence_schema import has_evidence_fields  # noqa: E402
 
 
 def _dupe_key(f: dict):
-    return ((f.get("anchor") or {}).get("file", ""), f.get("kind", ""))
+    anchor = f.get("anchor") or {}
+    raw_line = anchor.get("line")
+    line = int(raw_line) if isinstance(raw_line, str) and raw_line.isdigit() else raw_line
+    return (anchor.get("file", ""), line, f.get("kind", ""))
 
 
 def gate(raw_findings, store, *, changed_lines, floors) -> dict:
@@ -36,9 +39,15 @@ def gate(raw_findings, store, *, changed_lines, floors) -> dict:
             suppressed.append({"id": f.get("id"), "reason": "below_floor"}); continue
         anchor = f.get("anchor") or {}
         if changed_lines is not None:
-            lines = changed_lines.get(anchor.get("file", ""), set())
-            if anchor.get("line") not in lines:
+            file_lines = changed_lines.get(anchor.get("file", ""))
+            if file_lines is None:
+                # file not in the changed set at all -> genuinely unchanged
                 suppressed.append({"id": f.get("id"), "reason": "anchor_unchanged"}); continue
+            raw_line = anchor.get("line")
+            line = int(raw_line) if isinstance(raw_line, str) and raw_line.isdigit() else raw_line
+            if line is not None and line not in file_lines:
+                suppressed.append({"id": f.get("id"), "reason": "anchor_unchanged"}); continue
+            # line is None but file changed -> keep (file-level finding)
         key = _dupe_key(f)
         if key in seen:
             suppressed.append({"id": f.get("id"), "reason": "duplicate"}); continue
