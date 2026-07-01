@@ -60,6 +60,17 @@ def test_aggregate_counts_intent_conflict():
     assert v["gate_signal"] == 0.5
 
 
+def test_aggregate_counts_conformance_break():
+    """A confirmed conformance_break (now produced by review_conformance) is counted
+    in the breaks total — proving the counter finally has a producer path."""
+    spec = it.normalize("", source="linear", ticket_ids=["A-1"])
+    spec["acceptance_criteria"] = [{"id": "ac1"}]
+    confirmed = [{"kind": "conformance_break", "problem_statement": "violates inv-tenant"}]
+    v = rc.aggregate_verdict(spec, confirmed)
+    assert v["breaks"] >= 1
+    assert v["gate_signal"] < 1.0
+
+
 def test_aggregate_none_criteria_no_crash():
     spec = it.normalize("", source="linear", ticket_ids=["A-1"])
     spec["acceptance_criteria"] = None

@@ -112,6 +112,54 @@ def test_sync_review_resolves_before_edge_a(tmp_path, monkeypatch):
         f"edge-A spec had no criteria: {captured['spec']}"
     )
 
+def test_conformance_runs_when_specialist_routed(tmp_path, monkeypatch):
+    """A blueprint invariant on the changed file routes the selector to a Lane-2
+    specialist, so review_conformance runs and its conformance_break reaches confirmed."""
+    archie_dir = tmp_path / ".archie"
+    archie_dir.mkdir()
+
+    bp = {
+        "domain_invariants": [
+            {"id": "inv-tenant", "invariant": "tenant scope", "enforced_at": ["a.py"]}
+        ],
+        "decisions": {"key_decisions": []},
+        "persistence_stores": [],
+        "data_models": [],
+    }
+
+    monkeypatch.setattr(sr, "review_edge_a", lambda *a, **k: [])
+    monkeypatch.setattr(sr, "behavioral_review_run", lambda *a, **k: [])
+    monkeypatch.setattr(sr, "review_edge_c", lambda *a, **k: [])
+
+    conf_finding = {
+        "id": "f_cf_0", "kind": "conformance_break", "edge": "B",
+        "problem_statement": "violates inv-tenant",
+        "anchor": {"file": "a.py", "line": 1, "changed": True},
+        "assumptions": ["invariant inv-tenant"], "evidence": ["no tenant filter"],
+        "falsification": "show a tenant guard", "confidence": 0.9,
+        "source": "reconcile:conformance", "severity_class": "tradeoff_undermined",
+        "severity": "high",
+    }
+    called = {"n": 0}
+    def fake_conformance(root, diff_text, invariants, decisions, run=None):
+        called["n"] += 1
+        # the routed invariant must have been passed through touched_context
+        assert any(i.get("id") == "inv-tenant" for i in invariants)
+        return [conf_finding]
+    monkeypatch.setattr(sr, "review_conformance", fake_conformance)
+
+    out = sr.run_sync_review(
+        str(tmp_path), "b", bp, {}, "diff", ["a.py"], {"a.py": {1}},
+        floors={"conformance_break": 0.5},
+        run=lambda *a, **k: "{}",
+    )
+    assert out["skipped"] is False
+    assert called["n"] == 1
+    confirmed_kinds = {f["kind"] for f in out["confirmed"]}
+    assert "conformance_break" in confirmed_kinds
+    assert out["verdict"]["breaks"] >= 1
+
+
 def test_resolved_spec_persisted(tmp_path, monkeypatch):
     """After a run where resolve() populates acceptance_criteria, the resolved
     spec is persisted so load_branch_record returns criteria (no repeat LLM)."""

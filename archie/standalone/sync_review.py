@@ -18,9 +18,9 @@ if _p not in sys.path:
     sys.path.insert(0, _p)
 from _common import SOURCE_EXTENSIONS                      # noqa: E402
 from agent_cli import run_verifier                         # noqa: E402
-from selector import select_specialists                    # noqa: E402
+from selector import select_specialists, touched_context   # noqa: E402
 from intent import load_branch_record, normalize, save_branch_record  # noqa: E402
-from reconcile import review_edge_a, review_edge_c, aggregate_verdict   # noqa: E402
+from reconcile import review_edge_a, review_edge_c, aggregate_verdict, review_conformance   # noqa: E402
 from behavioral_review import review as behavioral_review_run   # noqa: E402
 from editor_gate import gate                               # noqa: E402
 
@@ -100,6 +100,16 @@ def run_sync_review(
     if spec.get("acceptance_criteria") or spec.get("goals"):
         try:
             raw += review_edge_c(root, spec, (blueprint.get("domain_invariants") or []), run=run)
+        except Exception:
+            pass
+
+    # Conformance (edge B): did the DIFF break a standing invariant/decision? Runs only
+    # when the selector routed to a Lane-2 specialist (i.e. the change actually touched a
+    # blueprint-anchored invariant/decision). This makes the selector's routing meaningful.
+    if sel["specialists"]:
+        try:
+            ctx = touched_context(blueprint, changed_files)
+            raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"], run=run)
         except Exception:
             pass
 

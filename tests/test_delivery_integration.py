@@ -93,6 +93,21 @@ def _make_fake_run():
                 ]
             })
 
+        # conformance (edge B) — did the DIFF break a standing invariant/decision?
+        if "VIOLATES any of these standing architectural invariants" in prompt:
+            return json.dumps({
+                "findings": [
+                    {
+                        "invariant_id": "inv-tenant-scope",
+                        "file": "billing/usage.py",
+                        "line": 44,
+                        "evidence": ["export path added without a tenant filter"],
+                        "falsification": "Show a tenant guard on the export path",
+                        "confidence": 0.9,
+                    }
+                ]
+            })
+
         # edge-C — requirement vs invariants
         if "VIOLATE any standing architectural invariant" in prompt:
             return json.dumps({"findings": []})
@@ -173,9 +188,16 @@ def test_integration_full_pipeline(tmp_path):
         f"Expected '1/2' completeness (2 criteria, 1 unmet), got: {verdict['intent_completeness']}"
     )
 
-    # 6. At least 1 break counted
-    assert verdict["breaks"] >= 1, (
-        f"Expected at least 1 behavioral break in verdict, got: {verdict}"
+    # 6. Conformance ran (selector routed on the invariant) and its conformance_break
+    #    survived the gate (anchor line 44 is changed) → counted in breaks alongside
+    #    the behavioral break. Proves the conformance_break producer path is wired.
+    assert "conformance_break" in confirmed_kinds, (
+        f"Expected conformance_break in confirmed kinds: {confirmed_kinds}\n"
+        f"confirmed: {confirmed}"
+    )
+    # behavioral_break (line 12) + conformance_break (line 44) → breaks >= 2
+    assert verdict["breaks"] >= 2, (
+        f"Expected at least 2 breaks (behavioral + conformance), got: {verdict}"
     )
 
 

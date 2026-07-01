@@ -41,3 +41,12 @@ def select_specialists(blueprint: dict, changed_files: list[str]) -> dict:
     if "invariant-integrity" in reason:
         reason["invariant-integrity"] = "cites domain_invariant " + ",".join(reason["invariant-integrity"])
     return {"specialists": specialists, "reason": reason}
+
+
+def touched_context(blueprint, changed_files):
+    """Return {'invariants': [...], 'decisions': [...]} whose anchors intersect changed_files."""
+    invs = [i for i in (blueprint.get("domain_invariants") or [])
+            if _hit(changed_files, _anchor_files(i.get("enforced_at")))]
+    decs = [d for d in ((blueprint.get("decisions") or {}).get("key_decisions") or [])
+            if d.get("forced_by") and _hit(changed_files, [str(d.get("forced_by"))])]
+    return {"invariants": invs, "decisions": decs}

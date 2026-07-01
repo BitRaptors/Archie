@@ -35,3 +35,46 @@ def test_parse_edge_c_drops_no_falsification():
         "evidence": ["e"], "confidence": 0.9}]})  # no falsification
     out = rc.parse_edge_c(raw, spec)
     assert out == []
+
+
+# --- conformance reviewer (edge B) ---
+
+def test_build_conformance_prompt_lists_invariants():
+    p = rc.build_conformance_prompt(
+        "diff --git a/billing/usage.py",
+        [{"id": "inv-tenant", "invariant": "tenant isolation"}],
+        [{"title": "single-writer", "rationale": "avoid races"}],
+    )
+    assert "inv-tenant" in p and "tenant isolation" in p
+    assert "single-writer" in p and "avoid races" in p
+    assert "DIFF:" in p
+
+
+def test_parse_conformance_produces_conformance_break():
+    raw = json.dumps({"findings": [{"invariant_id": "inv-tenant", "file": "billing/usage.py",
+        "line": 44, "evidence": ["export skips tenant filter"],
+        "falsification": "show a tenant guard on the export path", "confidence": 0.85}]})
+    out = rc.parse_conformance(raw)
+    assert len(out) == 1
+    f = out[0]
+    assert f["kind"] == "conformance_break"
+    assert f["edge"] == "B"
+    assert f["severity"] == "high"
+    assert f["confidence"] == 0.85
+
+
+def test_parse_conformance_drops_no_falsification():
+    raw = json.dumps({"findings": [{"invariant_id": "inv-x", "file": "x.py", "line": 1,
+        "evidence": ["e"], "confidence": 0.9}]})  # no falsification
+    out = rc.parse_conformance(raw)
+    assert out == []
+
+
+def test_review_conformance_empty_when_no_context():
+    called = {"n": 0}
+    def fake_run(*a, **k):
+        called["n"] += 1
+        return "{}"
+    out = rc.review_conformance("/x", "diff", [], [], run=fake_run)
+    assert out == []
+    assert called["n"] == 0

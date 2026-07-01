@@ -102,6 +102,48 @@ def review_edge_c(root, intent_spec, blueprint_slice, run=None):
     return parse_edge_c(raw or "", intent_spec)
 
 
+def build_conformance_prompt(diff_text, invariants, decisions):
+    inv = "\n".join(f'- {i.get("id")}: {i.get("invariant","")}' for i in (invariants or []))
+    dec = "\n".join(f'- {d.get("title","")}: {d.get("rationale") or d.get("forced_by","")}'
+                    for d in (decisions or []))
+    return ("Decide whether this DIFF VIOLATES any of these standing architectural invariants or "
+            "decisions. Report only clear violations INTRODUCED or worsened by the change, each with a "
+            "falsification (how you'd prove it does NOT violate). Anchor to a changed line. Return JSON "
+            "{\"findings\":[{\"invariant_id\":\"...\",\"file\":\"...\",\"line\":0,\"evidence\":[\"...\"],"
+            "\"falsification\":\"...\",\"confidence\":0.0}]}.\n\n"
+            f"INVARIANTS:\n{inv}\n\nDECISIONS:\n{dec}\n\nDIFF:\n{diff_text}")
+
+
+def parse_conformance(raw):
+    data = extract_json_obj(raw or "")
+    out = []
+    for i, f in enumerate(data.get("findings", [])):
+        if not f.get("falsification"):
+            continue
+        out.append(make_finding(
+            id=f.get("id") or f"f_cf_{i}", kind="conformance_break", edge="B",
+            problem_statement=f"violates {f.get('invariant_id','?')}",
+            anchor={"file": f.get("file",""), "line": f.get("line"), "changed": True},
+            assumptions=[f"invariant {f.get('invariant_id')}"], evidence=f.get("evidence", []),
+            falsification=f["falsification"], confidence=coerce_confidence(f.get("confidence", 0.0)),
+            source="reconcile:conformance", severity_class="tradeoff_undermined", severity="high"))
+    return out
+
+
+def review_conformance(root, diff_text, invariants, decisions, run=None):
+    """Single-pass conformance reviewer: did the DIFF break a standing invariant/decision?
+
+    NOTE: the full contract -> tracer -> challenger 3-role loop is a future enhancement;
+    this is the single-pass form that produces `conformance_break` findings.
+    """
+    if run is None:
+        run = run_verifier
+    if not (invariants or decisions):
+        return []
+    raw = run(build_conformance_prompt(diff_text, invariants, decisions), Path(root), "claude")
+    return parse_conformance(raw or "")
+
+
 def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
     """Aggregate confirmed findings into a delivery verdict.
 

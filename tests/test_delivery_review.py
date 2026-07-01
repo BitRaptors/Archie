@@ -1,9 +1,15 @@
 import json
+import subprocess
 import sys
 from pathlib import Path
 _STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
 sys.path.insert(0, str(_STANDALONE))
 import delivery_review as dr  # noqa: E402
+
+
+def _git(root, *args):
+    subprocess.run(["git", "-C", str(root), *args], check=True,
+                   capture_output=True, text=True)
 
 
 def test_intake_skips_bot_and_large():
@@ -129,6 +135,66 @@ def test_load_pr_meta_from_event_reads_fields(tmp_path):
     assert meta["base_sha"] == "base123"
     assert meta["head_sha"] == "head456"
     assert meta["labels"] == ["archie-review"]
+
+
+# K1 — real changed_lines from the PR diff (line-anchored finding survives the gate)
+def test_run_pr_gate_uses_real_changed_lines(tmp_path, monkeypatch):
+    """run_pr_gate must parse the real -U0 diff into changed_lines so a line-anchored
+    finding on an ADDED line survives the editor gate (not dropped as anchor_unchanged)."""
+    root = tmp_path
+    _git(root, "init")
+    _git(root, "config", "user.email", "t@t.t")
+    _git(root, "config", "user.name", "t")
+    (root / "svc.py").write_text("a = 1\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-m", "init")
+    base_sha = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+    # Add a new line 2 (the anchor target).
+    (root / "svc.py").write_text("a = 1\nb = 2\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-m", "change")
+
+    event = root / "event.json"
+    event.write_text(json.dumps({
+        "pull_request": {
+            "number": 3, "changed_files": 1, "user": {"login": "human"},
+            "base": {"ref": "main", "sha": base_sha}, "head": {"sha": "HEAD"},
+            "labels": [],
+        }
+    }))
+
+    # A line-anchored edge-A finding on svc.py:2 (an added line → must survive).
+    import reconcile as rc
+    surviving = {
+        "id": "f_a_line", "kind": "intent_unmet", "edge": "A",
+        "problem_statement": "ac1: unmet",
+        "anchor": {"file": "svc.py", "line": 2, "changed": True},
+        "assumptions": ["criterion ac1"], "evidence": ["missing"],
+        "falsification": "wired elsewhere", "confidence": 0.9,
+        "source": "reconcile:edgeA", "severity_class": "tradeoff_undermined",
+        "severity": "high", "criterion_id": "ac1",
+    }
+    monkeypatch.setattr(rc, "review_edge_a", lambda *a, **k: [surviving])
+    monkeypatch.setattr(rc, "review_edge_c", lambda *a, **k: [])
+    monkeypatch.setattr(rc, "review_conformance", lambda *a, **k: [])
+    import behavioral_review as br
+    monkeypatch.setattr(br, "review", lambda *a, **k: [])
+
+    posted = {}
+    def spy_post(owner, repo, number, body, token):
+        posted["body"] = body
+    import intent_review as ir
+    monkeypatch.setattr(ir, "post_or_update_comment", spy_post)
+
+    env = {"GITHUB_EVENT_PATH": str(event), "GITHUB_TOKEN": "t",
+           "GITHUB_REPOSITORY": "o/r"}
+    status = dr.run_pr_gate(str(root), env)
+    assert status["reviewed"] is True
+    # The line-anchored finding on the changed line 2 survived → rendered in the comment.
+    assert "svc.py:2" in posted.get("body", ""), (
+        f"line-anchored finding was suppressed; body: {posted.get('body')}"
+    )
 
 
 # J2 — comment-injection / crash hardening

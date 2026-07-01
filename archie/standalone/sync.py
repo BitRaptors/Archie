@@ -43,6 +43,13 @@ from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 
+# Re-export the pure hunk parser from diff_basis so both sync and delivery_review
+# share one implementation without pulling in the heavy sync module. Guarded so a
+# missing sibling never breaks import of sync.py.
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+from diff_basis import parse_hunk_added_lines  # noqa: E402,F401
+
 # A claim is a STATEMENT about what the code now is. Descriptive kinds are the
 # default (keep the blueprint snapshot current); advisory kinds are an optional
 # side-output, emitted only when a change genuinely establishes one.
@@ -786,58 +793,6 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
 # review — run the (previously orphaned) delivery-review pipeline on the branch
 # delta. Non-blocking: ALWAYS returns 0, never raises to the caller.
 # ---------------------------------------------------------------------------
-
-_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
-
-
-def parse_hunk_added_lines(diff_text: str) -> dict:
-    """Parse a `git diff -U0` (or any unified diff) into added-line numbers.
-
-    Returns dict[str, set[int]] mapping each changed file path to the set of
-    line numbers added on the `+` side. Pure — no I/O — so it's unit-testable
-    without git. Handles multiple hunks/files; tolerates a malformed diff by
-    skipping lines it can't parse.
-
-    We track the current file from the `+++ b/<path>` header and, for each
-    `@@ ... +c,d @@` hunk, walk the body counting only added ('+') lines to
-    assign real line numbers (a `+c,d` hunk header alone gives the start, but
-    context/deletions inside a -U0 diff are absent, so counting `+` lines is
-    exact for -U0 and best-effort otherwise).
-    """
-    result: dict = {}
-    current: str | None = None
-    cur_line = 0
-    in_hunk = False
-    for line in diff_text.splitlines():
-        if line.startswith("+++ "):
-            path = line[4:].strip()
-            # Strip a leading "b/" (git prefix); "/dev/null" means a deletion.
-            if path.startswith("b/"):
-                path = path[2:]
-            current = None if path == "/dev/null" else path
-            in_hunk = False
-            continue
-        m = _HUNK_RE.match(line)
-        if m:
-            cur_line = int(m.group(1))
-            in_hunk = True
-            continue
-        if not in_hunk or current is None:
-            continue
-        if line.startswith("+"):
-            result.setdefault(current, set()).add(cur_line)
-            cur_line += 1
-        elif line.startswith("-"):
-            # deletion — does not advance the +side line counter
-            continue
-        elif line.startswith(" "):
-            # context line — advances the +side counter (rare under -U0)
-            cur_line += 1
-        else:
-            # diff metadata (index/--- lines etc.) — leave hunk state as-is
-            continue
-    return result
-
 
 def _parse_changed_lines(root: Path, base: str) -> dict:
     """Run `git diff -U0 <base> --` and return dict[str, set[int]] of added lines.

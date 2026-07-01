@@ -161,7 +161,7 @@ def run_pr_gate(root=".", env=None):
     # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
     diff_text, changed, changed_lines = "", [], {}
     try:
-        from diff_basis import detect_base, changed_files_result
+        from diff_basis import detect_base, changed_files_result, parse_hunk_added_lines
         base = pr_meta.get("base_sha") or pr_meta.get("base_ref") or detect_base(root)
         res = changed_files_result(root, base)
         changed = res.get("files", []) if res.get("ok") else []
@@ -169,9 +169,21 @@ def run_pr_gate(root=".", env=None):
             from intent_review import run_git
             _, out, _ = run_git(root, "diff", base, "--")
             diff_text = (out or "")[:MAX_DIFF_CHARS]
-            # changed-line map: which lines each changed file touched (best-effort).
-            for f in changed:
-                changed_lines[f] = set()
+            # changed-line map: parse a -U0 diff into the REAL added-line numbers per
+            # file so the editor gate keeps line-anchored findings on changed lines
+            # (instead of dropping all of them as anchor_unchanged). On any failure
+            # fall back to {} — the gate then skips the anchor check (findings survive).
+            try:
+                import subprocess
+                r = subprocess.run(
+                    ["git", "-C", str(root), "diff", "-U0", base, "--"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                changed_lines = (parse_hunk_added_lines(r.stdout)
+                                 if r.returncode == 0 else {})
+            except Exception as e:
+                print(f"[archie] changed-line parse failed ({e})")
+                changed_lines = {}
         except Exception as e:
             print(f"[archie] diff read failed ({e})")
     except Exception as e:
@@ -229,6 +241,15 @@ def run_pr_gate(root=".", env=None):
             raw += review_edge_c(root, spec, (blueprint.get("domain_invariants") or []))
         except Exception as e:
             print(f"[archie] edge-C skipped ({e})")
+    # Conformance (edge B): did the DIFF break a standing invariant/decision? Uses the
+    # selector's routing (touched_context) to pick the SPECIFIC items the change touched.
+    try:
+        from selector import touched_context
+        from reconcile import review_conformance
+        ctx = touched_context(blueprint, changed)
+        raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"])
+    except Exception as e:
+        print(f"[archie] conformance skipped ({e})")
 
     # 7. Editor gate + aggregate verdict.
     confirmed = []

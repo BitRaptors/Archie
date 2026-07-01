@@ -59,3 +59,29 @@ def test_multiple_invariants_all_surface():
     reason_str = out["reason"]["invariant-integrity"]
     assert "inv-A" in reason_str, f"inv-A missing from reason: {reason_str}"
     assert "inv-B" in reason_str, f"inv-B missing from reason: {reason_str}"
+
+
+def test_touched_context_selects_intersecting_invariant():
+    """An invariant enforced_at a changed file → returned in invariants; a decision
+    whose forced_by matches → returned in decisions. Non-touched items are excluded."""
+    bp = {
+        "domain_invariants": [
+            {"id": "inv-hit", "invariant": "tenant scope", "enforced_at": ["billing/usage.py:88"]},
+            {"id": "inv-miss", "invariant": "unrelated", "enforced_at": ["other/thing.py"]},
+        ],
+        "decisions": {"key_decisions": [
+            {"title": "d-hit", "forced_by": "core/router.py"},
+            {"title": "d-miss", "forced_by": "misc/other.py"},
+        ]},
+    }
+    ctx = sel.touched_context(bp, ["billing/usage.py", "core/router.py"])
+    inv_ids = {i["id"] for i in ctx["invariants"]}
+    dec_titles = {d["title"] for d in ctx["decisions"]}
+    assert inv_ids == {"inv-hit"}
+    assert dec_titles == {"d-hit"}
+
+
+def test_touched_context_empty_when_nothing_touched():
+    ctx = sel.touched_context(BP, ["README.md"])
+    assert ctx["invariants"] == []
+    assert ctx["decisions"] == []

@@ -30,6 +30,55 @@ class RecordingRun:
         return r
 
 
+def test_parse_hunk_added_lines_in_diff_basis():
+    diff = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,0 +5,2 @@\n"
+        "+first added\n"
+        "+second added\n"
+    )
+    got = db.parse_hunk_added_lines(diff)
+    assert got == {"foo.py": {5, 6}}
+
+
+def test_parse_hunk_added_lines_multiple_files():
+    diff = (
+        "diff --git a/foo.py b/foo.py\n"
+        "index e69de29..4b825dc 100644\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -0,0 +1,2 @@\n"
+        "+line one\n"
+        "+line two\n"
+        "diff --git a/bar.py b/bar.py\n"
+        "--- a/bar.py\n"
+        "+++ b/bar.py\n"
+        "@@ -5,0 +6 @@\n"
+        "+inserted\n"
+    )
+    got = db.parse_hunk_added_lines(diff)
+    assert got == {"foo.py": {1, 2}, "bar.py": {6}}
+
+
+def test_parse_hunk_added_lines_ignores_deletions_and_devnull():
+    diff = (
+        "--- a/gone.py\n"
+        "+++ /dev/null\n"
+        "@@ -1,2 +0,0 @@\n"
+        "-was here\n"
+        "-and here\n"
+        "--- a/keep.py\n"
+        "+++ b/keep.py\n"
+        "@@ -3 +3 @@\n"
+        "-old\n"
+        "+new\n"
+    )
+    got = db.parse_hunk_added_lines(diff)
+    assert got == {"keep.py": {3}}
+
+
 def test_detect_base_prefers_explicit():
     assert db.detect_base(Path("/x"), explicit="develop", run=FakeRun({})) == "develop"
 
