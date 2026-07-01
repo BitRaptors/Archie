@@ -53,6 +53,7 @@ def parse_edge_a(raw: str, intent_spec: dict) -> list[dict]:
             source="reconcile:edgeA",
             severity_class="pattern_divergence",
         )
+        finding["criterion_id"] = f.get("criterion_id")
         out.append(clamp_confidence(finding, ceiling))
     return out
 
@@ -82,7 +83,16 @@ def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
         - gate_signal: float in [0.0, 1.0] (1.0 = pass, 0.0 = fail)
     """
     total = len(intent_spec.get("acceptance_criteria", []))
-    unmet = sum(1 for f in confirmed if f.get("kind") in ("intent_unmet", "intent_partial"))
+    unmet_criteria = set()
+    extra_unmet = 0
+    for f in confirmed:
+        if f.get("kind") in ("intent_unmet", "intent_partial"):
+            cid = f.get("criterion_id")
+            if cid:
+                unmet_criteria.add(cid)
+            else:
+                extra_unmet += 1
+    unmet = len(unmet_criteria) + extra_unmet
     met = max(0, total - unmet)
     breaks = sum(1 for f in confirmed if f.get("kind") in ("conformance_break", "behavioral_break"))
     conflicts = sum(1 for f in confirmed if f.get("kind") == "intent_conflict")
