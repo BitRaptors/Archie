@@ -14,6 +14,7 @@ from evidence_schema import make_finding, clamp_confidence, extract_json_obj, co
 from intent import ceiling_for                # noqa: E402
 
 _VERDICT_KIND = {"unmet": "intent_unmet", "partial": "intent_partial", "drift": "intent_drift"}
+_KIND_SEVERITY = {"intent_unmet": "high", "intent_partial": "medium", "intent_drift": "low"}
 
 
 def build_edge_a_prompt(intent_spec: dict, diff_text: str) -> str:
@@ -37,9 +38,11 @@ def parse_edge_a(raw: str, intent_spec: dict) -> list[dict]:
         verdict = f.get("verdict")
         if verdict == "met" or not f.get("falsification"):
             continue
+        kind = _VERDICT_KIND.get(verdict, "intent_partial")
+        # delivery findings are advisory — never a blocking severity_class.
         finding = make_finding(
             id=f.get("id") or f"f_a_{i}",
-            kind=_VERDICT_KIND.get(verdict, "intent_partial"),
+            kind=kind,
             edge="A",
             problem_statement=f"{f.get('criterion_id', '?')}: {verdict}",
             anchor={"file": f.get("file", ""), "line": f.get("line"), "changed": True},
@@ -48,7 +51,8 @@ def parse_edge_a(raw: str, intent_spec: dict) -> list[dict]:
             falsification=f["falsification"],
             confidence=coerce_confidence(f.get("confidence")),
             source="reconcile:edgeA",
-            severity_class="pattern_divergence",
+            severity_class="tradeoff_undermined",
+            severity=_KIND_SEVERITY.get(kind, "medium"),
         )
         finding["criterion_id"] = f.get("criterion_id")
         out.append(clamp_confidence(finding, ceiling))

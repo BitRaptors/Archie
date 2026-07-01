@@ -69,7 +69,7 @@ Return JSON:
   "findings": [
     {
       "id": "f_NNNN",
-      "kind": "behavioral_break|schema_drift|pattern_divergence|mechanical_violation",
+      "kind": "behavioral_break|conformance_break",
       "edge": "B",
       "problem_statement": "",
       "evidence": [],

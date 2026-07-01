@@ -29,6 +29,9 @@ def test_parse_findings_maps_to_evidence_schema():
     out = br.parse_findings(raw)
     assert out[0]["kind"] == "behavioral_break" and out[0]["anchor"]["line"] == 5
     assert out[0]["falsification"]
+    # delivery findings are advisory: non-blocking severity_class and severity field
+    assert out[0]["severity"] == "high"
+    assert out[0]["severity_class"] in {"tradeoff_undermined", "pattern_divergence"}
 
 
 def test_review_mocked(monkeypatch):

@@ -22,6 +22,26 @@ def test_edge_a_clamps_to_intent_ceiling():
         "confidence": 0.9}]})
     out = rc.parse_edge_a(raw, spec)
     assert out[0]["kind"] == "intent_unmet" and out[0]["confidence"] == 0.5
+    # delivery findings are advisory: non-blocking severity_class + per-kind severity
+    assert out[0]["severity"] == "high"
+    assert out[0]["severity_class"] in {"tradeoff_undermined", "pattern_divergence"}
+
+
+def test_edge_a_per_kind_severity():
+    """parse_edge_a assigns per-kind severity: unmet=high, partial=medium, drift=low."""
+    spec = it.normalize("", source="linear", ticket_ids=["A-1"])
+    def make_raw(verdict):
+        return json.dumps({"findings": [{"criterion_id": "ac1", "verdict": verdict,
+            "file": "x.py", "line": 1, "evidence": ["e"], "falsification": "fx",
+            "confidence": 0.8}]})
+
+    out_unmet = rc.parse_edge_a(make_raw("unmet"), spec)
+    out_partial = rc.parse_edge_a(make_raw("partial"), spec)
+    out_drift = rc.parse_edge_a(make_raw("drift"), spec)
+
+    assert out_unmet[0]["severity"] == "high"
+    assert out_partial[0]["severity"] == "medium"
+    assert out_drift[0]["severity"] == "low"
 
 
 def test_parse_edge_a_null_confidence():

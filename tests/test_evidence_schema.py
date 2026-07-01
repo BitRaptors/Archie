@@ -58,3 +58,23 @@ def test_coerce_confidence_string():
 
 def test_coerce_confidence_string_numeric():
     assert es.coerce_confidence("0.7") == 0.7
+
+
+def test_make_finding_has_severity():
+    """make_finding includes severity field; default is 'medium'; explicit value passes through."""
+    f_default = es.make_finding(
+        id="f_sev", kind="behavioral_break", edge="B",
+        problem_statement="test", anchor={"file": "a.py", "line": 1, "changed": True},
+        assumptions=[], evidence=["e"], falsification="fx",
+        confidence=0.5, source="behavioral", severity_class="tradeoff_undermined",
+    )
+    assert f_default["severity"] == "medium"
+
+    f_explicit = es.make_finding(
+        id="f_sev2", kind="intent_unmet", edge="A",
+        problem_statement="test2", anchor={"file": "b.py", "line": 2, "changed": True},
+        assumptions=[], evidence=["e2"], falsification="fx2",
+        confidence=0.8, source="reconcile:edgeA", severity_class="tradeoff_undermined",
+        severity="high",
+    )
+    assert f_explicit["severity"] == "high"

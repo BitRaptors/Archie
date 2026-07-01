@@ -31,11 +31,41 @@ def normalize(raw_text: str, source: str, ticket_ids: list[str]) -> dict:
         "source": source,
         "confidence": conf,
         "ticket_ids": list(ticket_ids),
-        "goals": [],  # populated by the LLM normalize step in resolve()
+        "goals": [],  # populated by the LLM resolve() step
         "acceptance_criteria": [],  # ditto
         "non_goals": [],
         "raw": raw_text,
     }
+
+
+def build_resolve_prompt(raw_text):
+    return ("Extract the concrete, checkable acceptance criteria and goals from this task/ticket "
+            "description. Return JSON {\"goals\":[...], \"acceptance_criteria\":[{\"id\":\"ac1\",\"text\":\"...\"}]}. "
+            "Each acceptance_criterion is one verifiable requirement. If the text is vague, infer the "
+            "minimal criteria a reviewer would check.\n\nDESCRIPTION:\n" + (raw_text or ""))
+
+
+def resolve(intent_spec, run=None):
+    """Fill goals/acceptance_criteria via one LLM call; return a new spec. No-op when raw is empty."""
+    if run is None:
+        from agent_cli import run_verifier
+        run = run_verifier
+    from evidence_schema import extract_json_obj
+    raw = (intent_spec.get("raw") or "").strip()
+    if not raw:
+        return intent_spec
+    out = run(build_resolve_prompt(raw), Path("."), "claude")
+    data = extract_json_obj(out or "")
+    spec = dict(intent_spec)
+    crit = data.get("acceptance_criteria")
+    goals = data.get("goals")
+    if isinstance(crit, list) and crit:
+        spec["acceptance_criteria"] = [
+            ({"id": c.get("id") or f"ac{i+1}", "text": c.get("text", "")} if isinstance(c, dict)
+             else {"id": f"ac{i+1}", "text": str(c)}) for i, c in enumerate(crit)]
+    if isinstance(goals, list) and goals:
+        spec["goals"] = [str(g) for g in goals]
+    return spec
 
 
 def ceiling_for(intent_spec: dict) -> float:

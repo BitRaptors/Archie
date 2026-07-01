@@ -40,6 +40,7 @@ def parse_findings(raw: str) -> list[dict]:
     for i, f in enumerate(data.get("findings", [])):
         if not f.get("falsification"):
             continue
+        # delivery findings are advisory — never a blocking severity_class.
         out.append(make_finding(
             id=f.get("id") or f"f_beh_{i}",
             kind=f.get("kind", "behavioral_break"),
@@ -51,7 +52,8 @@ def parse_findings(raw: str) -> list[dict]:
             falsification=f["falsification"],
             confidence=coerce_confidence(f.get("confidence")),
             source="behavioral",
-            severity_class="pitfall_triggered",
+            severity_class="tradeoff_undermined",
+            severity="high",
         ))
     return out
 

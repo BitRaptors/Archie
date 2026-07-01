@@ -1,4 +1,5 @@
-"""Tests for intent module: normalization + confidence ceiling."""
+"""Tests for intent module: normalization + confidence ceiling + resolve()."""
+import json
 import sys
 from pathlib import Path
 
@@ -44,3 +45,51 @@ def test_ticket_regex_rejects_multiple_standards():
         [],
     )
     assert ids == [], f"Expected [] but got {ids}"
+
+
+# --- resolve() tests ---
+
+def test_resolve_populates_criteria():
+    """resolve() with a valid LLM response fills goals + acceptance_criteria."""
+    payload = json.dumps({
+        "goals": ["rate limit exports"],
+        "acceptance_criteria": [
+            {"id": "ac1", "text": "export endpoint returns 429 after limit"},
+            {"id": "ac2", "text": "limit resets after 60 seconds"},
+        ],
+    })
+    called = {"n": 0}
+    def fake_run(prompt, path, model): called["n"] += 1; return payload
+
+    spec = it.normalize("Add rate limiting to export", source="prompt", ticket_ids=[])
+    out = it.resolve(spec, run=fake_run)
+
+    assert called["n"] == 1
+    assert out["goals"] == ["rate limit exports"]
+    assert len(out["acceptance_criteria"]) == 2
+    assert out["acceptance_criteria"][0]["id"] == "ac1"
+    assert "429" in out["acceptance_criteria"][0]["text"]
+
+
+def test_resolve_empty_raw_noop():
+    """resolve() is a no-op and does NOT call run when raw is empty."""
+    called = {"n": 0}
+    def fake_run(*a, **k): called["n"] += 1; return "{}"
+
+    spec = it.normalize("", source="inferred", ticket_ids=[])
+    out = it.resolve(spec, run=fake_run)
+
+    assert called["n"] == 0
+    assert out is spec  # same object unchanged
+
+
+def test_resolve_bad_json_noop():
+    """resolve() with garbage LLM output returns spec unchanged, no crash."""
+    def garbage_run(prompt, path, model): return "this is not json at all"
+
+    spec = it.normalize("Add retry logic", source="prompt", ticket_ids=[])
+    out = it.resolve(spec, run=garbage_run)
+
+    # goals and acceptance_criteria remain empty (unchanged from normalize)
+    assert out["goals"] == []
+    assert out["acceptance_criteria"] == []

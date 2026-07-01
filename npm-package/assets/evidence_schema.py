@@ -64,7 +64,8 @@ def coerce_confidence(value, default: float = 0.0) -> float:
 
 
 def make_finding(*, id, kind, edge, problem_statement, anchor, assumptions,
-                 evidence, falsification, confidence, source, severity_class) -> dict:
+                 evidence, falsification, confidence, source, severity_class,
+                 severity="medium") -> dict:
     return {
         "id": id,
         "kind": kind,
@@ -79,6 +80,7 @@ def make_finding(*, id, kind, edge, problem_statement, anchor, assumptions,
         "confidence": coerce_confidence(confidence),
         "source": source,
         "severity_class": severity_class,
+        "severity": severity,
         "applies_to": [anchor.get("file", "")],
     }
 

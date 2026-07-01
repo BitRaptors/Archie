@@ -76,6 +76,14 @@ def run_sync_review(
         "", source="inferred", ticket_ids=[]
     )
 
+    # Resolve acceptance_criteria from raw text when not yet populated
+    if not spec.get("acceptance_criteria") and spec.get("raw"):
+        try:
+            from intent import resolve
+            spec = resolve(spec, run=run)
+        except Exception:
+            pass
+
     # Run edge A (intent vs diff) and behavioral review; pass run through
     raw = review_edge_a(root, spec, diff_text, run=run)
     raw += behavioral_review_run(root, diff_text, import_graph, changed_files, run=run)
