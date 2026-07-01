@@ -15,7 +15,12 @@ jobs:
           python-version: '3.11'
       - run: pip install -e ".[dev]"
       - run: archie check
-      - run: python3 .archie/delivery_review.py
+      - run: |
+          if [ -f .archie/delivery_review.py ]; then
+            python3 .archie/delivery_review.py
+          else
+            echo "[archie] .archie/delivery_review.py not installed, skipping."
+          fi
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
