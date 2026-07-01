@@ -32,5 +32,14 @@ def test_parse_findings_maps_to_evidence_schema():
 
 
 def test_review_mocked(monkeypatch):
-    monkeypatch.setattr(br, "run_verifier", lambda *a, **k: json.dumps({"findings": []}))
-    assert br.review("/x", "diff", {}, ["x.py"]) == []
+    payload = json.dumps({"findings": [{
+        "problem_statement": "mock bug", "file": "x.py", "line": 2,
+        "assumptions": [], "evidence": ["e"], "falsification": "guarded upstream",
+        "confidence": 0.9, "kind": "behavioral_break"}]})
+    monkeypatch.setattr(br, "run_verifier", lambda *a, **k: payload)
+    out = br.review("/x", "diff", {}, ["x.py"])
+    assert len(out) == 1 and out[0]["problem_statement"] == "mock bug"
+
+
+def test_parse_findings_drops_missing_falsification():
+    assert br.parse_findings('{"findings":[{"problem_statement":"x","file":"a.py","line":1}]}') == []

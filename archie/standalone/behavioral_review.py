@@ -59,7 +59,9 @@ def parse_findings(raw: str) -> list[dict]:
     return out
 
 
-def review(root, diff_text, import_graph, changed_files, run=run_verifier) -> list[dict]:
+def review(root, diff_text, import_graph, changed_files, run=None) -> list[dict]:
+    if run is None:
+        run = run_verifier   # call-time global lookup → monkeypatch works
     cmap = {cf: consumers(import_graph, cf) for cf in changed_files}
     raw = run(build_prompt(diff_text, cmap), Path(root), "claude")
     return parse_findings(raw or "")
