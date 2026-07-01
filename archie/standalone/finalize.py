@@ -512,6 +512,29 @@ def normalize_only(root: Path):
     print(f"Normalized blueprint.json ({comp_count} components)", file=sys.stderr)
 
 
+def gate_and_merge(archie_dir: Path, raw_findings: list, floors: dict) -> dict:
+    """Run the editor gate (cold-read, no diff anchor) then merge confirmed findings.
+
+    Uses a strict floor pass (`changed_lines=None`) via editor_gate.gate, then
+    upserts the confirmed findings into .archie/findings.json via the existing
+    _merge_findings_into_store.  Returns {merged: int, suppressed: int}.
+    """
+    sys.path.insert(0, str(_SCRIPT_DIR))
+    from editor_gate import gate as _gate  # noqa: E402 — lazy sibling import
+
+    store: list = []
+    findings_path = archie_dir / "findings.json"
+    if findings_path.exists():
+        try:
+            store = json.loads(findings_path.read_text()).get("findings", [])
+        except Exception:
+            store = []
+
+    result = _gate(raw_findings, store, changed_lines=None, floors=floors)
+    merged = _merge_findings_into_store(archie_dir, result["confirmed"])
+    return {"merged": merged, "suppressed": len(result["suppressed"])}
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python3 finalize.py /path/to/project [agent1.json agent2.json ...]", file=sys.stderr)
