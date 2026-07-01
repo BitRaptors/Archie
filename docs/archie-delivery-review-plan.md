@@ -29,6 +29,14 @@
     ```
   - **Implementation files importing sibling standalone modules:** at the top, `sys.path.insert(0, str(Path(__file__).parent))` then `from <sibling> import <name>` (bare module name — e.g. `from agent_cli import run_verifier`, `from evidence_schema import make_finding`), never `from archie.standalone.<sibling> import ...`. This matches `arch_review.py`/`verify_findings.py`.
   - Run tests with `python3 -m pytest` (there is no `python` on PATH).
+- **LLM-injection convention (CRITICAL — overrides the `run=run_verifier` defaults shown in task code blocks).** A default arg `run=run_verifier` binds the function at definition time, so `monkeypatch.setattr(module, "run_verifier", ...)` does NOT take effect and the mock test false-passes. Instead use call-time resolution so the module-global lookup happens when the function runs:
+  ```python
+  def review(..., run=None):
+      if run is None:
+          run = run_verifier   # call-time global lookup → monkeypatch works
+      ...
+  ```
+  Applies to every `review*`/orchestrator function that takes a `run=` seam (Tasks 6, 9, 13). Mock tests must assert a specific payload flowed through (so a fallback `""` would fail the test), not merely `== []`.
 
 ---
 
