@@ -1,4 +1,8 @@
-import archie.standalone.evidence_schema as es
+import sys
+from pathlib import Path
+_STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
+sys.path.insert(0, str(_STANDALONE))
+import evidence_schema as es  # noqa: E402
 
 def test_make_finding_carries_all_fields():
     f = es.make_finding(

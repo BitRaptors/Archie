@@ -1,6 +1,9 @@
 # tests/test_diff_basis.py
+import sys
 from pathlib import Path
-import archie.standalone.diff_basis as db
+_STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
+sys.path.insert(0, str(_STANDALONE))
+import diff_basis as db  # noqa: E402
 
 class FakeRun:
     def __init__(self, table): self.table = table
