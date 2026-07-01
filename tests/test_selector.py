@@ -13,7 +13,13 @@ BP = {
 def test_invariant_specialist_selected_on_cited_file():
     out = sel.select_specialists(BP, ["billing/usage.py"])
     assert "invariant-integrity" in out["specialists"]
-    assert "inv-1" in out["reason"]["invariant-integrity"]
+    # reason format: "cites domain_invariant inv-1[,inv-2,...]"
+    # Split on whitespace+comma so "inv-1" does not falsely match "inv-10".
+    reason_str = out["reason"]["invariant-integrity"]
+    ids_in_reason = reason_str.replace("cites domain_invariant ", "").split(",")
+    assert "inv-1" in ids_in_reason, (
+        f"Expected 'inv-1' as an exact id in reason, got: {reason_str!r}"
+    )
 
 def test_data_lifecycle_selected_on_store_file():
     out = sel.select_specialists(BP, ["db/models.py"])
