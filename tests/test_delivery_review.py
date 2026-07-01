@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 _STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
@@ -71,3 +72,60 @@ def test_render_verdict_escapes_html():
     )
     assert "&lt;img" in md
     assert "<img" not in md
+
+
+# --- PR-gate orchestration (Change 3) ---
+def test_run_pr_gate_nonblocking_no_env(tmp_path):
+    """Empty env -> no PR context -> returns cleanly without raising (exit-0 semantics)."""
+    status = dr.run_pr_gate(str(tmp_path), {})
+    assert isinstance(status, dict)
+    assert status["reviewed"] is False
+    assert status["posted"] is False
+
+
+def test_run_pr_gate_skips_bot(tmp_path, monkeypatch):
+    """A bot-authored PR is skipped at intake and no comment is posted."""
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({
+        "pull_request": {
+            "number": 7,
+            "changed_files": 2,
+            "user": {"login": "dependabot[bot]"},
+            "base": {"ref": "main", "sha": "abc"},
+            "head": {"sha": "def"},
+            "labels": [],
+        }
+    }))
+    posted = {"n": 0}
+    def spy_post(*a, **k):
+        posted["n"] += 1
+    # Guard against any real network: monkeypatch the upsert on the module used.
+    import intent_review as ir
+    monkeypatch.setattr(ir, "post_or_update_comment", spy_post)
+
+    env = {"GITHUB_EVENT_PATH": str(event), "GITHUB_TOKEN": "t",
+           "GITHUB_REPOSITORY": "o/r"}
+    status = dr.run_pr_gate(str(tmp_path), env)
+    assert status["reviewed"] is False
+    assert "bot" in status["reason"]
+    assert posted["n"] == 0
+
+
+def test_load_pr_meta_from_event_reads_fields(tmp_path):
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({
+        "pull_request": {
+            "number": 11,
+            "changed_files": 4,
+            "user": {"login": "human"},
+            "base": {"ref": "main", "sha": "base123"},
+            "head": {"sha": "head456"},
+            "labels": [{"name": "archie-review"}],
+        }
+    }))
+    meta = dr._load_pr_meta_from_event(str(event))
+    assert meta["number"] == 11
+    assert meta["author"] == "human"
+    assert meta["base_sha"] == "base123"
+    assert meta["head_sha"] == "head456"
+    assert meta["labels"] == ["archie-review"]

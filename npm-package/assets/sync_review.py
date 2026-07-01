@@ -20,7 +20,7 @@ from _common import SOURCE_EXTENSIONS                      # noqa: E402
 from agent_cli import run_verifier                         # noqa: E402
 from selector import select_specialists                    # noqa: E402
 from intent import load_branch_record, normalize           # noqa: E402
-from reconcile import review_edge_a, aggregate_verdict     # noqa: E402
+from reconcile import review_edge_a, review_edge_c, aggregate_verdict   # noqa: E402
 from behavioral_review import review as behavioral_review_run   # noqa: E402
 from editor_gate import gate                               # noqa: E402
 
@@ -87,6 +87,14 @@ def run_sync_review(
     # Run edge A (intent vs diff) and behavioral review; pass run through
     raw = review_edge_a(root, spec, diff_text, run=run)
     raw += behavioral_review_run(root, diff_text, import_graph, changed_files, run=run)
+
+    # Edge C (requirement vs standing invariants) — only when the spec has intent to
+    # conflict-check; skip otherwise to avoid a pointless LLM call. Non-blocking.
+    if spec.get("acceptance_criteria") or spec.get("goals"):
+        try:
+            raw += review_edge_c(root, spec, (blueprint.get("domain_invariants") or []), run=run)
+        except Exception:
+            pass
 
     # Load existing findings store for dedup
     store: list[dict] = []

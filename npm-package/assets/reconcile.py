@@ -66,6 +66,42 @@ def review_edge_a(root, intent_spec: dict, diff_text: str, run=None) -> list[dic
     return parse_edge_a(raw or "", intent_spec)
 
 
+def build_edge_c_prompt(intent_spec, blueprint_slice):
+    crit = "\n".join(f'- {c.get("id")}: {c.get("text")}' for c in (intent_spec.get("acceptance_criteria") or []))
+    goals = "\n".join(f"- {g}" for g in (intent_spec.get("goals") or []))
+    invs = "\n".join(f'- {i.get("id")}: {i.get("invariant","")}' for i in (blueprint_slice or []))
+    return ("Decide whether the REQUIREMENT itself (its goals/criteria) would VIOLATE any standing "
+            "architectural invariant if implemented as asked. Only report a conflict with clear evidence. "
+            "Return JSON {\"findings\":[{\"invariant_id\":\"...\",\"file\":\"...\",\"line\":0,"
+            "\"evidence\":[\"...\"],\"falsification\":\"...\",\"confidence\":0.0}]}.\n\n"
+            f"GOALS:\n{goals}\n\nCRITERIA:\n{crit}\n\nTOUCHED INVARIANTS:\n{invs}")
+
+
+def parse_edge_c(raw, intent_spec):
+    data = extract_json_obj(raw or "")
+    out = []
+    ceiling = ceiling_for(intent_spec)
+    for i, f in enumerate(data.get("findings", [])):
+        if not f.get("falsification"):
+            continue
+        finding = make_finding(
+            id=f.get("id") or f"f_c_{i}", kind="intent_conflict", edge="C",
+            problem_statement=f"requirement conflicts with {f.get('invariant_id','?')}",
+            anchor={"file": f.get("file", ""), "line": f.get("line"), "changed": False},
+            assumptions=[f"invariant {f.get('invariant_id')}"], evidence=f.get("evidence", []),
+            falsification=f["falsification"], confidence=coerce_confidence(f.get("confidence", 0.0)),
+            source="reconcile:edgeC", severity_class="tradeoff_undermined", severity="high")
+        out.append(clamp_confidence(finding, ceiling))
+    return out
+
+
+def review_edge_c(root, intent_spec, blueprint_slice, run=None):
+    if run is None:
+        run = run_verifier
+    raw = run(build_edge_c_prompt(intent_spec, blueprint_slice), Path(root), "claude")
+    return parse_edge_c(raw or "", intent_spec)
+
+
 def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
     """Aggregate confirmed findings into a delivery verdict.
 

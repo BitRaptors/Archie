@@ -5,9 +5,22 @@ gating come from the shared core.
 from __future__ import annotations
 
 import html
+import json
+import os
+import sys
+from pathlib import Path
+
+_p = str(Path(__file__).parent)
+if _p not in sys.path:
+    sys.path.insert(0, _p)
 
 _OVERRIDE_LABEL = "archie-review"
 _SKIP_LABEL = "archie-skip"
+
+# Default cap on changed files before a PR is considered too large to review.
+MAX_FILES = 75
+# Bound the diff payload sent to the LLM (chars) so a huge PR can't blow the budget.
+MAX_DIFF_CHARS = 60000
 
 # Zero-width space used to neutralize leading @ in model-derived text.
 _ZWS = "​"
@@ -84,7 +97,184 @@ def render_verdict(verdict: dict, confirmed: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _load_pr_meta_from_event(event_path):
+    """Read the GitHub event payload -> PR metadata dict.
+
+    Returns {author, changed_files, labels, number, base_ref, base_sha, head_sha}.
+    Never raises: on any error returns an empty-ish dict so the caller degrades
+    gracefully (no PR context -> nothing to review).
+    """
+    meta = {"author": "", "changed_files": 0, "labels": [], "number": None,
+            "base_ref": "", "base_sha": "", "head_sha": ""}
+    if not event_path or not Path(event_path).exists():
+        return meta
+    try:
+        event = json.loads(Path(event_path).read_text())
+    except Exception:
+        return meta
+    pr = event.get("pull_request") or {}
+    if isinstance(pr, dict):
+        meta["number"] = pr.get("number")
+        meta["changed_files"] = pr.get("changed_files") or 0
+        user = pr.get("user") or {}
+        meta["author"] = str(user.get("login", "")) if isinstance(user, dict) else ""
+        base = pr.get("base") or {}
+        head = pr.get("head") or {}
+        meta["base_ref"] = str(base.get("ref", "") or "")
+        meta["base_sha"] = str(base.get("sha", "") or "")
+        meta["head_sha"] = str(head.get("sha", "") or "")
+        labels = pr.get("labels") or []
+        meta["labels"] = [l.get("name") for l in labels
+                          if isinstance(l, dict) and l.get("name")]
+    return meta
+
+
+def run_pr_gate(root=".", env=None):
+    """Compose the PR gate: intake -> diff -> resolve intent -> reconcile (A/B/C)
+    + behavioral -> gate -> verdict -> comment.
+
+    NON-BLOCKING by contract: every external step (git, LLM, GitHub API) is guarded,
+    a failure prints a line and continues, and the function NEVER raises. Returns a
+    small status dict for callers/tests.
+    """
+    env = env if env is not None else os.environ
+    root = Path(root)
+    status = {"reviewed": False, "reason": "", "posted": False, "verdict": None}
+
+    # 1. Read PR context from the GitHub event payload.
+    pr_meta = _load_pr_meta_from_event(env.get("GITHUB_EVENT_PATH", ""))
+
+    # 2. Intake gate — skip bots / skip-label / too-many-files (override-label wins).
+    ok, reason = should_review(pr_meta, MAX_FILES)
+    status["reason"] = reason
+    if not ok:
+        print(f"[archie] delivery review skipped ({reason})")
+        return status
+    if not pr_meta.get("number"):
+        print("[archie] delivery review skipped (no PR context)")
+        status["reason"] = "no pr context"
+        return status
+
+    # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
+    diff_text, changed, changed_lines = "", [], {}
+    try:
+        from diff_basis import detect_base, changed_files_result
+        base = pr_meta.get("base_sha") or pr_meta.get("base_ref") or detect_base(root)
+        res = changed_files_result(root, base)
+        changed = res.get("files", []) if res.get("ok") else []
+        try:
+            from intent_review import run_git
+            _, out, _ = run_git(root, "diff", base, "--")
+            diff_text = (out or "")[:MAX_DIFF_CHARS]
+            # changed-line map: which lines each changed file touched (best-effort).
+            for f in changed:
+                changed_lines[f] = set()
+        except Exception as e:
+            print(f"[archie] diff read failed ({e})")
+    except Exception as e:
+        print(f"[archie] diff basis failed ({e})")
+
+    # 4. Resolve intent from PR body/title/branch + branch record.
+    spec = None
+    try:
+        from intent import (ticket_ids_from, normalize, resolve,
+                            load_branch_record)
+        branch = pr_meta.get("base_ref") or ""
+        head = pr_meta.get("head_sha") or ""
+        pr_body = env.get("ARCHIE_PR_BODY", "")
+        tickets = ticket_ids_from(head, pr_body, [])
+        spec = normalize(pr_body, source="pr_body", ticket_ids=tickets)
+        record = load_branch_record(root / ".archie", branch) if branch else None
+        if record:
+            spec = record
+        if not spec.get("acceptance_criteria") and spec.get("raw"):
+            try:
+                spec = resolve(spec)
+            except Exception as e:
+                print(f"[archie] intent resolve failed ({e})")
+    except Exception as e:
+        print(f"[archie] intent resolution failed ({e})")
+        spec = {"acceptance_criteria": [], "goals": [], "confidence": "low"}
+
+    # 5. Load the blueprint (for edge-C invariants + behavioral blast radius).
+    blueprint, import_graph = {}, {}
+    try:
+        bp_path = root / ".archie" / "blueprint.json"
+        if bp_path.exists():
+            blueprint = json.loads(bp_path.read_text()) or {}
+        scan_path = root / ".archie" / "scan.json"
+        if scan_path.exists():
+            import_graph = (json.loads(scan_path.read_text()) or {}).get("import_graph", {})
+    except Exception as e:
+        print(f"[archie] blueprint load failed ({e})")
+
+    # 6. Run the reviewers — each guarded so one failure never blocks the rest.
+    raw = []
+    try:
+        from reconcile import review_edge_a
+        raw += review_edge_a(root, spec, diff_text)
+    except Exception as e:
+        print(f"[archie] edge-A skipped ({e})")
+    try:
+        from behavioral_review import review as behavioral_review_run
+        raw += behavioral_review_run(root, diff_text, import_graph, changed)
+    except Exception as e:
+        print(f"[archie] behavioral review skipped ({e})")
+    if spec.get("acceptance_criteria") or spec.get("goals"):
+        try:
+            from reconcile import review_edge_c
+            raw += review_edge_c(root, spec, (blueprint.get("domain_invariants") or []))
+        except Exception as e:
+            print(f"[archie] edge-C skipped ({e})")
+
+    # 7. Editor gate + aggregate verdict.
+    confirmed = []
+    verdict = {"intent_completeness": "0/0", "breaks": 0, "conflicts": 0, "gate_signal": 1.0}
+    try:
+        from editor_gate import gate
+        from reconcile import aggregate_verdict
+        store = []
+        fp = root / ".archie" / "findings.json"
+        if fp.exists():
+            try:
+                store = json.loads(fp.read_text()).get("findings", [])
+            except Exception:
+                store = []
+        floors = {}
+        cl = changed_lines or None
+        result = gate(raw, store, changed_lines=cl, floors=floors)
+        confirmed = result.get("confirmed", [])
+        verdict = aggregate_verdict(spec, confirmed)
+    except Exception as e:
+        print(f"[archie] gate/verdict failed ({e})")
+
+    status["reviewed"] = True
+    status["verdict"] = verdict
+
+    # 8. Render + publish. Fork PRs (no token) print the verdict instead of posting.
+    body = render_verdict(verdict, confirmed)
+    token = env.get("GITHUB_TOKEN", "").strip()
+    repo_full = env.get("GITHUB_REPOSITORY", "")
+    number = pr_meta.get("number")
+    if token and number and "/" in repo_full:
+        owner, repo = repo_full.split("/", 1)
+        try:
+            from intent_review import post_or_update_comment
+            post_or_update_comment(owner, repo, number, body, token)
+            status["posted"] = True
+        except Exception as e:
+            print(f"[archie] could not post comment ({e})")
+            print(body)
+    else:
+        print("[archie] no GITHUB_TOKEN / PR — printing verdict:\n" + body)
+
+    return status
+
+
 if __name__ == "__main__":
-    # Full PR-gate orchestration (resolve_intent -> reconcile -> gate -> publish)
-    # is not wired yet. This entrypoint is a deliberate placeholder.
-    print("[archie] delivery-review: intake+verdict library ready; PR-gate orchestration pending.")
+    try:
+        run_pr_gate(os.getcwd(), os.environ)
+    except Exception as e:
+        print(f"[archie] delivery review skipped (error: {e})")
+    # Non-blocking by design: always exit 0.
+    sys.exit(0)

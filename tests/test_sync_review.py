@@ -30,6 +30,41 @@ def test_runs_when_source_touched(monkeypatch):
     assert out["skipped"] is False and "verdict" in out
 
 
+def test_edge_c_skipped_without_criteria(monkeypatch):
+    """With no acceptance_criteria and no goals, review_edge_c is never called."""
+    monkeypatch.setattr(sr, "review_edge_a", lambda *a, **k: [])
+    monkeypatch.setattr(sr, "behavioral_review_run", lambda *a, **k: [])
+    calls = {"n": 0}
+    def counting_edge_c(*a, **k):
+        calls["n"] += 1
+        return []
+    monkeypatch.setattr(sr, "review_edge_c", counting_edge_c)
+    # inferred spec (no branch record) has empty criteria + goals
+    out = sr.run_sync_review("/x", "b", BP, {}, "diff", ["a.py"], {"a.py": {1}}, {})
+    assert out["skipped"] is False
+    assert calls["n"] == 0
+
+
+def test_edge_c_runs_with_criteria(tmp_path, monkeypatch):
+    """When the spec has acceptance_criteria, review_edge_c is invoked once."""
+    archie_dir = tmp_path / ".archie"
+    archie_dir.mkdir()
+    spec = it.normalize("Add export", source="prompt", ticket_ids=[])
+    spec["acceptance_criteria"] = [{"id": "ac1", "text": "export scoped by tenant"}]
+    it.save_branch_record(archie_dir, "b", spec)
+
+    monkeypatch.setattr(sr, "review_edge_a", lambda *a, **k: [])
+    monkeypatch.setattr(sr, "behavioral_review_run", lambda *a, **k: [])
+    calls = {"n": 0}
+    def counting_edge_c(*a, **k):
+        calls["n"] += 1
+        return []
+    monkeypatch.setattr(sr, "review_edge_c", counting_edge_c)
+    sr.run_sync_review(str(tmp_path), "b", BP, {}, "diff", ["a.py"], {"a.py": {1}}, {},
+                       run=lambda *a, **k: "{}")
+    assert calls["n"] == 1
+
+
 def test_sync_review_resolves_before_edge_a(tmp_path, monkeypatch):
     """Branch record with raw text but empty acceptance_criteria: resolve() is called
     before edge-A so edge-A sees populated criteria."""

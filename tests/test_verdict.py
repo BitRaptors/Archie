@@ -48,6 +48,18 @@ def test_aggregate_counts_drift():
     assert v["gate_signal"] == 0.7
 
 
+def test_aggregate_counts_intent_conflict():
+    """A confirmed intent_conflict (produced by edge-C) is counted and lowers the gate signal."""
+    spec = it.normalize("", source="linear", ticket_ids=["A-1"])
+    spec["acceptance_criteria"] = [{"id": "ac1"}, {"id": "ac2"}]
+    confirmed = [{"kind": "intent_conflict", "problem_statement": "conflicts with tenant isolation"}]
+    v = rc.aggregate_verdict(spec, confirmed)
+    assert v["conflicts"] >= 1
+    # 0 breaks, 1 conflict, 0 drift → gate_signal = 1.0 - min(1.0, 0.5) = 0.5
+    assert v["gate_signal"] < 1.0
+    assert v["gate_signal"] == 0.5
+
+
 def test_aggregate_none_criteria_no_crash():
     spec = it.normalize("", source="linear", ticket_ids=["A-1"])
     spec["acceptance_criteria"] = None
