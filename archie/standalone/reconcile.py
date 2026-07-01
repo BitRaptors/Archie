@@ -62,3 +62,34 @@ def review_edge_a(root, intent_spec: dict, diff_text: str, run=None) -> list[dic
         run = run_verifier   # call-time lookup → monkeypatch works
     raw = run(build_edge_a_prompt(intent_spec, diff_text), Path(root), "claude")
     return parse_edge_a(raw or "", intent_spec)
+
+
+def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
+    """Aggregate confirmed findings into a delivery verdict.
+
+    Computes intent completeness (met/total acceptance criteria), counts breaks
+    and conflicts, and computes a gate signal for PR gating.
+
+    Args:
+        intent_spec: dict with "acceptance_criteria" key (list of dicts with "id")
+        confirmed: list of confirmed finding dicts with "kind" key
+
+    Returns:
+        dict with keys:
+        - intent_completeness: "m/n" string (met / total criteria)
+        - breaks: count of conformance_break + behavioral_break
+        - conflicts: count of intent_conflict
+        - gate_signal: float in [0.0, 1.0] (1.0 = pass, 0.0 = fail)
+    """
+    total = len(intent_spec.get("acceptance_criteria", []))
+    unmet = sum(1 for f in confirmed if f.get("kind") in ("intent_unmet", "intent_partial"))
+    met = max(0, total - unmet)
+    breaks = sum(1 for f in confirmed if f.get("kind") in ("conformance_break", "behavioral_break"))
+    conflicts = sum(1 for f in confirmed if f.get("kind") == "intent_conflict")
+    gate_signal = round(1.0 - min(1.0, 0.25 * breaks + 0.5 * conflicts), 3)
+    return {
+        "intent_completeness": f"{met}/{total}",
+        "breaks": breaks,
+        "conflicts": conflicts,
+        "gate_signal": gate_signal,
+    }
