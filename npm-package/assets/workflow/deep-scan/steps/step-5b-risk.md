@@ -61,15 +61,22 @@ Quality bar: only emit pitfalls whose `root_cause` traces to something visible i
 
 Only describe problems grounded in actual code and observed decisions. Do NOT recommend alternatives the code doesn't use.
 
+**Evidence schema (required on every finding).** Every finding MUST include a `falsification` — a code-checkable way to prove it wrong — or it is dropped downstream. The fields `kind`, `edge`, `anchor`, `assumptions`, and `falsification` are mandatory alongside the legacy fields. `edge` MUST be `"B"` (behavioural evidence tier). `anchor` MUST carry `file`, `line`, and `changed` (bool).
+
 Return JSON:
 ```json
 {
   "findings": [
     {
       "id": "f_NNNN",
+      "kind": "behavioral_break|schema_drift|pattern_divergence|mechanical_violation",
+      "edge": "B",
       "problem_statement": "",
       "evidence": [],
       "triggering_call_site": "<rel/path/to/file.ext>:<line>\n<verbatim code quote of the caller that fires the failure mode here>",
+      "anchor": {"file": "<rel/path/to/file.ext>", "line": 0, "changed": false},
+      "assumptions": ["assumption the finding rests on"],
+      "falsification": "a code-checkable condition that would prove this finding wrong",
       "root_cause": "",
       "fix_direction": ["step 1", "step 2", "step 3"],
       "severity": "error|warn|info",

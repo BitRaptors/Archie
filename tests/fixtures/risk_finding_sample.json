@@ -1,0 +1,11 @@
+{
+  "id": "f_0001", "kind": "behavioral_break", "edge": "B",
+  "problem_statement": "unbounded retry loop on transient error",
+  "triggering_call_site": "jobs/worker.py:88",
+  "anchor": {"file": "jobs/worker.py", "line": 88, "changed": false},
+  "assumptions": ["error is retried without a ceiling"],
+  "evidence": ["jobs/worker.py:88 while True: retry()"],
+  "falsification": "a max-attempts guard exists in the enclosing function",
+  "confidence": 0.7, "source": "deep_scan", "severity_class": "pitfall_triggered",
+  "root_cause": "missing retry ceiling", "applies_to": ["jobs/worker.py"]
+}
