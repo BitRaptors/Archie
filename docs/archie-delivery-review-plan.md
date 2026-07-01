@@ -18,6 +18,17 @@
 - **Vocabulary:** use `falsification` (never "disproof"), `evidence schema` (never "proof schema"), `contract → tracer → challenger` (never "planner/worker/reviewer"). See `docs/archie-delivery-review-design.md` §11.
 - **Never port** the peer system's business-specific specialists.
 - **LLM model default:** `haiku` for selection/normalization, `sonnet` for reasoning, `opus` for the two gates; local calls go through `run_verifier`, which already sets `--model`.
+- **Import convention (CRITICAL — overrides the `import archie.standalone.X` lines shown in task code blocks below).** The only interpreter is `python3` (3.9.6); `archie/__init__.py` imports `tomllib` (3.11+), so importing via the `archie` package breaks collection on 3.9. Follow the repo convention instead:
+  - **Test files:** add the standalone dir to `sys.path`, then import by bare name —
+    ```python
+    import sys
+    from pathlib import Path
+    _STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
+    sys.path.insert(0, str(_STANDALONE))
+    import <module> as <alias>  # noqa: E402
+    ```
+  - **Implementation files importing sibling standalone modules:** at the top, `sys.path.insert(0, str(Path(__file__).parent))` then `from <sibling> import <name>` (bare module name — e.g. `from agent_cli import run_verifier`, `from evidence_schema import make_finding`), never `from archie.standalone.<sibling> import ...`. This matches `arch_review.py`/`verify_findings.py`.
+  - Run tests with `python3 -m pytest` (there is no `python` on PATH).
 
 ---
 
