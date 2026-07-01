@@ -88,3 +88,38 @@ export async function fetchReport(token: string): Promise<ReportResponse> {
   if (!res.ok) throw new Error(`Report not found (${res.status})`)
   return res.json()
 }
+
+// --- Detached-mode exposure control plane --------------------------------
+export interface ExposurePlacement {
+  path: string
+  kind: string
+  exposed: boolean
+  category: string
+}
+
+export interface ExposureData {
+  mode: string
+  categories: Record<string, boolean>
+  overrides: Record<string, boolean>
+  placements: ExposurePlacement[]
+}
+
+export async function fetchExposure(): Promise<ExposureData> {
+  const r = await fetch('/api/exposure', { cache: 'no-store' })
+  if (!r.ok) throw new Error(`exposure fetch failed (${r.status})`)
+  return r.json()
+}
+
+export async function postExposure(
+  target: 'category' | 'path',
+  key: string,
+  value: boolean,
+): Promise<ExposureData> {
+  const r = await fetch('/api/exposure', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, key, value }),
+  })
+  if (!r.ok) throw new Error(`exposure update failed (${r.status})`)
+  return r.json()
+}

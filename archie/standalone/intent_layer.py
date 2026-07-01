@@ -1550,6 +1550,22 @@ def cmd_save_enrichment(root: Path, name: str, input_file: str):
     return clean
 
 
+def _externalize_folder_md(root: Path, folder_path: str) -> None:
+    """Relocate a freshly-written per-folder CLAUDE.md to the external store.
+
+    No-op in repo mode (the common case). Never raises — externalize must
+    never break the enrichment merge.
+    """
+    try:
+        _here = str(Path(__file__).resolve().parent)
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        import linker  # standalone sibling
+        linker.externalize_folder_file(root, f"{folder_path}/CLAUDE.md")
+    except Exception:
+        pass
+
+
 def cmd_merge(root: Path):
     """Patch existing CLAUDE.md files with enrichment data."""
     enrichments_dir = root / ".archie" / "enrichments"
@@ -1642,6 +1658,10 @@ def cmd_merge(root: Path):
             content = f"# {dir_name}\n\n{ai_section}\n"
             claude_md_path.write_text(content)
             created += 1
+
+        # Detached mode: relocate the freshly-written per-folder file to the
+        # external store and replace it with a managed link. No-op in repo mode.
+        _externalize_folder_md(root, folder_path)
 
     summary = f"Enrichment merge: {patched} patched, {created} created"
     if skipped_missing:

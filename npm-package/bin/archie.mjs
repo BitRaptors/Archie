@@ -12,6 +12,7 @@ const ASSETS = join(__dirname, "..", "assets");
 
 const CYAN = "\x1b[36m";
 const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
@@ -114,6 +115,7 @@ const args = process.argv.slice(2);
 let projectRootArg = ".";
 let commandsDirArg = null;
 let targetArg = null;
+let detachedMode = false;
 
 const USAGE = `Usage: npx @bitraptors/archie [path] [options]
 
@@ -122,6 +124,12 @@ Installs Archie tooling into the project at <path> (default: current directory).
   --target=<spec>            Skip the interactive prompt and install for the given targets.
                              Values: auto | all | claude | codex | comma-separated subset
                              Default (interactive default + non-TTY fallback): all
+  --detached                 Skip the prompt and enable detached mode: store
+                             generated artifacts in an external folder (~/.archie)
+                             and surface them via symlinks, keeping the working
+                             tree clean (only .archie-link.json is committed).
+                             Experimental. Without this flag an interactive
+                             install asks (default: No / repo mode).
   --commands-dir <dir>       Legacy Claude-only override. Multi-CLI installs ignore it.
   -h, --help                 Show this help.`;
 
@@ -137,6 +145,8 @@ for (let i = 0; i < args.length; i++) {
     i++;
   } else if (args[i].startsWith("--target=")) {
     targetArg = args[i].slice("--target=".length);
+  } else if (args[i] === "--detached") {
+    detachedMode = true;
   } else if (args[i].startsWith("--")) {
     console.error(`Unknown flag: ${args[i]}\n\n${USAGE}`);
     process.exit(2);
@@ -276,6 +286,62 @@ async function chooseTargets() {
   return chosen.join(",");
 }
 
+// Single y/N confirm on raw-mode stdin. Default = No (anything but y/Y).
+async function confirmPrompt(label) {
+  stdout.write(`  ${BOLD}${label}${RESET} ${DIM}[y/N]${RESET} `);
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding("utf8");
+  return new Promise((res) => {
+    const onData = (chunk) => {
+      const c = chunk.toString("utf8")[0];
+      const finish = (val) => {
+        stdin.setRawMode(false);
+        stdin.pause();
+        stdin.removeListener("data", onData);
+        stdout.write(`${val ? "yes" : "no"}\n`);
+        res(val);
+      };
+      if (c === "\x03") { // Ctrl+C
+        stdin.setRawMode(false);
+        stdin.pause();
+        stdout.write("\n");
+        process.exit(130);
+      } else if (c === "y" || c === "Y") {
+        finish(true);
+      } else {
+        finish(false); // n / Enter / anything else → default No
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+// Decide whether to enable detached storage mode. Default OFF.
+async function chooseDetached() {
+  if (detachedMode) return true;                         // explicit --detached
+  if (!stdin.isTTY || !stdout.isTTY) return false;       // non-TTY → default off
+
+  console.log("");
+  console.log(`  ${BOLD}Artifact storage${RESET}  ${DIM}(experimental)${RESET}`);
+  console.log(`  ${DIM}Default: Archie writes its generated files into your repo${RESET}`);
+  console.log(`  ${DIM}(CLAUDE.md blocks, .claude/rules/, per-folder CLAUDE.md, .archie/).${RESET}`);
+  console.log("");
+  console.log(`  ${BOLD}Detached mode${RESET} keeps them OUT of the working tree instead:`);
+  console.log(`    ${GREEN}•${RESET} artifacts live in an external store (${CYAN}~/.archie${RESET}) and are`);
+  console.log(`      symlinked back in — your tree & diffs stay clean (only`);
+  console.log(`      ${CYAN}.archie-link.json${RESET} is committed).`);
+  console.log(`    ${GREEN}•${RESET} the viewer gains an ${BOLD}Exposure${RESET} tab to toggle, per file,`);
+  console.log(`      what the agent can see (per-folder context + blueprint docs).`);
+  console.log(`    ${GREEN}•${RESET} fully reversible — ${DIM}python3 .archie/linker.py detach .${RESET}`);
+  console.log(`      copies everything back as real files.`);
+  console.log("");
+  console.log(`  ${DIM}Not sure? Choose No. You can enable it later by re-running with${RESET}`);
+  console.log(`  ${DIM}--detached, or ${RESET}${DIM}python3 .archie/linker.py attach .${RESET} ${DIM}on this install.${RESET}`);
+  console.log("");
+  return await confirmPrompt("Enable detached mode?");
+}
+
 const projectRoot = resolve(projectRootArg);
 const archieDir = join(projectRoot, ".archie");
 const claudeCommands = join(projectRoot, ".claude", "commands");
@@ -356,7 +422,7 @@ if (cleanedCount > 0) {
   console.log(`  ${DIM}cleaned ${cleanedCount} previous Archie files${RESET}`);
 }
 
-for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "c4.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "scoring.py", "score.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "agent_cli.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py", "rule_kinds.py", "backfill_kinds.py", "config.py", "telemetry_sync.py", "update_check.py", "analytics.py", "sync.py", "intent_review.py"]) {
+for (const script of ["_common.py", "scanner.py", "refresh.py", "intent_layer.py", "renderer.py", "install_hooks.py", "merge.py", "finalize.py", "validate.py", "viewer.py", "c4.py", "extract_output.py", "arch_review.py", "measure_health.py", "check_rules.py", "scoring.py", "score.py", "detect_cycles.py", "upload.py", "share_setup.py", "telemetry.py", "lint_gate.py", "code_shape.py", "rule_index.py", "align_check.py", "agent_cli.py", "verify_findings.py", "apply_verdicts.py", "migrate_blueprint_rules.py", "rule_kinds.py", "backfill_kinds.py", "config.py", "telemetry_sync.py", "update_check.py", "analytics.py", "sync.py", "intent_review.py", "link_store.py", "link_strategy.py", "linker.py"]) {
   const src = join(ASSETS, script);
   const dest = join(archieDir, script);
   if (existsSync(src)) {
@@ -448,6 +514,7 @@ let shimFailureReason = "";
 
 if (hasPython) {
   const targetValue = await chooseTargets();
+  detachedMode = await chooseDetached();
   const env = {
     ...process.env,
     ARCHIE_ASSETS_ROOT: ASSETS,
@@ -530,6 +597,24 @@ if (!shimsInstalled) {
   console.error("  fixed and the installer is re-run.");
   console.error("");
   process.exit(1);
+}
+
+// Detached mode: move artifacts to an external store and surface them via
+// symlinks so the working tree stays clean. No-op unless --detached was passed.
+if (detachedMode) {
+  const linkerPath = join(archieDir, "linker.py");
+  if (existsSync(linkerPath)) {
+    const res = spawnSync("python3", [linkerPath, "bind", projectRoot], {
+      stdio: "inherit",
+    });
+    if (res.status === 0) {
+      console.log(`  ${GREEN}✓${RESET} detached mode — artifacts external, tree clean`);
+    } else {
+      console.error(`  ${RED}✗${RESET} detached bind failed (status ${res.status}); staying in repo mode`);
+    }
+  } else {
+    console.error(`  ${RED}✗${RESET} linker.py not found; cannot enable detached mode`);
+  }
 }
 
 console.log("");

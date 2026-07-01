@@ -7,8 +7,9 @@ import Toast from '@/components/local/Toast'
 
 const GeneratedFilesBrowser = lazy(() => import('@/components/local/GeneratedFilesBrowser'))
 const FolderClaudeMdsBrowser = lazy(() => import('@/components/local/FolderClaudeMdsBrowser'))
+const ExposurePanel = lazy(() => import('@/components/local/ExposurePanel'))
 
-type Tab = 'report' | 'files'
+type Tab = 'report' | 'files' | 'exposure'
 type FilesView = 'folders' | 'generated'
 
 export default function LocalPage() {
@@ -58,6 +59,15 @@ export default function LocalPage() {
   }
 
   const [needsScan, setNeedsScan] = useState(false)
+  // Detached mode exposes a file-visibility tab; in repo mode it doesn't exist.
+  const [detached, setDetached] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/exposure', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setDetached(j?.mode === 'detached'))
+      .catch(() => setDetached(false))
+  }, [])
 
   useEffect(() => {
     fetch('/api/bundle', { cache: 'no-store' })
@@ -140,41 +150,58 @@ export default function LocalPage() {
       </Suspense>
     )
 
-  const localViewProp =
-    tab === 'report'
-      ? {
-          tab,
-          setTab,
-          title: 'Blueprint',
-        }
-      : {
-          tab,
-          setTab,
-          title: 'Files',
-          subNav: [
-            {
-              id: 'folders',
-              label: 'Folder Context',
-              icon: Database,
-              active: filesView === 'folders',
-              onClick: () => setFilesView('folders'),
-            },
-            {
-              id: 'generated',
-              label: 'Generated Files',
-              icon: FileText,
-              active: filesView === 'generated',
-              onClick: () => setFilesView('generated'),
-            },
-          ],
-        }
+  const exposureContent = (
+    <Suspense fallback={<div className="p-12 text-ink/60">Loading…</div>}>
+      <ExposurePanel />
+    </Suspense>
+  )
+
+  // If we somehow land on the exposure tab in repo mode (hidden tab), fall back.
+  const effectiveTab: Tab = tab === 'exposure' && !detached ? 'report' : tab
+
+  let localViewProp
+  if (effectiveTab === 'report') {
+    localViewProp = { tab: effectiveTab, setTab, title: 'Blueprint', showExposure: detached }
+  } else if (effectiveTab === 'exposure') {
+    localViewProp = { tab: effectiveTab, setTab, title: 'Exposure', showExposure: detached }
+  } else {
+    localViewProp = {
+      tab: effectiveTab,
+      setTab,
+      title: 'Files',
+      showExposure: detached,
+      subNav: [
+        {
+          id: 'folders',
+          label: 'Folder Context',
+          icon: Database,
+          active: filesView === 'folders',
+          onClick: () => setFilesView('folders'),
+        },
+        {
+          id: 'generated',
+          label: 'Generated Files',
+          icon: FileText,
+          active: filesView === 'generated',
+          onClick: () => setFilesView('generated'),
+        },
+      ],
+    }
+  }
+
+  const mainContent =
+    effectiveTab === 'files'
+      ? filesContent
+      : effectiveTab === 'exposure'
+        ? exposureContent
+        : null
 
   return (
     <LocalEditContext.Provider value={ctx}>
       <ReportPage
         bundle={bundle}
         localView={localViewProp}
-        mainContent={tab === 'files' ? filesContent : null}
+        mainContent={mainContent}
       />
       <Toast message={toast} onDismiss={() => setToast(null)} />
     </LocalEditContext.Provider>

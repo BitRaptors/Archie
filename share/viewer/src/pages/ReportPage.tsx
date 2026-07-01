@@ -21,7 +21,7 @@ import { countSemanticDuplications, extractFindings, normalizeStructuredFinding,
 
 const INSTALL_CMD = 'npx @bitraptors/archie /path/to/your/project'
 
-export type LocalTab = 'report' | 'files'
+export type LocalTab = 'report' | 'files' | 'exposure'
 
 interface LocalSubNavItem {
   id: string
@@ -47,6 +47,9 @@ interface ReportPageProps {
     // (used by the Files tab to switch between Folder Context / Generated
     // Files in the same sidebar pattern the blueprint sections use).
     subNav?: LocalSubNavItem[]
+    // Detached mode only — when true, show the Exposure (file-visibility) tab.
+    // In repo mode the feature does not exist, so the tab is hidden entirely.
+    showExposure?: boolean
   }
   // When set (Files mode), replaces the blueprint sections in the main
   // content area. The outer chrome (sidebar margin, container, padding) is
@@ -441,6 +444,10 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
                 {[
                   { id: 'report' as LocalTab, label: 'Blueprint', icon: Layout },
                   { id: 'files' as LocalTab, label: 'Files', icon: FileText },
+                  // Detached-mode-only: file-visibility gating. Hidden in repo mode.
+                  ...(localView.showExposure
+                    ? [{ id: 'exposure' as LocalTab, label: 'Exposure', icon: Shield }]
+                    : []),
                 ].map((tab) => {
                   const isActive = localView.tab === tab.id
                   const Icon = tab.icon
