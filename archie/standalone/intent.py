@@ -95,7 +95,7 @@ import os
 import re
 from pathlib import Path
 
-_RANK = {"inferred": 0, "commits": 1, "pr_body": 2, "prompt": 2, "linear": 3}
+_RANK = {"inferred": 0, "commits": 1, "pr_body": 2, "prompt": 2, "sync": 3, "linear": 3}
 _TICKET_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
 
 # C1: Denylist of common standards/protocol prefixes that look like ticket IDs
@@ -240,3 +240,70 @@ def save_branch_record(archie_dir: Path, branch: str, spec: dict) -> None:
         os.write(fd, data)
     finally:
         os.close(fd)
+
+
+# --- Committed-intent read/write + merge ---
+INTENT_FILE = "intent.json"
+
+
+def merge_specs(*specs) -> dict:
+    """Union acceptance_criteria (dedup by normalized text, ids reindexed), goals,
+    and ticket_ids across specs. Highest-_RANK source label wins. None entries ignored.
+    Never clobbers a populated field with an empty one (union only)."""
+    specs = [s for s in specs if s]
+    if not specs:
+        return normalize("", source="inferred", ticket_ids=[])
+    crit, seen = [], set()
+    for s in specs:
+        for c in (s.get("acceptance_criteria") or []):
+            text = (c.get("text") if isinstance(c, dict) else str(c)) or ""
+            key = text.strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                crit.append({"id": f"ac{len(crit) + 1}", "text": text})
+    goals, gseen = [], set()
+    for s in specs:
+        for g in (s.get("goals") or []):
+            k = str(g).strip().lower()
+            if k and k not in gseen:
+                gseen.add(k)
+                goals.append(str(g))
+    tickets = []
+    for s in specs:
+        for t in (s.get("ticket_ids") or []):
+            if t and t not in tickets:
+                tickets.append(t)
+    best = max(specs, key=lambda s: _RANK.get(s.get("source"), 0))
+    raw = "\n\n".join(s.get("raw") for s in specs if s.get("raw"))
+    return {
+        "source": best.get("source", "inferred"),
+        "confidence": best.get("confidence", "low"),
+        "ticket_ids": tickets,
+        "goals": goals,
+        "acceptance_criteria": crit,
+        "raw": raw,
+    }
+
+
+def load_committed_intent(root) -> dict:
+    """Read .archie/intent.json -> spec dict, or None if absent/malformed/non-dict."""
+    p = Path(root) / ".archie" / INTENT_FILE
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_committed_intent(root, spec: dict) -> None:
+    """Merge `spec` over any existing .archie/intent.json and write atomically."""
+    archie = Path(root) / ".archie"
+    archie.mkdir(parents=True, exist_ok=True)
+    existing = load_committed_intent(root)
+    merged = merge_specs(existing, spec) if existing else spec
+    p = archie / INTENT_FILE
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(merged, indent=2))
+    os.replace(tmp, p)
