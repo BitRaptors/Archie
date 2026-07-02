@@ -268,6 +268,13 @@ def merge_specs(*specs) -> dict:
             if k and k not in gseen:
                 gseen.add(k)
                 goals.append(str(g))
+    non_goals, ngseen = [], set()
+    for s in specs:
+        for g in (s.get("non_goals") or []):
+            k = str(g).strip().lower()
+            if k and k not in ngseen:
+                ngseen.add(k)
+                non_goals.append(str(g))
     tickets = []
     for s in specs:
         ids = list(s.get("ticket_ids") or [])
@@ -285,6 +292,7 @@ def merge_specs(*specs) -> dict:
         "ticket_ids": tickets,
         "goals": goals,
         "acceptance_criteria": crit,
+        "non_goals": non_goals,
         "raw": raw,
     }
 
@@ -325,4 +333,7 @@ def intent_brief(spec) -> str:
         text = c.get("text") if isinstance(c, dict) else str(c)
         if text:
             lines.append(f"- {text}")
+    non_goals = spec.get("non_goals") or []
+    if non_goals:
+        lines.append("Non-goals: " + "; ".join(str(g) for g in non_goals))
     return "\n".join(lines).strip()

@@ -22,11 +22,13 @@ def build_edge_a_prompt(intent_spec: dict, diff_text: str) -> str:
         f'- {c.get("id")}: {c.get("text")}'
         for c in (intent_spec.get("acceptance_criteria") or [])
     )
+    ng = "\n".join(f"- {g}" for g in (intent_spec.get("non_goals") or []))
+    ng_block = f"\n\nNON-GOALS (flag any diff behavior that violates these):\n{ng}" if ng else ""
     return (
         "Decide, per acceptance criterion, whether the DIFF implements it and the code is "
         "reachable. Verdict met|partial|unmet, plus drift for unrequested behavior. Give a "
         "falsification for each. Return JSON {\"findings\":[{criterion_id,verdict,file,line,"
-        f"evidence[],falsification,confidence}}]}}\n\nCRITERIA:\n{crit}\n\nDIFF:\n{diff_text}"
+        f"evidence[],falsification,confidence}}]}}\n\nCRITERIA:\n{crit}{ng_block}\n\nDIFF:\n{diff_text}"
     )
 
 
@@ -116,13 +118,15 @@ def build_conformance_prompt(diff_text, invariants, decisions, intent=None):
     inv = "\n".join(f'- {i.get("id")}: {i.get("invariant","")}' for i in (invariants or []))
     dec = "\n".join(f'- {d.get("title","")}: {d.get("rationale") or d.get("forced_by","")}'
                     for d in (decisions or []))
+    ng = "\n".join(f"- {g}" for g in (intent.get("non_goals") or [] if intent else []))
+    ng_block = f"\n\nNON-GOALS (flag any diff behavior that violates these):\n{ng}" if ng else ""
     return (prefix
             + "Decide whether this DIFF VIOLATES any of these standing architectural invariants or "
             "decisions. Report only clear violations INTRODUCED or worsened by the change, each with a "
             "falsification (how you'd prove it does NOT violate). Anchor to a changed line. Return JSON "
             "{\"findings\":[{\"invariant_id\":\"...\",\"file\":\"...\",\"line\":0,\"evidence\":[\"...\"],"
             "\"falsification\":\"...\",\"confidence\":0.0}]}.\n\n"
-            f"INVARIANTS:\n{inv}\n\nDECISIONS:\n{dec}\n\nDIFF:\n{diff_text}")
+            f"INVARIANTS:\n{inv}\n\nDECISIONS:\n{dec}{ng_block}\n\nDIFF:\n{diff_text}")
 
 
 def parse_conformance(raw):

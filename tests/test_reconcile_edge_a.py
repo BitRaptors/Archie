@@ -59,3 +59,11 @@ def test_edge_a_prompt_none_criteria_no_crash():
     spec["acceptance_criteria"] = None
     p = rc.build_edge_a_prompt(spec, "diff")
     assert "DIFF" in p  # just verify it doesn't crash
+
+
+def test_edge_a_prompt_includes_non_goals():
+    spec = it.normalize("", source="sync", ticket_ids=[])
+    spec["acceptance_criteria"] = [{"id": "ac1", "text": "scope it"}]
+    spec["non_goals"] = ["do not touch the import path"]
+    p = rc.build_edge_a_prompt(spec, "diff")
+    assert "import path" in p

@@ -55,3 +55,9 @@ def test_merge_specs_bridges_singular_ticket_id():
     b = {"source": "pr_body", "acceptance_criteria": [], "goals": [], "ticket_ids": ["ARCH-10"], "raw": ""}
     m = it.merge_specs(a, b)
     assert "ARCH-9" in m["ticket_ids"] and "ARCH-10" in m["ticket_ids"]
+
+
+def test_merge_specs_carries_non_goals():
+    a = {"source": "sync", "acceptance_criteria": [], "goals": [], "non_goals": ["no schema change"], "raw": ""}
+    b = {"source": "pr_body", "acceptance_criteria": [], "goals": [], "non_goals": [], "raw": ""}
+    assert it.merge_specs(a, b).get("non_goals") == ["no schema change"]
