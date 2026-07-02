@@ -226,3 +226,28 @@ def test_render_verdict_nonnumeric_line_no_crash():
     )
     assert isinstance(md, str)
     assert "x.py:" in md
+
+
+# Task 4 — assemble_pr_intent tests
+def test_assemble_pr_intent_prefers_committed_file_no_resolve(tmp_path):
+    import intent as it
+    it.write_committed_intent(tmp_path, {"source": "sync", "goals": [],
+        "acceptance_criteria": [{"id": "a", "text": "From file"}], "ticket_ids": [], "raw": "plan"})
+    called = {"resolve": 0}
+    spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "T", "body": "body"}, {},
+                                 run=lambda *a, **k: called.__setitem__("resolve", called["resolve"] + 1) or "{}")
+    assert [c["text"] for c in spec["acceptance_criteria"]] == ["From file"]
+    assert called["resolve"] == 0                                  # criteria already present -> no LLM resolve
+
+
+def test_assemble_pr_intent_body_only_resolves(tmp_path):
+    # no committed file -> resolve() runs on the PR body to produce criteria
+    payload = '{"acceptance_criteria":[{"id":"t","text":"From body"}]}'
+    spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "Add export", "body": "tenant scoped"}, {},
+                                 run=lambda *a, **k: payload)
+    assert [c["text"] for c in spec["acceptance_criteria"]] == ["From body"]
+
+
+def test_assemble_pr_intent_all_empty(tmp_path):
+    spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "", "body": ""}, {}, run=lambda *a, **k: "{}")
+    assert spec.get("acceptance_criteria") == []

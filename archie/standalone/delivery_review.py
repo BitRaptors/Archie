@@ -136,6 +136,33 @@ def _load_pr_meta_from_event(event_path):
     return meta
 
 
+def assemble_pr_intent(root, pr_meta, env, *, run=None):
+    """Merge intent from committed .archie/intent.json ⊕ PR title/body.
+    resolve() runs ONLY if the merged spec still has no acceptance_criteria."""
+    import sys as _sys
+    _p = str(Path(__file__).parent)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
+    from intent import (load_committed_intent, merge_specs, normalize,
+                        resolve, ticket_ids_from)  # noqa: E402
+
+    file_spec = load_committed_intent(root)
+    title = pr_meta.get("title") or ""
+    body = pr_meta.get("body") or env.get("ARCHIE_PR_BODY", "")
+    branch = pr_meta.get("head_ref") or ""
+    pr_text = (title + "\n\n" + body).strip()
+    tickets = ticket_ids_from(branch, pr_text, [])
+    pr_spec = normalize(pr_text, "pr_body", tickets) if pr_text else None
+
+    spec = merge_specs(file_spec, pr_spec)
+    if not spec.get("acceptance_criteria") and spec.get("raw"):
+        try:
+            spec = resolve(spec, run=run)
+        except Exception as e:
+            print(f"[archie] intent resolve failed ({e})")
+    return spec
+
+
 def run_pr_gate(root=".", env=None):
     """Compose the PR gate: intake -> diff -> resolve intent -> reconcile (A/B/C)
     + behavioral -> gate -> verdict -> comment.
@@ -193,29 +220,11 @@ def run_pr_gate(root=".", env=None):
     except Exception as e:
         print(f"[archie] diff basis failed ({e})")
 
-    # 4. Resolve intent from PR body/title/branch + branch record.
-    spec = None
+    # 4. Assemble intent: committed .archie/intent.json ⊕ PR title/body.
     try:
-        from intent import (ticket_ids_from, normalize, resolve,
-                            load_branch_record)
-        # PR intent comes from the event payload (title + body), not an env var;
-        # the branch record is keyed on the PR HEAD ref, not the base branch.
-        branch = pr_meta.get("head_ref") or ""
-        title = pr_meta.get("title") or ""
-        body = pr_meta.get("body") or env.get("ARCHIE_PR_BODY", "")
-        pr_text = (title + "\n\n" + body).strip()
-        tickets = ticket_ids_from(branch, pr_text, [])
-        spec = normalize(pr_text, source="pr_body", ticket_ids=tickets)
-        record = load_branch_record(root / ".archie", branch) if branch else None
-        if record:
-            spec = record
-        if not spec.get("acceptance_criteria") and spec.get("raw"):
-            try:
-                spec = resolve(spec)
-            except Exception as e:
-                print(f"[archie] intent resolve failed ({e})")
+        spec = assemble_pr_intent(root, pr_meta, env)
     except Exception as e:
-        print(f"[archie] intent resolution failed ({e})")
+        print(f"[archie] intent assembly failed ({e})")
         spec = {"acceptance_criteria": [], "goals": [], "confidence": "low"}
 
     # 5. Load the blueprint (for edge-C invariants + behavioral blast radius).
