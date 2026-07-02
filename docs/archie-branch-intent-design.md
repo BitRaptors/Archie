@@ -147,7 +147,9 @@ payload it logs and leaves any existing file untouched.
 
 ## 9. Out of scope / follow-ups
 
-- Auto-detecting the ticket id from Linear's PR-link API (we read it from the intent file / branch /
-  PR text for now).
-- Jira/GitHub-Issues fetchers (the `fetch_ticket` seam generalizes later).
+- **Linear ticket fetch — deferred out of the first implementation** (the `linear_intent.py` fetch,
+  the PR-gate ticket merge, and the `LINEAR_API_KEY` secret). The first cut is committed-file ⊕
+  PR body only; the `assemble_pr_intent` merge seam is built so the ticket source drops in later
+  without touching downstream. `ticket_id` is still recorded in `.archie/intent.json` for when it lands.
+- Jira/GitHub-Issues fetchers (the same fetch seam generalizes).
 - The full `contract→tracer→challenger` specialist loop (separate).

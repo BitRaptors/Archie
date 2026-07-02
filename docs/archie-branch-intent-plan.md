@@ -2,20 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `/archie-sync` writes a committed `.archie/intent.json` (agent-authored goals + acceptance criteria); the delivery review reads it at PR time and merges it with an optional Linear ticket and the PR body.
+**Goal:** `/archie-sync` writes a committed `.archie/intent.json` (agent-authored goals + acceptance criteria); the delivery review reads it at PR time and merges it with the PR body.
 
-**Architecture:** Add committed-intent read/write + a pure `merge_specs` to `intent.py`; a small isolated `linear_intent.py` for the optional ticket fetch; a `sync.py write-intent` subcommand the sync agent calls; then swap the PR gate + sync review to assemble intent from (committed file ⊕ Linear ⊕ PR body). Everything degrades gracefully — all sources optional, review stays non-blocking.
+**Architecture:** Add committed-intent read/write + a pure `merge_specs` to `intent.py`; a `sync.py write-intent` subcommand the sync agent calls; then swap the PR gate + sync review to assemble intent from (committed file ⊕ PR body). Everything degrades gracefully — all sources optional, review stays non-blocking. **Linear ticket fetch is descoped from this plan** (a follow-up; see design §9).
 
-**Tech Stack:** Zero-dependency Python 3.9+ stdlib (`urllib` for the Linear call). Tests: pytest, LLM/network mocked.
+**Tech Stack:** Zero-dependency Python 3.9+ stdlib. Tests: pytest, LLM mocked.
 
 ## Global Constraints
 
 - **Zero runtime dependencies** beyond Python 3.9+ stdlib.
-- **File sync:** edit `archie/standalone/*.py` first, copy to `npm-package/assets/*.py`; edit `archie/assets/workflows/*` first, copy to `npm-package/assets/workflows/*`. Register any NEW standalone script in `npm-package/bin/archie.mjs`'s copy list. Run `python3 scripts/verify_sync.py` before every commit — it must PASS.
+- **File sync:** edit `archie/standalone/*.py` first, copy to `npm-package/assets/*.py`; edit `archie/assets/workflow*/…` first, copy to the `npm-package/assets/…` mirror. Run `python3 scripts/verify_sync.py` before every commit — it must PASS.
 - **Import convention (py3.9 — only `python3`, no `python`):** standalone modules import siblings BARE via guarded `sys.path.insert(0, str(Path(__file__).parent))` (`if _p not in sys.path`); tests use `sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "archie" / "standalone"))` + bare `import <module>`. NEVER `from archie.standalone.X` (trips `tomllib` on 3.9). Run tests with `python3 -m pytest`.
 - **LLM-injection convention:** orchestrators that call the LLM take `run=None` then `if run is None: run = run_verifier` (call-time lookup) so monkeypatch works.
 - **Committed artifact:** `.archie/intent.json` must NOT be gitignored (the installer's gitignore block lists `.archie/*.py` etc., not `.archie/*.json` broadly — leave it committable).
-- **Reuse existing:** `intent.normalize`, `intent.resolve`, `intent._RANK`, `evidence_schema.extract_json_obj`. Do not duplicate them.
+- **Reuse existing:** `intent.normalize`, `intent.resolve`, `intent._RANK`, `intent.ticket_ids_from`, `evidence_schema.extract_json_obj`. Do not duplicate them.
 - **Non-blocking:** `run_pr_gate` always exits 0; `write-intent` never crashes sync.
 - Commit trailer on every commit: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 
@@ -43,18 +43,18 @@ import intent as it  # noqa: E402
 
 
 def test_merge_specs_unions_criteria_and_dedups():
-    a = {"source": "linear", "confidence": "high", "goals": ["G1"],
-         "acceptance_criteria": [{"id": "x", "text": "Tenant scoped"}], "ticket_ids": ["ARCH-1"], "raw": "ticket"}
-    b = {"source": "sync", "confidence": "high", "goals": ["G1", "G2"],
+    a = {"source": "sync", "confidence": "high", "goals": ["G1"],
+         "acceptance_criteria": [{"id": "x", "text": "Tenant scoped"}], "ticket_ids": ["ARCH-1"], "raw": "plan"}
+    b = {"source": "pr_body", "confidence": "medium", "goals": ["G1", "G2"],
          "acceptance_criteria": [{"id": "y", "text": "tenant scoped"}, {"id": "z", "text": "Rate limited"}],
-         "ticket_ids": [], "raw": "plan"}
+         "ticket_ids": [], "raw": "body"}
     m = it.merge_specs(a, b)
     texts = [c["text"] for c in m["acceptance_criteria"]]
     assert texts == ["Tenant scoped", "Rate limited"]          # dedup by normalized text, order preserved
     assert m["acceptance_criteria"][0]["id"] == "ac1"          # ids reindexed
     assert m["goals"] == ["G1", "G2"] and m["ticket_ids"] == ["ARCH-1"]
-    assert m["source"] == "linear"                             # highest _RANK wins
-    assert "ticket" in m["raw"] and "plan" in m["raw"]
+    assert m["source"] == "sync"                               # highest _RANK wins (sync outranks pr_body)
+    assert "plan" in m["raw"] and "body" in m["raw"]
 
 
 def test_merge_specs_no_clobber_populated_by_empty():
@@ -186,112 +186,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-## Task 2: `linear_intent.py` — optional ticket fetch
-
-**Files:**
-- Create: `archie/standalone/linear_intent.py`
-- Modify: `npm-package/bin/archie.mjs` (add `"linear_intent.py"` to the script copy list)
-- Test: `tests/test_linear_intent.py`
-
-**Interfaces:**
-- Produces: `fetch_ticket(ticket_id, api_key, post=_default_post) -> str | None`. `post(url, data: bytes, headers: dict) -> str` is injectable so tests never hit the network.
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-# tests/test_linear_intent.py
-import sys, json
-from pathlib import Path
-_STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
-sys.path.insert(0, str(_STANDALONE))
-import linear_intent as li  # noqa: E402
-
-
-def test_fetch_ticket_returns_title_and_description():
-    def fake_post(url, data, headers):
-        assert headers["Authorization"] == "key"
-        return json.dumps({"data": {"issue": {"identifier": "ARCH-1", "title": "Export",
-                                              "description": "tenant scoped, rate limited"}}})
-    out = li.fetch_ticket("ARCH-1", "key", post=fake_post)
-    assert "Export" in out and "tenant scoped" in out
-
-
-def test_fetch_ticket_none_on_missing_input():
-    called = {"n": 0}
-    def fake_post(*a, **k): called["n"] += 1; return "{}"
-    assert li.fetch_ticket(None, "key", post=fake_post) is None
-    assert li.fetch_ticket("ARCH-1", None, post=fake_post) is None
-    assert called["n"] == 0  # no network attempted
-
-
-def test_fetch_ticket_none_on_error_or_no_issue():
-    assert li.fetch_ticket("ARCH-1", "key", post=lambda *a, **k: (_ for _ in ()).throw(OSError("down"))) is None
-    assert li.fetch_ticket("ARCH-1", "key", post=lambda *a, **k: json.dumps({"data": {"issue": None}})) is None
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `python3 -m pytest tests/test_linear_intent.py -v`
-Expected: FAIL (`ModuleNotFoundError: No module named 'linear_intent'`).
-
-- [ ] **Step 3: Write minimal implementation**
-
-```python
-# archie/standalone/linear_intent.py
-"""Optional Linear ticket fetch for delivery review. Best-effort: returns None on any
-missing input or error. Zero deps (stdlib urllib). The HTTP call is injectable for tests.
-"""
-from __future__ import annotations
-import json
-import urllib.request
-
-LINEAR_URL = "https://api.linear.app/graphql"
-_QUERY = "query($id:String!){issue(id:$id){identifier title description}}"
-
-
-def _default_post(url, data, headers):
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return r.read().decode()
-
-
-def fetch_ticket(ticket_id, api_key, post=_default_post):
-    """Return the issue's 'title\\n\\ndescription' text, or None on missing input / any error."""
-    if not ticket_id or not api_key:
-        return None
-    body = json.dumps({"query": _QUERY, "variables": {"id": ticket_id}}).encode()
-    headers = {"Authorization": api_key, "Content-Type": "application/json"}
-    try:
-        raw = post(LINEAR_URL, body, headers)
-        issue = (((json.loads(raw) or {}).get("data") or {}).get("issue")) or None
-        if not issue:
-            return None
-        text = ((issue.get("title") or "") + "\n\n" + (issue.get("description") or "")).strip()
-        return text or None
-    except Exception:
-        return None
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `python3 -m pytest tests/test_linear_intent.py -v`
-Expected: PASS (3 passed).
-
-- [ ] **Step 5: Sync + commit**
-
-```bash
-cp archie/standalone/linear_intent.py npm-package/assets/linear_intent.py
-# add "linear_intent.py" to the script array in npm-package/bin/archie.mjs (near delivery_review.py)
-python3 scripts/verify_sync.py
-git add archie/standalone/linear_intent.py npm-package/assets/linear_intent.py npm-package/bin/archie.mjs tests/test_linear_intent.py
-git commit -m "feat(intent): optional Linear ticket fetch (best-effort)
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-## Task 3: `sync.py write-intent` subcommand
+## Task 2: `sync.py write-intent` subcommand
 
 **Files:**
 - Modify: `archie/standalone/sync.py` (add `cmd_write_intent`, register `write-intent` in dispatch + `_usage`)
@@ -394,10 +289,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-## Task 4: Sync review reads the committed intent
+## Task 3: Sync review reads the committed intent
 
 **Files:**
-- Modify: `archie/standalone/sync_review.py` (lines ~73-77, the intent-load block)
+- Modify: `archie/standalone/sync_review.py` (the intent-load block, ~lines 73-77)
 - Test: `tests/test_sync_review.py` (add one test)
 
 **Interfaces:**
@@ -406,13 +301,14 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# add to tests/test_sync_review.py (imports already present: sr, and it via intent)
+# add to tests/test_sync_review.py (sr already imported)
 def test_sync_review_uses_committed_intent(tmp_path, monkeypatch):
     import intent as it
     it.write_committed_intent(tmp_path, {"source": "sync", "goals": [],
         "acceptance_criteria": [{"id": "a", "text": "Scoped"}], "ticket_ids": [], "raw": "plan"})
     seen = {}
-    monkeypatch.setattr(sr, "review_edge_a", lambda root, spec, diff, run=None: seen.setdefault("crit", spec.get("acceptance_criteria")) or [])
+    monkeypatch.setattr(sr, "review_edge_a",
+                        lambda root, spec, diff, run=None: seen.setdefault("crit", spec.get("acceptance_criteria")) or [])
     monkeypatch.setattr(sr, "behavioral_review_run", lambda *a, **k: [])
     BP = {"domain_invariants": [], "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": []}
     sr.run_sync_review(str(tmp_path), "feature/x", BP, {}, "diff", ["a.py"], {"a.py": {1}}, {})
@@ -426,7 +322,7 @@ Expected: FAIL (edge-A saw empty criteria; `seen["crit"]` is empty/None).
 
 - [ ] **Step 3: Wire the committed intent in**
 
-In `archie/standalone/sync_review.py`, add the bare import near the others:
+In `archie/standalone/sync_review.py`, extend the existing bare import from `intent`:
 ```python
 from intent import load_branch_record, normalize, save_branch_record, load_committed_intent  # noqa: E402
 ```
@@ -436,7 +332,7 @@ Change the spec-load line (currently `spec = load_branch_record(archie_dir, bran
             or load_branch_record(archie_dir, branch)
             or normalize("", source="inferred", ticket_ids=[]))
 ```
-(`root` is the function's root arg; `archie_dir` already defined above it.)
+(`root` is the function's root arg; `archie_dir` is already defined just above.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -456,43 +352,42 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-## Task 5: PR-gate intent assembly (committed file ⊕ Linear ⊕ PR body)
+## Task 4: PR-gate intent assembly (committed file ⊕ PR body)
 
 **Files:**
 - Modify: `archie/standalone/delivery_review.py` (`run_pr_gate` intent block, ~lines 192-212)
 - Test: `tests/test_delivery_review.py` (add tests)
 
 **Interfaces:**
-- Consumes: `intent.load_committed_intent`, `intent.merge_specs`, `intent.normalize`, `intent.resolve`, `intent.ticket_ids_from`, `linear_intent.fetch_ticket` (all bare imports).
-- Produces: a new pure helper `assemble_pr_intent(root, pr_meta, env, *, fetch=fetch_ticket, run=None) -> dict` so the merge logic is unit-testable without the full gate.
+- Consumes: `intent.load_committed_intent`, `intent.merge_specs`, `intent.normalize`, `intent.resolve`, `intent.ticket_ids_from` (all bare imports).
+- Produces: a pure helper `assemble_pr_intent(root, pr_meta, env, *, run=None) -> dict` so the merge logic is unit-testable without the full gate.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # add to tests/test_delivery_review.py  (dr already imported)
-def test_assemble_pr_intent_merges_file_ticket_and_body(tmp_path, monkeypatch):
+def test_assemble_pr_intent_prefers_committed_file_no_resolve(tmp_path):
     import intent as it
     it.write_committed_intent(tmp_path, {"source": "sync", "goals": [],
-        "acceptance_criteria": [{"id": "a", "text": "From file"}], "ticket_ids": ["ARCH-9"], "raw": "plan"})
-    pr_meta = {"head_ref": "feature/ARCH-9", "title": "T", "body": "body", "base_ref": "main"}
-    env = {"LINEAR_API_KEY": "key"}
-    spec = dr.assemble_pr_intent(tmp_path, pr_meta, env,
-                                 fetch=lambda tid, key, **k: "Ticket title\n\nticket requirement",
-                                 run=lambda *a, **k: '{"acceptance_criteria":[{"id":"t","text":"From ticket"}]}')
-    texts = [c["text"] for c in spec["acceptance_criteria"]]
-    assert "From file" in texts and "From ticket" in texts        # both sources merged
-
-
-def test_assemble_pr_intent_no_ticket_uses_file_without_resolve(tmp_path):
-    import intent as it
-    it.write_committed_intent(tmp_path, {"source": "sync", "goals": [],
-        "acceptance_criteria": [{"id": "a", "text": "Only file"}], "ticket_ids": [], "raw": "plan"})
+        "acceptance_criteria": [{"id": "a", "text": "From file"}], "ticket_ids": [], "raw": "plan"})
     called = {"resolve": 0}
-    spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "", "body": ""}, {},
-                                 fetch=lambda *a, **k: None,
+    spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "T", "body": "body"}, {},
                                  run=lambda *a, **k: called.__setitem__("resolve", called["resolve"] + 1) or "{}")
-    assert [c["text"] for c in spec["acceptance_criteria"]] == ["Only file"]
+    assert [c["text"] for c in spec["acceptance_criteria"]] == ["From file"]
     assert called["resolve"] == 0                                  # criteria already present -> no LLM resolve
+
+
+def test_assemble_pr_intent_body_only_resolves(tmp_path):
+    # no committed file -> resolve() runs on the PR body to produce criteria
+    payload = '{"acceptance_criteria":[{"id":"t","text":"From body"}]}'
+    spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "Add export", "body": "tenant scoped"}, {},
+                                 run=lambda *a, **k: payload)
+    assert [c["text"] for c in spec["acceptance_criteria"]] == ["From body"]
+
+
+def test_assemble_pr_intent_all_empty(tmp_path):
+    spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "", "body": ""}, {}, run=lambda *a, **k: "{}")
+    assert spec.get("acceptance_criteria") == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -504,8 +399,8 @@ Expected: FAIL (`AttributeError: module 'delivery_review' has no attribute 'asse
 
 Add the helper to `archie/standalone/delivery_review.py`:
 ```python
-def assemble_pr_intent(root, pr_meta, env, *, fetch=None, run=None):
-    """Merge intent from committed .archie/intent.json ⊕ optional Linear ticket ⊕ PR title/body.
+def assemble_pr_intent(root, pr_meta, env, *, run=None):
+    """Merge intent from committed .archie/intent.json ⊕ PR title/body.
     resolve() runs ONLY if the merged spec still has no acceptance_criteria."""
     import sys as _sys
     _p = str(Path(__file__).parent)
@@ -513,8 +408,6 @@ def assemble_pr_intent(root, pr_meta, env, *, fetch=None, run=None):
         _sys.path.insert(0, _p)
     from intent import (load_committed_intent, merge_specs, normalize,
                         resolve, ticket_ids_from)  # noqa: E402
-    if fetch is None:
-        from linear_intent import fetch_ticket as fetch  # noqa: E402
 
     file_spec = load_committed_intent(root)
     title = pr_meta.get("title") or ""
@@ -522,19 +415,9 @@ def assemble_pr_intent(root, pr_meta, env, *, fetch=None, run=None):
     branch = pr_meta.get("head_ref") or ""
     pr_text = (title + "\n\n" + body).strip()
     tickets = ticket_ids_from(branch, pr_text, [])
-    ticket_id = (file_spec or {}).get("ticket_id") or (tickets[0] if tickets else None)
-
-    ticket_spec = None
-    try:
-        ticket_text = fetch(ticket_id, env.get("LINEAR_API_KEY"))
-        if ticket_text:
-            ticket_spec = resolve(normalize(ticket_text, "linear",
-                                            [ticket_id] if ticket_id else []), run=run)
-    except Exception as e:
-        print(f"[archie] ticket fetch skipped ({e})")
-
     pr_spec = normalize(pr_text, "pr_body", tickets) if pr_text else None
-    spec = merge_specs(ticket_spec, file_spec, pr_spec)
+
+    spec = merge_specs(file_spec, pr_spec)
     if not spec.get("acceptance_criteria") and spec.get("raw"):
         try:
             spec = resolve(spec, run=run)
@@ -544,7 +427,7 @@ def assemble_pr_intent(root, pr_meta, env, *, fetch=None, run=None):
 ```
 In `run_pr_gate`, replace the whole `# 4. Resolve intent ...` try/except block (the one that builds `spec` from `ticket_ids_from`/`normalize`/`load_branch_record`) with:
 ```python
-    # 4. Assemble intent: committed file ⊕ optional Linear ticket ⊕ PR title/body.
+    # 4. Assemble intent: committed .archie/intent.json ⊕ PR title/body.
     try:
         spec = assemble_pr_intent(root, pr_meta, env)
     except Exception as e:
@@ -555,7 +438,7 @@ In `run_pr_gate`, replace the whole `# 4. Resolve intent ...` try/except block (
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python3 -m pytest tests/test_delivery_review.py -v`
-Expected: PASS (all, incl. the 2 new tests; existing gate tests green).
+Expected: PASS (all, incl. the 3 new tests; existing gate tests green).
 
 - [ ] **Step 5: Sync + commit**
 
@@ -563,19 +446,17 @@ Expected: PASS (all, incl. the 2 new tests; existing gate tests green).
 cp archie/standalone/delivery_review.py npm-package/assets/delivery_review.py
 python3 scripts/verify_sync.py
 git add archie/standalone/delivery_review.py npm-package/assets/delivery_review.py tests/test_delivery_review.py
-git commit -m "feat(pr-gate): assemble intent from committed file + optional Linear + PR body
+git commit -m "feat(pr-gate): assemble intent from committed file + PR body
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 6: Wire the capture step + workflow secret
+## Task 5: Wire the capture step into `/archie-sync`
 
 **Files:**
-- Modify: `archie/assets/workflows/archie-intent-review.yml` (add `LINEAR_API_KEY` to the delivery step) → copy to `npm-package/assets/workflows/archie-intent-review.yml`
 - Modify: `archie/assets/workflow/sync/SKILL.md` (add the intent-capture step) → copy to `npm-package/assets/workflow/sync/SKILL.md`
-- Modify: `archie/assets/setup-archie-intent-review.sh` (optional `LINEAR_API_KEY` prompt) → copy to npm asset
 - Test: `tests/test_branch_intent_smoke.py`
 
 **Interfaces:**
@@ -603,25 +484,20 @@ def test_write_intent_cli_roundtrip(tmp_path):
     assert got["acceptance_criteria"][0]["text"] == "Scoped"
 
 
-def test_delivery_workflow_declares_linear_key():
-    wf = (Path(__file__).resolve().parent.parent / "archie" / "assets" / "workflows"
-          / "archie-intent-review.yml").read_text()
-    assert "LINEAR_API_KEY" in wf and "delivery_review.py" in wf
+def test_sync_skill_has_intent_capture_step():
+    skill = (Path(__file__).resolve().parent.parent / "archie" / "assets" / "workflow"
+             / "sync" / "SKILL.md").read_text()
+    assert "write-intent" in skill and ".archie/intent.json" in skill
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python3 -m pytest tests/test_branch_intent_smoke.py -v`
-Expected: FAIL on `test_delivery_workflow_declares_linear_key` (`LINEAR_API_KEY` not in the YAML yet). The CLI roundtrip test should already pass (Task 3 shipped the subcommand).
+Expected: FAIL on `test_sync_skill_has_intent_capture_step` (`write-intent` not in the SKILL yet). The CLI roundtrip test should already pass (Task 2 shipped the subcommand).
 
-- [ ] **Step 3: Add the workflow secret, the sync capture step, and the setup prompt**
+- [ ] **Step 3: Add the intent-capture step to the sync SKILL**
 
-In `archie/assets/workflows/archie-intent-review.yml`, add to the **delivery-review** step's `env:` block:
-```yaml
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-```
-
-In `archie/assets/workflow/sync/SKILL.md`, add an intent-capture step (before the commit/fold step). Exact text to insert:
+In `archie/assets/workflow/sync/SKILL.md`, add this step (before the commit/fold step):
 ```markdown
 ### Capture branch intent (for delivery review)
 
@@ -629,7 +505,7 @@ Synthesize this branch's intent from the task, plan, and conversation, then pers
 PR-time delivery review can grade against what you set out to build:
 
 1. Write a JSON spec to a temp file with this shape (author `goals` and concrete, checkable
-   `acceptance_criteria` directly; include `ticket_id` if a Linear ticket applies):
+   `acceptance_criteria` directly; include `ticket_id` if applicable):
    `{"source":"sync","goals":[...],"acceptance_criteria":[{"id":"ac1","text":"..."}],"ticket_id":"ARCH-123","raw":"<goal + plan>"}`
 2. Run: `python3 .archie/sync.py write-intent . /tmp/archie_intent_spec.json`
    (merges into the committed `.archie/intent.json`; re-running refines it).
@@ -638,29 +514,11 @@ PR-time delivery review can grade against what you set out to build:
 If the intent is genuinely unknown, write `raw` only (or skip); the review degrades to PR-body intent.
 ```
 
-In `archie/assets/setup-archie-intent-review.sh`, after the `ANTHROPIC_API_KEY` block, add an optional prompt:
-```bash
-# ===== SECTION 2b: OPTIONAL LINEAR KEY =====
-printf 'Enter your LINEAR_API_KEY for ticket-grounded intent (optional, press Enter to skip): '
-read -rs LINEAR_API_KEY
-echo ""
-if [ -n "$LINEAR_API_KEY" ]; then
-    printf '%s' "$LINEAR_API_KEY" | gh secret set LINEAR_API_KEY
-    unset LINEAR_API_KEY
-    log_success "LINEAR_API_KEY secret set"
-else
-    log_info "No Linear key — delivery review will use the committed intent file + PR body."
-fi
-```
-
-- [ ] **Step 4: Copy to npm mirrors, run tests + sync**
+- [ ] **Step 4: Copy to the npm mirror, run tests + sync**
 
 ```bash
-cp archie/assets/workflows/archie-intent-review.yml npm-package/assets/workflows/archie-intent-review.yml
 cp archie/assets/workflow/sync/SKILL.md npm-package/assets/workflow/sync/SKILL.md
-cp archie/assets/setup-archie-intent-review.sh npm-package/assets/setup-archie-intent-review.sh
 python3 -m pytest tests/test_branch_intent_smoke.py -v      # both pass now
-bash -n archie/assets/setup-archie-intent-review.sh          # valid bash
 python3 scripts/verify_sync.py                               # PASS
 ```
 Expected: 2 passed; sync PASS.
@@ -668,11 +526,8 @@ Expected: 2 passed; sync PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add archie/assets/workflows/archie-intent-review.yml npm-package/assets/workflows/archie-intent-review.yml \
-        archie/assets/workflow/sync/SKILL.md npm-package/assets/workflow/sync/SKILL.md \
-        archie/assets/setup-archie-intent-review.sh npm-package/assets/setup-archie-intent-review.sh \
-        tests/test_branch_intent_smoke.py
-git commit -m "feat(ci): capture branch intent in sync + optional LINEAR_API_KEY in workflow
+git add archie/assets/workflow/sync/SKILL.md npm-package/assets/workflow/sync/SKILL.md tests/test_branch_intent_smoke.py
+git commit -m "feat(sync): capture branch intent step writes committed .archie/intent.json
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -681,10 +536,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Self-Review
 
-**Spec coverage:** §4 intent artifact → Task 1 (read/write/merge) + Task 3 (writer subcommand). §5.1 intent.py → Task 1. §5.2 linear_intent → Task 2. §5.3 PR assembly → Task 5. §5.4 sync_review → Task 4. §5.5 /archie-sync capture → Task 6. §5.6 workflow/setup → Task 6. §7 error handling → covered per-task (malformed file → None in T1; missing id/key/HTTP error → None in T2; bad payload leaves file intact in T3; assembly try/except in T5). §8 testing → each task's tests map to the spec's test list.
+**Spec coverage:** §4 intent artifact → Task 1 (read/write/merge) + Task 2 (writer subcommand). §5.1 intent.py → Task 1. §5.3 PR assembly → Task 4 (Linear branch removed — deferred). §5.4 sync_review → Task 3. §5.5 /archie-sync capture → Task 5. §7 error handling → per-task (malformed file → None in T1; bad payload leaves file intact in T2; assembly try/except in T4). §8 testing → each task's tests map to the spec's list. **Descoped:** §5.2 `linear_intent.py` + §5.6 `LINEAR_API_KEY` — moved to a follow-up (design §9).
 
 **Placeholder scan:** none — every step has runnable code + exact commands.
 
-**Type consistency:** `merge_specs`/`load_committed_intent`/`write_committed_intent`/`INTENT_FILE` (T1) are consumed with identical names in T3/T4/T5; `fetch_ticket(ticket_id, api_key, post=)` (T2) matches the `fetch=` injection in T5; `assemble_pr_intent(root, pr_meta, env, *, fetch, run)` (T5) matches its tests. `intent_spec` shape (`source/confidence/ticket_ids/goals/acceptance_criteria/raw`) is consistent across all tasks.
+**Type consistency:** `merge_specs`/`load_committed_intent`/`write_committed_intent`/`INTENT_FILE` (T1) consumed with identical names in T2/T3/T4; `assemble_pr_intent(root, pr_meta, env, *, run)` (T4) matches its tests; `intent_spec` shape (`source/confidence/ticket_ids/goals/acceptance_criteria/raw`) consistent across all tasks.
 
-**Note on `merge_specs` arg order at the PR gate (T5):** `merge_specs(ticket_spec, file_spec, pr_spec)` — order only affects the `source` *label* tie-break (highest `_RANK` wins regardless of position: `linear` > `pr_body`/`sync` > `inferred`); criteria union is order-preserving, so ticket criteria list first, then file, then PR — intended.
+**Note on `merge_specs` arg order at the PR gate (T4):** `merge_specs(file_spec, pr_spec)` — order only affects the `source` *label* tie-break (highest `_RANK` wins regardless of position: `sync` > `pr_body` > `inferred`); criteria union is order-preserving, so committed-file criteria list first, then PR — intended.
