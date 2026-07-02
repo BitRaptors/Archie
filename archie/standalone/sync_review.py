@@ -19,7 +19,7 @@ if _p not in sys.path:
 from _common import SOURCE_EXTENSIONS                      # noqa: E402
 from agent_cli import run_verifier                         # noqa: E402
 from selector import select_specialists, touched_context   # noqa: E402
-from intent import load_branch_record, normalize, save_branch_record  # noqa: E402
+from intent import load_branch_record, normalize, save_branch_record, load_committed_intent  # noqa: E402
 from reconcile import review_edge_a, review_edge_c, aggregate_verdict, review_conformance   # noqa: E402
 from behavioral_review import review as behavioral_review_run   # noqa: E402
 from editor_gate import gate                               # noqa: E402
@@ -72,9 +72,9 @@ def run_sync_review(
 
     # Load or synthesize intent spec for this branch
     archie_dir = Path(root) / ".archie"
-    spec = load_branch_record(archie_dir, branch) or normalize(
-        "", source="inferred", ticket_ids=[]
-    )
+    spec = (load_committed_intent(root)
+            or load_branch_record(archie_dir, branch)
+            or normalize("", source="inferred", ticket_ids=[]))
 
     # Resolve acceptance_criteria from raw text when not yet populated
     if not spec.get("acceptance_criteria") and spec.get("raw"):

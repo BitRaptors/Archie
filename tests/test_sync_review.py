@@ -193,3 +193,15 @@ def test_resolved_spec_persisted(tmp_path, monkeypatch):
     persisted = it.load_branch_record(archie_dir, "feature/rate-limit")
     assert persisted is not None
     assert len(persisted.get("acceptance_criteria", [])) > 0
+
+
+def test_sync_review_uses_committed_intent(tmp_path, monkeypatch):
+    """sync_review prefers committed .archie/intent.json over branch record."""
+    it.write_committed_intent(tmp_path, {"source": "sync", "goals": [],
+        "acceptance_criteria": [{"id": "a", "text": "Scoped"}], "ticket_ids": [], "raw": "plan"})
+    seen = {}
+    monkeypatch.setattr(sr, "review_edge_a",
+                        lambda root, spec, diff, run=None: seen.setdefault("crit", spec.get("acceptance_criteria")) or [])
+    monkeypatch.setattr(sr, "behavioral_review_run", lambda *a, **k: [])
+    sr.run_sync_review(str(tmp_path), "feature/x", BP, {}, "diff", ["a.py"], {"a.py": {1}}, {})
+    assert seen.get("crit") and seen["crit"][0]["text"] == "Scoped"   # committed criteria reached edge-A
