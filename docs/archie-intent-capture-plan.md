@@ -182,8 +182,8 @@ if __name__ == "__main__":
         if cmd == "user-turn":
             record_user_turn(root, sys.stdin.read())
         elif cmd == "edit":
-            if note_edit(root):
-                sys.stderr.write("[archie] captured branch intent — run 'python3 .archie/sync.py show-intent .' to review\n")
+            note_edit(root)  # SILENT by design: no mid-work noise. Transparency lives in the
+            # PR verdict comment + on-demand `show-intent`, never a terminal nag.
     except Exception:
         pass
     sys.exit(0)
