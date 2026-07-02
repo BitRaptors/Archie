@@ -158,19 +158,16 @@ just reconciled. **Commit it alongside the blueprint/intent edits.** The PR inte
 reads it to tell whether a branch's code later moved on without a re-sync, and surfaces a
 (non-blocking) "run /archie-sync" advisory if so.
 
-### Capture branch intent (for delivery review)
+### Branch intent (captured automatically)
 
-Synthesize this branch's intent from the task, plan, and conversation, then persist it so the
-PR-time delivery review can grade against what you set out to build:
+Archie captures your intent automatically from your planning turns (via hooks). To synthesize the
+current acceptance criteria from those events and review them:
 
-1. Write a JSON spec to a temp file with this shape (author `goals` and concrete, checkable
-   `acceptance_criteria` directly; include `ticket_id` if applicable):
-   `{"source":"sync","goals":[...],"acceptance_criteria":[{"id":"ac1","text":"..."}],"ticket_id":"ARCH-123","raw":"<goal + plan>"}`
-2. Run: `python3 .archie/sync.py write-intent . /tmp/archie_intent_spec.json`
-   (merges into the committed `.archie/intent.json`; re-running refines it).
-3. Stage `.archie/intent.json` so it is committed with the branch.
+- `python3 .archie/sync.py synthesize-intent .`  — regenerate criteria from captured events (blind to code)
+- `python3 .archie/sync.py show-intent .`         — review the goals + criteria + provenance
+- `python3 .archie/sync.py confirm-intent .`      — mark them human-confirmed (optional; unconfirmed still grades, labeled lower-trust)
 
-If the intent is genuinely unknown, write `raw` only (or skip); the review degrades to PR-body intent.
+Stage `.archie/intent.json` and `.archie/intent-events.jsonl` so they commit with the branch.
 
 ### Step 6 — Report what changed ARCHITECTURALLY (not a file list)
 

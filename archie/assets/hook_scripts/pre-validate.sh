@@ -321,3 +321,8 @@ for r, c in errors:
 if errors:
     sys.exit(2)
 PYEOF
+
+# Archie intent capture: mark the discussion->implementation transition (best-effort).
+if [ -f .archie/intent_capture.py ]; then
+  python3 .archie/intent_capture.py edit . 2>/dev/null || true
+fi
