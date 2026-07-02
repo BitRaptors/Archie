@@ -874,6 +874,7 @@ def _usage() -> None:
     print("  python3 sync.py churn-reset  /path/to/repo", file=sys.stderr)
     print("  python3 sync.py sync-stamp   /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
     print("  python3 sync.py review       /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
+    print("  python3 sync.py write-intent  /path/to/repo  spec.json          (merge branch intent into .archie/intent.json)", file=sys.stderr)
 
 
 def _opt(rest: list[str], name: str) -> str | None:
@@ -1011,6 +1012,30 @@ def cmd_sync_stamp(root: Path) -> int:
     return 0
 
 
+def cmd_write_intent(root, input_file) -> int:
+    """Merge a JSON intent spec (from input_file) into .archie/intent.json. Non-crashing:
+    a bad payload logs and leaves any existing file untouched. Always returns 0."""
+    import sys as _sys
+    _p = str(Path(__file__).parent)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
+    from intent import write_committed_intent, INTENT_FILE  # noqa: E402
+    if not input_file or not Path(input_file).exists():
+        print("[archie] write-intent: no payload file; .archie/intent.json unchanged", file=sys.stderr)
+        return 0
+    try:
+        spec = json.loads(Path(input_file).read_text())
+    except Exception as e:
+        print(f"[archie] write-intent: bad payload ({e}); .archie/intent.json unchanged", file=sys.stderr)
+        return 0
+    if not isinstance(spec, dict):
+        print("[archie] write-intent: payload not an object; unchanged", file=sys.stderr)
+        return 0
+    write_committed_intent(root, spec)
+    print(f"[archie] intent written to .archie/{INTENT_FILE}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         _usage()
@@ -1067,6 +1092,9 @@ def main(argv: list[str]) -> int:
 
     if cmd == "review":
         return cmd_review(root)
+
+    if cmd == "write-intent":
+        return cmd_write_intent(root, argv[3] if len(argv) > 3 else None)
 
     _usage()
     return 1
