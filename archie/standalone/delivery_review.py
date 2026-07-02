@@ -69,34 +69,42 @@ def should_review(pr_meta: dict, max_files: int) -> tuple[bool, str]:
     return True, "eligible"
 
 
-def render_verdict(verdict: dict, confirmed: list[dict]) -> str:
+def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
     """Render a Markdown delivery verdict comment.
 
     Args:
-        verdict: dict with keys intent_completeness, breaks, conflicts.
+        verdict: dict with keys intent_completeness, breaks, conflicts, unknown.
         confirmed: list of confirmed finding dicts with kind, problem_statement, anchor.
+        spec: optional intent spec dict with source, confidence, confirmed, acceptance_criteria.
 
     Returns:
         Markdown string with HTML marker comment for upsert.
     """
-    lines = ["<!-- archie-delivery-review -->", "## Delivery review", ""]
-    lines.append(f"**Built the intent?** {verdict.get('intent_completeness', '?')} acceptance criteria.")
-    lines.append(f"**Broke anything?** {verdict.get('breaks', 0)} break(s), "
-                 f"{verdict.get('conflicts', 0)} requirement conflict(s).")
-    if confirmed:
-        lines.append("")
-        for f in confirmed:
-            a = f.get("anchor", {}) or {}
-            kind = _sanitize(f.get("kind", ""))
-            problem = _sanitize(f.get("problem_statement", ""))
-            anchor_file = _sanitize(a.get("file", ""))
-            _line = a.get("line")
-            line_str = (str(int(_line))
-                        if isinstance(_line, (int, float))
-                        or (isinstance(_line, str) and _line.isdigit())
-                        else "")
-            lines.append(f"- `{kind}` {problem} "
-                         f"({anchor_file}:{line_str})")
+    spec = spec or {}
+    crit = spec.get("acceptance_criteria") or []
+    unmet_ids = {f.get("criterion_id") for f in confirmed if f.get("kind") in ("intent_unmet", "intent_partial")}
+    trust = "human-confirmed" if spec.get("confirmed") else "unconfirmed (auto-synthesized — lower trust)"
+    lines = ["<!-- archie-delivery-review -->", "## Archie delivery review", ""]
+    lines.append(f"> Grading against `.archie/intent.json` · source: **{_sanitize(spec.get('source', '?'))}** "
+                 f"· confidence: **{_sanitize(spec.get('confidence', '?'))}** · {trust}")
+    lines.append("")
+    unknown = verdict.get("unknown", 0)
+    lines.append(f"**Built the intent?** {verdict.get('intent_completeness', '?')} criteria met"
+                 + (f" ({unknown} unknown)" if unknown else "") + ".")
+    for c in crit:
+        mark = "❌" if c.get("id") in unmet_ids else "✅"
+        lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}")
+    lines.append("")
+    lines.append(f"**Broke anything?** {verdict.get('breaks', 0)} break(s), {verdict.get('conflicts', 0)} conflict(s).")
+    for f in confirmed:
+        if f.get("kind") in ("intent_unmet", "intent_partial"):
+            continue
+        a = f.get("anchor", {}) or {}
+        reviewer = _sanitize(str(f.get("source", "")).split(":")[-1])
+        lines.append(f"- `{_sanitize(f.get('kind', ''))}` {_sanitize(f.get('problem_statement', ''))} "
+                     f"({_sanitize(a.get('file', ''))}:{_sanitize(str(a.get('line', '')))}) · _{reviewer}_")
+    lines.append("")
+    lines.append("_Intent wrong? Edit `.archie/intent.json` (or re-run synthesize) and push — this comment updates._")
     return "\n".join(lines)
 
 
@@ -188,6 +196,18 @@ def run_pr_gate(root=".", env=None):
         print("[archie] delivery review skipped (no PR context)")
         status["reason"] = "no pr context"
         return status
+
+    # Hands-off fallback: if nobody synthesized intent but events were captured, do it now (blind).
+    try:
+        if not (Path(root) / ".archie" / "intent.json").exists():
+            import sys as _sys
+            _pp = str(Path(__file__).parent)
+            if _pp not in _sys.path:
+                _sys.path.insert(0, _pp)
+            from intent_synthesize import synthesize
+            synthesize(root)
+    except Exception as e:
+        print(f"[archie] intent auto-synthesize skipped ({e})")
 
     # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
     diff_text, changed, changed_lines = "", [], {}
@@ -294,7 +314,7 @@ def run_pr_gate(root=".", env=None):
     # 8. Render + publish. Fork PRs (no token) print the verdict instead of posting.
     # A render/post failure must never abort the review (exit 0 by contract).
     try:
-        body = render_verdict(verdict, confirmed)
+        body = render_verdict(verdict, confirmed, spec)
         token = env.get("GITHUB_TOKEN", "").strip()
         repo_full = env.get("GITHUB_REPOSITORY", "")
         number = pr_meta.get("number")

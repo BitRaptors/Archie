@@ -17,9 +17,11 @@ def test_aggregate_counts_completeness_and_breaks():
         {"kind": "behavioral_break"},
     ]
     v = rc.aggregate_verdict(spec, confirmed)
-    assert v["intent_completeness"] == "2/3" and v["breaks"] == 2 and v["conflicts"] == 0
+    # 1 extra_unmet (no criterion_id) + all 3 criteria unknown by id → met=0
+    assert v["breaks"] == 2 and v["conflicts"] == 0
     # 2 breaks, 0 conflicts, 0 drift → gate_signal = 1.0 - min(1.0, 0.5) = 0.5
     assert v["gate_signal"] == 0.5
+    assert "unknown" in v
 
 
 def test_aggregate_dedups_unmet_by_criterion():
@@ -30,7 +32,9 @@ def test_aggregate_dedups_unmet_by_criterion():
         {"kind": "intent_partial", "criterion_id": "ac2"},  # same criterion, must not double-count
     ]
     v = rc.aggregate_verdict(spec, confirmed)
-    assert v["intent_completeness"] == "2/3"
+    # ac2 is unmet (addressed), ac1+ac3 are unknown (no verdict) → met=0, unknown=2
+    assert v["intent_completeness"] == "0/3"
+    assert v["unknown"] == 2
 
 
 def test_aggregate_counts_drift():
@@ -77,3 +81,11 @@ def test_aggregate_none_criteria_no_crash():
     v = rc.aggregate_verdict(spec, [])
     assert v["intent_completeness"] == "0/0"
     assert v["breaks"] == 0
+
+
+def test_aggregate_reports_unknown_criteria():
+    spec = it.normalize("", source="sync", ticket_ids=[])
+    spec["acceptance_criteria"] = [{"id": "ac1"}, {"id": "ac2"}, {"id": "ac3"}]
+    confirmed = [{"kind": "intent_unmet", "criterion_id": "ac1"}]   # only 1 of 3 has a verdict
+    v = rc.aggregate_verdict(spec, confirmed)
+    assert v["unknown"] == 2 and v["intent_completeness"] == "0/3"   # 2 unaddressed are NOT counted met

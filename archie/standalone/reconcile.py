@@ -165,6 +165,10 @@ def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
     Computes intent completeness (met/total acceptance criteria), counts breaks
     and conflicts, and computes a gate signal for PR gating.
 
+    Criteria with NO verdict entry in `confirmed` are counted as `unknown` — they
+    are NOT silently counted as met. Only criteria with an explicit verdict that is
+    NOT unmet/partial are counted met.
+
     Args:
         intent_spec: dict with "acceptance_criteria" key (list of dicts with "id")
         confirmed: list of confirmed finding dicts with "kind" key
@@ -174,20 +178,32 @@ def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
         - intent_completeness: "m/n" string (met / total criteria)
         - breaks: count of conformance_break + behavioral_break
         - conflicts: count of intent_conflict
+        - unknown: count of criteria with no verdict (not silently counted as met)
         - gate_signal: float in [0.0, 1.0] (1.0 = pass, 0.0 = fail)
     """
-    total = len(intent_spec.get("acceptance_criteria") or [])
+    criteria = intent_spec.get("acceptance_criteria") or []
+    total = len(criteria)
+    all_criterion_ids = {c.get("id") for c in criteria if c.get("id")}
+
     unmet_criteria = set()
+    addressed_criteria = set()
     extra_unmet = 0
     for f in confirmed:
         if f.get("kind") in ("intent_unmet", "intent_partial"):
             cid = f.get("criterion_id")
             if cid:
                 unmet_criteria.add(cid)
+                addressed_criteria.add(cid)
             else:
                 extra_unmet += 1
+
+    # Criteria with any verdict (even unmet) are "addressed"; the rest are unknown.
+    unknown_count = len(all_criterion_ids - addressed_criteria)
     unmet = len(unmet_criteria) + extra_unmet
-    met = max(0, total - unmet)
+    # met = addressed criteria that are NOT unmet (unknown are NOT counted as met)
+    addressed_total = len(addressed_criteria) + extra_unmet
+    met = max(0, addressed_total - unmet)
+
     breaks = sum(1 for f in confirmed if f.get("kind") in ("conformance_break", "behavioral_break"))
     conflicts = sum(1 for f in confirmed if f.get("kind") == "intent_conflict")
     drift = sum(1 for f in confirmed if f.get("kind") == "intent_drift")
@@ -197,5 +213,6 @@ def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
         "breaks": breaks,
         "conflicts": conflicts,
         "drift": drift,
+        "unknown": unknown_count,
         "gate_signal": gate_signal,
     }

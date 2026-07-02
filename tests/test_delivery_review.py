@@ -26,9 +26,11 @@ def test_intake_override_label_forces_run():
 
 
 def test_render_verdict_shows_completeness_and_breaks():
+    # With no spec, intent_unmet findings are not shown in the breaks section (they appear
+    # in the criteria list section only when spec is provided). Check structural fields.
     md = dr.render_verdict({"intent_completeness": "3/4", "breaks": 1, "conflicts": 0},
                            [{"kind": "intent_unmet", "problem_statement": "ac2", "anchor": {"file": "x.py", "line": 4}}])
-    assert "3/4" in md and "1 break(s)" in md and "x.py:4" in md
+    assert "3/4" in md and "1 break(s)" in md
 
 
 # E1 — None-safe tests
@@ -164,16 +166,19 @@ def test_run_pr_gate_uses_real_changed_lines(tmp_path, monkeypatch):
         }
     }))
 
-    # A line-anchored edge-A finding on svc.py:2 (an added line → must survive).
+    # A line-anchored conformance_break finding on svc.py:2 (an added line → must survive).
+    # Using conformance_break (not intent_unmet) because the new render_verdict shows
+    # intent_unmet only in the criteria list; conformance_break appears in the breaks section
+    # with its file anchor, letting us assert the line made it through the gate.
     import reconcile as rc
     surviving = {
-        "id": "f_a_line", "kind": "intent_unmet", "edge": "A",
-        "problem_statement": "ac1: unmet",
+        "id": "f_cf_line", "kind": "conformance_break", "edge": "B",
+        "problem_statement": "violates inv-auth",
         "anchor": {"file": "svc.py", "line": 2, "changed": True},
-        "assumptions": ["criterion ac1"], "evidence": ["missing"],
+        "assumptions": ["invariant inv-auth"], "evidence": ["missing check"],
         "falsification": "wired elsewhere", "confidence": 0.9,
-        "source": "reconcile:edgeA", "severity_class": "tradeoff_undermined",
-        "severity": "high", "criterion_id": "ac1",
+        "source": "reconcile:conformance", "severity_class": "tradeoff_undermined",
+        "severity": "high",
     }
     monkeypatch.setattr(rc, "review_edge_a", lambda *a, **k: [surviving])
     monkeypatch.setattr(rc, "review_edge_c", lambda *a, **k: [])
@@ -220,9 +225,12 @@ def test_sanitize_neutralizes_all_mentions():
 
 def test_render_verdict_nonnumeric_line_no_crash():
     """A non-numeric anchor line ('NaN') must not raise — render returns a str."""
+    # intent_unmet findings appear in the criteria list (when spec is given) or are skipped in breaks.
+    # Use a conformance_break finding to test anchor rendering in the breaks section.
     md = dr.render_verdict(
-        {"intent_completeness": "1/1", "breaks": 0, "conflicts": 0},
-        [{"kind": "intent_unmet", "problem_statement": "p", "anchor": {"file": "x.py", "line": "NaN"}}],
+        {"intent_completeness": "1/1", "breaks": 1, "conflicts": 0},
+        [{"kind": "conformance_break", "problem_statement": "p", "anchor": {"file": "x.py", "line": "NaN"},
+          "source": "reconcile:edgeA"}],
     )
     assert isinstance(md, str)
     assert "x.py:" in md
@@ -251,3 +259,82 @@ def test_assemble_pr_intent_body_only_resolves(tmp_path):
 def test_assemble_pr_intent_all_empty(tmp_path):
     spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "", "body": ""}, {}, run=lambda *a, **k: "{}")
     assert spec.get("acceptance_criteria") == []
+
+
+def test_render_verdict_shows_criteria_provenance_and_correction(tmp_path):
+    spec = {"source": "sync", "confidence": "medium", "confirmed": False,
+            "acceptance_criteria": [{"id": "ac1", "text": "tenant scoped"}, {"id": "ac2", "text": "rate limited"}]}
+    verdict = {"intent_completeness": "1/2", "breaks": 0, "conflicts": 0, "unknown": 0}
+    confirmed = [{"kind": "intent_unmet", "criterion_id": "ac2", "problem_statement": "no limiter",
+                  "anchor": {"file": "x.py", "line": 4}, "source": "reconcile:edgeA"}]
+    md = dr.render_verdict(verdict, confirmed, spec)
+    assert "tenant scoped" in md and "rate limited" in md      # criteria listed
+    assert "medium" in md and "unconfirmed" in md.lower()      # provenance + trust label
+    assert "intent.json" in md                                  # correction loop stated
+
+
+def test_run_pr_gate_auto_synthesizes_when_intent_missing(tmp_path, monkeypatch):
+    """run_pr_gate must call synthesize() when .archie/intent.json is absent but events exist."""
+    import json as _json
+
+    # Set up a minimal git repo so diff_basis doesn't crash.
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.email", "t@t.t")
+    _git(tmp_path, "config", "user.name", "t")
+    (tmp_path / "f.py").write_text("x = 1\n")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-m", "init")
+    base_sha = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+
+    # Write intent events but NO intent.json.
+    archie_dir = tmp_path / ".archie"
+    archie_dir.mkdir()
+    events_file = archie_dir / "intent_events.jsonl"
+    events_file.write_text(_json.dumps({"kind": "user_turn", "text": "Add rate-limiting", "ts": "2024-01-01T00:00:00Z"}) + "\n")
+
+    event = tmp_path / "event.json"
+    event.write_text(_json.dumps({
+        "pull_request": {
+            "number": 99, "changed_files": 1, "user": {"login": "human"},
+            "base": {"ref": "main", "sha": base_sha}, "head": {"sha": "HEAD"},
+            "labels": [],
+        }
+    }))
+
+    synthesize_calls = {"n": 0}
+
+    import intent_synthesize as _is
+    def fake_synthesize(root, run=None):
+        synthesize_calls["n"] += 1
+        # Write a minimal intent.json so assemble_pr_intent finds it.
+        out = Path(root) / ".archie" / "intent.json"
+        out.write_text(_json.dumps({
+            "source": "sync", "confidence": "medium", "confirmed": False,
+            "goals": [], "acceptance_criteria": [{"id": "ac1", "text": "rate limited"}],
+            "non_goals": [], "ticket_ids": [],
+        }))
+        return {"acceptance_criteria": [{"id": "ac1", "text": "rate limited"}]}
+
+    monkeypatch.setattr(_is, "synthesize", fake_synthesize)
+
+    import reconcile as rc
+    monkeypatch.setattr(rc, "review_edge_a", lambda *a, **k: [])
+    monkeypatch.setattr(rc, "review_edge_c", lambda *a, **k: [])
+    monkeypatch.setattr(rc, "review_conformance", lambda *a, **k: [])
+    import behavioral_review as br
+    monkeypatch.setattr(br, "review", lambda *a, **k: [])
+
+    posted = {}
+    def spy_post(owner, repo, number, body, token):
+        posted["body"] = body
+    import intent_review as ir
+    monkeypatch.setattr(ir, "post_or_update_comment", spy_post)
+
+    env = {"GITHUB_EVENT_PATH": str(event), "GITHUB_TOKEN": "t",
+           "GITHUB_REPOSITORY": "o/r"}
+    status = dr.run_pr_gate(str(tmp_path), env)
+    assert status["reviewed"] is True
+    assert synthesize_calls["n"] == 1, "synthesize() must be called when intent.json is absent but events exist"
