@@ -102,11 +102,22 @@ def review_edge_c(root, intent_spec, blueprint_slice, run=None):
     return parse_edge_c(raw or "", intent_spec)
 
 
-def build_conformance_prompt(diff_text, invariants, decisions):
+def build_conformance_prompt(diff_text, invariants, decisions, intent=None):
+    prefix = ""
+    if intent:
+        _pp = str(Path(__file__).parent)
+        if _pp not in sys.path:
+            sys.path.insert(0, _pp)
+        from intent import intent_brief  # noqa: E402
+        brief = intent_brief(intent)
+        if brief:
+            prefix = ("INTENDED CHANGE (review whether the diff correctly and safely achieves this, "
+                      "and flag where it does not):\n" + brief + "\n\n")
     inv = "\n".join(f'- {i.get("id")}: {i.get("invariant","")}' for i in (invariants or []))
     dec = "\n".join(f'- {d.get("title","")}: {d.get("rationale") or d.get("forced_by","")}'
                     for d in (decisions or []))
-    return ("Decide whether this DIFF VIOLATES any of these standing architectural invariants or "
+    return (prefix
+            + "Decide whether this DIFF VIOLATES any of these standing architectural invariants or "
             "decisions. Report only clear violations INTRODUCED or worsened by the change, each with a "
             "falsification (how you'd prove it does NOT violate). Anchor to a changed line. Return JSON "
             "{\"findings\":[{\"invariant_id\":\"...\",\"file\":\"...\",\"line\":0,\"evidence\":[\"...\"],"
@@ -130,7 +141,7 @@ def parse_conformance(raw):
     return out
 
 
-def review_conformance(root, diff_text, invariants, decisions, run=None):
+def review_conformance(root, diff_text, invariants, decisions, run=None, intent=None):
     """Single-pass conformance reviewer: did the DIFF break a standing invariant/decision?
 
     NOTE: the full contract -> tracer -> challenger 3-role loop is a future enhancement;
@@ -140,7 +151,7 @@ def review_conformance(root, diff_text, invariants, decisions, run=None):
         run = run_verifier
     if not (invariants or decisions):
         return []
-    raw = run(build_conformance_prompt(diff_text, invariants, decisions), Path(root), "claude")
+    raw = run(build_conformance_prompt(diff_text, invariants, decisions, intent=intent), Path(root), "claude")
     return parse_conformance(raw or "")
 
 

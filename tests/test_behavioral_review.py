@@ -68,3 +68,18 @@ def test_parse_findings_string_confidence():
     out = br.parse_findings(raw)
     assert len(out) == 1
     assert out[0]["confidence"] == 0.0
+
+
+def test_build_prompt_includes_intent_and_is_backward_compatible():
+    spec = {"goals": ["Add tenant scoping"], "acceptance_criteria": [{"id": "ac1", "text": "scoped by tenant"}]}
+    p = br.build_prompt("diff", {"x.py": []}, intent=spec)
+    assert "INTENDED CHANGE" in p and ("tenant scoping" in p or "scoped by tenant" in p)
+    assert "INTENDED CHANGE" not in br.build_prompt("diff", {"x.py": []})   # no intent -> unchanged
+
+
+def test_review_threads_intent_into_prompt(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(br, "run_verifier",
+                        lambda prompt, *a, **k: captured.setdefault("p", prompt) or '{"findings":[]}')
+    br.review("/x", "diff", {}, ["x.py"], intent={"goals": ["G-goal"], "acceptance_criteria": []})
+    assert "G-goal" in captured["p"]

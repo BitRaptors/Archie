@@ -307,3 +307,18 @@ def write_committed_intent(root, spec: dict) -> None:
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(merged, indent=2))
     os.replace(tmp, p)
+
+
+def intent_brief(spec) -> str:
+    """One short block summarizing the intended change, for code-review prompts. '' if empty."""
+    if not spec:
+        return ""
+    lines = []
+    goals = spec.get("goals") or []
+    if goals:
+        lines.append("Goals: " + "; ".join(str(g) for g in goals))
+    for c in (spec.get("acceptance_criteria") or []):
+        text = c.get("text") if isinstance(c, dict) else str(c)
+        if text:
+            lines.append(f"- {text}")
+    return "\n".join(lines).strip()

@@ -24,10 +24,21 @@ _SYSTEM = (
 )
 
 
-def build_prompt(diff_text: str, consumer_map: dict) -> str:
+def build_prompt(diff_text: str, consumer_map: dict, intent=None) -> str:
+    prefix = ""
+    if intent:
+        _pp = str(Path(__file__).parent)
+        if _pp not in sys.path:
+            sys.path.insert(0, _pp)
+        from intent import intent_brief  # noqa: E402
+        brief = intent_brief(intent)
+        if brief:
+            prefix = ("INTENDED CHANGE (review whether the diff correctly and safely achieves this, "
+                      "and flag where it does not):\n" + brief + "\n\n")
     radius = "\n".join(f"{f} -> {', '.join(c)}" for f, c in consumer_map.items())
     return (
-        f"{_SYSTEM}\n\nDIFF:\n{diff_text}\n\n"
+        prefix
+        + f"{_SYSTEM}\n\nDIFF:\n{diff_text}\n\n"
         f"BLAST RADIUS (changed file -> consumers):\n{radius}\n\n"
         "Each finding needs: problem_statement, file, line, assumptions[], "
         "evidence[], falsification, confidence(0-1), kind(behavioral_break)."
@@ -58,9 +69,9 @@ def parse_findings(raw: str) -> list[dict]:
     return out
 
 
-def review(root, diff_text, import_graph, changed_files, run=None) -> list[dict]:
+def review(root, diff_text, import_graph, changed_files, run=None, intent=None) -> list[dict]:
     if run is None:
         run = run_verifier   # call-time global lookup → monkeypatch works
     cmap = {cf: consumers(import_graph, cf) for cf in changed_files}
-    raw = run(build_prompt(diff_text, cmap), Path(root), "claude")
+    raw = run(build_prompt(diff_text, cmap, intent=intent), Path(root), "claude")
     return parse_findings(raw or "")

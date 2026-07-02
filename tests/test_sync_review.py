@@ -141,7 +141,7 @@ def test_conformance_runs_when_specialist_routed(tmp_path, monkeypatch):
         "severity": "high",
     }
     called = {"n": 0}
-    def fake_conformance(root, diff_text, invariants, decisions, run=None):
+    def fake_conformance(root, diff_text, invariants, decisions, run=None, intent=None):
         called["n"] += 1
         # the routed invariant must have been passed through touched_context
         assert any(i.get("id") == "inv-tenant" for i in invariants)

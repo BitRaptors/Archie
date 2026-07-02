@@ -93,7 +93,7 @@ def run_sync_review(
 
     # Run edge A (intent vs diff) and behavioral review; pass run through
     raw = review_edge_a(root, spec, diff_text, run=run)
-    raw += behavioral_review_run(root, diff_text, import_graph, changed_files, run=run)
+    raw += behavioral_review_run(root, diff_text, import_graph, changed_files, run=run, intent=spec)
 
     # Edge C (requirement vs standing invariants) — only when the spec has intent to
     # conflict-check; skip otherwise to avoid a pointless LLM call. Non-blocking.
@@ -109,7 +109,7 @@ def run_sync_review(
     if sel["specialists"]:
         try:
             ctx = touched_context(blueprint, changed_files)
-            raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"], run=run)
+            raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"], run=run, intent=spec)
         except Exception:
             pass
 

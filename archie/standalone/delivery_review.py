@@ -248,7 +248,7 @@ def run_pr_gate(root=".", env=None):
         print(f"[archie] edge-A skipped ({e})")
     try:
         from behavioral_review import review as behavioral_review_run
-        raw += behavioral_review_run(root, diff_text, import_graph, changed)
+        raw += behavioral_review_run(root, diff_text, import_graph, changed, intent=spec)
     except Exception as e:
         print(f"[archie] behavioral review skipped ({e})")
     if spec.get("acceptance_criteria") or spec.get("goals"):
@@ -263,7 +263,7 @@ def run_pr_gate(root=".", env=None):
         from selector import touched_context
         from reconcile import review_conformance
         ctx = touched_context(blueprint, changed)
-        raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"])
+        raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"], intent=spec)
     except Exception as e:
         print(f"[archie] conformance skipped ({e})")
 

@@ -78,3 +78,10 @@ def test_review_conformance_empty_when_no_context():
     out = rc.review_conformance("/x", "diff", [], [], run=fake_run)
     assert out == []
     assert called["n"] == 0
+
+
+def test_conformance_prompt_includes_intent():
+    p = rc.build_conformance_prompt("diff", [{"id": "inv1", "invariant": "tenant iso"}], [],
+                                    intent={"goals": ["Add export"], "acceptance_criteria": []})
+    assert "Add export" in p
+    assert "INTENDED CHANGE" not in rc.build_conformance_prompt("diff", [], [])   # backward compat
