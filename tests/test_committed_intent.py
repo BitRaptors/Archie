@@ -48,3 +48,10 @@ def test_write_committed_intent_merges_and_roundtrips(tmp_path):
                                          "goals": [], "ticket_ids": [], "raw": "two"})
     got = it.load_committed_intent(tmp_path)
     assert [c["text"] for c in got["acceptance_criteria"]] == ["First", "Second"]   # merged across writes
+
+
+def test_merge_specs_bridges_singular_ticket_id():
+    a = {"source": "sync", "acceptance_criteria": [], "goals": [], "ticket_id": "ARCH-9", "raw": ""}
+    b = {"source": "pr_body", "acceptance_criteria": [], "goals": [], "ticket_ids": ["ARCH-10"], "raw": ""}
+    m = it.merge_specs(a, b)
+    assert "ARCH-9" in m["ticket_ids"] and "ARCH-10" in m["ticket_ids"]

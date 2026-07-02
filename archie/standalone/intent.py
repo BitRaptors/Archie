@@ -270,7 +270,11 @@ def merge_specs(*specs) -> dict:
                 goals.append(str(g))
     tickets = []
     for s in specs:
-        for t in (s.get("ticket_ids") or []):
+        ids = list(s.get("ticket_ids") or [])
+        single = s.get("ticket_id")
+        if single and single not in ids:
+            ids.append(single)
+        for t in ids:
             if t and t not in tickets:
                 tickets.append(t)
     best = max(specs, key=lambda s: _RANK.get(s.get("source"), 0))
@@ -285,7 +289,7 @@ def merge_specs(*specs) -> dict:
     }
 
 
-def load_committed_intent(root) -> dict:
+def load_committed_intent(root) -> dict | None:
     """Read .archie/intent.json -> spec dict, or None if absent/malformed/non-dict."""
     p = Path(root) / ".archie" / INTENT_FILE
     if not p.exists():
