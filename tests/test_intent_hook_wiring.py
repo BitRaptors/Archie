@@ -19,5 +19,5 @@ def test_sync_skill_no_longer_authors_criteria():
     skill = (Path(__file__).resolve().parent.parent / "archie" / "assets" / "workflow"
              / "sync" / "SKILL.md").read_text()
     # the old silent-authoring step is gone; replaced by synthesize/show
-    assert "synthesize-intent" in skill or "show-intent" in skill
+    assert "synthesize-intent" in skill and "show-intent" in skill
     assert "author `goals` and concrete" not in skill  # the old silent-author instruction removed

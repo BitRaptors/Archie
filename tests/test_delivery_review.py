@@ -292,7 +292,7 @@ def test_run_pr_gate_auto_synthesizes_when_intent_missing(tmp_path, monkeypatch)
     # Write intent events but NO intent.json.
     archie_dir = tmp_path / ".archie"
     archie_dir.mkdir()
-    events_file = archie_dir / "intent_events.jsonl"
+    events_file = archie_dir / "intent-events.jsonl"
     events_file.write_text(_json.dumps({"kind": "user_turn", "text": "Add rate-limiting", "ts": "2024-01-01T00:00:00Z"}) + "\n")
 
     event = tmp_path / "event.json"
