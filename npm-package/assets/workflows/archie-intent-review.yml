@@ -39,3 +39,23 @@ jobs:
           else
             echo "[archie] $SCRIPT not present on base ref, skipping."
           fi
+
+      # Delivery review: reconciles intent (PR title/body) + blueprint + diff into
+      # a "built the intent? / broke anything?" verdict. Same trust model as above —
+      # executed from the BASE ref copy, never PR-head content. Non-blocking: it
+      # posts an FYI comment and always exits 0 (never fails the check).
+      - name: Run Archie Delivery Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          SCRIPT=".archie/delivery_review.py"
+          if git cat-file -e "origin/${GITHUB_BASE_REF}:$SCRIPT" 2>/dev/null; then
+            git show "origin/${GITHUB_BASE_REF}:$SCRIPT" > /tmp/archie_delivery_review.py
+            python3 /tmp/archie_delivery_review.py
+          else
+            echo "[archie] $SCRIPT not present on base ref, skipping."
+          fi
