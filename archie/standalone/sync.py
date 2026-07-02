@@ -862,19 +862,23 @@ def cmd_review(root: Path) -> int:
 
 def _usage() -> None:
     print("Usage:", file=sys.stderr)
-    print("  python3 sync.py record       /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]", file=sys.stderr)
-    print("  python3 sync.py list         /path/to/repo [--json]", file=sys.stderr)
-    print("  python3 sync.py fold-context /path/to/repo [--change <file>]   (Phase 2: scope for the agent)", file=sys.stderr)
-    print("  python3 sync.py fold-apply   /path/to/repo [--change <file>]   (Phase 2: re-render + propagate + mark folded)", file=sys.stderr)
-    print("  python3 sync.py plan-capture /path/to/repo                     (stdin: hook envelope with tool_input.plan)", file=sys.stderr)
-    print("  python3 sync.py plan-list    /path/to/repo", file=sys.stderr)
-    print("  python3 sync.py plan-consume /path/to/repo", file=sys.stderr)
-    print("  python3 sync.py churn-bump   /path/to/repo                     (stdin: hook envelope with edit tool-call)", file=sys.stderr)
-    print("  python3 sync.py churn-status /path/to/repo", file=sys.stderr)
-    print("  python3 sync.py churn-reset  /path/to/repo", file=sys.stderr)
-    print("  python3 sync.py sync-stamp   /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
-    print("  python3 sync.py review       /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
-    print("  python3 sync.py write-intent  /path/to/repo  spec.json          (merge branch intent into .archie/intent.json)", file=sys.stderr)
+    print("  python3 sync.py record            /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]", file=sys.stderr)
+    print("  python3 sync.py list              /path/to/repo [--json]", file=sys.stderr)
+    print("  python3 sync.py fold-context      /path/to/repo [--change <file>]   (Phase 2: scope for the agent)", file=sys.stderr)
+    print("  python3 sync.py fold-apply        /path/to/repo [--change <file>]   (Phase 2: re-render + propagate + mark folded)", file=sys.stderr)
+    print("  python3 sync.py plan-capture      /path/to/repo                     (stdin: hook envelope with tool_input.plan)", file=sys.stderr)
+    print("  python3 sync.py plan-list         /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py plan-consume      /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py churn-bump        /path/to/repo                     (stdin: hook envelope with edit tool-call)", file=sys.stderr)
+    print("  python3 sync.py churn-status      /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py churn-reset       /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py sync-stamp        /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
+    print("  python3 sync.py review            /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
+    print("  python3 sync.py write-intent      /path/to/repo  spec.json          (merge branch intent into .archie/intent.json)", file=sys.stderr)
+    print("  python3 sync.py capture-intent    /path/to/repo [text]              (append a user-turn event)", file=sys.stderr)
+    print("  python3 sync.py synthesize-intent /path/to/repo                     (run the blind transform)", file=sys.stderr)
+    print("  python3 sync.py show-intent       /path/to/repo                     (pretty-print goals/criteria/provenance/confirmed)", file=sys.stderr)
+    print("  python3 sync.py confirm-intent    /path/to/repo                     (set confirmed=true)", file=sys.stderr)
 
 
 def _opt(rest: list[str], name: str) -> str | None:
@@ -1036,6 +1040,66 @@ def cmd_write_intent(root, input_file) -> int:
     return 0
 
 
+def _intent_imports():
+    import sys as _sys
+    _pp = str(Path(__file__).parent)
+    if _pp not in _sys.path:
+        _sys.path.insert(0, _pp)
+    import intent_capture, intent_synthesize
+    return intent_capture, intent_synthesize
+
+
+def cmd_capture_intent(root, text) -> int:
+    ic, _ = _intent_imports()
+    ic.record_user_turn(root, text or "")
+    print("[archie] intent event captured")
+    return 0
+
+
+def cmd_synthesize_intent(root) -> int:
+    _, isyn = _intent_imports()
+    spec = isyn.synthesize(root)
+    if not spec:
+        print("[archie] no intent events yet — nothing to synthesize")
+        return 0
+    print(f"[archie] synthesized {len(spec['acceptance_criteria'])} acceptance criteria "
+          f"(unconfirmed). Review: python3 .archie/sync.py show-intent .")
+    return 0
+
+
+def cmd_show_intent(root) -> int:
+    p = Path(root) / ".archie" / "intent.json"
+    if not p.exists():
+        print("[archie] no .archie/intent.json yet")
+        return 0
+    spec = json.loads(p.read_text())
+    print("== Archie branch intent ==")
+    print(f"source: {spec.get('source','?')}  confidence: {spec.get('confidence','?')}  "
+          f"confirmed: {spec.get('confirmed', False)}  capture_points: {spec.get('capture_points','?')}")
+    for g in spec.get("goals", []):
+        print(f"  goal: {g}")
+    for c in spec.get("acceptance_criteria", []):
+        print(f"  [{c.get('id')}] {c.get('text')}")
+    for n in spec.get("non_goals", []):
+        print(f"  non-goal: {n}")
+    return 0
+
+
+def cmd_confirm_intent(root) -> int:
+    p = Path(root) / ".archie" / "intent.json"
+    if not p.exists():
+        print("[archie] no .archie/intent.json to confirm")
+        return 0
+    spec = json.loads(p.read_text())
+    spec["confirmed"] = True
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(spec, indent=2))
+    import os
+    os.replace(tmp, p)
+    print("[archie] intent confirmed — the delivery review will grade against these criteria")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         _usage()
@@ -1095,6 +1159,18 @@ def main(argv: list[str]) -> int:
 
     if cmd == "write-intent":
         return cmd_write_intent(root, argv[3] if len(argv) > 3 else None)
+
+    if cmd == "capture-intent":
+        return cmd_capture_intent(root, argv[3] if len(argv) > 3 else "")
+
+    if cmd == "synthesize-intent":
+        return cmd_synthesize_intent(root)
+
+    if cmd == "show-intent":
+        return cmd_show_intent(root)
+
+    if cmd == "confirm-intent":
+        return cmd_confirm_intent(root)
 
     _usage()
     return 1
