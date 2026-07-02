@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `/archie-sync` writes a committed `.archie/intent.json` (agent-authored goals + acceptance criteria); the delivery review reads it at PR time and merges it with the PR body.
+**Goal:** `/archie-sync` writes a committed `.archie/intent.json` (agent-authored goals + acceptance criteria); the delivery review reads it at PR time, merges it with the PR body, and feeds it into the code review so behavioral + conformance review the diff *against the intent*.
 
-**Architecture:** Add committed-intent read/write + a pure `merge_specs` to `intent.py`; a `sync.py write-intent` subcommand the sync agent calls; then swap the PR gate + sync review to assemble intent from (committed file ⊕ PR body). Everything degrades gracefully — all sources optional, review stays non-blocking. **Linear ticket fetch is descoped from this plan** (a follow-up; see design §9).
+**Architecture:** Add committed-intent read/write + a pure `merge_specs` to `intent.py`; a `sync.py write-intent` subcommand the sync agent calls; swap the PR gate + sync review to assemble intent from (committed file ⊕ PR body); then thread the assembled intent into the behavioral + conformance reviewers so the code review is intent-aware. Everything degrades gracefully — all sources optional, review stays non-blocking. **Linear ticket fetch is descoped from this plan** (a follow-up; see design §9).
 
 **Tech Stack:** Zero-dependency Python 3.9+ stdlib. Tests: pytest, LLM mocked.
 
@@ -534,9 +534,145 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
+## Task 6: Make the code review intent-aware (behavioral + conformance)
+
+**Files:**
+- Modify: `archie/standalone/intent.py` (append `intent_brief`)
+- Modify: `archie/standalone/behavioral_review.py` (`build_prompt` + `review` accept `intent`)
+- Modify: `archie/standalone/reconcile.py` (`build_conformance_prompt` + `review_conformance` accept `intent`)
+- Modify: `archie/standalone/sync_review.py` + `archie/standalone/delivery_review.py` (pass the assembled `spec` through)
+- Test: `tests/test_behavioral_review.py`, `tests/test_reconcile_edge_c.py`
+
+**Interfaces:**
+- Consumes: the assembled intent `spec` (from `assemble_pr_intent` in T4 / the committed spec in T3).
+- Produces: `intent.intent_brief(spec) -> str`; `behavioral_review.build_prompt(diff_text, consumer_map, intent=None)`; `behavioral_review.review(root, diff_text, import_graph, changed_files, run=None, intent=None)`; `reconcile.build_conformance_prompt(diff_text, invariants, decisions, intent=None)`; `reconcile.review_conformance(root, diff_text, invariants, decisions, run=None, intent=None)`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# add to tests/test_behavioral_review.py  (br already imported)
+def test_build_prompt_includes_intent_and_is_backward_compatible():
+    spec = {"goals": ["Add tenant scoping"], "acceptance_criteria": [{"id": "ac1", "text": "scoped by tenant"}]}
+    p = br.build_prompt("diff", {"x.py": []}, intent=spec)
+    assert "INTENDED CHANGE" in p and ("tenant scoping" in p or "scoped by tenant" in p)
+    assert "INTENDED CHANGE" not in br.build_prompt("diff", {"x.py": []})   # no intent -> unchanged
+
+
+def test_review_threads_intent_into_prompt(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(br, "run_verifier",
+                        lambda prompt, *a, **k: captured.setdefault("p", prompt) or '{"findings":[]}')
+    br.review("/x", "diff", {}, ["x.py"], intent={"goals": ["G-goal"], "acceptance_criteria": []})
+    assert "G-goal" in captured["p"]
+```
+```python
+# add to tests/test_reconcile_edge_c.py  (rc already imported)
+def test_conformance_prompt_includes_intent():
+    p = rc.build_conformance_prompt("diff", [{"id": "inv1", "invariant": "tenant iso"}], [],
+                                    intent={"goals": ["Add export"], "acceptance_criteria": []})
+    assert "Add export" in p
+    assert "INTENDED CHANGE" not in rc.build_conformance_prompt("diff", [], [])   # backward compat
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `python3 -m pytest tests/test_behavioral_review.py -k intent tests/test_reconcile_edge_c.py -k intent -v`
+Expected: FAIL (`build_prompt() got an unexpected keyword argument 'intent'`).
+
+- [ ] **Step 3: Implement**
+
+Append to `archie/standalone/intent.py`:
+```python
+def intent_brief(spec) -> str:
+    """One short block summarizing the intended change, for code-review prompts. '' if empty."""
+    if not spec:
+        return ""
+    lines = []
+    goals = spec.get("goals") or []
+    if goals:
+        lines.append("Goals: " + "; ".join(str(g) for g in goals))
+    for c in (spec.get("acceptance_criteria") or []):
+        text = c.get("text") if isinstance(c, dict) else str(c)
+        if text:
+            lines.append(f"- {text}")
+    return "\n".join(lines).strip()
+```
+In `archie/standalone/behavioral_review.py`, add an `intent` param and prepend the brief. `build_prompt`:
+```python
+def build_prompt(diff_text, consumer_map, intent=None):
+    prefix = ""
+    if intent:
+        _p = str(Path(__file__).parent)
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+        from intent import intent_brief  # noqa: E402
+        brief = intent_brief(intent)
+        if brief:
+            prefix = ("INTENDED CHANGE (review whether the diff correctly and safely achieves this, "
+                      "and flag where it does not):\n" + brief + "\n\n")
+    # ... existing body, but return: prefix + <existing returned string>
+```
+And `review`:
+```python
+def review(root, diff_text, import_graph, changed_files, run=None, intent=None):
+    if run is None:
+        run = run_verifier
+    cmap = {cf: consumers(import_graph, cf) for cf in changed_files}
+    raw = run(build_prompt(diff_text, cmap, intent=intent), Path(root), "claude")
+    return parse_findings(raw or "")
+```
+In `archie/standalone/reconcile.py`, add `intent` to `build_conformance_prompt` (prepend the same brief block via `from intent import intent_brief`) and thread it through `review_conformance`:
+```python
+def review_conformance(root, diff_text, invariants, decisions, run=None, intent=None):
+    if run is None:
+        from agent_cli import run_verifier
+        run = run_verifier
+    if not (invariants or decisions):
+        return []
+    raw = run(build_conformance_prompt(diff_text, invariants, decisions, intent=intent), Path(root), "claude")
+    return parse_conformance(raw or "")
+```
+In `archie/standalone/sync_review.py`, pass `intent=spec` to both calls:
+```python
+    raw += behavioral_review_run(root, diff_text, import_graph, changed_files, run=run, intent=spec)
+    ...
+    raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"], run=run, intent=spec)
+```
+In `archie/standalone/delivery_review.py` `run_pr_gate`, pass `intent=spec` to both the behavioral and conformance calls (the `spec` from `assemble_pr_intent`).
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `python3 -m pytest tests/test_behavioral_review.py tests/test_reconcile_edge_c.py tests/test_sync_review.py tests/test_delivery_review.py -v`
+Expected: PASS (new intent tests + all existing green — the `intent=None` default keeps old calls working).
+
+- [ ] **Step 5: Sync + commit**
+
+```bash
+cp archie/standalone/intent.py npm-package/assets/intent.py
+cp archie/standalone/behavioral_review.py npm-package/assets/behavioral_review.py
+cp archie/standalone/reconcile.py npm-package/assets/reconcile.py
+cp archie/standalone/sync_review.py npm-package/assets/sync_review.py
+cp archie/standalone/delivery_review.py npm-package/assets/delivery_review.py
+python3 scripts/verify_sync.py
+git add archie/standalone/intent.py archie/standalone/behavioral_review.py archie/standalone/reconcile.py \
+        archie/standalone/sync_review.py archie/standalone/delivery_review.py npm-package/assets/*.py \
+        tests/test_behavioral_review.py tests/test_reconcile_edge_c.py
+git commit -m "feat(review): intent-aware code review (behavioral + conformance)
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
 ## Self-Review
 
-**Spec coverage:** §4 intent artifact → Task 1 (read/write/merge) + Task 2 (writer subcommand). §5.1 intent.py → Task 1. §5.3 PR assembly → Task 4 (Linear branch removed — deferred). §5.4 sync_review → Task 3. §5.5 /archie-sync capture → Task 5. §7 error handling → per-task (malformed file → None in T1; bad payload leaves file intact in T2; assembly try/except in T4). §8 testing → each task's tests map to the spec's list. **Descoped:** §5.2 `linear_intent.py` + §5.6 `LINEAR_API_KEY` — moved to a follow-up (design §9).
+**Spec coverage:** §4 intent artifact → Task 1 (read/write/merge) + Task 2 (writer subcommand). §5.1 intent.py → Task 1. §5.3 PR assembly → Task 4 (Linear branch removed — deferred). §5.4 sync_review → Task 3. §5.5 /archie-sync capture → Task 5. **Intent-aware code review (behavioral + conformance consume the intent) → Task 6** (extends the design's delivery-review goal so the *code* review, not only edge-A, grades against intent). §7 error handling → per-task (malformed file → None in T1; bad payload leaves file intact in T2; assembly try/except in T4; `intent=None` default keeps T6 backward-compatible). §8 testing → each task's tests map to the spec's list. **Descoped:** §5.2 `linear_intent.py` + §5.6 `LINEAR_API_KEY` — moved to a follow-up (design §9).
+
+**Placeholder scan:** none — every step has runnable code + exact commands.
+
+**Type consistency:** `merge_specs`/`load_committed_intent`/`write_committed_intent`/`INTENT_FILE` (T1) consumed with identical names in T2/T3/T4; `intent_brief(spec)` (T6) consumed by behavioral + conformance builders; `assemble_pr_intent(root, pr_meta, env, *, run)` (T4) matches its tests; `review(..., intent=None)` / `review_conformance(..., intent=None)` (T6) are keyword-added, so all existing call sites stay valid; `intent_spec` shape (`source/confidence/ticket_ids/goals/acceptance_criteria/raw`) consistent across all tasks.
+
+**Note on `merge_specs` arg order at the PR gate (T4):** `merge_specs(file_spec, pr_spec)` — order only affects the `source` *label* tie-break (highest `_RANK` wins regardless of position: `sync` > `pr_body` > `inferred`); criteria union is order-preserving, so committed-file criteria list first, then PR — intended.
 
 **Placeholder scan:** none — every step has runnable code + exact commands.
 
