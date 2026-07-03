@@ -27,11 +27,37 @@ import os
 import shutil
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 CLAUDE_CLI = "claude"
 CODEX_CLI = "codex"
 DEFAULT_TIMEOUT = 90  # seconds
+
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+API_MODEL = "claude-haiku-4-5"
+
+
+def _run_api(prompt: str, api_key: str, timeout: int = DEFAULT_TIMEOUT) -> str:
+    """Direct Anthropic Messages API call — used in CI where no coding-agent CLI exists.
+    Returns the text response or '' on any error."""
+    body = json.dumps({
+        "model": API_MODEL,
+        "max_tokens": 4096,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(
+        ANTHROPIC_URL, data=body, method="POST",
+        headers={"content-type": "application/json", "x-api-key": api_key,
+                 "anthropic-version": "2023-06-01"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+        parts = data.get("content") or []
+        return "".join(p.get("text", "") for p in parts if p.get("type") == "text")
+    except Exception:
+        return ""
 
 
 def detect_cli() -> str:
@@ -67,10 +93,23 @@ def detect_verifier() -> str:
 
 def run_verifier(prompt: str, project_root: Path, verifier: str,
                  timeout: int = DEFAULT_TIMEOUT) -> str:
-    """Run `prompt` through the selected coding-agent CLI; return its text or ""."""
-    if verifier == "codex":
+    """Run `prompt` through the selected coding-agent CLI; return its text or "".
+
+    Priority:
+    1. Requested codex CLI (if verifier=='codex' and codex is on PATH).
+    2. claude CLI (if available on PATH).
+    3. Direct Anthropic API (if ANTHROPIC_API_KEY is set) — CI fallback where
+       no coding-agent CLI is installed.
+    4. Empty string — nothing available.
+    """
+    if verifier == "codex" and shutil.which("codex"):
         return _run_codex(prompt, project_root, timeout)
-    return _run_claude(prompt, project_root, timeout)
+    if shutil.which("claude"):
+        return _run_claude(prompt, project_root, timeout)
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key:
+        return _run_api(prompt, key, timeout)
+    return ""
 
 
 def _run_claude(prompt: str, project_root: Path, timeout: int = DEFAULT_TIMEOUT) -> str:

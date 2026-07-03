@@ -484,7 +484,10 @@ if (!existsSync(archiebulkDest) && existsSync(archiebulkSrc)) {
 }
 
 const gitignorePath = join(projectRoot, ".gitignore");
-const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/*.py\n.archie/__pycache__/\n.archie/platform_rules.json\n.archie/platform_pitfalls.json\n.archie/workflow/\n.archie/.test_snapshots/\n.claude/commands/archie-*.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/hooks.json\n`;
+// Note: .archie/*.py is intentionally NOT gitignored — scripts are committed so
+// the CI delivery-review workflow can read them from the base ref without a local
+// Archie install.
+const archieGitignoreBlock = `\n# Archie (installed tooling — outputs are NOT ignored)\n.archie/__pycache__/\n.archie/platform_rules.json\n.archie/platform_pitfalls.json\n.archie/workflow/\n.archie/.test_snapshots/\n.claude/commands/archie-*.md\n.claude/hooks/\n.claude/settings.local.json\n.agents/skills/archie-*/\n.codex/hooks.json\n`;
 
 let gitignoreContent = "";
 if (existsSync(gitignorePath)) {

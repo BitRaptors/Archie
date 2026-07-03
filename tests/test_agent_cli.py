@@ -93,6 +93,11 @@ def test_run_verifier_dispatches_to_codex(tmp_path: Path, monkeypatch: pytest.Mo
         agent_cli, "_run_claude",
         lambda prompt, root, timeout: calls.append("claude") or "claude-out",
     )
+    # Make both CLIs appear available on PATH so run_verifier routes by verifier arg.
+    monkeypatch.setattr(
+        agent_cli.shutil, "which",
+        lambda name: f"/usr/local/bin/{name}" if name in ("codex", "claude") else None,
+    )
 
     assert agent_cli.run_verifier("p", tmp_path, "codex") == "codex-out"
     assert agent_cli.run_verifier("p", tmp_path, "claude") == "claude-out"

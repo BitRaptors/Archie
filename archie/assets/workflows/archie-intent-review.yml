@@ -52,10 +52,10 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
-          SCRIPT=".archie/delivery_review.py"
-          if git cat-file -e "origin/${GITHUB_BASE_REF}:$SCRIPT" 2>/dev/null; then
-            git show "origin/${GITHUB_BASE_REF}:$SCRIPT" > /tmp/archie_delivery_review.py
-            python3 /tmp/archie_delivery_review.py
+          if git cat-file -e "origin/${GITHUB_BASE_REF}:.archie/delivery_review.py" 2>/dev/null; then
+            rm -rf /tmp/archie-base && mkdir -p /tmp/archie-base
+            git archive "origin/${GITHUB_BASE_REF}" .archie | tar -x -C /tmp/archie-base
+            python3 /tmp/archie-base/.archie/delivery_review.py
           else
-            echo "[archie] $SCRIPT not present on base ref, skipping."
+            echo "[archie] .archie/delivery_review.py not present on base ref, skipping."
           fi
