@@ -52,9 +52,13 @@ def _save_state(root, state: dict) -> None:
 
 
 def record_user_turn(root, text) -> None:
-    """Append a verbatim user turn and mark a planning turn as pending."""
+    """Append a verbatim user turn and mark a planning turn as pending.
+
+    Skips non-intent noise: empty text and slash-commands (e.g. /archie-sync,
+    /archie-deep-scan) — those are tool invocations, not stated user intent.
+    """
     text = str(text or "").strip()
-    if not text:
+    if not text or text.startswith("/"):
         return
     _append(root, {"ts": _now(), "kind": "user_turn", "phase": "planning", "text": text})
     st = _load_state(root)
@@ -95,6 +99,12 @@ def load_events(root) -> list:
 if __name__ == "__main__":
     # CLI for the hook scripts. Best-effort: always exit 0.
     try:
+        import os
+        # Never capture while an internal Archie LLM spawn is running: those are
+        # Archie's own `claude -p` verifier/agent prompts firing this same hook,
+        # not user intent. agent_cli sets ARCHIE_INTERNAL on every such spawn.
+        if os.environ.get("ARCHIE_INTERNAL"):
+            sys.exit(0)
         cmd = sys.argv[1] if len(sys.argv) > 1 else ""
         root = sys.argv[2] if len(sys.argv) > 2 else "."
         if cmd == "user-turn":

@@ -111,10 +111,11 @@ def test_run_verifier_dispatches_to_codex(tmp_path: Path, monkeypatch: pytest.Mo
 def test_run_codex_uses_stdin_and_output_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, object] = {}
 
-    def _fake_run(args, input, capture_output, text, cwd, timeout):
+    def _fake_run(args, input, capture_output, text, cwd, timeout, env=None):
         seen["args"] = args
         seen["input"] = input
         seen["cwd"] = cwd
+        seen["env"] = env
         out_idx = args.index("--output-last-message") + 1
         Path(args[out_idx]).write_text('{"id":"f","verdict":"keep","confidence":1.0,"reason":"ok"}')
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
@@ -127,6 +128,8 @@ def test_run_codex_uses_stdin_and_output_file(tmp_path: Path, monkeypatch: pytes
     assert seen["cwd"] == str(tmp_path)
     assert seen["args"][-1] == "-"
     assert "--output-last-message" in seen["args"]
+    # Internal spawn must carry the marker so it can't pollute the intent log.
+    assert seen["env"] is not None and seen["env"].get("ARCHIE_INTERNAL") == "1"
 
 
 def test_codex_cleans_temp_on_nonzero_return(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

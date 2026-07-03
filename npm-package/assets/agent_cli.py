@@ -129,6 +129,10 @@ def _run_claude(prompt: str, project_root: Path, timeout: int = DEFAULT_TIMEOUT)
             text=True,
             cwd=str(project_root),
             timeout=timeout,
+            # This spawned `claude -p` fires the project's own UserPromptSubmit
+            # hook; the marker tells intent_capture to skip it so Archie's
+            # internal prompts never pollute the user-intent log.
+            env={**os.environ, "ARCHIE_INTERNAL": "1"},
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return ""
@@ -167,6 +171,9 @@ def _run_codex(prompt: str, project_root: Path, timeout: int = DEFAULT_TIMEOUT) 
             text=True,
             cwd=str(project_root),
             timeout=timeout,
+            # Mark internal spawn so it can't pollute the user-intent log
+            # via the project's own hooks (see _run_claude).
+            env={**os.environ, "ARCHIE_INTERNAL": "1"},
         )
         if proc.returncode != 0:
             return ""

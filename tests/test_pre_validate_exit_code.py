@@ -68,10 +68,11 @@ def test_intent_capture_block_is_best_effort():
     """The intent-capture invocation must include '|| true' so it can never
     block a passing edit."""
     text = _script_text()
-    assert "intent_capture.py edit" in text, "intent_capture.py call missing"
-    # The line that calls intent_capture.py must end with || true
+    assert "intent_capture.py" in text, "intent_capture.py call missing"
+    # The line that calls intent_capture.py (edit mode) must end with || true.
+    # (path may be quoted, e.g. "$PROJECT_ROOT/.archie/intent_capture.py" edit ...)
     for line in text.splitlines():
-        if "intent_capture.py edit" in line:
+        if "intent_capture.py" in line and "edit" in line:
             assert "|| true" in line, (
                 f"intent_capture.py line is not best-effort (missing '|| true'): {line!r}"
             )

@@ -324,8 +324,9 @@ PYEOF
 _rc=$?
 
 # Archie intent capture: mark the discussion->implementation transition (best-effort, never blocks).
-if [ -f .archie/intent_capture.py ]; then
-  python3 .archie/intent_capture.py edit . 2>/dev/null || true
+# Uses PROJECT_ROOT (not cwd); skips Archie's own internal LLM spawns (ARCHIE_INTERNAL).
+if [ -z "$ARCHIE_INTERNAL" ] && [ -f "$PROJECT_ROOT/.archie/intent_capture.py" ]; then
+  python3 "$PROJECT_ROOT/.archie/intent_capture.py" edit "$PROJECT_ROOT" 2>/dev/null || true
 fi
 
 exit $_rc

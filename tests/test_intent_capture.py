@@ -31,3 +31,26 @@ def test_malformed_line_is_skipped(tmp_path):
     ad = tmp_path / ".archie"; ad.mkdir()
     (ad / "intent-events.jsonl").write_text('{"kind":"user_turn","text":"ok"}\nnot json\n')
     assert [e["text"] for e in ic.load_events(tmp_path)] == ["ok"]
+
+
+def test_slash_commands_are_not_captured(tmp_path):
+    # slash-commands are tool invocations, not stated intent -> skipped
+    ic.record_user_turn(tmp_path, "/archie-deep-scan")
+    ic.record_user_turn(tmp_path, "/archie-sync")
+    ic.record_user_turn(tmp_path, "   ")  # empty/whitespace also skipped
+    ic.record_user_turn(tmp_path, "Add tenant-scoped export")
+    texts = [e["text"] for e in ic.load_events(tmp_path)]
+    assert texts == ["Add tenant-scoped export"]
+
+
+def test_internal_spawn_marker_skips_capture(tmp_path, monkeypatch):
+    # When ARCHIE_INTERNAL is set, the CLI entrypoint must record nothing —
+    # those turns are Archie's own `claude -p` prompts firing the same hook.
+    import subprocess
+    monkeypatch.setenv("ARCHIE_INTERNAL", "1")
+    subprocess.run(
+        [sys.executable, str(_STANDALONE / "intent_capture.py"), "user-turn", str(tmp_path)],
+        input="You are verifying a candidate architectural finding",
+        text=True, check=True,
+    )
+    assert ic.load_events(tmp_path) == []

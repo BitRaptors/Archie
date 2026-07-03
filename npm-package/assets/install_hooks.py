@@ -109,7 +109,10 @@ def install(project_root: Path) -> None:
     hooks = settings.setdefault("hooks", {})
     for script_name, event_key, matcher in HOOK_BINDINGS:
         bucket = hooks.setdefault(event_key, [])
-        _add_hook(bucket, matcher, f".claude/hooks/{script_name}")
+        # $CLAUDE_PROJECT_DIR (set by Claude Code) makes the hook resolvable from
+        # any working directory — a relative path breaks the moment the agent's
+        # cwd drifts into a subfolder, silently disabling enforcement + capture.
+        _add_hook(bucket, matcher, f"$CLAUDE_PROJECT_DIR/.claude/hooks/{script_name}")
 
     perms = settings.setdefault("permissions", {})
     allow = set(perms.get("allow", []))

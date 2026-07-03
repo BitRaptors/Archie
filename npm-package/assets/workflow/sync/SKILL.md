@@ -158,14 +158,27 @@ just reconciled. **Commit it alongside the blueprint/intent edits.** The PR inte
 reads it to tell whether a branch's code later moved on without a re-sync, and surfaces a
 (non-blocking) "run /archie-sync" advisory if so.
 
-### Branch intent (captured automatically)
+### Step 5b — Synthesize branch intent (MANDATORY — do not skip)
 
-Archie captures your intent automatically from your planning turns (via hooks). To synthesize the
-current acceptance criteria from those events and review them:
+Archie captured the user's intent from their planning turns (via hooks) into
+`.archie/intent-events.jsonl`. You MUST now distill those events into acceptance criteria —
+this is what the PR delivery review grades the diff against. Skipping it leaves
+`.archie/intent.json` missing and the PR review has no yardstick.
 
-- `python3 .archie/sync.py synthesize-intent .`  — regenerate criteria from captured events (blind to code)
-- `python3 .archie/sync.py show-intent .`         — review the goals + criteria + provenance
-- `python3 .archie/sync.py confirm-intent .`      — mark them human-confirmed (optional; unconfirmed still grades, labeled lower-trust)
+Always run these in order:
+
+```bash
+python3 .archie/sync.py synthesize-intent .   # REQUIRED: clean-room agent (blind to code) → .archie/intent.json
+python3 .archie/sync.py show-intent .          # print the goals + criteria + provenance for the user
+```
+
+Then, in your Step 6 report, show the user the synthesized criteria and tell them:
+*"intent wrong? edit `.archie/intent.json` or re-run synthesize."* Optionally, if the user
+ratifies them, run `python3 .archie/sync.py confirm-intent .` (unconfirmed still grades,
+just labeled lower-trust).
+
+If `synthesize-intent` reports **no events captured** (e.g. a pure-exploration branch with no
+planning turns), say so plainly — the PR falls back to PR-body intent — and move on.
 
 Stage `.archie/intent.json` and `.archie/intent-events.jsonl` so they commit with the branch.
 
