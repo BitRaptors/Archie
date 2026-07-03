@@ -32,12 +32,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: |
-          SCRIPT=".archie/intent_review.py"
-          if git cat-file -e "origin/${GITHUB_BASE_REF}:$SCRIPT" 2>/dev/null; then
-            git show "origin/${GITHUB_BASE_REF}:$SCRIPT" > /tmp/archie_intent_review.py
-            python3 /tmp/archie_intent_review.py
+          if git cat-file -e "origin/${GITHUB_BASE_REF}:.archie/intent_review.py" 2>/dev/null; then
+            rm -rf /tmp/archie-base && mkdir -p /tmp/archie-base
+            git archive "origin/${GITHUB_BASE_REF}" .archie | tar -x -C /tmp/archie-base
+            python3 /tmp/archie-base/.archie/intent_review.py
           else
-            echo "[archie] $SCRIPT not present on base ref, skipping."
+            echo "[archie] .archie/intent_review.py not present on base ref, skipping."
           fi
 
       # Delivery review: reconciles intent (PR title/body) + blueprint + diff into
