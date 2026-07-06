@@ -131,6 +131,26 @@ def _safe_branch(root: Path) -> str:
         return "unknown"
 
 
+import os as _os
+import subprocess as _sp
+
+
+def _branch(root) -> str:
+    b = _os.environ.get("ARCHIE_BRANCH") or _os.environ.get("GITHUB_HEAD_REF")
+    if b:
+        return b
+    try:
+        out = _sp.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                      capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _session_id() -> str:
+    return _os.environ.get("CLAUDE_SESSION_ID") or _os.environ.get("ARCHIE_SESSION_ID") or "session"
+
+
 # ---------------------------------------------------------------------------
 # small helpers (mirror existing stack conventions)
 # ---------------------------------------------------------------------------
@@ -876,9 +896,8 @@ def _usage() -> None:
     print("  python3 sync.py review            /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
     print("  python3 sync.py write-intent      /path/to/repo  spec.json          (merge branch intent into .archie/intent.json)", file=sys.stderr)
     print("  python3 sync.py capture-intent    /path/to/repo [text]              (append a user-turn event)", file=sys.stderr)
-    print("  python3 sync.py synthesize-intent /path/to/repo                     (run the blind transform)", file=sys.stderr)
-    print("  python3 sync.py show-intent       /path/to/repo                     (pretty-print goals/criteria/provenance/confirmed)", file=sys.stderr)
-    print("  python3 sync.py confirm-intent    /path/to/repo                     (set confirmed=true)", file=sys.stderr)
+    print("  python3 sync.py imprint           /path/to/repo                     (write a story snapshot for the current branch + session)", file=sys.stderr)
+    print("  python3 sync.py story             /path/to/repo [--history|<ts>]    (print current story, history list, or a specific version)", file=sys.stderr)
 
 
 def _opt(rest: list[str], name: str) -> str | None:
@@ -1063,7 +1082,7 @@ def cmd_synthesize_intent(root) -> int:
         print("[archie] no intent events yet — nothing to synthesize")
         return 0
     print(f"[archie] synthesized {len(spec['acceptance_criteria'])} acceptance criteria "
-          f"(unconfirmed). Review: python3 .archie/sync.py show-intent .")
+          f"(unconfirmed).")
     return 0
 
 
@@ -1163,14 +1182,36 @@ def main(argv: list[str]) -> int:
     if cmd == "capture-intent":
         return cmd_capture_intent(root, argv[3] if len(argv) > 3 else "")
 
-    if cmd == "synthesize-intent":
-        return cmd_synthesize_intent(root)
+    if cmd == "imprint":
+        from datetime import datetime, timezone
+        import story_synthesize
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
+        p = story_synthesize.imprint(root, _branch(root), _session_id(), ts)
+        print(f"[archie] imprinted {p}" if p else "[archie] no sources — nothing imprinted",
+              file=sys.stderr)
+        sys.exit(0)
 
-    if cmd == "show-intent":
-        return cmd_show_intent(root)
-
-    if cmd == "confirm-intent":
-        return cmd_confirm_intent(root)
+    if cmd == "story":
+        import story_store
+        rest = [a for a in sys.argv[3:] if a != root]
+        if "--history" in rest:
+            for pth in story_store.list_versions(root, _branch(root)):
+                print(pth.stem)
+            sys.exit(0)
+        if rest:  # a specific timestamp
+            parsed = story_store.parse_story_file(
+                story_store.story_dir(root, _branch(root)) / f"{rest[0]}.md")
+        else:
+            parsed = story_store.current_story(root, _branch(root))
+        if not parsed:
+            print("[archie] no story for this branch", file=sys.stderr); sys.exit(0)
+        print(parsed["story"] + "\n")
+        for f in parsed["facts"]:
+            src = (f.get("from") or {}).get("quote", "")
+            print(f"  [{f.get('id')}] {f.get('text')}   (from: {src[:60]})")
+        for ng in parsed["non_goals"]:
+            print(f"  non-goal: {ng}")
+        sys.exit(0)
 
     _usage()
     return 1
