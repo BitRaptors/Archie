@@ -237,10 +237,15 @@ def test_render_verdict_nonnumeric_line_no_crash():
 
 
 # Task 4 — assemble_pr_intent tests
-def test_assemble_pr_intent_prefers_committed_file_no_resolve(tmp_path):
-    import intent as it
-    it.write_committed_intent(tmp_path, {"source": "sync", "goals": [],
-        "acceptance_criteria": [{"id": "a", "text": "From file"}], "ticket_ids": [], "raw": "plan"})
+def test_assemble_pr_intent_prefers_story_no_resolve(tmp_path):
+    """When a task story with facts exists, assemble_pr_intent returns its facts as
+    acceptance_criteria without calling the LLM resolver (criteria already present)."""
+    import story_store as ss
+    ss.write_story(tmp_path, "b", "s1", "2026-07-06T090000",
+                   story="We refactor auth.",
+                   facts=[{"id": "f1", "text": "From file",
+                           "from": {"src": "plan", "quote": "From file"}}],
+                   non_goals=[], version=1)
     called = {"resolve": 0}
     spec = dr.assemble_pr_intent(tmp_path, {"head_ref": "b", "title": "T", "body": "body"}, {},
                                  run=lambda *a, **k: called.__setitem__("resolve", called["resolve"] + 1) or "{}")
@@ -273,8 +278,8 @@ def test_render_verdict_shows_criteria_provenance_and_correction(tmp_path):
     assert "archie imprint" in md                               # correction loop stated
 
 
-def test_run_pr_gate_auto_synthesizes_when_intent_missing(tmp_path, monkeypatch):
-    """run_pr_gate must call synthesize() when .archie/intent.json is absent but events exist."""
+def test_run_pr_gate_auto_imprints_when_no_story(tmp_path, monkeypatch):
+    """run_pr_gate must call story_synthesize.imprint() when no current story exists but turns were captured."""
     import json as _json
 
     # Set up a minimal git repo so diff_basis doesn't crash.
@@ -289,7 +294,7 @@ def test_run_pr_gate_auto_synthesizes_when_intent_missing(tmp_path, monkeypatch)
         capture_output=True, text=True,
     ).stdout.strip()
 
-    # Write intent events but NO intent.json.
+    # Write intent events but NO story.
     archie_dir = tmp_path / ".archie"
     archie_dir.mkdir()
     events_file = archie_dir / "intent-events.jsonl"
@@ -304,21 +309,21 @@ def test_run_pr_gate_auto_synthesizes_when_intent_missing(tmp_path, monkeypatch)
         }
     }))
 
-    synthesize_calls = {"n": 0}
+    imprint_calls = {"n": 0}
 
-    import intent_synthesize as _is
-    def fake_synthesize(root, run=None):
-        synthesize_calls["n"] += 1
-        # Write a minimal intent.json so assemble_pr_intent finds it.
-        out = Path(root) / ".archie" / "intent.json"
-        out.write_text(_json.dumps({
-            "source": "sync", "confidence": "medium", "confirmed": False,
-            "goals": [], "acceptance_criteria": [{"id": "ac1", "text": "rate limited"}],
-            "non_goals": [], "ticket_ids": [],
-        }))
-        return {"acceptance_criteria": [{"id": "ac1", "text": "rate limited"}]}
+    import story_synthesize as _ss
+    def fake_imprint(root, branch, session_id, timestamp, run=None):
+        imprint_calls["n"] += 1
+        # Write a minimal story so assemble_pr_intent finds it.
+        import story_store as ss
+        ss.write_story(root, branch, session_id, timestamp,
+                       story="Rate-limiting feature.",
+                       facts=[{"id": "f1", "text": "rate limited",
+                               "from": {"src": "plan", "quote": "Add rate-limiting"}}],
+                       non_goals=[], version=1)
+        return tmp_path / ".archie" / "stories" / "test"
 
-    monkeypatch.setattr(_is, "synthesize", fake_synthesize)
+    monkeypatch.setattr(_ss, "imprint", fake_imprint)
 
     import reconcile as rc
     monkeypatch.setattr(rc, "review_edge_a", lambda *a, **k: [])
@@ -337,7 +342,7 @@ def test_run_pr_gate_auto_synthesizes_when_intent_missing(tmp_path, monkeypatch)
            "GITHUB_REPOSITORY": "o/r"}
     status = dr.run_pr_gate(str(tmp_path), env)
     assert status["reviewed"] is True
-    assert synthesize_calls["n"] == 1, "synthesize() must be called when intent.json is absent but events exist"
+    assert imprint_calls["n"] == 1, "imprint() must be called when no current story exists but turns were captured"
 
 
 def test_render_verdict_surfaces_possible_issues_section():

@@ -252,17 +252,19 @@ def run_pr_gate(root=".", env=None):
         status["reason"] = "no pr context"
         return status
 
-    # Hands-off fallback: if nobody synthesized intent but events were captured, do it now (blind).
+    # Hands-off fallback: if no current story exists but turns were captured, imprint now (blind).
     try:
-        if not (Path(root) / ".archie" / "intent.json").exists():
-            import sys as _sys
-            _pp = str(Path(__file__).parent)
-            if _pp not in _sys.path:
-                _sys.path.insert(0, _pp)
-            from intent_synthesize import synthesize
-            synthesize(root)
+        import story_store, story_synthesize
+        import os as _os
+        from datetime import datetime as _dt, timezone as _tz
+        _branch = (pr_meta.get("head_ref") or _os.environ.get("ARCHIE_BRANCH")
+                   or _os.environ.get("GITHUB_HEAD_REF") or "")
+        if story_store.current_story(root, _branch) is None:
+            _sid = _os.environ.get("CLAUDE_SESSION_ID") or _os.environ.get("ARCHIE_SESSION_ID") or "session"
+            _ts = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H%M%S")
+            story_synthesize.imprint(root, _branch, _sid, _ts)
     except Exception as e:
-        print(f"[archie] intent auto-synthesize skipped ({e})")
+        print(f"[archie] story auto-imprint skipped ({e})")
 
     # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
     diff_text, changed, changed_lines = "", [], {}
@@ -295,7 +297,7 @@ def run_pr_gate(root=".", env=None):
     except Exception as e:
         print(f"[archie] diff basis failed ({e})")
 
-    # 4. Assemble intent: committed .archie/intent.json ⊕ PR title/body.
+    # 4. Assemble intent: current task story ⊕ PR title/body.
     try:
         spec = assemble_pr_intent(root, pr_meta, env)
     except Exception as e:

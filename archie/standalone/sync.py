@@ -1064,58 +1064,14 @@ def _intent_imports():
     _pp = str(Path(__file__).parent)
     if _pp not in _sys.path:
         _sys.path.insert(0, _pp)
-    import intent_capture, intent_synthesize
-    return intent_capture, intent_synthesize
+    import intent_capture
+    return intent_capture
 
 
 def cmd_capture_intent(root, text) -> int:
-    ic, _ = _intent_imports()
+    ic = _intent_imports()
     ic.record_user_turn(root, text or "")
     print("[archie] intent event captured")
-    return 0
-
-
-def cmd_synthesize_intent(root) -> int:
-    _, isyn = _intent_imports()
-    spec = isyn.synthesize(root)
-    if not spec:
-        print("[archie] no intent events yet — nothing to synthesize")
-        return 0
-    print(f"[archie] synthesized {len(spec['acceptance_criteria'])} acceptance criteria "
-          f"(unconfirmed).")
-    return 0
-
-
-def cmd_show_intent(root) -> int:
-    p = Path(root) / ".archie" / "intent.json"
-    if not p.exists():
-        print("[archie] no .archie/intent.json yet")
-        return 0
-    spec = json.loads(p.read_text())
-    print("== Archie branch intent ==")
-    print(f"source: {spec.get('source','?')}  confidence: {spec.get('confidence','?')}  "
-          f"confirmed: {spec.get('confirmed', False)}  capture_points: {spec.get('capture_points','?')}")
-    for g in spec.get("goals", []):
-        print(f"  goal: {g}")
-    for c in spec.get("acceptance_criteria", []):
-        print(f"  [{c.get('id')}] {c.get('text')}")
-    for n in spec.get("non_goals", []):
-        print(f"  non-goal: {n}")
-    return 0
-
-
-def cmd_confirm_intent(root) -> int:
-    p = Path(root) / ".archie" / "intent.json"
-    if not p.exists():
-        print("[archie] no .archie/intent.json to confirm")
-        return 0
-    spec = json.loads(p.read_text())
-    spec["confirmed"] = True
-    tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(spec, indent=2))
-    import os
-    os.replace(tmp, p)
-    print("[archie] intent confirmed — the delivery review will grade against these criteria")
     return 0
 
 
