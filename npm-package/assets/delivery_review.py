@@ -85,15 +85,21 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
     unmet_ids = {f.get("criterion_id") for f in confirmed if f.get("kind") in ("intent_unmet", "intent_partial")}
     trust = "human-confirmed" if spec.get("confirmed") else "unconfirmed (auto-synthesized — lower trust)"
     lines = ["<!-- archie-delivery-review -->", "## Archie delivery review", ""]
-    lines.append(f"> Grading against `.archie/intent.json` · source: **{_sanitize(spec.get('source', '?'))}** "
+    lines.append(f"> Grading against the task story · source: **{_sanitize(spec.get('source', '?'))}** "
                  f"· confidence: **{_sanitize(spec.get('confidence', '?'))}** · {trust}")
     lines.append("")
+    story = (spec.get("story") or "").strip()
+    if story:
+        lines.append("<details><summary>Task story</summary>\n\n" + _sanitize(story) + "\n\n</details>")
+        lines.append("")
     unknown = verdict.get("unknown", 0)
     lines.append(f"**Built the intent?** {verdict.get('intent_completeness', '?')} criteria met"
                  + (f" ({unknown} unknown)" if unknown else "") + ".")
     for c in crit:
         mark = "❌" if c.get("id") in unmet_ids else "✅"
-        lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}")
+        src = _sanitize(((c.get("from") or {}).get("quote") or ""))
+        suffix = f"  ·  _from: {src[:70]}_" if src else ""
+        lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}{suffix}")
     try:
         from reconcile import is_advisory_finding
     except Exception:
@@ -128,7 +134,7 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
             lines.append(_render_finding(f))
 
     lines.append("")
-    lines.append("_Intent wrong? Edit `.archie/intent.json` (or re-run synthesize) and push — this comment updates._")
+    lines.append("_Story wrong? Edit the task story (or re-run `archie imprint`) and push — this comment updates._")
     return "\n".join(lines)
 
 
@@ -169,29 +175,54 @@ def _load_pr_meta_from_event(event_path):
 
 
 def assemble_pr_intent(root, pr_meta, env, *, run=None):
-    """Merge intent from committed .archie/intent.json ⊕ PR title/body.
+    """Merge intent from current task story ⊕ PR title/body.
+    Falls back to PR-only intent when there is no active story.
     resolve() runs ONLY if the merged spec still has no acceptance_criteria."""
     import sys as _sys
     _p = str(Path(__file__).parent)
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
-    from intent import (load_committed_intent, merge_specs, normalize,
-                        resolve, ticket_ids_from)  # noqa: E402
+    from intent import (merge_specs, normalize,  # noqa: E402
+                        resolve, ticket_ids_from)
+    import story_store  # noqa: E402
 
-    file_spec = load_committed_intent(root)
+    # Resolve the branch: PR meta first, then env vars used by CI providers.
+    branch = (pr_meta.get("head_ref")
+              or os.environ.get("ARCHIE_BRANCH")
+              or os.environ.get("GITHUB_HEAD_REF")
+              or "")
+
+    story = story_store.current_story(root, branch)
+    committed = {"acceptance_criteria": [], "non_goals": [], "source": "sync",
+                 "confirmed": False, "story": ""}
+    if story:
+        committed["acceptance_criteria"] = [
+            {"id": f.get("id"), "text": f.get("text", ""), "from": f.get("from")}
+            for f in story["facts"]
+        ]
+        committed["non_goals"] = story.get("non_goals") or []
+        committed["confirmed"] = bool(story["meta"].get("confirmed"))
+        committed["story"] = story.get("story") or ""
+
     title = pr_meta.get("title") or ""
     body = pr_meta.get("body") or env.get("ARCHIE_PR_BODY", "")
-    branch = pr_meta.get("head_ref") or ""
     pr_text = (title + "\n\n" + body).strip()
     tickets = ticket_ids_from(branch, pr_text, [])
     pr_spec = normalize(pr_text, "pr_body", tickets) if pr_text else None
 
+    # Use committed story spec as the base; merge PR title/body on top.
+    file_spec = committed if (committed["acceptance_criteria"] or committed["story"]) else None
     spec = merge_specs(file_spec, pr_spec)
     if not spec.get("acceptance_criteria") and spec.get("raw"):
         try:
             spec = resolve(spec, run=run)
         except Exception as e:
             print(f"[archie] intent resolve failed ({e})")
+    # Propagate story fields that merge_specs doesn't know about.
+    if committed["story"] and not spec.get("story"):
+        spec["story"] = committed["story"]
+    if committed["non_goals"] and not spec.get("non_goals"):
+        spec["non_goals"] = committed["non_goals"]
     return spec
 
 
@@ -221,17 +252,19 @@ def run_pr_gate(root=".", env=None):
         status["reason"] = "no pr context"
         return status
 
-    # Hands-off fallback: if nobody synthesized intent but events were captured, do it now (blind).
+    # Hands-off fallback: if no current story exists but turns were captured, imprint now (blind).
     try:
-        if not (Path(root) / ".archie" / "intent.json").exists():
-            import sys as _sys
-            _pp = str(Path(__file__).parent)
-            if _pp not in _sys.path:
-                _sys.path.insert(0, _pp)
-            from intent_synthesize import synthesize
-            synthesize(root)
+        import story_store, story_synthesize
+        import os as _os
+        from datetime import datetime as _dt, timezone as _tz
+        _branch = (pr_meta.get("head_ref") or _os.environ.get("ARCHIE_BRANCH")
+                   or _os.environ.get("GITHUB_HEAD_REF") or "")
+        if story_store.current_story(root, _branch) is None:
+            _sid = _os.environ.get("CLAUDE_SESSION_ID") or _os.environ.get("ARCHIE_SESSION_ID") or "session"
+            _ts = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H%M%S")
+            story_synthesize.imprint(root, _branch, _sid, _ts)
     except Exception as e:
-        print(f"[archie] intent auto-synthesize skipped ({e})")
+        print(f"[archie] story auto-imprint skipped ({e})")
 
     # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
     diff_text, changed, changed_lines = "", [], {}
@@ -264,7 +297,7 @@ def run_pr_gate(root=".", env=None):
     except Exception as e:
         print(f"[archie] diff basis failed ({e})")
 
-    # 4. Assemble intent: committed .archie/intent.json ⊕ PR title/body.
+    # 4. Assemble intent: current task story ⊕ PR title/body.
     try:
         spec = assemble_pr_intent(root, pr_meta, env)
     except Exception as e:

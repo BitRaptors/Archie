@@ -174,9 +174,7 @@ python3 .archie/sync.py story .      # review the story + facts for correctness
 ```
 
 Then, in your Step 6 report, show the user the story and tell them:
-*"story wrong? edit `.archie/story.json` or re-run imprint."* Optionally, if the user
-ratifies the criteria, run `python3 .archie/sync.py confirm-intent .` (unconfirmed still
-grades, just labeled lower-trust).
+*"story wrong? edit `.archie/story.json` or re-run imprint."*
 
 If `imprint` reports **no events captured** (e.g. a pure-exploration branch with no
 planning turns), say so plainly — the PR falls back to PR-body intent — and move on.
