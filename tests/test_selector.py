@@ -85,3 +85,40 @@ def test_touched_context_empty_when_nothing_touched():
     ctx = sel.touched_context(BP, ["README.md"])
     assert ctx["invariants"] == []
     assert ctx["decisions"] == []
+
+
+# --- parallel/duplicated-tree tolerance (worker <-> new_worker) ---
+
+def test_duplicated_tree_routes_invariant():
+    """An invariant anchored in worker/ must route for a change in the duplicate
+    new_worker/ that shares the same path tail."""
+    bp = {"domain_invariants": [{"id": "inv-dup", "enforced_at": ["worker/main.py:757"]}],
+          "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": []}
+    assert "invariant-integrity" in sel.select_specialists(bp, ["new_worker/main.py"])["specialists"]
+    # deep tails work too
+    bp2 = {"domain_invariants": [{"id": "inv-dup2",
+            "enforced_at": ["worker/lib/supabase/supabase_client.py:1058"]}],
+           "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": []}
+    ctx = sel.touched_context(bp2, ["new_worker/lib/supabase/supabase_client.py"])
+    assert {i["id"] for i in ctx["invariants"]} == {"inv-dup2"}
+
+
+def test_unrelated_roots_do_not_parallel_match():
+    """Same filename under UNRELATED top dirs must NOT match (billing vs other)."""
+    bp = {"domain_invariants": [{"id": "inv-x", "enforced_at": ["billing/usage.py:88"]}],
+          "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": []}
+    assert sel.select_specialists(bp, ["other/usage.py"])["specialists"] == []
+
+
+def test_parallel_tolerance_ignores_directory_anchors():
+    """Directory anchors (src/api/) keep their strict semantics — no tail-matching."""
+    bp = {"domain_invariants": [{"id": "inv-api", "enforced_at": ["src/api/"]}],
+          "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": []}
+    assert sel.select_specialists(bp, ["new_src/api/x.py"])["specialists"] == []
+
+
+def test_related_roots_helper():
+    assert sel._related_roots("worker", "new_worker")      # suffix
+    assert sel._related_roots("api", "api_v2")             # prefix
+    assert not sel._related_roots("billing", "other")
+    assert not sel._related_roots("src", "vendor")
