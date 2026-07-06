@@ -223,6 +223,16 @@ def assemble_pr_intent(root, pr_meta, env, *, run=None):
         spec["story"] = committed["story"]
     if committed["non_goals"] and not spec.get("non_goals"):
         spec["non_goals"] = committed["non_goals"]
+    # merge_specs rebuilds criteria as {id, text} and drops per-fact provenance.
+    # Re-attach `from` by matching on normalized text so the verdict can render it.
+    _prov = {}
+    for _c in (committed.get("acceptance_criteria") or []):
+        if _c.get("from"):
+            _prov[(_c.get("text") or "").strip().lower()] = _c["from"]
+    for _c in (spec.get("acceptance_criteria") or []):
+        _k = (_c.get("text") or "").strip().lower()
+        if _k in _prov and not _c.get("from"):
+            _c["from"] = _prov[_k]
     return spec
 
 

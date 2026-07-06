@@ -49,3 +49,22 @@ def test_assemble_pr_intent_story_fields_in_spec(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCHIE_BRANCH", "feat/y")
     spec = dr.assemble_pr_intent(tmp_path, {"title": "Guardrails", "body": ""}, {})
     assert spec.get("story", "").startswith("Cost guardrails")
+
+
+def test_assemble_pr_intent_from_provenance_preserved(tmp_path, monkeypatch):
+    """Per-fact `from` provenance survives merge_specs so render_verdict can display it."""
+    ss.write_story(tmp_path, "feat/prov", "s4", "2026-07-06T120000",
+                   story="Provenance traceability test.",
+                   facts=[{"id": "p1", "text": "cost shown before checkout",
+                           "from": {"src": "plan", "quote": "show cost preview"}}],
+                   non_goals=[], version=1)
+    monkeypatch.setenv("ARCHIE_BRANCH", "feat/prov")
+    spec = dr.assemble_pr_intent(tmp_path, {"title": "Prov test", "body": ""}, {})
+    crit = spec.get("acceptance_criteria") or []
+    matched = [c for c in crit if c.get("text") == "cost shown before checkout"]
+    assert matched, "acceptance criterion not found in assembled spec"
+    from_field = matched[0].get("from") or {}
+    assert from_field.get("quote"), (
+        "from.quote was stripped by merge_specs and not re-attached; "
+        "render_verdict will never show the provenance suffix"
+    )
