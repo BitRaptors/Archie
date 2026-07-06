@@ -236,13 +236,13 @@ def run_pr_gate(root=".", env=None):
     # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
     diff_text, changed, changed_lines = "", [], {}
     try:
-        from diff_basis import detect_base, changed_files_result, parse_hunk_added_lines
+        from diff_basis import detect_base, changed_files_result, parse_hunk_added_lines, review_pathspec
         base = pr_meta.get("base_sha") or pr_meta.get("base_ref") or detect_base(root)
         res = changed_files_result(root, base)
         changed = res.get("files", []) if res.get("ok") else []
         try:
             from intent_review import run_git
-            _, out, _ = run_git(root, "diff", base, "--")
+            _, out, _ = run_git(root, "diff", base, "--", *review_pathspec())
             diff_text = (out or "")[:MAX_DIFF_CHARS]
             # changed-line map: parse a -U0 diff into the REAL added-line numbers per
             # file so the editor gate keeps line-anchored findings on changed lines
@@ -251,7 +251,7 @@ def run_pr_gate(root=".", env=None):
             try:
                 import subprocess
                 r = subprocess.run(
-                    ["git", "-C", str(root), "diff", "-U0", base, "--"],
+                    ["git", "-C", str(root), "diff", "-U0", base, "--", *review_pathspec()],
                     capture_output=True, text=True, timeout=30,
                 )
                 changed_lines = (parse_hunk_added_lines(r.stdout)

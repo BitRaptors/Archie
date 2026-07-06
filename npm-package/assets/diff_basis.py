@@ -10,6 +10,22 @@ from pathlib import Path
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
+# Generated/managed artifacts that are not source code. Excluded from the reviewed
+# diff so the code reviewer anchors findings to real source, not Archie's own snapshot
+# files (blueprint.json, per-folder CLAUDE.md, change records, hooks, settings).
+_REVIEW_EXCLUDE = [
+    ":(exclude).archie",
+    ":(exclude).claude",
+    ":(exclude,glob)**/CLAUDE.md",
+    ":(exclude)AGENTS.md",
+]
+
+
+def review_pathspec() -> list[str]:
+    """Pathspec args (placed after '--') restricting a diff to reviewable source:
+    the whole tree minus generated Archie/agent artifacts."""
+    return [".", *_REVIEW_EXCLUDE]
+
 
 def parse_hunk_added_lines(diff_text: str) -> dict:
     """Parse a `git diff -U0` (or any unified diff) into added-line numbers.
@@ -132,7 +148,8 @@ def changed_files_result(root: Path, base: str, run=subprocess.run) -> dict:
 
     # Pass '--' after the ref so git treats it as an end-of-options marker,
     # preventing the ref from being parsed as an option.
-    out, diff_code = _out(run, ["git", "-C", str(root), "diff", "--name-only", mb_ref, "--"])
+    out, diff_code = _out(run, ["git", "-C", str(root), "diff", "--name-only", mb_ref, "--",
+                                *review_pathspec()])
     if diff_code != 0:
         return {"files": [], "ok": False, "reason": "git_error"}
 

@@ -94,7 +94,7 @@ def test_changed_files_uses_merge_base():
     run = FakeRun({
         "git -C /x rev-parse --verify --quiet main": ("main\n", 0),
         "git -C /x merge-base HEAD main": ("abc123\n", 0),
-        "git -C /x diff --name-only abc123 --": ("a.py\nb.py\n", 0),
+        "git -C /x diff --name-only abc123 -- " + " ".join(db.review_pathspec()): ("a.py\nb.py\n", 0),
     })
     assert db.changed_files(Path("/x"), "main", run=run) == ["a.py", "b.py"]
 
@@ -146,7 +146,7 @@ def test_changed_files_result_ok():
     run = FakeRun({
         "git -C /x rev-parse --verify --quiet main": ("main\n", 0),
         "git -C /x merge-base HEAD main": ("abc123\n", 0),
-        "git -C /x diff --name-only abc123 --": ("foo.py\nbar.py\n", 0),
+        "git -C /x diff --name-only abc123 -- " + " ".join(db.review_pathspec()): ("foo.py\nbar.py\n", 0),
     })
     result = db.changed_files_result(Path("/x"), "main", run=run)
     assert result["ok"] is True
@@ -183,3 +183,31 @@ def test_diff_uses_double_dash_separator():
     dash_idx = diff_argv.index("--")
     # The ref (deadbeef) should appear before '--'
     assert dash_idx > 0
+
+
+def test_review_pathspec_excludes_generated_artifacts():
+    ps = db.review_pathspec()
+    assert ps[0] == "."   # positive include first, else git matches nothing
+    joined = " ".join(ps)
+    assert ":(exclude).archie" in joined and ":(exclude).claude" in joined
+    assert "CLAUDE.md" in joined and "AGENTS.md" in joined
+
+
+def test_changed_files_result_passes_exclusions_to_git():
+    """The diff that lists changed files must carry the review exclusions so
+    .archie/blueprint.json etc. are never handed to the code reviewer."""
+    seen = {}
+    def fake_run(argv, **kw):
+        import subprocess as sp
+        if argv[:4] == ["git", "-C", "/repo", "rev-parse"]:
+            return sp.CompletedProcess(argv, 0, "abc\n", "")
+        if "merge-base" in argv:
+            return sp.CompletedProcess(argv, 0, "abc\n", "")
+        if "diff" in argv and "--name-only" in argv:
+            seen["argv"] = argv
+            return sp.CompletedProcess(argv, 0, "new_worker/main.py\n", "")
+        return sp.CompletedProcess(argv, 0, "", "")
+    from pathlib import Path
+    out = db.changed_files_result(Path("/repo"), "origin/develop", run=fake_run)
+    assert out["ok"] and out["files"] == ["new_worker/main.py"]
+    assert ":(exclude).archie" in seen["argv"], seen.get("argv")
