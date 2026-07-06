@@ -90,7 +90,7 @@ def test_run_verifier_prefers_claude_cli_over_api(
     claude_called: list[str] = []
     monkeypatch.setattr(
         agent_cli, "_run_claude",
-        lambda prompt, root, timeout: claude_called.append("called") or "claude-sentinel",
+        lambda prompt, root, timeout, model="haiku": claude_called.append("called") or "claude-sentinel",
     )
     api_called: list[str] = []
     monkeypatch.setattr(

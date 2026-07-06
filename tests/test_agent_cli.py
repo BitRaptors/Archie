@@ -85,13 +85,15 @@ def test_detect_verifier_shares_detection_with_detect_cli(monkeypatch: pytest.Mo
 def test_run_verifier_dispatches_to_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """verifier='codex' must route through the Codex path, not the Claude one."""
     calls: list[str] = []
+    seen_model: dict[str, str] = {}
     monkeypatch.setattr(
         agent_cli, "_run_codex",
         lambda prompt, root, timeout: calls.append("codex") or "codex-out",
     )
     monkeypatch.setattr(
         agent_cli, "_run_claude",
-        lambda prompt, root, timeout: calls.append("claude") or "claude-out",
+        lambda prompt, root, timeout, model="haiku": (calls.append("claude"),
+                                                      seen_model.__setitem__("m", model), "claude-out")[-1],
     )
     # Make both CLIs appear available on PATH so run_verifier routes by verifier arg.
     monkeypatch.setattr(
@@ -102,6 +104,9 @@ def test_run_verifier_dispatches_to_codex(tmp_path: Path, monkeypatch: pytest.Mo
     assert agent_cli.run_verifier("p", tmp_path, "codex") == "codex-out"
     assert agent_cli.run_verifier("p", tmp_path, "claude") == "claude-out"
     assert calls == ["codex", "claude"]
+    # model alias must thread through run_verifier -> _run_claude (§6.6a tracer/challenger).
+    assert agent_cli.run_verifier("p", tmp_path, "claude", model="opus") == "claude-out"
+    assert seen_model["m"] == "opus"
 
 
 # ---------------------------------------------------------------------------

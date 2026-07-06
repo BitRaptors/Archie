@@ -277,13 +277,21 @@ def run_pr_gate(root=".", env=None):
             raw += review_edge_c(root, spec, (blueprint.get("domain_invariants") or []))
         except Exception as e:
             print(f"[archie] edge-C skipped ({e})")
-    # Conformance (edge B): did the DIFF break a standing invariant/decision? Uses the
-    # selector's routing (touched_context) to pick the SPECIFIC items the change touched.
+    # Conformance (edge B): did the DIFF break a standing invariant/decision? The
+    # selector routes to the SPECIFIC items the change touched. Touched invariants go
+    # through the contract -> tracer -> challenger specialist (§6.6a); decisions stay
+    # on the single-pass conformance check.
     try:
         from selector import touched_context
-        from reconcile import review_conformance
         ctx = touched_context(blueprint, changed)
-        raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"], intent=spec)
+        try:
+            from invariant_specialist import review_invariants
+            raw += review_invariants(root, diff_text, ctx["invariants"])
+        except Exception as e:
+            print(f"[archie] invariant specialist skipped ({e})")
+        if ctx["decisions"]:
+            from reconcile import review_conformance
+            raw += review_conformance(root, diff_text, [], ctx["decisions"], intent=spec)
     except Exception as e:
         print(f"[archie] conformance skipped ({e})")
 

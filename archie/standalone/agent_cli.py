@@ -37,13 +37,22 @@ DEFAULT_TIMEOUT = 90  # seconds
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 API_MODEL = "claude-haiku-4-5"
+# Model-alias → concrete API id, for callers that request a heavier role (the
+# invariant specialist's Sonnet tracer / Opus challenger, design §6.6a). The CLI
+# path passes the alias straight to `claude --model`; the API path maps here.
+API_MODELS = {
+    "haiku": "claude-haiku-4-5",
+    "sonnet": "claude-sonnet-4-6",
+    "opus": "claude-opus-4-8",
+}
 
 
-def _run_api(prompt: str, api_key: str, timeout: int = DEFAULT_TIMEOUT) -> str:
+def _run_api(prompt: str, api_key: str, timeout: int = DEFAULT_TIMEOUT,
+             model: str = "haiku") -> str:
     """Direct Anthropic Messages API call — used in CI where no coding-agent CLI exists.
     Returns the text response or '' on any error."""
     body = json.dumps({
-        "model": API_MODEL,
+        "model": API_MODELS.get(model, API_MODEL),
         "max_tokens": 4096,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
@@ -92,8 +101,11 @@ def detect_verifier() -> str:
 
 
 def run_verifier(prompt: str, project_root: Path, verifier: str,
-                 timeout: int = DEFAULT_TIMEOUT) -> str:
+                 timeout: int = DEFAULT_TIMEOUT, model: str = "haiku") -> str:
     """Run `prompt` through the selected coding-agent CLI; return its text or "".
+
+    `model` is an alias ("haiku"|"sonnet"|"opus") — the default keeps every existing
+    caller on haiku; the invariant specialist requests heavier roles (§6.6a).
 
     Priority:
     1. Requested codex CLI (if verifier=='codex' and codex is on PATH).
@@ -105,21 +117,22 @@ def run_verifier(prompt: str, project_root: Path, verifier: str,
     if verifier == "codex" and shutil.which("codex"):
         return _run_codex(prompt, project_root, timeout)
     if shutil.which("claude"):
-        return _run_claude(prompt, project_root, timeout)
+        return _run_claude(prompt, project_root, timeout, model=model)
     key = os.environ.get("ANTHROPIC_API_KEY")
     if key:
-        return _run_api(prompt, key, timeout)
+        return _run_api(prompt, key, timeout, model=model)
     return ""
 
 
-def _run_claude(prompt: str, project_root: Path, timeout: int = DEFAULT_TIMEOUT) -> str:
-    """Spawn `claude -p --model haiku` synchronously. Returns result text or ""."""
+def _run_claude(prompt: str, project_root: Path, timeout: int = DEFAULT_TIMEOUT,
+                model: str = "haiku") -> str:
+    """Spawn `claude -p --model <alias>` synchronously. Returns result text or ""."""
     try:
         proc = subprocess.run(
             [
                 CLAUDE_CLI,
                 "-p",
-                "--model", "haiku",
+                "--model", model,
                 "--output-format", "json",
                 "--permission-mode", "bypassPermissions",
                 "--allowedTools", "Read,Grep,Glob",
