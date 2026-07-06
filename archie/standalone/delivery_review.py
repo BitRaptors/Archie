@@ -169,29 +169,54 @@ def _load_pr_meta_from_event(event_path):
 
 
 def assemble_pr_intent(root, pr_meta, env, *, run=None):
-    """Merge intent from committed .archie/intent.json ⊕ PR title/body.
+    """Merge intent from current task story ⊕ PR title/body.
+    Falls back to PR-only intent when there is no active story.
     resolve() runs ONLY if the merged spec still has no acceptance_criteria."""
     import sys as _sys
     _p = str(Path(__file__).parent)
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
-    from intent import (load_committed_intent, merge_specs, normalize,
-                        resolve, ticket_ids_from)  # noqa: E402
+    from intent import (merge_specs, normalize,  # noqa: E402
+                        resolve, ticket_ids_from)
+    import story_store  # noqa: E402
 
-    file_spec = load_committed_intent(root)
+    # Resolve the branch: PR meta first, then env vars used by CI providers.
+    branch = (pr_meta.get("head_ref")
+              or os.environ.get("ARCHIE_BRANCH")
+              or os.environ.get("GITHUB_HEAD_REF")
+              or "")
+
+    story = story_store.current_story(root, branch)
+    committed = {"acceptance_criteria": [], "non_goals": [], "source": "sync",
+                 "confirmed": False, "story": ""}
+    if story:
+        committed["acceptance_criteria"] = [
+            {"id": f.get("id"), "text": f.get("text", ""), "from": f.get("from")}
+            for f in story["facts"]
+        ]
+        committed["non_goals"] = story.get("non_goals") or []
+        committed["confirmed"] = bool(story["meta"].get("confirmed"))
+        committed["story"] = story.get("story") or ""
+
     title = pr_meta.get("title") or ""
     body = pr_meta.get("body") or env.get("ARCHIE_PR_BODY", "")
-    branch = pr_meta.get("head_ref") or ""
     pr_text = (title + "\n\n" + body).strip()
     tickets = ticket_ids_from(branch, pr_text, [])
     pr_spec = normalize(pr_text, "pr_body", tickets) if pr_text else None
 
+    # Use committed story spec as the base; merge PR title/body on top.
+    file_spec = committed if (committed["acceptance_criteria"] or committed["story"]) else None
     spec = merge_specs(file_spec, pr_spec)
     if not spec.get("acceptance_criteria") and spec.get("raw"):
         try:
             spec = resolve(spec, run=run)
         except Exception as e:
             print(f"[archie] intent resolve failed ({e})")
+    # Propagate story fields that merge_specs doesn't know about.
+    if committed["story"] and not spec.get("story"):
+        spec["story"] = committed["story"]
+    if committed["non_goals"] and not spec.get("non_goals"):
+        spec["non_goals"] = committed["non_goals"]
     return spec
 
 
