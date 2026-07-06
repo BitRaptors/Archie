@@ -72,3 +72,37 @@ def parse_story_file(path) -> dict:
         "facts": meta.get("facts", []) or [],
         "non_goals": meta.get("non_goals", []) or [],
     }
+
+
+def list_versions(root, branch) -> list:
+    """Timestamped story files for the branch, oldest→newest."""
+    d = story_dir(root, branch)
+    if not d.exists():
+        return []
+    return sorted(d.glob("*.md"), key=lambda p: p.name)
+
+
+def current_story(root, branch, session_id=None):
+    """The newest parsed story; when session_id is given, the newest whose meta.session_id
+    matches; else the newest overall. None when there is none."""
+    versions = list_versions(root, branch)
+    for path in reversed(versions):
+        parsed = parse_story_file(path)
+        if not parsed:
+            continue
+        if session_id is None or parsed["meta"].get("session_id") == session_id:
+            return parsed
+    return None
+
+
+def next_version(root, branch):
+    """Return (version, supersedes_timestamp) for the next imprint.
+    version is 1-based. supersedes_timestamp is the stem of the last version file,
+    or None if this is the first version."""
+    versions = list_versions(root, branch)
+    if not versions:
+        return (1, None)
+    last = versions[-1]
+    parsed = parse_story_file(last)
+    ver = int(parsed["meta"].get("version", len(versions))) + 1 if parsed else len(versions) + 1
+    return (ver, last.stem)

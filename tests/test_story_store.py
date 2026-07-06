@@ -35,3 +35,36 @@ def test_parse_bad_file_returns_empty(tmp_path):
     bad = tmp_path / "x.md"
     bad.write_text("no fenced json here")
     assert ss.parse_story_file(bad) == {}
+
+
+def _w(tmp, ts, sess, ver, sup=None):
+    return ss.write_story(tmp, "feature/x", session_id=sess, timestamp=ts,
+                          story=f"story {ts}", facts=[], non_goals=[], supersedes=sup, version=ver)
+
+
+def test_list_versions_sorted_oldest_first(tmp_path):
+    _w(tmp_path, "2026-07-06T090000", "s1", 1)
+    _w(tmp_path, "2026-07-06T100000", "s2", 2)
+    names = [p.name for p in ss.list_versions(tmp_path, "feature/x")]
+    assert names == ["2026-07-06T090000.md", "2026-07-06T100000.md"]
+
+
+def test_current_story_session_scoped(tmp_path):
+    _w(tmp_path, "2026-07-06T090000", "old-session", 1)
+    _w(tmp_path, "2026-07-06T100000", "this-session", 2)
+    # newest overall
+    assert ss.current_story(tmp_path, "feature/x")["meta"]["imprinted_at"] == "2026-07-06T100000"
+    # scoped to a session returns that session's newest, not a newer other-session one
+    _w(tmp_path, "2026-07-06T110000", "other-session", 3)
+    got = ss.current_story(tmp_path, "feature/x", session_id="this-session")
+    assert got["meta"]["imprinted_at"] == "2026-07-06T100000"
+
+
+def test_current_story_none_when_absent(tmp_path):
+    assert ss.current_story(tmp_path, "feature/none") is None
+
+
+def test_next_version_increments_and_supersedes(tmp_path):
+    assert ss.next_version(tmp_path, "feature/x") == (1, None)
+    _w(tmp_path, "2026-07-06T090000", "s1", 1)
+    assert ss.next_version(tmp_path, "feature/x") == (2, "2026-07-06T090000")
