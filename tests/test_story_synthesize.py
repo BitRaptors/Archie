@@ -31,3 +31,31 @@ def test_story_prompt_is_faithful_and_blind():
 def test_parse_story_extracts_prose():
     assert ssyn.parse_story(json.dumps({"story": "We add a cost preview."})) == "We add a cost preview."
     assert ssyn.parse_story("garbage") == ""
+
+
+def test_facts_prompt_demands_provenance():
+    p = ssyn.build_facts_prompt("We add a cost preview.", [{"src": "plan", "text": "cost preview"}])
+    assert "cite" in p.lower() and "from" in p.lower()
+    assert "We add a cost preview." in p
+
+
+def test_parse_facts():
+    raw = json.dumps({"facts": [{"id": "f1", "text": "t", "from": {"src": "plan", "quote": "q"}}],
+                      "non_goals": ["ng"]})
+    got = ssyn.parse_facts(raw)
+    assert got["facts"][0]["text"] == "t" and got["non_goals"] == ["ng"]
+    assert ssyn.parse_facts("junk") == {"facts": [], "non_goals": []}
+
+
+def test_validate_provenance_drops_invented_facts():
+    sources = [{"src": "plan", "text": "the total must be the number of billable steps times the price"}]
+    facts = [
+        {"text": "total is number of billable steps times price",
+         "from": {"src": "plan", "quote": "the total must be the number of billable steps times the price"}},
+        {"text": "response includes a billable_step_count field",   # invented — no source
+         "from": {"src": "plan", "quote": "billable_step_count field must be present"}},
+    ]
+    kept = ssyn.validate_provenance(facts, sources)
+    assert len(kept) == 1
+    assert kept[0]["id"] == "f1"
+    assert "total" in kept[0]["text"]

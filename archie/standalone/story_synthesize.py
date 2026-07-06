@@ -3,6 +3,7 @@ user's captured turns (+ optional ticket) into a faithful story; Pass 2 derives
 facts, each traceable to a source. Prompt-builders + parsers are pure; the LLM is
 called through run_verifier."""
 from __future__ import annotations
+import re
 import sys
 from pathlib import Path
 
@@ -42,3 +43,45 @@ def build_story_prompt(sources) -> str:
 def parse_story(raw) -> str:
     d = extract_json_obj(raw or "")
     return (d.get("story") or "").strip()
+
+
+_FACTS_SYSTEM = (
+    "You extract checkable FACTS from the TASK STORY below. Extract only facts stated or "
+    "directly implied by the story and its sources. Do NOT invent specifics (paths, field "
+    "names, test cases) that are not present. Each fact MUST cite the source text it derives "
+    "from in `from.quote`. Return JSON {\"facts\":[{\"id\":\"f1\",\"text\":\"...\","
+    "\"from\":{\"src\":\"plan|ticket\",\"quote\":\"<verbatim source snippet>\"},"
+    "\"kind\":\"goal|constraint|scope\"}],\"non_goals\":[\"...\"]}."
+)
+
+
+def build_facts_prompt(story, sources) -> str:
+    body = "\n".join(f"- [{s.get('src')}] {s.get('text','')}" for s in (sources or []))
+    return f"{_FACTS_SYSTEM}\n\nTASK STORY:\n{story}\n\nSOURCES:\n{body}"
+
+
+def parse_facts(raw) -> dict:
+    d = extract_json_obj(raw or "")
+    return {"facts": d.get("facts", []) or [], "non_goals": d.get("non_goals", []) or []}
+
+
+def _tokens(text) -> set:
+    return {w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(w) >= 3}
+
+
+def validate_provenance(facts, sources) -> list:
+    source_tokens = set()
+    for s in (sources or []):
+        source_tokens |= _tokens(s.get("text", ""))
+    kept = []
+    for f in (facts or []):
+        quote = ((f.get("from") or {}).get("quote")) or ""
+        qtokens = _tokens(quote)
+        if not qtokens:
+            continue
+        overlap = len(qtokens & source_tokens) / len(qtokens)
+        if overlap >= 0.6:
+            kept.append(f)
+    for i, f in enumerate(kept, start=1):
+        f["id"] = f"f{i}"
+    return kept
