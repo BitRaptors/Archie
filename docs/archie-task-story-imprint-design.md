@@ -226,11 +226,13 @@ anytime:   archie story [--history | <timestamp>]
 
 ## 11. Retired
 
+Removed cleanly — nothing in the wild depends on the old shape, so **no compatibility
+shim**:
+
 - `intent_synthesize.py`'s acceptance-criteria invention and the un-provenanced
-  `acceptance_criteria` shape in `.archie/intent.json`.
-- The single-file `.archie/intent.json` as the intent source of truth (superseded by the
-  versioned story file; a compatibility shim may keep reading a legacy `intent.json` if
-  present, for one release).
+  `acceptance_criteria` shape.
+- `.archie/intent.json` as the intent source of truth. `assemble_pr_intent` reads the
+  versioned story file directly; the legacy `intent.json` read is deleted outright.
 
 ---
 
