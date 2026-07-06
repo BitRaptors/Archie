@@ -69,3 +69,24 @@ def test_gate_coerces_nonnumeric_confidence():
     assert out["confirmed"] == []
     reasons = {s["reason"] for s in out["suppressed"]}
     assert reasons == {"below_floor"}
+
+
+def test_file_level_kinds_keeps_wrong_line_when_file_changed():
+    """A behavioral finding on a CHANGED file but a line not in the added set is
+    kept when its kind is file-level (LLM line imprecision must not drop it)."""
+    changed = {"a.py": {10, 11}}
+    finding = _f("f_fl", "a.py", 999, 0.8)   # line 999 not in changed set
+    strict = eg.gate([finding], [], changed_lines=changed, floors=FLOORS)
+    assert strict["confirmed"] == [] and strict["suppressed"][0]["reason"] == "anchor_unchanged"
+    loose = eg.gate([finding], [], changed_lines=changed, floors=FLOORS,
+                    file_level_kinds={"behavioral_break"})
+    assert len(loose["confirmed"]) == 1
+
+
+def test_file_level_still_drops_unchanged_file():
+    """File-level relaxation must NOT keep a finding on a file the diff never touched."""
+    changed = {"a.py": {10}}
+    finding = _f("f_x", "other.py", 5, 0.8)
+    out = eg.gate([finding], [], changed_lines=changed, floors=FLOORS,
+                  file_level_kinds={"behavioral_break"})
+    assert out["confirmed"] == [] and out["suppressed"][0]["reason"] == "anchor_unchanged"

@@ -92,3 +92,22 @@ def test_aggregate_reports_unknown_criteria():
     v = rc.aggregate_verdict(spec, confirmed)
     # silence=met: ac2+ac3 not flagged → counted met; ac1 unmet → met=2, unknown=0
     assert v["unknown"] == 0 and v["intent_completeness"] == "2/3"
+
+
+def test_low_confidence_break_is_a_possible_issue_not_a_break():
+    spec = it.normalize("", source="linear", ticket_ids=["A-1"])
+    spec["acceptance_criteria"] = [{"id": "ac1"}]
+    confirmed = [
+        {"kind": "behavioral_break", "problem_statement": "null-safety", "confidence": 0.4},
+        {"kind": "behavioral_break", "problem_statement": "real bug", "confidence": 0.9},
+        {"kind": "conformance_break", "problem_statement": "no-conf → stays a break"},  # no confidence
+    ]
+    v = rc.aggregate_verdict(spec, confirmed)
+    assert v["breaks"] == 2            # the 0.9 one + the no-confidence one
+    assert v["possible_issues"] == 1   # the 0.4 one
+
+
+def test_advisory_predicate():
+    assert rc.is_advisory_finding({"confidence": 0.3}) is True
+    assert rc.is_advisory_finding({"confidence": 0.9}) is False
+    assert rc.is_advisory_finding({}) is False           # missing conf is NOT a downgrade

@@ -16,6 +16,18 @@ from intent import ceiling_for                # noqa: E402
 _VERDICT_KIND = {"unmet": "intent_unmet", "partial": "intent_partial", "drift": "intent_drift"}
 _KIND_SEVERITY = {"intent_unmet": "high", "intent_partial": "medium", "intent_drift": "low"}
 
+# Confidence at/above which a code-review finding is a confident "break"; below it,
+# the finding is advisory ("possible issue" — shown but non-gating).
+BREAK_CONFIDENCE = 0.6
+
+
+def is_advisory_finding(f) -> bool:
+    """A code-review finding is advisory (a 'possible issue', not a 'break') only
+    when it carries an EXPLICIT confidence below the break threshold. A missing
+    confidence is not a downgrade — it stays a break."""
+    c = f.get("confidence")
+    return c is not None and coerce_confidence(c) < BREAK_CONFIDENCE
+
 
 def build_edge_a_prompt(intent_spec: dict, diff_text: str) -> str:
     crit = "\n".join(
@@ -197,13 +209,22 @@ def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
     unmet = len(unmet_ids) + extra_unmet
     met = max(0, total - unmet)
     unknown = 0   # deferred: honest met/unknown split needs edge-A to emit per-criterion verdicts
-    breaks = sum(1 for f in confirmed if f.get("kind") in ("conformance_break", "behavioral_break"))
+    # Split code-review findings by confidence: high-confidence ones are "breaks";
+    # lower-confidence ones are advisory "possible issues" (shown, but they don't
+    # gate). Keeps a genuine but uncertain coding-issue finding visible instead of
+    # discarded, without inflating the break count or dragging the gate signal.
+    break_kinds = ("conformance_break", "behavioral_break")
+    breaks = sum(1 for f in confirmed
+                 if f.get("kind") in break_kinds and not is_advisory_finding(f))
+    possible_issues = sum(1 for f in confirmed
+                          if f.get("kind") in break_kinds and is_advisory_finding(f))
     conflicts = sum(1 for f in confirmed if f.get("kind") == "intent_conflict")
     drift = sum(1 for f in confirmed if f.get("kind") == "intent_drift")
     gate_signal = round(1.0 - min(1.0, 0.25 * breaks + 0.5 * conflicts + 0.1 * drift), 3)
     return {
         "intent_completeness": f"{met}/{total}",
         "breaks": breaks,
+        "possible_issues": possible_issues,
         "conflicts": conflicts,
         "drift": drift,
         "unknown": unknown,

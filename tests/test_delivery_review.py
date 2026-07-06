@@ -338,3 +338,20 @@ def test_run_pr_gate_auto_synthesizes_when_intent_missing(tmp_path, monkeypatch)
     status = dr.run_pr_gate(str(tmp_path), env)
     assert status["reviewed"] is True
     assert synthesize_calls["n"] == 1, "synthesize() must be called when intent.json is absent but events exist"
+
+
+def test_render_verdict_surfaces_possible_issues_section():
+    import delivery_review as dr
+    verdict = {"intent_completeness": "1/1", "breaks": 1, "possible_issues": 1, "conflicts": 0}
+    confirmed = [
+        {"kind": "behavioral_break", "problem_statement": "confident bug", "confidence": 0.9,
+         "anchor": {"file": "a.py", "line": 5}, "source": "behavioral"},
+        {"kind": "behavioral_break", "problem_statement": "maybe null deref", "confidence": 0.3,
+         "anchor": {"file": "b.py", "line": 9}, "source": "behavioral"},
+    ]
+    body = dr.render_verdict(verdict, confirmed, {"acceptance_criteria": [{"id": "ac1", "text": "x"}]})
+    assert "Possible issues" in body
+    assert "maybe null deref" in body        # low-conf → advisory section
+    assert "confident bug" in body           # high-conf → breaks section
+    # the advisory one must appear AFTER the "Broke anything?" line
+    assert body.index("confident bug") < body.index("Possible issues") < body.index("maybe null deref")

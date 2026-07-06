@@ -18,7 +18,7 @@ def _dupe_key(f: dict):
     return (anchor.get("file", ""), line, f.get("kind", ""))
 
 
-def gate(raw_findings, store, *, changed_lines, floors) -> dict:
+def gate(raw_findings, store, *, changed_lines, floors, file_level_kinds=frozenset()) -> dict:
     """Validate and gate findings through reliability filters.
 
     Args:
@@ -26,6 +26,10 @@ def gate(raw_findings, store, *, changed_lines, floors) -> dict:
         store: List of existing findings (used for dedup)
         changed_lines: Optional dict mapping file paths to sets of changed line numbers
         floors: Dict mapping kind -> minimum confidence threshold
+        file_level_kinds: Kinds for which a change ANYWHERE in the anchored file is
+            enough — the exact-line check is skipped. LLM code reviewers cite
+            imprecise line numbers, so requiring an exact added-line match silently
+            drops real findings on changed files; these kinds anchor file-level.
 
     Returns:
         Dict with "confirmed" (passed) and "suppressed" (failed) finding lists.
@@ -45,11 +49,12 @@ def gate(raw_findings, store, *, changed_lines, floors) -> dict:
             if file_lines is None:
                 # file not in the changed set at all -> genuinely unchanged
                 suppressed.append({"id": f.get("id"), "reason": "anchor_unchanged"}); continue
-            raw_line = anchor.get("line")
-            line = int(raw_line) if isinstance(raw_line, str) and raw_line.isdigit() else raw_line
-            if line is not None and line not in file_lines:
-                suppressed.append({"id": f.get("id"), "reason": "anchor_unchanged"}); continue
-            # line is None but file changed -> keep (file-level finding)
+            if f.get("kind", "") not in file_level_kinds:
+                raw_line = anchor.get("line")
+                line = int(raw_line) if isinstance(raw_line, str) and raw_line.isdigit() else raw_line
+                if line is not None and line not in file_lines:
+                    suppressed.append({"id": f.get("id"), "reason": "anchor_unchanged"}); continue
+                # line is None but file changed -> keep (file-level finding)
         key = _dupe_key(f)
         if key in seen:
             suppressed.append({"id": f.get("id"), "reason": "duplicate"}); continue

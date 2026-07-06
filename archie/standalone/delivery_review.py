@@ -94,15 +94,39 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
     for c in crit:
         mark = "❌" if c.get("id") in unmet_ids else "✅"
         lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}")
+    try:
+        from reconcile import is_advisory_finding
+    except Exception:
+        def is_advisory_finding(f):
+            c = f.get("confidence")
+            return isinstance(c, (int, float)) and c < 0.6
+    break_kinds = ("conformance_break", "behavioral_break")
+
+    def _render_finding(f):
+        a = f.get("anchor", {}) or {}
+        reviewer = _sanitize(str(f.get("source", "")).split(":")[-1])
+        return (f"- `{_sanitize(f.get('kind', ''))}` {_sanitize(f.get('problem_statement', ''))} "
+                f"({_sanitize(a.get('file', ''))}:{_sanitize(str(a.get('line', '')))}) · _{reviewer}_")
+
     lines.append("")
     lines.append(f"**Broke anything?** {verdict.get('breaks', 0)} break(s), {verdict.get('conflicts', 0)} conflict(s).")
+    possible = []
     for f in confirmed:
         if f.get("kind") in ("intent_unmet", "intent_partial"):
             continue
-        a = f.get("anchor", {}) or {}
-        reviewer = _sanitize(str(f.get("source", "")).split(":")[-1])
-        lines.append(f"- `{_sanitize(f.get('kind', ''))}` {_sanitize(f.get('problem_statement', ''))} "
-                     f"({_sanitize(a.get('file', ''))}:{_sanitize(str(a.get('line', '')))}) · _{reviewer}_")
+        if f.get("kind") in break_kinds and is_advisory_finding(f):
+            possible.append(f)   # advisory — rendered in its own section below
+            continue
+        lines.append(_render_finding(f))
+
+    # Independent code-review lane: genuine coding issues the reviewer surfaced that
+    # aren't confident enough to call a "break" — shown so they aren't silently lost.
+    if possible:
+        lines.append("")
+        lines.append(f"**Possible issues** ({len(possible)} — unverified, lower confidence; worth a look):")
+        for f in possible:
+            lines.append(_render_finding(f))
+
     lines.append("")
     lines.append("_Intent wrong? Edit `.archie/intent.json` (or re-run synthesize) and push — this comment updates._")
     return "\n".join(lines)
@@ -308,9 +332,13 @@ def run_pr_gate(root=".", env=None):
                 store = json.loads(fp.read_text()).get("findings", [])
             except Exception:
                 store = []
-        floors = {}
+        # Advisory code-review kinds anchor file-level (LLM line numbers are imprecise)
+        # and carry no confidence floor — surface what the reviewer finds, then split
+        # by confidence at render time into breaks vs "possible issues".
+        advisory = {"behavioral_break", "conformance_break"}
+        floors = {k: 0.0 for k in advisory}
         cl = changed_lines or None
-        result = gate(raw, store, changed_lines=cl, floors=floors)
+        result = gate(raw, store, changed_lines=cl, floors=floors, file_level_kinds=advisory)
         confirmed = result.get("confirmed", [])
         verdict = aggregate_verdict(spec, confirmed)
     except Exception as e:
