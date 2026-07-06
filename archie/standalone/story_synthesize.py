@@ -88,3 +88,24 @@ def validate_provenance(facts, sources) -> list:
         copy["id"] = f"f{i}"
         out.append(copy)
     return out
+
+
+from agent_cli import run_verifier   # noqa: E402
+import story_store                   # noqa: E402
+
+
+def imprint(root, branch, session_id, timestamp, run=None):
+    if run is None:
+        run = run_verifier
+    sources = gather_sources(root)
+    if not sources:
+        return None
+    story = parse_story(run(build_story_prompt(sources), Path(root), "claude"))
+    if not story:
+        return None
+    parsed = parse_facts(run(build_facts_prompt(story, sources), Path(root), "claude"))
+    facts = validate_provenance(parsed["facts"], sources)
+    version, supersedes = story_store.next_version(root, branch)
+    return story_store.write_story(
+        root, branch, session_id=session_id, timestamp=timestamp, story=story,
+        facts=facts, non_goals=parsed["non_goals"], supersedes=supersedes, version=version)

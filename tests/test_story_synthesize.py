@@ -69,3 +69,31 @@ def test_validate_provenance_does_not_mutate_inputs():
     kept = ssyn.validate_provenance(facts, sources)
     assert kept[0]["id"] == "f1"          # survivor is re-id'd
     assert "id" not in original           # the caller's dict is untouched
+
+
+import story_store as ss  # noqa: E402
+
+
+def test_imprint_writes_versioned_story(tmp_path):
+    ad = tmp_path / ".archie"; ad.mkdir()
+    (ad / "intent-events.jsonl").write_text(
+        json.dumps({"kind": "user_turn", "text": "total is billable steps times price"}) + "\n")
+
+    def fake_run(prompt, root, verifier, **kw):
+        if "TASK STORY:" in prompt:   # facts pass (has "TASK STORY:" heading)
+            return json.dumps({"facts": [{"text": "total = billable steps × price",
+                "from": {"src": "plan", "quote": "total is billable steps times price"}}],
+                "non_goals": []})
+        return json.dumps({"story": "We add a cost preview."})   # story pass
+
+    p = ssyn.imprint(tmp_path, "feature/x", "sess-1", "2026-07-06T091200", run=fake_run)
+    assert p is not None and p.exists()
+    got = ss.parse_story_file(p)
+    assert got["story"] == "We add a cost preview."
+    assert got["facts"][0]["id"] == "f1"
+    assert got["meta"]["version"] == 1 and got["meta"]["session_id"] == "sess-1"
+
+
+def test_imprint_returns_none_without_sources(tmp_path):
+    (tmp_path / ".archie").mkdir()
+    assert ssyn.imprint(tmp_path, "feature/x", "s", "2026-07-06T091200", run=lambda *a, **k: "") is None
