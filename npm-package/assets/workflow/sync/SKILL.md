@@ -158,29 +158,30 @@ just reconciled. **Commit it alongside the blueprint/intent edits.** The PR inte
 reads it to tell whether a branch's code later moved on without a re-sync, and surfaces a
 (non-blocking) "run /archie-sync" advisory if so.
 
-### Step 5b — Synthesize branch intent (MANDATORY — do not skip)
+### Step 5b — Regenerate and review the task story (MANDATORY — do not skip)
 
-Archie captured the user's intent from their planning turns (via hooks) into
-`.archie/intent-events.jsonl`. You MUST now distill those events into acceptance criteria —
-this is what the PR delivery review grades the diff against. Skipping it leaves
-`.archie/intent.json` missing and the PR review has no yardstick.
+Archie captured the user's intent from their planning turns (via hooks) and distills it into
+a task story (`.archie/story.json`). The Stop hook already attempted a background imprint at
+turn end, but you MUST now regenerate it explicitly to ensure it reflects the full session,
+then review the result. Skipping it leaves the story stale and the PR delivery review has no
+accurate yardstick.
 
 Always run these in order:
 
 ```bash
-python3 .archie/sync.py synthesize-intent .   # REQUIRED: clean-room agent (blind to code) → .archie/intent.json
-python3 .archie/sync.py show-intent .          # print the goals + criteria + provenance for the user
+python3 .archie/sync.py imprint .    # REQUIRED: regenerate the story from captured events → .archie/story.json
+python3 .archie/sync.py story .      # review the story + facts for correctness
 ```
 
-Then, in your Step 6 report, show the user the synthesized criteria and tell them:
-*"intent wrong? edit `.archie/intent.json` or re-run synthesize."* Optionally, if the user
-ratifies them, run `python3 .archie/sync.py confirm-intent .` (unconfirmed still grades,
-just labeled lower-trust).
+Then, in your Step 6 report, show the user the story and tell them:
+*"story wrong? edit `.archie/story.json` or re-run imprint."* Optionally, if the user
+ratifies the criteria, run `python3 .archie/sync.py confirm-intent .` (unconfirmed still
+grades, just labeled lower-trust).
 
-If `synthesize-intent` reports **no events captured** (e.g. a pure-exploration branch with no
+If `imprint` reports **no events captured** (e.g. a pure-exploration branch with no
 planning turns), say so plainly — the PR falls back to PR-body intent — and move on.
 
-Stage `.archie/intent.json` and `.archie/intent-events.jsonl` so they commit with the branch.
+Stage `.archie/story.json` and `.archie/intent-events.jsonl` so they commit with the branch.
 
 ### Step 6 — Report what changed ARCHITECTURALLY (not a file list)
 

@@ -41,6 +41,12 @@ if churn.get("crossed") or nplans:
 PY
 )
 
+# Silently imprint the task story when a discussion→implementation transition is
+# pending (best-effort, backgrounded — must never block the turn end).
+if [ -z "$ARCHIE_INTERNAL" ] && [ -f "$PROJECT_ROOT/.archie/sync.py" ]; then
+  nohup python3 "$PROJECT_ROOT/.archie/sync.py" imprint "$PROJECT_ROOT" >/dev/null 2>&1 &
+fi
+
 if [ -n "$NUDGE" ]; then
     printf '%s\n' "$NUDGE" >&2
     exit 2
