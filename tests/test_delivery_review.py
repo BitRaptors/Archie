@@ -270,7 +270,7 @@ def test_render_verdict_shows_criteria_provenance_and_correction(tmp_path):
     md = dr.render_verdict(verdict, confirmed, spec)
     assert "tenant scoped" in md and "rate limited" in md      # criteria listed
     assert "medium" in md and "unconfirmed" in md.lower()      # provenance + trust label
-    assert "intent.json" in md                                  # correction loop stated
+    assert "archie imprint" in md                               # correction loop stated
 
 
 def test_run_pr_gate_auto_synthesizes_when_intent_missing(tmp_path, monkeypatch):
@@ -355,3 +355,14 @@ def test_render_verdict_surfaces_possible_issues_section():
     assert "confident bug" in body           # high-conf → breaks section
     # the advisory one must appear AFTER the "Broke anything?" line
     assert body.index("confident bug") < body.index("Possible issues") < body.index("maybe null deref")
+
+
+def test_render_verdict_includes_story_and_provenance():
+    import delivery_review as dr
+    verdict = {"intent_completeness": "1/1", "breaks": 0, "possible_issues": 0, "conflicts": 0}
+    spec = {"story": "We add a per-run cost preview.",
+            "acceptance_criteria": [{"id": "f1", "text": "total from live steps",
+                                     "from": {"src": "plan", "quote": "computed fresh from live steps"}}]}
+    body = dr.render_verdict(verdict, [], spec)
+    assert "We add a per-run cost preview." in body        # story shown
+    assert "computed fresh from live steps" in body        # per-fact provenance shown

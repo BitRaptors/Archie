@@ -85,15 +85,21 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
     unmet_ids = {f.get("criterion_id") for f in confirmed if f.get("kind") in ("intent_unmet", "intent_partial")}
     trust = "human-confirmed" if spec.get("confirmed") else "unconfirmed (auto-synthesized — lower trust)"
     lines = ["<!-- archie-delivery-review -->", "## Archie delivery review", ""]
-    lines.append(f"> Grading against `.archie/intent.json` · source: **{_sanitize(spec.get('source', '?'))}** "
+    lines.append(f"> Grading against the task story · source: **{_sanitize(spec.get('source', '?'))}** "
                  f"· confidence: **{_sanitize(spec.get('confidence', '?'))}** · {trust}")
     lines.append("")
+    story = (spec.get("story") or "").strip()
+    if story:
+        lines.append("<details><summary>Task story</summary>\n\n" + _sanitize(story) + "\n\n</details>")
+        lines.append("")
     unknown = verdict.get("unknown", 0)
     lines.append(f"**Built the intent?** {verdict.get('intent_completeness', '?')} criteria met"
                  + (f" ({unknown} unknown)" if unknown else "") + ".")
     for c in crit:
         mark = "❌" if c.get("id") in unmet_ids else "✅"
-        lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}")
+        src = _sanitize(((c.get("from") or {}).get("quote") or ""))
+        suffix = f"  ·  _from: {src[:70]}_" if src else ""
+        lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}{suffix}")
     try:
         from reconcile import is_advisory_finding
     except Exception:
@@ -128,7 +134,7 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
             lines.append(_render_finding(f))
 
     lines.append("")
-    lines.append("_Intent wrong? Edit `.archie/intent.json` (or re-run synthesize) and push — this comment updates._")
+    lines.append("_Story wrong? Edit the task story (or re-run `archie imprint`) and push — this comment updates._")
     return "\n".join(lines)
 
 
