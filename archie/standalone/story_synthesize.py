@@ -82,6 +82,9 @@ def validate_provenance(facts, sources) -> list:
         overlap = len(qtokens & source_tokens) / len(qtokens)
         if overlap >= 0.6:
             kept.append(f)
+    out = []
     for i, f in enumerate(kept, start=1):
-        f["id"] = f"f{i}"
-    return kept
+        copy = dict(f)
+        copy["id"] = f"f{i}"
+        out.append(copy)
+    return out

@@ -59,3 +59,13 @@ def test_validate_provenance_drops_invented_facts():
     assert len(kept) == 1
     assert kept[0]["id"] == "f1"
     assert "total" in kept[0]["text"]
+
+
+def test_validate_provenance_does_not_mutate_inputs():
+    sources = [{"src": "plan", "text": "total is billable steps times price"}]
+    original = {"text": "total billable steps price",
+                "from": {"src": "plan", "quote": "total is billable steps times price"}}
+    facts = [original]
+    kept = ssyn.validate_provenance(facts, sources)
+    assert kept[0]["id"] == "f1"          # survivor is re-id'd
+    assert "id" not in original           # the caller's dict is untouched
