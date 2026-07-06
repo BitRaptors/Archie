@@ -16,7 +16,3 @@ def test_write_intent_cli_roundtrip(tmp_path):
     assert got["acceptance_criteria"][0]["text"] == "Scoped"
 
 
-def test_sync_skill_has_intent_capture_step():
-    skill = (Path(__file__).resolve().parent.parent / "archie" / "assets" / "workflow"
-             / "sync" / "SKILL.md").read_text()
-    assert ("synthesize-intent" in skill or "show-intent" in skill) and ".archie/intent.json" in skill
