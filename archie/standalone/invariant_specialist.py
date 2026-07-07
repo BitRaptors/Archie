@@ -131,11 +131,11 @@ def review_invariants(root, diff_text, invariants, run=None) -> list[dict]:
     out = []
     for inv in invariants or []:
         contract = contract_of(inv)
-        traw = run(build_tracer_prompt(contract, diff_text), Path(root), "claude", model=TRACER_MODEL)
+        traw = run(build_tracer_prompt(contract, diff_text), Path(root), "claude", model=TRACER_MODEL, tools=True)
         tracer = parse_tracer(traw or "")
         if not tracer or tracer["verdict"] == "upheld":
             continue
-        craw = run(build_challenger_prompt(contract, tracer, diff_text), Path(root), "claude", model=CHALLENGER_MODEL)
+        craw = run(build_challenger_prompt(contract, tracer, diff_text), Path(root), "claude", model=CHALLENGER_MODEL, tools=True)
         ch = parse_challenger(craw or "")
         if not ch or ch["decision"] != "confirm_violation" or ch["final_verdict"] != "violated":
             continue

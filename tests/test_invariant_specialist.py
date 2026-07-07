@@ -108,3 +108,19 @@ def test_confirmed_but_no_falsification_is_dropped():
     challenger = json.dumps({"invariant_id": "inv-bill-003", "decision": "confirm_violation",
                              "final_verdict": "violated"})  # no falsification
     assert isp.review_invariants(".", DIFF, [INV], run=_Recorder(tracer, challenger)) == []
+
+
+def test_tracer_and_challenger_request_tools():
+    tracer = json.dumps({"invariant_id": "inv-x", "verdict": "violated",
+                         "file": "a.py", "line": 2})
+    challenger = json.dumps({"invariant_id": "inv-x", "decision": "confirm_violation",
+                             "final_verdict": "violated", "reason": "r",
+                             "falsification": "f", "file": "a.py", "line": 2})
+    seen = []
+
+    def rec(prompt, root, verifier, model="haiku", tools=False, **kw):
+        seen.append(tools)
+        return tracer if "TRACER" in prompt and "CHALLENGER" not in prompt else challenger
+
+    isp.review_invariants(".", DIFF, [INV], run=rec)
+    assert seen == [True, True]   # both roles asked for tools
