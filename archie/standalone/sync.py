@@ -887,9 +887,11 @@ def cmd_review(root: Path) -> int:
             print("[archie] delivery review: skipped (nothing relevant changed).")
         else:
             v = out.get("verdict", {})
+            ack_note = (f" · {len(out.get('acked', []))} acknowledged override(s)"
+                        if out.get("acked") else "")
             print(f"[archie] delivery review — {v.get('intent_completeness', '?')} criteria · "
                   f"{v.get('breaks', 0)} break(s) · {v.get('drift', 0)} drift · "
-                  f"{len(out.get('confirmed', []))} finding(s)")
+                  f"{len(out.get('confirmed', []))} finding(s)" + ack_note)
     except Exception as e:
         # non-blocking: never fail the caller
         print(f"[archie] delivery review skipped (error: {e})")

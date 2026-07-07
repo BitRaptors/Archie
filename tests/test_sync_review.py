@@ -243,3 +243,29 @@ def test_sync_review_uses_core(tmp_path, monkeypatch):
                              run=fake_run)
     assert called["core"] is True
     assert out.get("skipped") is not True   # a.py is source → skip-gate must not fire
+
+
+def test_sync_review_excludes_acked_findings_from_verdict(tmp_path, monkeypatch):
+    (tmp_path / ".archie").mkdir()
+    (tmp_path / "a.py").write_text("x = 1\n")
+    import overrides as ov
+    entry = {"rule_id": "inv-003", "reason": "r", "authorized_by": "G",
+             "branch": "b", "created_at": "t", "status": "acked"}
+    monkeypatch.setattr(ov, "active", lambda root: {"inv-003": entry})
+
+    import review_core
+
+    def fake_core(*a, **k):
+        return [{"kind": "conformance_break", "id": "f_inv_inv-003", "edge": "B",
+                 "problem_statement": "violates inv-003: cost stored",
+                 "anchor": {"file": "a.py", "line": 1, "changed": True},
+                 "assumptions": [], "evidence": ["e"], "falsification": "f",
+                 "confidence": 0.9, "source": "invariant_specialist:ctc"}]
+    monkeypatch.setattr(review_core, "run_review", fake_core)
+
+    out = sr.run_sync_review(str(tmp_path), "main", {"domain_invariants": []}, {},
+                             "diff --git a/a.py b/a.py", ["a.py"], {"a.py": {1}}, {},
+                             run=lambda *a, **k: "{}")
+    assert out["skipped"] is False
+    assert out["verdict"]["breaks"] == 0            # acked → not a break
+    assert out["acked"][0][0]["rule_id"] == "inv-003"
