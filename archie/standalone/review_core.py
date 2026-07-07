@@ -19,17 +19,23 @@ from selector import touched_context             # noqa: E402
 from finding_merge import merge                  # noqa: E402
 
 
+def _safe(t):
+    """Run a reviewer thunk; a raising reviewer degrades to no findings rather
+    than crashing the whole fan-out. Used by both the serial and threaded paths."""
+    try:
+        return t()
+    except Exception:
+        return []
+
+
 def _pmap(thunks, workers):
     if workers <= 1:
-        return [t() for t in thunks]
+        return [_safe(t) for t in thunks]
     out = [None] * len(thunks)
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(t): i for i, t in enumerate(thunks)}
+        futs = {ex.submit(_safe, t): i for i, t in enumerate(thunks)}
         for fut, i in futs.items():
-            try:
-                out[i] = fut.result()
-            except Exception:
-                out[i] = []
+            out[i] = fut.result()
     return out
 
 

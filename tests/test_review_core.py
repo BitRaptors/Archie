@@ -33,3 +33,18 @@ def test_run_review_serial_when_workers_env_1(tmp_path, monkeypatch):
     out = rc.run_review(tmp_path, "diff", ["a.py"], {"domain_invariants": []}, {},
                         {"acceptance_criteria": []}, run=lambda *a, **k: "{}", passes=1)
     assert isinstance(out, list)
+
+
+def test_run_review_serial_degrades_on_raising_reviewer(tmp_path, monkeypatch):
+    # A reviewer that raises must not crash the whole fan-out, even in the
+    # serial (ARCHIE_REVIEW_WORKERS=1) path — same degrade-to-[] contract as
+    # the threaded path.
+    monkeypatch.setenv("ARCHIE_REVIEW_WORKERS", "1")
+    (tmp_path / "a.py").write_text("x=1\n")
+
+    def boom(*a, **k):
+        raise ValueError("kaboom")
+
+    out = rc.run_review(tmp_path, "diff", ["a.py"], {"domain_invariants": []}, {},
+                        {"acceptance_criteria": []}, run=boom, passes=1)
+    assert out == []
