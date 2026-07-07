@@ -829,6 +829,51 @@ def cmd_override_ack(root: Path, rule_id: str, reason: str) -> int:
     return 0
 
 
+def cmd_override_ratify(root: Path) -> int:
+    """Apply ratified overrides to the contract. An acked entry whose branch is
+    not the current branch can only have arrived via merge — merge IS the
+    ratification. For each: retire the rule from rules.json, stamp the blueprint
+    invariant `overridden` (the renderer marks it; the next deep scan re-derives
+    the area from code), archive the entry. Deliberate contract change — run
+    from the sync workflow. No-op when nothing is pending."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    import overrides as _ov
+    archie = root / ".archie"
+    done = []
+    for e in _ov.pending_ratification(root):
+        rid = e.get("rule_id", "")
+        rp = archie / "rules.json"
+        try:
+            rules = json.loads(rp.read_text())
+            items = rules.get("rules", []) if isinstance(rules, dict) else rules
+            kept = [r for r in items if r.get("id") != rid]
+            if len(kept) != len(items):
+                if isinstance(rules, dict):
+                    rules["rules"] = kept
+                else:
+                    rules = kept
+                rp.write_text(json.dumps(rules, indent=2) + "\n")
+        except Exception:
+            pass
+        bp_p = archie / "blueprint.json"
+        try:
+            bp = json.loads(bp_p.read_text())
+            for inv in bp.get("domain_invariants") or []:
+                if isinstance(inv, dict) and inv.get("id") == rid:
+                    inv["status"] = "overridden"
+                    inv["override"] = {"reason": e.get("reason", ""),
+                                       "authorized_by": e.get("authorized_by", ""),
+                                       "ratified_from": e.get("branch", "")}
+            bp_p.write_text(json.dumps(bp, indent=2) + "\n")
+        except Exception:
+            pass
+        _ov.archive(root, e, status="ratified")
+        done.append(rid)
+    print(json.dumps({"ratified": done}))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # review — run the (previously orphaned) delivery-review pipeline on the branch
 # delta. Non-blocking: ALWAYS returns 0, never raises to the caller.
@@ -1155,6 +1200,9 @@ def main(argv: list[str]) -> int:
     if cmd == "override-ack":
         rid = rest[0] if rest and not rest[0].startswith("--") else ""
         return cmd_override_ack(root, rid, _opt(rest, "--reason") or "")
+
+    if cmd == "override-ratify":
+        return cmd_override_ratify(root)
 
     if cmd == "review":
         return cmd_review(root)
