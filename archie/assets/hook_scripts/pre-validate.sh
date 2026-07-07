@@ -61,11 +61,6 @@ fp = ti.get("file_path", "") or ti.get("path", "")
 if not fp:
     sys.exit(0)
 
-# The overrides ledger is written by the sanctioned ack flow; matching rules
-# against its content would recursively block the door itself.
-if fp.replace("\\", "/").endswith(".archie/overrides.json"):
-    sys.exit(0)
-
 def _real(p):
     try:
         return os.path.realpath(p)
@@ -73,6 +68,14 @@ def _real(p):
         return p
 fp_real = _real(fp) if fp.startswith("/") else fp
 project_root_real = _real(project_root)
+
+# Exempt ONLY the canonical override ledger at the project root — the
+# sanctioned ack flow writes it; matching rules against its content would
+# recursively block the door. Anchored to the resolved root so nested or
+# look-alike paths (packages/x/.archie/..., notes.archie/...) are NOT exempt.
+if fp_real == os.path.join(project_root_real, ".archie", "overrides.json"):
+    sys.exit(0)
+
 if fp_real.startswith("/") and not fp_real.startswith(project_root_real):
     sys.exit(0)
 

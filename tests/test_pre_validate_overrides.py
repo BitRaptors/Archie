@@ -59,3 +59,21 @@ def test_write_to_overrides_file_is_exempt(tmp_path):
                   '{"overrides": [{"reason": "stored_cost"}]}')
     assert r.returncode == 0
     assert "BLOCKED" not in r.stdout
+
+
+def test_nested_archie_overrides_is_not_exempt(tmp_path):
+    _project(tmp_path)
+    nested = tmp_path / "packages" / "api" / ".archie"
+    nested.mkdir(parents=True)
+    r = _run_hook(tmp_path, nested / "overrides.json", "stored_cost = 1")
+    assert r.returncode == 2
+    assert "BLOCKED" in r.stdout
+
+
+def test_lookalike_archie_dir_is_not_exempt(tmp_path):
+    _project(tmp_path)
+    d = tmp_path / "notes.archie"
+    d.mkdir()
+    r = _run_hook(tmp_path, d / "overrides.json", "stored_cost = 1")
+    assert r.returncode == 2
+    assert "BLOCKED" in r.stdout
