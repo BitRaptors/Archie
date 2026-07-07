@@ -21,6 +21,7 @@ Import convention: bare-name sibling imports via sys.path (Python 3.9).
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -117,11 +118,14 @@ def pending_ratification(root) -> list:
 
 
 def archive(root, entry: dict, status: str = "ratified", now: str | None = None) -> None:
-    data = load(root)
-    data["overrides"] = [e for e in data["overrides"]
-                         if not (e.get("rule_id") == entry.get("rule_id")
-                                 and e.get("branch") == entry.get("branch"))]
-    save(root, data)
+    """Move a ruling from the active file to the append-only history log.
+
+    Ordered history-first: a crash between the two writes must never erase
+    the ruling from BOTH places. Appending to overrides_history.jsonl first
+    means the worst case of an interrupted archive is a duplicate history
+    record (harmless, append-only) with the entry still active — never a
+    ruling that vanishes from both files.
+    """
     rec = dict(entry)
     rec["status"] = status
     rec["archived_at"] = now or _now()
@@ -129,18 +133,30 @@ def archive(root, entry: dict, status: str = "ratified", now: str | None = None)
     h.parent.mkdir(parents=True, exist_ok=True)
     with h.open("a") as f:
         f.write(json.dumps(rec) + "\n")
+    data = load(root)
+    data["overrides"] = [e for e in data["overrides"]
+                         if not (e.get("rule_id") == entry.get("rule_id")
+                                 and e.get("branch") == entry.get("branch"))]
+    save(root, data)
 
 
 def finding_matches(finding: dict, rule_id: str) -> bool:
     """Join a review finding to a rule id: invariant findings carry the id in
-    their finding id (f_inv_<rule>), problem statement, or assumptions."""
+    their finding id (f_inv_<rule>), problem statement, or assumptions.
+
+    Boundary-matched, not substring: a raw `rule_id in text` check lets a
+    crafted short rule_id (e.g. "e") absorb nearly every finding and zero the
+    PR's break count. The finding-id check is exact equality against the
+    `f_inv_<rule_id>` shape; statement/assumptions checks require rule_id to
+    appear as a whole word (so "inv-003" never matches inside "inv-0031")."""
     if not rule_id:
         return False
-    if str(finding.get("id", "")).startswith(f"f_inv_{rule_id}"):
+    if str(finding.get("id", "")) == f"f_inv_{rule_id}":
         return True
-    if rule_id in str(finding.get("problem_statement", "")):
+    pattern = rf"\b{re.escape(rule_id)}\b"
+    if re.search(pattern, str(finding.get("problem_statement", ""))):
         return True
-    return any(rule_id in str(a) for a in (finding.get("assumptions") or []))
+    return any(re.search(pattern, str(a)) for a in (finding.get("assumptions") or []))
 
 
 def partition(findings: list, active_map: dict) -> tuple:

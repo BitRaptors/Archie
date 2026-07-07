@@ -55,8 +55,9 @@ def run_review(root, diff_text, changed_files, blueprint, import_graph, spec,
     for lens in us.LENSES:
         thunks.append(lambda lens=lens: us.review_one(root, diff_text, evidence, spec, lens, run=run))
     if has_intent:
-        thunks.append(lambda: review_edge_c(root, spec,
-                      (blueprint.get("domain_invariants") or []), run=run))
+        live_invariants = [i for i in (blueprint.get("domain_invariants") or [])
+                          if i.get("status") not in ("overridden", "override_staged")]
+        thunks.append(lambda: review_edge_c(root, spec, live_invariants, run=run))
     if ctx["invariants"]:
         thunks.append(lambda: review_invariants(root, diff_text, ctx["invariants"], run=run))
     if ctx["decisions"]:

@@ -415,4 +415,6 @@ Before synthesizing rules, read `.archie/overrides.json` and
 `.archie/overrides_history.jsonl` if present. Do not carry forward or re-synthesize an enforcement
 rule for any rule/invariant id recorded there — the user deliberately overrode it
 and the contract change was (or is being) ratified. Rules for the area come only
-from what the current code exhibits.
+from what the current code exhibits. For `domain_invariant` rules, the rule's
+`id` MUST be the source invariant's `id` verbatim — the override lifecycle
+(gate demotion, PR join, ratification stamp) keys on that identity.

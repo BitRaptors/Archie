@@ -3,6 +3,18 @@ pick Lane-2 specialists. Decides WHO runs; never reviews.
 """
 from __future__ import annotations
 
+# Invariants carrying either status are dead laws: `overridden` was ratified on
+# merge (the rule is retired from rules.json); `override_staged` is pending
+# ratification but already demoted. Routing the review engine at either would
+# enforce a law the user already retired/overrode, so both are skipped wherever
+# domain_invariants are walked.
+_DEAD_STATUSES = ("overridden", "override_staged")
+
+
+def _live(inv: dict) -> bool:
+    return inv.get("status") not in _DEAD_STATUSES
+
+
 def _anchor_files(anchors) -> list[str]:
     out = []
     for a in anchors or []:
@@ -43,6 +55,8 @@ def _hit(changed: list[str], targets: list[str]) -> bool:
 def select_specialists(blueprint: dict, changed_files: list[str]) -> dict:
     specialists, reason = [], {}
     for inv in blueprint.get("domain_invariants", []) or []:
+        if not _live(inv):
+            continue
         if _hit(changed_files, _anchor_files(inv.get("enforced_at"))):
             if "invariant-integrity" not in specialists:
                 specialists.append("invariant-integrity")
@@ -65,7 +79,7 @@ def select_specialists(blueprint: dict, changed_files: list[str]) -> dict:
 def touched_context(blueprint, changed_files):
     """Return {'invariants': [...], 'decisions': [...]} whose anchors intersect changed_files."""
     invs = [i for i in (blueprint.get("domain_invariants") or [])
-            if _hit(changed_files, _anchor_files(i.get("enforced_at")))]
+            if _live(i) and _hit(changed_files, _anchor_files(i.get("enforced_at")))]
     decs = [d for d in ((blueprint.get("decisions") or {}).get("key_decisions") or [])
             if d.get("forced_by") and _hit(changed_files, [str(d.get("forced_by"))])]
     return {"invariants": invs, "decisions": decs}

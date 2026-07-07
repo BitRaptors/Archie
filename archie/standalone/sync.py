@@ -829,16 +829,38 @@ def cmd_override_ack(root: Path, rule_id: str, reason: str) -> int:
     return 0
 
 
+_BASE_BRANCH_FALLBACK = {"main", "master", "develop"}
+
+
+def _base_branch(root: Path) -> str | None:
+    """Resolve the repo's base (merge-target) branch via the remote's HEAD
+    symlink. Returns None when there's no remote to ask (e.g. local test
+    repos) — the caller falls back to a hardcoded common-name set."""
+    ref = _git(root, "symbolic-ref", "refs/remotes/origin/HEAD")
+    return ref.rsplit("/", 1)[-1] if ref else None
+
+
 def cmd_override_ratify(root: Path) -> int:
-    """Apply ratified overrides to the contract. An acked entry whose branch is
-    not the current branch can only have arrived via merge — merge IS the
-    ratification. For each: retire the rule from rules.json, stamp the blueprint
-    invariant `overridden` (the renderer marks it; the next deep scan re-derives
-    the area from code), archive the entry. Deliberate contract change — run
-    from the sync workflow. No-op when nothing is pending."""
+    """Apply ratified overrides to the contract. Merge onto the BASE branch is
+    the only event that counts as ratification — a renamed/child branch or a
+    detached HEAD must never retire a rule while its PR is still open. Gate:
+    no-op unless the current branch IS the base branch (origin/HEAD, or the
+    main/master/develop fallback when there's no remote); never on detached
+    HEAD. Once gated in: an acked entry whose branch is not the current branch
+    can only have arrived via merge — merge IS the ratification. For each:
+    retire the rule from rules.json, stamp the blueprint invariant `overridden`
+    (the renderer marks it; the next deep scan re-derives the area from code),
+    archive the entry. Deliberate contract change — run from the sync
+    workflow. No-op when nothing is pending or we're not on the base branch."""
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).parent))
     import overrides as _ov
+    current = _ov.current_branch(root)
+    base = _base_branch(root)
+    is_base = (current == base) if base else (current in _BASE_BRANCH_FALLBACK)
+    if current == "HEAD" or not is_base:
+        print(json.dumps({"ratified": []}))
+        return 0
     archie = root / ".archie"
     done = []
     for e in _ov.pending_ratification(root):
@@ -961,6 +983,7 @@ def _usage() -> None:
     print("  python3 sync.py churn-reset       /path/to/repo", file=sys.stderr)
     print("  python3 sync.py sync-stamp        /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
     print("  python3 sync.py override-ack      /path/to/repo <rule_id> --reason \"...\"   (record a user-authorized rule override)", file=sys.stderr)
+    print("  python3 sync.py override-ratify   /path/to/repo                     (merge onto the base branch: retire ratified overrides, archive entries)", file=sys.stderr)
     print("  python3 sync.py review            /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
     print("  python3 sync.py write-intent      /path/to/repo  spec.json          (merge branch intent into .archie/intent.json)", file=sys.stderr)
     print("  python3 sync.py capture-intent    /path/to/repo [text]              (append a user-turn event)", file=sys.stderr)

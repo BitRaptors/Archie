@@ -80,3 +80,21 @@ def test_override_ratify_skips_current_branch_entries(tmp_path):
                        capture_output=True, text=True)
     assert json.loads(r.stdout.strip().splitlines()[-1]) == {"ratified": []}
     assert "inv-003" in ov.active(tmp_path)
+
+
+def test_override_ratify_noop_off_base_branch(tmp_path):
+    """Regression: a non-base branch (e.g. a renamed/child feature branch) must
+    NEVER ratify, even when an entry from a DIFFERENT branch is pending — merge
+    onto the base branch is the only event that counts as ratification. Without
+    this gate, `cmd_override_ratify` processed any entry with branch !=
+    current_branch, so simply being on some other branch (not necessarily the
+    base) would retire the rule early, while its PR is still open."""
+    _git_repo(tmp_path, branch="feature/other")      # not main/master/develop, no remote
+    (tmp_path / ".archie" / "overrides.json").write_text(json.dumps({"version": 1, "overrides": [
+        {"rule_id": "inv-003", "reason": "r", "authorized_by": "G",
+         "branch": "demo/x", "created_at": "t", "status": "acked"}]}))
+    r = subprocess.run([sys.executable, str(SYNC), "override-ratify", str(tmp_path)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout.strip().splitlines()[-1]) == {"ratified": []}
+    assert "inv-003" in ov.active(tmp_path)          # entry stays active — not ratified early

@@ -87,6 +87,36 @@ def test_touched_context_empty_when_nothing_touched():
     assert ctx["decisions"] == []
 
 
+def test_touched_context_skips_overridden_invariant():
+    """A ratified/staged override retires the law — the review engine must not
+    keep enforcing it even though the entry stays in domain_invariants and its
+    anchor still matches a changed file. A live sibling still surfaces."""
+    bp = {
+        "domain_invariants": [
+            {"id": "inv-dead", "invariant": "retired", "enforced_at": ["billing/usage.py"],
+             "status": "overridden"},
+            {"id": "inv-staged", "invariant": "pending ratify", "enforced_at": ["billing/usage.py"],
+             "status": "override_staged"},
+            {"id": "inv-live", "invariant": "still enforced", "enforced_at": ["billing/usage.py"]},
+        ],
+        "decisions": {"key_decisions": []},
+    }
+    ctx = sel.touched_context(bp, ["billing/usage.py"])
+    inv_ids = {i["id"] for i in ctx["invariants"]}
+    assert inv_ids == {"inv-live"}
+
+
+def test_select_specialists_skips_overridden_invariant():
+    bp = {
+        "domain_invariants": [
+            {"id": "inv-dead", "enforced_at": ["billing/usage.py"], "status": "overridden"},
+        ],
+        "decisions": {"key_decisions": []}, "persistence_stores": [], "data_models": [],
+    }
+    out = sel.select_specialists(bp, ["billing/usage.py"])
+    assert out["specialists"] == []
+
+
 # --- parallel/duplicated-tree tolerance (worker <-> new_worker) ---
 
 def test_duplicated_tree_routes_invariant():

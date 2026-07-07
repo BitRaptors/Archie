@@ -71,6 +71,10 @@ def test_finding_matches_by_id_statement_and_assumptions():
     assert ov.finding_matches({"assumptions": ["invariant inv-003", "trace: x"]}, "inv-003")
     assert not ov.finding_matches({"id": "f_x", "problem_statement": "null deref"}, "inv-003")
     assert not ov.finding_matches({"problem_statement": "anything"}, "")
+    # boundary-match regression: a short/crafted rule_id must not absorb-everything
+    # via raw substring, and a partial id (inv-003 inside inv-0031) must not match.
+    assert not ov.finding_matches({"problem_statement": "null deref"}, "e")
+    assert not ov.finding_matches({"problem_statement": "violates inv-0031"}, "inv-003")
 
 
 def test_partition_splits_unacked_acked_stale(tmp_path):
