@@ -2277,7 +2277,9 @@ def _build_product_laws_rule(bp: dict):
     domain = [x for x in (bp.get("domain_invariants") or []) if isinstance(x, dict)]
     derived = [x for x in (bp.get("derived_invariants") or []) if isinstance(x, dict)]
     unenforced = [x for x in (bp.get("unenforced_invariants") or []) if isinstance(x, dict)]
-    if not (domain or derived or unenforced):
+    overridden = [x for x in domain if x.get("status") in ("overridden", "override_staged")]
+    domain = [x for x in domain if x.get("status") not in ("overridden", "override_staged")]
+    if not (domain or derived or unenforced or overridden):
         return None
 
     lines: list[str] = []
@@ -2304,6 +2306,25 @@ def _build_product_laws_rule(bp: dict):
         ]
         for g in unenforced:
             lines += _render_unenforced_lines(g)
+        lines.append("")
+
+    if overridden:
+        lines += [
+            "## ⛔ Overridden — no longer enforced",
+            "",
+            "_These laws were deliberately overridden by the user. `ratified` entries "
+            "merged; `staged` entries are pending on a branch. The next deep scan "
+            "re-derives this area from the current code — do not treat these as live "
+            "constraints and do not \"fix\" code back to them._",
+            "",
+        ]
+        for x in overridden:
+            o = x.get("override") or {}
+            state = ("staged on `" + o.get("branch", "?") + "`"
+                     if x.get("status") == "override_staged" else "ratified")
+            lines.append(f"- **{x.get('id', '?')}** — {x.get('invariant', '')}  ")
+            lines.append(f"  _{state} · {o.get('reason', '')} · authorized by "
+                         f"{o.get('authorized_by', '?')}_")
         lines.append("")
 
     return {
@@ -2443,6 +2464,22 @@ def main():
         sys.exit(1)
 
     bp = json.loads(blueprint_path.read_text())
+
+    # Branch-staged overrides: acked entries on THIS branch annotate the render
+    # without mutating the stored blueprint (ratification persists the stamp).
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import overrides as _ov
+        _act = _ov.active(project_root)
+        for _inv in bp.get("domain_invariants") or []:
+            _e = _act.get(_inv.get("id")) if isinstance(_inv, dict) else None
+            if _e and not _inv.get("status"):
+                _inv["status"] = "override_staged"
+                _inv["override"] = {"reason": _e.get("reason", ""),
+                                    "authorized_by": _e.get("authorized_by", ""),
+                                    "branch": _e.get("branch", "")}
+    except Exception:
+        pass
 
     # Load enforcement rules from .archie/rules.json + platform_rules.json
     # so the renderer can emit a browsable enforcement/ directory.
