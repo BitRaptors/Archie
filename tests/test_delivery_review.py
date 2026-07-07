@@ -170,7 +170,13 @@ def test_run_pr_gate_uses_real_changed_lines(tmp_path, monkeypatch):
     # Using conformance_break (not intent_unmet) because the new render_verdict shows
     # intent_unmet only in the criteria list; conformance_break appears in the breaks section
     # with its file anchor, letting us assert the line made it through the gate.
-    import reconcile as rc
+    # delivery_review now fans out via review_core.run_review, which binds these
+    # reviewer names into its OWN module namespace at review_core's import time
+    # (`from reconcile import review_edge_a`, etc.) — patching `reconcile`/
+    # `behavioral_review` attributes directly no longer reaches the call sites
+    # review_core actually uses (a stale attribute lookup would only work by
+    # coincidence of import order). Patch review_core's own names instead.
+    import review_core as core
     surviving = {
         "id": "f_cf_line", "kind": "conformance_break", "edge": "B",
         "problem_statement": "violates inv-auth",
@@ -180,11 +186,13 @@ def test_run_pr_gate_uses_real_changed_lines(tmp_path, monkeypatch):
         "source": "reconcile:conformance", "severity_class": "tradeoff_undermined",
         "severity": "high",
     }
-    monkeypatch.setattr(rc, "review_edge_a", lambda *a, **k: [surviving])
-    monkeypatch.setattr(rc, "review_edge_c", lambda *a, **k: [])
-    monkeypatch.setattr(rc, "review_conformance", lambda *a, **k: [])
-    import behavioral_review as br
-    monkeypatch.setattr(br, "review", lambda *a, **k: [])
+    monkeypatch.setattr(core, "review_edge_a", lambda *a, **k: [surviving])
+    monkeypatch.setattr(core, "review_edge_c", lambda *a, **k: [])
+    monkeypatch.setattr(core, "review_conformance", lambda *a, **k: [])
+    monkeypatch.setattr(core, "behavioral_review_run", lambda *a, **k: [])
+    import universal_specialists as us
+    monkeypatch.setattr(us, "review_one", lambda *a, **k: [])
+    monkeypatch.setattr(core, "review_invariants", lambda *a, **k: [])
 
     posted = {}
     def spy_post(owner, repo, number, body, token):
@@ -371,3 +379,11 @@ def test_render_verdict_includes_story_and_provenance():
     body = dr.render_verdict(verdict, [], spec)
     assert "We add a per-run cost preview." in body        # story shown
     assert "computed fresh from live steps" in body        # per-fact provenance shown
+
+
+def test_render_verdict_discloses_diff_truncation():
+    import delivery_review as dr
+    verdict = {"intent_completeness": "1/1", "breaks": 0, "possible_issues": 0, "conflicts": 0}
+    spec = {"acceptance_criteria": [{"id": "ac1", "text": "x"}], "diff_truncated": True}
+    body = dr.render_verdict(verdict, [], spec)
+    assert "truncated" in body.lower()
