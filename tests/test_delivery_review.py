@@ -387,3 +387,38 @@ def test_render_verdict_discloses_diff_truncation():
     spec = {"acceptance_criteria": [{"id": "ac1", "text": "x"}], "diff_truncated": True}
     body = dr.render_verdict(verdict, [], spec)
     assert "truncated" in body.lower()
+
+
+def test_render_verdict_acknowledged_overrides_section():
+    import delivery_review as dr
+    verdict = {"intent_completeness": "1/1", "breaks": 0, "conflicts": 0}
+    entry = {"rule_id": "inv-003", "reason": "store cost — authorized",
+             "authorized_by": "Gabor <g@e.com>", "created_at": "2026-07-07T00:00:00Z"}
+    finding = {"kind": "conformance_break", "id": "f_inv_inv-003",
+               "problem_statement": "violates inv-003: cost stored",
+               "anchor": {"file": "a.py", "line": 3}, "source": "invariant_specialist:ctc"}
+    body = dr.render_verdict(verdict, [], {}, acked=[(entry, [finding])],
+                             stale_acks=[{"rule_id": "inv-999", "reason": "gone"}])
+    assert "Acknowledged overrides" in body
+    assert "inv-003" in body and "Gabor" in body
+    assert "not counted as breaks" in body
+    assert "Stale overrides" in body and "inv-999" in body
+
+
+def test_run_pr_gate_partitions_acked_findings(tmp_path, monkeypatch):
+    # An acked finding must not count as a break; an unacked one must.
+    import delivery_review as dr
+    import overrides as ov
+    entry = {"rule_id": "inv-003", "reason": "r", "authorized_by": "G",
+             "branch": "b", "created_at": "t", "status": "acked"}
+    monkeypatch.setattr(ov, "active", lambda root: {"inv-003": entry})
+    confirmed = [
+        {"kind": "conformance_break", "id": "f_inv_inv-003", "confidence": 0.9,
+         "problem_statement": "violates inv-003", "anchor": {"file": "a.py", "line": 1}},
+        {"kind": "behavioral_break", "id": "f_b", "confidence": 0.9,
+         "problem_statement": "null deref", "anchor": {"file": "b.py", "line": 2}},
+    ]
+    unacked, acked, stale = dr.partition_for_verdict(tmp_path, confirmed)
+    assert [f["id"] for f in unacked] == ["f_b"]
+    assert acked[0][0]["rule_id"] == "inv-003"
+    assert stale == []
