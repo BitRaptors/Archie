@@ -212,13 +212,38 @@ distribution.
 
 ## 13. Cost model & levers
 
-- Model policy: haiku for all finder passes (edge-A, behavioral, universals,
-  conformance); sonnet tracer / opus challenger only for touched invariants (existing).
-- Prompt caching on the static blocks (diff + evidence pack) — matters most for the P0b
-  loop where turns re-send context.
-- Skip-gates already bound the floor: docs-only PRs skip; `MAX_FILES` caps giants;
+**Model policy → rates** (per MTok, as of 2026-07): all finder passes (edge-A,
+behavioral ×N, 4 universal lenses, conformance) on **Haiku 4.5** ($1/$5); the invariant
+**tracer** on **Sonnet 4.6** ($3/$15); the **challenger** on **Opus 4.8** ($5/$25), and it
+fires only when a tracer suspects a violation (rare). A typical call carries ~16k input
+tokens (diff ≤60k chars + evidence pack ≤40k chars + instructions), ~26k worst case,
+~1.5k output.
+
+**Per-run cost (one review = one push):**
+
+| Scenario | Calls | Cost |
+|---|---|---|
+| Docs-only / non-source PR | 0 (skip-gate) | $0 |
+| Small PR, no invariants touched | ~8 haiku | ~$0.20–0.30 |
+| Typical PR, 2–3 invariants | + 3 sonnet tracers | ~$0.40–0.60 |
+| Heavy PR (8 invariants, tool loops, challenger) | + 8 sonnet ×~4 turns + 1–2 opus | ~$1.50–3.00 uncached · **~$1.00–1.50 cached** |
+
+**Monthly, team scale** (~60–150 PRs/mo × ~2 pushes → 150–400 runs): **~$60–200/mo**
+mixed-typical; invariant-heavy without caching can reach ~$400/mo — which is why caching
+ships in wave 1. GitHub Actions minutes: ~1.5–2 min/run → free on public repos, within
+private free tiers, overage $0.008/min (immaterial). Local runs (`claude -p`) ride the
+user's Claude subscription — only the CI API path bills tokens. Usage-priced vs.
+per-seat competitors (~$30/dev/mo): a quiet month costs near zero.
+
+**Levers:**
+- Prompt caching (`cache_control` on diff + evidence-pack blocks) — mandatory for the
+  P0b loop, where turns re-send context; reads bill at ~0.1×. Cuts the heavy scenario
+  roughly in half.
+- Skip-gates bound the floor: docs-only PRs skip; `MAX_FILES` caps giants;
   `concurrency` cancellation stops paying for superseded pushes.
 - Budget envs: `ARCHIE_REVIEW_PASSES`, `ARCHIE_REVIEW_WORKERS`, tool-loop turn/byte caps.
+- Opportunistic: Sonnet 5 intro pricing ($2/$10 through 2026-08-31) — pointing the
+  tracer's model map at it instead of Sonnet 4.6 shaves ~⅓ off the tracer line.
 
 ## 14. Testing
 
