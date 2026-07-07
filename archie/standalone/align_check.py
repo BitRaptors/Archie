@@ -92,6 +92,18 @@ def _load_architectural_rules(archie_dir: Path) -> list[dict[str, Any]]:
     return out
 
 
+def _load_overrides(archie_dir: Path) -> dict[str, Any]:
+    """rule_id -> acked override entry (the human-authorized violations).
+    See overrides.py / docs/archie-rule-override-design.md."""
+    data = _load_json(archie_dir / "overrides.json")
+    out: dict[str, Any] = {}
+    if isinstance(data, dict):
+        for e in data.get("overrides") or []:
+            if isinstance(e, dict) and e.get("status") == "acked" and e.get("rule_id"):
+                out[e["rule_id"]] = e
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Input parsing — plan text from PostToolUse ExitPlanMode, or git diff
 # ---------------------------------------------------------------------------
@@ -256,8 +268,14 @@ def _invoke_claude_classifier(prompt: str) -> dict[str, Any] | None:
 SEVERITY_BLOCKING = {"decision_violation", "pitfall_triggered"}
 
 
-def _render_diagnostics(verdict: dict[str, Any]) -> bool:
-    """Print human-readable diagnostics. Return True if any blocking violation."""
+def _render_diagnostics(verdict: dict[str, Any], overrides: dict[str, Any] | None = None) -> bool:
+    """Print human-readable diagnostics. Return True if any blocking violation.
+
+    `overrides` maps rule_id -> acked override entry (see `_load_overrides`).
+    A blocking rule with a matching acked override is demoted to a printed
+    WARN (attributed to whoever authorized it) and never contributes to the
+    return value.
+    """
     diags = verdict.get("diagnostics") or []
     if not isinstance(diags, list):
         return False
@@ -271,6 +289,13 @@ def _render_diagnostics(verdict: dict[str, Any]) -> bool:
         sc = d.get("severity_class", "")
         evidence = d.get("evidence", "")
         fix = d.get("suggested_fix", "")
+        if sc in SEVERITY_BLOCKING and overrides and rid in overrides:
+            e = overrides[rid]
+            print(f"[Archie WARN] {rid} [{sc}] — OVERRIDDEN by "
+                  f"{e.get('authorized_by', '?')}: {e.get('reason', '')}")
+            if evidence:
+                print(f"  Evidence: {evidence}")
+            continue
         if sc in SEVERITY_BLOCKING:
             label = "BLOCKED"
             blocking = True
@@ -285,6 +310,11 @@ def _render_diagnostics(verdict: dict[str, Any]) -> bool:
             print(f"  Evidence: {evidence}")
         if fix:
             print(f"  Suggested fix: {fix}")
+    if blocking:
+        print("")
+        print("[Archie] Hard rule fired. Do NOT reword the diff or touch enforcement hooks.")
+        print("If the USER explicitly authorizes crossing it, record it and retry:")
+        print('  python3 .archie/sync.py override-ack . <rule-id> --reason "<the user\'s stated reason>"')
     return blocking
 
 
@@ -324,7 +354,7 @@ def cmd_plan(project_root: Path) -> int:
     if verdict is None:
         _render_advisory(rules)
         return 0
-    blocking = _render_diagnostics(verdict)
+    blocking = _render_diagnostics(verdict, overrides=_load_overrides(archie_dir))
     return 2 if blocking else 0
 
 
@@ -342,7 +372,7 @@ def cmd_commit(project_root: Path) -> int:
     if verdict is None:
         _render_advisory(rules)
         return 0
-    blocking = _render_diagnostics(verdict)
+    blocking = _render_diagnostics(verdict, overrides=_load_overrides(archie_dir))
     return 2 if blocking else 0
 
 
