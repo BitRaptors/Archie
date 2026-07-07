@@ -69,6 +69,127 @@ def _run_api(prompt: str, api_key: str, timeout: int = DEFAULT_TIMEOUT,
         return ""
 
 
+_TOOLS = [
+    {"name": "read_file", "description": "Read lines from a file in the repo.",
+     "input_schema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "start_line": {"type": "integer"},
+         "end_line": {"type": "integer"}}, "required": ["path"]}},
+    {"name": "grep", "description": "Regex-search the repo; returns matching path:line.",
+     "input_schema": {"type": "object", "properties": {
+         "pattern": {"type": "string"}, "glob": {"type": "string"}},
+         "required": ["pattern"]}},
+]
+
+
+def _safe_path(root, rel):
+    root = Path(root).resolve()
+    try:
+        p = (root / rel).resolve()
+    except Exception:
+        return None
+    if root not in p.parents and p != root:
+        return None
+    if ".git" in p.parts:
+        return None
+    return p
+
+
+def _exec_tool(root, name, args):
+    if name == "read_file":
+        p = _safe_path(root, str(args.get("path", "")))
+        if p is None or not p.is_file():
+            return "denied: path is outside the repo or not a file"
+        try:
+            lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return "denied: unreadable"
+        try:
+            s = max(1, int(args.get("start_line", 1)))
+            e = min(len(lines), int(args.get("end_line", s + 199)))
+        except (TypeError, ValueError):
+            return "denied: invalid start_line/end_line"
+        return "\n".join(f"{i}: {lines[i-1]}" for i in range(s, e + 1))[:8000]
+    if name == "grep":
+        import re as _re
+        try:
+            rx = _re.compile(str(args.get("pattern", "")))
+        except Exception:
+            return "denied: bad pattern"
+        globp = str(args.get("glob", "*.py"))
+        root_resolved = Path(root).resolve()
+        hits = []
+        for f in root_resolved.rglob(globp):
+            if ".git" in f.parts or not f.is_file():
+                continue
+            try:
+                for n, ln in enumerate(f.read_text("utf-8", errors="replace").splitlines(), 1):
+                    if rx.search(ln):
+                        # relative_to must use the same resolved root `f` came
+                        # from (rglob), not the caller's raw `root` — on macOS
+                        # /tmp is a symlink to /private/tmp, so mixing raw and
+                        # resolved paths raises ValueError here.
+                        hits.append(f"{f.relative_to(root_resolved)}:{n}: {ln.strip()[:200]}")
+                        if len(hits) >= 40:
+                            break
+            except (OSError, ValueError):
+                continue
+            if len(hits) >= 40:
+                break
+        return "\n".join(hits) or "no matches"
+    return "denied: unknown tool"
+
+
+def _run_api_tools(prompt, api_key, project_root, model="haiku",
+                   timeout=DEFAULT_TIMEOUT, max_turns=6, budget_bytes=60000) -> str:
+    """Messages-API tool-use loop offering jailed read_file/grep against
+    project_root — lets the CI verifier (no coding-agent CLI, direct API
+    fallback) check claims against the actual checkout instead of trusting
+    the prompt's citations blind. Hard-capped on turns and tool-output bytes;
+    degrades to the last seen text on any cap or error, never raises."""
+    messages = [{"role": "user", "content": prompt}]
+    spent = 0
+    last_text = ""
+    for _ in range(max_turns):
+        body = json.dumps({
+            "model": API_MODELS.get(model, API_MODEL),
+            "max_tokens": 4096,
+            "tools": _TOOLS,
+            "messages": messages,
+        }).encode()
+        req = urllib.request.Request(
+            ANTHROPIC_URL, data=body, method="POST",
+            headers={"content-type": "application/json", "x-api-key": api_key,
+                     "anthropic-version": "2023-06-01"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception:
+            return last_text
+        content = data.get("content") or []
+        last_text = "".join(b.get("text", "") for b in content if b.get("type") == "text") or last_text
+        if data.get("stop_reason") != "tool_use":
+            return last_text
+        messages.append({"role": "assistant", "content": content})
+        results = []
+        for b in content:
+            if b.get("type") != "tool_use":
+                continue
+            if spent >= budget_bytes:
+                out = "denied: tool budget exhausted"
+            else:
+                try:
+                    out = _exec_tool(project_root, b.get("name"), b.get("input") or {})
+                except Exception:
+                    # Tool input is model-controlled (e.g. a non-numeric
+                    # start_line); a malformed call must degrade the tool
+                    # result, not blow up the whole verifier run.
+                    out = "denied: tool call failed"
+                spent += len(out)
+            results.append({"type": "tool_result", "tool_use_id": b.get("id"), "content": out})
+        messages.append({"role": "user", "content": results})
+    return last_text
+
+
 def detect_cli() -> str:
     """Identify the coding-agent harness driving this run: "claude", "codex",
     or "unknown".
@@ -101,11 +222,18 @@ def detect_verifier() -> str:
 
 
 def run_verifier(prompt: str, project_root: Path, verifier: str,
-                 timeout: int = DEFAULT_TIMEOUT, model: str = "haiku") -> str:
+                 timeout: int = DEFAULT_TIMEOUT, model: str = "haiku",
+                 tools: bool = False) -> str:
     """Run `prompt` through the selected coding-agent CLI; return its text or "".
 
     `model` is an alias ("haiku"|"sonnet"|"opus") — the default keeps every existing
     caller on haiku; the invariant specialist requests heavier roles (§6.6a).
+
+    `tools`, when True, only affects the direct-API fallback (path 3 below):
+    it swaps in a jailed read_file/grep tool loop (`_run_api_tools`) so a CI
+    verifier with no coding-agent CLI can still check claims against the
+    checkout. The claude CLI path already has Read/Grep/Glob and ignores this
+    flag entirely.
 
     Priority:
     1. Requested codex CLI (if verifier=='codex' and codex is on PATH).
@@ -120,6 +248,8 @@ def run_verifier(prompt: str, project_root: Path, verifier: str,
         return _run_claude(prompt, project_root, timeout, model=model)
     key = os.environ.get("ANTHROPIC_API_KEY")
     if key:
+        if tools:
+            return _run_api_tools(prompt, key, project_root, model=model, timeout=timeout)
         return _run_api(prompt, key, timeout, model=model)
     return ""
 
