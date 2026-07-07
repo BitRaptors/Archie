@@ -87,6 +87,22 @@ A statement is **eligible** to fold only if it is a DESCRIPTIVE kind (the mirror
 ADVISORY kinds (`decision`/`pitfall`/`rule`/`guideline`) are ALWAYS `staged` — the contract
 (the law) changes only deliberately, never via a code-fold. Everything else is `staged`.
 
+### Step 2b — Fold override acknowledgments (and ratify merged ones)
+
+Run `python3 .archie/sync.py override-ratify .` first — it is a no-op unless an
+override entry merged in from another branch is pending. When it fires it retires
+the rule from `rules.json`, stamps the blueprint invariant `overridden`, and
+archives the entry to `overrides_history.jsonl`; your Step 5 render then updates
+the docs automatically.
+
+Then read `.archie/overrides.json`. For each entry with `status: "acked"` whose
+`branch` is the CURRENT branch and which has no staged claim yet, record the break
+through the normal Step 2 flow as a staged contract amendment: a `rule` claim
+titled `override: <rule_id>`, rationale = the entry's `reason`, evidence_files =
+the files the violating change touched. Advisory claims always stage — this is the
+existing "user accepts a broken rule" path; the ack is its trigger. Never delete or
+edit an override entry by hand.
+
 ## Phase 2 — reconcile eligible statements into the snapshot
 
 If `record` reported `eligible > 0`, fold them. **The fold is your job** — you reconcile;

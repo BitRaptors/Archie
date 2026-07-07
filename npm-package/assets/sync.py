@@ -810,6 +810,71 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# override-ack — record a user-authorized rule override
+# ---------------------------------------------------------------------------
+
+def cmd_override_ack(root: Path, rule_id: str, reason: str) -> int:
+    """Record a human-authorized rule override. Agent-run ONLY — and only after
+    the user explicitly confirmed crossing the rule in conversation. Gates then
+    demote this rule from BLOCK to WARN on this branch; the PR delivery review
+    surfaces it as an acknowledged override; merge ratifies it."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    if not rule_id or not reason:
+        print('usage: sync.py override-ack <root> <rule_id> --reason "..."', file=sys.stderr)
+        return 1
+    import overrides as _ov
+    e = _ov.ack(root, rule_id, reason)
+    print(json.dumps({"acked": e["rule_id"], "branch": e["branch"], "by": e["authorized_by"]}))
+    return 0
+
+
+def cmd_override_ratify(root: Path) -> int:
+    """Apply ratified overrides to the contract. An acked entry whose branch is
+    not the current branch can only have arrived via merge — merge IS the
+    ratification. For each: retire the rule from rules.json, stamp the blueprint
+    invariant `overridden` (the renderer marks it; the next deep scan re-derives
+    the area from code), archive the entry. Deliberate contract change — run
+    from the sync workflow. No-op when nothing is pending."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    import overrides as _ov
+    archie = root / ".archie"
+    done = []
+    for e in _ov.pending_ratification(root):
+        rid = e.get("rule_id", "")
+        rp = archie / "rules.json"
+        try:
+            rules = json.loads(rp.read_text())
+            items = rules.get("rules", []) if isinstance(rules, dict) else rules
+            kept = [r for r in items if r.get("id") != rid]
+            if len(kept) != len(items):
+                if isinstance(rules, dict):
+                    rules["rules"] = kept
+                else:
+                    rules = kept
+                rp.write_text(json.dumps(rules, indent=2) + "\n")
+        except Exception:
+            pass
+        bp_p = archie / "blueprint.json"
+        try:
+            bp = json.loads(bp_p.read_text())
+            for inv in bp.get("domain_invariants") or []:
+                if isinstance(inv, dict) and inv.get("id") == rid:
+                    inv["status"] = "overridden"
+                    inv["override"] = {"reason": e.get("reason", ""),
+                                       "authorized_by": e.get("authorized_by", ""),
+                                       "ratified_from": e.get("branch", "")}
+            bp_p.write_text(json.dumps(bp, indent=2) + "\n")
+        except Exception:
+            pass
+        _ov.archive(root, e, status="ratified")
+        done.append(rid)
+    print(json.dumps({"ratified": done}))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # review — run the (previously orphaned) delivery-review pipeline on the branch
 # delta. Non-blocking: ALWAYS returns 0, never raises to the caller.
 # ---------------------------------------------------------------------------
@@ -867,9 +932,11 @@ def cmd_review(root: Path) -> int:
             print("[archie] delivery review: skipped (nothing relevant changed).")
         else:
             v = out.get("verdict", {})
+            ack_note = (f" · {len(out.get('acked', []))} acknowledged override(s)"
+                        if out.get("acked") else "")
             print(f"[archie] delivery review — {v.get('intent_completeness', '?')} criteria · "
                   f"{v.get('breaks', 0)} break(s) · {v.get('drift', 0)} drift · "
-                  f"{len(out.get('confirmed', []))} finding(s)")
+                  f"{len(out.get('confirmed', []))} finding(s)" + ack_note)
     except Exception as e:
         # non-blocking: never fail the caller
         print(f"[archie] delivery review skipped (error: {e})")
@@ -893,6 +960,7 @@ def _usage() -> None:
     print("  python3 sync.py churn-status      /path/to/repo", file=sys.stderr)
     print("  python3 sync.py churn-reset       /path/to/repo", file=sys.stderr)
     print("  python3 sync.py sync-stamp        /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
+    print("  python3 sync.py override-ack      /path/to/repo <rule_id> --reason \"...\"   (record a user-authorized rule override)", file=sys.stderr)
     print("  python3 sync.py review            /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
     print("  python3 sync.py write-intent      /path/to/repo  spec.json          (merge branch intent into .archie/intent.json)", file=sys.stderr)
     print("  python3 sync.py capture-intent    /path/to/repo [text]              (append a user-turn event)", file=sys.stderr)
@@ -1128,6 +1196,13 @@ def main(argv: list[str]) -> int:
 
     if cmd == "sync-stamp":
         return cmd_sync_stamp(root)
+
+    if cmd == "override-ack":
+        rid = rest[0] if rest and not rest[0].startswith("--") else ""
+        return cmd_override_ack(root, rid, _opt(rest, "--reason") or "")
+
+    if cmd == "override-ratify":
+        return cmd_override_ratify(root)
 
     if cmd == "review":
         return cmd_review(root)

@@ -69,13 +69,17 @@ def should_review(pr_meta: dict, max_files: int) -> tuple[bool, str]:
     return True, "eligible"
 
 
-def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
+def render_verdict(verdict: dict, confirmed: list[dict], spec=None, acked=None, stale_acks=None) -> str:
     """Render a Markdown delivery verdict comment.
 
     Args:
         verdict: dict with keys intent_completeness, breaks, conflicts, unknown.
         confirmed: list of confirmed finding dicts with kind, problem_statement, anchor.
         spec: optional intent spec dict with source, confidence, confirmed, acceptance_criteria.
+        acked: optional list of (override_entry, [findings]) tuples — human-acknowledged
+            overrides, excluded from the break count, rendered in their own section.
+        stale_acks: optional list of override entries whose ruled-on violation was not
+            observed this run — flagged so a reverted change doesn't leave a dangling ack.
 
     Returns:
         Markdown string with HTML marker comment for upsert.
@@ -136,9 +140,41 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
         for f in possible:
             lines.append(_render_finding(f))
 
+    if acked:
+        lines.append("")
+        lines.append(f"**⚠️ Acknowledged overrides** ({len(acked)} — user-authorized, "
+                     "not counted as breaks; merging ratifies the amendment):")
+        for entry, fs in acked:
+            lines.append(f"- `{_sanitize(entry.get('rule_id', '?'))}` — "
+                         f"{_sanitize(entry.get('reason', ''))} · authorized by "
+                         f"**{_sanitize(entry.get('authorized_by', '?'))}** on "
+                         f"{_sanitize(str(entry.get('created_at', ''))[:10])}")
+            for f in fs:
+                lines.append("  " + _render_finding(f))
+    if stale_acks:
+        lines.append("")
+        lines.append("**Stale overrides** (no matching violation observed this run — if the "
+                     "change was reverted, remove the entry from `.archie/overrides.json`):")
+        for e in stale_acks:
+            lines.append(f"- `{_sanitize(e.get('rule_id', '?'))}` — {_sanitize(e.get('reason', ''))}")
+
     lines.append("")
     lines.append("_Story wrong? Edit the task story (or re-run `archie imprint`) and push — this comment updates._")
     return "\n".join(lines)
+
+
+def partition_for_verdict(root, confirmed):
+    """Split confirmed findings by human ruling (overrides.partition). Degrades
+    to (confirmed, [], []) when the overrides module/file is absent — the exit-0
+    contract must survive a missing ledger."""
+    try:
+        import overrides as _ov
+        act = _ov.active(root)
+        if not act:
+            return confirmed, [], []
+        return _ov.partition(confirmed, act)
+    except Exception:
+        return confirmed, [], []
 
 
 def _load_pr_meta_from_event(event_path):
@@ -344,6 +380,7 @@ def run_pr_gate(root=".", env=None):
 
     # 7. Editor gate + aggregate verdict.
     confirmed = []
+    acked_over, stale_over = [], []
     verdict = {"intent_completeness": "0/0", "breaks": 0, "conflicts": 0, "gate_signal": 1.0}
     try:
         from editor_gate import gate
@@ -363,6 +400,7 @@ def run_pr_gate(root=".", env=None):
         cl = changed_lines or None
         result = gate(raw, store, changed_lines=cl, floors=floors, file_level_kinds=advisory)
         confirmed = result.get("confirmed", [])
+        confirmed, acked_over, stale_over = partition_for_verdict(root, confirmed)
         verdict = aggregate_verdict(spec, confirmed)
     except Exception as e:
         print(f"[archie] gate/verdict failed ({e})")
@@ -373,7 +411,7 @@ def run_pr_gate(root=".", env=None):
     # 8. Render + publish. Fork PRs (no token) print the verdict instead of posting.
     # A render/post failure must never abort the review (exit 0 by contract).
     try:
-        body = render_verdict(verdict, confirmed, spec)
+        body = render_verdict(verdict, confirmed, spec, acked=acked_over, stale_acks=stale_over)
         token = env.get("GITHUB_TOKEN", "").strip()
         repo_full = env.get("GITHUB_REPOSITORY", "")
         number = pr_meta.get("number")

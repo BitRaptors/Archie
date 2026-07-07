@@ -68,6 +68,14 @@ def _real(p):
         return p
 fp_real = _real(fp) if fp.startswith("/") else fp
 project_root_real = _real(project_root)
+
+# Exempt ONLY the canonical override ledger at the project root — the
+# sanctioned ack flow writes it; matching rules against its content would
+# recursively block the door. Anchored to the resolved root so nested or
+# look-alike paths (packages/x/.archie/..., notes.archie/...) are NOT exempt.
+if fp_real == os.path.join(project_root_real, ".archie", "overrides.json"):
+    sys.exit(0)
+
 if fp_real.startswith("/") and not fp_real.startswith(project_root_real):
     sys.exit(0)
 
@@ -84,6 +92,15 @@ for rpath in (rules_file, platform_rules_file):
         rules.extend(loaded.get("rules", []) if isinstance(loaded, dict) else loaded)
     except Exception:
         pass
+
+overrides_active = {}
+try:
+    with open(os.path.join(project_root, ".archie", "overrides.json")) as _f:
+        for _e in (json.load(_f).get("overrides") or []):
+            if _e.get("status") == "acked" and _e.get("rule_id"):
+                overrides_active[_e["rule_id"]] = _e
+except Exception:
+    pass
 
 rel_path = fp
 if fp_real.startswith(project_root_real):
@@ -241,6 +258,7 @@ def _trigger_fires(rule, rel_path, content):
 errors = []
 warns = []
 infos = []
+overridden = []
 
 for r in rules:
     check = r.get("check", "")
@@ -293,7 +311,9 @@ for r in rules:
         continue
 
     sc = r.get("severity_class", "")
-    if sc in SEVERITY_BLOCKING or (not sc and r.get("severity") == "error"):
+    if r.get("id", "") in overrides_active:
+        overridden.append((r, conf, overrides_active[r["id"]]))
+    elif sc in SEVERITY_BLOCKING or (not sc and r.get("severity") == "error"):
         errors.append((r, conf))
     elif sc in SEVERITY_INFO:
         infos.append((r, conf))
@@ -316,9 +336,17 @@ for r, c in infos[:5]:
     render_fired(r, c, "INFO")
 for r, c in warns[:5]:
     render_fired(r, c, "WARN")
+for r, c, e in overridden[:5]:
+    render_fired(r, c, f"WARN (overridden by {e.get('authorized_by', '?')}: {e.get('reason', '')[:80]})")
 for r, c in errors:
     render_fired(r, c, "BLOCKED")
 if errors:
+    ids = ", ".join(r.get("id", "?") for r, _ in errors)
+    print("")
+    print("[Archie] These are hard architectural rules. Do NOT reword the change to dodge")
+    print("them and do NOT modify enforcement hooks. If the USER explicitly authorizes")
+    print(f"crossing a rule in this conversation, record it and retry (one per rule id: {ids}):")
+    print("  python3 .archie/sync.py override-ack . <rule-id> --reason \"<the user's stated reason>\"")
     sys.exit(2)
 PYEOF
 _rc=$?

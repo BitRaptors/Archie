@@ -63,8 +63,12 @@ def run_sync_review(
     Returns:
         dict with keys:
         - skipped: True if the skip-gate fired (no source files, no specialists).
-        - confirmed: list of confirmed findings (absent when skipped).
-        - verdict: aggregate_verdict dict (absent when skipped).
+        - confirmed: list of confirmed findings, acked ones excluded (absent when skipped).
+        - acked: list of (override_entry, [findings]) pairs for acked rule_ids
+          (absent when skipped) — see delivery_review.partition_for_verdict.
+        - stale_acks: list of override entries whose acked rule_id had no
+          matching finding this run (absent when skipped).
+        - verdict: aggregate_verdict dict computed over confirmed only (absent when skipped).
     """
     if run is None:
         run = run_verifier   # call-time lookup — monkeypatch takes effect
@@ -118,8 +122,15 @@ def run_sync_review(
     # Gate: validate, floor-check, anchor-check, dedup
     result = gate(raw, store, changed_lines=changed_lines, floors=floors)
 
+    # Human rulings: acked overrides are surfaced, not counted — the SAME
+    # partition the CI delivery review uses (one join for both surfaces).
+    from delivery_review import partition_for_verdict
+    confirmed, acked, stale_acks = partition_for_verdict(root, result["confirmed"])
+
     return {
         "skipped": False,
-        "confirmed": result["confirmed"],
-        "verdict": aggregate_verdict(spec, result["confirmed"]),
+        "confirmed": confirmed,
+        "acked": acked,
+        "stale_acks": stale_acks,
+        "verdict": aggregate_verdict(spec, confirmed),
     }
