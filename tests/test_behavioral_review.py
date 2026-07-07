@@ -83,3 +83,21 @@ def test_review_threads_intent_into_prompt(monkeypatch):
                         lambda prompt, *a, **k: captured.setdefault("p", prompt) or '{"findings":[]}')
     br.review("/x", "diff", {}, ["x.py"], intent={"goals": ["G-goal"], "acceptance_criteria": []})
     assert "G-goal" in captured["p"]
+
+
+def test_build_prompt_includes_evidence():
+    p = br.build_prompt("diff --git a b", {}, intent=None, evidence="CONTEXT: def f(): ...")
+    assert "CONTEXT: def f(): ..." in p
+
+
+def test_review_runs_passes_times():
+    calls = {"n": 0}
+
+    def fake_run(prompt, root, verifier, **kw):
+        calls["n"] += 1
+        return '{"findings":[{"problem_statement":"bug","file":"a.py","line":3,' \
+               '"falsification":"prove","confidence":0.7}]}'
+
+    out = br.review(".", "diff", {}, ["a.py"], run=fake_run, passes=3)
+    assert calls["n"] == 3          # one call per pass
+    assert len(out) == 3            # findings from all passes (merge happens later)
