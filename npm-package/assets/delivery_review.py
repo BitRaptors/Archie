@@ -88,6 +88,9 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None) -> str:
     lines.append(f"> Grading against the task story · source: **{_sanitize(spec.get('source', '?'))}** "
                  f"· confidence: **{_sanitize(spec.get('confidence', '?'))}** · {trust}")
     lines.append("")
+    if spec.get("diff_truncated"):
+        lines.append("> ⚠️ diff was truncated to the review budget — some files may be unreviewed.")
+        lines.append("")
     story = (spec.get("story") or "").strip()
     if story:
         lines.append("<details><summary>Task story</summary>\n\n" + _sanitize(story) + "\n\n</details>")
@@ -277,7 +280,7 @@ def run_pr_gate(root=".", env=None):
         print(f"[archie] story auto-imprint skipped ({e})")
 
     # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
-    diff_text, changed, changed_lines = "", [], {}
+    diff_text, changed, changed_lines, spec_truncated = "", [], {}, False
     try:
         from diff_basis import detect_base, changed_files_result, parse_hunk_added_lines, review_pathspec
         base = pr_meta.get("base_sha") or pr_meta.get("base_ref") or detect_base(root)
@@ -287,6 +290,7 @@ def run_pr_gate(root=".", env=None):
             from intent_review import run_git
             _, out, _ = run_git(root, "diff", base, "--", *review_pathspec())
             diff_text = (out or "")[:MAX_DIFF_CHARS]
+            spec_truncated = len(out or "") > MAX_DIFF_CHARS
             # changed-line map: parse a -U0 diff into the REAL added-line numbers per
             # file so the editor gate keeps line-anchored findings on changed lines
             # (instead of dropping all of them as anchor_unchanged). On any failure
@@ -326,41 +330,17 @@ def run_pr_gate(root=".", env=None):
     except Exception as e:
         print(f"[archie] blueprint load failed ({e})")
 
-    # 6. Run the reviewers — each guarded so one failure never blocks the rest.
+    # 6. Run the reviewers via the shared core (evidence pack + parallel fan-out + merge).
+    #    One core, shared with the local sync review (F3). Guarded — a core failure
+    #    degrades to no findings, never aborts the gate.
     raw = []
     try:
-        from reconcile import review_edge_a
-        raw += review_edge_a(root, spec, diff_text)
+        from review_core import run_review
+        if spec_truncated:
+            spec["diff_truncated"] = True
+        raw = run_review(root, diff_text, changed, blueprint, import_graph, spec)
     except Exception as e:
-        print(f"[archie] edge-A skipped ({e})")
-    try:
-        from behavioral_review import review as behavioral_review_run
-        raw += behavioral_review_run(root, diff_text, import_graph, changed, intent=spec)
-    except Exception as e:
-        print(f"[archie] behavioral review skipped ({e})")
-    if spec.get("acceptance_criteria") or spec.get("goals"):
-        try:
-            from reconcile import review_edge_c
-            raw += review_edge_c(root, spec, (blueprint.get("domain_invariants") or []))
-        except Exception as e:
-            print(f"[archie] edge-C skipped ({e})")
-    # Conformance (edge B): did the DIFF break a standing invariant/decision? The
-    # selector routes to the SPECIFIC items the change touched. Touched invariants go
-    # through the contract -> tracer -> challenger specialist (§6.6a); decisions stay
-    # on the single-pass conformance check.
-    try:
-        from selector import touched_context
-        ctx = touched_context(blueprint, changed)
-        try:
-            from invariant_specialist import review_invariants
-            raw += review_invariants(root, diff_text, ctx["invariants"])
-        except Exception as e:
-            print(f"[archie] invariant specialist skipped ({e})")
-        if ctx["decisions"]:
-            from reconcile import review_conformance
-            raw += review_conformance(root, diff_text, [], ctx["decisions"], intent=spec)
-    except Exception as e:
-        print(f"[archie] conformance skipped ({e})")
+        print(f"[archie] review core failed ({e})")
 
     # 7. Editor gate + aggregate verdict.
     confirmed = []
