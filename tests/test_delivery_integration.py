@@ -1,8 +1,10 @@
 """End-to-end pipeline integration test: drives REAL modules composed together.
 
 Only `run_verifier` (the LLM seam) is mocked — all real module wiring runs:
-selector → intent.save_branch_record → intent.resolve → review_edge_a
-→ behavioral_review → review_edge_c → editor_gate → aggregate_verdict.
+selector → intent.save_branch_record → intent.resolve → review_core.run_review
+(review_edge_a, behavioral_review, review_edge_c, invariant_specialist)
+→ editor_gate → aggregate_verdict. sync_review.run_sync_review delegates its
+reviewer fan-out to review_core.run_review (F3: shared brain with CI).
 
 Import convention: bare sys.path insert, then bare module imports.
 """
@@ -47,7 +49,7 @@ BRANCH = "feature/ARCH-9-export"
 def _make_fake_run():
     """Return a fake LLM runner that dispatches based on prompt content."""
 
-    def fake_run(prompt: str, root, model: str) -> str:
+    def fake_run(prompt: str, root, verifier: str, **kw) -> str:
         # resolve() — fills acceptance_criteria from raw text
         if "acceptance criteria" in prompt and "Extract the concrete" in prompt:
             return json.dumps({
@@ -56,6 +58,33 @@ def _make_fake_run():
                     {"id": "ac1", "text": "export is tenant-scoped"},
                     {"id": "ac2", "text": "rate limited"},
                 ],
+            })
+
+        # invariant specialist (review_core's Lane-2 reviewer for domain invariants) —
+        # tracer role: trace the diff through to consumer-visible behavior.
+        if "You are the TRACER" in prompt:
+            return json.dumps({
+                "invariant_id": "inv-tenant-scope",
+                "verdict": "violated",
+                "trace": "export() writes the response without a tenant filter -> "
+                         "client receives cross-tenant rows",
+                "file": "billing/usage.py",
+                "line": 44,
+                "evidence": ["export path added without a tenant filter"],
+                "confidence": 0.85,
+            })
+
+        # invariant specialist — challenger role: confirm or reject the tracer's verdict.
+        if "You are the CHALLENGER" in prompt:
+            return json.dumps({
+                "invariant_id": "inv-tenant-scope",
+                "decision": "confirm_violation",
+                "final_verdict": "violated",
+                "reason": "trace reaches the consumer-visible export response",
+                "falsification": "Show a tenant guard on the export path",
+                "file": "billing/usage.py",
+                "line": 44,
+                "confidence": 0.9,
             })
 
         # edge-A per-criterion check
@@ -188,9 +217,11 @@ def test_integration_full_pipeline(tmp_path):
         f"Expected '1/2' completeness (2 criteria, 1 unmet), got: {verdict['intent_completeness']}"
     )
 
-    # 6. Conformance ran (selector routed on the invariant) and its conformance_break
-    #    survived the gate (anchor line 44 is changed) → counted in breaks alongside
-    #    the behavioral break. Proves the conformance_break producer path is wired.
+    # 6. The invariant specialist ran (touched_context() routed on the invariant whose
+    #    enforced_at cites billing/usage.py) and its conformance_break survived the gate
+    #    (anchor line 44 is changed) → counted in breaks alongside the behavioral break.
+    #    Proves the conformance_break producer path (now invariant_specialist, via the
+    #    shared review_core) is wired end to end.
     assert "conformance_break" in confirmed_kinds, (
         f"Expected conformance_break in confirmed kinds: {confirmed_kinds}\n"
         f"confirmed: {confirmed}"

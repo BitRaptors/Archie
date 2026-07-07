@@ -91,27 +91,11 @@ def run_sync_review(
         except Exception:
             pass
 
-    # Run edge A (intent vs diff) and behavioral review; pass run through
-    raw = review_edge_a(root, spec, diff_text, run=run)
-    raw += behavioral_review_run(root, diff_text, import_graph, changed_files, run=run, intent=spec)
-
-    # Edge C (requirement vs standing invariants) — only when the spec has intent to
-    # conflict-check; skip otherwise to avoid a pointless LLM call. Non-blocking.
-    if spec.get("acceptance_criteria") or spec.get("goals"):
-        try:
-            raw += review_edge_c(root, spec, (blueprint.get("domain_invariants") or []), run=run)
-        except Exception:
-            pass
-
-    # Conformance (edge B): did the DIFF break a standing invariant/decision? Runs only
-    # when the selector routed to a Lane-2 specialist (i.e. the change actually touched a
-    # blueprint-anchored invariant/decision). This makes the selector's routing meaningful.
-    if sel["specialists"]:
-        try:
-            ctx = touched_context(blueprint, changed_files)
-            raw += review_conformance(root, diff_text, ctx["invariants"], ctx["decisions"], run=run, intent=spec)
-        except Exception:
-            pass
+    # Run the reviewers via the shared core (evidence pack + parallel fan-out + merge) —
+    # the SAME brain the CI delivery review uses (F3). Import inside the function so a
+    # test can monkeypatch review_core.run_review.
+    from review_core import run_review
+    raw = run_review(root, diff_text, changed_files, blueprint, import_graph, spec, run=run)
 
     # Load existing findings store for dedup
     store: list[dict] = []
