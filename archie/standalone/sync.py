@@ -810,6 +810,26 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# override-ack — record a user-authorized rule override
+# ---------------------------------------------------------------------------
+
+def cmd_override_ack(root: Path, rule_id: str, reason: str) -> int:
+    """Record a human-authorized rule override. Agent-run ONLY — and only after
+    the user explicitly confirmed crossing the rule in conversation. Gates then
+    demote this rule from BLOCK to WARN on this branch; the PR delivery review
+    surfaces it as an acknowledged override; merge ratifies it."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    if not rule_id or not reason:
+        print('usage: sync.py override-ack <root> <rule_id> --reason "..."', file=sys.stderr)
+        return 1
+    import overrides as _ov
+    e = _ov.ack(root, rule_id, reason)
+    print(json.dumps({"acked": e["rule_id"], "branch": e["branch"], "by": e["authorized_by"]}))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # review — run the (previously orphaned) delivery-review pipeline on the branch
 # delta. Non-blocking: ALWAYS returns 0, never raises to the caller.
 # ---------------------------------------------------------------------------
@@ -893,6 +913,7 @@ def _usage() -> None:
     print("  python3 sync.py churn-status      /path/to/repo", file=sys.stderr)
     print("  python3 sync.py churn-reset       /path/to/repo", file=sys.stderr)
     print("  python3 sync.py sync-stamp        /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
+    print("  python3 sync.py override-ack      /path/to/repo <rule_id> --reason \"...\"   (record a user-authorized rule override)", file=sys.stderr)
     print("  python3 sync.py review            /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
     print("  python3 sync.py write-intent      /path/to/repo  spec.json          (merge branch intent into .archie/intent.json)", file=sys.stderr)
     print("  python3 sync.py capture-intent    /path/to/repo [text]              (append a user-turn event)", file=sys.stderr)
@@ -1128,6 +1149,10 @@ def main(argv: list[str]) -> int:
 
     if cmd == "sync-stamp":
         return cmd_sync_stamp(root)
+
+    if cmd == "override-ack":
+        rid = rest[0] if rest and not rest[0].startswith("--") else ""
+        return cmd_override_ack(root, rid, _opt(rest, "--reason") or "")
 
     if cmd == "review":
         return cmd_review(root)
