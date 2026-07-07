@@ -119,7 +119,15 @@ def _exec_tool(root, name, args):
         root_resolved = Path(root).resolve()
         hits = []
         for f in root_resolved.rglob(globp):
-            if ".git" in f.parts or not f.is_file():
+            if not f.is_file():
+                continue
+            # Jail every candidate the same way read_file is jailed: a symlinked
+            # FILE inside the checkout can point outside the repo, and rglob will
+            # yield it. relative_to() below only compares lexically, so it would
+            # happily relabel the outside file as an in-repo path and leak its
+            # contents into the review. Resolve and require real containment.
+            rf = f.resolve()
+            if (rf != root_resolved and root_resolved not in rf.parents) or ".git" in rf.parts:
                 continue
             try:
                 for n, ln in enumerate(f.read_text("utf-8", errors="replace").splitlines(), 1):

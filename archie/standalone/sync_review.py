@@ -1,8 +1,12 @@
-"""Sync-surface delivery review: light, continuous, non-blocking. Runs edge A +
-behavioral on the branch delta, gates, and returns a status-line verdict.
+"""Sync-surface delivery review: continuous, non-blocking. Runs the SAME shared
+review core as the CI delivery review (F3) on the branch delta — evidence pack +
+parallel fan-out (edge A, behavioral, four universal lenses, edge C, and the
+tracer/challenger invariant specialist + conformance for touched blueprint items)
+— then gates and returns a status-line verdict.
 
 SKIP-GATE: if select_specialists picks no specialists AND no changed file is
-source code, returns {"skipped": True} without any LLM call.
+source code, returns {"skipped": True} without any LLM call (the fast no-op path
+is preserved even though the fan-out itself is now the full core).
 
 Import convention: bare-name imports via sys.path so this works on Python 3.9
 (archie/__init__.py uses tomllib which is 3.11+).
@@ -93,9 +97,14 @@ def run_sync_review(
 
     # Run the reviewers via the shared core (evidence pack + parallel fan-out + merge) —
     # the SAME brain the CI delivery review uses (F3). Import inside the function so a
-    # test can monkeypatch review_core.run_review.
-    from review_core import run_review
-    raw = run_review(root, diff_text, changed_files, blueprint, import_graph, spec, run=run)
+    # test can monkeypatch review_core.run_review. Guarded like the CI surface: a core
+    # failure degrades to no findings rather than aborting the sync review.
+    raw = []
+    try:
+        from review_core import run_review
+        raw = run_review(root, diff_text, changed_files, blueprint, import_graph, spec, run=run)
+    except Exception:
+        pass
 
     # Load existing findings store for dedup
     store: list[dict] = []

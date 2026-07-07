@@ -61,3 +61,26 @@ def test_tool_loop_denies_path_escape(tmp_path, monkeypatch):
     monkeypatch.setattr(ac.urllib.request, "urlopen", fake_urlopen)
     out = ac.run_verifier("go", tmp_path, "claude", tools=True)
     assert out == "ok"
+
+
+def test_grep_does_not_leak_symlinked_file_outside_repo(tmp_path):
+    # A symlinked FILE committed inside the checkout that points outside the
+    # repo must not be read by grep — rglob yields it and relative_to() would
+    # relabel it as an in-repo path, leaking an outside secret into the review.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "clean.py").write_text("harmless = 1\n")
+    outside = tmp_path / "outside_secret.py"
+    outside.write_text("API_KEY = 'supersecret-leak'\n")
+    link = repo / "innocent.py"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        import pytest
+        pytest.skip("symlinks unsupported on this platform")
+
+    out = ac._exec_tool(repo, "grep", {"pattern": "supersecret", "glob": "*.py"})
+    assert "supersecret" not in out          # the outside file was NOT read
+    assert "innocent.py" not in out          # nor relabelled as an in-repo hit
+    # a real in-repo match still works
+    assert "harmless" in ac._exec_tool(repo, "grep", {"pattern": "harmless", "glob": "*.py"})
