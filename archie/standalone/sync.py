@@ -1171,6 +1171,11 @@ def main(argv: list[str]) -> int:
         _usage()
         return 1
     cmd = argv[1]
+    # A flag is never a project path: `sync.py record --help` once resolved
+    # "--help" as the root and CREATED a ./--help/ directory in the repo.
+    if str(argv[2]).startswith("-"):
+        _usage()
+        return 1
     root = Path(argv[2]).resolve()
     rest = argv[3:]
 

@@ -51,3 +51,24 @@ def test_internal_spawns_are_never_nudged(tmp_path):
     r = _run_stop(tmp_path, {"ARCHIE_INTERNAL": "1"})
     assert r.returncode == 0
     assert r.stderr.strip() == ""
+
+
+def test_nudge_fires_once_then_suppressed_within_ttl(tmp_path):
+    # Nag-budget regression: the exit-2 nudge re-fired on EVERY stop while
+    # churn stayed crossed, forcing a full model turn each time (unsatisfiable
+    # when /archie-sync itself was drift-blocked).
+    _project_with_crossed_churn(tmp_path)
+    r1 = _run_stop(tmp_path, {})
+    assert r1.returncode == 2                 # first nudge fires
+    r2 = _run_stop(tmp_path, {})
+    assert r2.returncode == 0                 # nagged recently -> suppressed
+    assert r2.stderr.strip() == ""
+
+
+def test_sync_rejects_flag_as_project_path(tmp_path):
+    import subprocess, sys
+    SYNC = Path(__file__).resolve().parent.parent / "archie" / "standalone" / "sync.py"
+    r = subprocess.run([sys.executable, str(SYNC), "record", "--help"],
+                       capture_output=True, text=True, cwd=str(tmp_path))
+    assert r.returncode == 1
+    assert not (tmp_path / "--help").exists()   # no junk dir created

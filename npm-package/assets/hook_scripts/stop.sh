@@ -45,7 +45,8 @@ if churn.get("crossed") or nplans:
     extra = f", {nplans} captured plan(s)" if nplans else ""
     print(f"Archie: considerable work since last sync ({f} files / {l} lines changed{extra}). "
           f"Run /archie-sync to record any behavior change, impact, or rule, then stop. "
-          f"Decline if nothing is worth recording.")
+          f"If it reports baseline drift and asks for /archie-deep-scan, that is the user's "
+          f"call — surface it once and stop. Decline if nothing is worth recording.")
 PY
 )
 
@@ -56,6 +57,19 @@ if [ -z "$ARCHIE_INTERNAL" ] && [ -f "$PROJECT_ROOT/.archie/sync.py" ]; then
 fi
 
 if [ -n "$NUDGE" ]; then
+    # Nag budget: once per 30 minutes per project. Without this the exit-2
+    # nudge re-fired on EVERY stop while churn stayed crossed — each one
+    # forcing a full model turn to answer it (observed: 3 cycles at 1-4 min
+    # each after the work was already done, and /archie-sync itself was
+    # drift-blocked, so the nag was unsatisfiable).
+    NUDGE_MARK="/tmp/.archie_nudge_$TURN_HASH"
+    NOW=$(date +%s)
+    LAST=$(cat "$NUDGE_MARK" 2>/dev/null || echo 0)
+    case "$LAST" in (*[!0-9]*|"") LAST=0 ;; esac
+    if [ $((NOW - LAST)) -lt 1800 ]; then
+        exit 0
+    fi
+    echo "$NOW" > "$NUDGE_MARK"
     printf '%s\n' "$NUDGE" >&2
     exit 2
 fi
