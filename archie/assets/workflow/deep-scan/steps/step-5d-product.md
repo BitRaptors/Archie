@@ -89,7 +89,7 @@ GROUNDING RULES apply (see below).
 
 ## Override tombstones (read FIRST)
 
-Read `.archie/overrides.json` and `.archie/overrides_history.jsonl` if present.
+Read `.archie/overrides.json` if present.
 Any invariant id that appears there was DELIBERATELY overridden by the user and
 (if ratified) merged. Do not re-derive that invariant, do not carry it forward
 from the previous blueprint, and do not build derived laws on top of it. Re-derive

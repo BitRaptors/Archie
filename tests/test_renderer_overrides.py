@@ -35,3 +35,14 @@ def test_product_laws_marks_branch_staged_override():
     ]}
     body = renderer._build_product_laws_rule(bp)["body"]
     assert "staged" in body.lower() and "demo/x" in body
+
+
+def test_overridden_law_is_labelled_retired_not_ratified():
+    bp = {"domain_invariants": [
+        {"id": "inv-003", "invariant": "cost is never stored", "entity": "B", "category": "billing",
+         "status": "overridden",
+         "override": {"reason": "store cost", "authorized_by": "Gabor <g@e.com>", "branch": "demo/x"}},
+    ]}
+    body = renderer._build_product_laws_rule(bp)["body"]
+    assert "retired" in body.lower()
+    assert "ratified" not in body.lower()

@@ -42,29 +42,6 @@ def test_active_maps_rule_ids(tmp_path):
     assert set(act) == {"inv-003", "trd-002"}
 
 
-def test_pending_ratification_only_foreign_branch_entries(tmp_path):
-    _git_repo(tmp_path, branch="develop")
-    ov.ack(tmp_path, "inv-here", "on this branch")         # branch == develop
-    data = ov.load(tmp_path)
-    data["overrides"].append({"rule_id": "inv-003", "reason": "merged in",
-                              "authorized_by": "X", "branch": "demo/other",
-                              "created_at": "2026-07-07T00:00:00Z", "status": "acked"})
-    ov.save(tmp_path, data)
-    pend = ov.pending_ratification(tmp_path)
-    assert [e["rule_id"] for e in pend] == ["inv-003"]
-
-
-def test_archive_moves_entry_to_history(tmp_path):
-    _git_repo(tmp_path)
-    e = ov.ack(tmp_path, "inv-003", "r")
-    ov.archive(tmp_path, e, status="ratified")
-    assert ov.active(tmp_path) == {}
-    hist = (tmp_path / ".archie" / "overrides_history.jsonl").read_text().strip().splitlines()
-    rec = json.loads(hist[0])
-    assert rec["rule_id"] == "inv-003" and rec["status"] == "ratified"
-    assert rec["archived_at"].endswith("Z")
-
-
 def test_finding_matches_by_id_statement_and_assumptions():
     assert ov.finding_matches({"id": "f_inv_inv-003"}, "inv-003")
     assert ov.finding_matches({"problem_statement": "violates inv-003: cost stored"}, "inv-003")
@@ -160,3 +137,21 @@ def test_gate_end_to_end_survives_list_shaped_finding():
     assert c["kind"] == "behavioral_break"
     assert c["anchor"]["file"] == "worker/lib/pool_cache.py"
     assert c["id"] == "f1"                      # identity preserved
+
+
+def test_ack_snapshots_the_law_text(tmp_path):
+    _git_repo(tmp_path)
+    e = ov.ack(tmp_path, "inv-003", "store cost", law="Run cost must never be stored")
+    assert e["law"] == "Run cost must never be stored"
+    assert ov.load(tmp_path)["overrides"][0]["law"] == "Run cost must never be stored"
+
+
+def test_ack_without_law_defaults_to_empty(tmp_path):
+    _git_repo(tmp_path)
+    assert ov.ack(tmp_path, "inv-003", "r")["law"] == ""
+
+
+def test_ratification_helpers_are_gone():
+    """merging is the ratification — nothing applies an override after the fact."""
+    assert not hasattr(ov, "pending_ratification")
+    assert not hasattr(ov, "archive")

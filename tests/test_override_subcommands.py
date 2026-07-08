@@ -36,65 +36,56 @@ def test_override_ack_requires_rule_and_reason(tmp_path):
     assert r.returncode == 1
 
 
-def test_override_ratify_applies_contract_and_archives(tmp_path):
-    _git_repo(tmp_path, branch="develop")           # entry below is from demo/x → pending
+def test_override_ack_removes_the_rule_and_stamps_the_blueprint(tmp_path):
+    _git_repo(tmp_path)
     (tmp_path / ".archie" / "rules.json").write_text(json.dumps({"rules": [
-        {"id": "inv-003", "severity_class": "decision_violation", "description": "never store cost"},
-        {"id": "arch-001", "severity_class": "pattern_divergence", "description": "keep"},
+        {"id": "inv-003", "description": "Run cost must never be stored",
+         "forced_by": "Domain law inv-subscribe-workflow-003: ledger is the truth."},
+        {"id": "arch-001", "description": "keep me"},
     ]}))
     (tmp_path / ".archie" / "blueprint.json").write_text(json.dumps({"domain_invariants": [
-        {"id": "inv-003", "invariant": "cost is never stored", "entity": "BillableStep"},
-        {"id": "inv-001", "invariant": "keep me", "entity": "AgentRun"},
+        {"id": "inv-subscribe-workflow-003", "invariant": "cost is never stored"},
+        {"id": "inv-other", "invariant": "keep me"},
     ]}))
-    (tmp_path / ".archie" / "overrides.json").write_text(json.dumps({"version": 1, "overrides": [
-        {"rule_id": "inv-003", "reason": "store cost", "authorized_by": "Gabor <g@e.com>",
-         "branch": "demo/x", "created_at": "2026-07-07T00:00:00Z", "status": "acked"}]}))
-
-    r = subprocess.run([sys.executable, str(SYNC), "override-ratify", str(tmp_path)],
+    r = subprocess.run([sys.executable, str(SYNC), "override-ack", str(tmp_path),
+                        "inv-003", "--reason", "dashboard reads total_cost"],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert json.loads(r.stdout.strip().splitlines()[-1]) == {"ratified": ["inv-003"]}
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["acked"] == "inv-003" and out["rule_removed"] is True
 
     rules = json.loads((tmp_path / ".archie" / "rules.json").read_text())["rules"]
-    assert [x["id"] for x in rules] == ["arch-001"]              # retired
+    assert [x["id"] for x in rules] == ["arch-001"]           # removed from the branch
+
     bp = json.loads((tmp_path / ".archie" / "blueprint.json").read_text())
-    inv3 = next(x for x in bp["domain_invariants"] if x["id"] == "inv-003")
-    assert inv3["status"] == "overridden"
-    assert inv3["override"]["authorized_by"] == "Gabor <g@e.com>"
-    assert ov.active(tmp_path) == {}                             # archived
-    hist = (tmp_path / ".archie" / "overrides_history.jsonl").read_text()
-    assert "ratified" in hist
+    inv = next(x for x in bp["domain_invariants"] if x["id"] == "inv-subscribe-workflow-003")
+    assert inv["status"] == "overridden"
+    assert inv["override"]["reason"] == "dashboard reads total_cost"
+    assert inv["override"]["authorized_by"]
+    assert next(x for x in bp["domain_invariants"] if x["id"] == "inv-other").get("status") is None
 
-    # idempotent: second run is a no-op
-    r2 = subprocess.run([sys.executable, str(SYNC), "override-ratify", str(tmp_path)],
+    e = ov.active(tmp_path)["inv-003"]
+    assert e["law"] == "Run cost must never be stored"        # snapshot survives removal
+    assert e["reason"] == "dashboard reads total_cost"
+
+
+def test_override_ack_is_idempotent_and_survives_missing_rule(tmp_path):
+    _git_repo(tmp_path)
+    (tmp_path / ".archie" / "rules.json").write_text(json.dumps({"rules": []}))
+    r1 = subprocess.run([sys.executable, str(SYNC), "override-ack", str(tmp_path),
+                         "ghost-9", "--reason", "not in rules.json"],
                         capture_output=True, text=True)
-    assert json.loads(r2.stdout.strip().splitlines()[-1]) == {"ratified": []}
+    assert r1.returncode == 0
+    assert json.loads(r1.stdout.strip().splitlines()[-1])["rule_removed"] is False
+    r2 = subprocess.run([sys.executable, str(SYNC), "override-ack", str(tmp_path),
+                         "ghost-9", "--reason", "different words"],
+                        capture_output=True, text=True)
+    assert r2.returncode == 0
+    assert len(ov.load(tmp_path)["overrides"]) == 1           # first ruling kept
 
 
-def test_override_ratify_skips_current_branch_entries(tmp_path):
-    _git_repo(tmp_path, branch="demo/x")            # entry authored HERE → still active
-    (tmp_path / ".archie" / "overrides.json").write_text(json.dumps({"version": 1, "overrides": [
-        {"rule_id": "inv-003", "reason": "r", "authorized_by": "G",
-         "branch": "demo/x", "created_at": "t", "status": "acked"}]}))
+def test_override_ratify_command_is_gone(tmp_path):
+    _git_repo(tmp_path)
     r = subprocess.run([sys.executable, str(SYNC), "override-ratify", str(tmp_path)],
                        capture_output=True, text=True)
-    assert json.loads(r.stdout.strip().splitlines()[-1]) == {"ratified": []}
-    assert "inv-003" in ov.active(tmp_path)
-
-
-def test_override_ratify_noop_off_base_branch(tmp_path):
-    """Regression: a non-base branch (e.g. a renamed/child feature branch) must
-    NEVER ratify, even when an entry from a DIFFERENT branch is pending — merge
-    onto the base branch is the only event that counts as ratification. Without
-    this gate, `cmd_override_ratify` processed any entry with branch !=
-    current_branch, so simply being on some other branch (not necessarily the
-    base) would retire the rule early, while its PR is still open."""
-    _git_repo(tmp_path, branch="feature/other")      # not main/master/develop, no remote
-    (tmp_path / ".archie" / "overrides.json").write_text(json.dumps({"version": 1, "overrides": [
-        {"rule_id": "inv-003", "reason": "r", "authorized_by": "G",
-         "branch": "demo/x", "created_at": "t", "status": "acked"}]}))
-    r = subprocess.run([sys.executable, str(SYNC), "override-ratify", str(tmp_path)],
-                       capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
-    assert json.loads(r.stdout.strip().splitlines()[-1]) == {"ratified": []}
-    assert "inv-003" in ov.active(tmp_path)          # entry stays active — not ratified early
+    assert r.returncode != 0                                   # unknown subcommand
