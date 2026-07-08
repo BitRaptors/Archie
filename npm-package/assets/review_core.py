@@ -43,8 +43,17 @@ def run_review(root, diff_text, changed_files, blueprint, import_graph, spec,
                run=None, passes=2, workers=4) -> list:
     passes = int(os.environ.get("ARCHIE_REVIEW_PASSES", passes))
     workers = int(os.environ.get("ARCHIE_REVIEW_WORKERS", workers))
-    evidence = build_pack(root, changed_files, import_graph, blueprint)
-    ctx = touched_context(blueprint, changed_files)
+    # Context prep must DEGRADE, never kill the fan-out: a shape quirk in one
+    # blueprint took down every reviewer on both surfaces (SubscriberAgent PR #17
+    # rendered a hollow green verdict). Reviewers run with less context instead.
+    try:
+        evidence = build_pack(root, changed_files, import_graph, blueprint)
+    except Exception:
+        evidence = ""
+    try:
+        ctx = touched_context(blueprint, changed_files)
+    except Exception:
+        ctx = {"invariants": [], "decisions": []}
     has_intent = bool(spec.get("acceptance_criteria") or spec.get("goals"))
 
     thunks = [

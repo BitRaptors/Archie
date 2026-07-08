@@ -70,16 +70,27 @@ ARCHIE_PERMISSIONS = [
 ]
 
 
-def _add_hook(hooks_list: list, matcher: str, command: str) -> None:
-    needle = matcher or "*"
+def _add_hook(hooks_list: list, matcher: str, script_name: str) -> None:
+    """Canonicalizing upsert. Dedup keys on the SCRIPT NAME, not the matcher or
+    command string: old installs wrote relative commands (which break — exit 127,
+    treated as non-blocking — the moment the session shell cd's out of the repo
+    root, silently disabling enforcement) and matcher orders changed across
+    versions, producing duplicates. Strip every stale variant of this script,
+    then register one $CLAUDE_PROJECT_DIR-anchored entry."""
+    suffix = f"/.claude/hooks/{script_name}"
+
+    def _is_this_script(cmd) -> bool:
+        c = str(cmd or "")
+        return c == f".claude/hooks/{script_name}" or c.endswith(suffix)
+
     for entry in hooks_list:
-        if entry.get("matcher") in (matcher, needle):
-            for h in entry.get("hooks", []):
-                if h.get("command") == command:
-                    return
+        entry["hooks"] = [h for h in entry.get("hooks", [])
+                          if not _is_this_script(h.get("command"))]
+    hooks_list[:] = [e for e in hooks_list if e.get("hooks")]
     hooks_list.append({
-        "matcher": needle if matcher == "" else matcher,
-        "hooks": [{"type": "command", "command": command}],
+        "matcher": matcher or "*",
+        "hooks": [{"type": "command",
+                   "command": f"$CLAUDE_PROJECT_DIR/.claude/hooks/{script_name}"}],
     })
 
 
@@ -112,7 +123,7 @@ def install(project_root: Path) -> None:
         # $CLAUDE_PROJECT_DIR (set by Claude Code) makes the hook resolvable from
         # any working directory — a relative path breaks the moment the agent's
         # cwd drifts into a subfolder, silently disabling enforcement + capture.
-        _add_hook(bucket, matcher, f"$CLAUDE_PROJECT_DIR/.claude/hooks/{script_name}")
+        _add_hook(bucket, matcher, script_name)
 
     perms = settings.setdefault("permissions", {})
     allow = set(perms.get("allow", []))

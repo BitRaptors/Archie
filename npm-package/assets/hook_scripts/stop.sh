@@ -5,6 +5,14 @@
 # unrecorded work — blocking signal is exit code 2 on BOTH Claude and Codex.
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 INPUT=$(cat 2>/dev/null || true)   # Stop event envelope (may be empty on some CLIs)
+
+# Archie's own internal claude -p spawns (finding verifiers, reviewers, the
+# imprint) must NEVER be stop-nudged: in -p mode the model's reply to the
+# nudge becomes the LAST assistant message, which is what --output-format
+# json returns as `result` — silently REPLACING the reviewer's findings.
+# This destroyed every reviewer output on any repo where churn had crossed.
+[ -n "$ARCHIE_INTERNAL" ] && exit 0
+
 TURN_HASH=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
 # Avoid leaking per-turn rule injection state if a session ends without the
 # next UserPromptSubmit event clearing it.

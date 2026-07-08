@@ -88,7 +88,13 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None, acked=None, 
     crit = spec.get("acceptance_criteria") or []
     unmet_ids = {f.get("criterion_id") for f in confirmed if f.get("kind") in ("intent_unmet", "intent_partial")}
     trust = "human-confirmed" if spec.get("confirmed") else "unconfirmed (auto-synthesized — lower trust)"
+    engine_failed = bool(spec.get("review_engine_failed"))
     lines = ["<!-- archie-delivery-review -->", "## Archie delivery review", ""]
+    if engine_failed:
+        lines.append("> 🛑 **REVIEW ENGINE FAILED — no code review was performed.** "
+                     "Do NOT treat this comment as a green verdict. Check the workflow "
+                     "logs for `[archie] review core failed`.")
+        lines.append("")
     lines.append(f"> Grading against the task story · source: **{_sanitize(spec.get('source', '?'))}** "
                  f"· confidence: **{_sanitize(spec.get('confidence', '?'))}** · {trust}")
     lines.append("")
@@ -100,13 +106,16 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None, acked=None, 
         lines.append("<details><summary>Task story</summary>\n\n" + _sanitize(story) + "\n\n</details>")
         lines.append("")
     unknown = verdict.get("unknown", 0)
-    lines.append(f"**Built the intent?** {verdict.get('intent_completeness', '?')} criteria met"
-                 + (f" ({unknown} unknown)" if unknown else "") + ".")
-    for c in crit:
-        mark = "❌" if c.get("id") in unmet_ids else "✅"
-        src = _sanitize(((c.get("from") or {}).get("quote") or ""))
-        suffix = f"  ·  _from: {src[:70]}_" if src else ""
-        lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}{suffix}")
+    if engine_failed:
+        lines.append("**Built the intent?** not assessed — the review engine failed before grading.")
+    else:
+        lines.append(f"**Built the intent?** {verdict.get('intent_completeness', '?')} criteria met"
+                     + (f" ({unknown} unknown)" if unknown else "") + ".")
+        for c in crit:
+            mark = "❌" if c.get("id") in unmet_ids else "✅"
+            src = _sanitize(((c.get("from") or {}).get("quote") or ""))
+            suffix = f"  ·  _from: {src[:70]}_" if src else ""
+            lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}{suffix}")
     try:
         from reconcile import is_advisory_finding
     except Exception:
@@ -122,7 +131,10 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None, acked=None, 
                 f"({_sanitize(a.get('file', ''))}:{_sanitize(str(a.get('line', '')))}) · _{reviewer}_")
 
     lines.append("")
-    lines.append(f"**Broke anything?** {verdict.get('breaks', 0)} break(s), {verdict.get('conflicts', 0)} conflict(s).")
+    if engine_failed:
+        lines.append("**Broke anything?** not assessed — no reviewer ran.")
+    else:
+        lines.append(f"**Broke anything?** {verdict.get('breaks', 0)} break(s), {verdict.get('conflicts', 0)} conflict(s).")
     possible = []
     for f in confirmed:
         if f.get("kind") in ("intent_unmet", "intent_partial"):
@@ -368,14 +380,17 @@ def run_pr_gate(root=".", env=None):
 
     # 6. Run the reviewers via the shared core (evidence pack + parallel fan-out + merge).
     #    One core, shared with the local sync review (F3). Guarded — a core failure
-    #    degrades to no findings, never aborts the gate.
+    #    degrades to no findings, never aborts the gate — but it must be DISCLOSED:
+    #    a crashed engine once rendered as a glowing 13/13, 0-break verdict (PR #17).
     raw = []
+    engine_failed = False
     try:
         from review_core import run_review
         if spec_truncated:
             spec["diff_truncated"] = True
         raw = run_review(root, diff_text, changed, blueprint, import_graph, spec)
     except Exception as e:
+        engine_failed = True
         print(f"[archie] review core failed ({e})")
 
     # 7. Editor gate + aggregate verdict.
@@ -405,7 +420,15 @@ def run_pr_gate(root=".", env=None):
     except Exception as e:
         print(f"[archie] gate/verdict failed ({e})")
 
-    status["reviewed"] = True
+    # Fail CLOSED at render time: a dead engine must never present as a clean
+    # review. "Silence = met" completeness and the stale-override sweep are both
+    # meaningless when no reviewer ran — mark them not-assessed instead.
+    if engine_failed:
+        spec["review_engine_failed"] = True
+        verdict["intent_completeness"] = "n/a"
+        stale_over = []
+
+    status["reviewed"] = not engine_failed
     status["verdict"] = verdict
 
     # 8. Render + publish. Fork PRs (no token) print the verdict instead of posting.
