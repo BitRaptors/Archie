@@ -23,27 +23,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Trust model: intent_review.py is executed from the BASE ref copy
-      # (origin/${GITHUB_BASE_REF}), never from PR-head content. A same-repo
-      # branch contributor cannot edit the script that runs with secrets, so
-      # PR-head edits can't achieve arbitrary code execution. `pull_request`
-      # (NOT pull_request_target) + least-priv permissions are kept. With
-      # fetch-depth: 0 above, origin/${GITHUB_BASE_REF} is present in history
-      # and the script still diffs against the PR base SHA directly.
-      - name: Run Archie Intent Review
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
-        run: |
-          if git cat-file -e "origin/${GITHUB_BASE_REF}:.archie/intent_review.py" 2>/dev/null; then
-            rm -rf /tmp/archie-base && mkdir -p /tmp/archie-base
-            git archive "origin/${GITHUB_BASE_REF}" .archie | tar -x -C /tmp/archie-base
-            python3 /tmp/archie-base/.archie/intent_review.py
-          else
-            echo "[archie] .archie/intent_review.py not present on base ref, skipping."
-          fi
-
       # Delivery review: reconciles intent (PR title/body) + blueprint + diff into
       # a "built the intent? / broke anything?" verdict. Same trust model as above —
       # executed from the BASE ref copy, never PR-head content. Non-blocking: it

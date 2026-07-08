@@ -476,7 +476,8 @@ def run_pr_gate(root=".", env=None):
             owner, repo = repo_full.split("/", 1)
             try:
                 from intent_review import post_or_update_comment
-                post_or_update_comment(owner, repo, number, body, token)
+                post_or_update_comment(owner, repo, number, body, token,
+                                       marker=DELIVERY_MARKER)
                 status["posted"] = True
             except Exception as e:
                 print(f"[archie] could not post comment ({e})")

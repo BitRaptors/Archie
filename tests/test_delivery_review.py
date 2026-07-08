@@ -186,7 +186,7 @@ def test_run_pr_gate_uses_real_changed_lines(tmp_path, monkeypatch):
     monkeypatch.setattr(core, "review_invariants", lambda *a, **k: [])
 
     posted = {}
-    def spy_post(owner, repo, number, body, token):
+    def spy_post(owner, repo, number, body, token, marker=None):
         posted["body"] = body
     import intent_review as ir
     monkeypatch.setattr(ir, "post_or_update_comment", spy_post)
@@ -320,7 +320,7 @@ def test_run_pr_gate_auto_imprints_when_no_story(tmp_path, monkeypatch):
     monkeypatch.setattr(br, "review", lambda *a, **k: [])
 
     posted = {}
-    def spy_post(owner, repo, number, body, token):
+    def spy_post(owner, repo, number, body, token, marker=None):
         posted["body"] = body
     import intent_review as ir
     monkeypatch.setattr(ir, "post_or_update_comment", spy_post)

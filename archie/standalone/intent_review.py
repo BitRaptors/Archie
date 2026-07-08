@@ -873,24 +873,28 @@ def _next_link(link_header: str):
     return None
 
 
-def _find_existing_comment_id(owner, repo, pr_number, token):
-    """Find the Archie comment by marker, following pagination (PRs with >100
+def _find_existing_comment_id(owner, repo, pr_number, token, marker=COMMENT_MARKER):
+    """Find THIS script's comment by ITS marker, following pagination (PRs with >100
     comments won't cause a duplicate POST).
+
+    The marker is a PARAMETER because two scripts post to the same PR. When both
+    looked up by this module's COMMENT_MARKER, delivery_review PATCHed over the
+    intent review's comment on every run — leaking one orphaned comment per run.
     """
     url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100"
     while url:
         comments, link = _gh_request("GET", url, token)
         for c in comments if isinstance(comments, list) else []:
-            if COMMENT_MARKER in (c.get("body") or ""):
+            if marker in (c.get("body") or ""):
                 return c.get("id")
         url = _next_link(link)
     return None
 
 
-def post_or_update_comment(owner, repo, pr_number, body, token):
-    """Upsert the single Archie comment (find by marker -> PATCH, else POST). May raise
-    (HTTPError/URLError); callers in CI must use safe_post_comment()."""
-    existing_id = _find_existing_comment_id(owner, repo, pr_number, token)
+def post_or_update_comment(owner, repo, pr_number, body, token, marker=COMMENT_MARKER):
+    """Upsert THIS script's Archie comment (find by its marker -> PATCH, else POST).
+    May raise (HTTPError/URLError); callers in CI must use safe_post_comment()."""
+    existing_id = _find_existing_comment_id(owner, repo, pr_number, token, marker=marker)
     if existing_id:
         url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/comments/{existing_id}"
         _gh_request("PATCH", url, token, {"body": body})
@@ -901,14 +905,14 @@ def post_or_update_comment(owner, repo, pr_number, body, token):
         print("[intent-review] posted new comment")
 
 
-def safe_post_comment(owner, repo, pr_number, body, token):
+def safe_post_comment(owner, repo, pr_number, body, token, marker=COMMENT_MARKER):
     """Post but NEVER raise — the Action must always exit 0 (design §9). Catches every
     network/HTTP error (URLError covers HTTPError; OSError covers socket failures)."""
     if not token:
         print("[intent-review] no GITHUB_TOKEN — skipping comment post.", file=sys.stderr)
         return
     try:
-        post_or_update_comment(owner, repo, pr_number, body, token)
+        post_or_update_comment(owner, repo, pr_number, body, token, marker=marker)
     except (urllib.error.URLError, OSError, ValueError) as e:
         print(f"[intent-review] could not post comment: {e}", file=sys.stderr)
 
