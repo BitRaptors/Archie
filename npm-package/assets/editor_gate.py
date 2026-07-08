@@ -11,11 +11,25 @@ if _p not in sys.path:
 from evidence_schema import has_evidence_fields, coerce_confidence  # noqa: E402
 
 
+def _hashable(v):
+    """Model-shaped data reaches this key: an API-path reviewer once returned a
+    LIST for anchor.file, and the resulting unhashable tuple killed the whole
+    gate (which silently discarded every finding). Coerce, never crash."""
+    try:
+        hash(v)
+        return v
+    except TypeError:
+        import json as _json
+        return _json.dumps(v, sort_keys=True, default=str)
+
+
 def _dupe_key(f: dict):
     anchor = f.get("anchor") or {}
+    if not isinstance(anchor, dict):
+        anchor = {}
     raw_line = anchor.get("line")
     line = int(raw_line) if isinstance(raw_line, str) and raw_line.isdigit() else raw_line
-    return (anchor.get("file", ""), line, f.get("kind", ""))
+    return (_hashable(anchor.get("file", "")), _hashable(line), _hashable(f.get("kind", "")))
 
 
 def gate(raw_findings, store, *, changed_lines, floors, file_level_kinds=frozenset()) -> dict:

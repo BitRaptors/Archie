@@ -86,7 +86,16 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None, acked=None, 
     """
     spec = spec or {}
     crit = spec.get("acceptance_criteria") or []
-    unmet_ids = {f.get("criterion_id") for f in confirmed if f.get("kind") in ("intent_unmet", "intent_partial")}
+    # criterion_id is model-shaped: may be a scalar OR a list (a set comprehension
+    # over raw values raised unhashable-type and killed the render).
+    unmet_ids = set()
+    for f in confirmed:
+        if f.get("kind") in ("intent_unmet", "intent_partial"):
+            cid = f.get("criterion_id")
+            if isinstance(cid, (list, tuple)):
+                unmet_ids.update(str(c) for c in cid if c)
+            elif cid:
+                unmet_ids.add(str(cid))
     trust = "human-confirmed" if spec.get("confirmed") else "unconfirmed (auto-synthesized — lower trust)"
     engine_failed = bool(spec.get("review_engine_failed"))
     lines = ["<!-- archie-delivery-review -->", "## Archie delivery review", ""]
@@ -112,7 +121,7 @@ def render_verdict(verdict: dict, confirmed: list[dict], spec=None, acked=None, 
         lines.append(f"**Built the intent?** {verdict.get('intent_completeness', '?')} criteria met"
                      + (f" ({unknown} unknown)" if unknown else "") + ".")
         for c in crit:
-            mark = "❌" if c.get("id") in unmet_ids else "✅"
+            mark = "❌" if str(c.get("id")) in unmet_ids else "✅"
             src = _sanitize(((c.get("from") or {}).get("quote") or ""))
             suffix = f"  ·  _from: {src[:70]}_" if src else ""
             lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}{suffix}")
@@ -418,6 +427,10 @@ def run_pr_gate(root=".", env=None):
         confirmed, acked_over, stale_over = partition_for_verdict(root, confirmed)
         verdict = aggregate_verdict(spec, confirmed)
     except Exception as e:
+        # A gate/verdict crash silently discards every finding — that is an
+        # engine failure for the reader's purposes (PR #17 rendered green this
+        # way twice, through two different holes). Fail closed here too.
+        engine_failed = True
         print(f"[archie] gate/verdict failed ({e})")
 
     # Fail CLOSED at render time: a dead engine must never present as a clean

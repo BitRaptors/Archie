@@ -436,3 +436,38 @@ def test_render_verdict_fails_closed_when_engine_failed():
     assert "not assessed" in body
     assert "criteria met" not in body          # no silence=met celebration
     assert "0 break(s)" not in body            # no fake clean bill
+
+
+def test_render_verdict_survives_list_criterion_id():
+    # Model-shaped data: an intent finding carried criterion_id as a LIST —
+    # the raw set comprehension raised unhashable-type mid-render.
+    import delivery_review as dr
+    spec = {"acceptance_criteria": [{"id": "ac1", "text": "x"}, {"id": "ac2", "text": "y"}]}
+    confirmed = [{"kind": "intent_unmet", "criterion_id": ["ac1", "ac2"],
+                  "problem_statement": "both unmet", "anchor": {"file": "a.py", "line": 1}}]
+    body = dr.render_verdict({"intent_completeness": "0/2", "breaks": 0, "conflicts": 0},
+                             confirmed, spec)
+    assert body.count("❌") == 2
+
+
+def test_gate_crash_fails_closed(tmp_path, monkeypatch):
+    # PR #17 rendered green through a SECOND hole: gate() raised (unhashable
+    # dedup key) and the default verdict rendered as a clean review.
+    import delivery_review as dr
+    import editor_gate
+    monkeypatch.setattr(editor_gate, "gate",
+                        lambda *a, **k: (_ for _ in ()).throw(TypeError("unhashable type: 'list'")))
+    # minimal PR context: event file with a number, no token -> prints verdict
+    ev = tmp_path / "event.json"
+    ev.write_text(json.dumps({"pull_request": {"number": 9, "title": "t", "body": "b",
+                                               "base": {"ref": "main", "sha": ""},
+                                               "head": {"ref": "x", "sha": ""}}}))
+    import subprocess as _sp
+    _sp.run(["git", "init", "-q", str(tmp_path)])
+    (tmp_path / ".archie").mkdir()
+    out = {}
+    monkeypatch.setattr(dr, "render_verdict",
+                        lambda v, c, s, **k: out.update(spec=dict(s), verdict=dict(v)) or "body")
+    dr.run_pr_gate(tmp_path, {"GITHUB_EVENT_PATH": str(ev)})
+    assert out["spec"].get("review_engine_failed") is True
+    assert out["verdict"]["intent_completeness"] == "n/a"

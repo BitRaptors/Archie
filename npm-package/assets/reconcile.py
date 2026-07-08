@@ -202,8 +202,18 @@ def aggregate_verdict(intent_spec: dict, confirmed: list[dict]) -> dict:
     for f in confirmed:
         if f.get("kind") in ("intent_unmet", "intent_partial"):
             cid = f.get("criterion_id")
-            if cid:
-                unmet_ids.add(cid)
+            # Model-shaped data: reviewers sometimes return a LIST of criterion
+            # ids — set.add(list) raised and killed the whole verdict step.
+            if isinstance(cid, (list, tuple)):
+                added = False
+                for c in cid:
+                    if c:
+                        unmet_ids.add(str(c))
+                        added = True
+                if not added:
+                    extra_unmet += 1
+            elif cid:
+                unmet_ids.add(str(cid))
             else:
                 extra_unmet += 1
     unmet = len(unmet_ids) + extra_unmet

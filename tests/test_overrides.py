@@ -127,3 +127,16 @@ def test_partition_without_root_keeps_old_behavior(tmp_path):
                  "problem_statement": "violates inv-003"}]
     unacked, acked, stale = ov.partition(findings, act)
     assert unacked == [] and acked and stale == []
+
+
+def test_editor_gate_dedup_key_survives_list_anchor():
+    # Model-shaped data: an API-path reviewer returned anchor.file as a LIST —
+    # the dedup set raised unhashable-type and the gate discarded EVERY finding.
+    import editor_gate
+    f = {"id": "f1", "kind": "behavioral_break",
+         "problem_statement": "x", "anchor": {"file": ["a.py", "b.py"], "line": [1, 2]},
+         "assumptions": [], "evidence": ["e"], "falsification": "f", "confidence": 0.9}
+    k1 = editor_gate._dupe_key(f)
+    k2 = editor_gate._dupe_key(dict(f))
+    assert k1 == k2
+    assert len({k1, k2}) == 1        # hashable + stable
