@@ -23,14 +23,29 @@ def _read(root, rel, cap=_PER_FILE):
     return text
 
 
+def _iface_str(i):
+    """Coerce a key_interfaces item to text. Legacy blueprints (pre-v2 normalizer)
+    carry dicts here ({name/interface/signature: ...}); modern ones carry strings.
+    A join over dicts killed the ENTIRE review on SubscriberAgent — never assume
+    the shape."""
+    if isinstance(i, dict):
+        return str(i.get("name") or i.get("interface") or i.get("signature")
+                   or next(iter(i.values()), ""))[:80]
+    return str(i)
+
+
 def _blueprint_slice(blueprint, changed_files):
     comps = ((blueprint or {}).get("components") or {}).get("components") or []
     out = []
     changed = set(changed_files)
     for c in comps:
+        # Legacy blueprints may list components as plain strings — skip those;
+        # they carry no location to match against anyway.
+        if not isinstance(c, dict):
+            continue
         loc = str(c.get("location", ""))
         if loc and any(cf == loc or cf.startswith(loc.rstrip("/") + "/") for cf in changed):
-            ki = ", ".join(c.get("key_interfaces", []) or [])
+            ki = ", ".join(_iface_str(i) for i in (c.get("key_interfaces") or []) if i)
             out.append(f"- {c.get('name')}: {c.get('responsibility','')} [interfaces: {ki}]")
     return "\n".join(out)
 

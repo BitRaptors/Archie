@@ -422,3 +422,17 @@ def test_run_pr_gate_partitions_acked_findings(tmp_path, monkeypatch):
     assert [f["id"] for f in unacked] == ["f_b"]
     assert acked[0][0]["rule_id"] == "inv-003"
     assert stale == []
+
+
+def test_render_verdict_fails_closed_when_engine_failed():
+    # Regression (PR #17): a crashed review engine rendered as a glowing
+    # 13/13, 0-break verdict. Engine failure must be loud and un-green.
+    import delivery_review as dr
+    spec = {"acceptance_criteria": [{"id": "ac1", "text": "x"}],
+            "review_engine_failed": True}
+    verdict = {"intent_completeness": "n/a", "breaks": 0, "conflicts": 0}
+    body = dr.render_verdict(verdict, [], spec)
+    assert "REVIEW ENGINE FAILED" in body
+    assert "not assessed" in body
+    assert "criteria met" not in body          # no silence=met celebration
+    assert "0 break(s)" not in body            # no fake clean bill

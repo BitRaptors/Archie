@@ -177,12 +177,28 @@ class ClaudeConnector(Connector):
         hooks_root = settings.setdefault("hooks", {})
         bucket = hooks_root.setdefault(event_key, [])
 
-        relative_cmd = f".claude/hooks/{script_name}"
-        if not _hook_entry_present(bucket, hook.tool_match, relative_cmd):
-            bucket.append({
-                "matcher": hook.tool_match or "*",
-                "hooks": [{"type": "command", "command": relative_cmd}],
-            })
+        # Canonicalizing upsert — dedup keys on the SCRIPT NAME, not the matcher
+        # or command string. Old installs wrote RELATIVE commands, which break
+        # the moment the session shell cd's out of the repo root (exit 127 is
+        # treated as non-blocking, so enforcement silently vanishes), and
+        # matcher orders changed across versions, producing duplicate
+        # registrations that never got repaired. Strip every stale variant of
+        # this script, then register one absolute-anchored entry.
+        suffix = f"/.claude/hooks/{script_name}"
+
+        def _is_this_script(cmd) -> bool:
+            c = str(cmd or "")
+            return c == f".claude/hooks/{script_name}" or c.endswith(suffix)
+
+        for entry in bucket:
+            entry["hooks"] = [h for h in entry.get("hooks", [])
+                              if not _is_this_script(h.get("command"))]
+        bucket[:] = [e for e in bucket if e.get("hooks")]
+        bucket.append({
+            "matcher": hook.tool_match or "*",
+            "hooks": [{"type": "command",
+                       "command": f"$CLAUDE_PROJECT_DIR/.claude/hooks/{script_name}"}],
+        })
 
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
@@ -210,12 +226,3 @@ class ClaudeConnector(Connector):
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
 
-def _hook_entry_present(bucket: list, matcher: str | None, command: str) -> bool:
-    needle = matcher or "*"
-    for entry in bucket:
-        if entry.get("matcher") != needle:
-            continue
-        for h in entry.get("hooks", []):
-            if h.get("command") == command:
-                return True
-    return False

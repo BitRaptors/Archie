@@ -48,3 +48,24 @@ def test_run_review_serial_degrades_on_raising_reviewer(tmp_path, monkeypatch):
     out = rc.run_review(tmp_path, "diff", ["a.py"], {"domain_invariants": []}, {},
                         {"acceptance_criteria": []}, run=boom, passes=1)
     assert out == []
+
+
+def test_context_prep_crash_degrades_but_reviewers_still_run(tmp_path, monkeypatch):
+    # Regression (PR #17): a TypeError in build_pack ran UNGUARDED before the
+    # fan-out and killed every reviewer. Now it degrades to empty evidence and
+    # the reviewers still produce findings.
+    import review_core as rcmod
+    monkeypatch.setattr(rcmod, "build_pack",
+                        lambda *a, **k: (_ for _ in ()).throw(TypeError("legacy shape")))
+    (tmp_path / "a.py").write_text("def f():\n    return None.x\n")
+
+    def fake_run(prompt, root, verifier, **kw):
+        if "focused ONLY on" in prompt or "behavioral code reviewer" in prompt:
+            return '{"findings":[{"problem_statement":"null deref","file":"a.py","line":2,'\
+                   '"falsification":"prove","confidence":0.8}]}'
+        return "{}"
+
+    out = rc.run_review(tmp_path, "diff --git a/a.py b/a.py", ["a.py"],
+                        {"domain_invariants": []}, {}, {"acceptance_criteria": []},
+                        run=fake_run, passes=1, workers=1)
+    assert any("null deref" in f.get("problem_statement", "") for f in out)
