@@ -459,3 +459,18 @@ def test_pr_gate_never_synthesizes_a_story(tmp_path, monkeypatch):
                                                "head": {"ref": "x", "sha": ""}}}))
     dr.run_pr_gate(tmp_path, {"GITHUB_EVENT_PATH": str(ev)})
     assert calls == [], "CI synthesized a task story nobody reads"
+
+
+def test_contract_table_truncates_a_long_reason():
+    """The Why cell is the user's own prose from the confirm prompt — it can be a
+    paragraph. A 400-char table cell is unreadable; keep the gist, link the rest."""
+    import delivery_review as dr
+    long_reason = "WS2 per-domain pool caching. " + ("x" * 400)
+    retired = [{"rule_id": "inv-002", "law": "Email must be a unique +N alias",
+                "reason": long_reason, "authorized_by": "Gabor", "date": "2026-07-08",
+                "invariant_ids": []}]
+    body = dr.render_verdict({"breaks": 0}, [], {}, retired=retired)
+    row = [l for l in body.split("\n") if l.startswith("| `inv-002`")][0]
+    assert len(row) < 400, f"table row still {len(row)} chars"
+    assert "WS2 per-domain pool caching." in row      # the gist survives
+    assert "…" in row                                  # and it's visibly truncated

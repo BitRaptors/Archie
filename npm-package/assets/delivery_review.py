@@ -79,6 +79,13 @@ _JUDGE_HEADERS = {
 _JUDGE_ORDER = ["silent_weakening", "contradiction", "behavior_violates_rule"]
 
 
+def _clip(text: str, n: int = 160) -> str:
+    """Table cells hold the user's own prose from the confirm prompt, which can run
+    to a paragraph. Keep the gist; a 400-char cell is unreadable."""
+    t = str(text or "").strip()
+    return t if len(t) <= n else t[:n].rsplit(" ", 1)[0] + " …"
+
+
 def _lens_of(f) -> str:
     """The reviewer that produced this finding: 'universal:security' -> 'security'."""
     return str(f.get("source", "")).split(":")[-1] or "other"
@@ -117,10 +124,11 @@ def render_verdict(verdict: dict, confirmed: list, spec=None,
     if retired:
         lines += ["| Law | Change | Why | Authorized |", "|---|---|---|---|"]
         for c in retired:
-            law = _sanitize(c.get("law", "")) or "_(law text unavailable)_"
+            law = _sanitize(_clip(c.get("law", ""), 120)) or "_(law text unavailable)_"
             lines.append(
                 f"| `{_sanitize(c.get('rule_id', '?'))}` {law} | **RETIRE** | "
-                f"{_sanitize(c.get('reason', ''))} | {_sanitize(c.get('authorized_by', '?'))}, "
+                f"{_sanitize(_clip(c.get('reason', '')))} | "
+                f"{_sanitize(c.get('authorized_by', '?'))}, "
                 f"{_sanitize(c.get('date', ''))} |")
         lines.append("")
 
