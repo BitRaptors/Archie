@@ -265,73 +265,6 @@ def test_assemble_pr_intent_all_empty(tmp_path):
     assert spec.get("acceptance_criteria") == []
 
 
-def test_run_pr_gate_auto_imprints_when_no_story(tmp_path, monkeypatch):
-    """run_pr_gate must call story_synthesize.imprint() when no current story exists but turns were captured."""
-    import json as _json
-
-    # Set up a minimal git repo so diff_basis doesn't crash.
-    _git(tmp_path, "init")
-    _git(tmp_path, "config", "user.email", "t@t.t")
-    _git(tmp_path, "config", "user.name", "t")
-    (tmp_path / "f.py").write_text("x = 1\n")
-    _git(tmp_path, "add", "-A")
-    _git(tmp_path, "commit", "-m", "init")
-    base_sha = subprocess.run(
-        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
-        capture_output=True, text=True,
-    ).stdout.strip()
-
-    # Write intent events but NO story.
-    archie_dir = tmp_path / ".archie"
-    archie_dir.mkdir()
-    events_file = archie_dir / "intent-events.jsonl"
-    events_file.write_text(_json.dumps({"kind": "user_turn", "text": "Add rate-limiting", "ts": "2024-01-01T00:00:00Z"}) + "\n")
-
-    event = tmp_path / "event.json"
-    event.write_text(_json.dumps({
-        "pull_request": {
-            "number": 99, "changed_files": 1, "user": {"login": "human"},
-            "base": {"ref": "main", "sha": base_sha}, "head": {"sha": "HEAD"},
-            "labels": [],
-        }
-    }))
-
-    imprint_calls = {"n": 0}
-
-    import story_synthesize as _ss
-    def fake_imprint(root, branch, session_id, timestamp, run=None):
-        imprint_calls["n"] += 1
-        # Write a minimal story so assemble_pr_intent finds it.
-        import story_store as ss
-        ss.write_story(root, branch, session_id, timestamp,
-                       story="Rate-limiting feature.",
-                       facts=[{"id": "f1", "text": "rate limited",
-                               "from": {"src": "plan", "quote": "Add rate-limiting"}}],
-                       non_goals=[], version=1)
-        return tmp_path / ".archie" / "stories" / "test"
-
-    monkeypatch.setattr(_ss, "imprint", fake_imprint)
-
-    import reconcile as rc
-    monkeypatch.setattr(rc, "review_edge_a", lambda *a, **k: [])
-    monkeypatch.setattr(rc, "review_edge_c", lambda *a, **k: [])
-    monkeypatch.setattr(rc, "review_conformance", lambda *a, **k: [])
-    import behavioral_review as br
-    monkeypatch.setattr(br, "review", lambda *a, **k: [])
-
-    posted = {}
-    def spy_post(owner, repo, number, body, token, marker=None):
-        posted["body"] = body
-    import intent_review as ir
-    monkeypatch.setattr(ir, "post_or_update_comment", spy_post)
-
-    env = {"GITHUB_EVENT_PATH": str(event), "GITHUB_TOKEN": "t",
-           "GITHUB_REPOSITORY": "o/r"}
-    status = dr.run_pr_gate(str(tmp_path), env)
-    assert status["reviewed"] is True
-    assert imprint_calls["n"] == 1, "imprint() must be called when no current story exists but turns were captured"
-
-
 def test_run_pr_gate_partitions_acked_findings(tmp_path, monkeypatch):
     # An acked finding must not count as a break; an unacked one must.
     import delivery_review as dr
@@ -507,3 +440,24 @@ def test_pr_gate_renders_contract_even_when_review_core_dies(tmp_path, monkeypat
                                                "head": {"ref": "x", "sha": ""}}}))
     dr.run_pr_gate(tmp_path, {"GITHUB_EVENT_PATH": str(ev)})
     assert captured["retired"] == _RETIRED        # contract survived the crash
+
+
+def test_pr_gate_never_synthesizes_a_story(tmp_path, monkeypatch):
+    """CI must not pay a model to build an artifact no section renders.
+
+    NB: a raising stub would pass vacuously — run_pr_gate's fallback block
+    swallowed every Exception. Record the call instead.
+    """
+    import delivery_review as dr
+    import story_synthesize
+    calls = []
+    monkeypatch.setattr(story_synthesize, "imprint", lambda *a, **k: calls.append(1))
+    import subprocess as _sp
+    _sp.run(["git", "init", "-q", str(tmp_path)])
+    (tmp_path / ".archie").mkdir()
+    ev = tmp_path / "event.json"
+    ev.write_text(json.dumps({"pull_request": {"number": 9, "title": "t", "body": "b",
+                                               "base": {"ref": "main", "sha": ""},
+                                               "head": {"ref": "x", "sha": ""}}}))
+    dr.run_pr_gate(tmp_path, {"GITHUB_EVENT_PATH": str(ev)})
+    assert calls == [], "CI synthesized a task story nobody reads"

@@ -332,20 +332,6 @@ def run_pr_gate(root=".", env=None):
         status["reason"] = "no pr context"
         return status
 
-    # Hands-off fallback: if no current story exists but turns were captured, imprint now (blind).
-    try:
-        import story_store, story_synthesize
-        import os as _os
-        from datetime import datetime as _dt, timezone as _tz
-        _branch = (pr_meta.get("head_ref") or _os.environ.get("ARCHIE_BRANCH")
-                   or _os.environ.get("GITHUB_HEAD_REF") or "")
-        if story_store.current_story(root, _branch) is None:
-            _sid = _os.environ.get("CLAUDE_SESSION_ID") or _os.environ.get("ARCHIE_SESSION_ID") or "session"
-            _ts = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H%M%S")
-            story_synthesize.imprint(root, _branch, _sid, _ts)
-    except Exception as e:
-        print(f"[archie] story auto-imprint skipped ({e})")
-
     # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
     diff_text, changed, changed_lines, spec_truncated = "", [], {}, False
     try:
