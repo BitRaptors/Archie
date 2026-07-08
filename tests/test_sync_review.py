@@ -2,11 +2,11 @@
 
 sync_review now delegates its reviewer fan-out to review_core.run_review (F3:
 one reviewer brain shared with the CI delivery review). Individual reviewers
-(review_edge_a, review_edge_c, review_conformance, review_invariants,
+(review_conformance, review_invariants, behavioral_review_run,
 behavioral_review_run) are bound into review_core's OWN module namespace at
 review_core's import time, so tests that want to intercept them must patch
-review_core's attributes (rc.review_edge_a, etc.) — patching sync_review's
-(sr.review_edge_a) no longer has any effect on the actual call, since
+review_core's attributes (rc.behavioral_review_run, etc.) — patching sync_review's
+no longer has any effect on the actual call, since
 sync_review only calls review_core.run_review now.
 
 The LLM seam (run_verifier / review_core.run_review) is injected so no real
@@ -39,40 +39,6 @@ def test_runs_when_source_touched():
     assert out["skipped"] is False and "verdict" in out
 
 
-def test_edge_c_skipped_without_criteria(monkeypatch):
-    """With no acceptance_criteria and no goals, review_edge_c is never called.
-    (Gating now lives inside review_core.run_review's has_intent check.)"""
-    calls = {"n": 0}
-    def counting_edge_c(*a, **k):
-        calls["n"] += 1
-        return []
-    monkeypatch.setattr(rc, "review_edge_c", counting_edge_c)
-    # inferred spec (no branch record) has empty criteria + goals
-    out = sr.run_sync_review("/x", "b", BP, {}, "diff", ["a.py"], {"a.py": {1}}, {},
-                             run=lambda *a, **k: "{}")
-    assert out["skipped"] is False
-    assert calls["n"] == 0
-
-
-def test_edge_c_runs_with_criteria(tmp_path, monkeypatch):
-    """When the spec has acceptance_criteria, review_edge_c is invoked once
-    (via review_core's has_intent gate)."""
-    archie_dir = tmp_path / ".archie"
-    archie_dir.mkdir()
-    spec = it.normalize("Add export", source="prompt", ticket_ids=[])
-    spec["acceptance_criteria"] = [{"id": "ac1", "text": "export scoped by tenant"}]
-    it.save_branch_record(archie_dir, "b", spec)
-
-    calls = {"n": 0}
-    def counting_edge_c(*a, **k):
-        calls["n"] += 1
-        return []
-    monkeypatch.setattr(rc, "review_edge_c", counting_edge_c)
-    sr.run_sync_review(str(tmp_path), "b", BP, {}, "diff", ["a.py"], {"a.py": {1}}, {},
-                       run=lambda *a, **k: "{}")
-    assert calls["n"] == 1
-
-
 def test_sync_review_resolves_before_edge_a(tmp_path, monkeypatch):
     """Branch record with raw text but empty acceptance_criteria: resolve() is called
     (in sync_review, before the core fan-out) so edge-A — now invoked inside
@@ -100,14 +66,14 @@ def test_sync_review_resolves_before_edge_a(tmp_path, monkeypatch):
             return resolve_payload
         return edge_a_payload
 
-    # Capture the intent_spec passed to review_edge_a. review_core imports
-    # review_edge_a into its OWN module namespace, so the reviewer to patch is
-    # review_core's, not sync_review's (sync_review no longer calls it directly).
+    # Intent grading (edge-A) is gone; the resolved spec still reaches the code
+    # reviewers as CONTEXT. Capture it off behavioral_review_run, which review_core
+    # imports into its OWN namespace.
     captured = {}
-    def capturing_edge_a(root, intent_spec, diff_text, run=None):
-        captured["spec"] = intent_spec
+    def capturing_behavioral(root, diff, ig, cf, run=None, intent=None, evidence="", passes=1):
+        captured["spec"] = intent
         return []
-    monkeypatch.setattr(rc, "review_edge_a", capturing_edge_a)
+    monkeypatch.setattr(rc, "behavioral_review_run", capturing_behavioral)
 
     sr.run_sync_review(
         str(tmp_path), "feature/rate-limit", BP, {},
@@ -115,10 +81,10 @@ def test_sync_review_resolves_before_edge_a(tmp_path, monkeypatch):
         run=fake_run,
     )
 
-    # edge-A must have seen non-empty acceptance_criteria
+    # the reviewers must have seen non-empty, resolved acceptance_criteria
     assert captured.get("spec") is not None
     assert len(captured["spec"].get("acceptance_criteria", [])) > 0, (
-        f"edge-A spec had no criteria: {captured['spec']}"
+        f"reviewer spec had no criteria: {captured['spec']}"
     )
 
 def test_conformance_runs_when_specialist_routed(tmp_path, monkeypatch):
@@ -153,7 +119,7 @@ def test_conformance_runs_when_specialist_routed(tmp_path, monkeypatch):
         "severity": "high",
     }
     called = {"n": 0}
-    def fake_review_invariants(root, diff_text, invariants, run=None):
+    def fake_review_invariants(root, diff_text, invariants, run=None, skip_ids=frozenset()):
         called["n"] += 1
         # the routed invariant must have been passed through touched_context
         assert any(i.get("id") == "inv-tenant" for i in invariants)
@@ -208,16 +174,17 @@ def test_resolved_spec_persisted(tmp_path, monkeypatch):
 
 def test_sync_review_uses_committed_intent(tmp_path, monkeypatch):
     """sync_review prefers committed .archie/intent.json over branch record. The
-    spec is now consumed inside review_core.run_review, so capture it by patching
-    review_core's review_edge_a (bound into review_core's own namespace)."""
+    spec is consumed inside review_core.run_review as reviewer CONTEXT, so capture
+    it off behavioral_review_run (bound into review_core's own namespace)."""
     it.write_committed_intent(tmp_path, {"source": "sync", "goals": [],
         "acceptance_criteria": [{"id": "a", "text": "Scoped"}], "ticket_ids": [], "raw": "plan"})
     seen = {}
-    monkeypatch.setattr(rc, "review_edge_a",
-                        lambda root, spec, diff, run=None: seen.setdefault("crit", spec.get("acceptance_criteria")) or [])
+    monkeypatch.setattr(rc, "behavioral_review_run",
+                        lambda root, diff, ig, cf, run=None, intent=None, evidence="", passes=1:
+                            seen.setdefault("crit", (intent or {}).get("acceptance_criteria")) or [])
     sr.run_sync_review(str(tmp_path), "feature/x", BP, {}, "diff", ["a.py"], {"a.py": {1}}, {},
                        run=lambda *a, **k: "{}")
-    assert seen.get("crit") and seen["crit"][0]["text"] == "Scoped"   # committed criteria reached edge-A
+    assert seen.get("crit") and seen["crit"][0]["text"] == "Scoped"   # committed criteria reached the reviewers
 
 
 def test_sync_review_uses_core(tmp_path, monkeypatch):

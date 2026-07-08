@@ -124,3 +124,26 @@ def test_tracer_and_challenger_request_tools():
 
     isp.review_invariants(".", DIFF, [INV], run=rec)
     assert seen == [True, True]   # both roles asked for tools
+
+
+def test_review_invariants_skips_acked_laws():
+    calls = []
+
+    def rec(prompt, root, verifier, model="haiku", **kw):
+        calls.append(model)
+        return "{}"
+
+    invs = [INV, {"id": "inv-other", "invariant": "x", "entity": "E", "category": "c"}]
+    isp.review_invariants(".", DIFF, invs, run=rec, skip_ids={"inv-bill-003"})
+    assert calls == [isp.TRACER_MODEL]     # only the unacked law ran; zero Opus
+
+
+def test_review_invariants_all_acked_makes_no_calls():
+    calls = []
+
+    def rec(prompt, root, verifier, model="haiku", **kw):
+        calls.append(model)
+        return "{}"
+
+    isp.review_invariants(".", DIFF, [INV], run=rec, skip_ids={"inv-bill-003"})
+    assert calls == []

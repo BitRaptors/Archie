@@ -119,17 +119,24 @@ def parse_challenger(raw: str) -> dict:
     }
 
 
-def review_invariants(root, diff_text, invariants, run=None) -> list[dict]:
+def review_invariants(root, diff_text, invariants, run=None, skip_ids=frozenset()) -> list[dict]:
     """Run contract -> tracer -> challenger for each touched invariant. Emits a
     conformance_break finding only where the challenger CONFIRMS a violation.
 
     Short-circuits: a tracer 'upheld' verdict needs no challenge (no finding); a
     challenger 'reject' drops the finding — that veto is the whole point of the loop.
+
+    skip_ids — invariant ids the user already acknowledged breaking
+    (contract_delta.acked_rule_ids). Skipped entirely: no tracer, no challenger.
+    Paying Opus to rediscover a law the user retired at the confirm prompt produces
+    a finding that tells them nothing.
     """
     if run is None:
         run = run_verifier   # call-time global lookup → monkeypatch works
     out = []
     for inv in invariants or []:
+        if inv.get("id") in skip_ids:
+            continue   # the user acknowledged this law — do not pay Opus to rediscover it
         contract = contract_of(inv)
         traw = run(build_tracer_prompt(contract, diff_text), Path(root), "claude", model=TRACER_MODEL, tools=True)
         tracer = parse_tracer(traw or "")

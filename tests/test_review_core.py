@@ -69,3 +69,23 @@ def test_context_prep_crash_degrades_but_reviewers_still_run(tmp_path, monkeypat
                         {"domain_invariants": []}, {}, {"acceptance_criteria": []},
                         run=fake_run, passes=1, workers=1)
     assert any("null deref" in f.get("problem_statement", "") for f in out)
+
+
+def test_run_review_drops_intent_graders(tmp_path, monkeypatch):
+    import review_core as rcmod
+    called = []
+    monkeypatch.setattr(rcmod, "review_edge_a",
+                        lambda *a, **k: called.append("edge_a") or [], raising=False)
+    monkeypatch.setattr(rcmod, "review_edge_c",
+                        lambda *a, **k: called.append("edge_c") or [], raising=False)
+    (tmp_path / "a.py").write_text("x = 1\n")
+    rc.run_review(tmp_path, "diff --git a/a.py b/a.py", ["a.py"],
+                  {"domain_invariants": []}, {},
+                  {"acceptance_criteria": [{"id": "ac1", "text": "t"}]},
+                  run=lambda *a, **k: "{}", workers=1)
+    assert called == []
+
+
+def test_run_review_defaults_to_one_pass():
+    import inspect
+    assert inspect.signature(rc.run_review).parameters["passes"].default == 1
