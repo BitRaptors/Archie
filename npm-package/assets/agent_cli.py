@@ -26,6 +26,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -65,7 +66,9 @@ def _run_api(prompt: str, api_key: str, timeout: int = DEFAULT_TIMEOUT,
             data = json.loads(resp.read().decode())
         parts = data.get("content") or []
         return "".join(p.get("text", "") for p in parts if p.get("type") == "text")
-    except Exception:
+    except Exception as e:
+        # A silent "" here is indistinguishable from "the reviewer found nothing".
+        print(f"[archie] api call failed ({type(e).__name__}: {e})", file=sys.stderr)
         return ""
 
 

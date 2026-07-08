@@ -89,3 +89,32 @@ def test_run_review_drops_intent_graders(tmp_path, monkeypatch):
 def test_run_review_defaults_to_one_pass():
     import inspect
     assert inspect.signature(rc.run_review).parameters["passes"].default == 1
+
+
+def test_failed_reviewers_are_counted_not_silently_swallowed(tmp_path):
+    """A lens that times out must not vanish. _safe swallowed every exception with
+    no log and no count, so a thin review looked identical to a clean one."""
+    (tmp_path / "a.py").write_text("x = 1\n")
+    stats = {}
+
+    def boom(prompt, root, verifier, **kw):
+        if "focused ONLY on" in prompt:      # every universal lens explodes
+            raise RuntimeError("timeout")
+        return "{}"
+
+    rc.run_review(tmp_path, "diff --git a/a.py b/a.py", ["a.py"],
+                  {"domain_invariants": []}, {}, {"acceptance_criteria": []},
+                  run=boom, workers=1, stats=stats)
+    assert stats["failed"] == 4          # the four lenses
+    assert stats["total"] >= 5
+
+
+def test_stats_is_optional_and_zero_on_success(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    stats = {}
+    rc.run_review(tmp_path, "diff", ["a.py"], {"domain_invariants": []}, {},
+                  {"acceptance_criteria": []}, run=lambda *a, **k: "{}",
+                  workers=1, stats=stats)
+    assert stats["failed"] == 0
+    rc.run_review(tmp_path, "diff", ["a.py"], {"domain_invariants": []}, {},
+                  {"acceptance_criteria": []}, run=lambda *a, **k: "{}", workers=1)

@@ -474,3 +474,14 @@ def test_contract_table_truncates_a_long_reason():
     assert len(row) < 400, f"table row still {len(row)} chars"
     assert "WS2 per-domain pool caching." in row      # the gist survives
     assert "…" in row                                  # and it's visibly truncated
+
+
+def test_comment_discloses_failed_reviewers():
+    """A thin review must never look like a clean one."""
+    import delivery_review as dr
+    body = dr.render_verdict({"breaks": 0}, [], {"reviewers_failed": 2, "reviewers_total": 6})
+    assert "2 of 6 reviewers failed" in body
+    assert "incomplete" in body.lower()
+    # and silent when everything ran
+    ok = dr.render_verdict({"breaks": 0}, [], {"reviewers_failed": 0, "reviewers_total": 6})
+    assert "reviewers failed" not in ok

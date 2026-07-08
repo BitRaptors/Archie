@@ -182,6 +182,12 @@ def render_verdict(verdict: dict, confirmed: list, spec=None,
         ordered = [l for l in _LENS_ORDER if l in by_lens] + \
                   sorted(k for k in by_lens if k not in _LENS_ORDER)
         lines += [f"### 🔍 Code review — {len(confirmed)} findings", ""]
+        nf = int(spec.get("reviewers_failed") or 0)
+        if nf:
+            lines += [f"> ⚠️ **Coverage incomplete** — {nf} of "
+                      f"{spec.get('reviewers_total', '?')} reviewers failed (timeout or API "
+                      "error). Findings below are a lower bound; see the workflow log for "
+                      "`[archie] reviewer failed`.", ""]
         if not confirmed:
             lines.append("_No defects found._")
         for lens in ordered:
@@ -408,11 +414,13 @@ def run_pr_gate(root=".", env=None):
     #    a crashed engine once rendered as a glowing 13/13, 0-break verdict (PR #17).
     raw = []
     engine_failed = False
+    review_stats = {}
     try:
         from review_core import run_review
         if spec_truncated:
             spec["diff_truncated"] = True
-        raw = run_review(root, diff_text, changed, blueprint, import_graph, spec)
+        raw = run_review(root, diff_text, changed, blueprint, import_graph, spec,
+                         stats=review_stats)
     except Exception as e:
         engine_failed = True
         print(f"[archie] review core failed ({e})")
@@ -454,6 +462,8 @@ def run_pr_gate(root=".", env=None):
     # contract delta is deterministic, so it still renders.
     if engine_failed:
         spec["review_engine_failed"] = True
+    spec["reviewers_failed"] = review_stats.get("failed", 0)
+    spec["reviewers_total"] = review_stats.get("total", 0)
 
     status["reviewed"] = not engine_failed
     status["verdict"] = verdict

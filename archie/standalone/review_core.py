@@ -19,28 +19,40 @@ from selector import touched_context             # noqa: E402
 from finding_merge import merge                  # noqa: E402
 
 
-def _safe(t):
+def _safe(t, stats=None):
     """Run a reviewer thunk; a raising reviewer degrades to no findings rather
-    than crashing the whole fan-out. Used by both the serial and threaded paths."""
+    than crashing the whole fan-out. Used by both the serial and threaded paths.
+
+    A failure is LOGGED and COUNTED. Swallowing it silently made a reviewer that
+    timed out indistinguishable from one that found nothing — the same fail-open
+    class as a hollow green verdict, one layer down.
+    """
     try:
-        return t()
-    except Exception:
+        out = t()
+        if stats is not None:
+            stats["total"] = stats.get("total", 0) + 1
+        return out
+    except Exception as e:
+        if stats is not None:
+            stats["total"] = stats.get("total", 0) + 1
+            stats["failed"] = stats.get("failed", 0) + 1
+        print(f"[archie] reviewer failed ({type(e).__name__}: {e})")
         return []
 
 
-def _pmap(thunks, workers):
+def _pmap(thunks, workers, stats=None):
     if workers <= 1:
-        return [_safe(t) for t in thunks]
+        return [_safe(t, stats) for t in thunks]
     out = [None] * len(thunks)
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(_safe, t): i for i, t in enumerate(thunks)}
+        futs = {ex.submit(_safe, t, stats): i for i, t in enumerate(thunks)}
         for fut, i in futs.items():
             out[i] = fut.result()
     return out
 
 
 def run_review(root, diff_text, changed_files, blueprint, import_graph, spec,
-               run=None, passes=1, workers=4) -> list:
+               run=None, passes=1, workers=4, stats=None) -> list:
     passes = int(os.environ.get("ARCHIE_REVIEW_PASSES", passes))
     workers = int(os.environ.get("ARCHIE_REVIEW_WORKERS", workers))
     # Context prep must DEGRADE, never kill the fan-out: a shape quirk in one
@@ -76,7 +88,13 @@ def run_review(root, diff_text, changed_files, blueprint, import_graph, spec,
         thunks.append(lambda: review_conformance(root, diff_text, [], ctx["decisions"],
                       run=run, intent=spec))
 
+    if stats is not None:
+        stats.setdefault("total", 0)
+        stats.setdefault("failed", 0)
+
     raw = []
-    for group in _pmap(thunks, workers):
+    for group in _pmap(thunks, workers, stats):
         raw += (group or [])
+    if stats and stats.get("failed"):
+        print(f"[archie] {stats['failed']} of {stats['total']} reviewers failed")
     return merge(raw, passes=passes)
