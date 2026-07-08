@@ -161,12 +161,12 @@ def test_run_pr_gate_uses_real_changed_lines(tmp_path, monkeypatch):
     # Using conformance_break (not intent_unmet) because the new render_verdict shows
     # intent_unmet only in the criteria list; conformance_break appears in the breaks section
     # with its file anchor, letting us assert the line made it through the gate.
-    # delivery_review now fans out via review_core.run_review, which binds these
-    # reviewer names into its OWN module namespace at review_core's import time
-    # (`from reconcile import review_edge_a`, etc.) — patching `reconcile`/
+    # delivery_review fans out via review_core.run_review, which binds reviewer
+    # names into its OWN module namespace at import time — patching `reconcile`/
     # `behavioral_review` attributes directly no longer reaches the call sites
-    # review_core actually uses (a stale attribute lookup would only work by
-    # coincidence of import order). Patch review_core's own names instead.
+    # review_core uses. Patch review_core's own names instead. Intent grading
+    # (edge-A/edge-C) is gone, so the finding is injected via a reviewer that
+    # still runs.
     import review_core as core
     surviving = {
         "id": "f_cf_line", "kind": "conformance_break", "edge": "B",
@@ -177,10 +177,8 @@ def test_run_pr_gate_uses_real_changed_lines(tmp_path, monkeypatch):
         "source": "reconcile:conformance", "severity_class": "tradeoff_undermined",
         "severity": "high",
     }
-    monkeypatch.setattr(core, "review_edge_a", lambda *a, **k: [surviving])
-    monkeypatch.setattr(core, "review_edge_c", lambda *a, **k: [])
     monkeypatch.setattr(core, "review_conformance", lambda *a, **k: [])
-    monkeypatch.setattr(core, "behavioral_review_run", lambda *a, **k: [])
+    monkeypatch.setattr(core, "behavioral_review_run", lambda *a, **k: [surviving])
     import universal_specialists as us
     monkeypatch.setattr(us, "review_one", lambda *a, **k: [])
     monkeypatch.setattr(core, "review_invariants", lambda *a, **k: [])
