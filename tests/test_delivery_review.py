@@ -25,15 +25,6 @@ def test_intake_override_label_forces_run():
     assert ok is True
 
 
-def test_render_verdict_shows_completeness_and_breaks():
-    # With no spec, intent_unmet findings are not shown in the breaks section (they appear
-    # in the criteria list section only when spec is provided). Check structural fields.
-    md = dr.render_verdict({"intent_completeness": "3/4", "breaks": 1, "conflicts": 0},
-                           [{"kind": "intent_unmet", "problem_statement": "ac2", "anchor": {"file": "x.py", "line": 4}}])
-    assert "3/4" in md and "1 break(s)" in md
-
-
-# E1 — None-safe tests
 def test_should_review_none_changed_files():
     """should_review must not raise when changed_files is present but None."""
     ok, why = dr.should_review({"author": "human", "changed_files": None, "labels": []}, 75)
@@ -274,18 +265,6 @@ def test_assemble_pr_intent_all_empty(tmp_path):
     assert spec.get("acceptance_criteria") == []
 
 
-def test_render_verdict_shows_criteria_provenance_and_correction(tmp_path):
-    spec = {"source": "sync", "confidence": "medium", "confirmed": False,
-            "acceptance_criteria": [{"id": "ac1", "text": "tenant scoped"}, {"id": "ac2", "text": "rate limited"}]}
-    verdict = {"intent_completeness": "1/2", "breaks": 0, "conflicts": 0, "unknown": 0}
-    confirmed = [{"kind": "intent_unmet", "criterion_id": "ac2", "problem_statement": "no limiter",
-                  "anchor": {"file": "x.py", "line": 4}, "source": "reconcile:edgeA"}]
-    md = dr.render_verdict(verdict, confirmed, spec)
-    assert "tenant scoped" in md and "rate limited" in md      # criteria listed
-    assert "medium" in md and "unconfirmed" in md.lower()      # provenance + trust label
-    assert "archie imprint" in md                               # correction loop stated
-
-
 def test_run_pr_gate_auto_imprints_when_no_story(tmp_path, monkeypatch):
     """run_pr_gate must call story_synthesize.imprint() when no current story exists but turns were captured."""
     import json as _json
@@ -353,58 +332,6 @@ def test_run_pr_gate_auto_imprints_when_no_story(tmp_path, monkeypatch):
     assert imprint_calls["n"] == 1, "imprint() must be called when no current story exists but turns were captured"
 
 
-def test_render_verdict_surfaces_possible_issues_section():
-    import delivery_review as dr
-    verdict = {"intent_completeness": "1/1", "breaks": 1, "possible_issues": 1, "conflicts": 0}
-    confirmed = [
-        {"kind": "behavioral_break", "problem_statement": "confident bug", "confidence": 0.9,
-         "anchor": {"file": "a.py", "line": 5}, "source": "behavioral"},
-        {"kind": "behavioral_break", "problem_statement": "maybe null deref", "confidence": 0.3,
-         "anchor": {"file": "b.py", "line": 9}, "source": "behavioral"},
-    ]
-    body = dr.render_verdict(verdict, confirmed, {"acceptance_criteria": [{"id": "ac1", "text": "x"}]})
-    assert "Possible issues" in body
-    assert "maybe null deref" in body        # low-conf → advisory section
-    assert "confident bug" in body           # high-conf → breaks section
-    # the advisory one must appear AFTER the "Broke anything?" line
-    assert body.index("confident bug") < body.index("Possible issues") < body.index("maybe null deref")
-
-
-def test_render_verdict_includes_story_and_provenance():
-    import delivery_review as dr
-    verdict = {"intent_completeness": "1/1", "breaks": 0, "possible_issues": 0, "conflicts": 0}
-    spec = {"story": "We add a per-run cost preview.",
-            "acceptance_criteria": [{"id": "f1", "text": "total from live steps",
-                                     "from": {"src": "plan", "quote": "computed fresh from live steps"}}]}
-    body = dr.render_verdict(verdict, [], spec)
-    assert "We add a per-run cost preview." in body        # story shown
-    assert "computed fresh from live steps" in body        # per-fact provenance shown
-
-
-def test_render_verdict_discloses_diff_truncation():
-    import delivery_review as dr
-    verdict = {"intent_completeness": "1/1", "breaks": 0, "possible_issues": 0, "conflicts": 0}
-    spec = {"acceptance_criteria": [{"id": "ac1", "text": "x"}], "diff_truncated": True}
-    body = dr.render_verdict(verdict, [], spec)
-    assert "truncated" in body.lower()
-
-
-def test_render_verdict_acknowledged_overrides_section():
-    import delivery_review as dr
-    verdict = {"intent_completeness": "1/1", "breaks": 0, "conflicts": 0}
-    entry = {"rule_id": "inv-003", "reason": "store cost — authorized",
-             "authorized_by": "Gabor <g@e.com>", "created_at": "2026-07-07T00:00:00Z"}
-    finding = {"kind": "conformance_break", "id": "f_inv_inv-003",
-               "problem_statement": "violates inv-003: cost stored",
-               "anchor": {"file": "a.py", "line": 3}, "source": "invariant_specialist:ctc"}
-    body = dr.render_verdict(verdict, [], {}, acked=[(entry, [finding])],
-                             stale_acks=[{"rule_id": "inv-999", "reason": "gone"}])
-    assert "Acknowledged overrides" in body
-    assert "inv-003" in body and "Gabor" in body
-    assert "not counted as breaks" in body
-    assert "Stale overrides" in body and "inv-999" in body
-
-
 def test_run_pr_gate_partitions_acked_findings(tmp_path, monkeypatch):
     # An acked finding must not count as a break; an unacked one must.
     import delivery_review as dr
@@ -438,26 +365,15 @@ def test_render_verdict_fails_closed_when_engine_failed():
     assert "0 break(s)" not in body            # no fake clean bill
 
 
-def test_render_verdict_survives_list_criterion_id():
-    # Model-shaped data: an intent finding carried criterion_id as a LIST —
-    # the raw set comprehension raised unhashable-type mid-render.
-    import delivery_review as dr
-    spec = {"acceptance_criteria": [{"id": "ac1", "text": "x"}, {"id": "ac2", "text": "y"}]}
-    confirmed = [{"kind": "intent_unmet", "criterion_id": ["ac1", "ac2"],
-                  "problem_statement": "both unmet", "anchor": {"file": "a.py", "line": 1}}]
-    body = dr.render_verdict({"intent_completeness": "0/2", "breaks": 0, "conflicts": 0},
-                             confirmed, spec)
-    assert body.count("❌") == 2
-
-
-def test_gate_crash_fails_closed(tmp_path, monkeypatch):
+def test_gate_crash_fails_closed(tmp_path, monkeypatch, capsys):
     # PR #17 rendered green through a SECOND hole: gate() raised (unhashable
-    # dedup key) and the default verdict rendered as a clean review.
+    # dedup key) and the default verdict rendered as a clean review. Run the REAL
+    # renderer end-to-end (no token -> run_pr_gate prints the body) so the whole
+    # composition is proven, not just the flag.
     import delivery_review as dr
     import editor_gate
     monkeypatch.setattr(editor_gate, "gate",
                         lambda *a, **k: (_ for _ in ()).throw(TypeError("unhashable type: 'list'")))
-    # minimal PR context: event file with a number, no token -> prints verdict
     ev = tmp_path / "event.json"
     ev.write_text(json.dumps({"pull_request": {"number": 9, "title": "t", "body": "b",
                                                "base": {"ref": "main", "sha": ""},
@@ -465,9 +381,129 @@ def test_gate_crash_fails_closed(tmp_path, monkeypatch):
     import subprocess as _sp
     _sp.run(["git", "init", "-q", str(tmp_path)])
     (tmp_path / ".archie").mkdir()
-    out = {}
-    monkeypatch.setattr(dr, "render_verdict",
-                        lambda v, c, s, **k: out.update(spec=dict(s), verdict=dict(v)) or "body")
     dr.run_pr_gate(tmp_path, {"GITHUB_EVENT_PATH": str(ev)})
-    assert out["spec"].get("review_engine_failed") is True
-    assert out["verdict"]["intent_completeness"] == "n/a"
+    body = capsys.readouterr().out
+    assert "REVIEW ENGINE FAILED" in body
+    assert "not assessed" in body
+    assert "criteria met" not in body          # no silence=met celebration
+    assert "0 break(s)" not in body            # no fake clean bill
+
+
+_RETIRED = [{"rule_id": "inv-003", "law": "Run cost must never be stored",
+             "reason": "dashboard reads total_cost", "authorized_by": "Gabor <g@e.com>",
+             "date": "2026-07-08", "invariant_ids": ["inv-subscribe-workflow-003"]}]
+
+
+def test_render_verdict_leads_with_contract_delta():
+    import delivery_review as dr
+    body = dr.render_verdict({"breaks": 0}, [], {}, retired=_RETIRED)
+    assert "Contract changes" in body
+    assert body.index("Contract changes") < body.index("Code review")
+    assert "inv-003" in body and "Run cost must never be stored" in body
+    assert "Gabor" in body and "dashboard reads total_cost" in body
+    assert "become the contract" in body
+    assert "Built the intent?" not in body        # intent grading is GONE
+    assert "criteria met" not in body
+
+
+def test_render_verdict_shows_judged_rule_changes_with_verdicts():
+    import delivery_review as dr
+    judged = {"items": [{"ref": "r1"}],
+              "findings": [{"type": "silent_weakening", "change_summary": "rerun cap raised 7 to 12",
+                            "diff_op": "update", "layer": 1, "colliding_rules": ["inv-007"]}],
+              "model_failed": False}
+    body = dr.render_verdict({"breaks": 0}, [], {}, judged=judged)
+    assert "Silent weakening" in body
+    assert "rerun cap raised 7 to 12" in body
+    assert "inv-007" in body
+
+
+def test_render_verdict_discloses_unjudged_rule_changes():
+    import delivery_review as dr
+    judged = {"items": [{"ref": "r1"}], "findings": [], "model_failed": True}
+    body = dr.render_verdict({"breaks": 0}, [], {}, judged=judged)
+    assert "could not be judged" in body.lower()
+    assert "1 unexplained source-of-truth change" in body
+
+
+def test_render_verdict_clean_rule_changes_say_so():
+    import delivery_review as dr
+    judged = {"items": [{"ref": "r1"}], "findings": [], "model_failed": False}
+    body = dr.render_verdict({"breaks": 0}, [], {}, judged=judged)
+    assert "consistent with the retained rules" in body
+
+
+def test_render_verdict_groups_code_review_by_lens_security_first():
+    import delivery_review as dr
+    confirmed = [
+        {"kind": "behavioral_break", "problem_statement": "unbounded dict",
+         "anchor": {"file": "pool_cache.py", "line": 22}, "source": "universal:resource-perf"},
+        {"kind": "behavioral_break", "problem_statement": "cache poisoning via urlparse",
+         "anchor": {"file": "pool_cache.py", "line": 33}, "source": "universal:security"},
+    ]
+    body = dr.render_verdict({"breaks": 2}, confirmed, {})
+    assert "Code review — 2 findings" in body
+    assert body.index("security") < body.index("resource-perf")
+    assert "cache poisoning via urlparse" in body
+
+
+def test_render_verdict_unauthorized_section_only_when_present():
+    import delivery_review as dr
+    unauth = [{"kind": "conformance_break", "problem_statement": "violates inv-004: load_page first",
+               "anchor": {"file": "persister.py", "line": 1768}}]
+    body = dr.render_verdict({"breaks": 0}, [], {}, unauthorized=unauth)
+    assert "Unauthorized law violations (1)" in body and "inv-004" in body
+    assert "Unauthorized law violations" not in dr.render_verdict({"breaks": 0}, [], {})
+
+
+def test_render_verdict_sanitizes_contract_fields():
+    import delivery_review as dr
+    retired = [{"rule_id": "inv-003", "law": "<script>x</script>", "reason": "@everyone ping",
+                "authorized_by": "<b>evil</b>", "date": "2026-07-08", "invariant_ids": []}]
+    judged = {"items": [{"ref": "r"}], "model_failed": False,
+              "findings": [{"type": "contradiction", "change_summary": "<img src=x>",
+                            "diff_op": "add", "layer": 1, "colliding_rules": ["<i>r</i>"]}]}
+    body = dr.render_verdict({"breaks": 0}, [], {}, retired=retired, judged=judged)
+    for bad in ("<script>", "<b>evil</b>", "<img src=x>", "<i>r</i>"):
+        assert bad not in body
+
+
+def test_render_verdict_engine_failed_banner_survives_rewrite():
+    import delivery_review as dr
+    body = dr.render_verdict({"breaks": 0}, [], {"review_engine_failed": True})
+    assert "REVIEW ENGINE FAILED" in body and "not assessed" in body
+
+
+def test_split_findings_separates_conformance_from_code_review():
+    import delivery_review as dr
+    findings = [
+        {"kind": "conformance_break", "problem_statement": "violates inv-004"},
+        {"kind": "behavioral_break", "problem_statement": "null deref"},
+    ]
+    code, unauth = dr.split_findings(findings)
+    assert [f["problem_statement"] for f in code] == ["null deref"]
+    assert [f["problem_statement"] for f in unauth] == ["violates inv-004"]
+
+
+def test_pr_gate_renders_contract_even_when_review_core_dies(tmp_path, monkeypatch):
+    """The contract delta is deterministic — an engine crash must not hide it."""
+    import delivery_review as dr
+    import review_core
+    import contract_delta as cd
+    monkeypatch.setattr(review_core, "run_review",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(cd, "retirements", lambda root: _RETIRED)
+    monkeypatch.setattr(cd, "judged_changes",
+                        lambda *a: {"items": [], "findings": [], "model_failed": False})
+    captured = {}
+    monkeypatch.setattr(dr, "render_verdict",
+                        lambda v, c, s, **k: captured.update(k) or "body")
+    import subprocess as _sp
+    _sp.run(["git", "init", "-q", str(tmp_path)])
+    (tmp_path / ".archie").mkdir()
+    ev = tmp_path / "event.json"
+    ev.write_text(json.dumps({"pull_request": {"number": 9, "title": "t", "body": "b",
+                                               "base": {"ref": "main", "sha": ""},
+                                               "head": {"ref": "x", "sha": ""}}}))
+    dr.run_pr_gate(tmp_path, {"GITHUB_EVENT_PATH": str(ev)})
+    assert captured["retired"] == _RETIRED        # contract survived the crash
