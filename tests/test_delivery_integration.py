@@ -149,6 +149,9 @@ def _make_fake_run():
 # ---------------------------------------------------------------------------
 # Test 1: full composition
 # ---------------------------------------------------------------------------
+# NOTE: intent grading (edge-A -> intent_unmet / intent_completeness) was deleted
+# with the review re-scope. The pipeline's surviving guarantee is that the code
+# reviewers and the invariant specialist reach `confirmed` through the gate.
 def test_integration_full_pipeline(tmp_path):
     """Drive ALL real modules together; only LLM is mocked.
 
@@ -191,10 +194,6 @@ def test_integration_full_pipeline(tmp_path):
     confirmed_ids = {f["id"] for f in confirmed}
 
     # 2. intent_unmet (ac2/rate-limit) survived the gate — anchor line 44 is changed
-    assert "intent_unmet" in confirmed_kinds, (
-        f"Expected intent_unmet in confirmed kinds: {confirmed_kinds}\n"
-        f"confirmed: {confirmed}"
-    )
 
     # 3. behavioral_break survived the gate — anchor line 12 is changed
     assert "behavioral_break" in confirmed_kinds, (
@@ -202,20 +201,14 @@ def test_integration_full_pipeline(tmp_path):
         f"confirmed: {confirmed}"
     )
 
-    # 4. Both specific findings are present
-    assert "f_a_1" in confirmed_ids or any(
-        f.get("criterion_id") == "ac2" for f in confirmed
-    ), f"ac2/rate-limit finding missing from confirmed: {confirmed}"
-
+    # 4. The surviving reviewers' findings are present (edge-A's f_a_1 is gone
+    #    with intent grading).
     assert "f_beh_1" in confirmed_ids or any(
         f.get("kind") == "behavioral_break" for f in confirmed
     ), f"behavioral finding missing from confirmed: {confirmed}"
 
     # 5. intent_completeness: resolve() gave 2 criteria; ac2 is unmet → "1/2"
     verdict = out["verdict"]
-    assert verdict["intent_completeness"] == "1/2", (
-        f"Expected '1/2' completeness (2 criteria, 1 unmet), got: {verdict['intent_completeness']}"
-    )
 
     # 6. The invariant specialist ran (touched_context() routed on the invariant whose
     #    enforced_at cites billing/usage.py) and its conformance_break survived the gate
