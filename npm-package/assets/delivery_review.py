@@ -21,6 +21,7 @@ _SKIP_LABEL = "archie-skip"
 MAX_FILES = 75
 # Bound the diff payload sent to the LLM (chars) so a huge PR can't blow the budget.
 MAX_DIFF_CHARS = 60000
+DELIVERY_MARKER = "<!-- archie-delivery-review -->"
 
 # Zero-width space used to neutralize leading @ in model-derived text.
 _ZWS = "​"
@@ -69,119 +70,128 @@ def should_review(pr_meta: dict, max_files: int) -> tuple[bool, str]:
     return True, "eligible"
 
 
-def render_verdict(verdict: dict, confirmed: list[dict], spec=None, acked=None, stale_acks=None) -> str:
-    """Render a Markdown delivery verdict comment.
+_LENS_ORDER = ["security", "concurrency", "resource-perf", "null-safety"]
+_JUDGE_HEADERS = {
+    "silent_weakening": "⚠️ Silent weakening / removal",
+    "contradiction": "⚠️ Contradiction with a retained rule",
+    "behavior_violates_rule": "⚠️ Behavior may violate a rule",
+}
+_JUDGE_ORDER = ["silent_weakening", "contradiction", "behavior_violates_rule"]
 
-    Args:
-        verdict: dict with keys intent_completeness, breaks, conflicts, unknown.
-        confirmed: list of confirmed finding dicts with kind, problem_statement, anchor.
-        spec: optional intent spec dict with source, confidence, confirmed, acceptance_criteria.
-        acked: optional list of (override_entry, [findings]) tuples — human-acknowledged
-            overrides, excluded from the break count, rendered in their own section.
-        stale_acks: optional list of override entries whose ruled-on violation was not
-            observed this run — flagged so a reverted change doesn't leave a dangling ack.
 
-    Returns:
-        Markdown string with HTML marker comment for upsert.
+def _lens_of(f) -> str:
+    """The reviewer that produced this finding: 'universal:security' -> 'security'."""
+    return str(f.get("source", "")).split(":")[-1] or "other"
+
+
+def render_verdict(verdict: dict, confirmed: list, spec=None,
+                   retired=None, judged=None, unauthorized=None) -> str:
+    """Render the single PR comment.
+
+    Order is the product. The contract delta is what merging ACCEPTS, so it leads:
+    the laws the user authorized retiring (with their reason), plus any change
+    /archie-sync made that nobody authorized, judged against the retained rules. Code
+    review follows as the evidence a human acts on. There is no intent grading — the
+    acceptance criteria were extracted from the PR body, so grading the PR against
+    them was circular.
     """
     spec = spec or {}
-    crit = spec.get("acceptance_criteria") or []
-    # criterion_id is model-shaped: may be a scalar OR a list (a set comprehension
-    # over raw values raised unhashable-type and killed the render).
-    unmet_ids = set()
-    for f in confirmed:
-        if f.get("kind") in ("intent_unmet", "intent_partial"):
-            cid = f.get("criterion_id")
-            if isinstance(cid, (list, tuple)):
-                unmet_ids.update(str(c) for c in cid if c)
-            elif cid:
-                unmet_ids.add(str(cid))
-    trust = "human-confirmed" if spec.get("confirmed") else "unconfirmed (auto-synthesized — lower trust)"
+    retired = retired or []
+    judged = judged or {}
+    unauthorized = unauthorized or []
+    j_items = judged.get("items") or []
+    j_findings = judged.get("findings") or []
+    j_failed = bool(judged.get("model_failed"))
     engine_failed = bool(spec.get("review_engine_failed"))
-    lines = ["<!-- archie-delivery-review -->", "## Archie delivery review", ""]
-    if engine_failed:
-        lines.append("> 🛑 **REVIEW ENGINE FAILED — no code review was performed.** "
-                     "Do NOT treat this comment as a green verdict. Check the workflow "
-                     "logs for `[archie] review core failed`.")
-        lines.append("")
-    lines.append(f"> Grading against the task story · source: **{_sanitize(spec.get('source', '?'))}** "
-                 f"· confidence: **{_sanitize(spec.get('confidence', '?'))}** · {trust}")
-    lines.append("")
-    if spec.get("diff_truncated"):
-        lines.append("> ⚠️ diff was truncated to the review budget — some files may be unreviewed.")
-        lines.append("")
-    story = (spec.get("story") or "").strip()
-    if story:
-        lines.append("<details><summary>Task story</summary>\n\n" + _sanitize(story) + "\n\n</details>")
-        lines.append("")
-    unknown = verdict.get("unknown", 0)
-    if engine_failed:
-        lines.append("**Built the intent?** not assessed — the review engine failed before grading.")
-    else:
-        lines.append(f"**Built the intent?** {verdict.get('intent_completeness', '?')} criteria met"
-                     + (f" ({unknown} unknown)" if unknown else "") + ".")
-        for c in crit:
-            mark = "❌" if str(c.get("id")) in unmet_ids else "✅"
-            src = _sanitize(((c.get("from") or {}).get("quote") or ""))
-            suffix = f"  ·  _from: {src[:70]}_" if src else ""
-            lines.append(f"- {mark} {_sanitize(c.get('id'))} — {_sanitize(c.get('text', ''))}{suffix}")
-    try:
-        from reconcile import is_advisory_finding
-    except Exception:
-        def is_advisory_finding(f):
-            c = f.get("confidence")
-            return isinstance(c, (int, float)) and c < 0.6
-    break_kinds = ("conformance_break", "behavioral_break")
 
-    def _render_finding(f):
+    lines = [DELIVERY_MARKER, "## Archie review", ""]
+    if engine_failed:
+        lines += ["> 🛑 **REVIEW ENGINE FAILED — no code review was performed.** "
+                  "Do NOT treat this comment as a green verdict. Check the workflow "
+                  "logs for `[archie] review core failed`.", ""]
+
+    n_contract = len(retired) + len(j_items)
+    if n_contract:
+        lines += [f"### ⛔ Contract changes — merging this PR accepts them ({n_contract})", ""]
+
+    if retired:
+        lines += ["| Law | Change | Why | Authorized |", "|---|---|---|---|"]
+        for c in retired:
+            law = _sanitize(c.get("law", "")) or "_(law text unavailable)_"
+            lines.append(
+                f"| `{_sanitize(c.get('rule_id', '?'))}` {law} | **RETIRE** | "
+                f"{_sanitize(c.get('reason', ''))} | {_sanitize(c.get('authorized_by', '?'))}, "
+                f"{_sanitize(c.get('date', ''))} |")
+        lines.append("")
+
+    if j_items:
+        n = len(j_items)
+        lines += [f"**{n} unexplained source-of-truth change{'s' if n != 1 else ''}** "
+                  "in `rules.json` / `blueprint.json` — no override authorizes "
+                  f"{'them' if n != 1 else 'it'}.", ""]
+        if j_failed:
+            lines += ["⚠️ **These could not be judged** — the model call failed. The source "
+                      "of truth changed but was **not** checked against the retained rules. "
+                      "Re-run the check or review the diff manually.", ""]
+        elif not j_findings:
+            lines += ["No findings — consistent with the retained rules.", ""]
+        else:
+            for flag in _JUDGE_ORDER:
+                group = [f for f in j_findings if f.get("type") == flag]
+                if not group:
+                    continue
+                lines.append(f"**{_JUDGE_HEADERS[flag]}**")
+                for f in group:
+                    collides = ""
+                    if f.get("colliding_rules"):
+                        collides = " · collides with **" + ", ".join(
+                            _sanitize(r) for r in f["colliding_rules"]) + "**"
+                    lines.append(f"- {_sanitize(f.get('change_summary', ''))} "
+                                 f"({_sanitize(f.get('diff_op', ''))}, "
+                                 f"Layer {_sanitize(str(f.get('layer', '')))}){collides}")
+                lines.append("")
+
+    if n_contract:
+        lines += ["*After merge these changes become the contract. The next deep scan "
+                  "re-derives this area from the code.*", ""]
+
+    def _finding(f):
         a = f.get("anchor", {}) or {}
-        reviewer = _sanitize(str(f.get("source", "")).split(":")[-1])
-        return (f"- `{_sanitize(f.get('kind', ''))}` {_sanitize(f.get('problem_statement', ''))} "
-                f"({_sanitize(a.get('file', ''))}:{_sanitize(str(a.get('line', '')))}) · _{reviewer}_")
+        return (f"- `{_sanitize(a.get('file', ''))}:{_sanitize(str(a.get('line', '')))}` — "
+                f"{_sanitize(f.get('problem_statement', ''))}")
 
-    lines.append("")
+    if unauthorized:
+        lines += [f"### 🚨 Unauthorized law violations ({len(unauthorized)}) — "
+                  "not covered by any override", ""]
+        lines += [_finding(f) for f in unauthorized] + [""]
+
     if engine_failed:
-        lines.append("**Broke anything?** not assessed — no reviewer ran.")
+        lines += ["### 🔍 Code review", "", "_not assessed — no reviewer ran._", ""]
     else:
-        lines.append(f"**Broke anything?** {verdict.get('breaks', 0)} break(s), {verdict.get('conflicts', 0)} conflict(s).")
-    possible = []
-    for f in confirmed:
-        if f.get("kind") in ("intent_unmet", "intent_partial"):
-            continue
-        if f.get("kind") in break_kinds and is_advisory_finding(f):
-            possible.append(f)   # advisory — rendered in its own section below
-            continue
-        lines.append(_render_finding(f))
+        by_lens = {}
+        for f in confirmed:
+            by_lens.setdefault(_lens_of(f), []).append(f)
+        ordered = [l for l in _LENS_ORDER if l in by_lens] + \
+                  sorted(k for k in by_lens if k not in _LENS_ORDER)
+        lines += [f"### 🔍 Code review — {len(confirmed)} findings", ""]
+        if not confirmed:
+            lines.append("_No defects found._")
+        for lens in ordered:
+            fs = by_lens[lens]
+            lines += [f"**{lens} ({len(fs)})**"] + [_finding(f) for f in fs] + [""]
 
-    # Independent code-review lane: genuine coding issues the reviewer surfaced that
-    # aren't confident enough to call a "break" — shown so they aren't silently lost.
-    if possible:
-        lines.append("")
-        lines.append(f"**Possible issues** ({len(possible)} — unverified, lower confidence; worth a look):")
-        for f in possible:
-            lines.append(_render_finding(f))
-
-    if acked:
-        lines.append("")
-        lines.append(f"**⚠️ Acknowledged overrides** ({len(acked)} — user-authorized, "
-                     "not counted as breaks; merging ratifies the amendment):")
-        for entry, fs in acked:
-            lines.append(f"- `{_sanitize(entry.get('rule_id', '?'))}` — "
-                         f"{_sanitize(entry.get('reason', ''))} · authorized by "
-                         f"**{_sanitize(entry.get('authorized_by', '?'))}** on "
-                         f"{_sanitize(str(entry.get('created_at', ''))[:10])}")
-            for f in fs:
-                lines.append("  " + _render_finding(f))
-    if stale_acks:
-        lines.append("")
-        lines.append("**Stale overrides** (no matching violation observed this run — if the "
-                     "change was reverted, remove the entry from `.archie/overrides.json`):")
-        for e in stale_acks:
-            lines.append(f"- `{_sanitize(e.get('rule_id', '?'))}` — {_sanitize(e.get('reason', ''))}")
-
-    lines.append("")
-    lines.append("_Story wrong? Edit the task story (or re-run `archie imprint`) and push — this comment updates._")
+    lines += ["---",
+              f"*Contract: {n_contract} change(s), {len(unauthorized)} unauthorized. "
+              f"Code: {len(confirmed)} finding(s).*"]
     return "\n".join(lines)
+
+
+def split_findings(findings):
+    """(code_review, unauthorized). Conformance findings are law violations; the
+    specialist skips acked laws, so any survivor is uncovered by an override."""
+    unauth = [f for f in findings if f.get("kind") == "conformance_break"]
+    code = [f for f in findings if f.get("kind") != "conformance_break"]
+    return code, unauth
 
 
 def partition_for_verdict(root, confirmed):
@@ -322,20 +332,6 @@ def run_pr_gate(root=".", env=None):
         status["reason"] = "no pr context"
         return status
 
-    # Hands-off fallback: if no current story exists but turns were captured, imprint now (blind).
-    try:
-        import story_store, story_synthesize
-        import os as _os
-        from datetime import datetime as _dt, timezone as _tz
-        _branch = (pr_meta.get("head_ref") or _os.environ.get("ARCHIE_BRANCH")
-                   or _os.environ.get("GITHUB_HEAD_REF") or "")
-        if story_store.current_story(root, _branch) is None:
-            _sid = _os.environ.get("CLAUDE_SESSION_ID") or _os.environ.get("ARCHIE_SESSION_ID") or "session"
-            _ts = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H%M%S")
-            story_synthesize.imprint(root, _branch, _sid, _ts)
-    except Exception as e:
-        print(f"[archie] story auto-imprint skipped ({e})")
-
     # 3. Diff basis — provider base SHA when present, else detect. Bounded diff text.
     diff_text, changed, changed_lines, spec_truncated = "", [], {}, False
     try:
@@ -387,6 +383,17 @@ def run_pr_gate(root=".", env=None):
     except Exception as e:
         print(f"[archie] blueprint load failed ({e})")
 
+    # 5b. Contract delta — deterministic authorized retirements + (only when the
+    #     source of truth moved in ways nobody authorized) one Haiku judgment.
+    retired, judged = [], {}
+    try:
+        import contract_delta as _cd
+        retired = _cd.retirements(root)
+        base_ref_full = pr_meta.get("base_sha") or f"origin/{env.get('GITHUB_BASE_REF', '')}"
+        judged = _cd.judged_changes(root, base_ref_full, env.get("ANTHROPIC_API_KEY", ""))
+    except Exception as e:
+        print(f"[archie] contract delta failed ({e})")
+
     # 6. Run the reviewers via the shared core (evidence pack + parallel fan-out + merge).
     #    One core, shared with the local sync review (F3). Guarded — a core failure
     #    degrades to no findings, never aborts the gate — but it must be DISCLOSED:
@@ -404,7 +411,7 @@ def run_pr_gate(root=".", env=None):
 
     # 7. Editor gate + aggregate verdict.
     confirmed = []
-    acked_over, stale_over = [], []
+    unauthorized = []
     verdict = {"intent_completeness": "0/0", "breaks": 0, "conflicts": 0, "gate_signal": 1.0}
     try:
         from editor_gate import gate
@@ -424,7 +431,7 @@ def run_pr_gate(root=".", env=None):
         cl = changed_lines or None
         result = gate(raw, store, changed_lines=cl, floors=floors, file_level_kinds=advisory)
         confirmed = result.get("confirmed", [])
-        confirmed, acked_over, stale_over = partition_for_verdict(root, confirmed)
+        confirmed, unauthorized = split_findings(confirmed)
         verdict = aggregate_verdict(spec, confirmed)
     except Exception as e:
         # A gate/verdict crash silently discards every finding — that is an
@@ -434,12 +441,11 @@ def run_pr_gate(root=".", env=None):
         print(f"[archie] gate/verdict failed ({e})")
 
     # Fail CLOSED at render time: a dead engine must never present as a clean
-    # review. "Silence = met" completeness and the stale-override sweep are both
-    # meaningless when no reviewer ran — mark them not-assessed instead.
+    # review. render_verdict reads this flag and marks the code-review section
+    # "not assessed" instead of rendering an empty (green-looking) one. The
+    # contract delta is deterministic, so it still renders.
     if engine_failed:
         spec["review_engine_failed"] = True
-        verdict["intent_completeness"] = "n/a"
-        stale_over = []
 
     status["reviewed"] = not engine_failed
     status["verdict"] = verdict
@@ -447,7 +453,8 @@ def run_pr_gate(root=".", env=None):
     # 8. Render + publish. Fork PRs (no token) print the verdict instead of posting.
     # A render/post failure must never abort the review (exit 0 by contract).
     try:
-        body = render_verdict(verdict, confirmed, spec, acked=acked_over, stale_acks=stale_over)
+        body = render_verdict(verdict, confirmed, spec, retired=retired,
+                              judged=judged, unauthorized=unauthorized)
         token = env.get("GITHUB_TOKEN", "").strip()
         repo_full = env.get("GITHUB_REPOSITORY", "")
         number = pr_meta.get("number")
@@ -455,7 +462,8 @@ def run_pr_gate(root=".", env=None):
             owner, repo = repo_full.split("/", 1)
             try:
                 from intent_review import post_or_update_comment
-                post_or_update_comment(owner, repo, number, body, token)
+                post_or_update_comment(owner, repo, number, body, token,
+                                       marker=DELIVERY_MARKER)
                 status["posted"] = True
             except Exception as e:
                 print(f"[archie] could not post comment ({e})")

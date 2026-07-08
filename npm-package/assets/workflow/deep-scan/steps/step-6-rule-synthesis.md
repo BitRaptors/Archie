@@ -411,8 +411,7 @@ Skipping this checkpoint is safe — auto-compact will fire if needed — but co
 
 ## Override tombstones
 
-Before synthesizing rules, read `.archie/overrides.json` and
-`.archie/overrides_history.jsonl` if present. Do not carry forward or re-synthesize an enforcement
+Before synthesizing rules, read `.archie/overrides.json` if present. Do not carry forward or re-synthesize an enforcement
 rule for any rule/invariant id recorded there — the user deliberately overrode it
 and the contract change was (or is being) ratified. Rules for the area come only
 from what the current code exhibits. For `domain_invariant` rules, the rule's

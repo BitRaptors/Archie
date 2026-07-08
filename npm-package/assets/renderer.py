@@ -2312,8 +2312,8 @@ def _build_product_laws_rule(bp: dict):
         lines += [
             "## ⛔ Overridden — no longer enforced",
             "",
-            "_These laws were deliberately overridden by the user. `ratified` entries "
-            "merged; `staged` entries are pending on a branch. The next deep scan "
+            "_These laws were deliberately overridden by the user. `retired` entries "
+            "have been removed from the ruleset; `staged` entries are pending on a branch. The next deep scan "
             "re-derives this area from the current code — do not treat these as live "
             "constraints and do not \"fix\" code back to them._",
             "",
@@ -2321,7 +2321,7 @@ def _build_product_laws_rule(bp: dict):
         for x in overridden:
             o = x.get("override") or {}
             state = ("staged on `" + o.get("branch", "?") + "`"
-                     if x.get("status") == "override_staged" else "ratified")
+                     if x.get("status") == "override_staged" else "retired")
             lines.append(f"- **{x.get('id', '?')}** — {x.get('invariant', '')}  ")
             lines.append(f"  _{state} · {o.get('reason', '')} · authorized by "
                          f"{o.get('authorized_by', '?')}_")

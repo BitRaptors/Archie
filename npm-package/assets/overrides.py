@@ -27,7 +27,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 FILE = "overrides.json"
-HISTORY = "overrides_history.jsonl"
 
 
 def _path(root) -> Path:
@@ -77,10 +76,14 @@ def save(root, data) -> None:
     tmp.replace(p)
 
 
-def ack(root, rule_id: str, reason: str, now: str | None = None) -> dict:
+def ack(root, rule_id: str, reason: str, law: str = "", now: str | None = None) -> dict:
     """Record a human-authorized override. ONLY call after the user explicitly
     confirmed crossing the rule in conversation. Idempotent per (rule_id, branch):
-    the first ruling is kept."""
+    the first ruling is kept.
+
+    `law` snapshots the rule's description at ack time. The caller removes the rule
+    from rules.json in the same step, so this entry becomes the only place the
+    retired law's text survives."""
     data = load(root)
     branch = current_branch(root)
     for e in data["overrides"]:
@@ -89,6 +92,7 @@ def ack(root, rule_id: str, reason: str, now: str | None = None) -> dict:
             return e
     entry = {
         "rule_id": rule_id,
+        "law": law,
         "reason": reason,
         "authorized_by": git_user(root),
         "branch": branch,
@@ -101,43 +105,12 @@ def ack(root, rule_id: str, reason: str, now: str | None = None) -> dict:
 
 
 def active(root) -> dict:
-    """rule_id -> entry for every acked override. Any committed acked entry
-    suppresses its rule: on the authoring branch it is the confirmed override;
-    anywhere else it can only have arrived via merge (= ratified, pending
-    bookkeeping by override-ratify)."""
+    """rule_id -> entry for every acked override. The entry is the durable record
+    of an authorized retirement: `override-ack` already removed the rule from
+    rules.json on the branch, so this is provenance (law text, reason, authorizer)
+    and a safety net if a later deep scan re-derives the law."""
     return {e["rule_id"]: e for e in load(root)["overrides"]
             if e.get("status") == "acked" and e.get("rule_id")}
-
-
-def pending_ratification(root) -> list:
-    """Acked entries that merged in from another branch — merge IS ratification;
-    these await the contract application + archive step."""
-    b = current_branch(root)
-    return [e for e in load(root)["overrides"]
-            if e.get("status") == "acked" and e.get("branch") != b]
-
-
-def archive(root, entry: dict, status: str = "ratified", now: str | None = None) -> None:
-    """Move a ruling from the active file to the append-only history log.
-
-    Ordered history-first: a crash between the two writes must never erase
-    the ruling from BOTH places. Appending to overrides_history.jsonl first
-    means the worst case of an interrupted archive is a duplicate history
-    record (harmless, append-only) with the entry still active — never a
-    ruling that vanishes from both files.
-    """
-    rec = dict(entry)
-    rec["status"] = status
-    rec["archived_at"] = now or _now()
-    h = Path(root) / ".archie" / HISTORY
-    h.parent.mkdir(parents=True, exist_ok=True)
-    with h.open("a") as f:
-        f.write(json.dumps(rec) + "\n")
-    data = load(root)
-    data["overrides"] = [e for e in data["overrides"]
-                         if not (e.get("rule_id") == entry.get("rule_id")
-                                 and e.get("branch") == entry.get("branch"))]
-    save(root, data)
 
 
 def finding_matches(finding: dict, rule_id: str) -> bool:
