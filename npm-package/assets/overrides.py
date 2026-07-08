@@ -159,17 +159,51 @@ def finding_matches(finding: dict, rule_id: str) -> bool:
     return any(re.search(pattern, str(a)) for a in (finding.get("assumptions") or []))
 
 
-def partition(findings: list, active_map: dict) -> tuple:
+_ID_RX = re.compile(r"\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d+\b")
+
+
+def rule_aliases(root, rule_id: str) -> set:
+    """Ids of the domain laws a rules.json rule is grounded in.
+
+    Deep scans generate SHORT rule ids (inv-003) that differ from the blueprint
+    invariant ids (inv-subscribe-workflow-003) the invariant-specialist findings
+    reference — without this, an acked override never matched its own violation
+    (it counted as a break AND the ack rendered stale; SubscriberAgent PR #17).
+    The rule's `forced_by` field cites the source law by id; extract those ids
+    (plus explicit source_invariant/invariant_id fields when present)."""
+    try:
+        data = json.loads((Path(root) / ".archie" / "rules.json").read_text())
+        items = data.get("rules", data) if isinstance(data, dict) else data
+        for r in items:
+            if isinstance(r, dict) and r.get("id") == rule_id:
+                srcs = " ".join(str(r.get(k, "")) for k in
+                                ("forced_by", "source_invariant", "invariant_id"))
+                return {m for m in _ID_RX.findall(srcs) if m != rule_id}
+    except Exception:
+        pass
+    return set()
+
+
+def partition(findings: list, active_map: dict, root=None) -> tuple:
     """Split findings by ruling: (unacked, acked, stale).
 
     unacked — findings with no matching override (count as breaks).
     acked   — [(entry, [matching findings])] (surfaced, not counted).
     stale   — override entries with NO matching finding this run (the violation
-              is no longer observed — flag for removal before merge)."""
+              is no longer observed — flag for removal before merge).
+
+    When `root` is given, each ack also matches findings that reference the
+    invariant ids its rule is grounded in (see rule_aliases)."""
+    alias_of: dict = {}
+    for rid in active_map:
+        alias_of[rid] = rid
+        if root is not None:
+            for a in rule_aliases(root, rid):
+                alias_of.setdefault(a, rid)
     unacked = []
     by_rule: dict = {}
     for f in findings:
-        rid = next((r for r in active_map if finding_matches(f, r)), None)
+        rid = next((alias_of[a] for a in alias_of if finding_matches(f, a)), None)
         if rid is None:
             unacked.append(f)
         else:

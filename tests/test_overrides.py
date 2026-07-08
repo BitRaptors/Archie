@@ -91,3 +91,39 @@ def test_partition_splits_unacked_acked_stale(tmp_path):
     assert len(acked) == 1 and acked[0][0]["rule_id"] == "inv-003"
     assert [f["id"] for f in acked[0][1]] == ["f_inv_inv-003"]
     assert [e["rule_id"] for e in stale] == ["inv-999"]
+
+
+def test_partition_joins_ack_to_blueprint_invariant_alias(tmp_path):
+    # Regression (SubscriberAgent PR #17, Run 3): acks are recorded under SHORT
+    # rule ids (inv-003) but invariant-specialist findings reference the LONG
+    # blueprint invariant id (inv-subscribe-workflow-003) — nothing joined, so
+    # the violation counted as a break AND the ack rendered stale. The rule's
+    # forced_by citation provides the alias.
+    _git_repo(tmp_path)
+    (tmp_path / ".archie" / "rules.json").write_text(json.dumps({"rules": [
+        {"id": "inv-003", "kind": "domain_invariant",
+         "description": "Run cost must never be stored",
+         "forced_by": "Domain law inv-subscribe-workflow-003: the billable_steps "
+                      "table is the single source of truth."},
+    ]}))
+    ov.ack(tmp_path, "inv-003", "store cost — authorized")
+    act = ov.active(tmp_path)
+    findings = [
+        {"id": "f_inv_inv-subscribe-workflow-003", "kind": "conformance_break",
+         "problem_statement": "violates inv-subscribe-workflow-003: cost stored"},
+        {"id": "f_b1", "kind": "behavioral_break", "problem_statement": "null deref"},
+    ]
+    unacked, acked, stale = ov.partition(findings, act, root=tmp_path)
+    assert [f["id"] for f in unacked] == ["f_b1"]      # real break survives
+    assert acked and acked[0][0]["rule_id"] == "inv-003"
+    assert stale == []                                  # ack matched its violation
+
+
+def test_partition_without_root_keeps_old_behavior(tmp_path):
+    _git_repo(tmp_path)
+    ov.ack(tmp_path, "inv-003", "r")
+    act = ov.active(tmp_path)
+    findings = [{"id": "f_inv_inv-003", "kind": "conformance_break",
+                 "problem_statement": "violates inv-003"}]
+    unacked, acked, stale = ov.partition(findings, act)
+    assert unacked == [] and acked and stale == []

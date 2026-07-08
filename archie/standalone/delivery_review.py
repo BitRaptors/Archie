@@ -184,7 +184,7 @@ def partition_for_verdict(root, confirmed):
         act = _ov.active(root)
         if not act:
             return confirmed, [], []
-        return _ov.partition(confirmed, act)
+        return _ov.partition(confirmed, act, root=root)
     except Exception:
         return confirmed, [], []
 
