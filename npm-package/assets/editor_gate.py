@@ -32,6 +32,31 @@ def _dupe_key(f: dict):
     return (_hashable(anchor.get("file", "")), _hashable(line), _hashable(f.get("kind", "")))
 
 
+def _normalize(f: dict) -> dict:
+    """Shallow-normalize a model-shaped finding so every downstream dict/set
+    lookup (floors.get(kind), changed_lines.get(file), line-in-set, dedup)
+    sees hashable scalars. API-path reviewers have returned LISTS for kind /
+    anchor.file / anchor.line — one such value raised unhashable-type inside
+    the gate and silently discarded every finding (PR #17, twice). A list
+    anchor collapses to its first element (the primary anchor)."""
+    def _first(v):
+        if isinstance(v, (list, tuple)):
+            return v[0] if v else None
+        return v
+
+    g = dict(f)
+    if isinstance(g.get("kind"), (list, tuple)):
+        g["kind"] = str(_first(g["kind"]) or "")
+    a = g.get("anchor")
+    a = dict(a) if isinstance(a, dict) else {}
+    if isinstance(a.get("file"), (list, tuple)):
+        a["file"] = str(_first(a["file"]) or "")
+    if isinstance(a.get("line"), (list, tuple)):
+        a["line"] = _first(a["line"])
+    g["anchor"] = a
+    return g
+
+
 def gate(raw_findings, store, *, changed_lines, floors, file_level_kinds=frozenset()) -> dict:
     """Validate and gate findings through reliability filters.
 
@@ -51,7 +76,7 @@ def gate(raw_findings, store, *, changed_lines, floors, file_level_kinds=frozens
     """
     confirmed, suppressed = [], []
     seen = {_dupe_key(s) for s in store}
-    for f in raw_findings:
+    for f in map(_normalize, raw_findings):
         if not has_evidence_fields(f):
             suppressed.append({"id": f.get("id"), "reason": "schema"}); continue
         floor = floors.get(f.get("kind", ""), 0.5)

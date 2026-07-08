@@ -140,3 +140,23 @@ def test_editor_gate_dedup_key_survives_list_anchor():
     k2 = editor_gate._dupe_key(dict(f))
     assert k1 == k2
     assert len({k1, k2}) == 1        # hashable + stable
+
+
+def test_gate_end_to_end_survives_list_shaped_finding():
+    # Attempt-3 regression: the list survived past dedup into floors.get(kind),
+    # changed_lines.get(file) and line-in-set — every dict/set lookup in the
+    # gate must see scalars. Normalization happens at the input boundary.
+    import editor_gate
+    f = {"id": "f1", "kind": ["behavioral_break", "perf"], "edge": "B",
+         "problem_statement": "cache grows unbounded",
+         "anchor": {"file": ["worker/lib/pool_cache.py", "worker/main.py"], "line": [22]},
+         "assumptions": [], "evidence": ["e"], "falsification": "prove it",
+         "confidence": 0.9}
+    out = editor_gate.gate([f], [], changed_lines={"worker/lib/pool_cache.py": {22}},
+                           floors={"behavioral_break": 0.0},
+                           file_level_kinds={"behavioral_break"})
+    assert len(out["confirmed"]) == 1
+    c = out["confirmed"][0]
+    assert c["kind"] == "behavioral_break"
+    assert c["anchor"]["file"] == "worker/lib/pool_cache.py"
+    assert c["id"] == "f1"                      # identity preserved
