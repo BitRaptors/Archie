@@ -860,7 +860,8 @@ def cmd_override_ack(root: Path, rule_id: str, reason: str) -> int:
             pass
         break
 
-    e = _ov.ack(root, rule_id, reason, law=law)
+    e = _ov.ack(root, rule_id, reason, law=law,
+                invariant_ids=sorted(ids - {rule_id}))
 
     # Stamp the blueprint invariant(s) this rule is grounded in, so the rendered
     # product-laws stop stating a retired law as live truth and the review engine

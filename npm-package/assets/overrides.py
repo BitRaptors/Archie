@@ -76,14 +76,16 @@ def save(root, data) -> None:
     tmp.replace(p)
 
 
-def ack(root, rule_id: str, reason: str, law: str = "", now: str | None = None) -> dict:
+def ack(root, rule_id: str, reason: str, law: str = "", invariant_ids=None,
+        now: str | None = None) -> dict:
     """Record a human-authorized override. ONLY call after the user explicitly
     confirmed crossing the rule in conversation. Idempotent per (rule_id, branch):
     the first ruling is kept.
 
-    `law` snapshots the rule's description at ack time. The caller removes the rule
-    from rules.json in the same step, so this entry becomes the only place the
-    retired law's text survives."""
+    `law` and `invariant_ids` snapshot the rule's description and the domain-law ids
+    it was grounded in (its `forced_by` citation). The caller removes the rule from
+    rules.json in the same step, so this entry becomes the only place either survives
+    — a later rule_aliases() lookup would find nothing."""
     data = load(root)
     branch = current_branch(root)
     for e in data["overrides"]:
@@ -99,6 +101,10 @@ def ack(root, rule_id: str, reason: str, law: str = "", now: str | None = None) 
         "created_at": now or _now(),
         "status": "acked",
     }
+    # None means "not snapshotted" (readers fall back to rules.json); an empty
+    # list means "snapshotted, and the rule cited no domain law". Do not conflate.
+    if invariant_ids is not None:
+        entry["invariant_ids"] = sorted(invariant_ids)
     data["overrides"].append(entry)
     save(root, data)
     return entry

@@ -153,3 +153,34 @@ def test_unresolvable_base_ref_degrades(tmp_path, monkeypatch):
     monkeypatch.setattr(ir, "fetch_base_file", lambda *a: (False, None, "bad object"))
     out = cd.judged_changes(tmp_path, "origin/nope", "sk-test")
     assert out == {"items": [], "findings": [], "model_failed": False}
+
+
+# ---- real-data regressions (caught by validating against SubscriberAgent PR #17) ----
+def test_is_authorized_matches_the_differs_uppercase_diff_op():
+    """intent_review.keyed_diff emits REMOVE / UPDATE / ADD, not lowercase."""
+    assert cd.is_authorized(
+        {"diff_op": "REMOVE", "base_item": {"id": "inv-003"}, "branch_item": None},
+        {"inv-003"}) is True
+    assert cd.is_authorized(
+        {"diff_op": "UPDATE", "base_item": {"id": "inv-x"}, "branch_item": {"id": "inv-x"},
+         "fields_changed": ["override", "status"]}, {"inv-x"}) is True
+    assert cd.is_authorized(
+        {"diff_op": "ADD", "base_item": None, "branch_item": {"id": "inv-003"}},
+        {"inv-003"}) is False
+
+
+def test_acked_rule_ids_survive_the_rule_being_removed(tmp_path):
+    """override-ack removes the rule, so rule_aliases() can no longer read its
+    forced_by. The aliases must be snapshotted into the entry at ack time, or the
+    blueprint stamp for inv-subscribe-workflow-003 looks UNAUTHORIZED."""
+    _project(tmp_path)
+    ov.ack(tmp_path, "inv-003", "r", law="Run cost must never be stored",
+           invariant_ids=["inv-subscribe-workflow-003"])
+    (tmp_path / ".archie" / "rules.json").write_text(json.dumps({"rules": []}))  # rule gone
+    assert cd.retirements(tmp_path)[0]["invariant_ids"] == ["inv-subscribe-workflow-003"]
+    assert cd.acked_rule_ids(tmp_path) == {"inv-003", "inv-subscribe-workflow-003"}
+    # ...so the blueprint stamp is explained
+    stamp = {"diff_op": "UPDATE", "base_item": {"id": "inv-subscribe-workflow-003"},
+             "branch_item": {"id": "inv-subscribe-workflow-003"},
+             "fields_changed": ["override", "status"]}
+    assert cd.is_authorized(stamp, cd.acked_rule_ids(tmp_path)) is True

@@ -60,17 +60,24 @@ def retirements(root) -> list:
             continue
         rid = e["rule_id"]
         law = str(e.get("law", ""))
-        if not law:                       # legacy entry (pre-snapshot): read the live rule
+        inv_ids = e.get("invariant_ids")
+        if not law or inv_ids is None:
+            # Legacy entry (pre-snapshot): the rule is still in rules.json, so read it.
+            # A snapshotted entry MUST NOT fall back — override-ack removed the rule,
+            # and rule_aliases() would silently return nothing.
             if by_id is None:
                 by_id = _rules(root)
-            law = str((by_id.get(rid) or {}).get("description", ""))
+            if not law:
+                law = str((by_id.get(rid) or {}).get("description", ""))
+            if inv_ids is None:
+                inv_ids = sorted(_ov.rule_aliases(root, rid))
         out.append({
             "rule_id": rid,
             "law": law,
             "reason": str(e.get("reason", "")),
             "authorized_by": str(e.get("authorized_by", "")),
             "date": str(e.get("created_at", ""))[:10],
-            "invariant_ids": sorted(_ov.rule_aliases(root, rid)),
+            "invariant_ids": sorted(inv_ids),
         })
     return out
 
@@ -102,7 +109,8 @@ def is_authorized(item, acked_ids) -> bool:
           (bi.get("id") if isinstance(bi, dict) else None)
     if not rid or rid not in acked_ids:
         return False
-    op = item.get("diff_op")
+    # keyed_diff emits REMOVE / UPDATE / ADD (uppercase). Never trust the casing.
+    op = str(item.get("diff_op", "")).lower()
     if op == "remove":
         return True
     if op == "update":
