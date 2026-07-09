@@ -354,14 +354,14 @@ def test_render_verdict_discloses_unjudged_rule_changes():
     judged = {"items": [{"ref": "r1"}], "findings": [], "model_failed": True}
     body = dr.render_verdict({"breaks": 0}, [], {}, judged=judged)
     assert "could not be judged" in body.lower()
-    assert "1 unexplained source-of-truth change" in body
+    assert "Unexpected source-of-truth changes (1)" in body
 
 
 def test_render_verdict_clean_rule_changes_say_so():
     import delivery_review as dr
     judged = {"items": [{"ref": "r1"}], "findings": [], "model_failed": False}
     body = dr.render_verdict({"breaks": 0}, [], {}, judged=judged)
-    assert "consistent with the retained rules" in body
+    assert "consistent with the retained rules" in body.lower()
 
 
 def test_render_verdict_groups_code_review_by_lens_security_first():
@@ -485,3 +485,46 @@ def test_comment_discloses_failed_reviewers():
     # and silent when everything ran
     ok = dr.render_verdict({"breaks": 0}, [], {"reviewers_failed": 0, "reviewers_total": 6})
     assert "reviewers failed" not in ok
+
+
+def test_render_verdict_shows_task_prose_from_spec():
+    import delivery_review as dr
+    spec = {"story": "The billing dashboard recomputes cost on every load; add a "
+                     "total_cost column computed once at save."}
+    body = dr.render_verdict({"breaks": 0}, [], spec, retired=_RETIRED)
+    assert "What this PR set out to do" in body
+    assert "recomputes cost on every load" in body
+    assert "<details>" in body
+
+
+def test_render_verdict_header_counts_retirements_only():
+    import delivery_review as dr
+    judged = {"items": [{"ref": "a"}, {"ref": "b"}], "findings": [], "model_failed": False}
+    body = dr.render_verdict({"breaks": 0}, [], {}, retired=_RETIRED, judged=judged)
+    # header = 1 retirement, NOT 1+2=3
+    assert "merging this PR accepts them (1)" in body
+    assert "Unexpected source-of-truth changes (2)" in body
+
+
+def test_render_verdict_annotates_collision_against_same_pr_retirement():
+    import delivery_review as dr
+    judged = {"items": [{"ref": "a"}], "model_failed": False,
+              "findings": [{"type": "contradiction", "change_summary": "cost now stored",
+                            "diff_op": "update", "layer": 2,
+                            "colliding_rules": ["inv-003", "trd-002"]}]}
+    body = dr.render_verdict({"breaks": 0}, [], {}, retired=_RETIRED, judged=judged)
+    # inv-003 is retired in _RETIRED -> annotated; trd-002 is not -> plain
+    assert "inv-003**_(retired in this PR)_" in body.replace(" ", "") or "retired in this PR" in body
+    assert "trd-002" in body
+
+
+def test_render_verdict_cleans_messy_anchor_and_links():
+    import delivery_review as dr
+    f = {"kind": "behavioral_break", "source": "universal:null-safety",
+         "problem_statement": "NaN in cost",
+         "anchor": {"file": "src/lib/supabase.ts:line 236: `Number(x)`", "line": None}}
+    spec = {"link_base": "https://github.com/o/r/blob/abc"}
+    body = dr.render_verdict({"breaks": 1}, [f], spec)
+    assert "`Number(x)`" not in body                    # junk stripped from the anchor
+    assert "src/lib/supabase.ts:236" in body            # clean path:line
+    assert "https://github.com/o/r/blob/abc/src/lib/supabase.ts#L236" in body  # clickable

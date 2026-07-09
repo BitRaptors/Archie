@@ -7,6 +7,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -91,6 +92,33 @@ def _lens_of(f) -> str:
     return str(f.get("source", "")).split(":")[-1] or "other"
 
 
+def _clean_anchor(f) -> tuple:
+    """(path, line) from a possibly-messy anchor. Models sometimes stuff prose into
+    anchor.file (e.g. "supabase.ts:line 236: `Number(x)`" or "line 233-237 (logic)"),
+    which renders as junk. Pull the first path-looking token and the first line
+    number, from either the file field or the whole anchor."""
+    a = f.get("anchor") or {}
+    raw = str(a.get("file", ""))
+    line = a.get("line")
+    m = re.search(r"[\w][\w./-]*\.[A-Za-z0-9]+", raw)
+    path = m.group(0) if m else (raw.split(":")[0].split()[0] if raw.split() else raw)
+    if line in (None, "", "?"):
+        lm = re.search(r":?\s*(?:line\s*)?(\d+)", raw[len(path):] if path in raw else raw)
+        line = lm.group(1) if lm else ""
+    return path, str(line)
+
+
+def _anchor_md(f, link_base) -> str:
+    """A clean, clickable `path:line`. link_base like
+    'https://github.com/OWNER/REPO/blob/SHA' -> a blob link; else a code span."""
+    path, line = _clean_anchor(f)
+    label = _sanitize(f"{path}:{line}" if line else path)
+    if link_base and path:
+        frag = f"#L{line}" if line and line.isdigit() else ""
+        return f"[`{label}`]({link_base}/{path}{frag})"
+    return f"`{label}`"
+
+
 def render_verdict(verdict: dict, confirmed: list, spec=None,
                    retired=None, judged=None, unauthorized=None) -> str:
     """Render the single PR comment.
@@ -110,6 +138,15 @@ def render_verdict(verdict: dict, confirmed: list, spec=None,
     j_findings = judged.get("findings") or []
     j_failed = bool(judged.get("model_failed"))
     engine_failed = bool(spec.get("review_engine_failed"))
+    link_base = spec.get("link_base") or ""
+
+    # Rules being retired IN THIS PR (id + the invariants they ground). A judge
+    # collision against one of these is not a real conflict — the rule is on its
+    # way out in the same diff — so we annotate rather than alarm.
+    retired_ids = set()
+    for c in retired:
+        retired_ids.add(c.get("rule_id"))
+        retired_ids.update(c.get("invariant_ids") or [])
 
     lines = [DELIVERY_MARKER, "## Archie review", ""]
     if engine_failed:
@@ -117,32 +154,39 @@ def render_verdict(verdict: dict, confirmed: list, spec=None,
                   "Do NOT treat this comment as a green verdict. Check the workflow "
                   "logs for `[archie] review core failed`.", ""]
 
-    n_contract = len(retired) + len(j_items)
-    if n_contract:
-        lines += [f"### ⛔ Contract changes — merging this PR accepts them ({n_contract})", ""]
+    # The developer's own account of what this PR is for. Captured by the task-story
+    # imprint (or the PR body); shown as context, never graded.
+    story = _sanitize((spec.get("story") or "").strip())
+    if story:
+        lines += ["<details><summary>📝 What this PR set out to do</summary>", "",
+                  story, "", "</details>", ""]
 
+    # ---- contract: what merging ACCEPTS (retirements the user authorized) ----
     if retired:
-        lines += ["| Law | Change | Why | Authorized |", "|---|---|---|---|"]
+        lines += [f"### ⛔ Contract changes — merging this PR accepts them ({len(retired)})", "",
+                  "| Law | Change | Why | Authorized |", "|---|---|---|---|"]
         for c in retired:
-            law = _sanitize(_clip(c.get("law", ""), 120)) or "_(law text unavailable)_"
+            law = _sanitize(_clip(c.get("law", ""), 110)) or "_(law text unavailable)_"
             lines.append(
                 f"| `{_sanitize(c.get('rule_id', '?'))}` {law} | **RETIRE** | "
-                f"{_sanitize(_clip(c.get('reason', '')))} | "
+                f"{_sanitize(_clip(c.get('reason', ''), 140))} | "
                 f"{_sanitize(c.get('authorized_by', '?'))}, "
                 f"{_sanitize(c.get('date', ''))} |")
         lines.append("")
 
+    # ---- unexpected source-of-truth changes nobody authorized (judged) ----
     if j_items:
         n = len(j_items)
-        lines += [f"**{n} unexplained source-of-truth change{'s' if n != 1 else ''}** "
-                  "in `rules.json` / `blueprint.json` — no override authorizes "
-                  f"{'them' if n != 1 else 'it'}.", ""]
+        lines += [f"### 🔎 Unexpected source-of-truth changes ({n})", "",
+                  "_Edits to `rules.json` / `blueprint.json` that no override authorized "
+                  "(usually folded in by `/archie-sync`) — checked against the retained rules._",
+                  ""]
         if j_failed:
-            lines += ["⚠️ **These could not be judged** — the model call failed. The source "
-                      "of truth changed but was **not** checked against the retained rules. "
+            lines += ["⚠️ **Could not be judged** — the model call failed. The source of "
+                      "truth changed but was **not** checked against the retained rules. "
                       "Re-run the check or review the diff manually.", ""]
         elif not j_findings:
-            lines += ["No findings — consistent with the retained rules.", ""]
+            lines += ["✅ Consistent with the retained rules.", ""]
         else:
             for flag in _JUDGE_ORDER:
                 group = [f for f in j_findings if f.get("type") == flag]
@@ -152,21 +196,22 @@ def render_verdict(verdict: dict, confirmed: list, spec=None,
                 for f in group:
                     collides = ""
                     if f.get("colliding_rules"):
-                        collides = " · collides with **" + ", ".join(
-                            _sanitize(r) for r in f["colliding_rules"]) + "**"
+                        parts = []
+                        for r in f["colliding_rules"]:
+                            tag = " _(retired in this PR)_" if r in retired_ids else ""
+                            parts.append(f"**{_sanitize(r)}**{tag}")
+                        collides = " · collides with " + ", ".join(parts)
                     lines.append(f"- {_sanitize(f.get('change_summary', ''))} "
                                  f"({_sanitize(f.get('diff_op', ''))}, "
                                  f"Layer {_sanitize(str(f.get('layer', '')))}){collides}")
                 lines.append("")
 
-    if n_contract:
+    if retired or j_items:
         lines += ["*After merge these changes become the contract. The next deep scan "
                   "re-derives this area from the code.*", ""]
 
     def _finding(f):
-        a = f.get("anchor", {}) or {}
-        return (f"- `{_sanitize(a.get('file', ''))}:{_sanitize(str(a.get('line', '')))}` — "
-                f"{_sanitize(f.get('problem_statement', ''))}")
+        return f"- {_anchor_md(f, link_base)} — {_sanitize(f.get('problem_statement', ''))}"
 
     if unauthorized:
         lines += [f"### 🚨 Unauthorized law violations ({len(unauthorized)}) — "
@@ -190,13 +235,19 @@ def render_verdict(verdict: dict, confirmed: list, spec=None,
                       "`[archie] reviewer failed`.", ""]
         if not confirmed:
             lines.append("_No defects found._")
-        for lens in ordered:
+        # Group by lens; collapse each group so 11 findings don't wall the reader,
+        # but the first (highest-priority) lens stays open.
+        for i, lens in enumerate(ordered):
             fs = by_lens[lens]
-            lines += [f"**{lens} ({len(fs)})**"] + [_finding(f) for f in fs] + [""]
+            body = [_finding(f) for f in fs]
+            openattr = " open" if i == 0 else ""
+            lines += [f"<details{openattr}><summary><b>{lens}</b> ({len(fs)})</summary>", ""]
+            lines += body
+            lines += ["", "</details>", ""]
 
     lines += ["---",
-              f"*Contract: {n_contract} change(s), {len(unauthorized)} unauthorized. "
-              f"Code: {len(confirmed)} finding(s).*"]
+              f"*Contract: {len(retired)} retired · {len(j_items)} unexpected · "
+              f"{len(unauthorized)} unauthorized · Code: {len(confirmed)} finding(s).*"]
     return "\n".join(lines)
 
 
@@ -464,6 +515,12 @@ def run_pr_gate(root=".", env=None):
         spec["review_engine_failed"] = True
     spec["reviewers_failed"] = review_stats.get("failed", 0)
     spec["reviewers_total"] = review_stats.get("total", 0)
+    # Clickable file:line anchors — blob links against the PR head SHA when known.
+    _repo = env.get("GITHUB_REPOSITORY", "")
+    _sha = pr_meta.get("head_sha") or pr_meta.get("head_ref") or ""
+    _server = (env.get("GITHUB_SERVER_URL", "") or "https://github.com").rstrip("/")
+    if _repo and _sha:
+        spec["link_base"] = f"{_server}/{_repo}/blob/{_sha}"
 
     status["reviewed"] = not engine_failed
     status["verdict"] = verdict
