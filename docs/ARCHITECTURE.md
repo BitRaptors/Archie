@@ -15,26 +15,30 @@ Comprehensive technical documentation covering system architecture, analysis pip
 7. [Bulk-Content Classifier](#bulk-content-classifier)
 8. [Coordinator — AI Pipeline](#coordinator--ai-pipeline)
 9. [Deep Scan (`/archie-deep-scan`)](#deep-scan-archie-deep-scan)
-10. [Findings Store](#findings-store)
-11. [Pitfalls](#pitfalls)
-12. [Hooks — Real-Time Enforcement](#hooks--real-time-enforcement)
-13. [Rules — Synthesis and Delivery](#rules--synthesis-and-delivery)
-14. [Renderer — Output Generation](#renderer--output-generation)
-15. [Standalone Scripts](#standalone-scripts)
-16. [NPM Package — Distribution](#npm-package--distribution)
-18. [Multi-Agent Connector Architecture](#multi-agent-connector-architecture)
-19. [Coding Agent Integration (Claude / Codex)](#coding-agent-integration-claude--codex)
-20. [Share Pipeline (`/archie-share`)](#share-pipeline-archie-share)
-20. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
-21. [Data Flow](#data-flow)
-22. [Compound Learning](#compound-learning)
-23. [Drift Coverage](#drift-coverage-no-dedicated-drift-step)
-24. [Cycle Detection](#cycle-detection)
-25. [Telemetry](#telemetry)
-26. [No Inline Python Constraint](#no-inline-python-constraint)
-27. [Error Handling and Resilience](#error-handling-and-resilience)
-28. [Testing](#testing)
-29. [File Sync Protocol](#file-sync-protocol)
+10. [Living Blueprint (`/archie-sync`)](#living-blueprint--archie-sync)
+11. [Structural Integrity Score](#structural-integrity-score)
+12. [Findings Store](#findings-store)
+13. [Pitfalls](#pitfalls)
+14. [Hooks — Real-Time Enforcement](#hooks--real-time-enforcement)
+15. [Rules — Synthesis and Delivery](#rules--synthesis-and-delivery)
+16. [Renderer — Output Generation](#renderer--output-generation)
+17. [Storage Modes — Detached Artifacts](#storage-modes--detached-artifacts)
+18. [Standalone Scripts](#standalone-scripts)
+19. [NPM Package — Distribution](#npm-package--distribution)
+20. [Multi-Agent Connector Architecture](#multi-agent-connector-architecture)
+21. [Coding Agent Integration (Claude / Codex)](#coding-agent-integration-claude--codex)
+22. [Share Pipeline (`/archie-share`)](#share-pipeline-archie-share)
+23. [Intent Review — CI PR Gate](#intent-review--ci-pr-gate)
+24. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
+25. [Data Flow](#data-flow)
+26. [Compound Learning](#compound-learning)
+27. [Drift Coverage](#drift-coverage-no-dedicated-drift-step)
+28. [Cycle Detection](#cycle-detection)
+29. [Telemetry](#telemetry)
+30. [No Inline Python Constraint](#no-inline-python-constraint)
+31. [Error Handling and Resilience](#error-handling-and-resilience)
+32. [Testing](#testing)
+33. [File Sync Protocol](#file-sync-protocol)
 
 ---
 
@@ -51,9 +55,10 @@ The core workflow:
 5. **Enforce** — Claude Code hooks validate every file write against extracted rules.
 6. **Share** (optional) — `/archie-share` has three modes. **Default** uploads a bundle to BitRaptors' Supabase edge function and renders via the hosted React viewer at `archie-viewer.vercel.app`. **Enterprise (stored credentials)** uploads directly to the customer's own S3 bucket via pure-stdlib sigv4 signing — BitRaptors is never in the data path; the GET URL rides in the share URL's fragment (never transmitted to any server); the viewer fetches client-side from the customer bucket. **Enterprise (paste URL)** is the same flow but with a per-share presigned PUT URL minted by the customer's InfoSec, so no credentials ever live on the dev's laptop.
 
-Archie has three user-facing slash commands (+ one local inspector):
+Archie has four user-facing slash commands (+ one local inspector):
 
 - **`/archie-deep-scan`** — comprehensive baseline (15–20 min). Full 2-wave multi-agent analysis (3–4 parallel Sonnet fact-gatherers + one Opus reasoner). Produces complete blueprint and all outputs. Supports `--incremental` (changed files only, 3–6 min), `--continue` (resume interrupted run), `--from N` (resume from step N), `--reconfigure` (re-prompt monorepo scope). Auto-detects monorepos and offers parallel sub-project analysis. Intent Layer (per-folder CLAUDE.md) is **opt-in** via an interactive prompt at Step E. Implemented as a **modular workflow** — the rendered `deep-scan/` tree holds a `SKILL.md` router plus self-contained per-step files, fragments, and templates, so the long pipeline survives `/compact` and resumes mid-run.
+- **`/archie-sync`** — reconciles a session's code delta into the living blueprint + intent layer between baselines (snapshot-vs-contract: the code mirror folds automatically, the contract only amends on explicit accept). Consumes captured plans + edit churn; auto-nudged at session stop / commit once churn crosses a threshold. See [Living Blueprint](#living-blueprint--archie-sync).
 - **`/archie-intent-layer`** — standalone per-folder CLAUDE.md regeneration. Phase 0.5 asks Full/Incremental/Auto upfront (Auto uses `detect-changes` against the `last_deep_scan.json` baseline). Hard-requires `blueprint.json` — otherwise tells the user to run `/archie-deep-scan` first, no degraded path. **Shares its Phases 1–4 pipeline with `/archie-deep-scan` Step 7** (single source of truth); deep-scan Reads this file and layers its own deltas (telemetry, SCAN_MODE mapping, Compact Checkpoint B).
 - **`/archie-share`** — uploads blueprint + findings + scan report and returns a URL. Dual-mode at share time: default (BitRaptors Supabase, unchanged) or enterprise (BYO customer S3 bucket, zero BitRaptors storage). Enterprise mode supports either stored credentials (one-time `share_setup.py`) or per-share presigned PUT URL paste. See [Share Pipeline](#share-pipeline-archie-share) for the full architecture.
 - **`/archie-viewer`** — local inspector that runs the **same React UI as the hosted share viewer**. `viewer.py` serves the prebuilt React `dist/` plus a localhost JSON API (`/api/bundle`, `/api/generated-files`, `/api/folder-claude-mds`, `/api/intent-layer-status`, `/api/ignored-rules`, `POST /api/rules`) at `localhost:5847/local`. Two tabs: **Blueprint** (the full report — health, diagram, decisions, findings, pitfalls, plus inline rule adopt/reject/edit) and **Files** (per-folder CLAUDE.md browser + click-to-view generated-files tree). The bundle is rebuilt from `.archie/` on every request; the rule actions write back to `.archie/`.
@@ -70,7 +75,7 @@ Archie has three user-facing slash commands (+ one local inspector):
 | NPM installer | Node.js 18+ | `npx @bitraptors/archie` distribution |
 | Viewer (shared) | React 18 + Vite + TypeScript + Tailwind v3 + React Router | One React codebase serves both the hosted share viewer (`archie-viewer.vercel.app`) and the local `/archie-viewer` sidecar |
 | Share backend | Supabase Edge Functions (Deno) + Postgres | Upload + blueprint fetch by token + anonymous telemetry ingest |
-| Testing | pytest | 54 test files |
+| Testing | pytest | 99 test files |
 | Linting | Ruff | Python linting and formatting |
 
 ### Dependency philosophy
@@ -113,7 +118,7 @@ archie/
   rules/
     extractor.py                # Legacy blueprint rule extractor — RETIRED in v2.5.0, no longer on the pipeline (kept for tests)
   manifest.py                   # CLI-agnostic install dataclasses: CommandDef, HookDef, ConfigPatch
-  manifest_data.py              # The manifest: 5 COMMANDS, 7 HOOKS, 2 CONFIG_PATCHES
+  manifest_data.py              # The manifest: 5 COMMANDS, 8 HOOKS, 5 CONFIG_PATCHES
   install.py                    # Connector-driven install loop + workflow template renderer
   connectors/                   # Install-time per-CLI adapters
     base.py                     # Connector ABC + render-map fields
@@ -134,6 +139,13 @@ archie/
     install_hooks.py            # Legacy Claude-only hook installer (backwards compat; modern installs route through the connector loop)
     merge.py                    # Merge blueprint sections from multiple sources
     finalize.py                 # Deep merge + findings upsert into store + pitfalls into blueprint
+    sync.py                     # /archie-sync engine — snapshot-vs-contract ledger (record/list/fold-*), durable plan + churn signals (plan-*/churn-*), sync-stamp
+    score.py                    # Structural Integrity Score CLI + diff-scoped PR gate + worklist grouping + calibration-aware blocking
+    scoring.py                  # Pure composite-score math (Reconciliation/Coverage/Burndown/Freshness axes + geometric ceiling), zero-dep
+    intent_review.py            # CI PR reviewer — semantic diff of blueprint+rules vs PR base, one Claude Haiku judge call, FYI comment (Claude-only)
+    link_store.py               # Detached mode: external store location ($ARCHIE_HOME) + JSON manifests (.archie-link.json / exposure.json / placements)
+    link_strategy.py            # Detached mode: OS presentation primitive (symlink / NTFS junction / copy fallback) + never-touch-a-file-we-didn't-place invariant
+    linker.py                   # Detached mode orchestration + CLI: bind|reconcile|externalize|status|attach|detach
     verify_findings.py          # Finding verifier — checks each finding's triggering_call_site against real code (calls agent_cli)
     apply_verdicts.py           # Apply verifier verdicts to findings.json with cross-run hysteresis
     rule_index.py               # Pre-compute .archie/rule_index.json (keyword / path / always-inject buckets) for hot-path enforcement
@@ -157,8 +169,11 @@ archie/
       deep-scan/                # SKILL.md router + steps/ + fragments/ + templates/
       intent-layer/SKILL.md     # Per-folder CLAUDE.md workflow
       share/SKILL.md            # Share workflow
+      sync/SKILL.md             # /archie-sync workflow — snapshot-vs-contract reconciliation, consumes plans + churn
       viewer/SKILL.md           # Local viewer launcher workflow
-    hook_scripts/               # Canonical hook .sh scripts (copied to .archie/hooks/)
+    hook_scripts/               # Canonical hook .sh scripts (copied to .archie/hooks/); incl. churn-track.sh (post-tool-use edit churn)
+    workflows/                  # CI GitHub Actions — archie-intent-review.yml (PR reviewer, installed by setup-archie-intent-review.sh)
+    setup-archie-intent-review.sh  # One-time installer for the Intent Review Action (stores ANTHROPIC_API_KEY secret + copies the workflow)
     viewer/                     # React viewer source — built into dist/ at install time
     archieignore.default        # Default `.archieignore` template
     archiebulk.default          # Default `.archiebulk` template (three tier, path-based)
@@ -188,11 +203,15 @@ share/
     functions/blueprint/        # GET bundle by token
     functions/telemetry-ingest/ # Anonymous telemetry ingest (anon key + insert-only RLS)
 
-tests/                          # 54 test files
+tests/                          # 99 test files (incl. calibration/precision_recall.py — the rule smoke-alarm harness)
 
 docs/
   ARCHITECTURE.md               # This file
   enterprise-share-setup.md     # Customer-side bucket setup walkthrough (CORS + IAM templates)
+  automated-sync.md             # /archie-sync design reference (snapshot vs contract, plan + churn signals)
+  archie-snapshot-vs-contract-{plan,implementation}.md  # Phase 1 sync methodology
+  archie-intent-review-{design,delivery-plan}.md        # CI PR-reviewer design + delivery plan
+  archie-detached-artifacts-design.md                   # Detached storage-mode design spec
 
 landing/                        # Landing page
 v1/                             # Archived V1 web app + landing (FastAPI + Next.js, obsolete)
@@ -406,6 +425,7 @@ Step 7  Intent Layer (opt-in) — per-folder CLAUDE.md via DAG scheduling
               telemetry records "skipped": true
 Step 8        Cleanup
 Step 9        Finalize — health metrics (measure_health.py + history),
+              Structural Integrity Score baseline (score.py --write),
               incremental baseline marker, telemetry write, closing summary
 ```
 
@@ -417,6 +437,46 @@ Skips Wave 1 entirely. One scoped Reasoning agent receives `blueprint.json` + `b
 
 - `--continue` resumes from the last completed step (tracked in `.archie/deep_scan_state.json`).
 - `--from N` resumes from a specific step.
+
+---
+
+## Living Blueprint — `/archie-sync`
+
+`/archie-deep-scan` builds the baseline; `/archie-sync` keeps it accurate between baselines. It reconciles a session's code delta back into `blueprint.json` and the per-folder intent layer without a full re-scan — the continuous-maintenance counterpart to the deep scan.
+
+**Snapshot vs. contract.** The blueprint is two things at once: a *snapshot* (the code mirror — components, communication, data models, tech) and a *contract* (the law — `rules.json`, `domain_invariants`, `derived_invariants`, `decisions`, `pitfalls`, `development_rules`, `architecture_rules`, `platform_rules.json`). `/archie-sync` may fold the snapshot automatically but treats the contract as **read-only** (Phase 1). Claims are classified by kind: `_DESCRIPTIVE_KINDS` (behavior / structure / dataflow / data / tech / reference) are fold-eligible; `_ADVISORY_KINDS` (decision / pitfall / rule / guideline) always *stage* as proposed amendments and never auto-fold. A `_contract_fingerprint()` (SHA-256 over the contract sections + rule files) is checked in `fold-apply`; if the contract moved during a descriptive fold, the render aborts. Amendments only land when a human accepts them — the law never moves silently.
+
+**The ledger.** Each sync writes a versioned entry to `.archie/changes/change_<UTC>.json` (+ `latest.json`) recording the intent, the git diff, and the eligible/staged claim split. `sync.py` subcommands: `record`, `list`, `fold-context` (resolve which blueprint sections + rule docs + per-folder CLAUDE.md each claim edits), `fold-apply` (re-render from the edited blueprint, validate the contract held, mark claims folded). The fold itself is agent-mediated (Phase 1 constraint); `intent_review.py` reads every new `change_*.json` on a branch, not just `latest.json`.
+
+**Durable signals + auto-nudge.** Two hooks feed sync so it doesn't rely on the agent's short-term memory:
+
+- `churn-track.sh` (`post-tool-use` / `Edit|Write|MultiEdit` on Claude, `apply_patch` on Codex) pipes each edit's file/line volume to `sync churn-bump`, accumulating `.archie/tmp/churn.json`. Silent, always exit 0.
+- `post-plan-review.sh` tees each `ExitPlanMode` plan to `sync plan-capture` (best-effort) *before* its existing contract-gating pass — persisting the plan as durable intent under `.archie/tmp/plans/`.
+
+At session end, `stop.sh` reads `churn-status` + `plan-list`; if churn crossed the threshold (`churn_threshold_files` default 8 / `churn_threshold_lines` default 150 in `.archie/config.json`) **or** unconsumed plans exist, it prints a nudge to stderr and exits 2 (declinable — the user can continue). `pre-commit-review.sh` prints the same reminder at commit time, advisory only (never changes the exit code). The sync workflow's closing step calls `plan-consume` + `churn-reset` + `sync-stamp` to close the loop. All of this is dormant until `.archie/blueprint.json` exists, and works cross-CLI via envelope normalization. Design reference: `docs/automated-sync.md`.
+
+---
+
+## Structural Integrity Score
+
+A deterministic **0–100 score + A–F grade** rolling up how well the code still upholds the *structurally checkable* parts of its documented contract — layering, dependency direction, file placement, naming, DI wiring, and whether product laws have any enforcement mechanism. It is measurement, not a code-quality grade: it never judges behavioural or product-law correctness (that is the review layer). The score is only the roll-up; the **worklist of open divergences** is the point. Internally abbreviated `ais` for bundle/persistence back-compat.
+
+**Composite (`scoring.py`).** Four size-normalized axes, each 0–100:
+
+| Axis | Weight | Measures |
+|------|--------|----------|
+| Reconciliation | 45% | Open (unreconciled) contract violations — severity-weighted, exponential decay with KLOC |
+| Coverage | 30% | Enforced product laws / total identified laws (`domain_invariants` + `derived_invariants` + `unenforced_invariants`) |
+| Burndown | 20% | Open verified findings — severity-weighted decay with KLOC |
+| Freshness | 5% | 100 if no pending amendments, 90 if accepted ones exist |
+
+`body = 0.45·R + 0.30·C + 0.20·B + 0.05·F`, then capped by a geometric **ceiling** over {R, C} (`100·exp((45·ln(R/100) + 30·ln(C/100))/75)`) so a broken contract can't hide behind clean code elsewhere. Grades: A ≥ 90, B 75–89, C 50–74, D 25–49, F < 25. Coverage only counts as *measured* if product laws were actually identified — absence never buys a free 100. LOC + violation density honour `.archieignore` / `.gitignore` via the same `IgnoreMatcher` as `check_rules`.
+
+**PR gate (`score.py --diff <base-ref>`).** Filters the worklist to files changed in the diff; only **grounded** divergences (severity `error`) in those files can block (exit 1). Pre-existing divergences elsewhere are context, not blockers — **the score itself never blocks**. A rule may block only if it clears the calibration harness.
+
+**Calibration harness (`tests/calibration/precision_recall.py`).** The smoke-alarm test — runs each rule against known positive/negative cases, computes precision/recall/F1, and sets `block_eligible = true` only when precision ≥ 0.95 (a wrong block costs more trust than ten good warnings earn) **and** the rule caught a real violation. Results persist to `.archie/rule_calibration.json`; the gate demotes grounded violations from non-eligible rules to advisory warnings.
+
+**Wiring + artifacts.** Deep-scan Step 9 runs `score.py --write` after `rules.json` / blueprint / `findings.json` / `health.json` all exist; `/archie-sync` shows current standing against the contract (warns on new open divergences, never blocks). Writes `.archie/score.json` (headline, grade, body, ceiling, worklist, protected laws, explanation, `state`: `no_contract` / `capped` / `reconciled` / `drift`) + append-only `.archie/score_history.json`. `upload.py` packages `score.json` as `bundle["integrity"]`; the viewer's `IntegritySection` (`ReportSections.tsx`) renders grade + open-divergence count + protected-laws N/M + worklist. Optional field — old bundles simply hide the section.
 
 ---
 
@@ -495,7 +555,7 @@ A single pitfall may have multiple confirming findings via `pitfall_id`.
 
 ## Hooks — Real-Time Enforcement
 
-The installer (`npx @bitraptors/archie`) generates six hooks and registers them in `.claude/settings.local.json`:
+The installer (`npx @bitraptors/archie`) generates eight hooks and registers them in `.claude/settings.local.json`:
 
 **`pre-validate.sh`** (PreToolUse, matcher: `Write|Edit|MultiEdit`)
 - **Rule injection (Tier 4)** — before the violation check, prints every rule that applies to the file's path (rules with `applies_to` prefix-matching `rel_path`) plus every rule tagged `always_inject: true` (critical globals). Each rule carries inline semantic content the agent reads at edit time — `description`, the `WHY:` block, and an `EXAMPLE:` block — so no blueprint read is needed. Deduped per-turn via `/tmp/.archie_turn_<cksum-of-project-root>` marker so the same rule doesn't re-surface on every Edit within a turn.
@@ -510,9 +570,10 @@ The installer (`npx @bitraptors/archie`) generates six hooks and registers them 
 **`pre-commit-review.sh`** (PreToolUse, matcher: `Bash`)
 - Filters to fire only on `git commit` commands
 - Triggers an architectural review of the staged diff via `arch_review.py`
+- If accumulated edit churn crossed the threshold, prints an advisory reminder to run `/archie-sync` (non-blocking — never changes the commit's exit code)
 
 **`post-plan-review.sh`** (PostToolUse, matcher: `ExitPlanMode`)
-- Triggers an architectural review of the plan via `arch_review.py`
+- Tees the plan to `sync.py plan-capture` (best-effort, persists it as durable sync intent under `.archie/tmp/plans/`), then triggers an architectural review of the plan via `arch_review.py`
 
 **`blueprint-nudge.sh`** (PreToolUse, matcher: `Glob|Grep`)
 - Always-on architectural reminder — fires before code exploration to remind the agent about project architecture
@@ -522,6 +583,12 @@ The installer (`npx @bitraptors/archie`) generates six hooks and registers them 
 - Auto-detects the right linter per file extension + project config: Python (`.py` + `pyproject.toml [tool.ruff]` → `ruff check --quiet`), JS/TS (`.js/.ts/...` + `.eslintrc` + eslint on PATH → `eslint --quiet`), Go (`.go` + `.golangci.yaml` → `golangci-lint run --fast` on the parent dir since golangci-lint is package-aware), Semgrep (any file type + `.semgrep.yml` → `semgrep --error --quiet`)
 - Config overrides let users pin custom commands per kind
 - `severity: error` → exit 2 blocks; `severity: warn` → exit 0 with message
+
+**`churn-track.sh`** (PostToolUse, matcher: `Write|Edit|MultiEdit`)
+- Silent edit-churn tracker for `/archie-sync`. Pipes each edit envelope to `sync.py churn-bump`, accumulating `.archie/tmp/churn.json` (files + edits + lines). Normalizes Claude (`Edit|Write|MultiEdit`) vs Codex (`apply_patch`) envelope shapes; always exits 0. Dormant until `.archie/blueprint.json` exists. See [Living Blueprint](#living-blueprint--archie-sync).
+
+**`stop.sh`** (Stop)
+- Session-end `/archie-sync` nudge. Reads `sync.py churn-status` + `plan-list`; if accumulated churn crossed the threshold **or** unconsumed plans exist, prints a nudge to stderr and exits 2 (declinable — the user may continue). Otherwise silent. A loop guard prevents re-nudging on a subsequent "continue" event.
 
 ### Permissions
 
@@ -660,6 +727,23 @@ Intent Layer is **opt-in** at deep-scan Step E. When skipped, a one-line note is
 
 ---
 
+## Storage Modes — Detached Artifacts
+
+Archie supports two artifact-storage modes (opt-in, default `repo`). This is a POC — enabled at install with `npx @bitraptors/archie <path> --detached` (default off; the interactive installer also asks once, defaulting to No; non-TTY defaults to repo).
+
+- **`repo`** (default) — generated artifacts (root CLAUDE.md block, `.claude/rules/`, `.archie/`, per-folder CLAUDE.md) live in the working tree and are committed as today.
+- **`detached`** (🧪 experimental) — artifacts live in an external store; the tree carries only presentation links + one committed pointer.
+
+**External store.** `$ARCHIE_HOME/projects/<project_id>/` (`$ARCHIE_HOME` default `~/.archie`, `%LOCALAPPDATA%\archie` on Windows), holding `meta.json`, `exposure.json`, `artifacts/.archie/` + `artifacts/.claude/rules/`, and a `tree/` mirror of the per-folder CLAUDE.md files. The **only committed file is `.archie-link.json`** (`project_id` + `mode`); everything generated is gitignored.
+
+**Presentation primitive (`link_strategy.py`).** POSIX `os.symlink()` on macOS/Linux/WSL; NTFS junctions (`_winapi.CreateJunction()`, no admin) for Windows directories; Windows files default to a **copy-materialize fallback** (byte-for-byte copy, zero setup) unless `ARCHIE_FORCE_SYMLINK=1` + Developer Mode. **Safety invariant (load-bearing):** only remove a link/copy at a path that resolves back inside the external store, and for copies byte-verify the in-tree file matches the stored original before deleting — Archie never touches a real file it didn't place, and every mode switch is reversible.
+
+**Orchestration (`linker.py` CLI).** `bind` (mint id, lay the `.archie/` directory link, write `.archie-link.json` + gitignore block, absorb any existing `.claude/rules/*.md`) · `reconcile` (idempotently make the tree match `exposure.json`) · `externalize` / `externalize-tree` (relocate a freshly-written markdown file into the store per file, called by the intent layer after each folder write) · `status` (JSON for the viewer) · `attach` / `detach` (reversible switch between modes — `detach` resolves every link back to a real file and removes the pointer). `link_store.py` owns store location + manifests underneath.
+
+**Exposure control plane (detached only).** The viewer gains an **Exposure** tab (`ExposurePanel.tsx`) that toggles, *per markdown file*, what the coding agent can see: category `intent_layer` (per-folder `CLAUDE.md`) and category `blueprint` (`.claude/rules/**/*.md`), with per-file overrides. `.archie/` infrastructure (`INFRASTRUCTURE_PATHS = {".archie"}`) is **always exposed** and never gated — it's tooling/hooks/raw JSON the agent never reads directly. Toggling a file off removes it from the tree via `reconcile` but leaves it safe in the store, restorable anytime. `viewer.py` serves `GET /api/exposure` (state) and `POST /api/exposure` (`{target, key, value}` → write `exposure.json` → `reconcile`). This is **visibility only** — it does not touch `rules.json` enforcement (a separate viewer feature). In `repo` mode the tab is inert. Design: `docs/archie-detached-artifacts-design.md`.
+
+---
+
 ## Standalone Scripts
 
 Zero-dependency Python scripts in `archie/standalone/`. These are exported to target projects via `npx @bitraptors/archie` (and `pip install archie-cli` + `python3 -m archie.install`); the install loop's `_STANDALONE_SCRIPTS` list is the canonical roster.
@@ -671,7 +755,7 @@ Zero-dependency Python scripts in `archie/standalone/`. These are exported to ta
 | `scanner.py` | File tree, import graph, framework detection, skeleton extraction, bulk classification, `frontend_ratio` |
 | `renderer.py` | Blueprint JSON → AGENTS.md (canonical) + CLAUDE.md pointer + `.claude/rules/` topic files + `enforcement/` directory |
 | `intent_layer.py` | Per-folder CLAUDE.md via DAG scheduling + AI enrichment. Subcommands: `prepare`, `next-ready`, `suggest-batches`, `prompt`, `save-enrichment`, `merge`, `inspect [--query] [--list]`, `scan-config`, `deep-scan-state` (incl. `save-run-context` for shell-friendly run-context writes) |
-| `viewer.py` | Local viewer — stdlib `http.server` serving the React `dist/` + `/api/bundle` (reuses `upload.py::build_bundle`), `/api/generated-files`, `/api/folder-claude-mds`, `/api/intent-layer-status`, `/api/ignored-rules`, `POST /api/rules` (5 atomic rule actions); auto-reloads when its own source changes |
+| `viewer.py` | Local viewer — stdlib `http.server` serving the React `dist/` + `/api/bundle` (reuses `upload.py::build_bundle`, incl. the `integrity` block), `/api/generated-files`, `/api/folder-claude-mds`, `/api/intent-layer-status`, `/api/ignored-rules`, `POST /api/rules` (5 atomic rule actions), and — in detached mode — `GET`/`POST /api/exposure` (per-file visibility, delegates to `linker` status/reconcile); auto-reloads when its own source changes |
 | `validate.py` | Cross-reference blueprint against actual codebase |
 | `check_rules.py` | Check files against rules (CI path) |
 | `measure_health.py` | Erosion, gini, verbosity, top-20%, waste scores + `--append-history` + `--compare-history` (trend deltas) |
@@ -680,6 +764,13 @@ Zero-dependency Python scripts in `archie/standalone/`. These are exported to ta
 | `install_hooks.py` | Legacy Claude-only hook installer (kept for backwards compat; modern installs route through `ClaudeConnector.install_hook` via the connector loop). Writes hooks + permissions in `.claude/settings.local.json` |
 | `merge.py` | Merge blueprint sections; `extract_json_from_text` handles conversation envelopes / code fences |
 | `finalize.py` | Normalise blueprint + deep-merge Opus output + id-stable findings upsert + pitfalls into blueprint |
+| `sync.py` | `/archie-sync` engine. Subcommands: `record` / `list` / `fold-context` / `fold-apply` (snapshot-vs-contract ledger under `.archie/changes/`), `plan-capture` / `plan-list` / `plan-consume` (durable `ExitPlanMode` intent), `churn-bump` / `churn-status` / `churn-reset` (cross-CLI edit-volume counter), `sync-stamp` (content fingerprint for PR drift). Phase 1: the *contract* (rules/decisions/product-laws) is read-only during a code-fold — a contract-fingerprint guard aborts the render if it moved |
+| `score.py` | Structural Integrity Score CLI. `--json`, `--diff <base-ref>` (diff-scoped PR gate, exit 1 on grounded violations in changed files), `--write` (persist `.archie/score.json` + `score_history.json`), `--pr` (markdown comment). Calibration-aware: only rules flagged `block_eligible` in `.archie/rule_calibration.json` can fail a build |
+| `scoring.py` | Pure composite-score arithmetic (zero-dep). Four size-normalized axes — Reconciliation (45%), Coverage (30%), Burndown (20%), Freshness (5%) — with a geometric ceiling over Reconciliation × Coverage so clean code can't mask a broken contract. A–F grade bands |
+| `intent_review.py` | CI PR reviewer (Claude-only). Deterministic keyed semantic diff of `blueprint.json` + `rules.json` vs PR base → one `claude-haiku-4-5` judge call (`emit_findings` tool) → one consolidated FYI comment via `GITHUB_TOKEN`. `because`-or-suppress; conservative ledger join for severity sharpening. Stdlib + urllib only |
+| `link_store.py` | Detached mode — resolves the external store (`$ARCHIE_HOME`, default `~/.archie` / `%LOCALAPPDATA%\archie`) and reads/writes its JSON manifests (`.archie-link.json`, `exposure.json`, placements). Path args coerced to `Path` at the boundary |
+| `link_strategy.py` | Detached mode — OS presentation primitive: POSIX symlink / NTFS junction / copy-materialize fallback per artifact kind, plus the load-bearing safety invariant (only remove a path that resolves back into the store; byte-verify copies before deletion) |
+| `linker.py` | Detached mode orchestration + CLI: `bind` (mint project id, lay `.archie/` link, absorb existing artifacts), `reconcile` (make the tree match `exposure.json`), `externalize` / `externalize-tree` (relocate freshly-written markdown into the store per file), `status` (viewer JSON), `attach` / `detach` (reversible mode switch) |
 | `verify_findings.py` | Parallel finding verifier — per finding, reads the cited `triggering_call_site` + surrounding files and returns `keep` / `demote` / `drop`. Routes the model call through `agent_cli` (Claude Haiku or Codex, auto-detected) |
 | `apply_verdicts.py` | Applies the verifier's verdicts to `findings.json` with cross-run hysteresis (single-scan flips don't propagate; a git-diff anchor lets real transitions land immediately) |
 | `rule_index.py` | Builds `.archie/rule_index.json` (keyword / path / always-inject buckets) from `rules.json` + `platform_rules.json` for hot-path edit-time enforcement |
@@ -1107,6 +1198,20 @@ Old bundles on Supabase (uploaded before the 4-field schema migration) are rende
 
 ---
 
+## Intent Review — CI PR Gate
+
+A GitHub Action that reviews pull requests touching Archie's source of truth (`.archie/blueprint.json` + `.archie/rules.json`) and flags changes that silently weaken the architecture. It **surfaces; the human decides; it never blocks a merge** — merging accepts the blueprint changes as the new baseline. Claude-only (`claude-haiku-4-5` via `api.anthropic.com`); stdlib + urllib, zero pip deps, matching Archie's standalone DNA.
+
+**Setup + trigger.** One-time `bash .archie/setup-archie-intent-review.sh` from repo root stores `ANTHROPIC_API_KEY` as a `gh secret` and copies the canonical workflow to `.github/workflows/archie-intent-review.yml` (requires a git repo with `origin`, `gh` authed, and a `blueprint.json` baseline). The workflow runs `on: pull_request` (opened / synchronize) with `fetch-depth: 0`, needing only `ANTHROPIC_API_KEY` (the built-in `GITHUB_TOKEN` posts the comment). The script ships in the npm bundle but the workflow is **not** auto-injected — the setup script is the sole installer.
+
+**Pipeline (`intent_review.py`).**
+1. **Deterministic diff (no AI).** Reconstruct the PR base's `blueprint.json` + both rule files via `git show <base-sha>:<path>`, then keyed semantic diff (REMOVE / UPDATE / ADD) over `domain_invariants`, `derived_invariants`, `pitfalls`, `decisions.{key_decisions,trade_offs,out_of_scope}`, `rules`, `data_models`, `persistence_stores`, `components`. Globs **every** new `.archie/changes/change_*.json` on the branch (not just `latest.json`) for ledger claims, and extracts relevance-filtered retained rules.
+2. **One judge call.** Sends changed items + retained rules + ledger claims to Haiku, forcing an `emit_findings` tool call. Each finding: `item_refs[]`, `type` (`silent_weakening` / `contradiction` / `behavior_violates_rule`), `change_summary`, `colliding_rules[]`, and a cited `because` — **any finding without a `because` is dropped** (because-or-suppress).
+3. **Consolidation.** One finding per logical change, listing *all* colliding rules — a cap-raise touching 2 components and hitting 4 rules is one finding with `item_refs: [c0,c1]` + `colliding_rules: [...4]`, not per-rule spam. A conservative ledger join (evidence-file overlap + keyword threshold) attaches confidence only on a real match, never guesses.
+4. **Comment.** Finds its prior comment via a hidden `<!-- archie-intent-review -->` marker and PATCHes it (no spam on re-push), grouping findings by type with the footer "Archie surfaces; it doesn't block."
+
+---
+
 ## StructuredBlueprint Data Model
 
 The blueprint is the single source of truth for synthesised architecture. All rendered outputs derive from it. Concrete findings live in the separate `findings.json` shared store.
@@ -1368,7 +1473,7 @@ python -m pytest --cov=archie tests/
 
 ### Test organisation
 
-54 test files. Tests mirror the package structure:
+99 test files. Tests mirror the package structure:
 
 - **Engine** — scanner (+ monorepo variant), dependencies, frameworks, hasher, imports, scan (+ scan_config), engine_models
 - **Coordinator** — planner, runner, merger, prompts
