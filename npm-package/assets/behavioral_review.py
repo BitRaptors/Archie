@@ -1,0 +1,82 @@
+"""Blueprint-free behavioral reviewer: reasons about the code itself
+(crash / data-loss / perf / security) and consults blast radius. LLM is called
+through run_verifier; prompt-builder and parser are pure and unit-tested.
+
+Import convention: bare-name imports via sys.path so this works on Python 3.9
+(archie/__init__.py uses tomllib which is 3.11+).
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_p = str(Path(__file__).parent)
+if _p not in sys.path:
+    sys.path.insert(0, _p)
+from agent_cli import run_verifier        # noqa: E402
+from reachability import consumers         # noqa: E402, F401 (used by callers)
+from evidence_schema import make_finding, extract_json_obj, coerce_confidence   # noqa: E402
+
+_SYSTEM = (
+    "You are a behavioral code reviewer. Report only issues INTRODUCED or worsened "
+    "by this diff. For each, give a falsification test ('how you'd prove me wrong'). "
+    "Anchor every finding to a changed line. Return JSON {\"findings\":[...]}."
+)
+
+
+def build_prompt(diff_text: str, consumer_map: dict, intent=None, evidence="") -> str:
+    prefix = ""
+    if intent:
+        _pp = str(Path(__file__).parent)
+        if _pp not in sys.path:
+            sys.path.insert(0, _pp)
+        from intent import intent_brief  # noqa: E402
+        brief = intent_brief(intent)
+        if brief:
+            prefix = ("INTENDED CHANGE (review whether the diff correctly and safely achieves this, "
+                      "and flag where it does not):\n" + brief + "\n\n")
+    radius = "\n".join(f"{f} -> {', '.join(c)}" for f, c in consumer_map.items())
+    ctx = f"\n\n{evidence}" if evidence else ""
+    return (
+        prefix
+        + f"{_SYSTEM}\n\nDIFF:\n{diff_text}\n\n"
+        f"BLAST RADIUS (changed file -> consumers):\n{radius}{ctx}\n\n"
+        "Each finding needs: problem_statement, file, line, assumptions[], "
+        "evidence[], falsification, confidence(0-1), kind(behavioral_break)."
+    )
+
+
+def parse_findings(raw: str) -> list[dict]:
+    data = extract_json_obj(raw)
+    out = []
+    for i, f in enumerate(data.get("findings", [])):
+        if not f.get("falsification"):
+            continue
+        # delivery findings are advisory — never a blocking severity_class.
+        out.append(make_finding(
+            id=f.get("id") or f"f_beh_{i}",
+            kind=f.get("kind", "behavioral_break"),
+            edge="B",
+            problem_statement=f.get("problem_statement", ""),
+            anchor={"file": f.get("file", ""), "line": f.get("line"), "changed": True},
+            assumptions=f.get("assumptions", []),
+            evidence=f.get("evidence", []),
+            falsification=f["falsification"],
+            confidence=coerce_confidence(f.get("confidence")),
+            source="behavioral",
+            severity_class="tradeoff_undermined",
+            severity="high",
+        ))
+    return out
+
+
+def review(root, diff_text, import_graph, changed_files, run=None, intent=None,
+           evidence="", passes=1) -> list[dict]:
+    if run is None:
+        run = run_verifier   # call-time global lookup → monkeypatch works
+    cmap = {cf: consumers(import_graph, cf) for cf in changed_files}
+    prompt = build_prompt(diff_text, cmap, intent=intent, evidence=evidence)
+    out = []
+    for _ in range(max(1, passes)):
+        out += parse_findings(run(prompt, Path(root), "claude") or "")
+    return out

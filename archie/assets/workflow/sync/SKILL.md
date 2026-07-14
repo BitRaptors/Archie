@@ -87,6 +87,19 @@ A statement is **eligible** to fold only if it is a DESCRIPTIVE kind (the mirror
 ADVISORY kinds (`decision`/`pitfall`/`rule`/`guideline`) are ALWAYS `staged` — the contract
 (the law) changes only deliberately, never via a code-fold. Everything else is `staged`.
 
+### Step 2b — Fold override acknowledgments
+
+Read `.archie/overrides.json`. For each entry with `status: "acked"` whose `branch` is
+the CURRENT branch and which has no staged claim yet, record the break through the
+normal Step 2 flow as a staged contract amendment: a `rule` claim titled
+`override: <rule_id>`, rationale = the entry's `reason`, evidence_files = the files the
+violating change touched.
+
+The rule itself is already gone from `rules.json` and the blueprint invariant is already
+stamped `overridden` — `override-ack` did that when the user authorized it. There is no
+ratify step: **merging the PR is the ratification.** Never delete or edit an override
+entry by hand.
+
 ## Phase 2 — reconcile eligible statements into the snapshot
 
 If `record` reported `eligible > 0`, fold them. **The fold is your job** — you reconcile;
@@ -157,6 +170,30 @@ python3 .archie/sync.py sync-stamp .     # record the synced code state (commit 
 just reconciled. **Commit it alongside the blueprint/intent edits.** The PR intent review
 reads it to tell whether a branch's code later moved on without a re-sync, and surfaces a
 (non-blocking) "run /archie-sync" advisory if so.
+
+### Step 5b — Regenerate and review the task story (MANDATORY — do not skip)
+
+Archie captured the user's intent from their planning turns (via hooks) and distills it into
+a task story (versioned under `.archie/stories/<branch-slug>/<timestamp>.md`). The Stop hook
+already attempted a background imprint at turn end, but you MUST now regenerate it explicitly
+to ensure it reflects the full session, then review the result. Skipping it leaves the story
+stale and the PR delivery review has no accurate yardstick.
+
+Always run these in order:
+
+```bash
+python3 .archie/sync.py imprint .    # REQUIRED: regenerate the story → .archie/stories/<branch-slug>/<timestamp>.md
+python3 .archie/sync.py story .      # review the story + facts for correctness
+```
+
+Then, in your Step 6 report, show the user the story and tell them:
+*"story wrong? edit the story file shown by `python3 .archie/sync.py story .` or re-run `python3 .archie/sync.py imprint .` to regenerate."*
+
+If `imprint` reports **no events captured** (e.g. a pure-exploration branch with no
+planning turns), say so plainly — the PR falls back to PR-body intent — and move on.
+
+Stage `.archie/stories/` (the whole directory) and `.archie/intent-events.jsonl` so the
+versioned story commits with the branch.
 
 ### Step 6 — Report what changed ARCHITECTURALLY (not a file list)
 

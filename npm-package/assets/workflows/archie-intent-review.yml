@@ -7,6 +7,10 @@ permissions:
   pull-requests: write
   contents: read
 
+concurrency:
+  group: archie-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   intent-review:
     runs-on: ubuntu-latest
@@ -19,11 +23,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      # No `git fetch` needed: with fetch-depth:0 the PR base SHA
-      # (github.event.pull_request.base.sha) is already in history, and the script
-      # diffs against it directly — so there is no origin/<base> resolution to fail.
-      - name: Run Archie Intent Review
+      # Delivery review: reconciles intent (PR title/body) + blueprint + diff into
+      # a "built the intent? / broke anything?" verdict. Same trust model as above —
+      # executed from the BASE ref copy, never PR-head content. Non-blocking: it
+      # posts an FYI comment and always exits 0 (never fails the check).
+      - name: Run Archie Delivery Review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .archie/intent_review.py
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          if git cat-file -e "origin/${GITHUB_BASE_REF}:.archie/delivery_review.py" 2>/dev/null; then
+            rm -rf /tmp/archie-base && mkdir -p /tmp/archie-base
+            git archive "origin/${GITHUB_BASE_REF}" .archie | tar -x -C /tmp/archie-base
+            python3 /tmp/archie-base/.archie/delivery_review.py
+          else
+            echo "[archie] .archie/delivery_review.py not present on base ref, skipping."
+          fi

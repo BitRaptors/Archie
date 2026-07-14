@@ -86,3 +86,12 @@ Default depth — derive the load-bearing laws and the highest-risk gaps only (s
 - If the input has an empty `domain_invariants` array, you have nothing to reason from — emit empty `derived_invariants` and `unenforced_invariants`, and a minimal `product_model` only if `data_models`/`components` clearly support one. Empty is a correct answer; do NOT pad.
 
 GROUNDING RULES apply (see below).
+
+## Override tombstones (read FIRST)
+
+Read `.archie/overrides.json` if present.
+Any invariant id that appears there was DELIBERATELY overridden by the user and
+(if ratified) merged. Do not re-derive that invariant, do not carry it forward
+from the previous blueprint, and do not build derived laws on top of it. Re-derive
+the affected area from what the current code actually does — if the code now
+enforces a different guarantee, derive THAT one (cite-or-omit as always).

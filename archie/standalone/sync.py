@@ -43,6 +43,13 @@ from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 
+# Re-export the pure hunk parser from diff_basis so both sync and delivery_review
+# share one implementation without pulling in the heavy sync module. Guarded so a
+# missing sibling never breaks import of sync.py.
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+from diff_basis import parse_hunk_added_lines  # noqa: E402,F401
+
 # A claim is a STATEMENT about what the code now is. Descriptive kinds are the
 # default (keep the blueprint snapshot current); advisory kinds are an optional
 # side-output, emitted only when a change genuinely establishes one.
@@ -122,6 +129,26 @@ def _safe_branch(root: Path) -> str:
         return _git(root, "rev-parse", "--abbrev-ref", "HEAD") or "unknown"
     except Exception:
         return "unknown"
+
+
+import os as _os
+import subprocess as _sp
+
+
+def _branch(root) -> str:
+    b = _os.environ.get("ARCHIE_BRANCH") or _os.environ.get("GITHUB_HEAD_REF")
+    if b:
+        return b
+    try:
+        out = _sp.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                      capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _session_id() -> str:
+    return _os.environ.get("CLAUDE_SESSION_ID") or _os.environ.get("ARCHIE_SESSION_ID") or "session"
 
 
 # ---------------------------------------------------------------------------
@@ -783,22 +810,178 @@ def cmd_fold_apply(root: Path, change_file: str | None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# override-ack — record a user-authorized rule override
+# ---------------------------------------------------------------------------
+
+def cmd_override_ack(root: Path, rule_id: str, reason: str) -> int:
+    """Record a human-authorized rule override AND apply it to the branch.
+
+    Agent-run ONLY — and only after the user explicitly confirmed crossing the rule
+    in conversation. This writes the contract change into the source of truth: the
+    rule leaves rules.json, the blueprint invariant is stamped `overridden`, and the
+    reason + authorizer + a snapshot of the law text land in overrides.json. The PR
+    then carries a real rules diff, the review judges it, and MERGING RATIFIES IT —
+    there is no separate ratify step."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    if not rule_id or not reason:
+        print('usage: sync.py override-ack <root> <rule_id> --reason "..."', file=sys.stderr)
+        return 1
+    import overrides as _ov
+
+    archie = root / ".archie"
+    # Capture the grounding invariant ids BEFORE the rule leaves rules.json —
+    # rule_aliases reads the rule's own `forced_by` citation.
+    ids = {rule_id} | _ov.rule_aliases(root, rule_id)
+
+    law, removed = "", False
+    for fname in ("rules.json", "platform_rules.json"):
+        rp = archie / fname
+        try:
+            data = json.loads(rp.read_text())
+        except Exception:
+            continue
+        items = data.get("rules", []) if isinstance(data, dict) else data
+        if not isinstance(items, list):
+            continue
+        hit = next((r for r in items if isinstance(r, dict) and r.get("id") == rule_id), None)
+        if hit is None:
+            continue
+        law = str(hit.get("description", ""))
+        kept = [r for r in items if not (isinstance(r, dict) and r.get("id") == rule_id)]
+        if isinstance(data, dict):
+            data["rules"] = kept
+        else:
+            data = kept
+        try:
+            rp.write_text(json.dumps(data, indent=2) + "\n")
+            removed = True
+        except Exception:
+            pass
+        break
+
+    e = _ov.ack(root, rule_id, reason, law=law,
+                invariant_ids=sorted(ids - {rule_id}))
+
+    # Stamp the blueprint invariant(s) this rule is grounded in, so the rendered
+    # product-laws stop stating a retired law as live truth and the review engine
+    # stops enforcing it (selector skips `overridden`).
+    bp_p = archie / "blueprint.json"
+    try:
+        bp = json.loads(bp_p.read_text())
+        for inv in bp.get("domain_invariants") or []:
+            if isinstance(inv, dict) and inv.get("id") in ids:
+                inv["status"] = "overridden"
+                inv["override"] = {"reason": reason,
+                                   "authorized_by": e["authorized_by"],
+                                   "branch": e["branch"]}
+        bp_p.write_text(json.dumps(bp, indent=2) + "\n")
+    except Exception:
+        pass
+
+    print(json.dumps({"acked": e["rule_id"], "branch": e["branch"],
+                      "by": e["authorized_by"], "rule_removed": removed}))
+    return 0
+
+
+_BASE_BRANCH_FALLBACK = {"main", "master", "develop"}
+
+
+def _base_branch(root: Path) -> str | None:
+    """Resolve the repo's base (merge-target) branch via the remote's HEAD
+    symlink. Returns None when there's no remote to ask (e.g. local test
+    repos) — the caller falls back to a hardcoded common-name set."""
+    ref = _git(root, "symbolic-ref", "refs/remotes/origin/HEAD")
+    return ref.rsplit("/", 1)[-1] if ref else None
+
+
+def _parse_changed_lines(root: Path, base: str) -> dict:
+    """Run `git diff -U0 <base> --` and return dict[str, set[int]] of added lines.
+
+    Best-effort: guards the subprocess call and returns {} on any failure.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "diff", "-U0", base, "--"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return {}
+        return parse_hunk_added_lines(result.stdout)
+    except Exception:
+        return {}
+
+
+def cmd_review(root: Path) -> int:
+    """Run the light delivery-review pipeline on the branch delta and print the
+    verdict. Non-blocking: ALWAYS returns 0, never raises to the caller."""
+    # lazy bare imports (match sync.py's own sibling-import style)
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    try:
+        from diff_basis import detect_base, changed_files_result   # noqa
+        from sync_review import run_sync_review                     # noqa
+        from _common import _load_json                              # noqa
+
+        base = detect_base(root)
+        cf = changed_files_result(root, base)
+        changed = cf.get("files", [])
+        # diff text (bounded) for the prompt
+        diff_text = subprocess.run(
+            ["git", "-C", str(root), "diff", base, "--"],
+            capture_output=True, text=True,
+        ).stdout[:200000]
+        # changed_lines: added-line numbers per file (best-effort)
+        changed_lines = _parse_changed_lines(root, base)
+        blueprint = _load_json(root / ".archie" / "blueprint.json") or {}
+        scan = _load_json(root / ".archie" / "scan.json") or {}
+        import_graph = scan.get("import_graph", {}) if isinstance(scan, dict) else {}
+        branch = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True,
+        ).stdout.strip() or "HEAD"
+        floors = {"behavioral_break": 0.6, "intent_unmet": 0.5,
+                  "intent_partial": 0.5, "intent_drift": 0.6}
+        out = run_sync_review(str(root), branch, blueprint, import_graph, diff_text,
+                              changed, changed_lines, floors)
+        if out.get("skipped"):
+            print("[archie] delivery review: skipped (nothing relevant changed).")
+        else:
+            v = out.get("verdict", {})
+            ack_note = (f" · {len(out.get('acked', []))} acknowledged override(s)"
+                        if out.get("acked") else "")
+            print(f"[archie] delivery review — {v.get('intent_completeness', '?')} criteria · "
+                  f"{v.get('breaks', 0)} break(s) · {v.get('drift', 0)} drift · "
+                  f"{len(out.get('confirmed', []))} finding(s)" + ack_note)
+    except Exception as e:
+        # non-blocking: never fail the caller
+        print(f"[archie] delivery review skipped (error: {e})")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def _usage() -> None:
     print("Usage:", file=sys.stderr)
-    print("  python3 sync.py record       /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]", file=sys.stderr)
-    print("  python3 sync.py list         /path/to/repo [--json]", file=sys.stderr)
-    print("  python3 sync.py fold-context /path/to/repo [--change <file>]   (Phase 2: scope for the agent)", file=sys.stderr)
-    print("  python3 sync.py fold-apply   /path/to/repo [--change <file>]   (Phase 2: re-render + propagate + mark folded)", file=sys.stderr)
-    print("  python3 sync.py plan-capture /path/to/repo                     (stdin: hook envelope with tool_input.plan)", file=sys.stderr)
-    print("  python3 sync.py plan-list    /path/to/repo", file=sys.stderr)
-    print("  python3 sync.py plan-consume /path/to/repo", file=sys.stderr)
-    print("  python3 sync.py churn-bump   /path/to/repo                     (stdin: hook envelope with edit tool-call)", file=sys.stderr)
-    print("  python3 sync.py churn-status /path/to/repo", file=sys.stderr)
-    print("  python3 sync.py churn-reset  /path/to/repo", file=sys.stderr)
-    print("  python3 sync.py sync-stamp   /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
+    print("  python3 sync.py record            /path/to/repo [--input payload.json] [--agent claude|codex] [--since <ref>]", file=sys.stderr)
+    print("  python3 sync.py list              /path/to/repo [--json]", file=sys.stderr)
+    print("  python3 sync.py fold-context      /path/to/repo [--change <file>]   (Phase 2: scope for the agent)", file=sys.stderr)
+    print("  python3 sync.py fold-apply        /path/to/repo [--change <file>]   (Phase 2: re-render + propagate + mark folded)", file=sys.stderr)
+    print("  python3 sync.py plan-capture      /path/to/repo                     (stdin: hook envelope with tool_input.plan)", file=sys.stderr)
+    print("  python3 sync.py plan-list         /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py plan-consume      /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py churn-bump        /path/to/repo                     (stdin: hook envelope with edit tool-call)", file=sys.stderr)
+    print("  python3 sync.py churn-status      /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py churn-reset       /path/to/repo", file=sys.stderr)
+    print("  python3 sync.py sync-stamp        /path/to/repo                     (record synced code state for the PR drift check)", file=sys.stderr)
+    print("  python3 sync.py override-ack      /path/to/repo <rule_id> --reason \"...\"   (record + apply a user-authorized rule retirement onto this branch)", file=sys.stderr)
+    print("  python3 sync.py review            /path/to/repo                     (run the delivery review on the branch delta; non-blocking)", file=sys.stderr)
+    print("  python3 sync.py write-intent      /path/to/repo  spec.json          (merge branch intent into .archie/intent.json)", file=sys.stderr)
+    print("  python3 sync.py capture-intent    /path/to/repo [text]              (append a user-turn event)", file=sys.stderr)
+    print("  python3 sync.py imprint           /path/to/repo                     (write a story snapshot for the current branch + session)", file=sys.stderr)
+    print("  python3 sync.py story             /path/to/repo [--history|<ts>]    (print current story, history list, or a specific version)", file=sys.stderr)
 
 
 def _opt(rest: list[str], name: str) -> str | None:
@@ -936,11 +1119,56 @@ def cmd_sync_stamp(root: Path) -> int:
     return 0
 
 
+def cmd_write_intent(root, input_file) -> int:
+    """Merge a JSON intent spec (from input_file) into .archie/intent.json. Non-crashing:
+    a bad payload logs and leaves any existing file untouched. Always returns 0."""
+    import sys as _sys
+    _p = str(Path(__file__).parent)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
+    from intent import write_committed_intent, INTENT_FILE  # noqa: E402
+    if not input_file or not Path(input_file).exists():
+        print("[archie] write-intent: no payload file; .archie/intent.json unchanged", file=sys.stderr)
+        return 0
+    try:
+        spec = json.loads(Path(input_file).read_text())
+    except Exception as e:
+        print(f"[archie] write-intent: bad payload ({e}); .archie/intent.json unchanged", file=sys.stderr)
+        return 0
+    if not isinstance(spec, dict):
+        print("[archie] write-intent: payload not an object; unchanged", file=sys.stderr)
+        return 0
+    write_committed_intent(root, spec)
+    print(f"[archie] intent written to .archie/{INTENT_FILE}")
+    return 0
+
+
+def _intent_imports():
+    import sys as _sys
+    _pp = str(Path(__file__).parent)
+    if _pp not in _sys.path:
+        _sys.path.insert(0, _pp)
+    import intent_capture
+    return intent_capture
+
+
+def cmd_capture_intent(root, text) -> int:
+    ic = _intent_imports()
+    ic.record_user_turn(root, text or "")
+    print("[archie] intent event captured")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         _usage()
         return 1
     cmd = argv[1]
+    # A flag is never a project path: `sync.py record --help` once resolved
+    # "--help" as the root and CREATED a ./--help/ directory in the repo.
+    if str(argv[2]).startswith("-"):
+        _usage()
+        return 1
     root = Path(argv[2]).resolve()
     rest = argv[3:]
 
@@ -989,6 +1217,50 @@ def main(argv: list[str]) -> int:
 
     if cmd == "sync-stamp":
         return cmd_sync_stamp(root)
+
+    if cmd == "override-ack":
+        rid = rest[0] if rest and not rest[0].startswith("--") else ""
+        return cmd_override_ack(root, rid, _opt(rest, "--reason") or "")
+
+    if cmd == "review":
+        return cmd_review(root)
+
+    if cmd == "write-intent":
+        return cmd_write_intent(root, argv[3] if len(argv) > 3 else None)
+
+    if cmd == "capture-intent":
+        return cmd_capture_intent(root, argv[3] if len(argv) > 3 else "")
+
+    if cmd == "imprint":
+        from datetime import datetime, timezone
+        import story_synthesize
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
+        p = story_synthesize.imprint(root, _branch(root), _session_id(), ts)
+        print(f"[archie] imprinted {p}" if p else "[archie] no sources — nothing imprinted",
+              file=sys.stderr)
+        sys.exit(0)
+
+    if cmd == "story":
+        import story_store
+        rest = [a for a in sys.argv[3:] if a != root]
+        if "--history" in rest:
+            for pth in story_store.list_versions(root, _branch(root)):
+                print(pth.stem)
+            sys.exit(0)
+        if rest:  # a specific timestamp
+            parsed = story_store.parse_story_file(
+                story_store.story_dir(root, _branch(root)) / f"{rest[0]}.md")
+        else:
+            parsed = story_store.current_story(root, _branch(root))
+        if not parsed:
+            print("[archie] no story for this branch", file=sys.stderr); sys.exit(0)
+        print(parsed["story"] + "\n")
+        for f in parsed["facts"]:
+            src = (f.get("from") or {}).get("quote", "")
+            print(f"  [{f.get('id')}] {f.get('text')}   (from: {src[:60]})")
+        for ng in parsed["non_goals"]:
+            print(f"  non-goal: {ng}")
+        sys.exit(0)
 
     _usage()
     return 1

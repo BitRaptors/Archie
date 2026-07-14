@@ -166,7 +166,7 @@ def test_standalone_install_registers_blueprint_nudge(tmp_path):
     pre_tool = settings["hooks"]["PreToolUse"]
     assert any(
         entry.get("matcher") == "Glob|Grep"
-        and any(h.get("command") == ".claude/hooks/blueprint-nudge.sh" for h in entry.get("hooks", []))
+        and any(h.get("command") == "$CLAUDE_PROJECT_DIR/.claude/hooks/blueprint-nudge.sh" for h in entry.get("hooks", []))
         for entry in pre_tool
     )
 
@@ -195,7 +195,7 @@ def test_standalone_install_registers_post_lint(tmp_path):
     post_tool = settings["hooks"].get("PostToolUse", [])
     assert any(
         entry.get("matcher") == "Write|Edit|MultiEdit"
-        and any(h.get("command") == ".claude/hooks/post-lint.sh" for h in entry.get("hooks", []))
+        and any(h.get("command") == "$CLAUDE_PROJECT_DIR/.claude/hooks/post-lint.sh" for h in entry.get("hooks", []))
         for entry in post_tool
     ), "post-lint.sh not registered under PostToolUse Write|Edit|MultiEdit"
 
@@ -223,6 +223,6 @@ def test_standalone_install_registers_pre_turn(tmp_path):
     settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
     ups = settings["hooks"].get("UserPromptSubmit", [])
     assert any(
-        any(h.get("command") == ".claude/hooks/pre-turn.sh" for h in entry.get("hooks", []))
+        any(h.get("command") == "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-turn.sh" for h in entry.get("hooks", []))
         for entry in ups
     ), "pre-turn.sh not registered under UserPromptSubmit"

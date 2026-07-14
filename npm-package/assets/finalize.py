@@ -13,7 +13,10 @@ from __future__ import annotations
 import datetime
 import importlib.util
 import json
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -86,9 +89,30 @@ def _merge_findings_into_store(archie_dir: Path, new_findings: list) -> int:
     """
     store_path = archie_dir / "findings.json"
     if store_path.exists():
+        raw = None
         try:
-            store = json.loads(store_path.read_text())
+            raw = store_path.read_text()
+            store = json.loads(raw)
         except (json.JSONDecodeError, OSError):
+            store = None
+        # Guard against a bare JSON list ([...]) — store must be a dict.
+        if not isinstance(store, dict):
+            # Back up the corrupt/invalid file so old data is not destroyed.
+            corrupt_path = store_path.with_suffix(".json.corrupt")
+            try:
+                if raw is not None:
+                    corrupt_path.write_text(raw)
+                else:
+                    shutil.copyfile(str(store_path), str(corrupt_path))
+            except Exception as _bk_err:
+                print(
+                    f"  Warning: could not back up corrupt findings store: {_bk_err}",
+                    file=sys.stderr,
+                )
+            print(
+                f"  Warning: findings.json was not a valid dict (backed up to {corrupt_path.name}); starting fresh.",
+                file=sys.stderr,
+            )
             store = {}
     else:
         store = {}
@@ -127,7 +151,20 @@ def _merge_findings_into_store(archie_dir: Path, new_findings: list) -> int:
 
     store["findings"] = list(by_id.values())
     store["scanned_at"] = now
-    store_path.write_text(json.dumps(store, indent=2))
+    # Atomic write: write to a temp file in the same directory, then replace.
+    # This prevents a crash mid-write from truncating the findings store.
+    _content = json.dumps(store, indent=2)
+    _tmp_fd, _tmp_path = tempfile.mkstemp(dir=str(archie_dir), suffix=".tmp")
+    try:
+        with os.fdopen(_tmp_fd, "w") as _fh:
+            _fh.write(_content)
+        os.replace(_tmp_path, str(store_path))
+    except Exception:
+        try:
+            os.unlink(_tmp_path)
+        except OSError:
+            pass
+        raise
     return len(store["findings"])
 
 # When running standalone (.archie/), import sibling scripts directly by path
@@ -330,8 +367,31 @@ def finalize(root: Path, agent_files: list[str] | str | None = None, patch_mode:
             # Extract and merge id-stably before deep-merging the rest.
             new_findings = parsed.pop("findings", None)
             if isinstance(new_findings, list) and new_findings:
-                total = _merge_findings_into_store(archie_dir, new_findings)
-                print(f"  Findings store: {total} entries after deep-scan upgrade", file=sys.stderr)
+                # Route Risk findings through the cold-read gate so the
+                # per-kind confidence floors + falsification/evidence-schema
+                # enforcement actually run before anything lands in the store.
+                try:
+                    res = gate_and_merge(archie_dir, new_findings, floors=DEFAULT_COLD_FLOORS)
+                    total = res["merged"]
+                    print(
+                        f"  Findings store: {total} entries after deep-scan upgrade "
+                        f"({res['suppressed']} suppressed by gate)",
+                        file=sys.stderr,
+                    )
+                except Exception as e:
+                    # Defense in depth: a gate failure must never abort finalize.
+                    # Fall back to the prior direct merge of the raw findings.
+                    print(
+                        f"  Warning: gate_and_merge failed ({e}); "
+                        f"falling back to direct merge",
+                        file=sys.stderr,
+                    )
+                    total = _merge_findings_into_store(archie_dir, new_findings)
+                    print(
+                        f"  Findings store: {total} entries after deep-scan upgrade "
+                        f"(gate bypassed)",
+                        file=sys.stderr,
+                    )
             payloads.append(parsed)
 
         if payloads:
@@ -510,6 +570,50 @@ def normalize_only(root: Path):
 
     comp_count = len(bp.get("components", {}).get("components", []))
     print(f"Normalized blueprint.json ({comp_count} components)", file=sys.stderr)
+
+
+# Per-kind confidence floors for the cold-read gate (deep-scan / finalize path).
+# The Risk step emits evidence-schema findings with a `kind`; the gate keeps a
+# finding only when confidence >= floors.get(kind, <default>). editor_gate.gate's
+# own fallback is 0.5, so any kind not listed here defaults to 0.5. The behavioral
+# and conformance breaks Risk emits sit at 0.6, so the 0.7-confidence sample Risk
+# fixture (kind=behavioral_break) survives (0.7 >= 0.6).
+DEFAULT_COLD_FLOORS = {
+    "behavioral_break": 0.6,
+    "conformance_break": 0.6,
+    "intent_unmet": 0.5,
+    "intent_partial": 0.5,
+    "intent_drift": 0.6,
+    "intent_conflict": 0.6,
+}
+
+
+def gate_and_merge(archie_dir: Path, raw_findings: list, floors: dict) -> dict:
+    """Run the editor gate (cold-read, no diff anchor) then merge confirmed findings.
+
+    Uses a strict floor pass (`changed_lines=None`) via editor_gate.gate, then
+    upserts the confirmed findings into .archie/findings.json via the existing
+    _merge_findings_into_store.  Returns {merged: int, suppressed: int}.
+    """
+    sys.path.insert(0, str(_SCRIPT_DIR))
+    from editor_gate import gate as _gate  # noqa: E402 — lazy sibling import
+
+    store: list = []
+    findings_path = archie_dir / "findings.json"
+    if findings_path.exists():
+        try:
+            loaded = json.loads(findings_path.read_text())
+            # Guard: if the store is not a dict (e.g. bare list), treat as empty.
+            if isinstance(loaded, dict):
+                store = loaded.get("findings", [])
+            else:
+                store = []
+        except Exception:
+            store = []
+
+    result = _gate(raw_findings, store, changed_lines=None, floors=floors)
+    merged = _merge_findings_into_store(archie_dir, result["confirmed"])
+    return {"merged": merged, "suppressed": len(result["suppressed"])}
 
 
 if __name__ == "__main__":

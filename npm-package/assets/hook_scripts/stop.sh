@@ -5,6 +5,14 @@
 # unrecorded work — blocking signal is exit code 2 on BOTH Claude and Codex.
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 INPUT=$(cat 2>/dev/null || true)   # Stop event envelope (may be empty on some CLIs)
+
+# Archie's own internal claude -p spawns (finding verifiers, reviewers, the
+# imprint) must NEVER be stop-nudged: in -p mode the model's reply to the
+# nudge becomes the LAST assistant message, which is what --output-format
+# json returns as `result` — silently REPLACING the reviewer's findings.
+# This destroyed every reviewer output on any repo where churn had crossed.
+[ -n "$ARCHIE_INTERNAL" ] && exit 0
+
 TURN_HASH=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
 # Avoid leaking per-turn rule injection state if a session ends without the
 # next UserPromptSubmit event clearing it.
@@ -37,11 +45,31 @@ if churn.get("crossed") or nplans:
     extra = f", {nplans} captured plan(s)" if nplans else ""
     print(f"Archie: considerable work since last sync ({f} files / {l} lines changed{extra}). "
           f"Run /archie-sync to record any behavior change, impact, or rule, then stop. "
-          f"Decline if nothing is worth recording.")
+          f"If it reports baseline drift and asks for /archie-deep-scan, that is the user's "
+          f"call — surface it once and stop. Decline if nothing is worth recording.")
 PY
 )
 
+# Silently imprint the task story when a discussion→implementation transition is
+# pending (best-effort, backgrounded — must never block the turn end).
+if [ -z "$ARCHIE_INTERNAL" ] && [ -f "$PROJECT_ROOT/.archie/sync.py" ]; then
+  nohup python3 "$PROJECT_ROOT/.archie/sync.py" imprint "$PROJECT_ROOT" >/dev/null 2>&1 &
+fi
+
 if [ -n "$NUDGE" ]; then
+    # Nag budget: once per 30 minutes per project. Without this the exit-2
+    # nudge re-fired on EVERY stop while churn stayed crossed — each one
+    # forcing a full model turn to answer it (observed: 3 cycles at 1-4 min
+    # each after the work was already done, and /archie-sync itself was
+    # drift-blocked, so the nag was unsatisfiable).
+    NUDGE_MARK="/tmp/.archie_nudge_$TURN_HASH"
+    NOW=$(date +%s)
+    LAST=$(cat "$NUDGE_MARK" 2>/dev/null || echo 0)
+    case "$LAST" in (*[!0-9]*|"") LAST=0 ;; esac
+    if [ $((NOW - LAST)) -lt 1800 ]; then
+        exit 0
+    fi
+    echo "$NOW" > "$NUDGE_MARK"
     printf '%s\n' "$NUDGE" >&2
     exit 2
 fi

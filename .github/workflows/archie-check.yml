@@ -3,15 +3,40 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   archie-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: pip install -e ".[dev]"
       - run: archie check
+      # Trust model: delivery_review.py is executed from the BASE ref copy
+      # (origin/${GITHUB_BASE_REF}), never from PR-head content. A same-repo
+      # branch contributor cannot edit the script that runs with secrets, so
+      # PR-head edits can't achieve arbitrary code execution. `pull_request`
+      # (NOT pull_request_target) + least-priv permissions are kept; on fork
+      # PRs secrets are empty and the review posts no comment (fail-open).
+      # fetch-depth: 0 above guarantees origin/${GITHUB_BASE_REF} is present.
+      - run: |
+          SCRIPT=".archie/delivery_review.py"
+          if git cat-file -e "origin/${GITHUB_BASE_REF}:$SCRIPT" 2>/dev/null; then
+            git show "origin/${GITHUB_BASE_REF}:$SCRIPT" > /tmp/archie_delivery_review.py
+            python3 /tmp/archie_delivery_review.py
+          else
+            echo "[archie] $SCRIPT not present on base ref, skipping."
+          fi
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
