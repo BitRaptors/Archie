@@ -155,7 +155,7 @@ python3 .archie/sync.py sync-stamp .     # record the synced code state (commit 
 `sync-stamp` writes `.archie/sync_state.json` — a content fingerprint of the source you
 just reconciled. **Commit it alongside the blueprint/intent edits.** The PR intent review
 reads it to tell whether a branch's code later moved on without a re-sync, and surfaces a
-(non-blocking) "run /archie-sync" advisory if so.
+(non-blocking) "run {{COMMAND_PREFIX}}archie-sync" advisory if so.
 
 ### Step 5b — Regenerate and review the task story (MANDATORY — do not skip)
 
