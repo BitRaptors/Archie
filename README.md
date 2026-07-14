@@ -29,7 +29,7 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 
 A multi-wave AI pipeline produces a structured `blueprint.json` (decisions, components, pitfalls, rules) from your repo. The **Intent Layer** (opt-in) then projects the blueprint per-directory, writing a `CLAUDE.md` into every significant folder so agents auto-load the local conventions the moment they work there — zero exploration round-trips. At edit time, eight hooks wrap the coding agent — blocking decision violations, warning on trade-off undermines, informing on pattern divergence, and tracking edit churn to nudge a `/archie-sync`. Findings compound across scans (id-stable upserts, novelty escalation), and deep-scans are resumable via `--incremental`, `--continue`, and `--from N`.
 
-The blueprint is **living**, not a one-time snapshot. After the baseline, `/archie-sync` folds each session's code delta back into the blueprint and intent layer — but never silently moves the *contract* (rules, decisions, product laws), which only amend on explicit accept. A **Structural Integrity Score** (0–100 + A–F grade) rolls up the open worklist of contract divergences and can gate a PR on new grounded violations in the diff. An optional **Intent Review** GitHub Action posts an FYI comment when a PR's changes to the blueprint silently weaken an invariant or contradict a rule. And **detached storage mode** (experimental) can move every generated artifact out of the working tree into an external store, leaving only one committed pointer file.
+The blueprint is **living**, not a one-time snapshot. After the baseline, `/archie-sync` folds each session's code delta back into the blueprint and intent layer — but never silently moves the *contract* (rules, decisions, product laws), which only amend on explicit accept. An optional **Intent Review** GitHub Action posts an FYI comment when a PR's changes to the blueprint silently weaken an invariant or contradict a rule. And **detached storage mode** (experimental) can move every generated artifact out of the working tree into an external store, leaving only one committed pointer file.
 
 Full pipeline, data model, per-CLI render maps, and connector contracts: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
@@ -47,7 +47,7 @@ Skip the picker with `--target=all` / `--target=auto` / `--target=claude` / `--t
 
 | Command | What it does | Time |
 |---------|-------------|------|
-| `/archie-deep-scan` | Comprehensive baseline. 2-wave multi-agent analysis (Sonnet fact-gatherers + Opus reasoner) producing blueprint, optional per-folder CLAUDE.md, rules, findings, pitfalls, health, and the Structural Integrity Score. Supports `--incremental`, `--continue`, `--from N`, `--reconfigure`. | 15-20 min (full), 3-6 min (incremental) |
+| `/archie-deep-scan` | Comprehensive baseline. 2-wave multi-agent analysis (Sonnet fact-gatherers + Opus reasoner) producing blueprint, optional per-folder CLAUDE.md, rules, findings, pitfalls, and health. Supports `--incremental`, `--continue`, `--from N`, `--reconfigure`. | 15-20 min (full), 3-6 min (incremental) |
 | `/archie-sync` | Reconcile a session's code delta back into the living blueprint + per-folder intent layer (snapshot-vs-contract: the code mirror folds automatically, the contract only amends on explicit accept). Consumes captured plans + edit churn; auto-nudged at session stop / commit when churn crosses a threshold. | seconds-minutes |
 | `/archie-intent-layer` | Standalone per-folder CLAUDE.md regeneration. Asks Full / Incremental / Auto upfront. Requires `blueprint.json`. | 3-15 min |
 | `/archie-share` | Upload blueprint + findings + scan report to a hosted viewer. Default (BitRaptors Supabase), enterprise stored-credentials (BYO S3), or enterprise paste-presigned-URL — see [Enterprise Share](#enterprise-share). | seconds |
@@ -89,7 +89,6 @@ Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --increme
 - **Resumable deep-scans** — `--incremental` (changed files, 3-6 min), `--continue` (resume after interruption), `--from N` (specific step).
 - **Rules with semantic content** — every rule carries `severity_class`, `why` (copied from motivating decision), `example`, and `forced_by`/`enables`/`alternative` links. Pre-edit hook reads `severity_class` to gate: blocking, warning, or informational.
 - **Living blueprint** — `/archie-sync` keeps the blueprint accurate between deep scans by folding each session's code delta (the *snapshot*) while leaving rules/decisions/product-laws (the *contract*) read-only unless explicitly amended. Session-stop and pre-commit hooks nudge a sync once accumulated edit churn crosses a threshold; captured plans (`ExitPlanMode`) and churn become durable sync signals.
-- **Structural Integrity Score** — a deterministic 0–100 score + A–F grade rolling up the open worklist of *contract divergences* (layering, dependency direction, placement, naming, unenforced product laws). A diff-scoped **PR gate** blocks only on new grounded violations in the changed files — and only rules that clear a precision bar in the calibration harness are ever allowed to block.
 - **Intent Review (CI)** — an optional GitHub Action that reviews a PR's changes to `blueprint.json` + `rules.json`, sends the semantic diff to Claude Haiku, and posts one consolidated FYI comment when a change silently weakens an invariant or contradicts a rule. Surfaces, never blocks.
 - **Storage modes (repo / detached)** — default `repo` keeps artifacts in the tree. Experimental `detached` mode moves every generated artifact into an external store (`~/.archie`), surfacing them via symlinks/junctions (copy-fallback on Windows); the only committed file is `.archie-link.json`. A viewer **Exposure** tab then toggles, per markdown file, what the agent sees.
 
@@ -105,20 +104,6 @@ Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --increme
 | **Verbosity** (0-1) | Duplicate-line ratio across source files. |
 | **Abstraction waste** | Count of single-method classes and tiny wrapper functions. |
 | **LOC** | Total lines of code — monotonic growth without features signals decay. |
-
-## Structural Integrity Score
-
-`/archie-deep-scan` and `/archie-sync` compute a **Structural Integrity Score** — a 0–100 number (A–F grade) that rolls up how well the code still upholds the *structurally checkable* parts of its documented contract: layering, dependency direction, file placement, naming, DI wiring, and whether product laws have any enforcement mechanism. The score is only the roll-up; the **worklist of open divergences** is the point. It is measurement, not a code-quality grade — it never judges behavioural correctness.
-
-Four size-normalized axes feed the composite (`archie/standalone/scoring.py`): **Reconciliation** (open contract violations, 45%), **Coverage** (enforced product laws / total, 30%), **Burndown** (open verified findings, 20%), **Freshness** (pending amendments, 5%). A geometric ceiling over Reconciliation × Coverage means clean code elsewhere can't hide a broken contract.
-
-```bash
-python3 .archie/score.py .                    # human-readable report
-python3 .archie/score.py . --json             # machine-readable
-python3 .archie/score.py . --diff origin/main # PR gate mode (diff-scoped)
-```
-
-**PR gate.** In `--diff` mode only *grounded* divergences in the changed files can fail the build — pre-existing divergences elsewhere are context, not blockers. And a rule may block only if it clears the calibration harness (`tests/calibration/precision_recall.py`): precision ≥ 0.95 against known positive/negative cases. Jumpy rules are demoted to advisory warnings. The score is persisted to `.archie/score.json` (+ `score_history.json`) and travels in the `/archie-share` bundle for the viewer.
 
 ## Intent Review (CI PR gate)
 

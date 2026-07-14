@@ -178,7 +178,6 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
     // footer. Rebuilt once per load to avoid querySelector churn on scroll.
     const TRACKED_IDS = [
       'summary',
-      'integrity',
       'health',
       'diagram',
       'workspace-topology',
@@ -672,18 +671,10 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
             </div>
           )}
 
-          {/* Risks — Structural Integrity + merged Findings + Pitfalls */}
-          {(findings.length > 0 || pitfalls.length > 0 || bundle.integrity) && (
+          {/* Risks — merged Findings + Pitfalls */}
+          {(findings.length > 0 || pitfalls.length > 0) && (
             <div className="space-y-1">
               <p className="px-3 text-[10px] font-black uppercase tracking-[0.2em] text-ink/20 mb-4">Risks</p>
-              {bundle.integrity && (
-                <NavButton
-                  active={activeSection === 'integrity'}
-                  onClick={() => scrollToSection('integrity')}
-                  icon={Activity}
-                  label="Structural Integrity"
-                />
-              )}
               {findings.length > 0 && (
                 <NavButton
                   active={activeSection === 'problems'}
@@ -1072,13 +1063,6 @@ export default function ReportPage({ bundle: bundleProp, createdAt: createdAtPro
           {Object.keys(deployment).length > 0 && (deployment.strategy || deployment.platform || (Array.isArray(deployment.infrastructure) && deployment.infrastructure.length > 0)) && (
             <section id="deployment" className="scroll-mt-24">
               <Sections.DeploymentSection deployment={deployment} />
-            </section>
-          )}
-
-             {/* Structural Integrity — opens the Risks block */}
-          {bundle.integrity && (
-            <section id="integrity" className="scroll-mt-24">
-              <Sections.IntegritySection integrity={bundle.integrity} />
             </section>
           )}
 

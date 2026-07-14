@@ -32,6 +32,9 @@ def _project(tmp_path: Path) -> Path:
     archie = tmp_path / ".archie"
     archie.mkdir()
     shutil.copy(_STANDALONE / "sync.py", archie / "sync.py")
+    # sync.py imports diff_basis at module load, so churn-bump/churn-status crash
+    # without it — mirror the installer, which copies both into .archie/.
+    shutil.copy(_STANDALONE / "diff_basis.py", archie / "diff_basis.py")
     (archie / "blueprint.json").write_text("{}")
     return tmp_path
 

@@ -182,13 +182,6 @@ def build_bundle(project_root: Path) -> dict:
     if isinstance(c4, dict):
         bundle["c4"] = c4
 
-    # Architecture Integrity Score — headline + worklist of open divergences +
-    # the plain-language `explanation` block, so the viewer can render context,
-    # not just a number. Optional; old bundles without it hide the integrity view.
-    integrity = _read_json(archie_dir / "score.json")
-    if isinstance(integrity, dict):
-        bundle["integrity"] = integrity
-
     # Structured semantic duplications — legacy source only.
     # .archie/semantic_duplications.json was Agent C's output from the retired
     # scan flow; the deep-scan drift agent (the other historical source, via

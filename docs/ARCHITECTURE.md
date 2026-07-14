@@ -16,29 +16,28 @@ Comprehensive technical documentation covering system architecture, analysis pip
 8. [Coordinator — AI Pipeline](#coordinator--ai-pipeline)
 9. [Deep Scan (`/archie-deep-scan`)](#deep-scan-archie-deep-scan)
 10. [Living Blueprint (`/archie-sync`)](#living-blueprint--archie-sync)
-11. [Structural Integrity Score](#structural-integrity-score)
-12. [Findings Store](#findings-store)
-13. [Pitfalls](#pitfalls)
-14. [Hooks — Real-Time Enforcement](#hooks--real-time-enforcement)
-15. [Rules — Synthesis and Delivery](#rules--synthesis-and-delivery)
-16. [Renderer — Output Generation](#renderer--output-generation)
-17. [Storage Modes — Detached Artifacts](#storage-modes--detached-artifacts)
-18. [Standalone Scripts](#standalone-scripts)
-19. [NPM Package — Distribution](#npm-package--distribution)
-20. [Multi-Agent Connector Architecture](#multi-agent-connector-architecture)
-21. [Coding Agent Integration (Claude / Codex)](#coding-agent-integration-claude--codex)
-22. [Share Pipeline (`/archie-share`)](#share-pipeline-archie-share)
-23. [Intent Review — CI PR Gate](#intent-review--ci-pr-gate)
-24. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
-25. [Data Flow](#data-flow)
-26. [Compound Learning](#compound-learning)
-27. [Drift Coverage](#drift-coverage-no-dedicated-drift-step)
-28. [Cycle Detection](#cycle-detection)
-29. [Telemetry](#telemetry)
-30. [No Inline Python Constraint](#no-inline-python-constraint)
-31. [Error Handling and Resilience](#error-handling-and-resilience)
-32. [Testing](#testing)
-33. [File Sync Protocol](#file-sync-protocol)
+11. [Findings Store](#findings-store)
+12. [Pitfalls](#pitfalls)
+13. [Hooks — Real-Time Enforcement](#hooks--real-time-enforcement)
+14. [Rules — Synthesis and Delivery](#rules--synthesis-and-delivery)
+15. [Renderer — Output Generation](#renderer--output-generation)
+16. [Storage Modes — Detached Artifacts](#storage-modes--detached-artifacts)
+17. [Standalone Scripts](#standalone-scripts)
+18. [NPM Package — Distribution](#npm-package--distribution)
+19. [Multi-Agent Connector Architecture](#multi-agent-connector-architecture)
+20. [Coding Agent Integration (Claude / Codex)](#coding-agent-integration-claude--codex)
+21. [Share Pipeline (`/archie-share`)](#share-pipeline-archie-share)
+22. [Intent Review — CI PR Gate](#intent-review--ci-pr-gate)
+23. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
+24. [Data Flow](#data-flow)
+25. [Compound Learning](#compound-learning)
+26. [Drift Coverage](#drift-coverage-no-dedicated-drift-step)
+27. [Cycle Detection](#cycle-detection)
+28. [Telemetry](#telemetry)
+29. [No Inline Python Constraint](#no-inline-python-constraint)
+30. [Error Handling and Resilience](#error-handling-and-resilience)
+31. [Testing](#testing)
+32. [File Sync Protocol](#file-sync-protocol)
 
 ---
 
@@ -140,8 +139,6 @@ archie/
     merge.py                    # Merge blueprint sections from multiple sources
     finalize.py                 # Deep merge + findings upsert into store + pitfalls into blueprint
     sync.py                     # /archie-sync engine — snapshot-vs-contract ledger (record/list/fold-*), durable plan + churn signals (plan-*/churn-*), sync-stamp
-    score.py                    # Structural Integrity Score CLI + diff-scoped PR gate + worklist grouping + calibration-aware blocking
-    scoring.py                  # Pure composite-score math (Reconciliation/Coverage/Burndown/Freshness axes + geometric ceiling), zero-dep
     intent_review.py            # CI PR reviewer — semantic diff of blueprint+rules vs PR base, one Claude Haiku judge call, FYI comment (Claude-only)
     link_store.py               # Detached mode: external store location ($ARCHIE_HOME) + JSON manifests (.archie-link.json / exposure.json / placements)
     link_strategy.py            # Detached mode: OS presentation primitive (symlink / NTFS junction / copy fallback) + never-touch-a-file-we-didn't-place invariant
@@ -203,7 +200,7 @@ share/
     functions/blueprint/        # GET bundle by token
     functions/telemetry-ingest/ # Anonymous telemetry ingest (anon key + insert-only RLS)
 
-tests/                          # 99 test files (incl. calibration/precision_recall.py — the rule smoke-alarm harness)
+tests/                          # test suite (pytest)
 
 docs/
   ARCHITECTURE.md               # This file
@@ -425,7 +422,6 @@ Step 7  Intent Layer (opt-in) — per-folder CLAUDE.md via DAG scheduling
               telemetry records "skipped": true
 Step 8        Cleanup
 Step 9        Finalize — health metrics (measure_health.py + history),
-              Structural Integrity Score baseline (score.py --write),
               incremental baseline marker, telemetry write, closing summary
 ```
 
@@ -454,29 +450,6 @@ Skips Wave 1 entirely. One scoped Reasoning agent receives `blueprint.json` + `b
 - `post-plan-review.sh` tees each `ExitPlanMode` plan to `sync plan-capture` (best-effort) *before* its existing contract-gating pass — persisting the plan as durable intent under `.archie/tmp/plans/`.
 
 At session end, `stop.sh` reads `churn-status` + `plan-list`; if churn crossed the threshold (`churn_threshold_files` default 8 / `churn_threshold_lines` default 150 in `.archie/config.json`) **or** unconsumed plans exist, it prints a nudge to stderr and exits 2 (declinable — the user can continue). `pre-commit-review.sh` prints the same reminder at commit time, advisory only (never changes the exit code). The sync workflow's closing step calls `plan-consume` + `churn-reset` + `sync-stamp` to close the loop. All of this is dormant until `.archie/blueprint.json` exists, and works cross-CLI via envelope normalization. Design reference: `docs/automated-sync.md`.
-
----
-
-## Structural Integrity Score
-
-A deterministic **0–100 score + A–F grade** rolling up how well the code still upholds the *structurally checkable* parts of its documented contract — layering, dependency direction, file placement, naming, DI wiring, and whether product laws have any enforcement mechanism. It is measurement, not a code-quality grade: it never judges behavioural or product-law correctness (that is the review layer). The score is only the roll-up; the **worklist of open divergences** is the point. Internally abbreviated `ais` for bundle/persistence back-compat.
-
-**Composite (`scoring.py`).** Four size-normalized axes, each 0–100:
-
-| Axis | Weight | Measures |
-|------|--------|----------|
-| Reconciliation | 45% | Open (unreconciled) contract violations — severity-weighted, exponential decay with KLOC |
-| Coverage | 30% | Enforced product laws / total identified laws (`domain_invariants` + `derived_invariants` + `unenforced_invariants`) |
-| Burndown | 20% | Open verified findings — severity-weighted decay with KLOC |
-| Freshness | 5% | 100 if no pending amendments, 90 if accepted ones exist |
-
-`body = 0.45·R + 0.30·C + 0.20·B + 0.05·F`, then capped by a geometric **ceiling** over {R, C} (`100·exp((45·ln(R/100) + 30·ln(C/100))/75)`) so a broken contract can't hide behind clean code elsewhere. Grades: A ≥ 90, B 75–89, C 50–74, D 25–49, F < 25. Coverage only counts as *measured* if product laws were actually identified — absence never buys a free 100. LOC + violation density honour `.archieignore` / `.gitignore` via the same `IgnoreMatcher` as `check_rules`.
-
-**PR gate (`score.py --diff <base-ref>`).** Filters the worklist to files changed in the diff; only **grounded** divergences (severity `error`) in those files can block (exit 1). Pre-existing divergences elsewhere are context, not blockers — **the score itself never blocks**. A rule may block only if it clears the calibration harness.
-
-**Calibration harness (`tests/calibration/precision_recall.py`).** The smoke-alarm test — runs each rule against known positive/negative cases, computes precision/recall/F1, and sets `block_eligible = true` only when precision ≥ 0.95 (a wrong block costs more trust than ten good warnings earn) **and** the rule caught a real violation. Results persist to `.archie/rule_calibration.json`; the gate demotes grounded violations from non-eligible rules to advisory warnings.
-
-**Wiring + artifacts.** Deep-scan Step 9 runs `score.py --write` after `rules.json` / blueprint / `findings.json` / `health.json` all exist; `/archie-sync` shows current standing against the contract (warns on new open divergences, never blocks). Writes `.archie/score.json` (headline, grade, body, ceiling, worklist, protected laws, explanation, `state`: `no_contract` / `capped` / `reconciled` / `drift`) + append-only `.archie/score_history.json`. `upload.py` packages `score.json` as `bundle["integrity"]`; the viewer's `IntegritySection` (`ReportSections.tsx`) renders grade + open-divergence count + protected-laws N/M + worklist. Optional field — old bundles simply hide the section.
 
 ---
 
@@ -765,8 +738,6 @@ Zero-dependency Python scripts in `archie/standalone/`. These are exported to ta
 | `merge.py` | Merge blueprint sections; `extract_json_from_text` handles conversation envelopes / code fences |
 | `finalize.py` | Normalise blueprint + deep-merge Opus output + id-stable findings upsert + pitfalls into blueprint |
 | `sync.py` | `/archie-sync` engine. Subcommands: `record` / `list` / `fold-context` / `fold-apply` (snapshot-vs-contract ledger under `.archie/changes/`), `plan-capture` / `plan-list` / `plan-consume` (durable `ExitPlanMode` intent), `churn-bump` / `churn-status` / `churn-reset` (cross-CLI edit-volume counter), `sync-stamp` (content fingerprint for PR drift). Phase 1: the *contract* (rules/decisions/product-laws) is read-only during a code-fold — a contract-fingerprint guard aborts the render if it moved |
-| `score.py` | Structural Integrity Score CLI. `--json`, `--diff <base-ref>` (diff-scoped PR gate, exit 1 on grounded violations in changed files), `--write` (persist `.archie/score.json` + `score_history.json`), `--pr` (markdown comment). Calibration-aware: only rules flagged `block_eligible` in `.archie/rule_calibration.json` can fail a build |
-| `scoring.py` | Pure composite-score arithmetic (zero-dep). Four size-normalized axes — Reconciliation (45%), Coverage (30%), Burndown (20%), Freshness (5%) — with a geometric ceiling over Reconciliation × Coverage so clean code can't mask a broken contract. A–F grade bands |
 | `intent_review.py` | CI PR reviewer (Claude-only). Deterministic keyed semantic diff of `blueprint.json` + `rules.json` vs PR base → one `claude-haiku-4-5` judge call (`emit_findings` tool) → one consolidated FYI comment via `GITHUB_TOKEN`. `because`-or-suppress; conservative ledger join for severity sharpening. Stdlib + urllib only |
 | `link_store.py` | Detached mode — resolves the external store (`$ARCHIE_HOME`, default `~/.archie` / `%LOCALAPPDATA%\archie`) and reads/writes its JSON manifests (`.archie-link.json`, `exposure.json`, placements). Path args coerced to `Path` at the boundary |
 | `link_strategy.py` | Detached mode — OS presentation primitive: POSIX symlink / NTFS junction / copy-materialize fallback per artifact kind, plus the load-bearing safety invariant (only remove a path that resolves back into the store; byte-verify copies before deletion) |
