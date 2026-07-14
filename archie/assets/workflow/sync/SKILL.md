@@ -68,20 +68,6 @@ echo '<your JSON array>' | python3 .archie/sync.py record .
 (Add `--agent claude` under Claude Code, or `--agent codex` under Codex, to tag the
 record's provenance.)
 
-After recording, show the **Structural Integrity standing** so the user sees whether this
-session drifted from the contract:
-
-```bash
-python3 .archie/score.py .
-```
-
-This re-measures the working tree against the contract and prints the worklist with its
-plain-language context (it does NOT rewrite the baseline — that happens at deep-scan or
-fold, so `Freshness` keeps measuring drift since the last baseline). A NEW open divergence
-is a rule this session broke: the user fixes it, or accepts it by recording the break as a
-`decision`/`rule` claim above (which stages a contract amendment). The score never blocks —
-it is a roll-up; the worklist of open divergences is the point.
-
 A statement is **eligible** to fold only if it is a DESCRIPTIVE kind (the mirror) AND
 `confidence: medium|high`, `reconstructed: false`, and grounded in a file inside the diff.
 ADVISORY kinds (`decision`/`pitfall`/`rule`/`guideline`) are ALWAYS `staged` — the contract

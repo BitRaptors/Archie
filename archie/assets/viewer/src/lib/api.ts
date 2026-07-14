@@ -17,7 +17,6 @@ export interface SemanticDuplication {
 export interface Bundle {
   blueprint: any
   health?: any
-  integrity?: any
   scan_meta?: any
   rules_adopted?: any
   rules_proposed?: any
