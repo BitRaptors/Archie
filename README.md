@@ -29,7 +29,7 @@ Works with any language. Zero runtime dependencies for standalone scripts.
 
 A multi-wave AI pipeline produces a structured `blueprint.json` (decisions, components, pitfalls, rules) from your repo. The **Intent Layer** (opt-in) then projects the blueprint per-directory, writing a `CLAUDE.md` into every significant folder so agents auto-load the local conventions the moment they work there — zero exploration round-trips. At edit time, eight hooks wrap the coding agent — blocking decision violations, warning on trade-off undermines, informing on pattern divergence, and tracking edit churn to nudge a `/archie-sync`. Findings compound across scans (id-stable upserts, novelty escalation), and deep-scans are resumable via `--incremental`, `--continue`, and `--from N`.
 
-The blueprint is **living**, not a one-time snapshot. After the baseline, `/archie-sync` folds each session's code delta back into the blueprint and intent layer — but never silently moves the *contract* (rules, decisions, product laws), which only amend on explicit accept. An optional **Intent Review** GitHub Action posts an FYI comment when a PR's changes to the blueprint silently weaken an invariant or contradict a rule. And **detached storage mode** (experimental) can move every generated artifact out of the working tree into an external store, leaving only one committed pointer file.
+The blueprint is **living**, not a one-time snapshot. After the baseline, `/archie-sync` folds each session's code delta back into the blueprint and intent layer — but never silently moves the *contract* (rules, decisions, product laws), which only amend on explicit accept. When a change genuinely must cross a documented rule, an **override** records the human's ruling and **merging the PR ratifies it**. An optional **CI PR review** GitHub Action posts one FYI comment per pull request — reconciling the PR's stated intent against the diff and flagging any rule/blueprint change that silently weakens an invariant; it surfaces, never blocks. And **detached storage mode** (experimental) can move every generated artifact out of the working tree into an external store, leaving only one committed pointer file.
 
 Full pipeline, data model, per-CLI render maps, and connector contracts: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
@@ -89,7 +89,8 @@ Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --increme
 - **Resumable deep-scans** — `--incremental` (changed files, 3-6 min), `--continue` (resume after interruption), `--from N` (specific step).
 - **Rules with semantic content** — every rule carries `severity_class`, `why` (copied from motivating decision), `example`, and `forced_by`/`enables`/`alternative` links. Pre-edit hook reads `severity_class` to gate: blocking, warning, or informational.
 - **Living blueprint** — `/archie-sync` keeps the blueprint accurate between deep scans by folding each session's code delta (the *snapshot*) while leaving rules/decisions/product-laws (the *contract*) read-only unless explicitly amended. Session-stop and pre-commit hooks nudge a sync once accumulated edit churn crosses a threshold; captured plans (`ExitPlanMode`) and churn become durable sync signals.
-- **Intent Review (CI)** — an optional GitHub Action that reviews a PR's changes to `blueprint.json` + `rules.json`, sends the semantic diff to Claude Haiku, and posts one consolidated FYI comment when a change silently weakens an invariant or contradicts a rule. Surfaces, never blocks.
+- **Rule override & ratification** — when a change must legitimately cross a documented rule, the agent records a human-authorized override at a stop-and-confirm prompt; the edit/commit gates then demote that rule from **block** to **warn**, `/archie-sync` writes the retirement into the contract, and **merging the PR ratifies it**. The human ruling is durable — nothing machine-managed can erase it.
+- **CI PR review** — an optional GitHub Action posts one consolidated FYI comment per PR: a **delivery review** (did the change build its stated intent, and break nothing?) plus a **contract delta** (did a rule/blueprint fold silently weaken an invariant, and which retirements were already authorized?). It runs from the base-ref copy of `.archie/`, surfaces, and never blocks. See [CI Pipeline Setup](#ci-pipeline--pr-review).
 - **Storage modes (repo / detached)** — default `repo` keeps artifacts in the tree. Experimental `detached` mode moves every generated artifact into an external store (`~/.archie`), surfacing them via symlinks/junctions (copy-fallback on Windows); the only committed file is `.archie-link.json`. A viewer **Exposure** tab then toggles, per markdown file, what the agent sees.
 
 ## Health Metrics
@@ -105,15 +106,34 @@ Run `/archie-deep-scan` once for the baseline, then `/archie-deep-scan --increme
 | **Abstraction waste** | Count of single-method classes and tiny wrapper functions. |
 | **LOC** | Total lines of code — monotonic growth without features signals decay. |
 
-## Intent Review (CI PR gate)
+## CI Pipeline — PR Review
 
-An optional GitHub Action reviews pull requests that touch Archie's source of truth (`.archie/blueprint.json` + `.archie/rules.json`). It diffs the branch against the PR base, runs a deterministic keyed semantic diff (invariants, decisions, pitfalls, rules, data models, components), sends the changed items + colliding rules + ledger claims to Claude Haiku, and posts **one consolidated FYI comment** per logical change — flagging silent invariant weakening, rule contradictions, and behaviour-violates-rule cases. It surfaces; the human decides; **it never blocks a merge**.
+An optional GitHub Action reviews every pull request and posts **one consolidated FYI comment**. It surfaces; the human decides; **it never blocks a merge** — merging accepts the change as the new baseline. Two reviews run inside that single comment:
+
+- **Delivery review** — reconciles the PR's stated intent (title/body + the branch's captured task-story facts) against the actual diff and the blueprint: *did the change build what it set out to, and did it break anything?* Backed by a shared review core — deterministic evidence pack → parallel specialist fan-out → agreement-weighted merge → editor gate.
+- **Contract delta** — *what merging this PR actually accepts.* Authorized rule retirements (an override the user already confirmed) are read for free; only *unexplained* rule additions/removals go to one Claude Haiku judge call, to catch a change that silently weakens an invariant or contradicts a retained rule.
+
+The reviewer executes from the **base-ref copy** of `.archie/` (never PR-head content), so a pull request can't alter the script that runs with your secret. Stdlib + urllib, zero pip dependencies.
+
+### Setup (one-time)
+
+**Prerequisites:** a git repo with an `origin` remote, the [`gh` CLI](https://cli.github.com/) installed and authenticated (`gh auth login`), and a `blueprint.json` baseline — run `/archie-deep-scan` first.
 
 ```bash
-bash .archie/setup-archie-intent-review.sh    # one-time: stores ANTHROPIC_API_KEY secret + copies the workflow
+bash .archie/setup-archie-intent-review.sh
 ```
 
-Runs on `pull_request` (opened / synchronize), re-uses (PATCHes) its own comment on re-push, and requires only `ANTHROPIC_API_KEY` (the workflow uses the built-in `GITHUB_TOKEN`). Stdlib-only, zero pip dependencies.
+The script checks prerequisites, prompts for your `ANTHROPIC_API_KEY` and stores it as an encrypted GitHub Actions secret (`gh secret set`), copies the canonical workflow to `.github/workflows/archie-intent-review.yml`, and probes that Actions is enabled. Then commit and push it:
+
+```bash
+git add .github/workflows/archie-intent-review.yml
+git commit -m "ci: add Archie PR review"
+git push        # open a PR — the Action comments on it
+```
+
+Runs `on: pull_request` (opened / synchronize), re-uses (PATCHes) its own comment on re-push, and needs only `ANTHROPIC_API_KEY` (the workflow uses the built-in `GITHUB_TOKEN`). Rotate the key later with `gh secret set ANTHROPIC_API_KEY`.
+
+> **Fork-PR limitation:** the workflow uses the `pull_request` event (non-blocking FYI). Fork PRs cannot read repo secrets, so the Action **skips silently** on them. Covering fork PRs would require `pull_request_target`, a security tradeoff that's deliberately out of scope.
 
 ## Storage Modes — repo vs. detached
 

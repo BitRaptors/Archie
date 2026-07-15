@@ -27,7 +27,7 @@ Comprehensive technical documentation covering system architecture, analysis pip
 19. [Multi-Agent Connector Architecture](#multi-agent-connector-architecture)
 20. [Coding Agent Integration (Claude / Codex)](#coding-agent-integration-claude--codex)
 21. [Share Pipeline (`/archie-share`)](#share-pipeline-archie-share)
-22. [Intent Review — CI PR Gate](#intent-review--ci-pr-gate)
+22. [CI PR Review — Delivery + Contract Delta](#ci-pr-review--delivery--contract-delta)
 23. [StructuredBlueprint Data Model](#structuredblueprint-data-model)
 24. [Data Flow](#data-flow)
 25. [Compound Learning](#compound-learning)
@@ -138,8 +138,24 @@ archie/
     install_hooks.py            # Legacy Claude-only hook installer (backwards compat; modern installs route through the connector loop)
     merge.py                    # Merge blueprint sections from multiple sources
     finalize.py                 # Deep merge + findings upsert into store + pitfalls into blueprint
-    sync.py                     # /archie-sync engine — snapshot-vs-contract ledger (record/list/fold-*), durable plan + churn signals (plan-*/churn-*), sync-stamp
-    intent_review.py            # CI PR reviewer — semantic diff of blueprint+rules vs PR base, one Claude Haiku judge call, FYI comment (Claude-only)
+    sync.py                     # /archie-sync engine — snapshot-vs-contract ledger (record/list/fold-*), durable plan + churn signals (plan-*/churn-*), sync-stamp, override-ack/ratify
+    delivery_review.py          # CI PR delivery review entry point — intent reconciliation via review_core + contract_delta, posts the single FYI verdict comment
+    review_core.py              # Shared review brain — evidence pack -> parallel specialist fan-out -> agreement-weighted merge (used by CI delivery review AND local sync review)
+    evidence_pack.py            # Deterministic evidence substrate (diff + touched components + reachability + contract slice) every reviewer sees
+    behavioral_review.py        # Blast-radius-aware behavioral reviewer
+    universal_specialists.py    # Four universal specialist review lenses
+    invariant_specialist.py     # Invariant tracer/challenger — verifies claims via a jailed read_file/grep tool loop
+    reconcile.py                # Conformance reviewer (review_conformance)
+    reachability.py             # Pure-stdlib import-graph traversal for blast radius
+    selector.py                 # Blueprint-derived specialist selector + touched_context
+    finding_merge.py            # Dedup + agreement-weighted confidence scoring of raw findings
+    editor_gate.py              # Final gate — floor/anchor/dedup; cannot invent findings
+    diff_basis.py               # PR base-detection ladder for the reviewed diff
+    contract_delta.py           # What merging accepts — free authorized retirements vs one-Haiku-call judgment of unexplained rule changes (composes intent_review's differ)
+    intent_review.py            # Deterministic keyed semantic diff of blueprint+rules vs PR base (now composed by contract_delta; no longer a standalone workflow step)
+    overrides.py                # Human-ruling record (.archie/overrides.json) — ack/ratify/archive; the durable complement to findings.json
+    story_store.py              # Task-story imprint storage — one Markdown file (prose + fenced JSON facts) per branch+timestamp under .archie/stories/
+    story_synthesize.py         # Faithful, provenance-checked task-story synthesis (silent Stop imprint; drops ungrounded facts)
     link_store.py               # Detached mode: external store location ($ARCHIE_HOME) + JSON manifests (.archie-link.json / exposure.json / placements)
     link_strategy.py            # Detached mode: OS presentation primitive (symlink / NTFS junction / copy fallback) + never-touch-a-file-we-didn't-place invariant
     linker.py                   # Detached mode orchestration + CLI: bind|reconcile|externalize|status|attach|detach
@@ -169,8 +185,8 @@ archie/
       sync/SKILL.md             # /archie-sync workflow — snapshot-vs-contract reconciliation, consumes plans + churn
       viewer/SKILL.md           # Local viewer launcher workflow
     hook_scripts/               # Canonical hook .sh scripts (copied to .archie/hooks/); incl. churn-track.sh (post-tool-use edit churn)
-    workflows/                  # CI GitHub Actions — archie-intent-review.yml (PR reviewer, installed by setup-archie-intent-review.sh)
-    setup-archie-intent-review.sh  # One-time installer for the Intent Review Action (stores ANTHROPIC_API_KEY secret + copies the workflow)
+    workflows/                  # CI GitHub Actions — archie-intent-review.yml (runs the delivery review; installed by setup-archie-intent-review.sh)
+    setup-archie-intent-review.sh  # One-time installer for the CI PR review (stores ANTHROPIC_API_KEY secret + copies the workflow)
     viewer/                     # React viewer source — built into dist/ at install time
     archieignore.default        # Default `.archieignore` template
     archiebulk.default          # Default `.archiebulk` template (three tier, path-based)
@@ -207,7 +223,11 @@ docs/
   enterprise-share-setup.md     # Customer-side bucket setup walkthrough (CORS + IAM templates)
   automated-sync.md             # /archie-sync design reference (snapshot vs contract, plan + churn signals)
   archie-snapshot-vs-contract-{plan,implementation}.md  # Phase 1 sync methodology
-  archie-intent-review-{design,delivery-plan}.md        # CI PR-reviewer design + delivery plan
+  archie-intent-review-{design,delivery-plan}.md        # Deterministic keyed-diff reviewer (now composed by contract_delta)
+  archie-delivery-review-{design,plan}.md               # CI delivery review — intent reconciliation + shared review core
+  archie-review-engine-v2-{design,plan}.md              # Review engine v2 — evidence pack, N-pass, tool loop, universals, shared core
+  archie-rule-override-{design,plan}.md                 # Rule override & ratification (ack/ratify, gates, contract fold-in)
+  archie-task-story-imprint-{design,plan}.md            # Task-story imprint — faithful provenance-checked intent capture
   archie-detached-artifacts-design.md                   # Detached storage-mode design spec
 
 landing/                        # Landing page
@@ -1169,17 +1189,45 @@ Old bundles on Supabase (uploaded before the 4-field schema migration) are rende
 
 ---
 
-## Intent Review — CI PR Gate
+## CI PR Review — Delivery + Contract Delta
 
-A GitHub Action that reviews pull requests touching Archie's source of truth (`.archie/blueprint.json` + `.archie/rules.json`) and flags changes that silently weaken the architecture. It **surfaces; the human decides; it never blocks a merge** — merging accepts the blueprint changes as the new baseline. Claude-only (`claude-haiku-4-5` via `api.anthropic.com`); stdlib + urllib, zero pip deps, matching Archie's standalone DNA.
+A GitHub Action reviews every pull request and posts **one consolidated FYI comment**. It **surfaces; the human decides; it never blocks a merge** — merging accepts the blueprint/contract changes as the new baseline. Claude-only (`claude-haiku-4-5` via `api.anthropic.com`); stdlib + urllib, zero pip deps, matching Archie's standalone DNA.
 
-**Setup + trigger.** One-time `bash .archie/setup-archie-intent-review.sh` from repo root stores `ANTHROPIC_API_KEY` as a `gh secret` and copies the canonical workflow to `.github/workflows/archie-intent-review.yml` (requires a git repo with `origin`, `gh` authed, and a `blueprint.json` baseline). The workflow runs `on: pull_request` (opened / synchronize) with `fetch-depth: 0`, needing only `ANTHROPIC_API_KEY` (the built-in `GITHUB_TOKEN` posts the comment). The script ships in the npm bundle but the workflow is **not** auto-injected — the setup script is the sole installer.
+**Why one comment.** The workflow originally ran two steps (`intent_review.py` + `delivery_review.py`) that both looked their comment up by the same marker, so the second silently PATCHed over the first — one review's verdict never reached the PR. The separate intent-review *step* was removed; its invariant-weakening judgment now runs inside the single delivery comment via `contract_delta`. The workflow file keeps its historical name (`archie-intent-review.yml`, job `intent-review`).
 
-**Pipeline (`intent_review.py`).**
-1. **Deterministic diff (no AI).** Reconstruct the PR base's `blueprint.json` + both rule files via `git show <base-sha>:<path>`, then keyed semantic diff (REMOVE / UPDATE / ADD) over `domain_invariants`, `derived_invariants`, `pitfalls`, `decisions.{key_decisions,trade_offs,out_of_scope}`, `rules`, `data_models`, `persistence_stores`, `components`. Globs **every** new `.archie/changes/change_*.json` on the branch (not just `latest.json`) for ledger claims, and extracts relevance-filtered retained rules.
-2. **One judge call.** Sends changed items + retained rules + ledger claims to Haiku, forcing an `emit_findings` tool call. Each finding: `item_refs[]`, `type` (`silent_weakening` / `contradiction` / `behavior_violates_rule`), `change_summary`, `colliding_rules[]`, and a cited `because` — **any finding without a `because` is dropped** (because-or-suppress).
-3. **Consolidation.** One finding per logical change, listing *all* colliding rules — a cap-raise touching 2 components and hitting 4 rules is one finding with `item_refs: [c0,c1]` + `colliding_rules: [...4]`, not per-rule spam. A conservative ledger join (evidence-file overlap + keyword threshold) attaches confidence only on a real match, never guesses.
-4. **Comment.** Finds its prior comment via a hidden `<!-- archie-intent-review -->` marker and PATCHes it (no spam on re-push), grouping findings by type with the footer "Archie surfaces; it doesn't block."
+**Setup + trigger.** One-time `bash .archie/setup-archie-intent-review.sh` from repo root: checks prerequisites (git repo with `origin`, `gh` authed, `blueprint.json` baseline), prompts for `ANTHROPIC_API_KEY` and stores it as a `gh secret`, copies the canonical workflow to `.github/workflows/archie-intent-review.yml`, and probes Actions enablement. Commit + push the workflow; it runs `on: pull_request` (opened / synchronize) with `fetch-depth: 0`, needing only `ANTHROPIC_API_KEY` (the built-in `GITHUB_TOKEN` posts the comment). The script ships in the npm bundle but the workflow is **not** auto-injected — the setup script is the sole installer. Fork PRs can't read repo secrets, so the Action skips silently on them.
+
+**Trust model.** Every review script is executed from the **base-ref copy** (`git archive origin/$GITHUB_BASE_REF .archie | tar -x`), never from PR-head content — a same-repo branch contributor cannot edit the script that runs with the secret. `pull_request` (not `pull_request_target`) + least-privilege `permissions` (`pull-requests: write`, `contents: read`) are kept.
+
+### Delivery review (`delivery_review.py` + `review_core.py`)
+
+Reconciles the PR's stated **intent** — title/body plus the branch's captured task-story facts (below) — against the actual diff and the blueprint, answering *did the change build the intent, and did it break anything?* The heavy lifting is the shared review core (also used by the local sync review — one brain, two callers):
+
+1. **Evidence pack (deterministic).** `evidence_pack.py` assembles the diff, touched components, reachability (a pure-stdlib import-graph traversal in `reachability.py`), and the relevant contract slice — the factual substrate every reviewer sees. Bounded by `MAX_FILES` (75) and `MAX_DIFF_CHARS` (60k) so a huge PR can't blow the budget; truncation is disclosed in the comment.
+2. **Parallel specialist fan-out.** A blueprint-derived `selector` picks which specialists apply; each runs concurrently and **degrades to zero findings rather than crashing the fan-out** — a failure is logged *and counted*, so a timed-out reviewer never reads as "found nothing" (the same fail-open class as a hollow green verdict). Lenses: the behavioral reviewer (blast-radius aware), four universal specialists, conformance (`reconcile.py`), and the invariant tracer/challenger (`invariant_specialist.py`), which verify claims through a jailed `read_file`/`grep` tool loop.
+3. **Agreement-weighted merge.** `finding_merge.py` dedups and scores surviving findings by cross-reviewer agreement.
+4. **Editor gate + verdict.** `editor_gate.py` floors/anchors/dedups and **cannot invent** findings; the caller renders the verdict comment (marker `<!-- archie-delivery-review -->`) and always exits 0 (non-blocking). All model-derived text is sanitized — HTML-escaped, newlines collapsed, `@` neutralized — before it is embedded, so a finding can't inject a fake verdict heading or a live GitHub @mention.
+
+### Contract delta (`contract_delta.py`)
+
+The deterministic answer to *what does merging this PR actually accept?* A PR's `rules.json` diff has two halves:
+
+- **Authorized** — a removal (or the `{status, override}` retirement stamp) whose rule id has an override entry. The user already ruled at the stop-and-confirm prompt; their reason is the justification. Reading it is deterministic and **free** — no model.
+- **Unexplained** — everything else: rules added/modified by `/archie-sync`, or any removal nobody authorized. Whether these silently weaken or contradict a *retained* rule is a judgment call, so `contract_delta` composes `intent_review.py`'s deterministic keyed diff (`diff_op` / layer / ref) and makes **one Haiku judge call — only when unexplained changes exist**. Each finding needs a cited `because` or it is dropped (because-or-suppress). It never re-implements the differ.
+
+### Rule override & ratification (`overrides.py`)
+
+`.archie/overrides.json` records **what the human ruled** — the durable complement to `findings.json` (what the machine observed). A finding says "this is broken"; an override says "the user saw it and authorized it," and nothing machine-managed may erase it. Lifecycle:
+
+- **acked** — written by the agent the moment the user confirms crossing a rule at a stop-and-confirm gate. The edit gate (`pre-validate.sh`) and commit gate demote that rule from **BLOCK** to **WARN** and advertise the override door.
+- **ratified** — the entry arrived on another branch via merge; the first `/archie-sync` applies the amendment to the contract (the rule leaves `rules.json`, the blueprint invariant is stamped `overridden`) and archives the entry.
+- **archived** — moved to append-only `overrides_history.jsonl` (audit trail).
+
+Branch scoping is free: the file is committed, so an entry exists only where its commit is reachable. An entry whose branch ≠ the current branch can only have arrived via merge — which **is** ratification. This is the single carrier `contract_delta` reads as "authorized."
+
+### Task-story imprint (`story_store.py`)
+
+The intent side of the delivery review. On `Stop`, Archie silently imprints a **task story** — a faithful, provenance-checked record of what the session set out to do — as one Markdown file (prose + fenced JSON facts) per branch+timestamp under `.archie/stories/<slug>/`. No invention: a facts pass validates provenance and drops anything ungrounded. The delivery review loads these facts as its intent signal, replacing the retired `intent_synthesize` path. Best-effort — a missing story just means the review falls back to PR title/body.
 
 ---
 

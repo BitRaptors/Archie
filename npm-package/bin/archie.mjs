@@ -626,6 +626,7 @@ console.log("");
 console.log("  Next steps:");
 console.log(`  1. Open this project in ${BOLD}Claude Code${RESET} or ${BOLD}Codex${RESET}`);
 console.log(`  2. Run ${BOLD}/archie-deep-scan${RESET} for a comprehensive architecture baseline (15-20 min)`);
+console.log(`  3. ${DIM}(optional) Enable PR reviews in CI:${RESET} ${BOLD}bash .archie/setup-archie-intent-review.sh${RESET}`);
 console.log(`  ${DIM}Usage: npx @bitraptors/archie [path] [--commands-dir dir]${RESET}`);
 console.log("");
 console.log(`  ${DIM}This install writes shared Archie assets and delegates CLI shims to the Python connector loop.${RESET}`);
