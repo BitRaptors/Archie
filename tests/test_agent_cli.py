@@ -19,6 +19,76 @@ _STANDALONE = Path(__file__).resolve().parent.parent / "archie" / "standalone"
 sys.path.insert(0, str(_STANDALONE))
 
 import agent_cli  # noqa: E402
+import llm_client  # noqa: E402
+
+
+def _no_clis(monkeypatch):
+    monkeypatch.setattr(agent_cli.shutil, "which", lambda name: None)
+
+
+class TestRunVerifierApiPath:
+    def test_api_path_uses_llm_client(self, monkeypatch, tmp_path):
+        _no_clis(monkeypatch)
+        seen = {}
+        def fake_complete(prompt, **kw):
+            seen.update(kw, prompt=prompt)
+            return {"text": "verdict", "tool_calls": []}
+        monkeypatch.setattr(agent_cli.llm_client, "resolve_config",
+                            lambda project_root=None, env=None: {"backend": "openai"})
+        monkeypatch.setattr(agent_cli.llm_client, "complete", fake_complete)
+        out = agent_cli.run_verifier("p", tmp_path, "claude", model="sonnet")
+        assert out == "verdict"
+        assert seen["tier"] == "sonnet"
+        assert seen["prompt"] == "p"
+
+    def test_tools_flag_passes_executor(self, monkeypatch, tmp_path):
+        _no_clis(monkeypatch)
+        seen = {}
+        monkeypatch.setattr(agent_cli.llm_client, "resolve_config",
+                            lambda project_root=None, env=None: {"backend": "openai"})
+        monkeypatch.setattr(agent_cli.llm_client, "complete",
+                            lambda prompt, **kw: seen.update(kw) or
+                            {"text": "t", "tool_calls": []})
+        agent_cli.run_verifier("p", tmp_path, "claude", tools=True)
+        assert callable(seen["tool_executor"])
+        assert seen["tools"] == agent_cli._TOOLS
+
+    def test_no_provider_returns_empty(self, monkeypatch, tmp_path):
+        _no_clis(monkeypatch)
+        monkeypatch.setattr(agent_cli.llm_client, "resolve_config",
+                            lambda project_root=None, env=None: None)
+        assert agent_cli.run_verifier("p", tmp_path, "claude") == ""
+
+    def test_llm_error_fails_open(self, monkeypatch, tmp_path):
+        _no_clis(monkeypatch)
+        def boom(prompt, **kw):
+            raise llm_client.LLMError("down")
+        monkeypatch.setattr(agent_cli.llm_client, "resolve_config",
+                            lambda project_root=None, env=None: {"backend": "openai"})
+        monkeypatch.setattr(agent_cli.llm_client, "complete", boom)
+        assert agent_cli.run_verifier("p", tmp_path, "claude") == ""
+
+
+def test_grep_does_not_leak_symlinked_file_outside_repo(tmp_path):
+    # A symlinked FILE committed inside the checkout that points outside the
+    # repo must not be read by grep — rglob yields it and relative_to() would
+    # relabel it as an in-repo path, leaking an outside secret into the review.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "clean.py").write_text("harmless = 1\n")
+    outside = tmp_path / "outside_secret.py"
+    outside.write_text("API_KEY = 'supersecret-leak'\n")
+    link = repo / "innocent.py"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unsupported on this platform")
+
+    out = agent_cli._exec_tool(repo, "grep", {"pattern": "supersecret", "glob": "*.py"})
+    assert "supersecret" not in out          # the outside file was NOT read
+    assert "innocent.py" not in out          # nor relabelled as an in-repo hit
+    # a real in-repo match still works
+    assert "harmless" in agent_cli._exec_tool(repo, "grep", {"pattern": "harmless", "glob": "*.py"})
 
 
 # ---------------------------------------------------------------------------
