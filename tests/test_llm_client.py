@@ -184,6 +184,24 @@ class TestAnthropicBackend:
                                   tool_executor=lambda n, a: "x")
         assert out["text"] == "partial"  # degrades to last seen text
 
+    def test_tool_loop_skips_exec_on_final_capped_turn(self, monkeypatch):
+        tool_use = {"content": [{"type": "tool_use", "id": "t", "name": "grep",
+                                 "input": {}}, {"type": "text", "text": "partial"}],
+                    "stop_reason": "tool_use"}
+        t = FakeTransport([tool_use])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        executor_calls = []
+        def track_executor(name, args):
+            executor_calls.append((name, args))
+            return "x"
+        out = llm_client.complete("go", tools=[{"name": "grep", "description": "",
+                                                "input_schema": {}}],
+                                  config=ANTH_CFG, max_turns=1,
+                                  tool_executor=track_executor)
+        assert executor_calls == []  # executor was never called
+        assert out["text"] == "partial"  # degrades to partial text
+        assert out["tool_calls"] == []  # no tool calls in response
+
     def test_no_provider_raises(self, tmp_path, monkeypatch):
         monkeypatch.setattr(llm_client, "resolve_config", lambda *a, **k: None)
         with pytest.raises(llm_client.LLMError):

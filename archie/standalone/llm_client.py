@@ -194,7 +194,7 @@ def _complete_anthropic(prompt, *, model, system, tools, tool_choice, max_tokens
     spent = 0
     last_text = ""
     turns = max_turns if tool_executor else 1
-    for _ in range(turns):
+    for turn in range(turns):
         body_d = {"model": model, "max_tokens": max_tokens, "messages": messages}
         if system:
             body_d["system"] = system
@@ -211,6 +211,9 @@ def _complete_anthropic(prompt, *, model, system, tools, tool_choice, max_tokens
                       for b in content if b.get("type") == "tool_use"]
         if not tool_executor or data.get("stop_reason") != "tool_use":
             return {"text": last_text, "tool_calls": tool_calls}
+        # Skip tool execution on the final allowed turn (no further API request will be made)
+        if turn == turns - 1:
+            return {"text": last_text, "tool_calls": []}
         messages.append({"role": "assistant", "content": content})
         results = []
         for b in content:
@@ -221,7 +224,8 @@ def _complete_anthropic(prompt, *, model, system, tools, tool_choice, max_tokens
             else:
                 try:
                     out = tool_executor(b.get("name"), b.get("input") or {})
-                except Exception:
+                except Exception as e:
+                    print(f"[archie] llm tool {b.get('name')!r} failed ({type(e).__name__}: {e})", file=sys.stderr)
                     out = "denied: tool call failed"
                 spent += len(out)
             results.append({"type": "tool_result", "tool_use_id": b.get("id"),
