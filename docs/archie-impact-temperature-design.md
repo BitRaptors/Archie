@@ -164,6 +164,13 @@ temperature lives in a new top-level key in `.archie/findings.json`:
 `source: "user"` is sticky — once the user moves the dial, seeding never
 overwrites it (re-seed only shown as a suggestion chip).
 
+**Write surface: the viewer dial only.** The viewer (local mode) is the sole
+writer of the temperature key; there is no CLI subcommand and no slash command.
+Everything else — the Step 9 receipt included — is a reader. The receipt reads
+the stored key (seeding it first when absent and `source != "user"`) and points
+to the viewer for changes ("adjust in /archie-viewer"). Share-mode viewers treat
+the bundled temperature as the initial dial position, read-only against the store.
+
 ### Seeding rule (user decision: Archie suggests the default; combines health + load)
 
 Computed lazily by the viewer on first load if absent (health may not exist yet
