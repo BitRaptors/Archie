@@ -1,6 +1,6 @@
 # Impact ladder + temperature lever — design
 
-**Date:** 2026-07-16
+**Date:** 2026-07-16 (rev 2, post adversarial review)
 **Status:** Draft for review
 **Problem owner:** user feedback — "Archie finds as many problems as possible even when there are no major ones; users fix and fix but never reach a state where none are left."
 
@@ -12,19 +12,15 @@ Archie has no "done" state by construction:
 - The Risk agent prompt carries a "soft floor of 3 findings" — it is nudged to always say something.
 - The score worklist *was* the worst offender. Evidence from a real user project
   (SubscriberAgent, deep scan 2026-07-03, pre-2.10.0): `score.json` showed grade **F**,
-  710 open divergences, a **404-item worklist that was 100% generic mechanical hygiene**
-  (128× growing-complexity, 82× god-function, 50× monster-file, 21× any-type, …).
-  Zero of the 69 reasoned project rules appeared in that number. That subsystem was
-  removed end-to-end in commit `c37b8e5` (2026-07-14, "Deemed useless") — which fixed
-  the wall but left a vacuum: there is now **no headline "am I done?" signal at all**.
-  This design's above-the-line count and clear state is the replacement.
-- Meanwhile the genuinely beloved output — **error surfacing** — is real but scattered:
-  in the same scan, ~5–7 items of true gold (PII-leak pitfall pf_0005, over-billing
-  pitfall pf_0004, live stale-read regression f_0004, unbounded-rerun gap-001,
-  divergent-migrations finding f_0003) live across `findings.json`, blueprint
-  `pitfalls`, and `unenforced_invariants`, mixed with or drowned under the 404.
-- Severity does not track impact: the one live regression (f_0004) is tagged `warn`;
-  the two most valuable items in the scan are pitfalls, not findings.
+  710 open divergences, a **404-item worklist that was 100% generic mechanical hygiene**.
+  That subsystem was removed end-to-end in `c37b8e5` (2026-07-14, "Deemed useless") —
+  which fixed the wall but left a vacuum: there is now **no headline "am I done?"
+  signal at all**. This design's above-the-line count and clear state is the replacement.
+- The beloved output — **error surfacing** — is real but scattered: in the same scan,
+  ~5–7 items of true gold (PII-leak pitfall pf_0005, over-billing pitfall pf_0004, live
+  stale-read regression f_0004, unbounded-rerun gap-001) live across `findings.json`,
+  blueprint `pitfalls`, and `unenforced_invariants`.
+- Severity does not track impact: the one live regression (f_0004) is tagged `warn`.
 
 The frustration is **A: no finish line** — not primarily noise volume, and not triage UX.
 
@@ -39,247 +35,342 @@ Two additions, one principle:
    | ① | `regression` | Already misbehaving; a live caller fires the failure mode today | f_0004 stale Firestore reads |
    | ② | `hazard` | Not broken yet, but a realistic path to outage / data loss / money loss / security | pf_0004 over-billing, pf_0005 PII leak |
    | ③ | `erosion` | A real architectural decision or invariant undermined; maintainability cost only | pf_0001 triplicated logic, untracked DDL |
-   | ④ | `preference` | Stylistic / hygiene; negligible functional gain | naming-case rules, god-function counts |
+   | ④ | `preference` | Stylistic / hygiene; negligible functional gain. **Reserved** — no producer exists post-`c37b8e5`; kept in the schema for a future hygiene surface, never LLM-emitted | (naming-case checks) |
 
-2. **Temperature lever** — a user-controlled, per-project setting that draws a
-   display-time line across the ladder. Four levels, named by what they admit
-   (not low/medium/high): **Regressions · Hazards · Erosion · Everything**.
-   Level *Hazards* shows tiers ①+②; *Everything* shows all four.
+2. **Temperature lever** — a user-controlled, per-user-per-project setting that draws a
+   display-time line across the ladder. **Three levels** (tier ④ has no producer, so a
+   fourth level would be dead UI):
+
+   | Level | Shows | Hint copy |
+   |-------|-------|-----------|
+   | **Broken now** | ① | "already misbehaving" |
+   | **Can hurt you** | ①+② | "outage · money · data" |
+   | **Everything** | ①+②+③ (+④ when a producer exists) | "incl. architecture debt" |
+
+   Level names deliberately avoid "Erosion": the health metric `erosion` appears on the
+   same screen and the collision would read as the same concept.
 
 **Principle: the scan finds everything; the dial filters at display time.** The
-compounding store, the verifier, and hysteresis keep working on the full corpus.
-Turning the dial is instant, needs no rescan, and is fully reversible. "Done" =
-no items at or above the current temperature — a stable, reachable finish line,
-because the store underneath is stabilized by verifier + hysteresis.
+compounding store, the verifier, and hysteresis keep working on the full corpus at
+every temperature. Turning the dial is instant, needs no rescan, and is reversible.
+
+**The two liveness rules** (settled during review):
+
+- **Findings flow is always live.** New ①/② from ongoing development surface above
+  the line immediately at the current level. "Done" is *done as of scan #N*; the next
+  scan may honestly disturb it — because the code changed, never because the line moved.
+- **The line moves only by a human hand.** Archie recommends (see §4 seeding + chip),
+  the user clicks. The dial never repositions itself: a silently moving finish line is
+  indistinguishable from no finish line.
 
 Nothing is hidden dishonestly: below-the-line items are always counted in a
 "N quieter items parked below the line" affordance that raises the dial on click.
 
+### What "done" counts — findings only
+
+The countdown headline ("N items above the line · fix these and you're done at this
+temperature") counts **findings only**. Findings are point-in-time *instances* with a
+full lifecycle (verifier, hysteresis, resolved/dropped) — they can genuinely reach zero.
+
+Pitfalls and gaps are durable *classes* of problem: regenerated each scan
+(`finalize._reset_reasoning_sections` clears and rebuilds them), no resolved status,
+no dismissal path. A class cannot be fixed into nonexistence, so counting it toward
+"done" makes the finish line structurally unreachable — the adversarial review's
+top finding. Instead, ②-tier pitfalls and gaps render as a separate **standing
+guardrails** band: visible, impact-tagged, filtered by the same temperature, never
+part of the countdown. Copy frames them as posture, not backlog: "4 standing
+guardrails at this level — things Archie watches for, not tasks to finish."
+(A pitfall acknowledge/park lifecycle is explicitly v2.)
+
 ### Non-goals
 
-- No change to edit-time rule enforcement (`pre-validate.sh`, `severity_class`
-  gating). Rules and findings stay separate taxonomies; the temperature never
-  silences a blocking rule.
-- No LLM-generated tier-④ findings. The emission prompt stays hardened against
-  stylistic nits; ④ exists only as the label on the already-deterministic
-  mechanical/universal outputs (platform rules, score worklist).
-- No removal or weakening of the fix-prompt feature (see §8).
+- No change to edit-time rule enforcement (`pre-validate.sh`, `severity_class`).
+  Rules and findings stay separate taxonomies; the temperature never silences a
+  blocking rule; a `preference`-tier item never blocks an edit.
+- No LLM-generated tier-④ output. The emission prompt stays hardened against nits.
+- No removal or weakening of the fix-prompt feature (§8).
 
-## 3. What gets a tier, and how
+## 3. Impact tiers: assignment, correction, stability
 
-The temperature governs **all problem streams the user sees**, not just
-`findings.json`:
+### Assignment
 
 | Stream | Where | Tier assignment |
 |--------|-------|-----------------|
-| Findings | `.archie/findings.json` | LLM tags `impact` at emission (new OUTPUT CONTRACT field); verifier corrects the ①/② boundary |
-| Pitfalls | blueprint `pitfalls` | LLM tags `impact` at emission; ① disallowed by construction (a live-firing pitfall must become a finding) |
+| Findings | `.archie/findings.json` | LLM tags `impact` at emission; verifier corrects (below) |
+| Pitfalls | blueprint `pitfalls` | LLM tags `impact` (② or ③; ① disallowed — a live-firing pitfall must become a finding). Platform-seeded pitfalls (`merge_platform_pitfalls`) get static tiers in the catalog |
 | Gaps | blueprint `unenforced_invariants` | LLM tags `impact` (② or ③) |
 
-(The former fourth stream — the `score.json` mechanical worklist — was removed with
-the scoring subsystem in `c37b8e5`. If a hygiene surface returns in any form, its
-items map deterministically to ③/④ via a static table, never per-item LLM calls,
-and render as a single aggregated row.)
+Derivation is mostly latent: `behavioral_break` + verifier-confirmed firing
+`triggering_call_site` ⇒ ①; `behavioral_break` not firing ⇒ ②;
+`conformance_break` ⇒ ③ by default.
 
-### Tier derivation is mostly latent already
+**Raising ③ → ② requires a structured consequence path, not prose.** New emission
+field, mandatory whenever `impact: hazard` is claimed on a conformance finding,
+pitfall, or gap:
 
-- `kind: behavioral_break` + verifier-confirmed firing `triggering_call_site` ⇒ ①.
-- `kind: behavioral_break` where the site exists but does not fire ⇒ ② — this is
-  exactly the verifier's existing `demote` semantics (`verify_findings.py:73-76`).
-- `kind: conformance_break` ⇒ ③ by default; the emitter may raise to ② only with
-  an explicit consequence path (outage / data loss / money / security) stated in
-  the finding.
-- ④ never comes from the LLM emitter.
+```json
+"consequence_path": {
+  "asset": "customer PII in screenshots",     // named asset at risk
+  "entry_point": "worker/main.py:568",        // where the path starts, verifiable
+  "trigger": "status string rename"           // what realistically sets it off
+}
+```
 
-The LLM `impact` tag is therefore a *seed*; the verifier is the *authority* on
-the ①/② boundary (its charter — "does this actually fire?" — is precisely that
-line). The verifier does not rule on ③ vs ④ (taste, not code-checkable).
+Missing or unverifiable `consequence_path` ⇒ the item gates to ③. This is the
+anti-inflation guard on the exact boundary the default dial sits on: LLMs narrate
+plausible consequences fluently, so the claim must be falsifiable, not rhetorical.
 
 ### Emission changes (`step-5b-risk.md`, `step-5-wave2-reasoning.md`)
 
-- Add `"impact": "regression|hazard|erosion"` to the finding OUTPUT CONTRACT
-  (after `kind`); `"impact": "hazard|erosion"` to the pitfall contract.
-- One added instruction block defining the tiers with the consequence-path rule
-  for ②, and: impact describes *user gain from fixing*, independent of confidence.
-- Clarify the "soft floor of 3" as an **emission floor on the store**, explicitly
-  not to be met by padding with low-impact items: "if fewer than 3 findings meet
-  the bar, say so — do not lower the bar to reach 3."
-- Comprehensive mode unchanged: emit every tier that meets the quality bar;
-  temperature filters at view time.
+- Add `"impact"` + optional `"consequence_path"` to the finding and pitfall
+  OUTPUT CONTRACTs. **Remove the hardcoded `"status": "active"`** from the finding
+  contract (see merge rule below; also fixes a live resurrection bug independent of
+  this design — separate task spawned).
+- One instruction block defining tiers; impact = user gain from fixing, independent
+  of confidence.
+- Clarify the "soft floor of 3" as an emission floor on the store, never met by
+  padding: "if fewer than 3 findings meet the bar, say so — do not lower the bar."
+- Comprehensive mode unchanged.
 
-### Verifier + hysteresis changes
+### Correction — the verifier owns tier moves, in both directions
 
-- Extend the verdict JSON (`verify_findings.py`) with
-  `impact_verdict: confirm | correct_to_regression | correct_to_hazard`
-  (scoped to the ①/② line only).
-- `apply_verdicts.py`: impact transitions ride the existing hysteresis — add
-  `impact_history` beside `verdict_history`; a tier change requires 2 consecutive
-  matching verdicts OR a git-anchored material change, same as status transitions.
-  This prevents LLM flicker from moving items across the user's line between scans.
-- **Downgrade guard:** a finding whose impact would drop *below the user's current
-  temperature* due to a verdict is surfaced in the scan receipt ("1 item moved
-  below your line: f_00NN — reason"), never silently vanished. Protects the
-  beloved error-surfacing signal from silent dilution.
+Extend the verdict JSON (`verify_findings.py`) with
+`impact_verdict: confirm | correct_to_regression | correct_to_hazard | correct_to_erosion`.
+
+- ①/② line: the verifier's charter ("does this actually fire?") — unchanged rationale.
+- **`correct_to_erosion` is the downward path** the first draft lacked: it fires when
+  a claimed ② has a `consequence_path` that doesn't hold up (asset not reachable from
+  the entry point, trigger unrealistic). Without it the ladder is a one-way inflation
+  ratchet and the above-the-line count is monotone non-decreasing — the removed
+  score's failure mode, rebuilt.
+- Relation to the existing `demote` verdict (which sets `status: demoted` and hides
+  the item): `demote` remains "this should not be a finding at all — it duplicates a
+  pitfall class with no live instance." `correct_to_hazard` is "keep it as a finding,
+  it's instance-anchored, but it isn't firing." The verifier picks exactly one.
+- The verifier does not rule on ③ vs ④ (taste, not code-checkable — and ④ has no
+  LLM producer anyway).
+
+### Stability — prior-wins merge (replaces the broken "same as status" rule)
+
+Adversarial review, critical: `finalize._merge_findings_into_store` does
+`merged = dict(nf)` and preserves prior fields only when the new emission *lacks*
+them. Since every emission now carries `impact`, the fresh single-shot tier would
+overwrite the stabilized one every scan — hysteresis bypassed at the source.
+
+Rule: **for verifier-managed fields (`impact`, `status`, `verdict_history`,
+`pending_*`, `demoted_at`, `dropped_at`), the prior store wins on merge.** A
+re-emission that disagrees on `impact` is recorded as
+`impact_signal: {value, scan}` — a pending vote, not a write. The tier actually
+moves only via (a) an `impact_verdict` from the verifier, or (b) two consecutive
+scans emitting the same disagreeing tier, or (c) a git-anchored material change to
+the anchor file — i.e., the exact hysteresis discipline `apply_verdicts.py` already
+applies to `status`. New ids take their emitted tier directly (nothing prior to win).
+
+Reconciliation lives in `_merge_findings_into_store` — **not** `finding_merge.py`,
+which serves the edit-time review path where findings carry no impact (review
+finding, cut from rev 1).
+
+**Downgrade guard:** any verdict- or hysteresis-driven tier move that crosses below
+the user's current temperature is written by `apply_verdicts.py` into a
+`last_scan_changes` block in `findings.json` at Step 5, and the Step 9 receipt
+renders it: "1 item moved below your line: f_00NN — reason." Never silently vanished.
+
+**Pitfall/gap tier stability (honest limitation):** these streams have no verifier
+and no hysteresis; their tiers are re-tagged each scan. Mitigations: the structured
+`consequence_path` requirement (the main flicker source is the ②/③ call), static
+tiers for platform-seeded pitfalls, and the standing-guardrails band not being a
+countdown (a flickering guardrail annoys; it does not break a promised finish line).
+Full pitfall lifecycle is v2.
 
 ### Gates
 
-- Per-impact confidence floors layered on the existing per-kind floors
-  (`editor_gate.py` / `finalize.py::DEFAULT_COLD_FLOORS`): claimed `regression`
-  requires the highest floor (0.7), `hazard` 0.6, `erosion` 0.5. A false
-  regression is the worst outcome; it gets the highest bar before entering the store.
+- Per-impact confidence floors **layered at the finalize call site**
+  (`gate_and_merge`), not inside `editor_gate.gate()` — `gate()` is shared with
+  `sync_review`/`delivery_review`, which run advisory floors and carry no impact.
+  Floors: `regression` 0.7, `hazard` 0.6, `erosion` 0.5. A false regression is the
+  worst outcome; it gets the highest bar before entering the store.
 - Dedup keys unchanged (`impact` stays out of `_dupe_key`).
-- `finding_merge.py` impact reconciliation: when merged passes disagree on impact,
-  keep the **higher** tier and flag `impact_contested: true` for the verifier to
-  settle. Never silently keep the lower tier (that could hide a real regression
-  above-the-line).
-- `finalize._merge_findings_into_store` preserves `impact`, `impact_history`,
-  `impact_contested` across upserts, same as `status`.
 
 ### Legacy data
 
-Findings/pitfalls without `impact` (pre-upgrade stores) derive a provisional tier:
-`behavioral_break → hazard`, `conformance_break → erosion`, pitfall `severity:
-error → hazard` else `erosion`. Provisional tiers are marked and re-tagged on the
-next scan.
+Findings/pitfalls without `impact` derive a provisional tier:
+`behavioral_break → hazard`, `conformance_break → erosion`, pitfall
+`severity: error → hazard` else `erosion`. Provisional tiers are marked and
+re-tagged next scan.
 
 ## 4. Temperature: storage, seeding, semantics
 
-### Storage — per-project, net-new state
+### Storage — gitignored, per-user, per-project
 
-`~/.archie/config.json` is machine-global by contract; wrong home. The
-temperature lives in a new top-level key in `.archie/findings.json`:
+**`.archie/settings.local.json`** (net-new file, added to the installer's gitignore
+block, mirroring the established `.claude/settings.local.json` pattern):
 
 ```json
 {
   "temperature": {
-    "level": "hazard",
-    "source": "seeded",          // "seeded" | "user"
-    "seeded_reason": "erosion 0.74, 404 hygiene items parked",
+    "level": "can_hurt_you",
+    "source": "seeded",            // "seeded" | "user"
+    "seeded_reason": "erosion 0.74 — start with what can hurt you",
     "set_at": "2026-07-16T..."
-  },
-  "findings": [ ... ]
+  }
 }
 ```
 
-`source: "user"` is sticky — once the user moves the dial, seeding never
-overwrites it (re-seed only shown as a suggestion chip).
+Rationale (adversarial review, critical): `findings.json` is *committed* in repo
+mode — a dial stored there is team-shared through git, letting one dev's
+"Broken now" + `source: "user"` stickiness silently park the PII hazard for every
+teammate; it also merge-conflicts and churns diffs in a machine-generated file.
+A gitignored local file is per-human, conflict-free, identical in repo and
+detached storage modes, and shrinks the blast radius of unsupported writers.
+The key is validated-and-repaired on every read; its schema (including "set
+`source: "user"` only on human request") is documented in CLAUDE.md as a contract,
+because coding agents *will* be asked to "turn Archie down" and will edit the file.
 
-**Write surface: the viewer dial only.** The viewer (local mode) is the sole
-writer of the temperature key; there is no CLI subcommand and no slash command.
-Everything else — the Step 9 receipt included — is a reader. The receipt reads
-the stored key (seeding it first when absent and `source != "user"`) and points
-to the viewer for changes ("adjust in /archie-viewer"). Share-mode viewers treat
-the bundled temperature as the initial dial position, read-only against the store.
+`source: "user"` is sticky — seeding never overwrites it.
 
-### Seeding rule (user decision: Archie suggests the default; combines health + load)
+**Write surface: the viewer dial only** (user decision). The viewer local server
+gains one endpoint (`POST /api/temperature` — net-new; today `do_POST` allows only
+rules/exposure) writing `settings.local.json`. Since no scan-pipeline process
+writes that file, there is no dial-vs-scan write race (findings.json stays
+scan-owned). Everything else is a reader; the Step 9 receipt points to
+`/archie-viewer` for changes. Share-mode viewers default to **Can hurt you**, dial
+free, nothing persisted (the share bundle does not carry a temperature — it's a
+per-user preference, not scan data).
 
-Computed lazily by the viewer on first load if absent (health may not exist yet
-mid-scan — Step 9 writes `health.json` after Step 5 writes findings), and
-(re)computed at Step 9 finalize when `source != "user"`:
+### Seeding — once, at first scan; recommendations forever after
 
-1. Baseline from health (stable anchor): `erosion >= 0.5` OR `top20_share >= 0.7`
-   ⇒ baseline **Hazards**; else baseline **Erosion**.
-2. Load nudge (one notch max): if items at the baseline level number > 25,
-   go one level colder; if 0 items at baseline and < 10 at the next level,
-   one level warmer.
-3. Clamp: the seed is always **Hazards** or **Erosion**. Never *Regressions*
-   (the coldest level is a user choice, not a default — and it would hide
-   hazards like a PII leak by default) and never *Everything* (the nudge in
-   step 2 clamps at these bounds).
-
-The seeded reason is stored and rendered under the dial ("Suggested from this
-scan: erosion 0.74 and 404 hygiene items — start with what can hurt you").
+- **The seed happens once**: the first scan that finds no `temperature` key writes
+  one with `source: "seeded"`. It is never auto-recomputed after that — the
+  adversarial review showed auto-reseeding creates a treadmill (clear all hazards →
+  quiet baseline → auto-warm one notch → parked items pop above the line: the
+  reward for finishing is a refilled list).
+- Seed rule: baseline **Can hurt you** if `erosion >= 0.5` or (`top20_share >= 0.7`
+  and `total_functions >= 25` — the small-repo guard: below 25 functions
+  `top20_share` is degenerate, up to 1.0 on trivial repos); else **Everything**.
+  Load nudge (one notch, clamped to these two levels): > 25 items at baseline ⇒
+  colder; 0 at baseline and < 10 at the next ⇒ warmer. Never seed **Broken now**
+  (it would hide hazards like a PII leak by default). If `health.json` doesn't
+  exist yet (viewer opened mid-scan), fall back to load-only with baseline
+  **Can hurt you**; Step 9 finalize writes the full seed if the key is still absent.
+- **The recommendation chip is ongoing and always current**: every scan recomputes
+  what the seed *would* be. When it disagrees with the current setting, the viewer
+  shows a visible chip with the reason — "You've been clear at Can hurt you for 4
+  scans — widen to Everything?" / "Hazard load tripled this scan — narrow to focus?"
+  One click to accept (which sets `source: "user"`). The chip recommends; only the
+  human moves the line.
 
 ### "Done" semantics
 
-- The report headline counts only at-or-above-temperature items:
-  "N items above the line · fix these and you're done at this temperature."
-- Empty above-the-line list ⇒ explicit green clear state: "Clear at this
-  temperature — nothing above the line. Raise it when you want more."
-- The Step 9 closing receipt reports the same number (items at/above the seeded
-  or user temperature), replacing the raw `.findings|length` count, plus the
-  parked count. The receipt and the viewer can never contradict each other.
+- Headline: "N items above the line · fix these and you're done at this
+  temperature" — findings only (§2).
+- Empty above-the-line list ⇒ green clear state stamped as an **event, not a
+  timeless state**: "Clear as of scan #12 (2026-07-16) at Can hurt you."
+  `last_clear` is persisted in `settings.local.json`; a later scan that disturbs
+  it reports "2 new items above the line since your last clear."
+- The Step 9 receipt prints the same count + the parked count + the standing
+  guardrails count, all at the stored temperature.
 
 ## 5. The headline signal (replaces the removed score)
 
-The Structural Integrity Score was removed in `c37b8e5` after proving to be a
-frustration engine (see §1). The report currently has **no** headline
-"how am I doing / am I done?" signal. The temperature's above-the-line count
-becomes that signal:
+The report currently has no headline "how am I doing?" signal (score removed in
+`c37b8e5`). The above-the-line findings count becomes that signal:
 
-- Headline: "N items above the line" (+ the done/clear state when N = 0).
-- Below it, one aggregated context row for parked items — never itemized nagging.
-- Unlike the old grade, this number **converges**: fixing an above-the-line item
-  moves it, hygiene churn does not. That is the property the old score lacked.
+- Headline: "N items above the line" (+ done/clear event state when N = 0).
+- One aggregated context row for parked items; the standing-guardrails band for
+  ②-tier classes.
+- Unlike the old grade, the number **converges**: fixing an above-the-line finding
+  moves it; hygiene churn and class-level posture do not.
+
+### One counting module
+
+"N above the line" is computed in exactly one place: a small pure function
+(`impact_filter.py`, standalone) that reads findings + temperature and returns
+`{above, parked, guardrails}`. Step 9 calls it via an allowlisted command
+(the current `inspect --query '.findings|length'` cannot express the filter and
+already miscounts — it includes demoted/dropped entries the viewer hides). The
+viewer TypeScript implements the same predicate; a parity test pins the two
+implementations to identical outputs on shared fixtures. The receipt line and the
+viewer can still differ *in time* (the receipt is a frozen transcript; the dial
+moves afterwards) — the receipt therefore prints the temperature it counted at.
 
 ## 6. Surfacing (viewer + share)
 
-- `ReportPage.tsx` active-findings filter gains one predicate:
-  `impactAtOrAbove(f.impact, temperature)`. Same filter applied to pitfall
-  and gap rendering.
-- `rankFindings` gains `impact` as the primary sort key (regressions first) —
-  a default-order win even before the user touches the dial.
-- The dial UI: 4-segment control labeled **Regressions / Hazards / Erosion /
-  Everything** with one-line hints; seeded-suggestion chip; parked-items
-  affordance ("N quieter items parked below the line — raise the temperature
-  to see them") that bumps the level one notch.
+- `ReportPage.tsx` active-findings filter gains the predicate
+  `impactAtOrAbove(f.impact, temperature)`; pitfalls/gaps render through the same
+  predicate into the standing-guardrails band.
+- `rankFindings` gains `impact` as the primary sort key (regressions first) — a
+  default-order win even before the user touches the dial.
+- Dial UI: 3-segment control (**Broken now / Can hurt you / Everything**) with
+  hint subtitles; recommendation chip (§4); parked-items affordance that bumps the
+  level one notch.
 - `Finding` interface + `normalizeStructuredFinding` carry `impact`,
-  `impact_history`, `impact_contested`.
-- Share bundles (`upload.py`) keep shipping the whole store; the recipient's
-  viewer applies the bundled `temperature` as its initial level and may turn
-  the dial freely. (Accepted: share recipients can see below-the-line items;
-  the share payload was never a tier-based trust boundary.)
+  `impact_signal`, `consequence_path`.
 
 ## 7. Explicit non-interaction with rules/hooks
 
 `severity_class` (5 rule classes, edit-time enforcement) and `impact` (4 finding
-tiers, report-time surfacing) are parallel, deliberately distinct vocabularies:
-
-- The temperature never reaches `pre-validate.sh`; a `decision_violation` blocks
-  at any temperature.
-- A `preference` tier item never blocks an edit.
-- CLAUDE.md documents both tables side by side to prevent conflation.
-- (Future, out of scope) Step 6 rule synthesis could inherit `severity_class`
-  from the motivating finding's impact — noted, not built now.
+tiers, report-time surfacing) are parallel, deliberately distinct vocabularies.
+The temperature never reaches `pre-validate.sh`; a `decision_violation` blocks at
+any temperature. CLAUDE.md documents both tables side by side. (Future, out of
+scope: Step 6 rule synthesis inheriting `severity_class` from the motivating
+finding's impact.)
 
 ## 8. Fix-prompt feature — preserved, explicitly
 
-`share/viewer/src/lib/fixPrompt.ts` (`buildFixPrompt`) — the per-item
-copy-paste "fix this" prompt with the resolved blueprint context chain — is
-**unchanged and remains attached to every rendered item at every temperature**,
-including parked items once revealed. The lever strengthens it: a bounded
-above-the-line list makes "fix everything above the line" a finishable session.
-No change to the builder itself; `impact` may be added to the prompt header as
-one context line ("Impact: hazard — realistic over-billing path") — additive only.
+`share/viewer/src/lib/fixPrompt.ts` (`buildFixPrompt`) is unchanged and remains
+attached to every rendered item at every temperature, including parked and
+guardrail items. The lever strengthens it: a bounded above-the-line list makes
+"fix everything above the line" a finishable session. Optional additive header
+line ("Impact: hazard — realistic over-billing path") only.
 
-## 9. Touched surfaces + sync obligations
+## 9. Validation before build
+
+The riskiest assumption is that the LLM emitter assigns hazard-vs-erosion
+consistently — the entire default level sits on the one boundary with the weakest
+natural grounding. **Before implementation**: re-run impact tagging N times over
+the existing SubscriberAgent store (plus two other repos), measure cross-run tier
+agreement. Prompt-only, zero code. If the ②/③ call flickers badly even with the
+structured `consequence_path`, the field's schema needs hardening before anything
+ships.
+
+## 10. Touched surfaces + sync obligations
 
 Canonical → copies (verified by `scripts/verify_sync.py` before commit):
 
 | Canonical | Copies |
 |-----------|--------|
-| `archie/standalone/{verify_findings,apply_verdicts,editor_gate,finding_merge,finalize}.py` | `npm-package/assets/*.py` |
-| `share/viewer/src/**` (`findings.ts`, `ReportPage.tsx`, dial component, `fixPrompt.ts` header line) | `npm-package/assets/viewer/**` AND `archie/assets/viewer/**` |
+| `archie/standalone/{verify_findings,apply_verdicts,finalize}.py`, new `impact_filter.py` | `npm-package/assets/*.py` |
+| `share/viewer/src/**` (`findings.ts`, `ReportPage.tsx`, dial + chip + guardrails band, temperature endpoint client) | `npm-package/assets/viewer/**` AND `archie/assets/viewer/**` |
+| `archie/standalone/viewer.py` (POST /api/temperature) | `npm-package/assets/viewer.py` |
 | `archie/assets/workflow/deep-scan/steps/{step-5b-risk,step-5-wave2-reasoning,step-9-finalize}.md` | per existing workflow-asset shipping |
+| `npm-package/bin/archie.mjs` (gitignore block gains `settings.local.json`) | — |
 
-## 10. Testing
+## 11. Testing
 
-- Unit: tier derivation for legacy findings; seeding rule (health × load matrix,
-  stickiness of `source: "user"`); impact merge reconciliation (higher-tier wins +
-  contested flag); hysteresis on impact transitions (2-consecutive / git-anchor);
-  per-impact floors in `editor_gate`.
-- Viewer: filter predicate per level; done/clear band; parked count arithmetic;
-  dial persistence round-trip through `findings.json`.
-- Receipt: closing summary count equals viewer above-the-line count on the same store.
-- Regression: existing stores without `impact` load, render, and re-tag cleanly.
+- Unit: legacy tier derivation; seed rule (health × load matrix, small-repo guard,
+  health-absent fallback, seed-once semantics, `source: "user"` stickiness);
+  prior-wins merge + `impact_signal` hysteresis (2-consecutive / git-anchor /
+  verdict paths); `correct_to_erosion` and demote-vs-correct disambiguation;
+  per-impact floors at the finalize call site only; `consequence_path` gate
+  (missing ⇒ ③).
+- Counting: `impact_filter.py` unit tests + TS↔Python parity test on shared
+  fixtures; receipt count = viewer count at same temperature and store.
+- Viewer: filter predicate per level; clear-event stamping + `last_clear`
+  round-trip; parked and guardrail counts; POST /api/temperature validation +
+  repair-on-read.
+- Regression: stores without `impact` load, render, re-tag; demoted finding
+  re-emitted as active stays demoted (shared with the spawned resurrection-bug task).
 
-## 11. Risks & mitigations
+## 12. Risks & mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| Tier misassignment hides a real regression below the line | Highest confidence floor on ①; merge keeps higher tier; verifier owns ①/② line; downgrade guard surfaces any below-line move in the receipt |
-| Impact flicker between scans breaks "done stays done" | Impact transitions ride existing hysteresis (2-consecutive or git-anchor) |
-| Two adjacent taxonomies confuse contributors | §7 side-by-side doc; temperature code never imports hook code |
-| Seed lands wrong for a given team | Dial is one click, sticky, with the seed reason shown; seeding is a suggestion after first user touch |
-| Triple viewer sync under-counted | §9 table + `verify_sync.py` gate |
-| Verifier fail-open leaves tiers unverified (observed in SubscriberAgent) | Separate fix task already spawned (parser robustness + visible fail-open warning); design assumes verifier works but degrades safely — unverified impact stays at emitted tier, marked provisional |
+| Hazard inflation on the ②/③ line (default level) | Structured `consequence_path` (falsifiable, not prose); `correct_to_erosion` downward path; receipt tracks hazard share per scan and warns on jumps |
+| Regression false-positives dilute the beloved signal | Highest confidence floor on ①; verifier owns ①/②; downgrade guard surfaces every below-line move |
+| Emission overwrites stabilized tiers | Prior-wins merge; emitted tier is a pending vote under existing hysteresis |
+| Pitfall/gap tier flicker (no hysteresis exists) | consequence_path gate; static platform tiers; guardrails band is posture, not countdown; lifecycle is v2 |
+| Teammate/agent moves someone's line | Per-user gitignored storage; schema documented as contract; validate-and-repair on read |
+| Auto-reseed treadmill | Seed once; ongoing recommendation chip; only a human moves the line |
+| Tiny-repo degenerate seed | `total_functions >= 25` guard on top20_share; erosion anchor unaffected |
+| Verifier fail-open leaves tiers unverified (observed in the wild) | Separate fix task spawned; unverified impact stays at emitted tier, marked provisional |
+| Triple viewer sync under-counted | §10 table + `verify_sync.py` gate |
