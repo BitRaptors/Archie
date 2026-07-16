@@ -234,8 +234,69 @@ def _complete_anthropic(prompt, *, model, system, tools, tool_choice, max_tokens
     return {"text": last_text, "tool_calls": []}
 
 
+def _oai_tools(tools):
+    return [{"type": "function", "function": {
+        "name": t["name"], "description": t.get("description", ""),
+        "parameters": t.get("input_schema") or {"type": "object"}}} for t in tools]
+
+
 def _complete_openai(prompt, *, model, system, tools, tool_choice, max_tokens,
                      timeout, config, tool_executor, max_turns, budget_bytes,
                      max_retries):
-    """Placeholder for OpenAI-compatible backend."""
-    raise LLMError("OpenAI backend not yet implemented")
+    url = config["base_url"] + "/chat/completions"
+    headers = {"content-type": "application/json",
+               "Authorization": f"Bearer {config['api_key']}"}
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    spent = 0
+    last_text = ""
+    turns = max_turns if tool_executor else 1
+    for turn in range(turns):
+        body_d = {"model": model, "max_tokens": max_tokens, "messages": messages}
+        if tools:
+            body_d["tools"] = _oai_tools(tools)
+        if tool_choice:
+            body_d["tool_choice"] = {"type": "function",
+                                     "function": {"name": tool_choice}}
+        data = _post_json(url, json.dumps(body_d).encode("utf-8"),
+                          headers, timeout, max_retries)
+        choices = data.get("choices") or []
+        if not choices:
+            raise LLMError(f"LLM API malformed response: {str(data)[:300]}")
+        msg = choices[0].get("message") or {}
+        last_text = msg.get("content") or last_text
+        raw_calls = msg.get("tool_calls") or []
+        tool_calls = []
+        for c in raw_calls:
+            fn = c.get("function") or {}
+            try:
+                parsed = json.loads(fn.get("arguments") or "{}")
+                if not isinstance(parsed, dict):
+                    parsed = {}
+            except ValueError:
+                parsed = {}
+            tool_calls.append({"name": fn.get("name"), "input": parsed,
+                               "_id": c.get("id")})
+        public_calls = [{"name": c["name"], "input": c["input"]} for c in tool_calls]
+        if not tool_executor or choices[0].get("finish_reason") != "tool_calls":
+            return {"text": last_text, "tool_calls": public_calls}
+        # Skip tool execution on the final allowed turn (no further API request will be made)
+        if turn == turns - 1:
+            return {"text": last_text, "tool_calls": []}
+        messages.append({"role": "assistant", "content": msg.get("content"),
+                         "tool_calls": raw_calls})
+        for c in tool_calls:
+            if spent >= budget_bytes:
+                out = "denied: tool budget exhausted"
+            else:
+                try:
+                    out = tool_executor(c["name"], c["input"])
+                except Exception as e:
+                    print(f"[archie] llm tool {c['name']!r} failed ({type(e).__name__}: {e})", file=sys.stderr)
+                    out = "denied: tool call failed"
+                spent += len(out)
+            messages.append({"role": "tool", "tool_call_id": c["_id"],
+                             "content": out})
+    return {"text": last_text, "tool_calls": []}

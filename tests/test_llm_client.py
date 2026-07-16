@@ -208,6 +208,100 @@ class TestAnthropicBackend:
             llm_client.complete("hi")
 
 
+OAI_CFG = {"backend": "openai", "base_url": llm_client.OPENROUTER_URL,
+           "api_key": "sk-or", "models": dict(llm_client.OPENROUTER_MODELS)}
+
+
+class TestOpenAIBackend:
+    def test_plain_completion(self, monkeypatch):
+        t = FakeTransport([{"choices": [{"message": {"content": "hello"},
+                                         "finish_reason": "stop"}]}])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        out = llm_client.complete("hi", system="sys", tier="haiku", config=OAI_CFG)
+        assert out["text"] == "hello"
+        url, headers, body = t.requests[0]
+        assert url == llm_client.OPENROUTER_URL + "/chat/completions"
+        assert headers["Authorization"] == "Bearer sk-or"
+        assert body["model"] == "anthropic/claude-haiku-4.5"
+        assert body["messages"][0] == {"role": "system", "content": "sys"}
+        assert body["messages"][1] == {"role": "user", "content": "hi"}
+
+    def test_tool_translation_and_forced_choice(self, monkeypatch):
+        tool = {"name": "emit_findings", "description": "d",
+                "input_schema": {"type": "object", "properties": {}}}
+        t = FakeTransport([{"choices": [{"message": {
+            "content": None,
+            "tool_calls": [{"id": "c1", "function": {
+                "name": "emit_findings",
+                "arguments": "{\"findings\": [1]}"}}]},
+            "finish_reason": "tool_calls"}]}])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        out = llm_client.complete("go", tools=[tool], tool_choice="emit_findings",
+                                  config=OAI_CFG)
+        assert out["tool_calls"] == [{"name": "emit_findings", "input": {"findings": [1]}}]
+        _, _, body = t.requests[0]
+        assert body["tools"] == [{"type": "function", "function": {
+            "name": "emit_findings", "description": "d",
+            "parameters": {"type": "object", "properties": {}}}}]
+        assert body["tool_choice"] == {"type": "function",
+                                       "function": {"name": "emit_findings"}}
+
+    def test_tool_loop(self, monkeypatch):
+        tool = {"name": "grep", "description": "d",
+                "input_schema": {"type": "object", "properties": {}}}
+        t = FakeTransport([
+            {"choices": [{"message": {"content": None, "tool_calls": [
+                {"id": "c1", "function": {"name": "grep",
+                                          "arguments": "{\"pattern\": \"x\"}"}}]},
+              "finish_reason": "tool_calls"}]},
+            {"choices": [{"message": {"content": "done"}, "finish_reason": "stop"}]},
+        ])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        out = llm_client.complete("go", tools=[tool], config=OAI_CFG,
+                                  tool_executor=lambda n, a: "hit")
+        assert out["text"] == "done"
+        _, _, body2 = t.requests[1]
+        assert body2["messages"][-1] == {"role": "tool", "tool_call_id": "c1",
+                                         "content": "hit"}
+        # assistant turn (with its tool_calls) is echoed back before the tool msg
+        assert body2["messages"][-2]["role"] == "assistant"
+
+    def test_malformed_tool_arguments_degrade(self, monkeypatch):
+        t = FakeTransport([{"choices": [{"message": {
+            "content": "text anyway",
+            "tool_calls": [{"id": "c1", "function": {"name": "grep",
+                                                     "arguments": "{broken"}}]},
+            "finish_reason": "tool_calls"}]}])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        out = llm_client.complete("go", config=OAI_CFG)  # no executor: single turn
+        assert out["text"] == "text anyway"
+        assert out["tool_calls"] == [{"name": "grep", "input": {}}]
+
+    def test_empty_choices_raises(self, monkeypatch):
+        t = FakeTransport([{"choices": []}])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        with pytest.raises(llm_client.LLMError):
+            llm_client.complete("hi", config=OAI_CFG)
+
+    def test_tool_loop_skips_exec_on_final_capped_turn(self, monkeypatch):
+        tool_use = {"choices": [{"message": {"content": "partial", "tool_calls": [
+            {"id": "c1", "function": {"name": "grep", "arguments": "{}"}}]},
+            "finish_reason": "tool_calls"}]}
+        t = FakeTransport([tool_use])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        executor_calls = []
+        def track_executor(name, args):
+            executor_calls.append((name, args))
+            return "x"
+        out = llm_client.complete("go", tools=[{"name": "grep", "description": "",
+                                                "input_schema": {}}],
+                                  config=OAI_CFG, max_turns=1,
+                                  tool_executor=track_executor)
+        assert executor_calls == []  # executor was never called
+        assert out["text"] == "partial"  # degrades to partial text
+        assert out["tool_calls"] == []  # no tool calls in response
+
+
 class TestRetry:
     def _http_error(self, code, retry_after=None):
         import io
