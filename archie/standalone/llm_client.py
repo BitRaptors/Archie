@@ -122,3 +122,116 @@ def resolve_config(project_root=None, env=None):
                         or file_models.get(tier) or defaults[tier])
     return {"backend": backend, "base_url": base_url,
             "api_key": api_key, "models": models}
+
+
+_RETRYABLE = {429, 500, 502, 503, 529}
+
+
+def _post_json(url, body, headers, timeout, max_retries):
+    """POST JSON with unified retry (429/5xx/529, honoring Retry-After).
+    Returns the decoded JSON dict; raises LLMError on hard failure."""
+    last_err = "unknown"
+    for attempt in range(max_retries):
+        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "replace")[:300]
+            except Exception:
+                pass
+            last_err = f"HTTP {e.code}: {detail}"
+            if e.code in _RETRYABLE and attempt < max_retries - 1:
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+                delay = float(retry_after) if retry_after and str(retry_after).isdigit() \
+                    else min(2 ** attempt, 30)
+                time.sleep(delay)
+                continue
+            raise LLMError(f"LLM API error: {last_err}")
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+            last_err = f"{type(e).__name__}: {e}"
+            if attempt < max_retries - 1:
+                time.sleep(min(2 ** attempt, 30))
+                continue
+            raise LLMError(f"LLM API unreachable: {last_err}")
+    raise LLMError(f"LLM API failed: {last_err}")
+
+
+def complete(prompt=None, *, system=None, tier="haiku", tools=None,
+             tool_choice=None, max_tokens=DEFAULT_MAX_TOKENS,
+             timeout=DEFAULT_TIMEOUT, config=None, project_root=None,
+             tool_executor=None, max_turns=6, budget_bytes=60000,
+             max_retries=3):
+    """One normalized completion across backends.
+
+    Returns {"text": str, "tool_calls": [{"name", "input"}]}. With
+    `tool_executor`, runs the multi-turn tool loop internally (executor gets
+    (name, args-dict), returns a string) and returns the final turn's result.
+    Raises LLMError on hard failure — callers pick fail-open vs propagate.
+    """
+    if config is None:
+        config = resolve_config(project_root)
+    if config is None:
+        raise LLMError("no LLM provider configured (no API key / disabled)")
+    model = config["models"].get(tier) or config["models"]["haiku"]
+    args = dict(model=model, system=system, tools=tools, tool_choice=tool_choice,
+                max_tokens=max_tokens, timeout=timeout, config=config,
+                tool_executor=tool_executor, max_turns=max_turns,
+                budget_bytes=budget_bytes, max_retries=max_retries)
+    if config["backend"] == "anthropic":
+        return _complete_anthropic(prompt, **args)
+    return _complete_openai(prompt, **args)
+
+
+def _complete_anthropic(prompt, *, model, system, tools, tool_choice, max_tokens,
+                        timeout, config, tool_executor, max_turns, budget_bytes,
+                        max_retries):
+    headers = {"content-type": "application/json", "x-api-key": config["api_key"],
+               "anthropic-version": ANTHROPIC_VERSION}
+    messages = [{"role": "user", "content": prompt}]
+    spent = 0
+    last_text = ""
+    turns = max_turns if tool_executor else 1
+    for _ in range(turns):
+        body_d = {"model": model, "max_tokens": max_tokens, "messages": messages}
+        if system:
+            body_d["system"] = system
+        if tools:
+            body_d["tools"] = tools
+        if tool_choice:
+            body_d["tool_choice"] = {"type": "tool", "name": tool_choice}
+        data = _post_json(config["base_url"], json.dumps(body_d).encode("utf-8"),
+                          headers, timeout, max_retries)
+        content = data.get("content") or []
+        last_text = "".join(b.get("text", "") for b in content
+                            if b.get("type") == "text") or last_text
+        tool_calls = [{"name": b.get("name"), "input": b.get("input") or {}}
+                      for b in content if b.get("type") == "tool_use"]
+        if not tool_executor or data.get("stop_reason") != "tool_use":
+            return {"text": last_text, "tool_calls": tool_calls}
+        messages.append({"role": "assistant", "content": content})
+        results = []
+        for b in content:
+            if b.get("type") != "tool_use":
+                continue
+            if spent >= budget_bytes:
+                out = "denied: tool budget exhausted"
+            else:
+                try:
+                    out = tool_executor(b.get("name"), b.get("input") or {})
+                except Exception:
+                    out = "denied: tool call failed"
+                spent += len(out)
+            results.append({"type": "tool_result", "tool_use_id": b.get("id"),
+                            "content": out})
+        messages.append({"role": "user", "content": results})
+    return {"text": last_text, "tool_calls": []}
+
+
+def _complete_openai(prompt, *, model, system, tools, tool_choice, max_tokens,
+                     timeout, config, tool_executor, max_turns, budget_bytes,
+                     max_retries):
+    """Placeholder for OpenAI-compatible backend."""
+    raise LLMError("OpenAI backend not yet implemented")

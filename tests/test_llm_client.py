@@ -8,6 +8,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "archie" / "stan
 import llm_client
 
 
+class _Resp:
+    def __init__(self, payload):
+        self._data = json.dumps(payload).encode()
+    def read(self):
+        return self._data
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
 def _write_config(tmp_path, cfg):
     d = tmp_path / ".archie"
     d.mkdir(exist_ok=True)
@@ -89,3 +100,134 @@ class TestResolveConfig:
         (d / "models.json").write_text("{not json")
         cfg = llm_client.resolve_config(tmp_path, env={"ANTHROPIC_API_KEY": "sk-a"})
         assert cfg["backend"] == "anthropic"
+
+
+class FakeTransport:
+    """Captures request bodies; replays scripted responses."""
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.requests = []  # list of (url, headers, body_dict)
+
+    def __call__(self, url, body, headers, timeout, max_retries):
+        self.requests.append((url, headers, json.loads(body.decode())))
+        resp = self.responses.pop(0)
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
+
+
+ANTH_CFG = {"backend": "anthropic", "base_url": llm_client.ANTHROPIC_URL,
+            "api_key": "sk-a", "models": dict(llm_client.ANTHROPIC_MODELS)}
+
+
+class TestAnthropicBackend:
+    def test_plain_completion(self, monkeypatch):
+        t = FakeTransport([{"content": [{"type": "text", "text": "hello"}],
+                            "stop_reason": "end_turn"}])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        out = llm_client.complete("hi", tier="sonnet", config=ANTH_CFG)
+        assert out["text"] == "hello"
+        assert out["tool_calls"] == []
+        url, headers, body = t.requests[0]
+        assert url == llm_client.ANTHROPIC_URL
+        assert headers["x-api-key"] == "sk-a"
+        assert headers["anthropic-version"] == llm_client.ANTHROPIC_VERSION
+        assert body["model"] == "claude-sonnet-4-6"
+        assert body["messages"] == [{"role": "user", "content": "hi"}]
+        assert "tools" not in body
+
+    def test_forced_tool_choice(self, monkeypatch):
+        tool = {"name": "emit_findings", "description": "d",
+                "input_schema": {"type": "object", "properties": {}}}
+        t = FakeTransport([{"content": [{"type": "tool_use", "name": "emit_findings",
+                                         "input": {"findings": [1]}}],
+                            "stop_reason": "tool_use"}])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        out = llm_client.complete("go", system="sys", tools=[tool],
+                                  tool_choice="emit_findings", config=ANTH_CFG)
+        assert out["tool_calls"] == [{"name": "emit_findings", "input": {"findings": [1]}}]
+        _, _, body = t.requests[0]
+        assert body["system"] == "sys"
+        assert body["tool_choice"] == {"type": "tool", "name": "emit_findings"}
+        assert body["tools"] == [tool]
+
+    def test_tool_loop_executes_and_returns_final_text(self, monkeypatch):
+        tool = {"name": "grep", "description": "d",
+                "input_schema": {"type": "object", "properties": {}}}
+        t = FakeTransport([
+            {"content": [{"type": "tool_use", "id": "t1", "name": "grep",
+                          "input": {"pattern": "x"}}],
+             "stop_reason": "tool_use"},
+            {"content": [{"type": "text", "text": "done"}], "stop_reason": "end_turn"},
+        ])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        calls = []
+        out = llm_client.complete(
+            "go", tools=[tool], config=ANTH_CFG,
+            tool_executor=lambda name, args: calls.append((name, args)) or "hit")
+        assert out["text"] == "done"
+        assert calls == [("grep", {"pattern": "x"})]
+        # second request carries the tool_result back
+        _, _, body2 = t.requests[1]
+        assert body2["messages"][-1]["content"][0]["type"] == "tool_result"
+        assert body2["messages"][-1]["content"][0]["content"] == "hit"
+
+    def test_tool_loop_caps_turns(self, monkeypatch):
+        tool_use = {"content": [{"type": "tool_use", "id": "t", "name": "grep",
+                                 "input": {}}, {"type": "text", "text": "partial"}],
+                    "stop_reason": "tool_use"}
+        t = FakeTransport([tool_use, tool_use])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        out = llm_client.complete("go", tools=[{"name": "grep", "description": "",
+                                                "input_schema": {}}],
+                                  config=ANTH_CFG, max_turns=2,
+                                  tool_executor=lambda n, a: "x")
+        assert out["text"] == "partial"  # degrades to last seen text
+
+    def test_no_provider_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(llm_client, "resolve_config", lambda *a, **k: None)
+        with pytest.raises(llm_client.LLMError):
+            llm_client.complete("hi")
+
+
+class TestRetry:
+    def _http_error(self, code, retry_after=None):
+        import io
+        import urllib.error
+        headers = {"Retry-After": retry_after} if retry_after else {}
+        class H(dict):
+            def get(self, k, d=None):
+                return dict.get(self, k, d)
+        return urllib.error.HTTPError("u", code, "err", H(headers), io.BytesIO(b"boom"))
+
+    def test_retries_on_429_then_succeeds(self, monkeypatch):
+        monkeypatch.setattr(llm_client.time, "sleep", lambda s: None)
+        ok = {"content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn"}
+        err = self._http_error(429)
+        seq = [err, ok]
+        def fake_urlopen(req, timeout):
+            item = seq.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return _Resp(item)
+        monkeypatch.setattr(llm_client.urllib.request, "urlopen", fake_urlopen)
+        out = llm_client.complete("hi", config=ANTH_CFG)
+        assert out["text"] == "ok"
+
+    def test_exhausted_retries_raise_llmerror(self, monkeypatch):
+        monkeypatch.setattr(llm_client.time, "sleep", lambda s: None)
+        def fake_urlopen(req, timeout):
+            raise self._http_error(503)
+        monkeypatch.setattr(llm_client.urllib.request, "urlopen", fake_urlopen)
+        with pytest.raises(llm_client.LLMError):
+            llm_client.complete("hi", config=ANTH_CFG, max_retries=2)
+
+    def test_400_does_not_retry(self, monkeypatch):
+        calls = {"n": 0}
+        def fake_urlopen(req, timeout):
+            calls["n"] += 1
+            raise self._http_error(400)
+        monkeypatch.setattr(llm_client.urllib.request, "urlopen", fake_urlopen)
+        with pytest.raises(llm_client.LLMError):
+            llm_client.complete("hi", config=ANTH_CFG, max_retries=3)
+        assert calls["n"] == 1
