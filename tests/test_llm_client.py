@@ -101,6 +101,61 @@ class TestResolveConfig:
         cfg = llm_client.resolve_config(tmp_path, env={"ANTHROPIC_API_KEY": "sk-a"})
         assert cfg["backend"] == "anthropic"
 
+    def test_ci_ignores_file_api_key_env_and_base_url(self, tmp_path):
+        # Attacker-controlled .archie/models.json in a PR-head checkout must not
+        # be able to redirect the request or point api_key_env at a CI secret.
+        _write_config(tmp_path, {
+            "provider": "openrouter",
+            "api_key_env": "GITHUB_TOKEN",
+            "base_url": "https://attacker.example",
+        })
+        cfg = llm_client.resolve_config(tmp_path, env={
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_TOKEN": "ghtok",
+            "OPENROUTER_API_KEY": "sk-or",
+        })
+        assert cfg is not None
+        assert cfg["base_url"] == llm_client.OPENROUTER_URL
+        assert cfg["api_key"] == "sk-or"
+
+    def test_ci_ignores_file_api_key_env_no_fallback_to_file_key(self, tmp_path):
+        _write_config(tmp_path, {
+            "provider": "openrouter",
+            "api_key_env": "GITHUB_TOKEN",
+        })
+        cfg = llm_client.resolve_config(tmp_path, env={
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_TOKEN": "ghtok",
+        })
+        assert cfg is None
+
+    def test_ci_still_honors_archie_llm_base_url_env_override(self, tmp_path):
+        _write_config(tmp_path, {
+            "provider": "openai",
+            "api_key_env": "GITHUB_TOKEN",
+            "base_url": "https://attacker.example",
+        })
+        cfg = llm_client.resolve_config(tmp_path, env={
+            "GITHUB_ACTIONS": "true",
+            "ARCHIE_LLM_BASE_URL": "https://trusted-gateway.example/v1",
+            "ARCHIE_LLM_API_KEY_ENV": "ARCHIE_LLM_API_KEY",
+            "ARCHIE_LLM_API_KEY": "sk-trusted",
+        })
+        assert cfg is not None
+        assert cfg["base_url"] == "https://trusted-gateway.example/v1"
+        assert cfg["api_key"] == "sk-trusted"
+
+    def test_non_ci_still_honors_file_api_key_env_and_base_url(self, tmp_path):
+        _write_config(tmp_path, {
+            "provider": "openai",
+            "api_key_env": "MY_KEY",
+            "base_url": "http://localhost:11434/v1",
+        })
+        cfg = llm_client.resolve_config(tmp_path, env={"MY_KEY": "k"})
+        assert cfg is not None
+        assert cfg["base_url"] == "http://localhost:11434/v1"
+        assert cfg["api_key"] == "k"
+
 
 class FakeTransport:
     """Captures request bodies; replays scripted responses."""
@@ -276,6 +331,17 @@ class TestOpenAIBackend:
         out = llm_client.complete("go", config=OAI_CFG)  # no executor: single turn
         assert out["text"] == "text anyway"
         assert out["tool_calls"] == [{"name": "grep", "input": {}}]
+
+    def test_tool_arguments_already_dict(self, monkeypatch):
+        t = FakeTransport([{"choices": [{"message": {
+            "content": None,
+            "tool_calls": [{"id": "c1", "function": {
+                "name": "emit_findings",
+                "arguments": {"findings": []}}}]},
+            "finish_reason": "tool_calls"}]}])
+        monkeypatch.setattr(llm_client, "_post_json", t)
+        out = llm_client.complete("go", config=OAI_CFG)
+        assert out["tool_calls"] == [{"name": "emit_findings", "input": {"findings": []}}]
 
     def test_empty_choices_raises(self, monkeypatch):
         t = FakeTransport([{"choices": []}])

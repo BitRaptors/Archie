@@ -20,6 +20,19 @@ Configuration (first match wins per field):
     3. auto-detect: OPENROUTER_API_KEY → openrouter, else
        ANTHROPIC_API_KEY → anthropic, else no API path.
 
+CI trust rule: when GITHUB_ACTIONS is set (detected via the same env= mapping
+passed to resolve_config, never os.environ directly), the config file's
+"base_url" and "api_key_env" fields are ignored — in CI the file comes from
+the PR-head checkout (attacker-controlled) while this code and its secrets
+(GITHUB_TOKEN, provider keys) run from the trusted base ref. An attacker who
+names api_key_env="GITHUB_TOKEN" and base_url="https://evil" in the file must
+not be able to exfiltrate CI secrets to an arbitrary host. "provider",
+"models", and "enabled" from the file remain honored in CI (harmless). The
+env overrides ARCHIE_LLM_BASE_URL / ARCHIE_LLM_API_KEY_ENV (workflow-controlled,
+trusted) and built-in provider defaults are always honored, in CI or not.
+Outside CI, the file is fully trusted as before (local Ollama/base_url/
+api_key_env setups keep working unchanged).
+
 Callers speak model *tiers* ("haiku"/"sonnet"/"opus"); the tier→model mapping
 is config. Zero dependencies (stdlib urllib only) — project invariant.
 """
@@ -85,6 +98,12 @@ def resolve_config(project_root=None, env=None):
     if file_cfg.get("enabled") is False:
         return None
 
+    in_ci = bool(env.get("GITHUB_ACTIONS"))
+    if in_ci and (file_cfg.get("api_key_env") or file_cfg.get("base_url")):
+        print("[archie] llm: ignoring api_key_env/base_url from .archie/models.json "
+              "in CI (untrusted checkout); use ARCHIE_LLM_* env or workflow secrets",
+              file=sys.stderr)
+
     provider = env.get("ARCHIE_LLM_PROVIDER") or file_cfg.get("provider")
     if not provider:
         if env.get("OPENROUTER_API_KEY"):
@@ -98,7 +117,8 @@ def resolve_config(project_root=None, env=None):
         print(f"[archie] llm: unknown provider {provider!r}", file=sys.stderr)
         return None
 
-    key_env = (env.get("ARCHIE_LLM_API_KEY_ENV") or file_cfg.get("api_key_env")
+    key_env = (env.get("ARCHIE_LLM_API_KEY_ENV")
+               or (file_cfg.get("api_key_env") if not in_ci else None)
                or _PROVIDER_KEY_ENV[provider])
     api_key = env.get(key_env, "")
     if not api_key:
@@ -108,7 +128,8 @@ def resolve_config(project_root=None, env=None):
         backend, base_url, defaults = "anthropic", ANTHROPIC_URL, ANTHROPIC_MODELS
     else:
         backend, defaults = "openai", OPENROUTER_MODELS
-        base_url = (env.get("ARCHIE_LLM_BASE_URL") or file_cfg.get("base_url")
+        base_url = (env.get("ARCHIE_LLM_BASE_URL")
+                    or (file_cfg.get("base_url") if not in_ci else None)
                     or (OPENROUTER_URL if provider == "openrouter" else ""))
         if not base_url:
             print("[archie] llm: provider 'openai' needs base_url", file=sys.stderr)
@@ -271,12 +292,16 @@ def _complete_openai(prompt, *, model, system, tools, tool_choice, max_tokens,
         tool_calls = []
         for c in raw_calls:
             fn = c.get("function") or {}
-            try:
-                parsed = json.loads(fn.get("arguments") or "{}")
-                if not isinstance(parsed, dict):
+            raw_args = fn.get("arguments")
+            if isinstance(raw_args, dict):
+                parsed = raw_args
+            else:
+                try:
+                    parsed = json.loads(raw_args or "{}")
+                    if not isinstance(parsed, dict):
+                        parsed = {}
+                except (ValueError, TypeError):
                     parsed = {}
-            except ValueError:
-                parsed = {}
             tool_calls.append({"name": fn.get("name"), "input": parsed,
                                "_id": c.get("id")})
         public_calls = [{"name": c["name"], "input": c["input"]} for c in tool_calls]
