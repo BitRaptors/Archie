@@ -57,15 +57,27 @@ WORKFLOW_SRC="$(resolve_workflow_src)" || die "Canonical workflow YAML not found
 log_success "Canonical workflow YAML resolved: ${WORKFLOW_SRC}"
 
 # ===== SECTION 2: SECRET SETUP =====
-log_info "Setting up ANTHROPIC_API_KEY secret (available to GitHub Actions on this repo)..."
-printf 'Enter your ANTHROPIC_API_KEY (will not be displayed): '
-read -rs ANTHROPIC_API_KEY
-echo ""
-[ -n "$ANTHROPIC_API_KEY" ] || die "ANTHROPIC_API_KEY cannot be empty."
+log_info "Choosing the LLM provider for CI reviews..."
+echo "  1) OpenRouter  - one key, any model (Claude, GPT, DeepSeek, Gemini, ...) [recommended]"
+echo "  2) Anthropic   - direct Anthropic API (Claude models only)"
+printf 'Provider [1/2] (default 1): '
+read -r PROVIDER_CHOICE
+case "${PROVIDER_CHOICE:-1}" in
+    2) SECRET_NAME="ANTHROPIC_API_KEY" ;;
+    *) SECRET_NAME="OPENROUTER_API_KEY" ;;
+esac
 
-printf '%s' "$ANTHROPIC_API_KEY" | gh secret set ANTHROPIC_API_KEY
-unset ANTHROPIC_API_KEY
-log_success "ANTHROPIC_API_KEY secret set (stored encrypted on GitHub)"
+log_info "Setting up ${SECRET_NAME} secret (available to GitHub Actions on this repo)..."
+printf 'Enter your %s (will not be displayed): ' "$SECRET_NAME"
+read -rs API_KEY_VALUE
+echo ""
+[ -n "$API_KEY_VALUE" ] || die "${SECRET_NAME} cannot be empty."
+
+printf '%s' "$API_KEY_VALUE" | gh secret set "$SECRET_NAME"
+unset API_KEY_VALUE
+log_success "${SECRET_NAME} secret set (stored encrypted on GitHub)"
+log_info "No config file needed: the reviewer auto-detects the provider from which secret exists."
+log_info "Optional: pin models per tier by committing .archie/models.json (see docs/archie-llm-provider-design.md)."
 
 # ===== SECTION 3: WORKFLOW INSTALL (copy canonical, no heredoc) =====
 log_info "Installing workflow file..."
@@ -97,5 +109,6 @@ echo "  - Uses the 'pull_request' event (non-blocking FYI)."
 echo "  - Fork PRs cannot access repo secrets; the Action skips silently on them."
 echo "  - To cover fork PRs, 'pull_request_target' is a security tradeoff (out of scope)."
 echo ""
-log_info "To rotate the key later: gh secret set ANTHROPIC_API_KEY"
+log_info "To rotate the key later: gh secret set ${SECRET_NAME}"
+log_info "To switch provider later: set the other secret (OPENROUTER_API_KEY wins when both exist)."
 log_info "Design doc: docs/archie-intent-review-design.md"
