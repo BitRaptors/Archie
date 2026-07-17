@@ -77,7 +77,34 @@ printf '%s' "$API_KEY_VALUE" | gh secret set "$SECRET_NAME"
 unset API_KEY_VALUE
 log_success "${SECRET_NAME} secret set (stored encrypted on GitHub)"
 log_info "No config file needed: the reviewer auto-detects the provider from which secret exists."
-log_info "Optional: pin models per tier by committing .archie/models.json (see docs/archie-llm-provider-design.md)."
+
+# ===== SECTION 2b: OPTIONAL MODEL PICK =====
+if [ "$SECRET_NAME" = "OPENROUTER_API_KEY" ]; then
+    DEFAULT_MODEL="anthropic/claude-haiku-4.5"
+    MODEL_HINT="any OpenRouter slug, e.g. deepseek/deepseek-v4-flash, google/gemini-2.5-flash, openai/gpt-5-mini"
+else
+    DEFAULT_MODEL="claude-haiku-4-5"
+    MODEL_HINT="an Anthropic model id, e.g. claude-haiku-4-5, claude-sonnet-4-6"
+fi
+echo ""
+log_info "Review model (the workhorse 'haiku' tier; heavier tiers keep their defaults)."
+log_info "  ${MODEL_HINT}"
+printf 'Model [Enter = %s]: ' "$DEFAULT_MODEL"
+read -r REVIEW_MODEL
+MODELS_FILE="${REPO_ROOT}/.archie/models.json"
+if [ -n "$REVIEW_MODEL" ]; then
+    if [ -f "$MODELS_FILE" ]; then
+        log_warn "${MODELS_FILE} already exists — not overwriting. Set \"models\": {\"haiku\": \"${REVIEW_MODEL}\"} in it manually."
+    else
+        PROVIDER_JSON=$([ "$SECRET_NAME" = "ANTHROPIC_API_KEY" ] && echo "anthropic" || echo "openrouter")
+        mkdir -p "${REPO_ROOT}/.archie"
+        printf '{\n  "provider": "%s",\n  "models": {\n    "haiku": "%s"\n  }\n}\n' "$PROVIDER_JSON" "$REVIEW_MODEL" > "$MODELS_FILE"
+        log_success "Wrote ${MODELS_FILE} (commit it so CI uses this model)"
+    fi
+else
+    log_info "Keeping default models (no .archie/models.json needed)."
+fi
+log_info "More tiers (sonnet/opus) and providers: edit .archie/models.json (see docs/archie-llm-provider-design.md)."
 
 # ===== SECTION 3: WORKFLOW INSTALL (copy canonical, no heredoc) =====
 log_info "Installing workflow file..."
@@ -98,7 +125,7 @@ fi
 log_success "Setup complete."
 echo ""
 echo "Next steps:"
-echo "  1. Commit .github/workflows/archie-intent-review.yml"
+echo "  1. Commit .github/workflows/archie-intent-review.yml (and .archie/models.json if created)"
 echo "  2. Push and open a PR"
 echo "  3. The Action posts a single FYI comment on the PR (delivery review):"
 echo "       - did the change build the intent (PR title/body) and not break anything?"
